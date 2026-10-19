@@ -26,18 +26,9 @@ mod state;
 /// This unified component simplifies the schema system by combining the functionality
 /// previously split across SchemaManager and SchemaInterpreter.
 pub struct SchemaCore {
-    /// Storage for loaded schemas.
-    ///
-    /// An `RwLock`, not a `Mutex`, on purpose: the query read path resolves the
-    /// schema for *every* read (`get_schema_following_supersession_for_read` →
-    /// `clone_for_read_shared`), so a `Mutex` here serialized all concurrent
-    /// reads through one exclusive critical section — a lock convoy. Even though
-    /// each read only clones the molecule-stripped schema (cheap, O(field
-    /// count)), `Mutex` forced N readers to take turns, capping concurrent
-    /// read throughput at ~1 core's worth regardless of how many cores are
-    /// free. With an `RwLock` the hot path takes a shared `.read()` lock and the
-    /// (cheap, `&self`) `clone_for_read_shared` runs in parallel across readers;
-    /// only the rare schema mutations (load/insert/remove) take `.write()`.
+    /// Management definitions shared with field mapping and schema declaration.
+    /// Native data calls resolve definitions through their captured core view.
+    /// Private reloads stage changes before publication of this management map.
     schemas: Arc<RwLock<HashMap<String, Schema>>>,
     /// Storage for all schemas known to the system and their load state
     schema_states: Arc<Mutex<HashMap<String, SchemaState>>>,

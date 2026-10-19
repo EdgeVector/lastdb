@@ -282,8 +282,10 @@ impl AggregateGuard {
         if self.association_fingerprint != self.compute_association_fingerprint() {
             return Err("aggregate guard association fingerprint is invalid".into());
         }
-        let source_key = super::key_value::KeyValue::from_storage_key(&self.enrollment_source_key);
-        let member_key = super::key_value::KeyValue::from_storage_key(&self.enrollment_member_key);
+        let source_key = super::key_value::KeyValue::from_storage_key(&self.enrollment_source_key)
+            .map_err(|error| error.to_string())?;
+        let member_key = super::key_value::KeyValue::from_storage_key(&self.enrollment_member_key)
+            .map_err(|error| error.to_string())?;
         if source_key.hash.as_deref() != Some(self.source_partition_hash.as_str())
             || member_key.hash.as_deref() != Some(self.member_partition_hash.as_str())
             || member_key.range.is_none()

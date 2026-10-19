@@ -55,6 +55,31 @@ impl SpaceReservation {
     pub fn bytes(&self) -> u64 {
         self.bytes
     }
+
+    /// Reserve only the added bytes while this complete prefix remains owned.
+    /// Dropping the returned ticket leaves the previous prefix unchanged.
+    pub fn reserve_extension(
+        &self,
+        policy: &SpacePolicy,
+        total_bytes: u64,
+    ) -> Result<SpaceReservation> {
+        let added = total_bytes
+            .checked_sub(self.bytes)
+            .ok_or_else(|| corrupt("space reservation extension shrank its prefix"))?;
+        reserve(&self.root, policy, added, false)
+    }
+
+    /// Transfer an already reserved prefix without reserving its bytes again.
+    /// Both tickets must belong to the same root. Their combined bytes were
+    /// already checked by the ledger when the extension was reserved.
+    pub fn absorb(&mut self, mut previous: SpaceReservation) {
+        assert_eq!(self.root, previous.root, "space reservation root changed");
+        self.bytes = self
+            .bytes
+            .checked_add(previous.bytes)
+            .expect("same-root reservations fit their checked ledger total");
+        previous.bytes = 0;
+    }
 }
 
 /// Reserve a complete native write, including replacement headroom.

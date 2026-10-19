@@ -1,6 +1,5 @@
-//! Thin delegators forwarding `DbOperations::get_schema` etc. to the
-//! underlying `SchemaStore`. New code should prefer `db_ops.schemas()`
-//! directly.
+//! Logical schema writes establish field keys and liveness before publication.
+//! The underlying SchemaStore remains the physical schema-record boundary.
 
 use super::core::DbOperations;
 use crate::db_operations::atom_store::MoleculeRefEdge;
@@ -60,6 +59,7 @@ impl DbOperations {
         schema
             .validate_field_names()
             .map_err(SchemaError::InvalidData)?;
+        self.molecule_keys().ensure_schema(schema).await?;
         let old = self.schemas().get_schema(schema_name).await?;
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)

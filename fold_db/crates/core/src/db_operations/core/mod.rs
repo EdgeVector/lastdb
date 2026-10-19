@@ -9,9 +9,7 @@ use super::public_key_store::PublicKeyStore;
 use super::schema_store::SchemaStore;
 use crate::schema::SchemaError;
 use crate::storage::traits::*;
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 mod open;
 mod row_drops;
@@ -20,8 +18,6 @@ mod unresolved;
 pub use row_drops::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally, KeyForm, QueryRowDrops,
 };
-pub(crate) use unresolved::UnresolvedAtomContext;
-use unresolved::UnresolvedAtomIdentityMap;
 pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, UnresolvedDamage};
 
 /// Database operations with pluggable storage backend
@@ -66,34 +62,6 @@ pub struct DbOperations {
 
     /// Background purge counters shared with the native runtime.
     persist_metrics: Arc<crate::resident::PersistLaneMetrics>,
-    /// Cumulative count of query rows skipped because a tip referenced an atom
-    /// body that could not be resolved. `/api/query` reads a before/after delta
-    /// around one query and reports it as `unresolved_rows`.
-    ///
-    /// This counts *events*, not damaged rows: one broken edge re-read a
-    /// thousand times bumps this a thousand times. Pair it with
-    /// [`Self::unresolved_atom_distinct`] before drawing a conclusion about
-    /// how much is actually broken.
-    unresolved_atom_skips: Arc<AtomicU64>,
-    /// Distinct `(atom_uuid, key)` identities behind `unresolved_atom_skips`,
-    /// bounded by [`UNRESOLVED_IDENTITY_CAP`].
-    ///
-    /// The event counter alone cannot distinguish "four rows are broken and a
-    /// hot client re-reads them" from "we are losing rows and it is
-    /// accelerating" — the first is a trivial repair, the second is an
-    /// incident. On the primary those looked identical until the daemon log
-    /// was grouped by hand.
-    ///
-    /// An identity is one broken *field* tip, not one row: group by the `key`
-    /// half for a row count. [`UnresolvedDamage`] reports both.
-    unresolved_atom_identities: Arc<Mutex<HashSet<(String, String)>>>,
-    /// Set once the identity set hits the cap, so the reported distinct count
-    /// can be labelled a floor rather than a total.
-    unresolved_identities_capped: Arc<AtomicBool>,
-    /// Exact structured keys for owner diagnosis. Kept separate so the
-    /// existing status gauge retains its historical dedup contract.
-    unresolved_atom_details: Arc<Mutex<UnresolvedAtomIdentityMap>>,
-    unresolved_details_capped: Arc<AtomicBool>,
 }
 
 impl DbOperations {

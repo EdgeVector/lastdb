@@ -89,10 +89,9 @@ impl MutationManager {
 
     /// Does the mutation's key carry at least one live field value?
     ///
-    /// `CurrentRowFields::Corrupt` counts as PRESENT: it is returned only after
-    /// a tip was seen, so the row exists even though one body did not resolve.
-    /// A `must_exist` update must not read an unresolvable atom as an absent
-    /// row and refuse a write to a row that is really there.
+    /// A missing selected body is an error. The row reader reports Absent when
+    /// every selected body is a tombstone. Corrupt means a live field and a
+    /// tombstone field coexist, so this presence-only check still sees a row.
     async fn row_has_any_live_field(
         &self,
         mutation: &Mutation,
@@ -144,26 +143,16 @@ impl MutationManager {
 
     /// One presence probe over an exact field set.
     ///
-    /// A field the point read cannot key or resolve is not evidence of
-    /// absence, so those errors are swallowed into "this probe found nothing"
-    /// rather than failing the write — the caller widens or refuses on the
-    /// evidence it actually has.
+    /// Invalid fields, invalid keys and storage failures are not absence.
     async fn row_present_over_fields(
         &self,
         mutation: &Mutation,
         fields: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<bool, SchemaError> {
-        let row = match self
+        let row = self
             .read_current_row_fields(mutation, fields, storage_prefix)
-            .await
-        {
-            Ok(row) => row,
-            // Not evidence of a live row, and not a reason to fail the write:
-            // let the caller widen the probe, or refuse on the evidence it has.
-            Err(SchemaError::InvalidField(_) | SchemaError::InvalidData(_)) => return Ok(false),
-            Err(error) => return Err(error),
-        };
+            .await?;
         Ok(matches!(
             row,
             CurrentRowFields::Present(_) | CurrentRowFields::Corrupt { .. }

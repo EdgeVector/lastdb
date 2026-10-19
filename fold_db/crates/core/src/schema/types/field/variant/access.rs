@@ -9,7 +9,7 @@ impl FieldVariant {
     #[must_use]
     pub(crate) fn atom_entry_at_key(&self, key: &KeyValue) -> Option<&crate::atom::AtomEntry> {
         let molecule = self.molecule.as_ref()?;
-        let (hash, range) = self.disk_slot_for_key(key)?;
+        let (hash, range) = self.slot_coordinates(key)?;
         molecule.get_atom_entry(&hash, &range)
     }
 
@@ -17,7 +17,7 @@ impl FieldVariant {
     #[must_use]
     pub(crate) fn key_metadata_at_key(&self, key: &KeyValue) -> Option<&crate::atom::KeyMetadata> {
         let molecule = self.molecule.as_ref()?;
-        let (hash, range) = self.disk_slot_for_key(key)?;
+        let (hash, range) = self.slot_coordinates(key)?;
         molecule.get_key_metadata(&hash, &range)
     }
 

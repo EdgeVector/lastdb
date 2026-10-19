@@ -55,13 +55,13 @@ impl MutationManager {
             let Some(molecule) = field.common().molecule_uuid() else {
                 continue;
             };
-            let Some((hash, range)) = field.disk_slot_for_key(&keys[*idx]) else {
+            let Some((hash, range)) = field.slot_coordinates(&keys[*idx]) else {
                 continue;
             };
             groups.push(
                 self.db_ops
                     .atoms()
-                    .key_codec_for_molecule(molecule)
+                    .key_codec_for_molecule(molecule)?
                     .api_hash_range_record_keys_for_read(molecule, &hash, &range)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
             );

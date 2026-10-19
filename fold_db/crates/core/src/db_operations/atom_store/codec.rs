@@ -4,7 +4,7 @@ use super::*;
 
 impl AtomStore {
     /// Warm an existing molecule key bundle without creating storage state.
-    /// Missing bundles are legacy molecules and keep the node-level codec.
+    /// Schema publication establishes keys; physical tools can inspect unbound molecules.
     pub(crate) async fn load_molecule_key_bundle(
         &self,
         molecule_uuid: &str,

@@ -69,10 +69,12 @@ impl MutationManager {
         siblings: bool,
     ) -> Result<(), SchemaError> {
         self.stage_native_headers(job, runtime, scope, siblings)?;
+        // Schema-field/protein definitions are global. The logical records
+        // below use this request's scope.
         if !self
             .db_ops
             .atoms()
-            .molecule_ref_edges_v2_complete(scope)
+            .molecule_ref_edges_v2_complete(None)
             .await?
         {
             transaction::require_durable(runtime)?;
@@ -84,9 +86,7 @@ impl MutationManager {
         self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings))
             .boxed()
             .await?;
-        let bindings = self
-            .native_path_bindings(job, runtime, scope, &tips)
-            .await?;
+        let bindings = self.native_path_bindings(job, runtime, &tips).await?;
         let Some(atoms) = self.path_atoms(&tips, scope).await? else {
             return Ok(transaction::require_durable(runtime)?);
         };
@@ -111,7 +111,7 @@ impl MutationManager {
         atom_key: &str,
     ) -> Result<Vec<String>, SchemaError> {
         let atoms = self.db_ops.atoms();
-        let codec = atoms.key_codec_for_molecule(&tip.molecule);
+        let codec = atoms.key_codec_for_molecule(&tip.molecule)?;
         let mut sources: Vec<_> = codec
             .api_hash_range_record_keys_for_read(&tip.molecule, &tip.hash, &tip.range)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?
@@ -209,7 +209,7 @@ fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<Changed
     let mut tips = BTreeMap::new();
     for (molecule, data, keys) in entry.chain(siblings) {
         for key in keys {
-            let (hash, range) = (key.disk_hash(), key.disk_range());
+            let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
             if let Some(entry) = data.get_atom_entry(hash, range) {
                 tips.insert(
                     (molecule.to_string(), hash.to_string(), range.to_string()),

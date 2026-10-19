@@ -26,7 +26,7 @@ impl MutationManager {
                 let Some(molecule) = field.common().molecule_uuid() else {
                     continue;
                 };
-                let Some((hash, range)) = field.disk_slot_for_key(&mutation.key_value) else {
+                let Some((hash, range)) = field.slot_coordinates(&mutation.key_value) else {
                     continue;
                 };
                 slots.push((molecule.clone(), hash, range));
@@ -94,7 +94,7 @@ impl MutationManager {
         }
         for (molecule, data, keys) in entry.chain(siblings) {
             for key in keys {
-                let (hash, range) = (key.disk_hash(), key.disk_range());
+                let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
                 if data.get_atom_entry(hash, range).is_none() {
                     slots.push((molecule.to_owned(), hash.to_owned(), range.to_owned()));
                 }
@@ -121,7 +121,7 @@ impl MutationManager {
             .map(|(molecule, hash, range)| {
                 self.db_ops
                     .atoms()
-                    .key_codec_for_molecule(molecule)
+                    .key_codec_for_molecule(molecule)?
                     .api_hash_range_record_keys_for_read(molecule, hash, range)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))
             })
@@ -142,9 +142,7 @@ impl MutationManager {
             .filter(|(_, winner)| winner.is_none())
             .map(|((molecule, _, _), _)| molecule.clone())
             .collect();
-        let bindings = self
-            .removed_path_bindings(schema, scope, &molecules)
-            .await?;
+        let bindings = self.removed_path_bindings(schema, &molecules).await?;
         let mut absent = Vec::new();
         for (((molecule, hash, range), candidates), winner) in
             slots.into_iter().zip(groups).zip(winners)
@@ -182,12 +180,11 @@ impl MutationManager {
     async fn removed_path_bindings(
         &self,
         schema: &Schema,
-        scope: Option<&str>,
         molecules: &std::collections::BTreeSet<String>,
     ) -> Result<BTreeMap<String, Vec<Binding>>, SchemaError> {
         let bindings = futures::future::try_join_all(molecules.iter().map(|molecule| async move {
             let bindings = self
-                .path_bindings(schema, scope, molecule)
+                .path_bindings(schema, molecule)
                 .await?
                 .unwrap_or(bindings::schema_bindings(schema, molecule)?);
             Ok::<_, SchemaError>((molecule.clone(), bindings))

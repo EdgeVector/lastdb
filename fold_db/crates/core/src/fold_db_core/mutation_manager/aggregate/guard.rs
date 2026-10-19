@@ -66,7 +66,7 @@ impl MutationManager {
                     )));
                 }
             }
-            let target_key_value = KeyValue::from_storage_key(&target_key);
+            let target_key_value = KeyValue::from_storage_key(&target_key)?;
             let metric_names: Vec<String> = metric_fields.into_iter().collect();
             let probe = Self::aggregate_probe(target_schema_name.clone(), target_key_value.clone());
             let current = self
@@ -131,7 +131,7 @@ impl MutationManager {
             }
             let probe = Self::aggregate_probe(
                 guard.target_schema_name.clone(),
-                KeyValue::from_storage_key(&guard.target_key),
+                KeyValue::from_storage_key(&guard.target_key)?,
             );
             let status = self
                 .read_current_row_fields(

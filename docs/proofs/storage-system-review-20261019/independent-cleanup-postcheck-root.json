@@ -1,0 +1,10 @@
+{
+  "cleanup_outcomes_sha256": "529609054494f07bd006df2d9133b30cc9ad9582d357f4a237a6732aac2b85b8",
+  "frozen_input_files_verified": 12,
+  "full_manifest_sha256": "17d0af97b4879da86cf5a1418557fb1e203fbedc9b0cd7101a282cce0f360f35",
+  "independent_root_postcheck": true,
+  "node_sessions_normal": 15,
+  "owned_roots_absent_including_symlinks": 5,
+  "run_files_verified": 40,
+  "supported_reclaims_pass": 5
+}

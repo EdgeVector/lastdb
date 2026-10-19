@@ -110,6 +110,16 @@ pub struct SchemaRecordKeysReport {
     pub truncated: bool,
 }
 
+/// Exact schema identity and page controls for a schema-facing key list.
+#[derive(Debug, Clone, Copy)]
+pub struct SchemaRecordKeysRequest<'a> {
+    pub requested: &'a str,
+    pub schema_id: &'a str,
+    pub limit: usize,
+    pub cursor: Option<&'a str>,
+    pub hash_filter: Option<&'a str>,
+}
+
 /// Per-molecule storage-encoding residue measured by [`LegacyKeyForkAudit`].
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LegacyKeyForkMoleculeStat {

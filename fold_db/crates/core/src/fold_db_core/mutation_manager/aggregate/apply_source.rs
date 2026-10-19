@@ -106,7 +106,7 @@ impl MutationManager {
             .await;
         let (raw_current, raw_pending, matching_provisional_retry) =
             self.load_raw_guards(&ctx).await?;
-        let lock_keys = Self::target_lock_keys(&ctx, raw_current.as_ref(), raw_pending.as_ref());
+        let lock_keys = Self::target_lock_keys(&ctx, raw_current.as_ref(), raw_pending.as_ref())?;
         let _target_locks = self.acquire_aggregate_named_locks(lock_keys).await;
         let gs = self
             .reconcile_guard_state(&ctx, raw_current, raw_pending, matching_provisional_retry)

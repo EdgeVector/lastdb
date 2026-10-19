@@ -22,6 +22,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 const BUNDLE_VERSION: u8 = 1;
 const NODE_DOMAIN: &str = "node";
 
+mod cache;
 mod cloud_purge_export;
 mod cloud_purge_import;
 mod metadata;
@@ -59,8 +60,13 @@ impl MoleculeKeyBundle {
         self.content_dek
     }
 
-    pub(crate) fn key_codec(&self, legacy: &MoleculeKeyCodec) -> MoleculeKeyCodec {
-        legacy.with_primary_keys_and_read_fallback(self.blind_key, self.ope_key)
+    pub(crate) fn key_codec(&self, configured: &MoleculeKeyCodec) -> MoleculeKeyCodec {
+        MoleculeKeyCodec::with_encodings(
+            configured.encoding(),
+            configured.range_encoding(),
+            Some(self.blind_key),
+            Some(self.ope_key),
+        )
     }
 }
 
@@ -103,18 +109,14 @@ impl MoleculeKeyStore {
         }
     }
 
-    pub(crate) fn cache(&self) -> MoleculeKeyCache {
-        Arc::clone(&self.cache)
-    }
-
     pub(crate) const fn is_enabled(&self) -> bool {
         self.node_wrap_key.is_some()
     }
 
-    /// Resolve the node wrap with two exact reads. A missing row is legacy.
+    /// Resolve the node wrap with two exact reads. Missing metadata means no bundle.
     pub async fn load(&self, molecule_uuid: &str) -> StorageResult<Option<MoleculeKeyBundle>> {
         validate_identity(molecule_uuid, NODE_DOMAIN)?;
-        if let Some(bundle) = self.cached(molecule_uuid) {
+        if let Some(bundle) = self.cached_bundle(molecule_uuid)? {
             return Ok(Some(bundle));
         }
         let Some(wrap_key) = self.node_wrap_key.as_ref() else {
@@ -133,7 +135,7 @@ impl MoleculeKeyStore {
             )));
         };
         let bundle = open_wrap(&wrap, molecule_uuid, NODE_DOMAIN, wrap_key)?;
-        self.remember(molecule_uuid, bundle.clone());
+        self.remember(molecule_uuid, bundle.clone())?;
         Ok(Some(bundle))
     }
 
@@ -142,6 +144,16 @@ impl MoleculeKeyStore {
         if let Some(bundle) = self.load(molecule_uuid).await? {
             return Ok(bundle);
         }
+        // Every mint takes the native write gate before the shared mint lock.
+        // An enclosing schema publication already owns that same gate.
+        crate::storage::disk_pack::transaction::scope(
+            self.runtime.clone(),
+            self.ensure_in_scope(molecule_uuid),
+        )
+        .await
+    }
+
+    async fn ensure_in_scope(&self, molecule_uuid: &str) -> StorageResult<MoleculeKeyBundle> {
         let _guard = self.mint_lock.lock().await;
         if let Some(bundle) = self.load(molecule_uuid).await? {
             return Ok(bundle);
@@ -164,15 +176,14 @@ impl MoleculeKeyStore {
             )
             .await?;
         self.entries.inner().flush().await?;
-        self.remember(molecule_uuid, bundle.clone());
+        self.remember(molecule_uuid, bundle.clone())?;
         Ok(bundle)
     }
 
     /// Grant one access domain to every molecule in an existing schema.
     ///
-    /// The preflight resolves every bundle before it writes a wrap. A missing
-    /// bundle means legacy data that still needs the one-time re-key job; the
-    /// share path must fail closed instead of minting keys over old bytes.
+    /// The preflight resolves every bundle before it writes a wrap. Schema
+    /// publication establishes these keys; a missing bundle is an error.
     pub async fn grant_schema_domain(
         &self,
         schema: &Schema,
@@ -193,15 +204,9 @@ impl MoleculeKeyStore {
                 None => missing.push(molecule_uuid),
             }
         }
-        if bundles.is_empty() {
-            // Legacy instance (no bundles yet): same-node zero-copy share still
-            // works via the node wrap / unprefixed keys. Member restore that
-            // holds only the org key needs a re-key job first.
-            return Ok(0);
-        }
         if !missing.is_empty() {
             return Err(StorageError::InvalidOperation(format!(
-                "schema share requires a molecule key bundle for {}; re-key the legacy instance first",
+                "schema share requires an established molecule key bundle for {}",
                 missing.join(", ")
             )));
         }
@@ -242,21 +247,27 @@ impl MoleculeKeyStore {
         self.entries.inner().flush().await
     }
 
-    /// Mint every molecule in a new catalog schema before its first write.
+    /// Establish every final field molecule's keys before schema publication.
     pub async fn ensure_schema(&self, schema: &Schema) -> StorageResult<()> {
         if !self.is_enabled() {
             return Ok(());
         }
-        for (field_name, field) in &schema.runtime_fields {
-            let molecule_uuid = field.common().molecule_uuid().cloned().unwrap_or_else(|| {
-                crate::atom::deterministic_molecule_uuid(&schema.name, field_name)
-            });
+        let populated = if schema.runtime_fields.is_empty() {
+            let mut populated = schema.clone();
+            populated.populate_runtime_fields().map_err(|error| {
+                StorageError::InvalidOperation(format!("resolve schema molecule keys: {error}"))
+            })?;
+            Some(populated)
+        } else {
+            None
+        };
+        for molecule_uuid in schema_molecule_uuids(populated.as_ref().unwrap_or(schema)) {
             self.ensure(&molecule_uuid).await?;
         }
         Ok(())
     }
 
-    /// Warm present bundles for a catalog read. Missing rows mean legacy data.
+    /// Load established field bundles for a catalog read without minting keys.
     pub async fn load_schema(&self, schema: &Schema) -> StorageResult<()> {
         for (field_name, field) in &schema.runtime_fields {
             let molecule_uuid = field.common().molecule_uuid().cloned().unwrap_or_else(|| {
@@ -265,21 +276,6 @@ impl MoleculeKeyStore {
             let _ = self.load(&molecule_uuid).await?;
         }
         Ok(())
-    }
-
-    fn cached(&self, molecule_uuid: &str) -> Option<MoleculeKeyBundle> {
-        self.cache
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(molecule_uuid)
-            .cloned()
-    }
-
-    fn remember(&self, molecule_uuid: &str, bundle: MoleculeKeyBundle) {
-        self.cache
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(molecule_uuid.to_string(), bundle);
     }
 
     async fn put_wrap(

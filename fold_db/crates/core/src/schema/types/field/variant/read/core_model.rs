@@ -45,8 +45,6 @@ impl FieldVariant {
             matches,
             self.common().storage_prefix(),
             self.common().molecule_uuid().map(String::as_str),
-            None,
-            None,
         )
         .await?;
         retain_visible_values(&mut values, include_tombstones);

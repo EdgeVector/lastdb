@@ -43,7 +43,7 @@ impl FieldVariant {
             return Ok(());
         }
         if !matching {
-            let source = self.disk_slot_for_key(storage_key).map(|(hash, range)| {
+            let source = self.slot_coordinates(storage_key).map(|(hash, range)| {
                 crate::schema::types::field::build_storage_key(
                     scope,
                     &crate::atom::molecule_key_codec::hash_range_record_key(
@@ -87,7 +87,7 @@ impl FieldVariant {
         }
         let candidates = db_ops
             .atoms()
-            .key_codec_for_molecule(molecule)
+            .key_codec_for_molecule(molecule)?
             .api_hash_range_record_keys_for_read(
                 molecule,
                 api_key.hash.as_deref().unwrap_or_default(),

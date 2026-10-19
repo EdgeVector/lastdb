@@ -90,14 +90,16 @@ async fn annotated_schema_row<T: serde::Serialize>(
     let Ok(Value::Object(mut row)) = serde_json::to_value(schema) else {
         return None;
     };
-    if include_counts {
-        let record_count = count_schema_records(host, schema_name).await;
-        row.insert("record_count".into(), record_count.into());
-        row.insert("has_data".into(), (record_count > 0).into());
+    let record_count = if include_counts {
+        count_schema_records(host, schema_name).await
     } else {
-        row.insert("record_count".into(), Value::Null);
-        row.insert("has_data".into(), Value::Null);
-    }
+        None
+    };
+    row.insert("record_count".into(), record_count.into());
+    row.insert(
+        "has_data".into(),
+        record_count.map(|count| count > 0).into(),
+    );
     Some(Value::Object(row))
 }
 

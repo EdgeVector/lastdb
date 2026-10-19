@@ -6,6 +6,7 @@ use std::time::Instant;
 
 struct Entry {
     quote: JournalQuote,
+    reserved_bytes: u64,
     created: Instant,
     uncertain: bool,
 }
@@ -61,8 +62,10 @@ impl AdmissionLedger {
         batches: u64,
         suffix_oldest: Option<Instant>,
         created: Instant,
+        previous: Option<&JournalReservation>,
     ) -> Result<JournalReservation> {
         let mut state = self.state()?;
+        let added_bytes = self.additional_bytes(&state, quote, previous)?;
         let oldest = state
             .entries
             .values()
@@ -77,10 +80,11 @@ impl AdmissionLedger {
         let total = state
             .bytes
             .checked_add(durable)
-            .and_then(|bytes| bytes.checked_add(quote.physical_reserve))
+            .and_then(|bytes| bytes.checked_add(added_bytes))
             .and_then(|bytes| bytes.checked_add(8192));
+        let pending_batches = state.entries.len() - usize::from(previous.is_some());
         if total.map_or(true, |bytes| bytes > MAX_SUFFIX_BYTES)
-            || batches.saturating_add(state.entries.len() as u64) >= MAX_SUFFIX_BATCHES
+            || batches.saturating_add(pending_batches as u64) >= MAX_SUFFIX_BATCHES
         {
             return Err(super::capacity("journal suffix admission limit"));
         }
@@ -89,11 +93,12 @@ impl AdmissionLedger {
             .checked_add(1)
             .ok_or_else(|| super::refuse("journal reservation identity exhaustion"))?;
         state.next = id;
-        state.bytes += quote.physical_reserve;
+        state.bytes += added_bytes;
         state.entries.insert(
             id,
             Entry {
                 quote,
+                reserved_bytes: added_bytes,
                 created,
                 uncertain: false,
             },
@@ -104,6 +109,36 @@ impl AdmissionLedger {
             quote,
             created,
         })
+    }
+
+    fn additional_bytes(
+        self: &Arc<Self>,
+        state: &State,
+        quote: JournalQuote,
+        previous: Option<&JournalReservation>,
+    ) -> Result<u64> {
+        let Some(previous) = previous else {
+            return Ok(quote.physical_reserve);
+        };
+        let entry = state
+            .entries
+            .get(&previous.id)
+            .ok_or_else(|| super::refuse("journal extension prefix is no longer held"))?;
+        if !Arc::ptr_eq(self, &previous.ledger)
+            || entry.uncertain
+            || entry.quote != previous.quote
+            || entry.reserved_bytes != previous.quote.physical_reserve
+            || quote.operations < previous.quote.operations
+            || quote.logical_bytes < previous.quote.logical_bytes
+        {
+            return Err(super::refuse(
+                "journal extension prefix or dimensions differ",
+            ));
+        }
+        quote
+            .physical_reserve
+            .checked_sub(entry.reserved_bytes)
+            .ok_or_else(|| super::refuse("journal extension shrank its prefix"))
     }
 
     pub(super) fn pressure(
@@ -160,10 +195,44 @@ impl JournalReservation {
             .entries
             .get(&self.id)
             .ok_or_else(|| super::refuse("journal reservation is no longer held"))?;
-        if entry.uncertain || entry.quote != self.quote {
+        if entry.uncertain
+            || entry.quote != self.quote
+            || entry.reserved_bytes != self.quote.physical_reserve
+        {
             return Err(super::refuse("journal reservation cannot be reused"));
         }
         Ok(())
+    }
+
+    /// Finalize the checked extension without changing its aggregate charge.
+    /// Admission retains both tickets until the caller transfers this prefix.
+    pub(in crate::disk_pack) fn absorb(&mut self, previous: JournalReservation) {
+        assert!(Arc::ptr_eq(&self.ledger, &previous.ledger));
+        assert_ne!(self.id, previous.id);
+        let mut state = self.ledger.0.lock().expect("journal admission ownership");
+        let prefix = state
+            .entries
+            .get(&previous.id)
+            .expect("owned journal prefix");
+        let incoming = state
+            .entries
+            .get(&self.id)
+            .expect("owned journal extension");
+        assert!(!prefix.uncertain && !incoming.uncertain);
+        assert_eq!(prefix.quote, previous.quote);
+        assert_eq!(incoming.quote, self.quote);
+        assert_eq!(prefix.reserved_bytes, prefix.quote.physical_reserve);
+        assert_eq!(
+            prefix.reserved_bytes.checked_add(incoming.reserved_bytes),
+            Some(self.quote.physical_reserve)
+        );
+        state.entries.remove(&previous.id);
+        state
+            .entries
+            .get_mut(&self.id)
+            .expect("owned journal extension")
+            .reserved_bytes = self.quote.physical_reserve;
+        drop(state);
     }
 
     pub(super) fn begin(&mut self) -> Result<()> {
@@ -183,7 +252,7 @@ impl JournalReservation {
             .entries
             .remove(&self.id)
             .ok_or_else(|| super::refuse("journal reservation is no longer held"))?;
-        state.bytes -= entry.quote.physical_reserve;
+        state.bytes -= entry.reserved_bytes;
         Ok(())
     }
 }
@@ -202,7 +271,7 @@ impl Drop for JournalReservation {
                 .entries
                 .remove(&self.id)
                 .expect("known unused reservation");
-            state.bytes -= entry.quote.physical_reserve;
+            state.bytes -= entry.reserved_bytes;
         }
     }
 }

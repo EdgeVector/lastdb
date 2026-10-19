@@ -34,8 +34,9 @@ pub use admin_db::{
     OrderLogBloatSchemaStat, OrderLogRepairReport, OrderLogShortRow,
     OrderLogZeroLiveCompactionReport, ProteinGcReport, SchemaCurrentStorageReport,
     SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
-    SchemaOrderLogStat, SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport,
-    ThinTipMigrateReport, TipFormatStats, TombstoneFlagAudit, TombstoneFlagBackfillReport,
+    SchemaOrderLogStat, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
+    SchemaStorageReport, ThinTipMigrateReport, TipFormatStats, TombstoneFlagAudit,
+    TombstoneFlagBackfillReport,
 };
 pub use atom_store::{AtomCounterReport, AtomCounterView, AtomStore, MoleculeData};
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};

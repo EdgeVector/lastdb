@@ -1,0 +1,457 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "complete_receipt_manifest": {
+    "bytes": 779021,
+    "path": "receipt-manifest.json",
+    "sha256": "17d0af97b4879da86cf5a1418557fb1e203fbedc9b0cd7101a282cce0f360f35"
+  },
+  "frozen_main_plan_sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129",
+  "frozen_supplement_sha256": "34580e1dfc75bab2a19f21bdd38d03e03b3bd3075e665420fd3ec0a105760242",
+  "no_reclaim_yet": true,
+  "node_sessions": 15,
+  "postoperation_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "9d9c787c0d70a886f0938f45ea0408520248f31a",
+    "source_files_checked": 1883,
+    "source_mismatches": []
+  },
+  "postoperation_source_inventory_sha256": "12a9e0f8cf5bf9b953d7d1de2d3e6d318b2e9f75c53c4dd4e0a7dcc7eba78b8b",
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "creator_pid": 31252,
+        "device": 16777231,
+        "inode": 1469634084,
+        "marker_sha256": "f59c8000eefb72a92c702d3ace01f5807647c7276b919b4a879149eb94d1d5bc",
+        "mode": "0o700",
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2/program-before-lastdbd",
+        "private_binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "f59c8000eefb72a92c702d3ace01f5807647c7276b919b4a879149eb94d1d5bc"
+        },
+        "inputs.json": {
+          "bytes": 1281,
+          "sha256": "3f4d11d44df8603433361f57cdef37bad22d1d0992befa8142f050f887b3f89f"
+        },
+        "node.log": {
+          "bytes": 27670,
+          "sha256": "70bc6d00c44825f68983a6916b1b75c1b278eefaf5020661e2df2a2377ee194a"
+        },
+        "receipts.jsonl": {
+          "bytes": 424719,
+          "sha256": "d93af6678cde79852f819e64ef4dc43e186df3213bda55ca8134a14755c68900"
+        },
+        "result.json": {
+          "bytes": 113936,
+          "sha256": "284186b3ebafcab40795b93a08dd9cce75a9735a9c5cc6c7372b675d88b50fcd"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "7b3e6fe7db49ba0612cd39ecf90d5b5dbb24c008ba45e01d53d7a951ac548428"
+        },
+        "root-identity.json": {
+          "bytes": 535,
+          "sha256": "cbd250eb9eba0df792e2b02542bb128163d11ace803db7f64a645dc494fcdb0e"
+        },
+        "summary.json": {
+          "bytes": 148,
+          "sha256": "a551521dbb2f43e99bcf52bbe31e604f761317b95d53a15025e6b773d96813d0"
+        }
+      },
+      "input_creator_pid": 31252,
+      "marker_creator_pid": 48982,
+      "node_pids": [
+        31254,
+        31510,
+        31539
+      ],
+      "node_sessions": 3,
+      "operational_creator_pids": [
+        31252
+      ],
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-system-review-20261019/narrow-baseline",
+      "result": {
+        "all_expectations_pass": false,
+        "baseline_immutable_equivalent_main": "43f9bd07b72e02d62277d50711aeac3bc7e230cf",
+        "binary_built_source": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "candidate_executed": false,
+        "complete": true,
+        "failed": 36,
+        "helper_manifest_sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562",
+        "operational_error": null,
+        "passed": 79,
+        "plan_sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2",
+        "source_head_at_execution": "5d1de0d7afaece6574207a2cc890e978bf8e94e9"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pmd62yh2"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "creator_pid": 35080,
+        "device": 16777231,
+        "inode": 1469781836,
+        "marker_sha256": "0cc2557d11dd9b0e74cbaabfe9fe3af8ee8861bab42a518fbf530150737ac9b1",
+        "mode": "0o700",
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.df9si288/program-lastdbd",
+        "private_binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.df9si288",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.df9si288"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "0cc2557d11dd9b0e74cbaabfe9fe3af8ee8861bab42a518fbf530150737ac9b1"
+        },
+        "inputs.json": {
+          "bytes": 2195,
+          "sha256": "a7f2def092194598c4c4c5b4b2270abab3f88316d4e6032aaca67469834cdc90"
+        },
+        "node.log": {
+          "bytes": 26651,
+          "sha256": "e20febd45938e9fb38b20891f1f97ea2d87131d180d4dcd06f52aef9639153f4"
+        },
+        "receipts.jsonl": {
+          "bytes": 422533,
+          "sha256": "178186fd744616ff86dc234b1aa2fe4823ad5e2d4a975742b7be4ec96b0856cb"
+        },
+        "result.json": {
+          "bytes": 113723,
+          "sha256": "b027c420eb86dfbd01fc600021a3829c81cc7b9a84f4b6f482f929ab0a08dddb"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "3d04baf6ca9957c30126153d7667feed04af4ac7411386464821966c5853a726"
+        },
+        "root-identity.json": {
+          "bytes": 528,
+          "sha256": "5e3fd4594039293b3f5d728a81ffa5a6d4e0bb6cf8e59c2371553ded56658dd6"
+        },
+        "summary.json": {
+          "bytes": 143,
+          "sha256": "297862fbeaa262bc1d1d55322465c9029cc871b8432b3d73beabd9d59863c0ab"
+        }
+      },
+      "input_creator_pid": 35080,
+      "marker_creator_pid": 35080,
+      "node_pids": [
+        35085,
+        35706,
+        35817
+      ],
+      "node_sessions": 3,
+      "operational_creator_pids": [
+        35080
+      ],
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-system-review-20261019/narrow-baseline-rerun",
+      "result": {
+        "all_expectations_pass": false,
+        "baseline_immutable_equivalent_main": "43f9bd07b72e02d62277d50711aeac3bc7e230cf",
+        "binary_built_source": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "blocked": 1,
+        "complete": true,
+        "failed": 39,
+        "helper_manifest_sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562",
+        "operational_error": null,
+        "passed": 75,
+        "plan_sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.df9si288",
+        "source_head_at_execution": "5d1de0d7afaece6574207a2cc890e978bf8e94e9"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.df9si288"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "creator_pid": 36031,
+        "device": 16777231,
+        "inode": 1469787062,
+        "marker_sha256": "791d983cf29ca1d20f62663ff1d03db9c16b1d66fc7ccc68c20db20d88fbbd6e",
+        "mode": "0o700",
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7nkyv3yo/program-lastdbd",
+        "private_binary_sha256": "95ac8c04cc37ea2cef9965fbd130661289339754032670f756f2e111c3a358f7",
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7nkyv3yo",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7nkyv3yo"
+      },
+      "exit_codes": [
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "791d983cf29ca1d20f62663ff1d03db9c16b1d66fc7ccc68c20db20d88fbbd6e"
+        },
+        "inputs.json": {
+          "bytes": 2156,
+          "sha256": "1c665bfb474cd40498a556b1d6b156ea19be1e6de234a18ec4dedfaa18b301a6"
+        },
+        "node.log": {
+          "bytes": 11336,
+          "sha256": "7c7c86aff14b3215129f87a4dac0db2d052a4147df87dad5027058ed918e8fe7"
+        },
+        "receipts.jsonl": {
+          "bytes": 114726,
+          "sha256": "3d4f018907be5f91d0bc3394f091db0632c2f607f859d2800047541db8a30d2a"
+        },
+        "result.json": {
+          "bytes": 29193,
+          "sha256": "7e56d96206bbbdec5344f5335aa226b681931b28ef44b15f9216984a38e4654d"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "b6b5ec0fea3dab948e233fea42acfb9ba1ba28f7d3b29e6046f9f7935cffdb6c"
+        },
+        "root-identity.json": {
+          "bytes": 528,
+          "sha256": "6ae183bcd3eff435b85cd0872c73428ca6c88b4a7ed0345dcedfa1c03d6c7c46"
+        },
+        "summary.json": {
+          "bytes": 244,
+          "sha256": "17ef96c556f2e4cdadaa62a021aebd82d6e80a864b000ee43d1309ffa4252a20"
+        }
+      },
+      "input_creator_pid": 36031,
+      "marker_creator_pid": 36031,
+      "node_pids": [
+        36200
+      ],
+      "node_sessions": 1,
+      "operational_creator_pids": [
+        36031
+      ],
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-system-review-20261019/narrow-candidate",
+      "result": {
+        "all_expectations_pass": false,
+        "baseline_immutable_equivalent_main": null,
+        "binary_built_source": "5d1de0d7afaece6574207a2cc890e978bf8e94e9",
+        "binary_sha256": "95ac8c04cc37ea2cef9965fbd130661289339754032670f756f2e111c3a358f7",
+        "blocked": 0,
+        "complete": false,
+        "failed": 1,
+        "helper_manifest_sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562",
+        "operational_error": "RuntimeError: First candidate mismatch: named-a-protein-range: exact ordered records or fields differ",
+        "passed": 30,
+        "plan_sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7nkyv3yo",
+        "source_head_at_execution": "5d1de0d7afaece6574207a2cc890e978bf8e94e9"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7nkyv3yo"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "creator_pid": 16981,
+        "device": 16777231,
+        "inode": 1469884212,
+        "marker_sha256": "4d5c89d4fea41fd91d19764a1d436a35cfd1ddc4ebf3594f5f1d2fbdda973f7c",
+        "mode": "0o700",
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.hilkyuik/program-lastdbd",
+        "private_binary_sha256": "aaf0a32ae7098847d0d9de1755cc78e1facaff1a384ddb663187526a79de971c",
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.hilkyuik",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.hilkyuik"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "4d5c89d4fea41fd91d19764a1d436a35cfd1ddc4ebf3594f5f1d2fbdda973f7c"
+        },
+        "inputs.json": {
+          "bytes": 2173,
+          "sha256": "23d054702df216bbacd8643536990232b392a7e5f1603324379bba71b543b019"
+        },
+        "node.log": {
+          "bytes": 31486,
+          "sha256": "f06291405b4d930cc986c998624820c623e3f549b80065980718b123e07ec083"
+        },
+        "receipts.jsonl": {
+          "bytes": 519160,
+          "sha256": "9c5b95e361c0e03601c868f2fea94da9edc0933ceea538e6f6ee757563ac7d60"
+        },
+        "result.json": {
+          "bytes": 140626,
+          "sha256": "35667af88accfcc87b00a3391a41c927c02eb4d610bd72bb7ba2a38ac6a7869c"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "bd6c49cfe9af3dd8388acb07e9a33ba582208c624f553e520d1082d7af4bf2cf"
+        },
+        "root-identity.json": {
+          "bytes": 528,
+          "sha256": "50679f7b7f5733fb10842c16aac6647d6ce5312cb3638604f3ebbbf59c72c1b2"
+        },
+        "summary.json": {
+          "bytes": 145,
+          "sha256": "653b240491175d3d0a3115cc69f908f36676b1cb7da3fb3952e7e0efe055197f"
+        }
+      },
+      "input_creator_pid": 16981,
+      "marker_creator_pid": 16981,
+      "node_pids": [
+        16986,
+        18668,
+        20836,
+        21770
+      ],
+      "node_sessions": 4,
+      "operational_creator_pids": [
+        16981
+      ],
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-system-review-20261019/narrow-candidate-repaired",
+      "result": {
+        "all_expectations_pass": true,
+        "baseline_immutable_equivalent_main": null,
+        "binary_built_source": "9d9c787c0d70a886f0938f45ea0408520248f31a",
+        "binary_sha256": "aaf0a32ae7098847d0d9de1755cc78e1facaff1a384ddb663187526a79de971c",
+        "blocked": 0,
+        "complete": true,
+        "failed": 0,
+        "helper_manifest_sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562",
+        "main_observation_count": 115,
+        "operational_error": null,
+        "passed": 134,
+        "plan_sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129",
+        "repaired_release_identity_sha256": "08aebc12607a7849295ddf6392cfc7529427208bc925afd60e8da2eeea2cb7c2",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.hilkyuik",
+        "source_head_at_execution": "9d9c787c0d70a886f0938f45ea0408520248f31a",
+        "supplement_observation_count": 19,
+        "supplement_plan_sha256": "34580e1dfc75bab2a19f21bdd38d03e03b3bd3075e665420fd3ec0a105760242"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.hilkyuik"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "creator_pid": 29962,
+        "device": 16777231,
+        "inode": 1469901266,
+        "marker_sha256": "adbb050b29857d034aa0bbeb83e96b234bb03b57d9388cdad76cea1c7a51e5a2",
+        "mode": "0o700",
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.26e8g3t6/program-lastdbd",
+        "private_binary_sha256": "aaf0a32ae7098847d0d9de1755cc78e1facaff1a384ddb663187526a79de971c",
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.26e8g3t6",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.26e8g3t6"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "adbb050b29857d034aa0bbeb83e96b234bb03b57d9388cdad76cea1c7a51e5a2"
+        },
+        "inputs.json": {
+          "bytes": 2055,
+          "sha256": "a3404051da0bcb5759789a02ed3e0fe0c9c0fc56e3c007373de1bbf079ca51c5"
+        },
+        "node.log": {
+          "bytes": 31059,
+          "sha256": "ed19e8a82969492176c3836bf2d9f9526f6d71221ce702f30bff3563b3224970"
+        },
+        "receipts.jsonl": {
+          "bytes": 9156041,
+          "sha256": "3ac46966eea776b17c241d0fbe1ac534be3c313b855381d32bfabab0145d87a1"
+        },
+        "result.json": {
+          "bytes": 615,
+          "sha256": "c231d0b2089ab69a023e48564c9aed9dced2331c5481e82bf73f4666b805c8d4"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "6cf204aa267b136c503e4ff23f0818958e36ff6c6dd0d8f813e2df246577041f"
+        },
+        "root-identity.json": {
+          "bytes": 528,
+          "sha256": "579394386db3fbd4e668826d86dd45573c1448e7944cfc043176da91cb674384"
+        },
+        "summary.json": {
+          "bytes": 146,
+          "sha256": "2e632adb25713b74a587418f9a4028452c82da97c17ff4235384088e1df1540a"
+        }
+      },
+      "input_creator_pid": 29962,
+      "marker_creator_pid": 29962,
+      "node_pids": [
+        29972,
+        31212,
+        31289,
+        31459
+      ],
+      "node_sessions": 4,
+      "operational_creator_pids": [
+        29962
+      ],
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-system-review-20261019/cohort-candidate-repaired",
+      "result": {
+        "all_field_values_and_membership_match": true,
+        "binary_sha256": "aaf0a32ae7098847d0d9de1755cc78e1facaff1a384ddb663187526a79de971c",
+        "complete": true,
+        "helper_manifest_sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562",
+        "no_memory_exhaustion_or_performance_claim": true,
+        "operational_error": null,
+        "plan_sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129",
+        "read_checks": 74,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.26e8g3t6",
+        "source_commit": "9d9c787c0d70a886f0938f45ea0408520248f31a",
+        "strict_zero_file_calls_all_zero": true,
+        "strict_zero_file_checks": 29
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.26e8g3t6"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance.",
+  "unchanged_helper_manifest_sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562"
+}

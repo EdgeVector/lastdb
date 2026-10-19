@@ -74,7 +74,7 @@ impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
             SchemaError::NotFound(msg) => Self::new(404, msg.clone()),
-            SchemaError::MissingLocalAtom | SchemaError::StorageRead { .. } => {
+            SchemaError::MissingSelectedAtom | SchemaError::StorageRead { .. } => {
                 Self::internal(err.to_string())
             }
             // Blocked and cross-app/isolation ACL denials (I3c) both map to a

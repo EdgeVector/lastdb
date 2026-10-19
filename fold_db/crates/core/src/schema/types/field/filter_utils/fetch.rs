@@ -21,9 +21,7 @@ pub type KeyedAtomMatch = (
 
 /// Resolve atom UUID matches into concrete FieldValue map under an optional
 /// storage prefix (`storage_prefix` / share `from:{sender}`). Exact-prefix only —
-/// no bare dual-read. Missing atoms under a scoped read are skipped with a
-/// warning (shared/replay can leave orphan molecule refs); personal reads
-/// still surface integrity errors below when both miss and storage_prefix is None.
+/// no bare dual-read. Every selected tip requires its body in that same scope.
 ///
 /// Each match is a [`KeyedAtomMatch`].
 pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
@@ -31,8 +29,6 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
     matches: impl IntoIterator<Item = KeyedAtomMatch>,
     storage_prefix: Option<&str>,
     molecule_uuid: Option<&str>,
-    schema: Option<&str>,
-    field: Option<&str>,
 ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
     let mut resolved_values: HashMap<KeyValue, FieldValue> = HashMap::new();
 
@@ -61,23 +57,15 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
         crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &uuids, storage_prefix).await?;
 
     for ((key, atom_uuid, key_meta, writer_pubkey), atom) in misses.into_iter().zip(atoms) {
-        if let Some(atom) = atom {
-            let value = field_value_from_atom(&atom, atom_uuid, key_meta, writer_pubkey);
-            crate::storage::disk_pack::logical_paths::field::admit(
-                runtime.clone(),
-                storage_prefix,
-                molecule_uuid,
-                &key,
-                &value,
-            )?;
-            resolved_values.insert(key, value);
-        } else {
-            let miss = UnresolvedMatch {
-                key: &key,
-                atom_uuid: &atom_uuid,
-            };
-            handle_unresolved_atom(db_ops, storage_prefix, molecule_uuid, schema, field, &miss);
-        }
+        let value = field_value_from_atom(&atom, atom_uuid, key_meta, writer_pubkey);
+        crate::storage::disk_pack::logical_paths::field::admit(
+            runtime.clone(),
+            storage_prefix,
+            molecule_uuid,
+            &key,
+            &value,
+        )?;
+        resolved_values.insert(key, value);
     }
 
     Ok(resolved_values)
@@ -128,64 +116,4 @@ pub(crate) fn field_value_from_atom(
         writer_pubkey: writer_pubkey.filter(|s| !s.is_empty()),
         written_at,
     }
-}
-
-/// One match whose atom body was not found.
-struct UnresolvedMatch<'a> {
-    key: &'a KeyValue,
-    atom_uuid: &'a str,
-}
-
-/// Skip a match whose atom body is missing (the caller drops the row).
-fn handle_unresolved_atom(
-    db_ops: &Arc<DbOperations>,
-    storage_prefix: Option<&str>,
-    molecule_uuid: Option<&str>,
-    schema: Option<&str>,
-    field: Option<&str>,
-    miss: &UnresolvedMatch<'_>,
-) {
-    let UnresolvedMatch { key, atom_uuid } = miss;
-    if storage_prefix.is_some() {
-        // Intentional filter (not a bug-skip): the function-level
-        // doc comment on the fetch function explains that org-scoped reads must
-        // tolerate orphan molecule refs whose pre-tag atoms never
-        // replayed through the org log, otherwise every
-        // unfiltered query on a shared schema is unusable. Deliberately
-        // NOT counted as an unresolved skip — `unresolved_rows` is the
-        // integrity signal for a genuinely dangling tip -> atom edge,
-        // and counting the expected org-scope filtering here would keep
-        // it permanently non-zero on shared schemas.
-        tracing::warn!(
-            "Filtering orphan atom ref from org-scoped read — pre-tag \
-             molecule ref has no atom data, intentionally skipped per \
-             alpha BLOCKER 4b171 design (see fetch_atoms_with_key_metadata_async_with_prefix docs)"
-        );
-        return;
-    }
-    // A genuinely dangling tip -> atom edge. The edge is already broken
-    // on disk; erroring here amplified one bad row into an unreadable
-    // partition, so skip the row and let the caller report the count.
-    db_ops.record_unresolved_atom_skip(
-        atom_uuid,
-        key,
-        crate::db_operations::core::UnresolvedAtomContext {
-            molecule_uuid,
-            schema,
-            field,
-            tip_storage_key: None,
-        },
-    );
-    if key.to_string().is_empty() {
-        tracing::warn!(
-            atom_uuid = %atom_uuid,
-            "Skipping unresolved atom ref from query result"
-        );
-        return;
-    }
-    tracing::warn!(
-        atom_uuid = %atom_uuid,
-        key = %key,
-        "Skipping unresolved atom ref from query result"
-    );
 }

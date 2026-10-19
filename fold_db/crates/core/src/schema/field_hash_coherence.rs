@@ -329,7 +329,7 @@ async fn bind_cross_key_field_protein_in_scope(
     }
 
     let bindings = store
-        .protein_of_molecules_in_scope(&[source_mol.to_string(), target_mol.to_string()], None)
+        .protein_of_molecules(&[source_mol.to_string(), target_mol.to_string()])
         .await?;
     let (bound_src, bound_tgt) = (bindings[0].clone(), bindings[1].clone());
     let protein_uuid = match (bound_src, bound_tgt) {

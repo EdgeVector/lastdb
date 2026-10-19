@@ -19,7 +19,7 @@ impl AtomStore {
             }
             let Some(api) = &key.api_key else { continue };
             let group = self
-                .key_codec_for_molecule(&key.molecule)
+                .key_codec_for_molecule(&key.molecule)?
                 .api_hash_range_record_keys_for_read(
                     &key.molecule,
                     api.hash.as_deref().unwrap_or_default(),

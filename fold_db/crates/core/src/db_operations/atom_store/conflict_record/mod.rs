@@ -309,12 +309,15 @@ impl AtomStore {
             for key in *changed {
                 let base = crate::atom::molecule_key_codec::hash_range_record_key(
                     molecule_uuid,
-                    &self.storage_hash(molecule_uuid, key.disk_hash())?,
-                    &self.storage_range(molecule_uuid, key.disk_range())?,
+                    &self.storage_hash(molecule_uuid, key.hash_or_empty())?,
+                    &self.storage_range(molecule_uuid, key.range_or_empty())?,
                 );
                 api_keys.insert(
                     crate::schema::types::field::build_storage_key(storage_prefix, &base),
-                    (key.disk_hash().to_string(), key.disk_range().to_string()),
+                    (
+                        key.hash_or_empty().to_string(),
+                        key.range_or_empty().to_string(),
+                    ),
                 );
             }
         }

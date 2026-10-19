@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::atom::AtomEntry;
 use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
 
@@ -48,19 +49,22 @@ impl MutationManager {
             return Ok((None, None));
         };
         let uuid = entry.atom_uuid;
-
-        let content = self.read_atom_content(&uuid, storage_prefix).await?;
+        let atom = crate::db_operations::tip_atoms::get_atoms_for_tips(
+            &self.db_ops,
+            &[uuid.as_str()],
+            storage_prefix,
+        )
+        .await?
+        .pop()
+        .ok_or(SchemaError::MissingSelectedAtom)?;
 
         // A tombstoned head reads as absent — a deleted record has no live
         // value to compare against.
-        if content
-            .as_ref()
-            .is_some_and(crate::atom::is_tombstone_value)
-        {
+        if crate::atom::is_tombstone_value(atom.content()) {
             return Ok((None, None));
         }
 
-        Ok((Some(uuid), content))
+        Ok((Some(uuid), Some(atom.content().clone())))
     }
 
     fn load_schema_for_point_read(
@@ -79,20 +83,6 @@ impl MutationManager {
         };
         super::helpers::apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         Ok(schema)
-    }
-
-    /// Resident atom body when present, else a storage point read.
-    async fn read_atom_content(
-        &self,
-        uuid: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<serde_json::Value>, SchemaError> {
-        Ok(self
-            .db_ops
-            .atoms()
-            .get_atom_by_uuid(uuid, storage_prefix)
-            .await?
-            .map(|atom| atom.content().clone()))
     }
 
     /// Point-read a fixed field set from one exact row.
@@ -158,11 +148,12 @@ impl MutationManager {
             .iter()
             .map(|(_, entry)| entry.atom_uuid.as_str())
             .collect();
-        let atoms = self
-            .db_ops
-            .atoms()
-            .get_atoms(&uuids, storage_prefix)
-            .await?;
+        let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(
+            &self.db_ops,
+            &uuids,
+            storage_prefix,
+        )
+        .await?;
         if atoms.len() != selected.len() {
             return Err(SchemaError::StorageRead {
                 detail: "point-read atom count differs from selected field count".into(),
@@ -170,7 +161,15 @@ impl MutationManager {
         }
         let mut values = BTreeMap::new();
         let mut latest_winner: Option<AggregateWinner> = None;
+        let mut tombstone = None;
         for ((field, entry), atom) in selected.into_iter().zip(atoms) {
+            if crate::atom::is_tombstone_value(atom.content()) {
+                tombstone.get_or_insert_with(|| CurrentRowFields::Corrupt {
+                    field: field.clone(),
+                    atom_uuid: entry.atom_uuid,
+                });
+                continue;
+            }
             let winner = AggregateWinner {
                 logical_counter: entry.logical_counter,
                 written_at: entry.written_at,
@@ -182,21 +181,13 @@ impl MutationManager {
                 None => latest_winner = Some(winner),
                 _ => {}
             }
-            let content = match atom {
-                Some(atom) if !crate::atom::is_tombstone_value(atom.content()) => {
-                    atom.content().clone()
-                }
-                _ => {
-                    return Ok((
-                        CurrentRowFields::Corrupt {
-                            field: field.clone(),
-                            atom_uuid: entry.atom_uuid,
-                        },
-                        None,
-                    ));
-                }
-            };
-            values.insert(field.clone(), content);
+            values.insert(field.clone(), atom.content().clone());
+        }
+        if values.is_empty() {
+            return Ok((CurrentRowFields::Absent, None));
+        }
+        if let Some(tombstone) = tombstone {
+            return Ok((tombstone, None));
         }
         Ok((CurrentRowFields::Present(values), latest_winner))
     }
@@ -211,7 +202,7 @@ impl MutationManager {
         schema_field: &crate::schema::types::field::FieldVariant,
         key_value: &crate::schema::types::KeyValue,
         storage_prefix: Option<&str>,
-    ) -> Result<Option<crate::atom::AtomEntry>, SchemaError> {
+    ) -> Result<Option<AtomEntry>, SchemaError> {
         let changed_key = schema_field.changed_key_for(key_value).ok_or_else(|| {
             SchemaError::InvalidData(format!(
                 "point read cannot resolve field '{field}' key in schema '{schema_name}'"
@@ -226,16 +217,20 @@ impl MutationManager {
                     "point read field '{schema_name}.{field}' has no molecule identity"
                 ))
             })?;
-        let changed = std::collections::HashSet::from([changed_key.clone()]);
-        Ok(self
+        let key = crate::schema::types::KeyValue::new(changed_key.hash, changed_key.range);
+        let Some((_, record)) = self
             .db_ops
             .atoms()
-            .load_molecule_for_write(&molecule_uuid, storage_prefix, &changed)
+            .load_query_tip_records(storage_prefix, &molecule_uuid, &[key])
             .await?
-            .and_then(|molecule| {
-                molecule
-                    .get_atom_entry(changed_key.disk_hash(), changed_key.disk_range())
-                    .cloned()
-            }))
+            .pop()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        if record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
+            return Ok(None);
+        }
+        Ok(Some(record.entry))
     }
 }

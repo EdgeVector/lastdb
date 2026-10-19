@@ -135,15 +135,15 @@ impl ChangedKey {
         }
     }
 
-    /// On-disk hash segment (empty string when absent).
+    /// Hash coordinate, unchanged; an absent component uses the empty slot.
     #[must_use]
-    pub(crate) fn disk_hash(&self) -> &str {
+    pub(crate) fn hash_or_empty(&self) -> &str {
         self.hash.as_deref().unwrap_or(EMPTY_KEY_COMPONENT)
     }
 
-    /// On-disk range segment (empty string when absent).
+    /// Range coordinate, unchanged; an absent component uses the empty slot.
     #[must_use]
-    pub(crate) fn disk_range(&self) -> &str {
+    pub(crate) fn range_or_empty(&self) -> &str {
         self.range.as_deref().unwrap_or(EMPTY_KEY_COMPONENT)
     }
 }

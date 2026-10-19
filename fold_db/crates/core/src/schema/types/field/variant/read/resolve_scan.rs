@@ -32,7 +32,7 @@ impl FieldVariant {
             // Storage-form hash (single path).
             let prefixes = db_ops
                 .atoms()
-                .key_codec_for_molecule(molecule_uuid)
+                .key_codec_for_molecule(molecule_uuid)?
                 .api_hash_range_scan_prefixes_for_read(molecule_uuid, hash)
                 .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
             db_ops
@@ -153,8 +153,6 @@ impl FieldVariant {
                 matches,
                 storage_prefix,
                 Some(molecule_uuid),
-                None,
-                None,
             )
             .await?;
         for value in resolved.values_mut() {

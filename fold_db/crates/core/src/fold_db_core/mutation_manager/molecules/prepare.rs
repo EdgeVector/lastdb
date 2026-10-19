@@ -2,16 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::super::MutationManager;
 use crate::atom::Atom;
 use crate::db_operations::ChangedKey;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
-use sha2::{Digest, Sha256};
 use tracing::warn;
-
-use super::super::helpers::normalize_key_value_for_schema_type;
-use super::super::MutationManager;
 
 mod key_fields;
 
@@ -27,6 +24,7 @@ impl MutationManager {
         schema: &Schema,
         mutation: &Mutation,
     ) -> Result<KeyValue, SchemaError> {
+        crate::schema::require_logical_layout(&schema.schema_type)?;
         // Prefer the pre-computed key_value from the mutation (set by the
         // ingestion service with date normalization and proper field extraction).
         // Fall back to KeyValue::from_mutation() only when both fields are None.
@@ -45,32 +43,14 @@ impl MutationManager {
                 )
             };
 
-        // Safety net: if key is still empty after both extraction paths,
-        // generate a deterministic content hash so the mutation is stored
-        // and retrievable rather than silently lost.
-        if key_value.hash.is_none() && key_value.range.is_none() {
-            let mut hasher = Sha256::new();
-            let mut sorted: Vec<_> = mutation.fields_and_values.iter().collect();
-            sorted.sort_by_key(|(a, _)| (*a).clone());
-            for (k, v) in sorted {
-                hasher.update(k.as_bytes());
-                hasher.update(v.to_string().as_bytes());
-            }
-            let fallback = format!("{:x}", hasher.finalize());
-            let short = &fallback[..16];
+        if schema.schema_type == DeclarativeSchemaType::Hash && key_value.range.is_some() {
             warn!(
-                "Key resolution produced empty key for schema '{}', mutation {}; using content hash '{}'",
-                schema_name, mutation.uuid, short
+                schema = %schema_name,
+                mutation = %mutation.uuid,
+                "Ignoring range key supplied for hash-only schema mutation"
             );
-            key_value.hash = Some(short.to_string());
+            key_value.range = None;
         }
-
-        normalize_key_value_for_schema_type(
-            schema_name,
-            &schema.schema_type,
-            &mutation.uuid,
-            &mut key_value,
-        );
 
         // Validate that the key matches the schema type.
         // A mismatch means a bug upstream — fail loudly.
@@ -78,12 +58,6 @@ impl MutationManager {
             DeclarativeSchemaType::Hash if key_value.hash.is_none() => Err(
                 SchemaError::InvalidData(format!(
                     "Hash schema '{}' mutation {} has no hash key",
-                    schema_name, mutation.uuid
-                )),
-            ),
-            DeclarativeSchemaType::Range if key_value.range.is_none() => Err(
-                SchemaError::InvalidData(format!(
-                    "Range schema '{}' mutation {} has no range key",
                     schema_name, mutation.uuid
                 )),
             ),
@@ -123,9 +97,8 @@ impl MutationManager {
 
             mutation_key_values.push(key_value);
 
-            // Create atoms in memory (no storage yet). `MutationType::Delete`
-            // is peeled out of this pipeline in `write_mutations_batch_async`
-            // and hard-erased via the purge path (not N tombstone atoms).
+            // Create atoms in memory (no storage yet). The separate Delete
+            // route removes current tips and retains shared atom bodies.
             // Defensive: if a Delete ever reaches prepare, do not synthesize
             // per-field tombstones — write only the fields the caller named
             // (usually empty → zero atoms).
@@ -162,9 +135,8 @@ impl MutationManager {
     /// Build, per field this batch writes, the set of keys it will touch — the
     /// O(changed) unit. Each mutation upserts every field in
     /// `fields_and_values` at its `key_value`, so the touched key for a field is
-    /// derived from the field variant's kind (Hash/Range/HashRange) and the
-    /// mutation's key. A `Single` field has no per-key shape and is omitted
-    /// (its whole-blob molecule is already O(1)). The returned map drives the
+    /// derived from the supported Hash or HashRange field and the mutation's
+    /// key. The returned map drives the
     /// O(changed) write-path molecule restore in
     /// [`Self::restore_missing_molecules`].
     pub(in crate::fold_db_core::mutation_manager) fn changed_keys_by_field(
@@ -182,7 +154,7 @@ impl MutationManager {
                     continue;
                 };
                 let Some(changed_key) = field.changed_key_for(key_value) else {
-                    continue; // Single — no per-key shape
+                    continue;
                 };
                 by_field
                     .entry(field_name.clone())
@@ -192,13 +164,6 @@ impl MutationManager {
         }
         by_field
     }
-
-    // `schema_has_active_share_rule` was removed: it existed only to force
-    // `needs_full_load` in `restore_missing_molecules` so share fan-out could
-    // rewrite from the in-memory molecule. `store_molecules_split` now re-reads
-    // the primary namespace instead (fold #1224), so that full hydration had no
-    // remaining consumer. Share-rule detection for fan-out still lives in
-    // `persist_modified_molecules` via `list_share_rules_in_ops`.
 }
 
 /// The molecule of the field that an atom came from. It names the key bundle

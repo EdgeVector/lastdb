@@ -10,9 +10,7 @@ use super::super::schema_store::SchemaStore;
 use super::DbOperations;
 use crate::storage::traits::*;
 use crate::storage::TypedKvStore;
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// The namespace handles `DbOperationsCore` opens at construction.
 struct CoreNamespaces {
@@ -235,11 +233,6 @@ impl DbOperations {
             change_feed,
             lineage_index,
             persist_metrics,
-            unresolved_atom_skips: Arc::new(AtomicU64::new(0)),
-            unresolved_atom_identities: Arc::new(Mutex::new(HashSet::new())),
-            unresolved_identities_capped: Arc::new(AtomicBool::new(false)),
-            unresolved_atom_details: Arc::new(Mutex::new(HashMap::new())),
-            unresolved_details_capped: Arc::new(AtomicBool::new(false)),
         })
     }
 

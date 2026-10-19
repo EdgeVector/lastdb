@@ -4,7 +4,6 @@ use crate::db_operations::AtomStore;
 use crate::schema::types::Mutation;
 use crate::schema::SchemaError;
 
-use super::helpers::current_atom_uuid;
 use super::MutationManager;
 
 impl MutationManager {
@@ -124,7 +123,7 @@ impl MutationManager {
                 mutation.source_file_name.clone(),
                 mutation.metadata.clone(),
             )?;
-            let current_uuid = current_atom_uuid(schema_field, &key_value);
+            let current_uuid = schema_field.current_atom_uuid(&key_value);
             if current_uuid.as_deref() != Some(expected_atom.uuid()) {
                 return Ok(false);
             }

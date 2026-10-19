@@ -193,16 +193,6 @@ pub(in crate::handlers) fn caller_supplied_page(query: &Query) -> Option<(usize,
     }
 }
 
-pub(in crate::handlers) fn usable_cursor(
-    cursor: Option<KeyValue>,
-    sort_order: Option<&SortOrder>,
-) -> Option<KeyValue> {
-    match sort_order {
-        Some(SortOrder::Desc) => None,
-        _ => cursor,
-    }
-}
-
 pub(in crate::handlers) fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
     if !has_more {
         return None;

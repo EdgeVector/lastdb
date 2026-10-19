@@ -7,7 +7,7 @@
 //!
 //! The supplied molecule UUID is an exact identity. Reads and writes never
 //! substitute a hex or base64url spelling. Hash and range encryption bind that
-//! same identity; current and fallback encryption keys remain read candidates.
+//! same identity. One fixed key bundle defines each current molecule.
 //!
 //! Free key builders take storage-form coordinates. API coordinates pass once
 //! through [`MoleculeKeyCodec::storage_hash`] and
@@ -29,10 +29,6 @@ pub struct MoleculeKeyCodec {
     index_key: Option<[u8; 32]>,
     /// Required when range encoding is OPE.
     ope_key: Option<[u8; 32]>,
-    /// Previous node key, read-only during the per-molecule key transition.
-    fallback_index_key: Option<[u8; 32]>,
-    /// Previous node OPE key, read-only during the per-molecule key transition.
-    fallback_ope_key: Option<[u8; 32]>,
 }
 
 impl Default for MoleculeKeyCodec {
@@ -42,8 +38,6 @@ impl Default for MoleculeKeyCodec {
             range_encoding: RangeKeyEncoding::Plain,
             index_key: None,
             ope_key: None,
-            fallback_index_key: None,
-            fallback_ope_key: None,
         }
     }
 }
@@ -57,8 +51,6 @@ impl MoleculeKeyCodec {
             range_encoding: RangeKeyEncoding::Plain,
             index_key,
             ope_key: None,
-            fallback_index_key: None,
-            fallback_ope_key: None,
         }
     }
 
@@ -75,25 +67,6 @@ impl MoleculeKeyCodec {
             range_encoding,
             index_key,
             ope_key,
-            fallback_index_key: None,
-            fallback_ope_key: None,
-        }
-    }
-
-    /// Replace write keys and retain this codec's keys as read candidates.
-    #[must_use]
-    pub(crate) fn with_primary_keys_and_read_fallback(
-        &self,
-        index_key: [u8; 32],
-        ope_key: [u8; 32],
-    ) -> Self {
-        Self {
-            hash_encoding: self.hash_encoding,
-            range_encoding: self.range_encoding,
-            index_key: Some(index_key),
-            ope_key: Some(ope_key),
-            fallback_index_key: self.index_key,
-            fallback_ope_key: self.ope_key,
         }
     }
 
@@ -158,42 +131,22 @@ impl MoleculeKeyCodec {
         }
     }
 
-    /// Storage hash forms for a read, with the current key first.
+    /// The storage hash for this molecule's fixed encryption key.
     pub fn storage_hash_read_candidates(
         &self,
         molecule_uuid: &str,
         api_hash: &str,
     ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        let primary = self.storage_hash(molecule_uuid, api_hash)?;
-        let mut candidates = vec![primary.clone()];
-        if self.hash_encoding == HashKeyEncoding::BlindV1 {
-            if let Some(key) = self.fallback_index_key.as_ref() {
-                let fallback = E2eKeys::blind_hash_key(key, molecule_uuid, api_hash);
-                if fallback != primary {
-                    candidates.push(fallback);
-                }
-            }
-        }
-        Ok(candidates)
+        Ok(vec![self.storage_hash(molecule_uuid, api_hash)?])
     }
 
-    /// Storage range forms for a read, with the current key first.
+    /// The storage range for this molecule's fixed encryption key.
     pub fn storage_range_read_candidates(
         &self,
         molecule_uuid: &str,
         api_range: &str,
     ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        let primary = self.storage_range(molecule_uuid, api_range)?;
-        let mut candidates = vec![primary.clone()];
-        if self.range_encoding == RangeKeyEncoding::OpeV1 {
-            if let Some(key) = self.fallback_ope_key.as_ref() {
-                let fallback = E2eKeys::ope_encode_range(key, molecule_uuid, api_range);
-                if fallback != primary {
-                    candidates.push(fallback);
-                }
-            }
-        }
-        Ok(candidates)
+        Ok(vec![self.storage_range(molecule_uuid, api_range)?])
     }
 
     /// `mk:{M}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
@@ -211,36 +164,29 @@ impl MoleculeKeyCodec {
     }
 
     /// Point-read keys for one API slot under the supplied molecule identity.
-    /// Current and fallback encryption keys remain readable within that identity.
     pub fn api_hash_range_record_keys_for_read(
         &self,
         molecule_uuid: &str,
         api_hash: &str,
         api_range: &str,
     ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        let mut keys = Vec::new();
-        let hashes = self.storage_hash_read_candidates(molecule_uuid, api_hash)?;
-        let ranges = self.storage_range_read_candidates(molecule_uuid, api_range)?;
-        for hash in hashes {
-            for range in &ranges {
-                keys.push(hash_range_record_key(molecule_uuid, &hash, range));
-            }
-        }
-        Ok(keys)
+        Ok(vec![self.api_hash_range_record_key(
+            molecule_uuid,
+            api_hash,
+            api_range,
+        )?])
     }
 
     /// Prefixes for one API hash under the supplied exact molecule identity.
-    /// Current and fallback encryption keys remain separate read candidates.
     pub fn api_hash_range_scan_prefixes_for_read(
         &self,
         molecule_uuid: &str,
         api_hash: &str,
     ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        Ok(self
-            .storage_hash_read_candidates(molecule_uuid, api_hash)?
-            .into_iter()
-            .map(|hash| hash_range_scan_prefix_for_hash(molecule_uuid, &hash))
-            .collect())
+        Ok(vec![self.api_hash_range_scan_prefix_for_hash(
+            molecule_uuid,
+            api_hash,
+        )?])
     }
 
     /// The single `mk:{M}:` prefix for the supplied exact molecule identity.

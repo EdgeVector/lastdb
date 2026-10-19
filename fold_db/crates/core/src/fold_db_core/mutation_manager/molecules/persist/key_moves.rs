@@ -44,7 +44,7 @@ impl MutationManager {
             .iter()
             .map(|movement| {
                 atoms
-                    .key_codec_for_molecule(&movement.molecule_uuid)
+                    .key_codec_for_molecule(&movement.molecule_uuid)?
                     .api_hash_range_record_keys_for_read(
                         &movement.molecule_uuid,
                         movement.old_key.hash.as_deref().unwrap_or_default(),

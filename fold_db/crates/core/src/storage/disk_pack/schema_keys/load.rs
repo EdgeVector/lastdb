@@ -107,7 +107,7 @@ impl PackRuntime {
         };
         let encoding = db_ops
             .atoms()
-            .key_codec_for_molecule(&entry.id.1)
+            .key_codec_for_molecule(&entry.id.1)?
             .range_encoding();
         let page_charge = match self.reserve_key_work(&entry.id) {
             Ok(charge) => charge,

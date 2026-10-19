@@ -68,13 +68,12 @@ impl MutationManager {
         &self,
         job: &DeferredPersistJob,
         runtime: &PackRuntime,
-        scope: Option<&str>,
         tips: &[ChangedTip],
     ) -> Result<BTreeMap<String, Vec<Binding>>, SchemaError> {
         let molecules: std::collections::BTreeSet<_> =
             tips.iter().map(|tip| tip.molecule.clone()).collect();
         let bindings = futures::future::try_join_all(molecules.iter().map(|molecule| async {
-            let binding = self.path_bindings(&job.schema, scope, molecule).await?;
+            let binding = self.path_bindings(&job.schema, molecule).await?;
             let binding = if let Some(binding) = binding {
                 binding
             } else {

@@ -21,10 +21,10 @@ pub(crate) fn delete_candidates_for_key(
     let Some(uuid) = field.common().molecule_uuid() else {
         return Ok(Vec::new());
     };
-    let Some((hash, range)) = field.disk_slot_for_key(key) else {
+    let Some((hash, range)) = field.slot_coordinates(key) else {
         return Ok(Vec::new());
     };
-    let codec = db_ops.atoms().key_codec_for_molecule(uuid);
+    let codec = db_ops.atoms().key_codec_for_molecule(uuid)?;
     let keys = codec
         .api_hash_range_record_keys_for_read(uuid, &hash, &range)
         .map_err(|error| SchemaError::InvalidData(error.to_string()))?;

@@ -6,12 +6,8 @@ use std::collections::HashMap;
 
 /// Represents resolved key values for hash and range components.
 ///
-/// `deny_unknown_fields` is load-bearing: serde's default drops unknown
-/// keys silently, so a typo like `{"hash_key": "foo"}` would deserialize
-/// into `KeyValue { hash: None, range: None }`. On a `Delete` mutation
-/// that empty selector resolves to the empty-content hash, writing a
-/// phantom tombstone while the intended record survives — the exact
-/// silent-data-loss footgun tombstoning was meant to eliminate.
+/// Unknown coordinates are refused instead of disappearing into an empty key.
+/// The logical mutation boundary also refuses missing required coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct KeyValue {
@@ -52,11 +48,8 @@ impl KeyValue {
     /// range-only. Range values containing `:` (e.g. ISO datetimes like
     /// `"2025-03-15T14:30:00Z"`, URLs, Windows paths) hit this every time.
     ///
-    /// Used by the view-override storage path
-    /// (`view_orchestrator::redirect_view_write_to_override` writes,
-    /// `view::resolver::apply_overrides_to_field_map` reads) so a stored
-    /// override lands at the same `KeyValue` slot the source data uses,
-    /// instead of silently appearing under a corrupted twin key.
+    /// Aggregate guards and portable query slices use this representation to
+    /// retain the original lookup coordinates without separator ambiguity.
     #[must_use]
     pub fn to_storage_key(&self) -> String {
         serde_json::to_string(self).expect("KeyValue is always JSON-serializable")
@@ -64,17 +57,10 @@ impl KeyValue {
 
     /// Inverse of [`Self::to_storage_key`].
     ///
-    /// The empty string maps to `KeyValue::new(None, None)` — preserving
-    /// the prior `parse_key_str` contract for the trivial empty-key case.
-    /// Malformed input degrades to the empty `KeyValue` rather than
-    /// panicking; the override apply path then no-ops the entry instead
-    /// of inserting at a corrupted key.
-    #[must_use]
-    pub fn from_storage_key(s: &str) -> Self {
-        if s.is_empty() {
-            return Self::new(None, None);
-        }
-        serde_json::from_str(s).unwrap_or_else(|_| Self::new(None, None))
+    /// Invalid stored coordinates cannot become a different, empty lookup.
+    pub fn from_storage_key(s: &str) -> Result<Self, super::SchemaError> {
+        serde_json::from_str(s)
+            .map_err(|_| super::SchemaError::InvalidData("invalid serialized record key".into()))
     }
 
     /// The canonical **page order** for keyed reads: ascending `range`, then

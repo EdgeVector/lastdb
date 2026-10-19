@@ -1,0 +1,57 @@
+{
+  "all_original_frozen_inputs_unchanged": true,
+  "files": {
+    "baseline-dependency-deviation.json": {
+      "bytes": 4353,
+      "sha256": "c6b94c5f02e3e7d505b6eaec72a39d58012e907122affe6ba994b6ae192dd6ee"
+    },
+    "baseline-release-identity.json": {
+      "bytes": 330934,
+      "sha256": "6b19cd535bf1b07fa95c41a4e5099ef20ff296f1f84ae0b7559016d262b089a0"
+    },
+    "baseline-root.json": {
+      "bytes": 1160,
+      "sha256": "b1ab9107aa6d9e9386e2bc3995c542e7aa849504fe06e4403e61be47c5ff6a32"
+    },
+    "coverage-scope-correction.json": {
+      "bytes": 1182,
+      "sha256": "5ccd0719ff5c9c290c50cda332ed4479885c5c64d3813c4ceb4bdeec42880567"
+    },
+    "independent-release-review-agent.json": {
+      "bytes": 589,
+      "sha256": "5257ad532b1b234f0c216cbafb4bce54760176db75cafc6c1c93f7f6b0d91f68"
+    },
+    "independent-repaired-release-review-agent.json": {
+      "bytes": 897,
+      "sha256": "7d4fb0c37c2377d9540a68665b214cd3f6715eb4d54a3085e8e60a2daa10c1e1"
+    },
+    "operation-helper-identity.json": {
+      "bytes": 2441,
+      "sha256": "e4dcc5d05c1b3716f994c3abb455f3dd4aeb27c1753282d1b6c0631109e5f562"
+    },
+    "operation-plan.json": {
+      "bytes": 49302,
+      "sha256": "19de67aac9c827db6f44cdeb79fb6839654bf66799e22b65412e9fc34cc6f129"
+    },
+    "release-identity.json": {
+      "bytes": 22483,
+      "sha256": "86ec860cfd4f9848205a487249094c5d622ef2ccb2e9d3adf1ccbaf2b611f372"
+    },
+    "repaired-release-identity.json": {
+      "bytes": 23808,
+      "sha256": "08aebc12607a7849295ddf6392cfc7529427208bc925afd60e8da2eeea2cb7c2"
+    },
+    "supplemental-input-identity.json": {
+      "bytes": 471,
+      "sha256": "c7321d51443e771b231d79515f587b2cb4825e503d3aa80ce12ed9304cae3ada"
+    },
+    "supplemental-operation-plan.json": {
+      "bytes": 13880,
+      "sha256": "34580e1dfc75bab2a19f21bdd38d03e03b3bd3075e665420fd3ec0a105760242"
+    }
+  },
+  "no_more_product_operations": true,
+  "source_commit": "9d9c787c0d70a886f0938f45ea0408520248f31a",
+  "source_input_count": 1883,
+  "source_inventory_sha256": "12a9e0f8cf5bf9b953d7d1de2d3e6d318b2e9f75c53c4dd4e0a7dcc7eba78b8b"
+}
