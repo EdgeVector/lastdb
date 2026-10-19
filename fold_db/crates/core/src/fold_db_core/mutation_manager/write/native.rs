@@ -4,6 +4,7 @@ use super::super::molecules::{DeferredPersistJob, PreparedSchemaDelta};
 use super::*;
 use crate::db_operations::search_index::{IndexSink, SearchOutboxSink};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use futures::FutureExt;
 use std::sync::Arc;
 
 pub(super) struct NativeRequest<'a> {
@@ -95,15 +96,17 @@ impl MutationManager {
                     .record_read_stage("conditions-done", mutations.len());
                 // Keep the private multi-schema stage behind one future
                 // allocation instead of expanding it in every host caller.
-                let delta_count = Box::pin(self.stage_grouped_deltas(
-                    mutations,
-                    hashes,
-                    request.storage_prefix,
-                    &mut state.timing_breakdown,
-                    &mut state.stages,
-                    &request.runtime,
-                ))
-                .await?;
+                let delta_count = self
+                    .stage_grouped_deltas(
+                        mutations,
+                        hashes,
+                        request.storage_prefix,
+                        &mut state.timing_breakdown,
+                        &mut state.stages,
+                        &request.runtime,
+                    )
+                    .boxed()
+                    .await?;
                 request
                     .runtime
                     .record_read_stage("stored-stages-done", delta_count);
