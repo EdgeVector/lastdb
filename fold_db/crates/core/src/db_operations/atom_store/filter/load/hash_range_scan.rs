@@ -69,10 +69,7 @@ impl AtomStore {
         hash: &str,
         prefix: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        use crate::schema::types::field::FilterUtils;
-
-        // Per-byte OPE preserves byte-prefixes inside one spelling; do not mix
-        // encodings in one bound pair.
+        // Both supported encodings preserve the caller's byte prefix.
         if prefix.is_empty() {
             return self
                 .scan_hash_range_all_ranges(molecule_uuid, storage_prefix, hash)
@@ -85,19 +82,17 @@ impl AtomStore {
         let prefix = codec
             .storage_range(molecule_uuid, prefix)
             .map_err(codec_error)?;
-        let start =
+        let prefix =
             molecule_key_codec::hash_range_record_key(molecule_uuid, &storage_hash, &prefix);
-        let end = molecule_key_codec::hash_range_record_key(
-            molecule_uuid,
-            &storage_hash,
-            &FilterUtils::create_prefix_end(&prefix),
-        );
+        // Use the same prefix selector in memory and on disk. No synthetic
+        // upper bound needs to exist in the caller's text coordinates.
+        let prefixes = [prefix];
         match self
-            .preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
+            .preloaded_per_key_prefixes_for_api(&prefixes, storage_prefix, Some(hash))
             .await?
         {
             Some(rows) => Ok(rows),
-            None => self.scan_per_key_range(&start, &end, storage_prefix).await,
+            None => self.scan_per_key_prefixes(&prefixes, storage_prefix).await,
         }
     }
 

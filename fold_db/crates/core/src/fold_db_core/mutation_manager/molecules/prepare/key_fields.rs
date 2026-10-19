@@ -8,8 +8,8 @@ use crate::schema::SchemaError;
 use std::collections::HashMap;
 
 impl MutationManager {
-    /// Check omitted key fields and HashRange key conflicts before idempotency or
-    /// any schema group can publish. Preparation repeats the same check while
+    /// Check declared key fields before any source batch can prepare or publish.
+    /// Preparation repeats the same check while
     /// it adds omitted fields to its private mutation copy.
     pub(in crate::fold_db_core::mutation_manager) fn validate_key_field_payloads(
         &self,
@@ -55,10 +55,9 @@ impl MutationManager {
         mutation: &mut Mutation,
         key_value: &KeyValue,
     ) -> Result<(), SchemaError> {
-        for (role, field_name, coordinate) in
-            key_field_pairs(schema_name, schema, mutation, key_value)?
-                .into_iter()
-                .flatten()
+        for (field_name, coordinate) in key_field_pairs(schema_name, schema, mutation, key_value)?
+            .into_iter()
+            .flatten()
         {
             if let Some(value) = validated_materialized_key_field(
                 schema_name,
@@ -66,8 +65,6 @@ impl MutationManager {
                 mutation,
                 field_name,
                 coordinate,
-                role,
-                true,
             )? {
                 mutation
                     .fields_and_values
@@ -83,10 +80,9 @@ impl MutationManager {
         mutation: &Mutation,
         key_value: &KeyValue,
     ) -> Result<(), SchemaError> {
-        for (role, field_name, coordinate) in
-            key_field_pairs(schema_name, schema, mutation, key_value)?
-                .into_iter()
-                .flatten()
+        for (field_name, coordinate) in key_field_pairs(schema_name, schema, mutation, key_value)?
+            .into_iter()
+            .flatten()
         {
             validated_materialized_key_field(
                 schema_name,
@@ -94,43 +90,13 @@ impl MutationManager {
                 mutation,
                 field_name,
                 coordinate,
-                role,
-                false,
             )?;
         }
         Ok(())
     }
 }
 
-/// Which coordinate a declared key field carries.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum KeyRole {
-    Hash,
-    Range,
-}
-
-/// HashRange mutations whose explicit range-field value differed from the
-/// range coordinate and kept the payload value (process lifetime).
-static HASHRANGE_KEY_FIELD_CONFLICTS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
-/// Count one conflict and WARN on the 1st, 2nd, 4th, 8th, … so a writer that
-/// conflicts on every row (LastGit CI status) cannot flood the log.
-fn note_key_field_conflict(schema_name: &str, field_name: &str, payload: &str, coordinate: &str) {
-    let seen = HASHRANGE_KEY_FIELD_CONFLICTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-    if seen.is_power_of_two() {
-        tracing::warn!(
-            schema = schema_name,
-            field = field_name,
-            payload,
-            coordinate,
-            conflicts = seen,
-            "HashRange range field value differs from key_value; keeping the payload value"
-        );
-    }
-}
-
-type KeyFieldPairs<'a> = [Option<(KeyRole, &'a str, &'a str)>; 2];
+type KeyFieldPairs<'a> = [Option<(&'a str, &'a str)>; 2];
 
 fn key_field_pairs<'a>(
     schema_name: &str,
@@ -138,17 +104,15 @@ fn key_field_pairs<'a>(
     mutation: &Mutation,
     key_value: &'a KeyValue,
 ) -> Result<KeyFieldPairs<'a>, SchemaError> {
-    let hash_only = matches!(schema.schema_type, DeclarativeSchemaType::Hash);
-    if !hash_only && !matches!(schema.schema_type, DeclarativeSchemaType::HashRange) {
+    // Erasures remove tips or bodies and never materialize key-field atoms.
+    if !matches!(
+        mutation.mutation_type,
+        MutationType::Create | MutationType::Update
+    ) {
         return Ok([None, None]);
     }
-    // Hash erasures do not create atoms. Keep their existing key-only shape.
-    if hash_only
-        && !matches!(
-            mutation.mutation_type,
-            MutationType::Create | MutationType::Update
-        )
-    {
+    let hash_only = matches!(schema.schema_type, DeclarativeSchemaType::Hash);
+    if !hash_only && !matches!(schema.schema_type, DeclarativeSchemaType::HashRange) {
         return Ok([None, None]);
     }
     let hash_field = schema
@@ -168,7 +132,7 @@ fn key_field_pairs<'a>(
             mutation.uuid
         ))
     })?;
-    let hash = Some((KeyRole::Hash, hash_field, hash));
+    let hash = Some((hash_field, hash));
     if hash_only {
         return Ok([hash, None]);
     }
@@ -187,7 +151,7 @@ fn key_field_pairs<'a>(
             mutation.uuid
         ))
     })?;
-    Ok([hash, Some((KeyRole::Range, range_field, range))])
+    Ok([hash, Some((range_field, range))])
 }
 
 fn validated_materialized_key_field(
@@ -196,28 +160,13 @@ fn validated_materialized_key_field(
     mutation: &Mutation,
     field_name: &str,
     coordinate: &str,
-    role: KeyRole,
-    note_conflict: bool,
 ) -> Result<Option<serde_json::Value>, SchemaError> {
-    // Explicit Hash values retain their existing meaning, including values
-    // that differ from the caller's lookup key. Only an omitted field is filled.
-    if matches!(schema.schema_type, DeclarativeSchemaType::Hash)
-        && mutation.fields_and_values.contains_key(field_name)
-    {
-        return Ok(None);
-    }
     if !schema.runtime_fields.contains_key(field_name) {
         return Err(SchemaError::InvalidData(format!(
             "Schema '{schema_name}' key field '{field_name}' is not a runtime field"
         )));
     }
     if let Some(explicit) = mutation.fields_and_values.get(field_name) {
-        // A legacy tombstone is a control marker, not a caller-supplied key
-        // coordinate. Preserve it so bounded tombstone drains and old homes
-        // can still remove a key-field tip.
-        if crate::atom::is_tombstone_value(explicit) {
-            return Ok(None);
-        }
         let explicit_coordinate = scalar_key_coordinate(explicit).ok_or_else(|| {
             SchemaError::InvalidData(format!(
                 "Schema '{schema_name}' mutation {} key field '{field_name}' must be a scalar",
@@ -225,25 +174,10 @@ fn validated_materialized_key_field(
             ))
         })?;
         if explicit_coordinate != coordinate {
-            // A conflicting HASH field would store a row that partition reads
-            // on its own hash no longer return, so it stays refused.
-            if role == KeyRole::Hash {
-                return Err(SchemaError::InvalidData(format!(
-                    "Schema '{schema_name}' mutation {} key field '{field_name}' conflicts with key_value: payload={explicit_coordinate:?}, coordinate={coordinate:?}",
-                    mutation.uuid
-                )));
-            }
-            // A conflicting RANGE field keeps the caller's value, as before
-            // key-field materialization. Tom's primary (2026-09-29) has
-            // LastgitCiStatus with `range_field = event_id` (the
-            // CiStatus/CrEvent interleave), while LastGit writes range =
-            // `repo:oid:context` and a separate `event_id` lease value that
-            // its CAS reads back. Refusing failed every CI status write on a
-            // candidate build; overwriting with the coordinate would break the
-            // lease CAS. The row is still keyed by `key_value`.
-            if note_conflict {
-                note_key_field_conflict(schema_name, field_name, &explicit_coordinate, coordinate);
-            }
+            return Err(SchemaError::InvalidData(format!(
+                "Schema '{schema_name}' mutation {} key field '{field_name}' conflicts with key_value: payload={explicit_coordinate:?}, coordinate={coordinate:?}",
+                mutation.uuid
+            )));
         }
         return Ok(None);
     }

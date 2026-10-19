@@ -1,0 +1,31 @@
+{
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "binary_bytes": 68338192,
+  "binary_matches_manifest_and_expected": true,
+  "binary_sha256": "c57c4ec00fc465b9e7ae6d31a1b55d9703ddc96003f9ca78d4bcf77de9e8dfda",
+  "checked_utc": "2026-10-19T22:39:02.741992+00:00",
+  "git_source_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "e3e9c0f43a8de6201e9d4c9904f0616d7d32e689",
+    "source_files_checked": 1885,
+    "source_mismatches": []
+  },
+  "host_settings_match": true,
+  "inventory_hash_matches": true,
+  "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-contract-review-20261019/final-source-inputs/release-source.json",
+  "manifest_sha256": "28773beb3f0eb7434814f47715ecffd7740f90c6fe64cee01a2f4149e1a4b70c",
+  "passed": true,
+  "post_build_source_check_recorded": true,
+  "previous_attempt_manifests_match": true,
+  "prior_manifest_matches": true,
+  "release_state": "release_verified",
+  "removed_inputs_match": true,
+  "reviewer": "mutation_contract_round9",
+  "scope": "Independent source and normal release identity review. No product source edits, compiler invocation, node, test, primary or archive access.",
+  "second_source_snapshot_matches": true,
+  "source_commit": "e3e9c0f43a8de6201e9d4c9904f0616d7d32e689",
+  "source_head_unchanged": true,
+  "source_input_count": 1885,
+  "source_inventory_sha256": "86c7cff729a06a27df4eb50d7000d3412b5de98c90749789ce92402bf6ea0fa1",
+  "working_source_mismatches": []
+}

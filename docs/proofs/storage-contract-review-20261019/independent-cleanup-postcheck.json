@@ -1,0 +1,170 @@
+{
+  "accepted_stop_count": 8,
+  "actual_reclaim_executed_by_reviewer": false,
+  "checked_at_utc": "2026-10-19T22:53:38.875190+00:00",
+  "checks": {
+    "accepted_root_seal_unchanged": true,
+    "all_five_exact_roots_absent": true,
+    "all_recorded_pids_gone": true,
+    "all_sealed_receipts_unchanged": true,
+    "baseline_identity_unchanged": true,
+    "earlier_failure_remains_failure": true,
+    "eight_accepted_sessions_remain_normal": true,
+    "failed_attempt_seal_unchanged": true,
+    "failed_session_stays_unforced_exit1": true,
+    "no_process_command_references_owned_roots": true,
+    "operation_plan_unchanged": true,
+    "supported_previews_unchanged": true,
+    "three_supported_reclaims_complete": true
+  },
+  "complete": true,
+  "concerns": [],
+  "failed_stop_count": 1,
+  "owned_root_process_matches": [],
+  "process_inventory_returncode": 0,
+  "recorded_processes": [
+    {
+      "gone": true,
+      "pid": 10486,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 10491,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 12373,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 12799,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 14868,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 14871,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 15700,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 15704,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 15710,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 85335,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 85342,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 91223,
+      "ps_returncode": 1,
+      "stderr": "",
+      "stdout": ""
+    }
+  ],
+  "root_absence": {
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73": true,
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._7vkv5xx": true,
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j4c13hfb": true,
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q": true,
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.yjsspwd4": true
+  },
+  "scope": "Independent read-only postcheck after root executed supported exact cleanup. Failed named Purge503 with unforced exit1 remains failed; eight accepted sessions remain normal.",
+  "sealed_receipt_checks": {
+    "ordinary-ope-v1": {
+      ".synthetic-seed-owner.json": true,
+      "inputs.json": true,
+      "node.log": true,
+      "receipts.jsonl": true,
+      "result.json": true,
+      "retained-root.json": true
+    },
+    "ordinary-repaired-cohort": {
+      ".synthetic-seed-owner.json": true,
+      "inputs.json": true,
+      "node.log": true,
+      "receipts.jsonl": true,
+      "result.json": true,
+      "retained-root.json": true,
+      "summary.json": true
+    },
+    "ordinary-repaired-ope-v1": {
+      ".synthetic-seed-owner.json": true,
+      "inputs.json": true,
+      "node.log": true,
+      "receipts.jsonl": true,
+      "result.json": true,
+      "retained-root.json": true,
+      "summary.json": true
+    },
+    "ordinary-repaired-plain": {
+      ".synthetic-seed-owner.json": true,
+      "inputs.json": true,
+      "node.log": true,
+      "receipts.jsonl": true,
+      "result.json": true,
+      "retained-root.json": true,
+      "summary.json": true
+    }
+  },
+  "supported_cleanup": [
+    {
+      "pass": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.j4c13hfb"
+    },
+    {
+      "pass": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._7vkv5xx"
+    },
+    {
+      "pass": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.yjsspwd4"
+    }
+  ]
+}

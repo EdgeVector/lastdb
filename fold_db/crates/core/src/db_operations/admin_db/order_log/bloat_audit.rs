@@ -117,7 +117,7 @@ impl AtomStore {
     ) -> Result<bool, SchemaError> {
         // 2. Walk live keys, decide each molecule at its boundary.
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
         let mut page_start = after_key.map_or_else(|| mk_prefix.clone(), str::to_owned);
         let mut skip_head = after_key.map(str::to_owned);
         let mut range_exhausted = false;

@@ -51,7 +51,7 @@ impl AtomStore {
         // measuring, so it has to be part of what the budget measures.
         let pass_started = std::time::Instant::now();
         let mk_prefix = build_storage_key(storage_prefix, "mk:");
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
 
         let mut state = TombstoneAuditState {
             report: TombstoneFlagBackfillReport {

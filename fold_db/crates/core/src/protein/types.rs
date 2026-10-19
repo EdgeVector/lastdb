@@ -37,25 +37,17 @@ impl ProteinMember {
 
     /// Resolve tip coordinates from a write's field map.
     ///
-    /// Returns `None` when the hash field (or required range field) is missing
-    /// or empty — that member is skipped for this write.
+    /// Returns `None` only when a required field is missing. Empty strings and
+    /// whitespace are exact key coordinates, as on ordinary keyed writes.
     #[must_use]
     pub fn tip_coords_from_fields(
         &self,
         fields: &HashMap<String, String>,
     ) -> Option<(String, String)> {
-        let hash = fields
-            .get(&self.hash_field)
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())?;
-        let range = if let Some(rf) = self.range_field.as_deref() {
-            let rk = fields
-                .get(rf)
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())?;
-            rk
-        } else {
-            String::new()
+        let hash = fields.get(&self.hash_field)?.clone();
+        let range = match self.range_field.as_deref() {
+            Some(field) => fields.get(field)?.clone(),
+            None => String::new(),
         };
         Some((hash, range))
     }

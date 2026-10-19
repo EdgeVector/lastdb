@@ -51,7 +51,7 @@ impl MutationManager {
         storage_prefix: Option<&str>,
         cloud_policy: CloudCapturePolicy,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        self.validate_mutation_keys_and_layouts(&mutations)?;
+        self.validate_mutation_batch(&mutations)?;
         // This marker is the conservative bridge between the product write and
         // the attribution event. If a crash lands between them, a later walk
         // sees the marker and blocks reclaim for this exact source scope.

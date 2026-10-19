@@ -14,7 +14,7 @@ impl AtomStore {
         prefix: &str,
         what: &str,
     ) -> Result<(u64, u64), SchemaError> {
-        let end = FilterUtils::create_prefix_end(prefix);
+        let end = FilterUtils::create_prefix_end(prefix)?;
         let mut keys = 0u64;
         let mut bytes = 0u64;
         // `scan_range_paged`'s start bound is inclusive, so every page after the

@@ -1,0 +1,24 @@
+{
+  "actual_status": 503,
+  "cleanup_scope": "Failed runtime attempt, unforced exit1. Do not call this a successful normal run.",
+  "complete": false,
+  "error": "Valid named Purge returned503 after repeated reference-proof refusal. Expected200 stays unchanged.",
+  "expected_status": 200,
+  "failure_label": "named-purge-matching-condition",
+  "other_variants_not_started": [
+    "plain",
+    "cohort"
+  ],
+  "shutdown": [
+    {
+      "diagnostics": "off",
+      "exit_code": 1,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 85342,
+      "variant": "ope-v1"
+    }
+  ],
+  "source_head": "e3e9c0f43a8de6201e9d4c9904f0616d7d32e689",
+  "variant": "ope-v1"
+}

@@ -1,8 +1,8 @@
 //! The measured-footprint defence tick, split into its phases.
 //!
 //! [`defend_measured_footprint`] reads like the tick: sample the host, purge
-//! the allocator, refresh the governor snapshot, move the warm budget, run the
-//! stepwise eviction pass, then record the result. Each phase is a function
+//! the allocator, refresh the governor snapshot, purge clean logical records,
+//! then record the result. Each phase is a function
 //! here so the order stays visible and each phase owns one lock scope.
 
 #[path = "defend/pass.rs"]
@@ -17,7 +17,6 @@ use super::*;
 struct PressureLines {
     pressure_high: bool,
     pressure_target: u64,
-    pressure_hard: u64,
     evict_target_bytes: u64,
     state_hard_bytes: u64,
 }
@@ -29,7 +28,6 @@ impl PressureLines {
         Self {
             pressure_high,
             pressure_target,
-            pressure_hard,
             evict_target_bytes: if pressure_high {
                 pressure_target
             } else {
@@ -42,12 +40,6 @@ impl PressureLines {
             },
         }
     }
-
-    /// Pressure drain: while footprint is above the pressure target, a resident
-    /// set at the floor is not success.
-    fn suppress_floor(&self, footprint: u64) -> bool {
-        self.pressure_high && footprint > self.pressure_target
-    }
 }
 
 /// What the governor shows about shed and sticky holds after this tick's reset.
@@ -56,27 +48,8 @@ struct HoldState {
     shed_hold: bool,
 }
 
-fn warm_resident_bytes(host: &Host, default: u64) -> u64 {
-    host.db
-        .db_ops()
-        .read_cost()
-        .map_or(default, |c| c.warm_resident_bytes)
-}
-
-/// Evict idle warm groups and hold or grow the effective budget from a live
-/// physical-footprint sample. Never refuses a request.
-///
-/// Host pressure replaces the 10 / 12 / 8 GiB lines with a 4 GiB stop and a
-/// 6 GiB hard line. The eviction target is `resident - step` with no floor,
-/// and `fits` receives that post-step resident (never 0). The configured warm
-/// env stays the maximum. It is not passed to `fits` during the drain.
-///
-/// Pressure-clear keeps the 10 / 12 / 8 GiB backstop. The budget grows only
-/// after pressure has been clear and a scored purge left at most 512 MiB of
-/// slack inside `phys_footprint`, one 256 MiB step, capped at `min(env, 2 GiB)`.
-///
-/// A sticky trim brake does not skip the pressure loop. `sticky-cooldown` is
-/// only a pressure-clear state under the 10 GiB soft line.
+/// Remove clean native logical records while the process exceeds its pressure
+/// target. Measurements do not enforce a byte admission limit.
 pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
     let in_flight = uds_in_flight(host);
     let now = unix_secs();
@@ -89,23 +62,13 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
         purge_for_tick(in_flight, now, pressure_high, measured_footprint_bytes);
 
     maybe_capture_vmmap(&host.home, measured_footprint_bytes);
-    let store = host.db.db_ops().namespaced_store();
-    // Body budget is 0 for the whole time pressure is high, including after
-    // the drain stops under 4 GiB. This is not the drain-hold flag.
-    store.set_host_pressure_high(pressure_high);
-    let budget = fold_db::memory_budget::process_memory_budget();
-    let stats = store.warm_set_admission_stats().unwrap_or_default();
-    let resident = warm_resident_bytes(host, 0);
     let malloc = crate::allocator::occupancy();
     let footprint_net_bytes =
         fold_db::memory_budget::footprint_net_bytes(measured_footprint_bytes, malloc);
-    let (ram_bytes, purge_ok, purge_failed) = footprint_governor()
+    let (ram_bytes, purge_failed) = footprint_governor()
         .lock()
-        .map_or((0, false, false), |state| {
-            (state.ram_bytes, state.purge_ok, state.purge_failed)
-        });
+        .map_or((0, false), |state| (state.ram_bytes, state.purge_failed));
     let lines = PressureLines::new(pressure_high, ram_bytes);
-    let floor = fold_db::memory_budget::effective_warm_floor_bytes(budget.warm_bytes);
     // Stays until the next tick so a request that finishes before that tick
     // can collect. Do not clear it from a later reading in this same tick.
     crate::allocator::note_tick_over_slack_line(tick_over_slack_line(
@@ -129,38 +92,26 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
     // Shed cooldown skips eviction on a clear host. Pressure still drains:
     // the cooldown must not freeze an 11 GiB pin while the machine is in swap.
     if hold.shed_hold && !pressure_high {
-        store.set_warm_drain_hold(false);
         return;
     }
-
-    let mut ctx = EvictContext {
-        store: &*store,
-        lines,
-        warm_bytes: budget.warm_bytes,
-        charged_bytes: budget.charged_bytes,
-        floor,
-        clear_ceiling: stats.effective_warm_bytes,
-    };
-    let draining = pressure_high && !ctx.should_stop(measured_footprint_bytes, resident);
-    // Hold before the body trim. The point over-budget arm must not publish
-    // while this tick is about to lower the budget.
-    store.set_warm_drain_hold(draining);
-    adjust_budget_before_pass(
-        &mut ctx,
-        draining,
-        stats.effective_warm_bytes,
-        resident,
-        purge_ok,
-        measured_footprint_bytes,
-    );
-
-    let run_evict = draining
+    let run_evict = (pressure_high && measured_footprint_bytes > lines.evict_target_bytes)
         || (!pressure_high
             && measured_footprint_bytes > fold_db::memory_budget::FOOTPRINT_EVICT_SOFT_BYTES);
     if !run_evict {
-        store.set_warm_drain_hold(false);
         return;
     }
+    let Some(runtime) = host.db.db_ops().namespaced_store().disk_pack_runtime() else {
+        tracing::error!(target: "lastdbd::footprint", "native logical memory is unavailable");
+        return;
+    };
+    let memory = match runtime.memory_status() {
+        Ok(memory) => memory,
+        Err(error) => {
+            tracing::error!(target: "lastdbd::footprint", %error, "native memory measurement failed");
+            return;
+        }
+    };
+    let ctx = EvictContext { runtime, lines };
 
     let start = TickStart {
         now,
@@ -170,10 +121,9 @@ pub fn defend_measured_footprint(host: &Host, measured_footprint_bytes: u64) {
         initial_released,
         footprint_sticky: hold.footprint_sticky,
     };
-    // Re-read after the body trim. The stop check above used the pre-trim resident.
-    let pass = run_evict_pass(host, &ctx, &start, warm_resident_bytes(host, resident));
+    let pass = run_evict_pass(&ctx, &start, memory.warm.used_bytes as u64);
     finish_tick(&ctx, &pass, hold.shed_hold);
-    log_pass(&ctx, &pass, start.measured_footprint_bytes);
+    log_pass(&pass, start.measured_footprint_bytes);
 }
 
 fn trace_tick(
@@ -254,10 +204,9 @@ fn purge_for_tick(
                 // and purge() already collected it. Score this tick.
                 record_purge_score(&mut state, measured_footprint_bytes);
             } else {
-                // Workers may still hold freed pages. Do not score, and do
-                // not grow, until a later tick sees no request in flight.
+                // Workers may still hold freed pages. Score only after a
+                // later tick sees no request in flight.
                 state.purge_awaiting_collect = true;
-                state.purge_ok = false;
             }
         }
         note_host_pressure(&mut state);

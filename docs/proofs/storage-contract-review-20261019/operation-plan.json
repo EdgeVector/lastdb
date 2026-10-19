@@ -1,0 +1,2768 @@
+{
+  "cohort": {
+    "environment_override": {
+      "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "CoreOwnedWritesHashRange,ContractRange,ContractProteinRange"
+    },
+    "expected_read_calls": 74,
+    "expected_zero_file_checks": 29,
+    "scope": "Separate fresh home, same normal executable, existing helper unchanged. Selected CoreOwnedWritesHashRange follows its prior accepted cohort policy.",
+    "unchanged_helper": "docs/proofs/core-owned-writes-20261018/cohorts.py"
+  },
+  "comparison": "Exact status, record keys/order, requested field values and JSON types, and returned count. Compare only the requested field projection; existing core responses may include the declared hash helper. Save raw response before decode. Candidate stops first mismatch. Expected refusals change no batch member.",
+  "encoding_runs": [
+    "ope_v1",
+    "plain"
+  ],
+  "environment": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RESIDENT_KEY_CAP": "10000",
+    "LASTDB_RESIDENT_MAX_DEFERRED": "512",
+    "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "134217728",
+    "LASTDB_RESIDENT_PERSIST_MS": "500",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "ContractRange,ContractProteinRange"
+  },
+  "limits": [
+    "No throughput or whole-process memory bound claim.",
+    "Held and dirty pressure safety receives source review; ordinary shed uses completed calls.",
+    "Duplicate mutation IDs are library-only and receive source/compiler review.",
+    "Physical schema markers receive source review; ordinary queries check public membership."
+  ],
+  "preload_schemas": [
+    "ContractRange",
+    "ContractProteinRange"
+  ],
+  "reopen_reads": [
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 0,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "a-same"
+            },
+            "key": {
+              "hash": "a",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-0",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 1,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "b-same"
+            },
+            "key": {
+              "hash": "b",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-1",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 2,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "c-same"
+            },
+            "key": {
+              "hash": "c",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-2",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 0,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-c"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "c"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-0",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 1,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-b"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "b"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-1",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 2,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-a"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "a"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-2",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "x\udbff\udfff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-x\udbff\udfff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "\udbff\udfff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "all-max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-\udbff\udfff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "x\ud7ff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-x\ud7ff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": ""
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "empty"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": ""
+            }
+          },
+          {
+            "fields": {
+              "payload": "surrogate-successor"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\ue000"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 6,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "personal"
+            },
+            "key": {
+              "hash": "same-scope",
+              "range": "same-key"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "personal-survives-named-purge",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-purged-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "named-only",
+            "range": "r"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-deleted-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "personal-only",
+            "range": "r"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "personal-only"
+            },
+            "key": {
+              "hash": "personal-only",
+              "range": "r"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "personal-only-survives-refusal",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": " x ",
+            "range": "space-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "space-peer-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "",
+            "range": "empty-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "empty-peer-absent",
+      "path": "/api/query"
+    }
+  ],
+  "request_sequence": [
+    {
+      "body": {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "ContractHash",
+          "field_descriptions": {
+            "id": "ContractHash id",
+            "payload": "ContractHash payload"
+          },
+          "field_types": {
+            "id": "String",
+            "payload": "String"
+          },
+          "fields": [
+            "id",
+            "payload"
+          ],
+          "key": {
+            "hash_field": "id"
+          },
+          "name": "ContractHash",
+          "schema_type": "Hash",
+          "source": "system_seed"
+        }
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "declare-ContractHash",
+      "path": "/api/schemas/seed-system"
+    },
+    {
+      "body": {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "ContractRange",
+          "field_descriptions": {
+            "bucket": "ContractRange bucket",
+            "id": "ContractRange id",
+            "payload": "ContractRange payload"
+          },
+          "field_types": {
+            "bucket": "String",
+            "id": "String",
+            "payload": "String"
+          },
+          "fields": [
+            "bucket",
+            "id",
+            "payload"
+          ],
+          "key": {
+            "hash_field": "bucket",
+            "range_field": "id"
+          },
+          "name": "ContractRange",
+          "schema_type": "HashRange",
+          "source": "system_seed"
+        }
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "declare-ContractRange",
+      "path": "/api/schemas/seed-system"
+    },
+    {
+      "body": {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "ContractProteinHash",
+          "field_descriptions": {
+            "bucket": "Contract shared bucket",
+            "id": "Contract shared id",
+            "payload": "Contract shared payload"
+          },
+          "field_types": {
+            "bucket": "String",
+            "id": "String",
+            "payload": "String"
+          },
+          "fields": [
+            "bucket",
+            "id",
+            "payload"
+          ],
+          "key": {
+            "hash_field": "id"
+          },
+          "name": "ContractProteinHash",
+          "schema_type": "Hash",
+          "source": "system_seed"
+        }
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "declare-ContractProteinHash",
+      "path": "/api/schemas/seed-system"
+    },
+    {
+      "body": {
+        "isolated_copy": true,
+        "schema": {
+          "descriptive_name": "ContractProteinRange",
+          "field_descriptions": {
+            "bucket": "Contract shared bucket",
+            "id": "Contract shared id",
+            "payload": "Contract shared payload"
+          },
+          "field_types": {
+            "bucket": "String",
+            "id": "String",
+            "payload": "String"
+          },
+          "fields": [
+            "bucket",
+            "id",
+            "payload"
+          ],
+          "key": {
+            "hash_field": "bucket",
+            "range_field": "id"
+          },
+          "name": "ContractProteinRange",
+          "schema_type": "HashRange",
+          "source": "system_seed"
+        }
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "declare-ContractProteinRange",
+      "path": "/api/schemas/seed-system"
+    },
+    {
+      "body": {
+        "db_locator": "lastdb://org/contract-review/a",
+        "key_selection": "whole_schema",
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "catalog-ContractRange",
+      "path": "/api/db/catalog"
+    },
+    {
+      "body": {
+        "db_locator": "lastdb://org/contract-review/a",
+        "key_selection": "whole_schema",
+        "schema_name": "ContractProteinHash"
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "catalog-ContractProteinHash",
+      "path": "/api/db/catalog"
+    },
+    {
+      "body": {
+        "db_locator": "lastdb://org/contract-review/a",
+        "key_selection": "whole_schema",
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "status": 200
+      },
+      "headers": {},
+      "label": "catalog-ContractProteinRange",
+      "path": "/api/db/catalog"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "a-same"
+            },
+            "key_value": {
+              "hash": "a",
+              "range": "same"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "b-same"
+            },
+            "key_value": {
+              "hash": "b",
+              "range": "same"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "c-same"
+            },
+            "key_value": {
+              "hash": "c",
+              "range": "same"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "fixed-a"
+            },
+            "key_value": {
+              "hash": "fixed",
+              "range": "a"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "fixed-b"
+            },
+            "key_value": {
+              "hash": "fixed",
+              "range": "b"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "fixed-c"
+            },
+            "key_value": {
+              "hash": "fixed",
+              "range": "c"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "max"
+            },
+            "key_value": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "max-extension"
+            },
+            "key_value": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "surrogate-successor"
+            },
+            "key_value": {
+              "hash": "unicode",
+              "range": "x\ue000"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "all-max"
+            },
+            "key_value": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "all-max-extension"
+            },
+            "key_value": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "empty"
+            },
+            "key_value": {
+              "hash": "unicode",
+              "range": ""
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "personal"
+            },
+            "key_value": {
+              "hash": "same-scope",
+              "range": "same-key"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "personal-only"
+            },
+            "key_value": {
+              "hash": "personal-only",
+              "range": "r"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "hash-existing"
+            },
+            "key_value": {
+              "hash": "existing"
+            },
+            "mutation_type": "create",
+            "schema": "ContractHash",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "bucket": " x ",
+              "payload": "space-value"
+            },
+            "key_value": {
+              "hash": "space-source"
+            },
+            "mutation_type": "create",
+            "schema": "ContractProteinHash",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "bucket": "",
+              "payload": "empty-value"
+            },
+            "key_value": {
+              "hash": "empty-source"
+            },
+            "mutation_type": "create",
+            "schema": "ContractProteinHash",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "count": 17,
+        "status": 200
+      },
+      "headers": {},
+      "label": "seed-personal",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "named"
+            },
+            "key_value": {
+              "hash": "same-scope",
+              "range": "same-key"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "named-only"
+            },
+            "key_value": {
+              "hash": "named-only",
+              "range": "r"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "count": 2,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "seed-named",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 0,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "a-same"
+            },
+            "key": {
+              "hash": "a",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-0",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 1,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "b-same"
+            },
+            "key": {
+              "hash": "b",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-1",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 2,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "c-same"
+            },
+            "key": {
+              "hash": "c",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-2",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 0,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-c"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "c"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-0",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 1,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-b"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "b"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-1",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 2,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-a"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "a"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-2",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "x\udbff\udfff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-x\udbff\udfff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "\udbff\udfff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "all-max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-\udbff\udfff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "x\ud7ff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-x\ud7ff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": ""
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "empty"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": ""
+            }
+          },
+          {
+            "fields": {
+              "payload": "surrogate-successor"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\ue000"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 6,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": " x ",
+            "range": "space-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "space-value"
+            },
+            "key": {
+              "hash": " x ",
+              "range": "space-source"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "space-related-key-exact",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "x",
+            "range": "space-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "space-trimmed-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "",
+            "range": "empty-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "empty-value"
+            },
+            "key": {
+              "hash": "",
+              "range": "empty-source"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "empty-related-key-exact",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "should-not-write"
+            },
+            "key_value": {
+              "hash": "must-stay-absent-refused-hash"
+            },
+            "mutation_type": "create",
+            "schema": "ContractHash",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "id": "different",
+              "payload": "bad"
+            },
+            "key_value": {
+              "hash": "refused-hash"
+            },
+            "mutation_type": "create",
+            "schema": "ContractHash",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "status": 400
+      },
+      "headers": {},
+      "label": "refuse-refused-hash",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "must-stay-absent-refused-hash"
+        },
+        "limit": 16,
+        "schema_name": "ContractHash"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "refuse-refused-hash-valid-sibling-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "refused-hash"
+        },
+        "limit": 16,
+        "schema_name": "ContractHash"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "refuse-refused-hash-target-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "should-not-write"
+            },
+            "key_value": {
+              "hash": "must-stay-absent-conflict"
+            },
+            "mutation_type": "create",
+            "schema": "ContractHash",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "id": "different",
+              "payload": "bad"
+            },
+            "key_value": {
+              "hash": "conflict",
+              "range": "real"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "status": 400
+      },
+      "headers": {},
+      "label": "refuse-conflict",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "must-stay-absent-conflict"
+        },
+        "limit": 16,
+        "schema_name": "ContractHash"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "refuse-conflict-valid-sibling-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "conflict",
+            "range": "real"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "refuse-conflict-target-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "payload": "should-not-write"
+            },
+            "key_value": {
+              "hash": "must-stay-absent-conflict-hash"
+            },
+            "mutation_type": "create",
+            "schema": "ContractHash",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {
+              "bucket": "different",
+              "payload": "bad"
+            },
+            "key_value": {
+              "hash": "conflict-hash",
+              "range": "real"
+            },
+            "mutation_type": "create",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "status": 400
+      },
+      "headers": {},
+      "label": "refuse-conflict-hash",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "must-stay-absent-conflict-hash"
+        },
+        "limit": 16,
+        "schema_name": "ContractHash"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "refuse-conflict-hash-valid-sibling-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "conflict-hash",
+            "range": "real"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "refuse-conflict-hash-target-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "expected": {
+              "field": "payload",
+              "type": "value",
+              "value": "wrong"
+            },
+            "fields_and_values": {},
+            "key_value": {
+              "hash": "same-scope",
+              "range": "same-key"
+            },
+            "mutation_type": "purge",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "status": 409
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "purge-condition-refusal",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "named"
+            },
+            "key": {
+              "hash": "same-scope",
+              "range": "same-key"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-survives-refused-purge",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {},
+            "key_value": {
+              "hash": "named-only",
+              "range": "r"
+            },
+            "must_exist": true,
+            "mutation_type": "delete",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-only-delete-must-exist",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {},
+            "key_value": {
+              "hash": "personal-only",
+              "range": "r"
+            },
+            "must_exist": true,
+            "mutation_type": "delete",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "status": 400
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "personal-only-named-delete-refused",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "expected": {
+              "field": "payload",
+              "type": "value",
+              "value": "named"
+            },
+            "fields_and_values": {},
+            "key_value": {
+              "hash": "same-scope",
+              "range": "same-key"
+            },
+            "must_exist": true,
+            "mutation_type": "purge",
+            "schema": "ContractRange",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-purge-matching-condition",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "mutations": [
+          {
+            "durability": "queued",
+            "fields_and_values": {},
+            "key_value": {
+              "hash": "space-source"
+            },
+            "mutation_type": "delete",
+            "schema": "ContractProteinHash",
+            "type": "mutation"
+          },
+          {
+            "durability": "queued",
+            "fields_and_values": {},
+            "key_value": {
+              "hash": "empty-source"
+            },
+            "mutation_type": "delete",
+            "schema": "ContractProteinHash",
+            "type": "mutation"
+          }
+        ]
+      },
+      "expected": {
+        "count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "delete-exact-related-key-sources",
+      "path": "/api/mutations/batch"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "personal"
+            },
+            "key": {
+              "hash": "same-scope",
+              "range": "same-key"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "personal-survives-named-purge",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-purged-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "named-only",
+            "range": "r"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-deleted-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "personal-only",
+            "range": "r"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "personal-only"
+            },
+            "key": {
+              "hash": "personal-only",
+              "range": "r"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "personal-only-survives-refusal",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": " x ",
+            "range": "space-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "space-peer-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "",
+            "range": "empty-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "empty-peer-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {},
+      "expected": {
+        "positive": [
+          "shed.logical_records_purged",
+          "shed.warm_bytes_before",
+          "shed.native_memory.definition_bytes"
+        ],
+        "shed": {
+          "deferred_idle": true,
+          "error": null,
+          "target_met": true,
+          "warm_bytes_after": 0
+        },
+        "status": 200
+      },
+      "headers": {},
+      "label": "native-memory-shed",
+      "path": "/api/admin/shed"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 0,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "a-same"
+            },
+            "key": {
+              "hash": "a",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-0",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 1,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "b-same"
+            },
+            "key": {
+              "hash": "b",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-1",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKeys": [
+            [
+              "c",
+              "same"
+            ],
+            [
+              "a",
+              "same"
+            ],
+            [
+              "b",
+              "same"
+            ]
+          ]
+        },
+        "limit": 1,
+        "offset": 2,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "c-same"
+            },
+            "key": {
+              "hash": "c",
+              "range": "same"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tie-2",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 0,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-c"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "c"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-0",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 1,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-b"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "b"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-1",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashKey": "fixed"
+        },
+        "include_tombstones": true,
+        "limit": 1,
+        "offset": 2,
+        "schema_name": "ContractRange",
+        "sort_order": "desc"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "fixed-a"
+            },
+            "key": {
+              "hash": "fixed",
+              "range": "a"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "descending-tombstone-countless-2",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "x\udbff\udfff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-x\udbff\udfff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "\udbff\udfff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "all-max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 2,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-\udbff\udfff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": "x\ud7ff"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-x\ud7ff",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangePrefix": {
+            "hash": "unicode",
+            "prefix": ""
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "empty"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": ""
+            }
+          },
+          {
+            "fields": {
+              "payload": "surrogate-successor"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\ue000"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "x\udbff\udfffa"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfff"
+            }
+          },
+          {
+            "fields": {
+              "payload": "all-max-extension"
+            },
+            "key": {
+              "hash": "unicode",
+              "range": "\udbff\udfffa"
+            }
+          }
+        ],
+        "returned_count": 6,
+        "status": 200
+      },
+      "headers": {},
+      "label": "prefix-",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "personal"
+            },
+            "key": {
+              "hash": "same-scope",
+              "range": "same-key"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "personal-survives-named-purge",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "same-scope",
+            "range": "same-key"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-purged-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "named-only",
+            "range": "r"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {
+        "X-LastDB-Db": "lastdb://org/contract-review/a"
+      },
+      "label": "named-deleted-key-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "personal-only",
+            "range": "r"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractRange"
+      },
+      "expected": {
+        "records": [
+          {
+            "fields": {
+              "payload": "personal-only"
+            },
+            "key": {
+              "hash": "personal-only",
+              "range": "r"
+            }
+          }
+        ],
+        "returned_count": 1,
+        "status": 200
+      },
+      "headers": {},
+      "label": "personal-only-survives-refusal",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": " x ",
+            "range": "space-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "space-peer-absent",
+      "path": "/api/query"
+    },
+    {
+      "body": {
+        "fields": [
+          "payload"
+        ],
+        "filter": {
+          "HashRangeKey": {
+            "hash": "",
+            "range": "empty-source"
+          }
+        },
+        "limit": 16,
+        "schema_name": "ContractProteinRange"
+      },
+      "expected": {
+        "records": [],
+        "returned_count": 0,
+        "status": 200
+      },
+      "headers": {},
+      "label": "empty-peer-absent",
+      "path": "/api/query"
+    }
+  ],
+  "source_policy": "Frozen source, normal release, unchanged existing helpers only. Fresh empty synthetic homes. No tests, fault injection, primary, old home, or cloud.",
+  "version": 1
+}

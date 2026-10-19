@@ -1,0 +1,94 @@
+{
+  "actual_reclaim_executed": false,
+  "all_checks_pass": true,
+  "bounded_root_entry_count": 634,
+  "bounded_tree_max_depth": 8,
+  "checks": {
+    "all_bounded_entries_owned_no_symlinks": true,
+    "all_recorded_processes_gone": true,
+    "all_sealed_receipts_match": true,
+    "failed_runtime_outcome_preserved": true,
+    "marker_exact_copy": true,
+    "marker_private_regular_file": true,
+    "no_open_owned_root_files_or_sockets": true,
+    "no_socket_files_remain": true,
+    "not_a_successful_normal_session": true,
+    "private_binary_matches_execution": true,
+    "recorded_failure_is_raw_503": true,
+    "root_directory_not_symlink": true,
+    "root_exact_realpath": true,
+    "root_identity_matches_marker": true,
+    "root_private_mode": true,
+    "root_receipts_match_seal": true,
+    "seal_preserves_failure": true,
+    "unforced_exit1_stop_receipt_matches": true
+  },
+  "kind": "independent failed-product-attempt cleanup review",
+  "lsof": {
+    "returncode": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "ready_for_exact_reclaim": true,
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-contract-review-20261019/ordinary-ope-v1",
+  "recorded_processes": [
+    {
+      "gone": true,
+      "pid": 85335,
+      "ps_returncode": 1,
+      "ps_stderr": "",
+      "ps_stdout": ""
+    },
+    {
+      "gone": true,
+      "pid": 85342,
+      "ps_returncode": 1,
+      "ps_stderr": "",
+      "ps_stdout": ""
+    }
+  ],
+  "reviewed_at_utc": "2026-10-19T22:43:49.932409+00:00",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73",
+  "root_receipts": {
+    ".synthetic-seed-owner.json": true,
+    "inputs.json": true,
+    "receipts.jsonl": true
+  },
+  "root_stat": {
+    "device": 16777231,
+    "inode": 1470227265,
+    "mode": "0o700",
+    "uid": 501
+  },
+  "seal_sha256": "8233e2bf7a90bc611c719cf7af5582e9f7cbc0ba3b117ca89a3018af4f0df7f8",
+  "sealed_receipts": {
+    ".synthetic-seed-owner.json": {
+      "bytes_match": true,
+      "sha256_match": true
+    },
+    "inputs.json": {
+      "bytes_match": true,
+      "sha256_match": true
+    },
+    "node.log": {
+      "bytes_match": true,
+      "sha256_match": true
+    },
+    "receipts.jsonl": {
+      "bytes_match": true,
+      "sha256_match": true
+    },
+    "result.json": {
+      "bytes_match": true,
+      "sha256_match": true
+    },
+    "retained-root.json": {
+      "bytes_match": true,
+      "sha256_match": true
+    }
+  },
+  "socket_paths": [],
+  "supported_preview_receipt": "failed-cleanup-supported-preview.json",
+  "supported_preview_sha256": "bb935b3d3e57b21d200af06c5ca47a1408ac1936d893843b6e0cc8c4d9483f14",
+  "validation_status": "FAILED: valid named Purge returned503; unforced runtime exit1. This is not accepted validation or a normal successful session."
+}

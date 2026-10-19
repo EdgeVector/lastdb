@@ -1,0 +1,193 @@
+{
+  "accepted_node_sessions_normal_stopped": 8,
+  "binary_sha256": "e59db226ac5eea1cdef524dffaf48ad8c07302b377529e3e087a31e4e41a592b",
+  "cohort": {
+    "concurrent_requested_and_observed_revision_counts": {
+      "21:20": 12,
+      "22:21": 12,
+      "23:22": 12
+    },
+    "evidence_scope": "Existing unchanged helper records decoded product responses and read receipts, not raw HTTP bytes.",
+    "fields_membership_types_and_bounded_order_recomputed": true,
+    "normal_node_stops": [
+      {
+        "exit_code": 0,
+        "forced_kill": false,
+        "pid": 14871
+      },
+      {
+        "exit_code": 0,
+        "forced_kill": false,
+        "pid": 15700
+      },
+      {
+        "exit_code": 0,
+        "forced_kill": false,
+        "pid": 15704
+      },
+      {
+        "exit_code": 0,
+        "forced_kill": false,
+        "pid": 15710
+      }
+    ],
+    "read_observations": 74,
+    "read_records_checked": 3363,
+    "receipts_sha256": "100fac5687a2bdaedbbc4c151df97fab66b0bccd3243ce7e8e40d27270007ec2",
+    "result_sha256": "b4ccb03038c9100adc03e02a87f05ddb2934b6eaa1b571e5a160733d79a153fe",
+    "strict_zero_file_checks": 29,
+    "zero_file_receipts_recomputed": true
+  },
+  "comparison": "Canonical JSON equality of literal expected records with exactly requested projected fields. No type coercion, missing-field fallback, unordered result comparison, or changed expectations. Only the unchanged concurrent cohort explicitly permits one prior/current complete state.",
+  "failed_result_sha256": "8eb3b64d7c7dbeaabfd897b313c4e1e19bd17ef47cbc9a53179fae3da5ba3ed6",
+  "limitations": [
+    "No throughput or whole-process memory bound claim.",
+    "Held and dirty pressure safety receives source review; ordinary shed uses completed calls.",
+    "Duplicate mutation IDs are library-only and receive source/compiler review.",
+    "Physical schema markers receive source review; ordinary queries check public membership."
+  ],
+  "no_new_product_operations": true,
+  "ordinary": [
+    {
+      "literal_requests_statuses_keys_order_requested_typed_fields_verified": true,
+      "non_json_refusals": [
+        "personal-only-named-delete-refused",
+        "refuse-conflict",
+        "refuse-conflict-hash",
+        "refuse-refused-hash"
+      ],
+      "normal_node_stops": [
+        {
+          "exit_code": 0,
+          "forced_kill": false,
+          "pid": 10491
+        },
+        {
+          "exit_code": 0,
+          "forced_kill": false,
+          "pid": 12373
+        }
+      ],
+      "passed_observations": 92,
+      "phases": {
+        "main": 60,
+        "reopen-cold": 16,
+        "reopen-warm": 16
+      },
+      "raw_content_lengths_valid": true,
+      "raw_http_responses": 31,
+      "raw_journal_precedes_derived_results": true,
+      "receipts_sha256": "5b32ce2176b3d7622513b15f9195ab1dc09437be440c84f4b38b83b0d3425dfe",
+      "result_sha256": "d55bae54d448a9cd5ccfc9965f66cd57974cc4c9897f2b6c481f75632107130d",
+      "shed": {
+        "deferred_idle": true,
+        "effective_warm_bytes": 0,
+        "error": null,
+        "groups_evicted": 0,
+        "logical_records_purged": 76,
+        "malloc_bytes_released": 0,
+        "native_memory": {
+          "complete_key_bytes": 64262,
+          "definition_bytes": 273853,
+          "held_logical_records": 0,
+          "logical_records": 0,
+          "unflushed_logical_records": 0,
+          "warm": {
+            "atom_bytes": 0,
+            "dirty_bytes": 0,
+            "dirty_limit_bytes": 67108850,
+            "held_bytes": 0,
+            "limit_bytes": 268435456,
+            "link_bytes": 0,
+            "path_bytes": 0,
+            "peak_bytes": 621360,
+            "slot_bytes": 0,
+            "tracked_atoms": 0,
+            "used_bytes": 0
+          },
+          "write_metadata_bytes": 0
+        },
+        "phys_footprint_bytes": 99993064,
+        "target_met": true,
+        "target_warm_bytes": 0,
+        "warm_bytes_after": 0,
+        "warm_bytes_before": 604848
+      },
+      "variant": "ope-v1"
+    },
+    {
+      "literal_requests_statuses_keys_order_requested_typed_fields_verified": true,
+      "non_json_refusals": [
+        "personal-only-named-delete-refused",
+        "refuse-conflict",
+        "refuse-conflict-hash",
+        "refuse-refused-hash"
+      ],
+      "normal_node_stops": [
+        {
+          "exit_code": 0,
+          "forced_kill": false,
+          "pid": 12799
+        },
+        {
+          "exit_code": 0,
+          "forced_kill": false,
+          "pid": 14868
+        }
+      ],
+      "passed_observations": 92,
+      "phases": {
+        "main": 60,
+        "reopen-cold": 16,
+        "reopen-warm": 16
+      },
+      "raw_content_lengths_valid": true,
+      "raw_http_responses": 31,
+      "raw_journal_precedes_derived_results": true,
+      "receipts_sha256": "30f8ef7a3393508d8575e9ccedf793cc0ccb2c727413a8dffc949601de971962",
+      "result_sha256": "78e49b629450d32145dd015c3fcfaf15bba452f281e6d95c5bffc729821a6d6f",
+      "shed": {
+        "deferred_idle": true,
+        "effective_warm_bytes": 0,
+        "error": null,
+        "groups_evicted": 0,
+        "logical_records_purged": 76,
+        "malloc_bytes_released": 0,
+        "native_memory": {
+          "complete_key_bytes": 63990,
+          "definition_bytes": 273853,
+          "held_logical_records": 0,
+          "logical_records": 0,
+          "unflushed_logical_records": 0,
+          "warm": {
+            "atom_bytes": 0,
+            "dirty_bytes": 0,
+            "dirty_limit_bytes": 67108850,
+            "held_bytes": 0,
+            "limit_bytes": 268435456,
+            "link_bytes": 0,
+            "path_bytes": 0,
+            "peak_bytes": 608128,
+            "slot_bytes": 0,
+            "tracked_atoms": 0,
+            "used_bytes": 0
+          },
+          "write_metadata_bytes": 0
+        },
+        "phys_footprint_bytes": 99730920,
+        "target_met": true,
+        "target_warm_bytes": 0,
+        "warm_bytes_after": 0,
+        "warm_bytes_before": 591616
+      },
+      "variant": "plain"
+    }
+  ],
+  "original_failed_candidate": "Preserved separately as ordinary-ope-v1. Original503 and unforced exit1 remain failures and are not included in repaired pass counts.",
+  "plan_sha256": "63ab1e74287b40dde2c201cd54d33b372295d5ecac7b5dd0a0384e0cb4c1ab03",
+  "raw_evidence_scope": "Both contract runs retain original status, request, scope headers, response headers and valid base64 bytes for every ordinary HTTP operation. This audit independently decodes saved bytes. Journal persistence precedes derived result files; original process decode time is not independently timestamped. Four expected400 refusals per variant contain plain text, preserved and checked by status and literal unchanged request.",
+  "review": "PASS",
+  "reviewed_utc": "2026-10-19T22:54:26.262198+00:00",
+  "source_commit": "7d57939888b39f7651331c81f6aa9346d25995bd",
+  "version": 1
+}

@@ -1,11 +1,9 @@
-//! Measured-footprint LRU defence and operator shed.
+//! Native logical memory relief and measured process-memory reports.
 //!
-//! The node never refuses a request because memory is high. When the host is
-//! under memory pressure, or `phys_footprint` crosses the soft line, it evicts
-//! idle warm groups in LRU order, holds the effective warm budget at the
-//! post-step resident, and asks malloc to return free pages. `/api/admin/shed`
-//! is the same path driven by the external guard. The configured warm env is
-//! a maximum. It is not the budget `fits` sees during a pressure drain.
+//! Pressure removes least-recently-used clean logical records and asks the
+//! allocator to return free pages. Held and unflushed records stay protected.
+//! Definitions and complete keys retain their separate allowances. This does
+//! not turn the stage-one warm byte measurement into an admission limit.
 
 use fold_db::clock::unix_secs;
 use std::path::Path;

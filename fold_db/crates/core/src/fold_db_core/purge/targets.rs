@@ -67,6 +67,8 @@ pub(super) fn plan_targets(
         .ok_or_else(|| {
             SchemaError::InvalidData(format!("Schema '{schema_name}' not found for erase"))
         })?;
+    // Definitions are global; every data load uses the selected database.
+    crate::fold_db_core::mutation_manager::helpers::clear_storage_prefix_on_schema(&mut schema);
     crate::fold_db_core::mutation_manager::helpers::apply_storage_prefix_to_schema(
         &mut schema,
         storage_prefix,

@@ -186,7 +186,7 @@ impl AtomStore {
             storage_prefix,
             &molecule_key_codec::molecule_record_prefix(molecule),
         );
-        let mol_end = FilterUtils::create_prefix_end(&mol_prefix);
+        let mol_end = FilterUtils::create_prefix_end(&mol_prefix)?;
         let rows = self
             .raw()
             .inner()

@@ -50,7 +50,7 @@ pub struct CoreWarmByteStats {
 }
 
 impl WarmBytes {
-    fn used(&self) -> usize {
+    pub(super) fn used(&self) -> usize {
         self.atom_bytes + self.path_bytes + self.slot_bytes + self.link_bytes
     }
 
@@ -69,6 +69,18 @@ impl WarmBytes {
         });
         self.atom_bytes -= freed;
         self.tracks_since_sweep = 0;
+    }
+
+    pub(super) fn release_dead_atom(&mut self, key: usize) {
+        if self
+            .atoms
+            .get(&key)
+            .is_some_and(|tracked| tracked.atom.strong_count() == 0)
+        {
+            if let Some(tracked) = self.atoms.remove(&key) {
+                self.atom_bytes -= tracked.bytes;
+            }
+        }
     }
 }
 

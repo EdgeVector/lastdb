@@ -21,7 +21,7 @@ impl AtomStore {
         }
         let pass_started = std::time::Instant::now();
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
-        let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
+        let mk_end = FilterUtils::create_prefix_end(&mk_prefix)?;
         let mut state = KeyForkAuditState {
             report: LegacyKeyForkAudit {
                 dry_run,

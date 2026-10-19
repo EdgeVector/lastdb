@@ -32,7 +32,7 @@ impl AtomStore {
 
         let pass_started = std::time::Instant::now();
         let prefix = build_storage_key(storage_prefix, "mk:");
-        let end = FilterUtils::create_prefix_end(&prefix);
+        let end = FilterUtils::create_prefix_end(&prefix)?;
         let mut stats = TipFormatStats::default();
         let mut page_start = after_key.map_or_else(|| prefix.clone(), str::to_owned);
         let mut skip_head = after_key.map(str::to_owned);
@@ -146,7 +146,7 @@ impl AtomStore {
         }
         let pass_started = std::time::Instant::now();
         let prefix = build_storage_key(storage_prefix, "mk:");
-        let end = FilterUtils::create_prefix_end(&prefix);
+        let end = FilterUtils::create_prefix_end(&prefix)?;
 
         let mut report = ThinTipMigrateReport {
             dry_run,

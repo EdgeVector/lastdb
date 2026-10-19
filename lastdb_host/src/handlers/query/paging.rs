@@ -146,6 +146,18 @@ pub(in crate::handlers) fn can_push_down_key_restricted(query: &Query) -> bool {
     is_key_restricted_filter(query.filter.as_ref()) && has_no_post_key_stage(query)
 }
 
+/// Reversing one ascending key window also reverses its hash ties.
+pub(in crate::handlers) fn descending_cross_hash_batch(query: &Query) -> bool {
+    if !matches!(query.sort_order, Some(SortOrder::Desc)) {
+        return false;
+    }
+    let Some(HashRangeFilter::HashRangeKeys(keys)) = &query.filter else {
+        return false;
+    };
+    keys.first()
+        .is_some_and(|(hash, _)| keys.iter().any(|(other, _)| other != hash))
+}
+
 /// The exact keyed count is required only for a descending offset page, where
 /// it chooses the window from the high end, or when a caller asks the node to
 /// verify a keyed COUNT assertion. Ordinary ascending keyed pages use a cursor

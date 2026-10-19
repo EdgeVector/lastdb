@@ -167,6 +167,11 @@ impl CoreWarmSet {
     }
 
     fn install_owned(&mut self, path: &CorePath, value: Arc<CoreModelSlot>, sequence: Option<u64>) {
+        // The immutable slot/root retains this allocation even if admission
+        // shares an equal current atom. Both allocations must stay measured.
+        if let Some(slot) = &value.value {
+            self.track_atom(&slot.atom);
+        }
         let result = match &value.value {
             Some(slot) => self.admit(path, slot.clone(), sequence),
             None => self.admit_absent(path, sequence),
