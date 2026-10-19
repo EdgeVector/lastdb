@@ -14,12 +14,12 @@ use crate::schema::{SchemaCore, SchemaState};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::hash_range_query::{HashRangeQueryProcessor, HashRangeWatch, HashRangeWatchBounds};
-use value_filters::apply_value_filters;
+use super::hash_range_query::{
+    FieldQueryOptions, HashRangeQueryProcessor, HashRangeWatch, HashRangeWatchBounds,
+};
 
 mod current;
 mod run;
-mod value_filters;
 
 /// Main query executor that handles all query operations
 pub struct QueryExecutor {

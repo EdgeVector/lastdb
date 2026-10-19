@@ -42,6 +42,7 @@ mod secondary;
 mod shares;
 mod watch;
 
+pub use filter::FieldQueryOptions;
 use predicates::*;
 pub(crate) use shares::preload_receiver_controls;
 pub use watch::*;

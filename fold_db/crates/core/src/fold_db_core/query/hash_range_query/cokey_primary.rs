@@ -57,6 +57,8 @@ impl HashRangeQueryProcessor {
         // Prefix both returned the union (12 = 5 out + 7 in).
         let had_named_spine_keys = !page_keys.is_empty();
         Self::retain_named_layout_primary(
+            schema,
+            &primary_name,
             &filter,
             &mut primary_vals,
             &mut page_keys,

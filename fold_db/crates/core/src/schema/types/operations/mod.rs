@@ -5,9 +5,10 @@ use serde_json::Value;
 
 /// Numeric comparison filters for field values.
 ///
-/// These filters are applied post-fetch on the actual field content (atom values),
-/// unlike `HashRangeFilter` which operates on key structure at the molecule level.
-/// Multiple `ValueFilter`s on a query are AND'd together.
+/// These filters compare current field values independently of the projection,
+/// unlike `HashRangeFilter` which selects molecule keys. Multiple filters are
+/// AND'd before ordering and `predicate_limit`. Missing values remain accepted;
+/// a concrete non-numeric value fails its comparison.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ValueFilter {
     /// field value > threshold
@@ -139,7 +140,8 @@ pub struct Query {
     pub rehydrate_depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<SortOrder>,
-    /// Post-fetch numeric filters on field values. Multiple filters are AND'd.
+    /// Numeric conditions on current fields, independent of the projection.
+    /// Multiple filters are AND'd before `order_by` and `predicate_limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value_filters: Option<Vec<ValueFilter>>,
     /// Two-pass field predicates. Serialized as `where` for the owner-socket
@@ -150,7 +152,7 @@ pub struct Query {
     /// Optional field ordering for the two-pass candidate set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<QueryOrderBy>,
-    /// Optional cap applied after field predicates and `order_by`, before the
+    /// Optional cap after field and numeric conditions and `order_by`, before the
     /// projection pass. Named separately from `/api/query` pagination `limit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub predicate_limit: Option<usize>,

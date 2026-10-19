@@ -8,11 +8,15 @@ impl HashRangeQueryProcessor {
         &self,
         schema: &Schema,
         predicates: &[FieldPredicate],
+        value_filters: &[crate::schema::types::ValueFilter],
         order_by: Option<&QueryOrderBy>,
     ) -> Result<Vec<String>, SchemaError> {
         let mut fields = Vec::new();
         for predicate in predicates {
             fields.push(predicate.field_name().to_string());
+        }
+        for filter in value_filters {
+            fields.push(filter.field_name().to_string());
         }
         if let Some(order_by) = order_by {
             fields.push(order_by.field.clone());
@@ -51,7 +55,7 @@ impl HashRangeQueryProcessor {
         for field in &fields {
             if !schema.runtime_fields.contains_key(field) {
                 return Err(SchemaError::InvalidField(format!(
-                    "field predicate references unknown field '{field}' on schema '{}'",
+                    "query condition references unknown field '{field}' on schema '{}'",
                     schema.name
                 )));
             }
@@ -63,6 +67,7 @@ impl HashRangeQueryProcessor {
         &self,
         pass_a: &CokeyRows,
         predicates: &[FieldPredicate],
+        value_filters: &[crate::schema::types::ValueFilter],
     ) -> Vec<KeyValue> {
         let mut keys: Vec<KeyValue> = pass_a
             .page_keys
@@ -75,18 +80,28 @@ impl HashRangeQueryProcessor {
                 {
                     return false;
                 }
-                predicates.iter().all(|predicate| {
+                let matches_predicates = predicates.iter().all(|predicate| {
                     let value = pass_a
                         .fields
                         .get(predicate.field_name())
                         .and_then(|values| values.get(*key))
                         .map(|field| &field.value);
                     field_predicate_matches(predicate, value)
-                })
+                });
+                // Numeric filters retain the established missing-value policy:
+                // only a concrete value that fails its comparison drops a key.
+                matches_predicates
+                    && value_filters.iter().all(|filter| {
+                        pass_a
+                            .fields
+                            .get(filter.field_name())
+                            .and_then(|values| values.get(*key))
+                            .is_none_or(|field| filter.matches(&field.value))
+                    })
             })
             .cloned()
             .collect();
-        keys.sort_by_key(KeyValue::to_storage_key);
+        keys.sort_by(KeyValue::cmp_page_order);
         keys
     }
 
@@ -109,7 +124,7 @@ impl HashRangeQueryProcessor {
                 Some(SortOrder::Desc) => primary.reverse(),
                 _ => primary,
             };
-            ordered.then_with(|| a.to_storage_key().cmp(&b.to_storage_key()))
+            ordered.then_with(|| a.cmp_page_order(b))
         });
     }
 

@@ -33,8 +33,7 @@ impl MutationManager {
         options: HardErasureOptions<'_>,
     ) -> Result<Vec<String>, SchemaError> {
         let ids: Vec<String> = erasures.iter().map(|m| m.uuid.clone()).collect();
-        // Group mutations by schema (not just keys) so we can emit Search
-        // tombstones with the original mutation ids after each chunk.
+        // Each schema has its own molecule definitions and purge barrier.
         let (schema_order, mut by_schema) = group_mutations_by_schema(erasures);
 
         for schema_name in schema_order {
@@ -42,13 +41,13 @@ impl MutationManager {
                 .remove(&schema_name)
                 .expect("schema_order entries were sourced from by_schema keys");
 
-            // Load schema once for Search outbox field allowlist (tombstones).
-            let schema_for_index = self
+            // Load definitions once for the physical Purge cutover check.
+            let schema_for_purge = self
                 .schema_manager
                 .get_schema_metadata(&schema_name)?
                 .ok_or_else(|| {
                     SchemaError::InvalidData(format!(
-                        "Schema '{schema_name}' not found for purge index delivery"
+                        "Schema '{schema_name}' not found for erasure processing"
                     ))
                 })?;
             // Live Delete does not reclaim atoms. It must not wait on (or
@@ -56,30 +55,23 @@ impl MutationManager {
             let atom_ref_cutover = !options.verb.is_delete()
                 && super::super::super::purge::atom_ref_cutover_ready(
                     &self.db_ops,
-                    &schema_for_index,
+                    &schema_for_purge,
                 )
                 .await?;
 
             for chunk in schema_purges.chunks(PURGE_BARRIER_CHUNK) {
-                self.process_hard_erasure_chunk(
-                    &schema_name,
-                    &schema_for_index,
-                    chunk,
-                    atom_ref_cutover,
-                    &options,
-                )
-                .await?;
+                self.process_hard_erasure_chunk(&schema_name, chunk, atom_ref_cutover, &options)
+                    .await?;
             }
         }
         Ok(ids)
     }
 
-    /// Purge one barrier-sized chunk of a schema, record its stats, deliver
-    /// the derived Search events and log the commit.
+    /// Remove one bounded chunk and record its stats. The envelope stages
+    /// retention updates in the native transaction and delivers Search after commit.
     async fn process_hard_erasure_chunk(
         &self,
         schema_name: &str,
-        schema_for_index: &crate::schema::Schema,
         chunk: &[Mutation],
         atom_ref_cutover: bool,
         options: &HardErasureOptions<'_>,
@@ -124,21 +116,6 @@ impl MutationManager {
             report.candidate_atoms,
             report.reverse_edge_reads,
         );
-
-        // Hard erasures are peeled off before the Create/Update
-        // pipeline, so they never hit `spawn_index_mutations` there.
-        // Deliver Search tombstones outside the exclusive barrier.
-        // The best-effort outbox write must not extend the guarded
-        // critical section.
-        if options.emit_derived_events {
-            self.emit_hard_erasure_derived_events(
-                schema_name,
-                schema_for_index,
-                chunk,
-                options.storage_prefix,
-            )
-            .await?;
-        }
 
         info!(
             schema = %schema_name,
@@ -291,31 +268,6 @@ impl MutationManager {
             self.record_purge(schema_name, 0, held);
         }
         Ok((report?, held))
-    }
-
-    async fn emit_hard_erasure_derived_events(
-        &self,
-        schema_name: &str,
-        schema_for_index: &crate::schema::Schema,
-        chunk: &[Mutation],
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        let key_values: Vec<_> = chunk.iter().map(|m| m.key_value.clone()).collect();
-        self.spawn_index_mutations(schema_name, schema_for_index, chunk, &key_values);
-        if storage_prefix.is_none()
-            && matches!(
-                &schema_for_index.schema_type,
-                crate::schema::types::schema::DeclarativeSchemaType::Hash
-                    | crate::schema::types::schema::DeclarativeSchemaType::Single
-                    | crate::schema::types::schema::DeclarativeSchemaType::HashRange
-            )
-        {
-            self.db_ops
-                .schemas()
-                .remove_schema_retention_keys(schema_name, &key_values)
-                .await?;
-        }
-        Ok(())
     }
 }
 

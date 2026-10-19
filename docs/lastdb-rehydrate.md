@@ -33,6 +33,8 @@ The request decoder retains those names for an explicit refusal. Current field r
 Each field keeps its current atom in its molecule.
 A query assembles a record from those fields in the selected storage scope.
 Exact reads and range reads use the same query controls and each field's own atom metadata.
+Field and numeric conditions fetch their fields before the result limit, even when the response omits those fields.
+The final sort uses the same value order as key selection. An omitted sort field remains internal and leaves the response before return.
 Query conditions borrow the selected field values. They do not format or copy an entire response record.
 Both steps of a field query use the same bounded reader for the other fields.
 There is no separate whole-record value or record-compaction write route.
@@ -42,6 +44,9 @@ This keeps the record available to field conditions without a separate membershi
 An atom identity includes its source schema and value. A write through another schema can change that identity for the same value.
 Related molecules still share the current selected atom. A normal reopen retains that atom identity.
 Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
+Writes, reads, and related deletion keys use one conversion for text, numeric, and Boolean coordinates.
+Hash reads trust the supplied key. A HashRange field-value check uses only the declared hash field that established the keys.
+Projection fallback establishes its own keys. Range punctuation has no special meaning.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
 A shared key that becomes usable also receives the unchanged fields through their existing atoms.
 The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.

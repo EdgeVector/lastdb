@@ -11,63 +11,63 @@ struct QuerySelection<'a> {
     request_concurrency: Option<usize>,
 }
 
-struct PredicateSelection<'a> {
-    query: QuerySelection<'a>,
-    predicates: Option<&'a [FieldPredicate]>,
-    order_by: Option<&'a QueryOrderBy>,
-    predicate_limit: Option<usize>,
+/// Current field conditions and projection controls for one captured query.
+#[derive(Default)]
+pub struct FieldQueryOptions<'a> {
+    pub predicates: Option<&'a [FieldPredicate]>,
+    pub value_filters: Option<&'a [crate::schema::types::ValueFilter]>,
+    pub order_by: Option<&'a QueryOrderBy>,
+    pub predicate_limit: Option<usize>,
+    pub include_tombstones: bool,
+    pub secondary_concurrency: Option<usize>,
 }
 
 impl HashRangeQueryProcessor {
     /// Two-pass field predicate query.
     ///
-    /// Pass A scans candidate keys while loading only predicate fields and the
-    /// optional `order_by` field. Pass B fetches the requested projection for
+    /// Pass A loads field and numeric conditions plus the optional `order_by`
+    /// field. Pass B fetches the requested projection for
     /// keys that survived the predicate set. This is a two-pass scan, not an
     /// index: pass A is still O(M) over the candidate set.
-    #[allow(clippy::too_many_arguments)]
     pub async fn query_with_field_predicates(
         &self,
         schema: &mut Schema,
         fields: &[String],
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
-        predicates: Option<&[FieldPredicate]>,
-        order_by: Option<&QueryOrderBy>,
-        predicate_limit: Option<usize>,
-        include_tombstones: bool,
-        request_concurrency: Option<usize>,
+        options: FieldQueryOptions<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         Self::require_supported_query(schema, filter.as_ref())?;
-        let selection = PredicateSelection {
-            query: QuerySelection {
-                schema,
-                fields,
-                filter,
-                window,
-                include_tombstones,
-                request_concurrency,
-            },
-            predicates,
-            order_by,
-            predicate_limit,
+        let query = QuerySelection {
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones: options.include_tombstones,
+            request_concurrency: options.secondary_concurrency,
         };
-        self.current_query_scope(self.predicate_query_captured(selection).boxed())
+        self.current_query_scope(self.predicate_query_captured(query, options).boxed())
             .await
     }
 
     async fn predicate_query_captured(
         &self,
-        selection: PredicateSelection<'_>,
+        query: QuerySelection<'_>,
+        options: FieldQueryOptions<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let PredicateSelection {
-            query,
+        let FieldQueryOptions {
             predicates,
+            value_filters,
             order_by,
             predicate_limit,
-        } = selection;
+            ..
+        } = options;
         let has_predicates = predicates.is_some_and(|p| !p.is_empty());
-        let has_two_pass_shape = has_predicates || order_by.is_some() || predicate_limit.is_some();
+        let has_numeric_filters = value_filters.is_some_and(|filters| !filters.is_empty());
+        let has_two_pass_shape = has_predicates
+            || has_numeric_filters
+            || order_by.is_some()
+            || predicate_limit.is_some();
         if !has_two_pass_shape {
             return self.query_fields_captured(query).await;
         }
@@ -93,7 +93,12 @@ impl HashRangeQueryProcessor {
         );
 
         let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
-        let scan_fields = self.scan_fields(schema, predicates.unwrap_or(&[]), order_by)?;
+        let scan_fields = self.scan_fields(
+            schema,
+            predicates.unwrap_or(&[]),
+            value_filters.unwrap_or(&[]),
+            order_by,
+        )?;
         let pass_a_filter = filter.or_else(|| Some(full_span_page()));
         // Pass A must see every candidate: the predicate set, the ordering and
         // `predicate_limit` are all applied to what survives it, so a window
@@ -110,13 +115,7 @@ impl HashRangeQueryProcessor {
                 request_concurrency,
             )
             .await?;
-        let mut kept_keys = self.matching_field_predicate_keys(&pass_a, predicates.unwrap_or(&[]));
-        if let Some(order_by) = order_by {
-            self.sort_keys_by_field(&mut kept_keys, &pass_a.fields, order_by);
-        }
-        if let Some(limit) = predicate_limit {
-            kept_keys.truncate(limit);
-        }
+        let kept_keys = self.select_condition_keys(&pass_a, &options);
 
         // Pass B resolves every projected field as a secondary, which blinds what
         // it is given — so it must be handed API form or it misses on every field
@@ -131,6 +130,30 @@ impl HashRangeQueryProcessor {
             request_concurrency,
         )
         .await
+    }
+
+    fn select_condition_keys(
+        &self,
+        pass_a: &CokeyRows,
+        options: &FieldQueryOptions<'_>,
+    ) -> Vec<KeyValue> {
+        let condition_started = std::time::Instant::now();
+        let mut keys = self.matching_field_predicate_keys(
+            pass_a,
+            options.predicates.unwrap_or(&[]),
+            options.value_filters.unwrap_or(&[]),
+        );
+        crate::request_phases::add_phase(
+            crate::request_phases::RequestPhase::HydrateFilter,
+            condition_started.elapsed(),
+        );
+        if let Some(order_by) = options.order_by {
+            self.sort_keys_by_field(&mut keys, &pass_a.fields, order_by);
+        }
+        if let Some(limit) = options.predicate_limit {
+            keys.truncate(limit);
+        }
+        keys
     }
 
     /// All values come from the selected field molecules in the captured read.
