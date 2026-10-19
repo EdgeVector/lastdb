@@ -23,6 +23,8 @@ pub struct NativeDiskStatus {
     pub core_warm_hits: u64,
     pub core_warm_misses: u64,
     pub core_warm_purged: u64,
+    /// Warm set byte gauge (stage 1 of the byte limit design; not enforced).
+    pub core_warm_bytes: crate::resident::CoreWarmByteStats,
     pub core_memory: crate::resident::CoreMemoryStats,
     pub(crate) core_model: crate::resident::CoreModelStats,
     pub schema_keys: schema_keys::SchemaKeyStatus,
@@ -40,9 +42,14 @@ impl PackRuntime {
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         let view = self.view.read().expect("native disk status view");
-        let (core, core_memory, core_model) = {
-            let core = self.core.lock().expect("native core status");
-            (core.stats(), core.memory_stats(), core.model_stats())
+        let (core, core_bytes, core_memory, core_model) = {
+            let mut core = self.core.lock().expect("native core status");
+            (
+                core.stats(),
+                core.byte_stats(),
+                core.memory_stats(),
+                core.model_stats(),
+            )
         };
         NativeDiskStatus {
             generation: view.current.generation,
@@ -63,6 +70,7 @@ impl PackRuntime {
             core_warm_hits: core.hits,
             core_warm_misses: core.misses,
             core_warm_purged: core.purged,
+            core_warm_bytes: core_bytes,
             core_memory,
             core_model,
             schema_keys: self.schema_keys.status(),
