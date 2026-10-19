@@ -196,10 +196,10 @@ pub(super) async fn count_rows<H: HostNode>(
     ctx: &AccessContext,
 ) -> Result<Option<usize>, HostError> {
     let started = std::time::Instant::now();
-    let _permit = if !is_key_restricted_filter(query.filter.as_ref()) {
-        Some(acquire_read_permit(host, Lane::Bulk).await?)
-    } else {
+    let _permit = if is_key_restricted_filter(query.filter.as_ref()) {
         None
+    } else {
+        Some(acquire_read_permit(host, Lane::Bulk).await?)
     };
     let counted = host
         .fold_db()
