@@ -166,6 +166,17 @@ impl MutationManager {
                 &mutation.key_value,
             )?;
         }
+        // Count the operations before the lane takes the write gate. A request
+        // that cannot fit in one batch is refused here, with the key count that
+        // fits, and not after it staged part of its rows.
+        if let Some(limit) = self.db_ops.batch_operation_limit() {
+            super::super::super::purge::budget::check_erase_size(
+                verb.is_delete(),
+                erasures.len(),
+                schema.runtime_fields.len(),
+                limit,
+            )?;
+        }
         let key_values: Vec<_> = erasures
             .iter()
             .map(|mutation| mutation.key_value.clone())

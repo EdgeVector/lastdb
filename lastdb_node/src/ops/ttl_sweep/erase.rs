@@ -91,7 +91,8 @@ async fn erase_rounds(
             if shutdown.load(Ordering::Acquire) || backup_cut_is_held(host).await {
                 return true;
             }
-            let chunk = backlogs[index].take(pace.batch);
+            let size = batch_size(host, &backlogs[index], pace.batch, verb);
+            let chunk = backlogs[index].take(size);
             let started = Instant::now();
             let admitted = crate::maintenance_write_gate::run(
                 host,
@@ -126,6 +127,20 @@ async fn erase_rounds(
         }
     }
     false
+}
+
+/// Keys in the next batch of a schema. The pace sets the size. A schema with
+/// many fields gets fewer keys, so the batch always fits in one native batch
+/// (16,384 operations; 4,096 on a home from an older build). One key at least.
+fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
+    use fold_db::fold_db_core::purge::budget::{max_erase_keys, LEGACY_BATCH_OPERATIONS};
+    let limit = host
+        .db
+        .db_ops()
+        .batch_operation_limit()
+        .unwrap_or(LEGACY_BATCH_OPERATIONS);
+    let fits = max_erase_keys(verb == SweepVerb::Delete, backlog.fields, limit);
+    pace_batch.min(fits).max(1)
 }
 
 /// What one batch did.

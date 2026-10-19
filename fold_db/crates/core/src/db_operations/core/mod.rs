@@ -135,6 +135,15 @@ impl DbOperations {
         Arc::clone(&self.store)
     }
 
+    /// Most operations that one complete batch holds on a native home. `None`
+    /// when no native home backs this store.
+    #[must_use]
+    pub fn batch_operation_limit(&self) -> Option<usize> {
+        self.store
+            .disk_pack_runtime()
+            .map(|runtime| runtime.batch_operation_limit())
+    }
+
     /// Cold shard loads since open — one relaxed atomic load, safe to call on
     /// the per-request telemetry path. `None` on backends without hash groups.
     pub fn cold_shard_loads(&self) -> Option<u64> {

@@ -30,6 +30,7 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::{SchemaCore, SchemaError};
 
+pub mod budget;
 mod delete_candidates;
 mod erase;
 mod helpers;

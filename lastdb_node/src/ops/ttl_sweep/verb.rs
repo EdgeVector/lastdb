@@ -14,16 +14,16 @@ const PURGE_CALLER: &str = "ttl-sweep-purge";
 
 /// How the sweep erases an expired key.
 ///
-/// `purge` (default) is the hard-erasure verb. It deletes the tips, their
-/// tip-version chain and the atoms of the key that no other key references,
-/// and it leaves no delete barrier. That needs a reachability proof over the
-/// whole schema, unless every molecule has a complete reverse-reference
-/// manifest, so a batch holds the schema purge barrier while it runs.
-/// `delete` is the ordinary delete that a client uses. It needs only the keys
-/// of the batch and leaves atom bodies to garbage collection. It also leaves
-/// two delete barrier records per field per key that nothing prunes (about
-/// 3 KB per key per field), which stop an older write from bringing the key
-/// back. See `docs/lastdb-ttl-sweep.md`.
+/// Both verbs remove the tips of the key, and the atom counter removes each
+/// atom body whose count reaches zero in the same batch. Neither needs a proof
+/// over the whole schema or a schema barrier.
+///
+/// `purge` (default) is the hard-erasure verb. It leaves no delete barrier.
+/// `delete` is the ordinary delete that a client uses. It also leaves two
+/// delete barrier records per field per key that nothing prunes (about 3 KB
+/// per key per field), which stop an older write from bringing the key back.
+/// A delete costs one more operation for each tip than a purge, so a batch of
+/// a wide schema is smaller. See `docs/lastdb-ttl-sweep.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SweepVerb {
     Delete,

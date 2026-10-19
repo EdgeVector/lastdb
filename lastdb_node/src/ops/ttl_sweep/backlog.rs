@@ -7,6 +7,9 @@ use fold_db::schema::types::KeyValue;
 pub(super) struct Backlog {
     pub(super) schema_name: String,
     pub(super) schema_type: DeclarativeSchemaType,
+    /// Fields of the schema. A batch of keys must fit in one native batch, and
+    /// its size follows from this count.
+    pub(super) fields: usize,
     /// The cutoff of the listing: a key older than this was expired then.
     pub(super) cutoff: u64,
     keys: Vec<KeyValue>,
@@ -18,12 +21,14 @@ impl Backlog {
     pub(super) fn new(
         schema_name: String,
         schema_type: DeclarativeSchemaType,
+        fields: usize,
         cutoff: u64,
         keys: Vec<KeyValue>,
     ) -> Self {
         Self {
             schema_name,
             schema_type,
+            fields,
             cutoff,
             keys,
             next: 0,

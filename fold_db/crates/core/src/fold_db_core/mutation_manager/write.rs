@@ -14,8 +14,8 @@ use super::MutationManager;
 
 use super::helpers::{apply_storage_prefix_to_schema, validate_derived_provenance};
 
-/// Max keys purged under one exclusive per-schema barrier hold.
-const PURGE_BARRIER_CHUNK: usize = 64;
+/// Keys in one chunk of an erase. The budget in `purge::budget` counts the same chunks.
+const PURGE_BARRIER_CHUNK: usize = super::super::purge::budget::ERASE_CHUNK_KEYS;
 
 mod admission;
 mod attribution;

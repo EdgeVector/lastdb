@@ -53,6 +53,15 @@ pub struct NativeFlushReceipt {
 }
 
 impl PackRuntime {
+    /// Most operations that one complete batch holds on this home.
+    pub(crate) fn batch_operation_limit(&self) -> usize {
+        self.view
+            .read()
+            .expect("native complete write view")
+            .current
+            .batch_operation_limit()
+    }
+
     /// The exclusive request gate fixes this complete root during preparation.
     pub(crate) fn write_has_feature(&self, feature: u64) -> bool {
         transaction::PendingBatch::current(self).is_some()
