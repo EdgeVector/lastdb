@@ -1,0 +1,20 @@
+{
+  "all_owned_nodes_stopped_normally": true,
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565/program-lastdbd",
+  "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+  "creator_pid": 15183,
+  "device": 16777231,
+  "inode": 1468304679,
+  "marker": {
+    "creator_pid": 15183,
+    "device": 16777231,
+    "inode": 1468304679,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "mode": "0o700",
+  "owner_uid": 501,
+  "retained_for_independent_cleanup": true,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iqd63565"
+}

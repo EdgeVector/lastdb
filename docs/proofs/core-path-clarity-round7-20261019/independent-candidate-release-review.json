@@ -1,0 +1,16 @@
+{
+  "source_git_verification": {
+    "source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99",
+    "source_files_checked": 1875,
+    "source_mismatches": [],
+    "method": "git cat-file --batch of explicit frozen paths"
+  },
+  "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+  "source_inventory_sha256": "5024a781d23c46844df85e9bea95f54f61db38679948d10dc54c3026cbc37bb8",
+  "source_input_count": 1875,
+  "current_source_and_host_settings_match": true,
+  "compact_source_provenance_reconstructed": true,
+  "helpers_and_frozen_requests_match": true,
+  "baseline_failures_unchanged": true,
+  "candidate_product_operations_started": false
+}
