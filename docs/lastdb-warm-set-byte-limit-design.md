@@ -1,10 +1,10 @@
 # Warm set byte limit design
 
-Status (2026-10-19): design for Tom's review. Nothing here is implemented.
+Status (2026-10-19): approved by Tom (D1–D5 decided). Stage 1 is in progress. Nothing else is implemented.
 The design was written from a read of the code at main `fadd60ab`. Nothing was run or measured.
 Numbers marked "guess" have no measurement.
 
-If Tom approves this design, it replaces the record-count limit of the warm set.
+This design replaces the record-count limit of the warm set.
 That limit comes from decision `decision-2026-10-02-warm-set-exact-logical-key-budget`
 and the warm set rules in the harness instructions ("the key budget is 10000 logical records").
 It also replaces the capacity rule in
@@ -286,11 +286,10 @@ This design does not do that, so that each step stays small.
 | A write burst | Writes above the share go to disk first and have a slower ack | This is the current fallback. `warm_dirty_bytes` shows it |
 | One lock | The walk runs under the core lock if it is placed in `admit` | Calculate the charge before the lock is taken. `admit` only reserves it |
 
-## Decisions for Tom
+## Decisions (Tom, 2026-10-19)
 
-- **D1. Byte limit in place of the record count.** This replaces decision `decision-2026-10-02-warm-set-exact-logical-key-budget` and the harness rule "the key budget is 10000 logical records". Recommendation: yes.
-- **D2. Default limit.** Recommendation: 256 MiB (guess), changed after stage 2.
-- **D3. The count limit.** Recommendation: remove it. The path charge covers the map growth that a count would protect. Alternative: keep `LASTDB_RESIDENT_KEY_CAP` as an optional lower limit, off by default.
-- **D4. Dirty share.** Recommendation: 25% of the limit, above which a write goes to disk before its ack. Written values move from the deferred write allowance to the warm budget.
-  Alternative: keep written values in the deferred write allowance, as today, and charge only read-admitted values to the warm budget. That keeps two pools for the same kind of object.
+- **D1. Byte limit in place of the record count.** DECIDED: yes. This replaces decision `decision-2026-10-02-warm-set-exact-logical-key-budget` and the harness rule "the key budget is 10000 logical records".
+- **D2. Default limit.** DECIDED: 256 MiB to start (guess), changed after stage 2.
+- **D3. The count limit.** DECIDED: remove it in stage 3. The path charge covers the map growth that a count would protect.
+- **D4. Dirty share.** DECIDED: 25% of the limit, above which a write goes to disk before its ack. Written values move from the deferred write allowance to the warm budget.
 - **D5. A full warm set on a read.** DECIDED (Tom, 2026-10-19): every new read enters the warm set. The purge removes least recently used clean records to make room. If held and unflushed records leave no room, the record enters over the limit, and the purge corrects it after the calls end.
