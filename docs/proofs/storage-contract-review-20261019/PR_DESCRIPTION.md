@@ -17,4 +17,4 @@ The first candidate exposes an additional global proof lookup under a named pref
 
 No migration or cloud activation forms part of this change. The byte gauge remains report-only; memory relief does not establish a whole-process cap. These correctness operations do not establish throughput. Descending reads without a live count can resolve more of the selected set before their final page.
 
-See [the full review report](RESULTS.md) and [the current design](../../lastdb-rehydrate.md).
+See [the full review report](https://github.com/EdgeVector/lastdb/blob/48538be1/docs/proofs/storage-contract-review-20261019/RESULTS.md) and [the current design](https://github.com/EdgeVector/lastdb/blob/48538be1/docs/lastdb-rehydrate.md).
