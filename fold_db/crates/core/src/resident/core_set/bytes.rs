@@ -32,7 +32,8 @@ pub struct CoreWarmByteStats {
     /// `LASTDB_CORE_WARM_BYTES`; not enforced in stage 1.
     pub limit_bytes: usize,
     pub used_bytes: usize,
-    /// Highest charge since start.
+    /// Highest charge seen at a sweep since start. Sweeps run every 1024 atom
+    /// tracks and on each status read, after dead atoms leave the total.
     pub peak_bytes: usize,
     pub path_bytes: usize,
     pub atom_bytes: usize,
@@ -69,6 +70,8 @@ impl WarmBytes {
         });
         self.atom_bytes -= freed;
         self.tracks_since_sweep = 0;
+        // Dead atoms leave first, so a freed allocation never inflates the peak.
+        self.note_peak();
     }
 }
 
@@ -77,7 +80,6 @@ impl CoreWarmSet {
     pub(super) fn charge_path(&mut self, path: &CorePath) -> usize {
         let charge = path_charge(path);
         self.bytes.path_bytes += charge;
-        self.bytes.note_peak();
         charge
     }
 
@@ -88,7 +90,6 @@ impl CoreWarmSet {
     /// Charge a slot when its first owner path arrives.
     pub(super) fn charge_slot(&mut self, slot: &SlotKey) {
         self.bytes.slot_bytes += slot_charge(slot);
-        self.bytes.note_peak();
     }
 
     /// Release a slot when its last owner path leaves.
@@ -98,7 +99,6 @@ impl CoreWarmSet {
 
     pub(super) fn charge_link(&mut self, charge: usize) {
         self.bytes.link_bytes += charge;
-        self.bytes.note_peak();
     }
 
     pub(super) fn release_links(&mut self, charge: usize) {
@@ -124,7 +124,6 @@ impl CoreWarmSet {
             },
         );
         self.bytes.atom_bytes += bytes;
-        self.bytes.note_peak();
         self.bytes.tracks_since_sweep += 1;
         if self.bytes.tracks_since_sweep >= SWEEP_EVERY {
             self.bytes.sweep();

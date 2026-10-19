@@ -202,6 +202,26 @@ pub struct CoreWarmBytesHealth {
     pub tracked_atoms: u64,
 }
 
+impl CoreWarmBytesHealth {
+    /// One `lastdb status` line. `None` from a daemon that predates the gauge.
+    pub(super) fn status_line(&self) -> Option<String> {
+        if self.limit_bytes == 0 {
+            return None;
+        }
+        Some(format!(
+            "Warm set bytes: used={} / limit={} peak={} held={} dirty={} / {} atoms={} \
+             (gauge only; the path count still controls admission)",
+            format_bytes(self.used_bytes),
+            format_bytes(self.limit_bytes),
+            format_bytes(self.peak_bytes),
+            format_bytes(self.held_bytes),
+            format_bytes(self.dirty_bytes),
+            format_bytes(self.dirty_limit_bytes),
+            self.tracked_atoms,
+        ))
+    }
+}
+
 impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
     fn from(stats: &fold_db::resident::CoreWarmByteStats) -> Self {
         Self {
