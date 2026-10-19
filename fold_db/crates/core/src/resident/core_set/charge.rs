@@ -5,7 +5,7 @@
 //! from capacities; only the per-object constants are estimates. Stage 1 only
 //! reports these charges. The record count still controls admission.
 
-use super::CorePath;
+use super::{CorePath, SlotKey, SourceKey};
 use crate::atom::Atom;
 use serde_json::Value;
 
@@ -13,6 +13,17 @@ use serde_json::Value;
 const PATH_BASE: usize = 512;
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
 const JSON_MAP_ENTRY: usize = 96;
+/// One source link: its entries in `slot_sources` and `source_slots`, and the
+/// share of the small hash table that each side allocates (guess; calibrate).
+const LINK_BASE: usize = 384;
+/// One slot: its entries in `slot_owners`, `owned_slots`, `slot_atoms`,
+/// `slot_sources`, the molecule tip and key-metadata maps, the copies of the
+/// tip entry in `owned_slots`, and the recency map share. Calibrated on
+/// 2026-10-19 from a heap profile (about 1.76 KB of tip and molecule entries
+/// per slot) plus the map entries; recalibrate in stage 2.
+const SLOT_BASE: usize = 2816;
+/// Copies of the slot key strings kept by those maps.
+const SLOT_KEY_COPIES: usize = 6;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).
 const HASH_MAP_SLOT: usize = 56;
 /// The `Arc` strong and weak counters in front of the atom.
@@ -33,6 +44,26 @@ pub(super) fn path_charge(path: &CorePath) -> usize {
         + path.hash.capacity()
         + path.range.capacity();
     finish(PATH_BASE + 3 * strings)
+}
+
+/// One slot: the per-slot map entries and their copies of the slot key.
+pub(super) fn slot_charge(slot: &SlotKey) -> usize {
+    finish(SLOT_BASE + SLOT_KEY_COPIES * slot_strings(slot))
+}
+
+/// One source link. The source key is stored on both sides of the link and the
+/// slot key once more in the reverse set. Lengths, not capacities, so the
+/// release computes the same charge from the stored copy.
+pub(super) fn link_charge(slot: &SlotKey, source: &SourceKey) -> usize {
+    let source_strings = source.collection.len() + source.key.len();
+    finish(LINK_BASE + 2 * source_strings + slot_strings(slot))
+}
+
+fn slot_strings(slot: &SlotKey) -> usize {
+    slot.molecule.scope.as_ref().map_or(0, String::len)
+        + slot.molecule.molecule.len()
+        + slot.hash.len()
+        + slot.range.len()
 }
 
 /// One atom allocation: the struct, its strings, metadata, and decoded content.

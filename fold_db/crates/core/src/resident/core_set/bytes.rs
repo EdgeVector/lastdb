@@ -4,7 +4,7 @@
 //! atom stays charged while any holder keeps it, including a running call that
 //! outlived the path's purge. A dead entry leaves the gauge at the next sweep.
 
-use super::charge::{atom_charge, path_charge};
+use super::charge::{atom_charge, path_charge, slot_charge};
 use super::*;
 
 /// Sweep dead atom entries after this many new tracks, to bound the map.
@@ -20,6 +20,8 @@ pub(super) struct WarmBytes {
     atoms: HashMap<usize, TrackedAtom>,
     atom_bytes: usize,
     path_bytes: usize,
+    slot_bytes: usize,
+    link_bytes: usize,
     peak_bytes: usize,
     tracks_since_sweep: usize,
 }
@@ -34,6 +36,10 @@ pub struct CoreWarmByteStats {
     pub peak_bytes: usize,
     pub path_bytes: usize,
     pub atom_bytes: usize,
+    /// Per-slot map entries and key copies.
+    pub slot_bytes: usize,
+    /// Source links (the invalidation index).
+    pub link_bytes: usize,
     /// Atom allocations that only a running call keeps.
     pub held_bytes: usize,
     /// Charges of unflushed write paths and their atoms.
@@ -45,7 +51,7 @@ pub struct CoreWarmByteStats {
 
 impl WarmBytes {
     fn used(&self) -> usize {
-        self.atom_bytes + self.path_bytes
+        self.atom_bytes + self.path_bytes + self.slot_bytes + self.link_bytes
     }
 
     fn note_peak(&mut self) {
@@ -77,6 +83,26 @@ impl CoreWarmSet {
 
     pub(super) fn release_path(&mut self, charge: usize) {
         self.bytes.path_bytes -= charge;
+    }
+
+    /// Charge a slot when its first owner path arrives.
+    pub(super) fn charge_slot(&mut self, slot: &SlotKey) {
+        self.bytes.slot_bytes += slot_charge(slot);
+        self.bytes.note_peak();
+    }
+
+    /// Release a slot when its last owner path leaves.
+    pub(super) fn release_slot(&mut self, slot: &SlotKey) {
+        self.bytes.slot_bytes -= slot_charge(slot);
+    }
+
+    pub(super) fn charge_link(&mut self, charge: usize) {
+        self.bytes.link_bytes += charge;
+        self.bytes.note_peak();
+    }
+
+    pub(super) fn release_links(&mut self, charge: usize) {
+        self.bytes.link_bytes -= charge;
     }
 
     /// Charge an atom allocation once. A reused address with a dead entry is a
@@ -132,6 +158,8 @@ impl CoreWarmSet {
             peak_bytes: self.bytes.peak_bytes,
             path_bytes: self.bytes.path_bytes,
             atom_bytes: self.bytes.atom_bytes,
+            slot_bytes: self.bytes.slot_bytes,
+            link_bytes: self.bytes.link_bytes,
             held_bytes,
             dirty_bytes: self.dirty_bytes(),
             dirty_limit_bytes: crate::resident::core_warm_dirty_bytes(limit_bytes),

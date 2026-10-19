@@ -109,6 +109,7 @@ impl CoreWarmSet {
             owners.is_empty()
         });
         if last_owner {
+            self.release_slot(&slot);
             self.slot_owners.remove(&slot);
             self.forget_slot_sources(&slot);
             self.forget_slot_value(&slot);

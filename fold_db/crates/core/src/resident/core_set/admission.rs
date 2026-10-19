@@ -270,8 +270,12 @@ impl CoreWarmSet {
     }
 
     fn insert_path(&mut self, path: &CorePath) {
+        let slot = path.slot();
+        if !self.slot_owners.contains_key(&slot) {
+            self.charge_slot(&slot);
+        }
         self.slot_owners
-            .entry(path.slot())
+            .entry(slot)
             .or_default()
             .insert(path.clone());
         let charge = self.charge_path(path);
