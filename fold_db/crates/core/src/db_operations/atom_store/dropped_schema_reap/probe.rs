@@ -21,7 +21,7 @@ impl AtomStore {
         expected_key_fingerprint: Option<&str>,
     ) -> Result<DroppedSchemaTipProbe, SchemaError> {
         let keys = self
-            .key_codec_for_molecule(molecule_uuid)
+            .key_codec_for_molecule(molecule_uuid)?
             .api_hash_range_record_keys_for_read(molecule_uuid, key_hash, key_range)
             .map_err(|error| SchemaError::InvalidField(format!("encode probe key: {error}")))?;
         if keys.is_empty() || keys.len() > 16 {

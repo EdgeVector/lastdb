@@ -38,7 +38,7 @@ pub(super) fn validate_slot_target(
         )));
     }
     field
-        .disk_slot_for_key(&target.storage_key)
+        .slot_coordinates(&target.storage_key)
         .ok_or_else(|| {
             SchemaError::InvalidData(format!(
                 "Storage-slot purge target has the wrong key shape for field '{}' in schema '{schema_name}'",

@@ -13,9 +13,11 @@ pub enum SchemaError {
     WriteResourceLimit {
         detail: String,
     },
-    /// A selected personal tip names an atom that this read cannot resolve.
+    /// A selected tip names an atom that this read cannot resolve.
     /// This is a store failure, not an absent key or an optional field.
-    MissingLocalAtom,
+    // Preserve the serialized error identity for existing diagnostic consumers.
+    #[serde(rename = "MissingLocalAtom")]
+    MissingSelectedAtom,
     /// Storage or decode failed after a read selected the stored record.
     StorageRead {
         detail: String,
@@ -170,7 +172,7 @@ impl fmt::Display for SchemaError {
             Self::Blocked(msg) => write!(f, "Schema blocked: {msg}"),
             Self::ReadResourceLimit {detail} => write!(f,"read resource limit exceeded: {detail}"),
             Self::WriteResourceLimit {detail} => write!(f,"write resource limit exceeded: {detail}"),
-            Self::MissingLocalAtom => write!(f, "selected local tip has no readable atom body"),
+            Self::MissingSelectedAtom => write!(f, "selected tip has no readable atom body"),
             Self::StorageRead { detail } => write!(f, "storage read failed: {detail}"),
             Self::InvalidField(msg) => write!(f, "Invalid field: {msg}"),
             Self::InvalidPermission(msg) => write!(f, "Invalid permission: {msg}"),

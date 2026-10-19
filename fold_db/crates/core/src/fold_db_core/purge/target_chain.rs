@@ -190,7 +190,7 @@ struct TargetSlot {
 /// Resolve the slot for `key`, or `None` when the field has no molecule, no
 /// resident entry, or no slot for this key (nothing to trace).
 fn locate_target_slot(field: &FieldVariant, key: &KeyValue) -> Option<TargetSlot> {
-    let (target_hash, target_range) = field.disk_slot_for_key(key)?;
+    let (target_hash, target_range) = field.slot_coordinates(key)?;
     let prefix = field.common().storage_prefix().map(str::to_string);
     let molecule_uuid = field.common().molecule_uuid()?.clone();
     let entry = field

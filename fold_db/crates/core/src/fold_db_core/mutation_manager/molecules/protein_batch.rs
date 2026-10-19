@@ -55,7 +55,7 @@ pub(super) fn eligible_protein_atoms<'a>(
         // neither reads a backref nor changes a sibling tip.
         if mutation.imported_written_at.is_some() {
             if let Some(mol) = field.molecule.as_ref() {
-                let Some((hash, range)) = field.disk_slot_for_key(key_value) else {
+                let Some((hash, range)) = field.slot_coordinates(key_value) else {
                     continue;
                 };
                 if mol.get_atom_uuid(&hash, &range).map(String::as_str) != Some(atom.uuid()) {

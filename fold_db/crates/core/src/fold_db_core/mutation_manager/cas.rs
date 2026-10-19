@@ -10,9 +10,9 @@ use super::MutationManager;
 
 /// Integrity-aware result for an exact fixed-field row read.
 ///
-/// Aggregate rows must distinguish a row with no tips from a row whose tips
-/// exist but whose bodies cannot resolve. Treating both as an empty map can
-/// apply the same contribution twice and certify a corrupt summary.
+/// Missing selected bodies return an error. Tombstone-only fields are absent;
+/// live fields mixed with tombstones are corrupt for aggregate reconstruction.
+/// A corrupt aggregate must not be treated as an empty prior contribution.
 #[derive(Debug)]
 pub(super) enum CurrentRowFields {
     Absent,
@@ -258,7 +258,7 @@ impl MutationManager {
                 expanded.push(mutation);
                 return Ok(());
             }
-            CurrentRowFields::Corrupt { .. } => return Err(SchemaError::MissingLocalAtom),
+            CurrentRowFields::Corrupt { .. } => return Err(SchemaError::MissingSelectedAtom),
         };
         overlay_caller_key(&mut values, &source, &mutation);
 

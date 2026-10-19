@@ -57,7 +57,7 @@ impl MutationManager {
             // data_share) goes through last-writer-wins in the molecule and
             // may legitimately lose to a newer tip, so it is exempt here.
             if mutation.imported_written_at.is_none() && mutation.provenance.is_none() {
-                let written = super::super::helpers::current_atom_uuid(schema_field, key_value);
+                let written = schema_field.current_atom_uuid(key_value);
                 debug_assert_eq!(
                     written.as_deref(),
                     Some(atom.uuid()),

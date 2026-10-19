@@ -10,7 +10,7 @@ impl AtomStore {
         keys: &[KeyValue],
     ) -> Result<Vec<Option<TipRow>>, SchemaError> {
         let runtime = self.schema_keys_runtime();
-        let codec = self.key_codec_for_molecule(molecule);
+        let codec = self.key_codec_for_molecule(molecule)?;
         let mut output = vec![None; keys.len()];
         let mut groups = Vec::new();
         let mut misses = Vec::new();

@@ -136,7 +136,7 @@ impl MutationManager {
                 super::super::cas::CurrentRowFields::Present(row) => row,
                 super::super::cas::CurrentRowFields::Absent => continue,
                 super::super::cas::CurrentRowFields::Corrupt { .. } => {
-                    return Err(SchemaError::MissingLocalAtom);
+                    return Err(SchemaError::MissingSelectedAtom);
                 }
             };
 

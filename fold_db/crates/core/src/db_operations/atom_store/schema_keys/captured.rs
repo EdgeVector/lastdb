@@ -39,7 +39,7 @@ impl AtomStore {
             return Ok(BTreeMap::new());
         }
         let mut changes = BTreeMap::new();
-        let codec = self.key_codec_for_molecule(molecule);
+        let codec = self.key_codec_for_molecule(molecule)?;
         for (hash, range, absent) in model.changes(scope, molecule) {
             let candidates = codec
                 .api_hash_range_record_keys_for_read(molecule, &hash, &range)

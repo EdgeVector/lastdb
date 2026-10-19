@@ -57,7 +57,7 @@ impl AtomStore {
         .await
     }
 
-    /// Schema-facing pages exclude missing bodies and foreign named layouts.
+    /// Schema-facing pages require selected bodies and exclude foreign layouts.
     pub(crate) async fn list_schema_record_keys_filtered(
         &self,
         molecule: &str,
@@ -65,12 +65,13 @@ impl AtomStore {
         after: Option<&str>,
         hash_filter: Option<&str>,
         named_layout: bool,
+        storage_prefix: Option<&str>,
     ) -> Result<KeyPage, SchemaError> {
         self.list_record_keys_read(KeyList {
             molecule,
             limit,
             after,
-            scope: None,
+            scope: storage_prefix,
             hash: hash_filter,
             membership: Membership::Schema { named_layout },
         })
@@ -90,7 +91,7 @@ impl AtomStore {
             return Ok((Vec::new(), None, false));
         }
         self.load_molecule_key_bundle(request.molecule).await?;
-        let codec = self.key_codec_for_molecule(request.molecule);
+        let codec = self.key_codec_for_molecule(request.molecule)?;
         let prefix = match request.hash {
             Some(hash) => codec
                 .api_hash_range_scan_prefix_for_hash(request.molecule, hash)

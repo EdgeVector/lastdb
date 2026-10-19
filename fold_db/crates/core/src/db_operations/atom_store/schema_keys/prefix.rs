@@ -180,7 +180,7 @@ impl AtomStore {
             let mut priorities = std::collections::HashMap::new();
             for source in sources.iter_mut().filter(|source| !source.exhausted) {
                 let ope = self
-                    .key_codec_for_molecule(&source.molecule)
+                    .key_codec_for_molecule(&source.molecule)?
                     .range_encoding()
                     .writes_ope();
                 let Some(next) = runtime.with_schema_key_selection(|| source.next(chunk)) else {

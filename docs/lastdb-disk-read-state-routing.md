@@ -29,7 +29,7 @@ Native resident-first modes and cloud-connected native homes remain refused.
 ## Selected tip without its atom
 
 The shared selected-tip atom loader now requires an atom for every unprefixed local tip that it selected.
-A missing atom returns `SchemaError::MissingLocalAtom`, which the host maps to a server error.
+A missing atom returns `SchemaError::MissingSelectedAtom`, which the host maps to a server error.
 Storage and decode errors on that read path preserve server classification.
 Typed resource limits and access failures retain their distinct meanings.
 The exact and secondary query paths no longer replace these failures with an invalid-field error.

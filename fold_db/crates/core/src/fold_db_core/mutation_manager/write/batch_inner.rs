@@ -13,11 +13,10 @@ impl MutationManager {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
         }
-        self.validate_mutation_layouts(&mutations)?;
+        self.validate_mutation_keys_and_layouts(&mutations)?;
         // Delete peers are resolved by the durable worker under its complete
         // native write boundary, after any updates in this mixed request.
-        self.prepare_batch_molecule_keys(&mutations, storage_prefix)
-            .await?;
+        self.prepare_batch_molecule_keys(&mutations).await?;
         self.reject_blocked_mutation_targets(&mutations)?;
         self.validate_key_field_payloads(&mutations)?;
         self.reject_internal_only_mutations(&mutations)?;

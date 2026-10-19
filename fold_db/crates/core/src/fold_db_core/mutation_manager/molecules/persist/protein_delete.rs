@@ -86,11 +86,11 @@ impl MutationManager {
                 },
             ));
         }
-        self.validate_mutation_layouts(&erasures)
+        self.validate_mutation_keys_and_layouts(&erasures)
             .map_err(PurgeAttemptError::Rejected)?;
         self.reject_blocked_mutation_targets(&erasures)
             .map_err(PurgeAttemptError::Rejected)?;
-        self.prepare_batch_molecule_keys(&erasures, scope)
+        self.prepare_batch_molecule_keys(&erasures)
             .await
             .map_err(PurgeAttemptError::Retry)?;
         Ok(erasures)

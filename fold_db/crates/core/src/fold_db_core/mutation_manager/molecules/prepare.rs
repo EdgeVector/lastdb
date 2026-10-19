@@ -2,16 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::super::MutationManager;
 use crate::atom::Atom;
 use crate::db_operations::{AtomStore, ChangedKey};
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
-use sha2::{Digest, Sha256};
 use tracing::warn;
-
-use super::super::helpers::normalize_key_value_for_schema_type;
-use super::super::MutationManager;
 
 mod key_fields;
 
@@ -27,6 +24,7 @@ impl MutationManager {
         schema: &Schema,
         mutation: &Mutation,
     ) -> Result<KeyValue, SchemaError> {
+        crate::schema::require_logical_layout(&schema.schema_type)?;
         // Prefer the pre-computed key_value from the mutation (set by the
         // ingestion service with date normalization and proper field extraction).
         // Fall back to KeyValue::from_mutation() only when both fields are None.
@@ -45,32 +43,14 @@ impl MutationManager {
                 )
             };
 
-        // Safety net: if key is still empty after both extraction paths,
-        // generate a deterministic content hash so the mutation is stored
-        // and retrievable rather than silently lost.
-        if key_value.hash.is_none() && key_value.range.is_none() {
-            let mut hasher = Sha256::new();
-            let mut sorted: Vec<_> = mutation.fields_and_values.iter().collect();
-            sorted.sort_by_key(|(a, _)| (*a).clone());
-            for (k, v) in sorted {
-                hasher.update(k.as_bytes());
-                hasher.update(v.to_string().as_bytes());
-            }
-            let fallback = format!("{:x}", hasher.finalize());
-            let short = &fallback[..16];
+        if schema.schema_type == DeclarativeSchemaType::Hash && key_value.range.is_some() {
             warn!(
-                "Key resolution produced empty key for schema '{}', mutation {}; using content hash '{}'",
-                schema_name, mutation.uuid, short
+                schema = %schema_name,
+                mutation = %mutation.uuid,
+                "Ignoring range key supplied for hash-only schema mutation"
             );
-            key_value.hash = Some(short.to_string());
+            key_value.range = None;
         }
-
-        normalize_key_value_for_schema_type(
-            schema_name,
-            &schema.schema_type,
-            &mutation.uuid,
-            &mut key_value,
-        );
 
         // Validate that the key matches the schema type.
         // A mismatch means a bug upstream — fail loudly.
@@ -78,12 +58,6 @@ impl MutationManager {
             DeclarativeSchemaType::Hash if key_value.hash.is_none() => Err(
                 SchemaError::InvalidData(format!(
                     "Hash schema '{}' mutation {} has no hash key",
-                    schema_name, mutation.uuid
-                )),
-            ),
-            DeclarativeSchemaType::Range if key_value.range.is_none() => Err(
-                SchemaError::InvalidData(format!(
-                    "Range schema '{}' mutation {} has no range key",
                     schema_name, mutation.uuid
                 )),
             ),

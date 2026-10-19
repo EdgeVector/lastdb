@@ -48,7 +48,7 @@ impl AtomStore {
             return Ok(());
         }
         let candidates = self
-            .key_codec_for_molecule(molecule)
+            .key_codec_for_molecule(molecule)?
             .api_hash_range_record_keys_for_read(
                 molecule,
                 api_key.hash.as_deref().unwrap_or_default(),
@@ -198,7 +198,7 @@ impl AtomStore {
                 .api_key
                 .as_ref()
                 .map(|api_key| {
-                    self.key_codec_for_molecule(&key.molecule)
+                    self.key_codec_for_molecule(&key.molecule)?
                         .api_hash_range_record_key(
                             &key.molecule,
                             api_key.hash.as_deref().unwrap_or_default(),

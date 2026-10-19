@@ -65,7 +65,7 @@ impl MutationManager {
                 let Some(molecule) = field.common().molecule_uuid() else {
                     continue;
                 };
-                let Some((hash, range)) = field.disk_slot_for_key(&mutation.key_value) else {
+                let Some((hash, range)) = field.slot_coordinates(&mutation.key_value) else {
                     continue;
                 };
                 slots.push((molecule.clone(), hash, range));
@@ -133,7 +133,7 @@ impl MutationManager {
         }
         for (molecule, data, keys) in entry.chain(siblings) {
             for key in keys {
-                let (hash, range) = (key.disk_hash(), key.disk_range());
+                let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
                 if data.get_atom_entry(hash, range).is_none() {
                     slots.push((molecule.to_owned(), hash.to_owned(), range.to_owned()));
                 }
@@ -160,7 +160,7 @@ impl MutationManager {
             .map(|(molecule, hash, range)| {
                 self.db_ops
                     .atoms()
-                    .key_codec_for_molecule(molecule)
+                    .key_codec_for_molecule(molecule)?
                     .api_hash_range_record_keys_for_read(molecule, hash, range)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))
             })

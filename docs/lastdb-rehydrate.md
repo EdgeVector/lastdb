@@ -27,6 +27,10 @@ Current writes create no atom history or history reverse references.
 Private replacement and conflict records remain until their current references reach disk.
 Explicit physical cleanup commands can remove existing history files.
 A failed read cannot enter the model as a confirmed missing record.
+A selected tip requires its atom in every database scope.
+The shared body reader checks the result count and refuses a missing atom.
+It returns complete atoms, so callers do not contain another skip rule.
+The former skipped-atom reports remain empty wire fields. They own no counters or record lists.
 One shared query check refuses old-value and recursive-depth controls for reads and counts.
 The request decoder retains those names for an explicit refusal. Current field readers do not accept those controls.
 
@@ -47,6 +51,7 @@ An atom identity includes its source schema and value. A write through another s
 Related molecules still share the current selected atom. A normal reopen retains that atom identity.
 Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
 Writes, reads, and related deletion keys use one conversion for text, numeric, and Boolean coordinates.
+Slot helpers select coordinates without an encoding change. Only the storage codec changes their representation.
 Cold Hash counts and value reads use the same exact tip reader.
 That reader keeps the caller's hash and the selected atom location together.
 Keyed reads keep the caller's key form through counts and response metadata.
@@ -67,6 +72,8 @@ A shared key that becomes usable also receives the unchanged fields through thei
 The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.
 
 Schema key lists capture the schema, selected tips, and atom values in one read.
+The public key list resolves the caller's database membership inside that captured read.
+Its selected field, keys, values, and preload use the same database scope.
 Value reads, counts, and schema key lists share the resolved schema's blocked-state check.
 They load the molecule's encryption keys and fetch selected values in batches.
 HashRange membership precedes the key-list limit; rejected records cause a bounded refill.
@@ -75,6 +82,8 @@ The list command preserves those hashes in both requests and continuation comman
 An unfiltered blinded Hash list refuses a key that it cannot recover. A filtered Hash list can use the caller's hash.
 Explicit physical helpers can still return storage tokens. They do not define schema query results.
 Time conditions retain milliseconds and negative fractional seconds.
+Query cursors support ascending keyed reads without field conditions or value order controls.
+Other query forms use offsets. A supplied unsupported cursor receives an explicit refusal.
 
 ## Range keys
 
@@ -98,6 +107,13 @@ That transfer does not copy those prepared payloads into a second job.
 Native after-commit work sends the Search change after the disk commit.
 Related molecule definitions share one protected metadata change.
 Concurrent schema declarations cannot create competing proteins for the same unbound molecule.
+Schema publication establishes the fixed encryption keys for every final field molecule.
+This includes related molecules before a write reaches them through a protein.
+Personal and named databases use the same keys for the same molecule identity.
+Private key creation follows the native write boundary and one lock order.
+A failed schema change cannot publish its private keys in the shared cache.
+Current reads use that one key pair. No previous-key transition or automatic conversion runs.
+Preload loads the molecule keys before it captures their encoding identity.
 The native write boundary precedes the membership and molecule-liveness guards.
 
 The private disk queue owns prepared bytes and completion work until flush.
@@ -109,6 +125,8 @@ Explicit durable requests wait for disk. A memory refusal also forces disk compl
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
 
 User Delete resolves the current related molecule keys inside the same native write boundary as their removal.
+Write conditions retain the selected tip's physical atom location through the body fetch.
+They use the same required-body reader as queries. They do not guess a location from the caller's key.
 The worker checks the caller's conditions before it prepares any deletion.
 The current field atoms supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
@@ -123,6 +141,9 @@ An invalid peer-key value receives an explicit refusal before any deletion start
 That fixed input error does not retain a write for an endless storage retry.
 
 A fixed operation or byte limit refuses the whole prepared request before publication.
+A missing required key also receives a refusal before write preparation.
+The declared key fields can supply that key. The engine does not invent one from the record contents.
+Stored record keys require valid decoding. Aggregate guards and portable imports propagate a decode failure.
 A read limit also returns a refusal. Neither refusal causes an endless delete retry.
 Temporary memory or queue pressure retains its retry behavior.
 
@@ -130,6 +151,22 @@ The native flush delay is at most 500 ms. `LASTDB_RESIDENT_PERSIST_MS` can selec
 A crash can lose a write that received an ack before its flush.
 Write reservations, core metadata, schema definitions, and complete keys have separate allowances.
 Their limits do not define one whole-process memory cap.
+
+Each queued disk extension reserves only its additional file and journal bytes.
+The earlier request keeps its reservations until the extension succeeds.
+Acceptance transfers those owners without a second charge. Refusal releases only the private extension.
+A failed disk commit retains the complete reservation for its required output.
+
+## Shared responsibilities
+
+| Part | Responsibility | Explicit boundary |
+|---|---|---|
+| Core model | Current definitions, selected tips, atom values, and confirmed absence | A partial molecule does not prove a complete range. |
+| Complete selected keys | Membership for selected schemas | The separate allowance does not preload every atom. |
+| Read scope | One captured core state, disk root, allowance, and held owners | Child reads keep the same scope and selected atom location. |
+| Write preparation | One complete logical change and its prepared disk bytes | A failed preparation does not publish part of that change. |
+| Native queue | Prepared disk output and completion work | Ordinary reads cannot use it as another value source. |
+| Physical maintenance | Packed-file rewrite, backup, and explicit repair | These tools do not select another logical engine. |
 
 ## Engine boundary
 

@@ -68,7 +68,10 @@ pub(super) fn recode_row_key(
         .ok_or_else(|| error("org slot key differs"))?;
     let (hash, range) =
         codec::decode_hash_range_suffix(suffix).ok_or_else(|| error("invalid org slot suffix"))?;
-    let old = ops.atoms().key_codec_for_molecule(molecule);
+    let old = ops
+        .atoms()
+        .key_codec_for_molecule(molecule)
+        .map_err(error)?;
     let new = bundles[molecule].key_codec(&old);
     let (hash, range) = recode_slot(molecule, &hash, &range, &old, &new, hashes)?;
     let suffix = codec::hash_range_record_key(molecule, &hash, &range);
@@ -127,7 +130,10 @@ pub(super) fn recode_value(
                 object.get("hash").and_then(serde_json::Value::as_str),
                 object.get("range").and_then(serde_json::Value::as_str),
             ) {
-                let old = ops.atoms().key_codec_for_molecule(&molecule);
+                let old = ops
+                    .atoms()
+                    .key_codec_for_molecule(&molecule)
+                    .map_err(error)?;
                 let new = bundles[&molecule].key_codec(&old);
                 let (hash, range) = recode_slot(&molecule, hash, range, &old, &new, hashes)?;
                 object.insert("hash".into(), hash.into());

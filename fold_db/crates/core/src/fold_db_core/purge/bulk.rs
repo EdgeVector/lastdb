@@ -227,7 +227,7 @@ fn plan_storage_slots(
             continue;
         };
         for storage_key in storage_form_keys(db_ops, field, keys)? {
-            let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key) else {
+            let Some((disk_hash, disk_range)) = field.slot_coordinates(&storage_key) else {
                 continue;
             };
             storage_slots.push(PlannedStorageSlot {
@@ -451,7 +451,7 @@ pub(in crate::fold_db_core) async fn plan_guarded_complement_retained(
             continue;
         };
         for storage_key in storage_form_keys(db_ops, field, &deduped)? {
-            let Some((disk_hash, disk_range)) = field.disk_slot_for_key(&storage_key) else {
+            let Some((disk_hash, disk_range)) = field.slot_coordinates(&storage_key) else {
                 continue;
             };
             target_slots.insert((molecule_uuid.clone(), disk_hash, disk_range));

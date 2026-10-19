@@ -61,7 +61,7 @@ impl FieldVariant {
         // storage scan.
         let results = match self.common().molecule_uuid().map(String::as_str) {
             Some(mol_uuid) => {
-                let codec = db_ops.atoms().key_codec_for_molecule(mol_uuid);
+                let codec = db_ops.atoms().key_codec_for_molecule(mol_uuid)?;
                 let expanded = crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
                     &effective_filter,
                     &codec,
@@ -154,7 +154,7 @@ impl FieldVariant {
         )>,
         SchemaError,
     > {
-        let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid);
+        let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid)?;
         let expanded =
             crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
                 filter,
@@ -232,11 +232,6 @@ impl FieldVariant {
                 .await?;
         let mut authoritative = Vec::with_capacity(pending.len());
         for ((key, entry, _), atom) in pending.into_iter().zip(atoms) {
-            let atom = atom.ok_or_else(|| {
-                SchemaError::InvalidData(
-                    "authoritative field walk found an unresolved atom body".into(),
-                )
-            })?;
             if crate::atom::is_tombstone_value(atom.content()) {
                 return Err(SchemaError::InvalidData(
                     "authoritative field walk found a tombstone body at a live tip".into(),

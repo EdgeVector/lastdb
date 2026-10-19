@@ -296,11 +296,10 @@ export interface RequestConsentResult {
  * Optional query filter. The node's `/api/query` accepts a `fold_db` `Query`
  * — `{schema_name, fields}` plus an optional range filter — alongside
  * top-level `limit`/`offset` pagination fields. Production nodes also accept a
- * top-level `cursor` (`KeyValue`), but ONLY the unfiltered push-down consumes
- * one — see {@link QueryFilter.cursor}. Offset is the paging mechanism for
- * every key-restricted (`HashKey`/`HashRange*`) read, which is every product
- * read; `queryAll` follows `page.nextCursor` when the node returns one and
- * otherwise advances by offset.
+ * top-level `cursor` (`KeyValue`) on ascending keyed reads without conditions,
+ * custom value ordering, or a predicate limit. Other reads use offsets.
+ * `queryAll` follows `page.nextCursor` when the node returns one and otherwise
+ * advances by offset.
  *
  * Pagination: production `fold_db_node` applies `limit` (default 100 —
  * `DEFAULT_QUERY_LIMIT` — clamped to `MAX_QUERY_LIMIT` 1000) and `offset`
@@ -342,14 +341,10 @@ export interface QueryFilter {
    * Keyset cursor returned by a prior page's `page.nextCursor`. Forwarded
    * verbatim as top-level `cursor`.
    *
-   * Only send one the node actually handed you. The node consumes a cursor on
-   * a single path — the unfiltered `can_push_down` push-down — and a
-   * key-restricted read (`HashKey`/`HashRange*`) carries a filter, so it never
-   * reaches that branch. Sending a cursor on a filtered read is silently
-   * ignored: the node re-serves the same page, `has_more` never flips, and a
-   * client that paged by cursor instead of offset would not terminate. The
-   * node therefore returns `next_cursor: null` on every offset-paged shape, so
-   * following `page.nextCursor` is safe by construction.
+   * Send a cursor only on an ascending keyed read with the same key selector
+   * and no field conditions, custom value ordering, or predicate limit.
+   * The node refuses unsupported cursor combinations. Such reads use offsets
+   * and return `next_cursor: null`.
    */
   cursor?: KeyValue;
   /**

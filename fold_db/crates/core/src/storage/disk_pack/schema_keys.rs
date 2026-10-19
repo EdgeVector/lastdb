@@ -194,9 +194,11 @@ impl PackRuntime {
         scope: Option<&str>,
         molecule: &str,
     ) -> Result<(), SchemaError> {
+        // Key identity must be established before an empty or cold domain loads.
+        db_ops.atoms().load_molecule_key_bundle(molecule).await?;
         let prefixes = db_ops
             .atoms()
-            .key_codec_for_molecule(molecule)
+            .key_codec_for_molecule(molecule)?
             .molecule_record_prefixes_for_read(molecule);
         for prefix in prefixes {
             let Some(uid) =
@@ -218,8 +220,8 @@ impl PackRuntime {
 }
 
 fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, SchemaError> {
-    let codec = db_ops.atoms().key_codec_for_molecule(molecule);
-    // Sentinel outputs identify the active and fallback key epochs without
+    let codec = db_ops.atoms().key_codec_for_molecule(molecule)?;
+    // Sentinel outputs identify the fixed molecule key pair without
     // retaining encryption keys. They are never used as database coordinates.
     Ok(format!(
         "{:?}/{:?}/{:?}/{:?}",

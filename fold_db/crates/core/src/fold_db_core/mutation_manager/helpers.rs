@@ -3,53 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::db_operations::ChangedKey;
-use crate::schema::types::field::FieldVariant;
-use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Mutation, Schema};
-use crate::schema::{SchemaCore, SchemaError};
-use tracing::warn;
-
-// `build_delete_tombstone_fields` lived here: the per-field tombstone payload
-// that repurposed `MutationType::Delete` wrote through the ordinary atom path.
-// Delete now hard-erases via the purge path, so nothing in the product writes a
-// tombstone any more and the builder had no live caller. The one remaining
-// producer is `test_helpers::seed_legacy_tombstones`, which reconstructs the
-// same shape so tests can still stand up the population already on disk.
-
-pub(crate) fn normalize_key_value_for_schema_type(
-    schema_name: &str,
-    schema_type: &DeclarativeSchemaType,
-    mutation_uuid: &str,
-    key_value: &mut KeyValue,
-) {
-    match schema_type {
-        DeclarativeSchemaType::Hash => {
-            if key_value.range.is_some() {
-                warn!(
-                    schema = %schema_name,
-                    mutation = %mutation_uuid,
-                    "Ignoring range key supplied for hash-only schema mutation"
-                );
-                key_value.range = None;
-            }
-        }
-        DeclarativeSchemaType::Range => {
-            if key_value.hash.is_some() {
-                warn!(
-                    schema = %schema_name,
-                    mutation = %mutation_uuid,
-                    "Ignoring hash key supplied for range-only schema mutation"
-                );
-                key_value.hash = None;
-            }
-        }
-        DeclarativeSchemaType::HashRange | DeclarativeSchemaType::Single => {}
-    }
-}
-
-pub(crate) fn current_atom_uuid(field: &FieldVariant, key_value: &KeyValue) -> Option<String> {
-    field.current_atom_uuid(key_value)
-}
+use crate::schema::types::{Mutation, Schema};
+use crate::schema::SchemaError;
 
 /// Stamp every runtime field on `schema` with the request's storage prefix so
 /// restore / CAS / query / persist read and write the same org DB keyspace.
@@ -129,10 +84,7 @@ pub(crate) fn is_search_outbox_excluded(classifications: &[String]) -> bool {
 /// Previously-stored molecules with derived provenance remain readable —
 /// this guards the WRITE path only. Mutations without `Provenance::Derived`
 /// (user writes with `Provenance::User { .. }` or `None`) are unchecked.
-pub(crate) fn validate_derived_provenance(
-    mutation: &Mutation,
-    _schema_manager: &SchemaCore,
-) -> Result<(), SchemaError> {
+pub(crate) fn validate_derived_provenance(mutation: &Mutation) -> Result<(), SchemaError> {
     use crate::atom::provenance::Provenance;
     match &mutation.provenance {
         Some(Provenance::Derived { .. }) => Err(SchemaError::InvalidData(format!(

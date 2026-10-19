@@ -172,7 +172,7 @@ pub(crate) async fn refresh_runtime_field_molecules_for_purge_keys(
         let storage_keys = storage_form_keys(db_ops, field, keys)?;
         let slots: Vec<_> = storage_keys
             .iter()
-            .filter_map(|key| field.disk_slot_for_key(key))
+            .filter_map(|key| field.slot_coordinates(key))
             .collect();
         plans.push((
             field_name.clone(),

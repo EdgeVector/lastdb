@@ -19,6 +19,13 @@ impl MutationReservation {
     pub fn quote(&self) -> MutationQuote {
         self.quote
     }
+
+    /// Transfer the admitted prefix after the caller accepts its extension.
+    /// Preparation and transfer keep the same exclusive native write gate.
+    pub fn absorb(&mut self, previous: MutationReservation) {
+        assert_eq!(self.generation, previous.generation);
+        self.journal.absorb(previous.journal);
+    }
 }
 
 impl HomeJournal {
@@ -51,7 +58,9 @@ impl HomeJournal {
     }
 
     /// Reserve a replacement prefix using only the new request's dimensions.
-    /// The caller retains the previous ticket until complete admission succeeds.
+    /// The caller retains the previous ticket until complete admission succeeds,
+    /// then absorbs it into the returned ticket before append. Cancellation
+    /// releases only the added charge and leaves the previous ticket intact.
     pub fn reserve_mutation_extension(
         &self,
         previous: &MutationReservation,

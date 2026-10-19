@@ -247,12 +247,15 @@ pub(super) async fn execute_list_record_keys_route(
 
     match host
         .db
-        .list_schema_record_keys(
-            &requested,
-            &canonical,
-            limit,
-            cursor.as_deref(),
-            hash_filter.as_deref(),
+        .list_schema_record_keys_with_access(
+            fold_db::db_operations::SchemaRecordKeysRequest {
+                requested: &requested,
+                schema_id: &canonical,
+                limit,
+                cursor: cursor.as_deref(),
+                hash_filter: hash_filter.as_deref(),
+            },
+            ctx,
         )
         .await
     {

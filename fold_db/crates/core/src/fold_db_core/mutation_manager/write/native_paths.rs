@@ -123,7 +123,7 @@ impl MutationManager {
         atom_key: &str,
     ) -> Result<Vec<String>, SchemaError> {
         let atoms = self.db_ops.atoms();
-        let codec = atoms.key_codec_for_molecule(&tip.molecule);
+        let codec = atoms.key_codec_for_molecule(&tip.molecule)?;
         let mut sources: Vec<_> = codec
             .api_hash_range_record_keys_for_read(&tip.molecule, &tip.hash, &tip.range)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?
@@ -242,7 +242,7 @@ fn changed_tips(job: &DeferredPersistJob, include_siblings: bool) -> Vec<Changed
     let mut tips = BTreeMap::new();
     for (molecule, data, keys) in entry.chain(siblings) {
         for key in keys {
-            let (hash, range) = (key.disk_hash(), key.disk_range());
+            let (hash, range) = (key.hash_or_empty(), key.range_or_empty());
             if let Some(entry) = data.get_atom_entry(hash, range) {
                 tips.insert(
                     (molecule.to_string(), hash.to_string(), range.to_string()),

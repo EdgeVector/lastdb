@@ -110,8 +110,6 @@ impl FieldVariant {
             matches_with_meta,
             storage_prefix_owned.as_deref(),
             self.common().molecule_uuid().map(String::as_str),
-            None,
-            None,
         )
         .await?;
 

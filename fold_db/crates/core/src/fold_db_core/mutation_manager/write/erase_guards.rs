@@ -125,7 +125,7 @@ impl MutationManager {
                 let Some(uuid) = field.common().molecule_uuid() else {
                     continue;
                 };
-                let Some((hash, range)) = field.disk_slot_for_key(&mutation.key_value) else {
+                let Some((hash, range)) = field.slot_coordinates(&mutation.key_value) else {
                     continue;
                 };
                 for candidate in super::super::super::purge::delete_candidates_for_key(

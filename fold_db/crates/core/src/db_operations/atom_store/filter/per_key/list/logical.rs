@@ -77,11 +77,16 @@ impl AtomStore {
             .get_atoms_located(&slots, request.scope)
             .await
             .map_err(SchemaError::read_failure)?;
+        let atoms = if schema {
+            crate::db_operations::tip_atoms::require_tip_atoms(atoms, slots.len())?
+                .into_iter()
+                .map(Some)
+                .collect()
+        } else {
+            atoms
+        };
         for (index, atom) in misses.into_iter().zip(atoms) {
             let Some(atom) = atom else {
-                if schema && request.scope.is_none() {
-                    return Err(SchemaError::MissingLocalAtom);
-                }
                 continue;
             };
             let record = &rows[index].1;
