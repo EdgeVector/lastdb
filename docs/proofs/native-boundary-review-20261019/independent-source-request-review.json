@@ -1,0 +1,73 @@
+{
+  "accepted_source_manifest_sha256": "c8167e51cded846113b308f869b6f7f42b09c6069384c5eb8270fbb0a2a882b7",
+  "binary_state_at_review": "sources_frozen_binary_pending",
+  "discovery_missing": [],
+  "discovery_unexpected": [],
+  "head": "2d9c0b6e0bcf3f6f8c13a9f5cd9464dc5afdf235",
+  "head_blob_mismatches": [
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas/coordinates.rs"
+  ],
+  "helper_mismatches": [],
+  "limits": [
+    "This source check does not prove runtime behavior.",
+    "The current release binary is pending at this review.",
+    "External registry source bytes remain outside the manifest; Cargo.lock fixes dependency selection."
+  ],
+  "missing_git_blobs": [],
+  "ordinary_request_count": 30,
+  "ordinary_requests_sha256": "edd89453a7f4d8be3d4c89efacc34327db56773a02060aaf160b52ad8612a5f9",
+  "paired_layouts": [
+    {
+      "descriptions_equal": true,
+      "different_key_layouts": true,
+      "mappers_match_source": true,
+      "source": "BoundaryMapA",
+      "target": "BoundaryMapB",
+      "types_equal": true
+    },
+    {
+      "descriptions_equal": true,
+      "different_key_layouts": true,
+      "mappers_match_source": true,
+      "source": "BoundaryRangeMapA",
+      "target": "BoundaryRangeMapB",
+      "types_equal": true
+    }
+  ],
+  "query_count_including_batch_members": 47,
+  "result": "fail",
+  "reviewed_utc": "2026-10-19T23:25:48.395356+00:00",
+  "scope": "Independent source and request-data review. No build, node, test, helper execution, or product edit.",
+  "selector_shapes": [
+    "HashKey",
+    "HashRangeKey",
+    "HashRangeRange",
+    "Page",
+    "SampleN"
+  ],
+  "source_bytes_reviewed": 13833485,
+  "source_checks": {
+    "head_matches_manifest": false,
+    "helper_identity_manifest_stable": true,
+    "input_count_matches": true,
+    "inventory_digest_matches": true,
+    "paired_layout_setup_valid": true,
+    "plan_stable_during_review": true,
+    "prior_manifest_matches": true
+  },
+  "source_input_count": 1890,
+  "source_inventory_sha256": "d104d412e3eab26b2560c573a2b10f93ede966082eada9b8d0b53c40ff4561b3",
+  "superseded_prebuild_manifest": {
+    "change": "NamedInspectedField names the inspection result fields. The root reports no executable build from the superseded source. This review validates only the current manifest.",
+    "head": "a46f1cbf",
+    "replacement": "f4c203e6b213a5c982a6d202a48589b37564bb4d"
+  },
+  "unchanged_helper_count": 11,
+  "version": 1,
+  "wire_issues": [],
+  "worktree_mismatches": [
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas/coordinates.rs"
+  ]
+}

@@ -93,16 +93,17 @@ impl MutationManager {
                 request
                     .runtime
                     .record_read_stage("conditions-done", mutations.len());
-                let delta_count = self
-                    .stage_grouped_deltas(
-                        mutations,
-                        hashes,
-                        request.storage_prefix,
-                        &mut state.timing_breakdown,
-                        &mut state.stages,
-                        &request.runtime,
-                    )
-                    .await?;
+                // Keep the private multi-schema stage behind one future
+                // allocation instead of expanding it in every host caller.
+                let delta_count = Box::pin(self.stage_grouped_deltas(
+                    mutations,
+                    hashes,
+                    request.storage_prefix,
+                    &mut state.timing_breakdown,
+                    &mut state.stages,
+                    &request.runtime,
+                ))
+                .await?;
                 request
                     .runtime
                     .record_read_stage("stored-stages-done", delta_count);

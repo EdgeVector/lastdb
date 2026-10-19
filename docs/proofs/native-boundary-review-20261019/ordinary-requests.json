@@ -14,7 +14,8 @@
     "range-map-range",
     "range-map-page",
     "range-map-sample",
-    "dependent-private-write-results"
+    "dependent-private-write-results",
+    "completed-move-source-and-new-key"
   ],
   "requests": [
     {
@@ -1686,6 +1687,73 @@
         "x-lastdb-read-receipt": "true"
       },
       "label": "dependent-private-write-results",
+      "path": "/api/queries/batch"
+    },
+    {
+      "body": {
+        "queries": [
+          {
+            "fields": [
+              "id",
+              "email",
+              "payload"
+            ],
+            "filter": {
+              "HashKey": "move-one"
+            },
+            "limit": 1,
+            "schema_name": "BoundaryHashA"
+          },
+          {
+            "fields": [
+              "id",
+              "email",
+              "payload"
+            ],
+            "filter": {
+              "HashKey": "move-new"
+            },
+            "limit": 1,
+            "schema_name": "BoundaryHashB"
+          },
+          {
+            "fields": [
+              "bucket",
+              "id",
+              "email",
+              "payload"
+            ],
+            "filter": {
+              "HashRangeKey": {
+                "hash": "move-one",
+                "range": "r"
+              }
+            },
+            "limit": 1,
+            "schema_name": "BoundaryRangeA"
+          },
+          {
+            "fields": [
+              "bucket",
+              "id",
+              "email",
+              "payload"
+            ],
+            "filter": {
+              "HashRangeKey": {
+                "hash": "move-new",
+                "range": "r"
+              }
+            },
+            "limit": 1,
+            "schema_name": "BoundaryRangeB"
+          }
+        ]
+      },
+      "headers": {
+        "x-lastdb-read-receipt": "true"
+      },
+      "label": "completed-move-source-and-new-key",
       "path": "/api/queries/batch"
     }
   ],
