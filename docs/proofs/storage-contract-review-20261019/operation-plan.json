@@ -4,7 +4,7 @@
     "expected_zero_file_checks": 29,
     "unchanged_helper": "docs/proofs/core-owned-writes-20261018/cohorts.py"
   },
-  "comparison": "Exact status, record keys/field types/values/order and returned count. Store raw response bytes before decode. Candidate stops first mismatch. Expected refusals change no batch member.",
+  "comparison": "Exact status, record keys/order, requested field values and JSON types, and returned count. Compare only the requested field projection; existing core responses may include the declared hash helper. Save raw response before decode. Candidate stops first mismatch. Expected refusals change no batch member.",
   "encoding_runs": [
     "ope_v1",
     "plain"
