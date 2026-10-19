@@ -13,7 +13,6 @@ mod aggregate;
 mod author_clock;
 mod cas;
 mod cas_current_state;
-mod cas_delete;
 mod cas_idempotency;
 mod cas_locks;
 mod cas_preconditions;

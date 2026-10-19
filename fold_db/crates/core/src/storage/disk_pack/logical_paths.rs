@@ -16,7 +16,6 @@ mod dependencies;
 pub(crate) mod field;
 mod protection;
 mod read;
-pub(crate) mod record;
 pub(crate) mod source;
 mod tips;
 

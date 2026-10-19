@@ -78,63 +78,6 @@ pub(super) fn compact_json_isolation_needed(collection: &str) -> bool {
     fold_db::storage::laststore::compact_requires_cloud_isolation(collection)
 }
 
-/// `POST /api/db/compact-record` — zip one HashRange key onto record molecule R.
-pub(super) async fn execute_compact_record_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        schema: String,
-        hash: String,
-        range: String,
-    }
-    let body: Body = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(e) => {
-            return error_response(
-                400,
-                &format!("invalid /api/db/compact-record body: {e}"),
-                ctx,
-            )
-        }
-    };
-    if body.schema.trim().is_empty() || body.hash.trim().is_empty() || body.range.trim().is_empty()
-    {
-        return error_response(400, "schema, hash, and range are required", ctx);
-    }
-    let resolved = match handlers::resolve_schema_name(host, body.schema.trim()) {
-        Ok(v) => v,
-        Err(e) => return render(Err(e), ctx),
-    };
-    let Some(canonical) = resolved else {
-        return error_response(404, &format!("schema not found: {}", body.schema), ctx);
-    };
-    match host
-        .db
-        .compact_record_molecule_key(&canonical, body.hash.trim(), body.range.trim())
-        .await
-    {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({
-                "schema": report.schema_name,
-                "hash": report.hash,
-                "range": body.range.trim(),
-                "keys_compacted": report.keys_compacted,
-                "keys_skipped": report.keys_skipped,
-                "record_molecule_uuid": report.record_molecule_uuid,
-            }),
-            ctx.user_id.as_str(),
-        )),
-        Err(e) => mapped_error_response(
-            "compact-record failed",
-            fold_db::FoldDbError::Schema(e),
-            ctx,
-        ),
-    }
-}
-
 /// `POST /api/db/compact` — compact one allowlisted LastStore collection,
 /// or every allowlisted collection when `all` is true / `collection` is omitted.
 /// The all-walk skips `COMPACT_NAMED_ONLY` planes (`cas_blobs`); name one to run it.

@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// Record-level data commands: mutate, list, get-keys, get, compact-record.
+/// Record-level data commands: mutate, list, get-keys, get.
 pub(super) fn record_command(data_dir: Option<PathBuf>, command: Command) -> Result<(), String> {
     match command {
         Command::Mutate {
@@ -70,12 +70,6 @@ pub(super) fn record_command(data_dir: Option<PathBuf>, command: Command) -> Res
             key_range.as_deref(),
             json,
         ),
-        Command::CompactRecord {
-            schema,
-            key_hash,
-            key_range,
-            json,
-        } => compact_record_command(data_dir, &schema, &key_hash, &key_range, json),
         _ => unreachable!("run() routes only record commands here"),
     }
 }

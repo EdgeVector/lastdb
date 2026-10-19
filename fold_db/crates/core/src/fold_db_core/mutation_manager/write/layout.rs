@@ -8,6 +8,12 @@ impl MutationManager {
         &self,
         mutations: &[Mutation],
     ) -> Result<(), SchemaError> {
+        for field in mutations
+            .iter()
+            .flat_map(|mutation| mutation.fields_and_values.keys())
+        {
+            Schema::validate_field_name(field).map_err(SchemaError::InvalidData)?;
+        }
         let schemas: BTreeSet<_> = mutations
             .iter()
             .map(|mutation| mutation.schema_name.as_str())

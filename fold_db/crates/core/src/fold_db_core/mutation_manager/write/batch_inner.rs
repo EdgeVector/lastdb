@@ -19,7 +19,7 @@ impl MutationManager {
         self.prepare_batch_molecule_keys(&mutations, storage_prefix)
             .await?;
         self.reject_blocked_mutation_targets(&mutations)?;
-        self.validate_hashrange_key_field_payloads(&mutations)?;
+        self.validate_key_field_payloads(&mutations)?;
         self.reject_internal_only_mutations(&mutations)?;
 
         // Hard erasure (compliance Purge + user Delete) has destructive

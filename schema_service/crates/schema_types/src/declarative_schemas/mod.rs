@@ -11,6 +11,7 @@ mod deserialize;
 mod equality;
 mod identity;
 mod metadata;
+mod validation;
 
 pub use identity::{
     canonical_name_parts, compute_identity_hash_parts, parse_canonical_name,
@@ -86,74 +87,6 @@ impl From<FieldMapper> for String {
     }
 }
 
-/// Sentinel used as the field component of a deterministic *record* molecule
-/// UUID (`deterministic(schema, RECORD_SENTINEL)`). It cannot be a declared
-/// field name: a real field called this would collide with the record grain.
-pub const RECORD_SENTINEL: &str = "\u{1f}record";
-
-/// Same-key expand pointer: the new catalog's record molecule is the
-/// predecessor's. Wire form is the source schema identity (no field component).
-///
-/// This does **not** replace [`FieldMapper`]. Dual-stamp both so an old Mini
-/// that ignores `record_mapper` (`serde(default)`) still copies field UUIDs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(into = "String", try_from = "String")]
-pub struct RecordMapper {
-    source_schema: String,
-}
-
-impl RecordMapper {
-    pub fn new<S: Into<String>>(source_schema: S) -> Self {
-        Self {
-            source_schema: source_schema.into(),
-        }
-    }
-
-    pub fn source_schema(&self) -> &str {
-        &self.source_schema
-    }
-}
-
-impl TryFrom<String> for RecordMapper {
-    type Error = String;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let source_schema = value.trim();
-        if source_schema.is_empty() {
-            return Err("RecordMapper source schema cannot be empty".to_string());
-        }
-        Ok(Self::new(source_schema))
-    }
-}
-
-impl TryFrom<&str> for RecordMapper {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::try_from(value.to_string())
-    }
-}
-
-impl From<RecordMapper> for String {
-    fn from(mapper: RecordMapper) -> Self {
-        mapper.source_schema
-    }
-}
-
-impl<'__s> utoipa::ToSchema<'__s> for RecordMapper {
-    fn schema() -> (
-        &'__s str,
-        utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
-    ) {
-        (
-            "RecordMapper",
-            utoipa::openapi::schema::ObjectBuilder::new()
-                .schema_type(utoipa::openapi::schema::SchemaType::String)
-                .into(),
-        )
-    }
-}
-
 impl<'__s> utoipa::ToSchema<'__s> for FieldMapper {
     fn schema() -> (
         &'__s str,
@@ -225,16 +158,6 @@ pub struct DeclarativeSchemaDefinition {
     pub transform_fields: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub field_mappers: Option<HashMap<String, FieldMapper>>,
-    /// Same-key expand: this catalog's record molecule is the named predecessor.
-    /// Absent on catalogs that predate record-molecule compact. `serde(default)`
-    /// so old Mini and old JSON keep loading.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub record_mapper: Option<RecordMapper>,
-    /// Schema-level record molecule UUID. Set only after compact mints R, or
-    /// after expand copies a predecessor that already has R. Not derived from
-    /// FieldMappers.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub molecule_uuid: Option<String>,
     /// SHA256 hash of the schema content for integrity verification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,

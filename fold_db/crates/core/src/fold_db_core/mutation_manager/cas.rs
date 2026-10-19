@@ -246,7 +246,7 @@ impl MutationManager {
 
         let fields = protein_delete_peer_fields(&peers);
         let mut values = match self
-            .read_current_delete_fields(&mutation, &fields, storage_prefix)
+            .read_current_row_fields(&mutation, &fields, storage_prefix)
             .await?
         {
             CurrentRowFields::Present(values) => values,

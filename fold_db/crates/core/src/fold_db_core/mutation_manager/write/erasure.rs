@@ -129,7 +129,7 @@ impl MutationManager {
 
             let source_fields: Vec<String> = source_schema.runtime_fields.keys().cloned().collect();
             let row = match self
-                .read_current_delete_fields(&erasure, &source_fields, storage_prefix)
+                .read_current_row_fields(&erasure, &source_fields, storage_prefix)
                 .await?
             {
                 super::super::cas::CurrentRowFields::Present(row) => row,

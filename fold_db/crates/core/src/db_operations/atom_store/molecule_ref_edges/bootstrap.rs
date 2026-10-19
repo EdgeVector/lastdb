@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 const WRITE_BATCH: usize = 4096;
 
 impl AtomStore {
-    /// Rebuild schema-field, schema-record R, and protein-member edges from
+    /// Rebuild schema-field and protein-member edges from
     /// every canonical source on a stopped home under exclusive maintenance.
     /// A known-empty home may use the same protocol before it exposes writers.
     /// Old v1 markers never authorize the expanded source set or memory ack.
@@ -134,8 +134,8 @@ impl AtomStore {
             }
             Ok(2)
         } else {
-            // Older legacy binaries do not maintain R edges. Never leave a v2
-            // proof they could stale and later copy through native conversion.
+            // A physical store without the native writer fence cannot provide
+            // the native reference completeness proof.
             Ok(1)
         }
     }
@@ -151,7 +151,7 @@ fn validate_sources(
     let mut expected = BTreeMap::new();
     for edge in edges {
         match edge.edge_type.as_str() {
-            "schema-field" | "schema-record" => schemas += 1,
+            "schema-field" => schemas += 1,
             "protein-member" => proteins += 1,
             _ => {
                 return Err(SchemaError::InvalidData(

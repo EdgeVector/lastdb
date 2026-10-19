@@ -3,11 +3,10 @@
 use super::*;
 
 impl MutationManager {
-    /// Load the schema with its runtime fields and fold mutations into the record envelope.
+    /// Load the schema's current field definitions for private mutation preparation.
     pub(super) async fn load_schema_for_delta(
         &self,
         schema_name: &str,
-        schema_mutations: &mut [Mutation],
         storage_prefix: Option<&str>,
     ) -> Result<crate::schema::types::Schema, SchemaError> {
         let snapshot = self.db_ops.schemas().read_snapshot(schema_name).await?;
@@ -21,13 +20,6 @@ impl MutationManager {
             .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
-        schema.ensure_record_molecule_runtime_field();
-        crate::record_molecule::fold_mutations_to_record_envelope(
-            &self.db_ops,
-            &schema,
-            schema_mutations,
-        )
-        .await?;
         Ok(schema)
     }
 

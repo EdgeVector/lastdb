@@ -27,7 +27,6 @@ struct Binding {
     schema: String,
     field: String,
     name: String,
-    envelope: bool,
 }
 
 impl MutationManager {

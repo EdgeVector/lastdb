@@ -9,8 +9,9 @@ use super::MutationManager;
 
 impl MutationManager {
     /// Verify every CAS mutation's precondition against the current persisted
-    /// head. Must run while the batch holds the relevant CAS locks (see
-    /// [`Self::acquire_cas_locks`]). Returns the first
+    /// head. The caller must exclude writes through comparison and publication:
+    /// requests hold their CAS locks, and the Delete worker holds the native
+    /// write gate. Returns the first
     /// [`SchemaError::CasConflict`] encountered — the whole batch is rejected,
     /// matching the all-or-nothing contract the write pipeline already applies
     /// to access-control and type-validation failures, so a client never sees a
@@ -180,14 +181,9 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let field = expected.field();
-        let (current_uuid, current_value) =
-            if mutation.mutation_type == crate::schema::types::MutationType::Delete {
-                self.read_current_delete_head(mutation, field, storage_prefix)
-                    .await?
-            } else {
-                self.read_current_head(mutation, field, storage_prefix)
-                    .await?
-            };
+        let (current_uuid, current_value) = self
+            .read_current_head(mutation, field, storage_prefix)
+            .await?;
 
         let conflict = |exp: String, actual: Option<String>| SchemaError::CasConflict {
             schema: mutation.schema_name.clone(),

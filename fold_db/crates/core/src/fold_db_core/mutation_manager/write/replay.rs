@@ -181,7 +181,6 @@ impl MutationManager {
                 ))
             })?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
-        schema.ensure_record_molecule_runtime_field();
         let mut source_mutations = vec![mutation.clone()];
         let (keys, atoms, located) = self.prepare_atoms_and_key_values(
             &mutation.schema_name,

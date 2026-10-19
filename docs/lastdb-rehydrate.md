@@ -25,12 +25,11 @@ Its memory owner stays charged until that call returns.
 This call lifetime does not provide an old-value query or stored atom history.
 A failed read cannot enter the model as a confirmed missing record.
 
-A compacted record can supply several fields from one atom.
-Queries resolve that record in the selected key's storage scope before field conditions, order, and limits.
-Exact reads and range reads use the same field values and metadata rule.
-The record contains no per-field source, writer, or time, so those details remain unknown in its field results.
-A partial record preserves field values that it does not contain.
-Only the internal compaction read can use field values without the current record.
+Each field keeps its current atom in its molecule.
+A query assembles a record from those fields in the selected storage scope.
+Exact reads and range reads use the same query controls and each field's own atom metadata.
+There is no separate whole-record value or record-compaction write route.
+Native file packing combines the disk work without a second logical value representation.
 
 ## Range keys
 
@@ -56,7 +55,7 @@ An internal file change that lacks a complete logical translation finishes on di
 
 User Delete resolves the current related molecule keys inside the same native write boundary as their removal.
 The worker checks the caller's conditions before it prepares any deletion.
-Compacted records supply their current field values for those checks and related keys.
+The current field atoms supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
 Search receives the deletion after that commit.
 The explicit Purge route retains its separate destructive rules.

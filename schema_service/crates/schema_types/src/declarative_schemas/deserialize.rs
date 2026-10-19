@@ -1,4 +1,4 @@
-use super::{DeclarativeSchemaDefinition, FieldMapper, RecordMapper, SchemaSource};
+use super::{DeclarativeSchemaDefinition, FieldMapper, SchemaSource};
 use crate::schema_type::DeclarativeSchemaType;
 use crate::DataClassification;
 use crate::FieldValueType;
@@ -23,10 +23,6 @@ struct DeclarativeSchemaDefinitionHelper {
     transform_fields: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     field_mappers: Option<HashMap<String, FieldMapper>>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    record_mapper: Option<RecordMapper>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    molecule_uuid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     field_molecule_uuids: Option<HashMap<String, String>>,
     #[serde(default)]
@@ -57,37 +53,24 @@ struct DeclarativeSchemaDefinitionHelper {
     owner_app_id: Option<String>,
     #[serde(default)]
     source: SchemaSource,
+    // Preserve unrelated unknown-field behavior, but refuse removed storage
+    // configuration even when its JSON value is null.
+    #[serde(flatten)]
+    unknown: HashMap<String, serde::de::IgnoredAny>,
 }
 
 impl DeclarativeSchemaDefinitionHelper {
     /// Build the definition through the constructor, then restore every
     /// persisted field the constructor does not derive.
     fn into_definition(self) -> Result<DeclarativeSchemaDefinition, String> {
-        // Normalize fields into Option<Vec<String>> supporting multiple shapes
-        let normalized_fields: Option<Vec<String>> = match self.fields {
-            None => None,
-            Some(val) => {
-                if let Some(arr) = val.as_array() {
-                    // Expect array of strings
-                    let mut out: Vec<String> = Vec::new();
-                    for item in arr {
-                        if let Some(s) = item.as_str() {
-                            out.push(s.to_string());
-                        } else {
-                            return Err("Invalid fields array; expected strings".to_string());
-                        }
-                    }
-                    Some(out)
-                } else if let Some(obj) = val.as_object() {
-                    // Accept object map and use keys as field names
-                    let mut names: Vec<String> = obj.keys().cloned().collect();
-                    names.sort();
-                    Some(names)
-                } else {
-                    return Err("Invalid fields; expected array or object map".to_string());
-                }
+        for name in ["molecule_uuid", "record_mapper"] {
+            if self.unknown.contains_key(name) {
+                return Err(format!(
+                    "schema-level '{name}' is not supported; use per-field molecules and field_mappers"
+                ));
             }
-        };
+        }
+        let normalized_fields = normalize_fields(self.fields)?;
 
         // Determine schema_type if omitted
         let normalized_schema_type = match (&self.schema_type, &self.key) {
@@ -122,8 +105,6 @@ impl DeclarativeSchemaDefinitionHelper {
         schema.descriptive_name = self.descriptive_name;
         schema.purpose_statement = self.purpose_statement;
         schema.field_molecule_uuids = self.field_molecule_uuids;
-        schema.record_mapper = self.record_mapper;
-        schema.molecule_uuid = self.molecule_uuid;
 
         // Merge classifications from helper
         for (field_name, classifications) in self.field_classifications {
@@ -154,6 +135,7 @@ impl DeclarativeSchemaDefinitionHelper {
             schema.compute_identity_hash();
         }
 
+        schema.validate_field_names()?;
         Ok(schema)
     }
 }
@@ -168,4 +150,31 @@ impl<'de> serde::Deserialize<'de> for DeclarativeSchemaDefinition {
             serde::Deserialize::deserialize(deserializer)?;
         helper.into_definition().map_err(serde::de::Error::custom)
     }
+}
+
+fn normalize_fields(fields: Option<serde_json::Value>) -> Result<Option<Vec<String>>, String> {
+    Ok(match fields {
+        None => None,
+        Some(val) => {
+            if let Some(arr) = val.as_array() {
+                // Expect array of strings
+                let mut out: Vec<String> = Vec::new();
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        out.push(s.to_string());
+                    } else {
+                        return Err("Invalid fields array; expected strings".to_string());
+                    }
+                }
+                Some(out)
+            } else if let Some(obj) = val.as_object() {
+                // Accept object map and use keys as field names
+                let mut names: Vec<String> = obj.keys().cloned().collect();
+                names.sort();
+                Some(names)
+            } else {
+                return Err("Invalid fields; expected array or object map".to_string());
+            }
+        }
+    })
 }

@@ -1,4 +1,4 @@
-//! Durable active schema-field and schema-record to molecule reverse edges.
+//! Durable active schema-field and protein-member to molecule reverse edges.
 //!
 //! An edge is a set member, not a counter. The edge key is target-addressable,
 //! so a reclaim check can stop after its first member. Catalog writers journal
@@ -36,17 +36,6 @@ impl MoleculeRefEdge {
             molecule_uuid: molecule_uuid.to_string(),
             source: format!("schema:{schema}:field:{field}"),
             edge_type: "schema-field".to_string(),
-        }
-    }
-
-    /// The runtime record molecule R is not a declared field. Record mappers
-    /// share this root, so it needs a separate authoritative schema source.
-    #[must_use]
-    pub fn schema_record(schema: &str, molecule_uuid: &str) -> Self {
-        Self {
-            molecule_uuid: molecule_uuid.to_string(),
-            source: format!("schema:{schema}:record"),
-            edge_type: "schema-record".to_string(),
         }
     }
 
@@ -108,8 +97,8 @@ pub struct MoleculeRefLookup {
 }
 
 /// Durable proof that every canonical molecule source class was read.
-/// Version 2 includes schema-field, schema-record R, and protein-member roots.
-/// The schema_fields count includes the schema-record roots for wire compatibility.
+/// Version 2 includes schema-field and protein-member roots under the native
+/// writer fence. Every schema root identifies one declared field.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MoleculeRefCompleteness {
     pub version: u8,

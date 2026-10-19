@@ -10,9 +10,6 @@ impl MutationManager {
         molecule: &str,
     ) -> Result<Option<Vec<Binding>>, SchemaError> {
         let mut bindings = schema_bindings(schema, molecule)?;
-        if bindings.is_empty() && schema.molecule_uuid.as_deref() == Some(molecule) {
-            return Ok(None);
-        }
         let edges = self
             .db_ops
             .atoms()
@@ -21,64 +18,33 @@ impl MutationManager {
         if !edges.complete {
             return Ok(None);
         }
-        if edges.edges.iter().any(|edge| {
-            !matches!(
-                edge.edge_type.as_str(),
-                "schema-field" | "schema-record" | "protein-member"
-            )
-        }) {
+        if edges
+            .edges
+            .iter()
+            .any(|edge| !matches!(edge.edge_type.as_str(), "schema-field" | "protein-member"))
+        {
             return Ok(None);
         }
         let sources = edges
             .edges
             .iter()
-            .filter(|edge| matches!(edge.edge_type.as_str(), "schema-field" | "schema-record"));
-        let resolved = futures::future::try_join_all(sources.map(|edge| async move {
-            if edge.edge_type == "schema-record" {
-                self.resolve_record_source(&edge.source, molecule).await
-            } else {
-                Ok(self
-                    .resolve_path_source(&edge.source, molecule)
-                    .await?
-                    .map(|binding| vec![binding]))
-            }
-        }))
+            .filter(|edge| edge.edge_type == "schema-field");
+        let resolved = futures::future::try_join_all(
+            sources
+                .map(|edge| async move { self.resolve_path_source(&edge.source, molecule).await }),
+        )
         .await?;
-        for resolved in resolved {
-            let Some(resolved) = resolved else {
+        for binding in resolved {
+            let Some(binding) = binding else {
                 return Ok(None);
             };
-            for binding in resolved {
-                if !bindings.contains(&binding) {
-                    bindings.push(binding);
-                    if bindings.len() > 10_000 {
-                        return Ok(None);
-                    }
+            if !bindings.contains(&binding) {
+                bindings.push(binding);
+                if bindings.len() > 10_000 {
+                    return Ok(None);
                 }
             }
         }
-        Ok((!bindings.is_empty()).then_some(bindings))
-    }
-
-    async fn resolve_record_source(
-        &self,
-        source: &str,
-        molecule: &str,
-    ) -> Result<Option<Vec<Binding>>, SchemaError> {
-        let Some(name) = source
-            .strip_prefix("schema:")
-            .and_then(|source| source.strip_suffix(":record"))
-        else {
-            return Ok(None);
-        };
-        let snapshot = self.db_ops.schemas().read_snapshot(name).await?;
-        let Some(schema) = snapshot
-            .schema
-            .filter(|schema| schema.molecule_uuid.as_deref() == Some(molecule))
-        else {
-            return Ok(None);
-        };
-        let bindings = schema_bindings(&schema, molecule)?;
         Ok((!bindings.is_empty()).then_some(bindings))
     }
 
@@ -121,29 +87,12 @@ pub(super) fn schema_bindings(
     schema: &crate::schema::types::Schema,
     molecule: &str,
 ) -> Result<Vec<Binding>, SchemaError> {
-    let envelope = schema.molecule_uuid.as_deref() == Some(molecule);
     if schema.runtime_fields.len() > 10_000 {
         return Ok(Vec::new());
     }
     let mut bindings = Vec::new();
-    if envelope {
-        let name = crate::schema::types::RECORD_SENTINEL;
-        bindings.push(Binding {
-            schema: schema_identity(schema)?,
-            field: schema
-                .field_hashes
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| molecule.to_owned()),
-            name: name.to_owned(),
-            envelope: false,
-        });
-    }
     for (name, field) in &schema.runtime_fields {
-        if crate::record_molecule::is_record_molecule_field(name) {
-            continue;
-        }
-        if !envelope && field.common().molecule_uuid().map(String::as_str) != Some(molecule) {
+        if field.common().molecule_uuid().map(String::as_str) != Some(molecule) {
             continue;
         }
         let Some(identity) = schema.field_hashes.get(name).filter(|id| !id.is_empty()) else {
@@ -153,7 +102,6 @@ pub(super) fn schema_bindings(
             schema: schema_identity(schema)?,
             field: identity.clone(),
             name: name.clone(),
-            envelope,
         });
     }
     Ok(bindings)

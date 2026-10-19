@@ -19,64 +19,6 @@ struct PredicateSelection<'a> {
 }
 
 impl HashRangeQueryProcessor {
-    /// Read field molecules to construct a complete document during compaction.
-    /// Ordinary queries must resolve the current document before selection.
-    pub(crate) async fn query_fields_for_compaction(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: HashRangeFilter,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        Self::require_supported_query(schema, Some(&filter), false)?;
-        let query = QuerySelection {
-            schema,
-            fields,
-            filter: Some(filter),
-            window: None,
-            include_tombstones: false,
-            request_concurrency: None,
-        };
-        self.current_query_scope(self.raw_fields_captured(query).boxed())
-            .await
-    }
-
-    async fn raw_fields_captured(
-        &self,
-        query: QuerySelection<'_>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let QuerySelection {
-            schema,
-            fields,
-            filter,
-            window,
-            include_tombstones,
-            request_concurrency,
-        } = query;
-        let current_user = crate::user_context::get_current_user_id();
-        let current_user_redacted = current_user
-            .as_deref()
-            .map(|u| observability::redact_id!(u));
-        tracing::debug!(
-            "HashRangeQueryProcessor: schema={}, filter={}, window={:?}, user_context={:?}",
-            schema.name,
-            OptRedactedFilter(&filter),
-            window,
-            current_user_redacted
-        );
-
-        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
-        self.query_cokey(
-            schema,
-            fields,
-            filter,
-            window,
-            include_tombstones,
-            &received_from_namespaces,
-            request_concurrency,
-        )
-        .await
-    }
-
     /// Two-pass field predicate query.
     ///
     /// Pass A scans candidate keys while loading only predicate fields and the
@@ -128,7 +70,7 @@ impl HashRangeQueryProcessor {
         let has_predicates = predicates.is_some_and(|p| !p.is_empty());
         let has_two_pass_shape = has_predicates || order_by.is_some() || predicate_limit.is_some();
         if !has_two_pass_shape {
-            return self.document_query_captured(query).await;
+            return self.query_fields_captured(query).await;
         }
         let QuerySelection {
             schema,
@@ -158,7 +100,7 @@ impl HashRangeQueryProcessor {
         // `predicate_limit` are all applied to what survives it, so a window
         // here would decide the answer from an arbitrary slice of the input.
         // The two-pass shape keeps the unwindowed path.
-        let mut pass_a = self
+        let pass_a = self
             .query_cokey_with_sources(
                 schema,
                 &scan_fields,
@@ -169,9 +111,6 @@ impl HashRangeQueryProcessor {
                 request_concurrency,
             )
             .await?;
-        self.resolve_query_documents(schema, &mut pass_a, include_tombstones)
-            .await?;
-
         let mut kept_keys =
             self.matching_field_predicate_keys(&pass_a, predicates.unwrap_or(&[]))?;
         if let Some(order_by) = order_by {
@@ -195,10 +134,8 @@ impl HashRangeQueryProcessor {
         .await
     }
 
-    /// Normal reads select candidates through field molecules, then use the
-    /// current document for its covered fields. Raw field reads remain separate
-    /// for compaction, which must not copy a partial document back onto itself.
-    async fn document_query_captured(
+    /// All values come from the selected field molecules in the captured read.
+    async fn query_fields_captured(
         &self,
         query: QuerySelection<'_>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
@@ -211,19 +148,15 @@ impl HashRangeQueryProcessor {
             request_concurrency,
         } = query;
         let received = self.collect_received_from_namespaces().await?;
-        let mut rows = self
-            .query_cokey_with_sources(
-                schema,
-                fields,
-                filter,
-                window,
-                include_tombstones,
-                &received,
-                request_concurrency,
-            )
-            .await?;
-        self.resolve_query_documents(schema, &mut rows, include_tombstones)
-            .await?;
-        Ok(rows.fields)
+        self.query_cokey(
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones,
+            &received,
+            request_concurrency,
+        )
+        .await
     }
 }

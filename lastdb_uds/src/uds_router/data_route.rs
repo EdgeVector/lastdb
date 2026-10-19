@@ -332,10 +332,6 @@ pub enum DataRoute {
     /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).
     /// Execute skips while a backup cut is held. Never stamps missing groups.
     DbStampPurgedAtomRetirements,
-    /// `POST /api/db/compact-record` — zip one HashRange key onto the schema's
-    /// record molecule R. OWNER socket only. Body:
-    /// `{ schema, hash, range }`. Not collection compact (`/api/db/compact`).
-    CompactRecord,
     /// `POST /api/db/gc-atoms` — prune tombstoned tip-version chains, then
     /// delete unreferenced `atom:` rows. Body:
     /// `{ dry_run?: bool }` (default true).

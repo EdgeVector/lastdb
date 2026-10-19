@@ -356,33 +356,3 @@ pub async fn bind_cross_key_field_protein(
 
     Ok(Some(protein_uuid))
 }
-
-/// Bind two sibling schemas' record molecules into one protein.
-///
-/// No-op when either catalog has no R yet (uncompacted). Field proteins stay.
-/// Fold of a compacted write only proceeds when both record molecules are
-/// members (`fold_protein_siblings_after_write`).
-pub async fn bind_cross_key_record_protein(
-    store: &AtomStore,
-    source: &DeclarativeSchemaDefinition,
-    target: &DeclarativeSchemaDefinition,
-) -> Result<Option<String>, SchemaError> {
-    let Some(src_r) = source.molecule_uuid.as_deref() else {
-        return Ok(None);
-    };
-    let Some(tgt_r) = target.molecule_uuid.as_deref() else {
-        return Ok(None);
-    };
-    if !are_multi_key_siblings(source, target) {
-        return Ok(None);
-    }
-    bind_cross_key_field_protein(
-        store,
-        "record-molecule",
-        src_r,
-        &KeyLayoutFingerprint::from_schema(source),
-        tgt_r,
-        &KeyLayoutFingerprint::from_schema(target),
-    )
-    .await
-}

@@ -4,17 +4,14 @@ use super::*;
 
 impl HashRangeQueryProcessor {
     /// Fields to query: every declared field when `fields` is empty, otherwise
-    /// the requested runtime fields minus record-molecule fields.
+    /// the requested runtime fields.
     pub(super) fn cokey_selected_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
         if fields.is_empty() {
-            crate::record_molecule::declared_runtime_field_names(schema)
+            schema.runtime_field_names()
         } else {
             fields
                 .iter()
-                .filter(|f| {
-                    schema.runtime_fields.contains_key(f.as_str())
-                        && !crate::record_molecule::is_record_molecule_field(f)
-                })
+                .filter(|f| schema.runtime_fields.contains_key(f.as_str()))
                 .cloned()
                 .collect()
         }

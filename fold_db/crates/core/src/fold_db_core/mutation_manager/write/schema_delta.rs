@@ -150,7 +150,7 @@ impl MutationManager {
         let pending_persist_task = Some(self.pending_tasks.begin());
         let load_start = std::time::Instant::now();
         let mut schema = self
-            .load_schema_for_delta(&schema_name, &mut schema_mutations, storage_prefix)
+            .load_schema_for_delta(&schema_name, storage_prefix)
             .await?;
         let share_prefixes = self
             .active_share_prefixes(&schema_name, storage_prefix)

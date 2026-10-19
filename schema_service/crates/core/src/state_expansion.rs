@@ -166,11 +166,9 @@ impl SchemaServiceState {
 
     /// Expand an incoming schema to be a superset of an existing schema.
     ///
-    /// Merges fields, dual-stamps FieldMappers (per old field) and one
-    /// RecordMapper (predecessor identity), merges classifications and
-    /// ref_fields, recomputes identity_hash, persists, and updates caches.
-    /// Does not clear FieldMappers. Copies `molecule_uuid` only when the
-    /// predecessor already has R.
+    /// Merges fields, preserves each predecessor field's molecule mapper,
+    /// merges classifications and ref_fields, recomputes identity_hash,
+    /// persists, and updates caches.
     ///
     /// Returns `SchemaAddOutcome::Expanded` on success, or `AlreadyExists` if
     /// the incoming fields are a subset of the existing.
@@ -197,7 +195,7 @@ impl SchemaServiceState {
         }
 
         let existing_fields = existing.fields.clone().unwrap_or_default();
-        let Some(merged_fields) = merge_expansion_fields(schema, &existing_fields)? else {
+        let Some(merged_fields) = merge_expansion_fields(schema, &existing_fields) else {
             // The new schema's fields are a subset of the existing: reuse it.
             tracing::info!(
                 target: "schema_service::schema",
@@ -219,7 +217,7 @@ impl SchemaServiceState {
         );
         schema.fields = Some(merged_fields);
 
-        Self::stamp_predecessor_mappers(schema, existing, &existing_fields, old_name);
+        Self::stamp_predecessor_mappers(schema, &existing_fields, old_name);
         merge_existing_metadata(schema, existing);
 
         // Recompute identity hash with merged fields.
@@ -264,13 +262,8 @@ impl SchemaServiceState {
 
 /// Merge the incoming schema's fields onto the existing fields.
 ///
-/// Returns `None` when the incoming fields are a subset of the existing
-/// (nothing to expand), and an error when the merge would contain the
-/// reserved `RECORD_SENTINEL` field name.
-fn merge_expansion_fields(
-    schema: &Schema,
-    existing_fields: &[String],
-) -> FoldDbResult<Option<Vec<String>>> {
+/// Returns `None` when the incoming fields are a subset of the existing.
+fn merge_expansion_fields(schema: &Schema, existing_fields: &[String]) -> Option<Vec<String>> {
     let existing_set: HashSet<&String> = existing_fields.iter().collect();
     let new_field_set: HashSet<String> = schema
         .fields
@@ -278,7 +271,7 @@ fn merge_expansion_fields(
         .map(|nf| nf.iter().cloned().collect())
         .unwrap_or_default();
     if new_field_set.iter().all(|f| existing_set.contains(f)) {
-        return Ok(None);
+        return None;
     }
     let mut merged_fields = existing_fields.to_vec();
     merged_fields.extend(
@@ -286,14 +279,5 @@ fn merge_expansion_fields(
             .into_iter()
             .filter(|f| !existing_set.contains(f)),
     );
-    if merged_fields
-        .iter()
-        .any(|f| f == schema_types::RECORD_SENTINEL)
-    {
-        return Err(FoldDbError::Config(format!(
-            "refusing expand_schema: field name {:?} is reserved as RECORD_SENTINEL",
-            schema_types::RECORD_SENTINEL
-        )));
-    }
-    Ok(Some(merged_fields))
+    Some(merged_fields)
 }

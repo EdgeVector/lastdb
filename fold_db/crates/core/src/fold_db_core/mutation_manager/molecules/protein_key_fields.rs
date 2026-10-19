@@ -20,71 +20,19 @@ impl MutationManager {
         schema: &Schema,
         mutations: &[Mutation],
         keys: &[KeyValue],
-        atoms: &[(usize, String, Atom)],
         eligible: &[(usize, &Atom, &str)],
         metadata: &ProteinFoldMetadata,
     ) -> Result<ProteinKeyFields, SchemaError> {
-        let documents: HashMap<_, _> = atoms
-            .iter()
-            .filter(|(_, name, _)| crate::record_molecule::is_record_molecule_field(name))
-            .map(|(idx, _, atom)| (*idx, atom))
-            .collect();
         let indices: BTreeSet<_> = eligible.iter().map(|(idx, _, _)| *idx).collect();
-        let mut required = required_fields(metadata, &indices);
+        let required = required_fields(metadata, &indices);
         let names: BTreeSet<_> = required.iter().map(|(_, name)| name.clone()).collect();
         let mut before = HashMap::new();
         for &idx in &indices {
             before.insert(idx, addressed_fields(schema, &keys[idx]));
         }
-        let scope = schema_storage_prefix(schema, None);
-        let native = self.db_ops.namespaced_store().disk_pack_runtime().is_some();
-        if native && !documents.is_empty() {
-            if let Some(molecule) = schema.molecule_uuid.as_deref() {
-                let old_keys: Vec<_> = documents.keys().map(|idx| keys[*idx].clone()).collect();
-                let old = crate::record_molecule::load_record_tip_atoms(
-                    &self.db_ops,
-                    molecule,
-                    &old_keys,
-                    scope,
-                    Some(schema),
-                )
-                .await?;
-                for &idx in &indices {
-                    if let Some(fields) = old.get(&keys[idx]).and_then(|atom| {
-                        crate::record_molecule::parse_document_fields(atom.content())
-                    }) {
-                        for (name, value) in fields {
-                            if !names.contains(name) {
-                                continue;
-                            }
-                            if let Some(value) = scalar(value) {
-                                before
-                                    .get_mut(&idx)
-                                    .expect("protein source key")
-                                    .entry(name.clone())
-                                    .or_insert(value);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if !native {
-            required.retain(|(idx, name)| {
-                !mutations[*idx].fields_and_values.contains_key(name)
-                    && !documents
-                        .get(idx)
-                        .and_then(|atom| {
-                            crate::record_molecule::parse_document_fields(atom.content())
-                        })
-                        .is_some_and(|fields| fields.contains_key(name))
-            });
-        }
         self.fill_protein_key_fields(schema, keys, &required, &mut before)
             .await?;
-        let after = after_fields(
-            schema, mutations, keys, &indices, &names, &documents, &before,
-        );
+        let after = after_fields(schema, mutations, keys, &indices, &names, &before);
         Ok(ProteinKeyFields { before, after })
     }
 
@@ -192,7 +140,6 @@ fn after_fields(
     keys: &[KeyValue],
     indices: &BTreeSet<usize>,
     names: &BTreeSet<String>,
-    documents: &HashMap<usize, &Atom>,
     before: &KeyFields,
 ) -> KeyFields {
     let mut after = HashMap::new();
@@ -202,19 +149,8 @@ fn after_fields(
         // map still describes the actual committed old coordinates, because
         // intermediate source tips can lose at final batch rebase.
         let mut fields = heads.get(&keys[idx]).unwrap_or(&before[&idx]).clone();
-        let document = documents
-            .get(&idx)
-            .and_then(|atom| crate::record_molecule::parse_document_fields(atom.content()));
-        let direct_document = mutations[idx].fields_and_values.len() == 1
-            && mutations[idx]
-                .fields_and_values
-                .contains_key(crate::record_molecule::RECORD_SENTINEL);
         for name in names {
-            let value = mutations[idx].fields_and_values.get(name).or_else(|| {
-                direct_document
-                    .then(|| document.and_then(|fields| fields.get(name)))
-                    .flatten()
-            });
+            let value = mutations[idx].fields_and_values.get(name);
             if let Some(value) = value {
                 if let Some(value) = scalar(value) {
                     fields.insert(name.clone(), value);

@@ -452,23 +452,6 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Compact one HashRange key onto the schema's record molecule.
-    ///
-    /// OWNER socket. Talks to the running daemon (same as `lastdb get`).
-    /// Requires `--key-range`. Not `lastdb db compact` (LastStore planes).
-    CompactRecord {
-        /// Schema identity hash, `app/Name`, or descriptive name.
-        schema: String,
-        /// Hash half of the key.
-        #[arg(long)]
-        key_hash: String,
-        /// Range half of the key.
-        #[arg(long)]
-        key_range: String,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
     /// Inspect one installed schema's key layout and legal query shapes.
     Schema {
         #[command(subcommand)]

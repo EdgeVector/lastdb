@@ -1,0 +1,9 @@
+{
+  "classification": "procedure-diagnostic",
+  "complete": false,
+  "continuation": "../protein-continuation",
+  "new_mixed_cohort": false,
+  "offline_validation": "offline-mixed-validation.json",
+  "original_result_preserved": true,
+  "reason": "The request inputs name roles new_peer and old_peer. The one-off procedure used hyphens and stopped after it preserved all mixed responses. The same original cohort passes separate offline validation and a normal reopen continuation; the original result and raw receipts remain unchanged."
+}

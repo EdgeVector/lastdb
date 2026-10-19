@@ -281,15 +281,6 @@ pub(super) fn schema_hint_for_route(route: DataRoute, req: &UdsRequest) -> Optio
             path_tail(req.target.as_str(), "/api/schema/")
         }
         DataRoute::ListRecordKeys => query_value(&req.target, "schema"),
-        DataRoute::CompactRecord => {
-            serde_json::from_slice::<Value>(&req.body)
-                .ok()
-                .and_then(|body| {
-                    body.get("schema")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-        }
         _ => None,
     }
 }

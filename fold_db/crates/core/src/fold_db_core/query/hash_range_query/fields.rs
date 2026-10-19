@@ -41,11 +41,7 @@ impl HashRangeQueryProcessor {
                 .as_ref()
                 .and_then(|k| k.hash_field.as_ref().or(k.range_field.as_ref()))
                 .cloned()
-                .or_else(|| {
-                    crate::record_molecule::declared_runtime_field_names(schema)
-                        .into_iter()
-                        .next()
-                })
+                .or_else(|| schema.runtime_field_names().into_iter().next())
             else {
                 return Ok(Vec::new());
             };
@@ -144,28 +140,17 @@ impl HashRangeQueryProcessor {
                 }
             }
         }
-        self.resolve_document_projection(
-            schema,
-            page_keys,
-            key_sources,
-            &mut result,
-            include_tombstones,
-        )
-        .await?;
         Ok(result)
     }
 
     /// Fields pass B hydrates: the projection, plus the key field for identity.
     fn exact_key_selected_fields(schema: &Schema, fields: &[String]) -> Vec<String> {
         let mut selected: Vec<String> = if fields.is_empty() {
-            crate::record_molecule::declared_runtime_field_names(schema)
+            schema.runtime_field_names()
         } else {
             fields
                 .iter()
-                .filter(|f| {
-                    schema.runtime_fields.contains_key(f.as_str())
-                        && !crate::record_molecule::is_record_molecule_field(f)
-                })
+                .filter(|f| schema.runtime_fields.contains_key(f.as_str()))
                 .cloned()
                 .collect()
         };

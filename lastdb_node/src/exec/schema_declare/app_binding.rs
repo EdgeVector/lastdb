@@ -91,19 +91,6 @@ pub(crate) async fn load_app_single_catalog_binding(
                 "failed to apply app binding {} -> {catalog_hash}: {e}",
                 declare.local_schema_id
             )
-        })?;
-    // apply_field_mappers already copies R when the catalog has one.
-    // Call apply_record_mapper as well so a bind that ships only a
-    // RecordMapper (no FieldMappers) still lands on the catalog's R.
-    host.db
-        .schema_manager()
-        .apply_record_mapper(&declare.local_schema_id)
-        .await
-        .map_err(|e| {
-            format!(
-                "failed to apply record mapper {} -> {catalog_hash}: {e}",
-                declare.local_schema_id
-            )
         })
 }
 

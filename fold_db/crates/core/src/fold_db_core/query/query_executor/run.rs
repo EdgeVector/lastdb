@@ -66,57 +66,26 @@ impl QueryExecutor {
         Ok(results)
     }
 
-    /// Read the matching records: the document-envelope fast path for an
-    /// exact hash+range key, otherwise the field-predicate processor.
+    /// Read every query shape through the same field-molecule processor.
     async fn read_scoped_results(
         &self,
         schema: &mut Schema,
         query: &mut Query,
         window: Option<KeyWindow>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        // Controlled reads use the common selector, which resolves document
-        // authority before predicates, ordering, limits, and projection.
-        let envelope_first = if query.as_of.is_none()
-            && query.field_predicates.as_ref().is_none_or(Vec::is_empty)
-            && query.order_by.is_none()
-            && query.predicate_limit.is_none()
-            && window.is_none()
-        {
-            match query.filter.as_ref() {
-                Some(HashRangeFilter::HashRangeKey { hash, range }) => {
-                    crate::record_molecule::hash_range_key_from_envelope(
-                        &self.db_ops,
-                        schema,
-                        hash,
-                        range,
-                        &query.fields,
-                        query.include_tombstones,
-                    )
-                    .await?
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-        let results = if let Some(from_r) = envelope_first {
-            from_r
-        } else {
-            self.hash_range_processor
-                .query_with_field_predicates(
-                    schema,
-                    &query.fields,
-                    query.filter.take(),
-                    window,
-                    query.field_predicates.as_deref(),
-                    query.order_by.as_ref(),
-                    query.predicate_limit,
-                    query.as_of,
-                    query.include_tombstones,
-                    query.secondary_concurrency,
-                )
-                .await?
-        };
-        Ok(results)
+        self.hash_range_processor
+            .query_with_field_predicates(
+                schema,
+                &query.fields,
+                query.filter.take(),
+                window,
+                query.field_predicates.as_deref(),
+                query.order_by.as_ref(),
+                query.predicate_limit,
+                query.as_of,
+                query.include_tombstones,
+                query.secondary_concurrency,
+            )
+            .await
     }
 }

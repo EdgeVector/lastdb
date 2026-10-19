@@ -8,8 +8,6 @@ use crate::storage::disk_pack::read::ReadContext;
 pub(crate) struct FieldScope {
     pub(super) schema: String,
     pub(super) field: String,
-    pub(super) name: String,
-    record_molecule: Option<String>,
 }
 
 pub(crate) struct AtomSelection<'a> {
@@ -37,25 +35,6 @@ impl FieldScope {
             field: schema.field_hashes.get(name).cloned().ok_or_else(|| {
                 StorageError::BackendError("native read field has no canonical identity".into())
             })?,
-            name: name.to_owned(),
-            record_molecule: schema.molecule_uuid.clone(),
-        })
-    }
-
-    pub(super) fn record(schema: &Schema) -> StorageResult<Self> {
-        let molecule = schema.molecule_uuid.clone().ok_or_else(|| {
-            StorageError::InvalidOperation("record field requires a molecule identity".into())
-        })?;
-        let name = crate::schema::types::RECORD_SENTINEL;
-        Ok(Self {
-            schema: schema_identity(schema)?,
-            field: schema
-                .field_hashes
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| molecule.clone()),
-            name: name.to_owned(),
-            record_molecule: Some(molecule),
         })
     }
 
@@ -92,27 +71,6 @@ impl FieldScope {
             atom: atom.to_owned(),
         }
     }
-
-    fn value(
-        &self,
-        molecule: &str,
-        atom: &Atom,
-        metadata: Option<crate::atom::KeyMetadata>,
-        writer: Option<String>,
-    ) -> Option<FieldValue> {
-        let mut value = crate::schema::types::field::field_value_from_atom(
-            atom,
-            atom.uuid().to_owned(),
-            metadata,
-            writer,
-        );
-        if self.record_molecule.as_deref() == Some(molecule) {
-            value.value = crate::record_molecule::parse_document_fields(atom.content())?
-                .get(&self.name)?
-                .clone();
-        }
-        Some(value)
-    }
 }
 
 /// The normal resolver selected this tip; reuse its full shared atom object.
@@ -143,11 +101,13 @@ pub(crate) fn lookup(
         {
             let mut call = crate::read_receipts::lock(&context.call);
             context.account_memory_record(&mut call, path.id()?.len(), selected.bytes)?;
-            let value = binding.value(&molecule, &selected.atom, metadata.clone(), writer.clone());
-            if value.is_some() {
-                crate::read_receipts::warm_hit();
-            }
-            return Ok(value);
+            crate::read_receipts::warm_hit();
+            return Ok(Some(crate::schema::types::field::field_value_from_atom(
+                &selected.atom,
+                atom.to_owned(),
+                metadata.clone(),
+                writer.clone(),
+            )));
         }
         return Ok(None);
     }
@@ -176,11 +136,13 @@ pub(crate) fn lookup(
         super::read::refresh_tip(&mut core, &path_key, tip, &selection.primary);
     }
     context.account_memory_record(&mut call, path.id()?.len(), selected.bytes)?;
-    let value = binding.value(&molecule, &selected.atom, metadata.clone(), writer.clone());
-    if value.is_some() {
-        crate::read_receipts::warm_hit();
-    }
-    Ok(value)
+    crate::read_receipts::warm_hit();
+    Ok(Some(crate::schema::types::field::field_value_from_atom(
+        &selected.atom,
+        atom.to_owned(),
+        metadata.clone(),
+        writer.clone(),
+    )))
 }
 
 pub(crate) fn admit(
