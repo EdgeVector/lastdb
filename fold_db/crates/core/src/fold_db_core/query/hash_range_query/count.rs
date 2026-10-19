@@ -34,7 +34,7 @@ impl HashRangeQueryProcessor {
         fields: &[String],
         filter: Option<&HashRangeFilter>,
     ) -> Result<usize, SchemaError> {
-        Self::require_supported_query(schema, filter, false)?;
+        Self::require_supported_query(schema, filter)?;
         self.current_query_scope(self.count_rows_captured(schema, fields, filter).boxed())
             .await
     }
@@ -287,7 +287,6 @@ impl HashRangeQueryProcessor {
             .collect_matches(
                 &self.db_ops,
                 Some(filter.cloned().unwrap_or_else(full_span_page)),
-                None,
                 false, // ask storage to drop KeyMetadata.tombstoned
             )
             .await?;

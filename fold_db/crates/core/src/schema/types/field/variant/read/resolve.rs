@@ -12,10 +12,9 @@ impl FieldVariant {
         &mut self,
         db_ops: &Arc<DbOperations>,
         filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
-        self.resolve_value_windowed(db_ops, filter, None, as_of, include_tombstones)
+        self.resolve_value_windowed(db_ops, filter, None, include_tombstones)
             .await
     }
 
@@ -46,10 +45,9 @@ impl FieldVariant {
         db_ops: &Arc<DbOperations>,
         filter: Option<HashRangeFilter>,
         window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
-        self.require_supported_read(filter.as_ref(), as_of.is_some())?;
+        self.require_supported_read(filter.as_ref())?;
         captured_field_read(
             db_ops,
             self.resolve_value_windowed_captured(db_ops, filter, window, include_tombstones)
@@ -84,7 +82,7 @@ impl FieldVariant {
 
         let storage_prefix_owned: Option<String> = self.common().storage_prefix.clone();
         let mut matches_with_meta = self
-            .collect_matches(db_ops, filter, None, include_tombstones)
+            .collect_matches(db_ops, filter, include_tombstones)
             .await?;
 
         if let Some(window) = window {

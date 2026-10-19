@@ -27,6 +27,8 @@ Current writes create no atom history or history reverse references.
 Private replacement and conflict records remain until their current references reach disk.
 Explicit physical cleanup commands can remove existing history files.
 A failed read cannot enter the model as a confirmed missing record.
+One shared query check refuses old-value and recursive-depth controls for reads and counts.
+The request decoder retains those names for an explicit refusal. Current field readers do not accept those controls.
 
 Each field keeps its current atom in its molecule.
 A query assembles a record from those fields in the selected storage scope.
@@ -59,6 +61,10 @@ Unselected schemas and refused loads use the bounded disk selector.
 3. Reserve their memory and disk work before publication.
 4. Publish the complete core change, then send the permitted ack.
 5. Flush the prepared bytes through the one native disk queue.
+
+The private preparation step transfers its schema, atoms, and related changes into the disk stage.
+That transfer does not copy those prepared payloads into a second job.
+Search receives its change through the native after-commit callback once the disk commit completes.
 
 The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.

@@ -205,7 +205,7 @@ impl QueryExecutor {
                 }
                 crate::schema::require_logical_layout(&schema.schema_type)?;
                 crate::schema::require_logical_filter(query.filter.as_ref())?;
-                crate::schema::require_current_read(query.as_of.is_some())?;
+                crate::schema::require_logical_query_controls(query)?;
                 self.db_ops
                     .molecule_keys()
                     .load_schema(&schema)

@@ -11,37 +11,30 @@ impl MutationManager {
         job: &mut DeferredPersistJob,
     ) -> Result<(), SchemaError> {
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
-        self.store_deferred_atoms(job, 0).await?;
+        self.store_deferred_atoms(job).await?;
         if let Some(runtime) = &runtime {
             runtime.record_read_stage(
                 "atom-stores-done",
                 job.deferred_atoms.as_ref().map_or(0, Vec::len),
             );
         }
-        self.persist_deferred_molecules(job, 0).await?;
+        self.persist_deferred_molecules(job).await?;
         if let Some(runtime) = &runtime {
             runtime.record_read_stage("molecule-stores-done", job.modified_fields.len());
         }
-        self.settle_deferred_atom_births(job, 0).await?;
+        self.settle_deferred_atom_births(job).await?;
         if let Some(runtime) = &runtime {
             runtime.record_read_stage(
                 "birth-settle-done",
                 job.deferred_atoms.as_ref().map_or(0, Vec::len),
             );
         }
-        self.store_deferred_schema(job, 0).await?;
-        let search = job.search_batch.take();
-        let result = self.store_deferred_side_records(job, 0).await;
-        job.search_batch = search;
-        result
+        self.store_deferred_schema(job).await?;
+        self.store_deferred_side_records(job).await
     }
 
     /// Keep the Atom batch private until every stage succeeds.
-    async fn store_deferred_atoms(
-        &self,
-        job: &DeferredPersistJob,
-        commit_id: u64,
-    ) -> Result<(), SchemaError> {
+    async fn store_deferred_atoms(&self, job: &DeferredPersistJob) -> Result<(), SchemaError> {
         let Some(located) = job.deferred_atoms.as_deref().filter(|l| !l.is_empty()) else {
             return Ok(());
         };
@@ -56,7 +49,6 @@ impl MutationManager {
                 tracing::error!(
                     error = %error,
                     schema = %job.schema_name,
-                    commit_id,
                     "deferred resident-write atom store failed"
                 );
                 error
@@ -77,7 +69,6 @@ impl MutationManager {
     async fn settle_deferred_atom_births(
         &self,
         job: &DeferredPersistJob,
-        commit_id: u64,
     ) -> Result<(), SchemaError> {
         let Some(located) = job.deferred_atoms.as_deref().filter(|l| !l.is_empty()) else {
             return Ok(());
@@ -90,7 +81,6 @@ impl MutationManager {
                 tracing::error!(
                     error = %error,
                     schema = %job.schema_name,
-                    commit_id,
                     "deferred resident-write atom birth settle failed"
                 );
                 error
@@ -101,7 +91,6 @@ impl MutationManager {
     async fn persist_deferred_molecules(
         &self,
         job: &mut DeferredPersistJob,
-        commit_id: u64,
     ) -> Result<(), SchemaError> {
         self.persist_sibling_key_moves(job).boxed().await?;
         self.persist_modified_molecules(&mut job.schema, &job.modified_fields, &job.share_prefixes)
@@ -110,7 +99,6 @@ impl MutationManager {
                 tracing::error!(
                     error = %error,
                     schema = %job.schema_name,
-                    commit_id,
                     "deferred resident-write molecule persist failed"
                 );
                 error
@@ -129,7 +117,6 @@ impl MutationManager {
                     error = %error,
                     schema = %job.schema_name,
                     siblings = job.sibling_updates.len(),
-                    commit_id,
                     "deferred resident-write protein sibling tip persist failed"
                 );
                 error
@@ -137,11 +124,7 @@ impl MutationManager {
     }
 
     /// Store the durable schema row, then refresh the in-process schema cache.
-    async fn store_deferred_schema(
-        &self,
-        job: &DeferredPersistJob,
-        commit_id: u64,
-    ) -> Result<(), SchemaError> {
+    async fn store_deferred_schema(&self, job: &DeferredPersistJob) -> Result<(), SchemaError> {
         // A request scope must not enter durable schema metadata. Keep the
         // envelope schema unchanged because a later stage can force retry.
         let mut durable_schema = job.schema.clone();
@@ -154,7 +137,6 @@ impl MutationManager {
                 tracing::error!(
                     error = %error,
                     schema = %job.schema_name,
-                    commit_id,
                     "deferred resident-write schema store failed"
                 );
                 error
@@ -166,7 +148,6 @@ impl MutationManager {
                 tracing::error!(
                     error = %error,
                     schema = %job.schema_name,
-                    commit_id,
                     "deferred resident-write schema reload failed"
                 );
                 // The catalog row is already durable (store_schema above
@@ -182,7 +163,6 @@ impl MutationManager {
                     tracing::error!(
                         error = %evict_error,
                         schema = %job.schema_name,
-                        commit_id,
                         "failed to evict stale schema cache after reload failure"
                     );
                 }
@@ -190,11 +170,10 @@ impl MutationManager {
             })
     }
 
-    /// Idempotency, retention and Search outbox records of one deferred job.
+    /// Idempotency and retention records of one native job.
     async fn store_deferred_side_records(
         &self,
         job: &DeferredPersistJob,
-        commit_id: u64,
     ) -> Result<(), SchemaError> {
         if !job.idempotency_entries.is_empty() {
             self.db_ops
@@ -205,7 +184,6 @@ impl MutationManager {
                     tracing::error!(
                         error = %error,
                         schema = %job.schema_name,
-                        commit_id,
                         "deferred resident-write idempotency store failed"
                     );
                     error
@@ -221,7 +199,6 @@ impl MutationManager {
                     tracing::error!(
                         error = %error,
                         schema = %job.schema_name,
-                        commit_id,
                         "deferred resident-write retention store failed"
                     );
                     error
@@ -237,26 +214,12 @@ impl MutationManager {
                     tracing::error!(
                         error = %error,
                         schema = %job.schema_name,
-                        commit_id,
                         "deferred resident-write retention partition store failed"
                     );
                     error
                 })?;
         }
 
-        if let Some(batch) = &job.search_batch {
-            self.deliver_index_change_batch(batch)
-                .await
-                .map_err(|error| {
-                    tracing::error!(
-                        error = %error,
-                        schema = %job.schema_name,
-                        commit_id,
-                        "schema-lane Search outbox delivery failed"
-                    );
-                    error
-                })?;
-        }
         Ok(())
     }
 }

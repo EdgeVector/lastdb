@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -19,11 +18,7 @@ mod resolve;
 mod resolve_scan;
 
 impl FieldVariant {
-    fn require_supported_read(
-        &self,
-        filter: Option<&HashRangeFilter>,
-        historical: bool,
-    ) -> Result<(), SchemaError> {
+    fn require_supported_read(&self, filter: Option<&HashRangeFilter>) -> Result<(), SchemaError> {
         use crate::schema::types::schema::DeclarativeSchemaType;
 
         let layout = match self.kind {
@@ -33,8 +28,7 @@ impl FieldVariant {
             FieldKind::HashRange => DeclarativeSchemaType::HashRange,
         };
         crate::schema::require_logical_layout(&layout)?;
-        crate::schema::require_logical_filter(filter)?;
-        crate::schema::require_current_read(historical)
+        crate::schema::require_logical_filter(filter)
     }
 }
 

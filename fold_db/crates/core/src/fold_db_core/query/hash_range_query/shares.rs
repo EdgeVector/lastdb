@@ -65,7 +65,7 @@ impl HashRangeQueryProcessor {
             .common_mut()
             .set_storage_prefix(Some(namespace.to_string()));
         cloned
-            .resolve_value(&self.db_ops, filter, None, include_tombstones)
+            .resolve_value(&self.db_ops, filter, include_tombstones)
             .await
     }
 

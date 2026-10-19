@@ -1,4 +1,4 @@
-use super::types::{field::HashRangeFilter, schema::DeclarativeSchemaType};
+use super::types::{field::HashRangeFilter, schema::DeclarativeSchemaType, Query};
 use super::SchemaError;
 
 /// Enforce supported logical layouts without changing catalog-template decoding.
@@ -38,11 +38,17 @@ pub fn require_logical_filter(filter: Option<&HashRangeFilter>) -> Result<(), Sc
     Ok(())
 }
 
-/// Logical state contains current values and no historical query view.
-pub fn require_current_read(historical: bool) -> Result<(), SchemaError> {
-    if historical {
+/// Refuse unsupported controls at the logical read and count boundaries.
+pub fn require_logical_query_controls(query: &Query) -> Result<(), SchemaError> {
+    if query.as_of.is_some() {
         return Err(SchemaError::InvalidData(
             "LastDB does not support as_of queries; this engine stores current values only".into(),
+        ));
+    }
+    if query.rehydrate_depth.is_some() {
+        return Err(SchemaError::InvalidData(
+            "LastDB does not support rehydrate_depth queries; reads return fields at the requested keys"
+                .into(),
         ));
     }
     Ok(())

@@ -35,11 +35,10 @@ impl HashRangeQueryProcessor {
         predicates: Option<&[FieldPredicate]>,
         order_by: Option<&QueryOrderBy>,
         predicate_limit: Option<usize>,
-        as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        Self::require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
+        Self::require_supported_query(schema, filter.as_ref())?;
         let selection = PredicateSelection {
             query: QuerySelection {
                 schema,

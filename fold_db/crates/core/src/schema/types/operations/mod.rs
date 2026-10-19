@@ -131,8 +131,10 @@ pub struct Query {
     pub schema_name: String,
     pub fields: Vec<String>,
     pub filter: Option<HashRangeFilter>,
+    /// Accepted only so logical reads and counts can explicitly refuse history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,
+    /// Accepted only for an explicit refusal. No read supports recursive depth.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rehydrate_depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

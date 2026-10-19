@@ -22,7 +22,7 @@ impl QueryExecutor {
         }
         crate::schema::require_logical_layout(&schema.schema_type)?;
         crate::schema::require_logical_filter(query.filter.as_ref())?;
-        crate::schema::require_current_read(query.as_of.is_some())?;
+        crate::schema::require_logical_query_controls(&query)?;
 
         self.db_ops
             .molecule_keys()
@@ -82,7 +82,6 @@ impl QueryExecutor {
                 query.field_predicates.as_deref(),
                 query.order_by.as_ref(),
                 query.predicate_limit,
-                query.as_of,
                 query.include_tombstones,
                 query.secondary_concurrency,
             )
