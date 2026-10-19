@@ -10,7 +10,7 @@ pub(super) struct PrimaryRequest<'a> {
     pub include_tombstones: bool,
     pub received: &'a [String],
     pub own_prefix: KeySource,
-    pub named_hash: Option<String>,
+    pub named_layout: bool,
 }
 
 pub(super) struct PrimarySelection {
@@ -33,12 +33,10 @@ impl PrimarySelection {
         }
     }
 
-    pub fn retain_named(&mut self, wanted: Option<&str>) {
-        if let Some(wanted) = wanted {
-            self.values
-                .retain(|_, value| HashRangeQueryProcessor::field_value_is_hash(value, wanted));
-            self.sources.retain(|key, _| self.values.contains_key(key));
-        }
+    pub fn retain_named(&mut self) {
+        self.values
+            .retain(|key, value| key.hash_matches_scalar(&value.value));
+        self.sources.retain(|key, _| self.values.contains_key(key));
     }
 
     pub fn bound(&mut self, window: KeyWindow) {

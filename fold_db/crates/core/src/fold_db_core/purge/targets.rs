@@ -11,9 +11,6 @@ use crate::schema::types::Schema;
 /// One stored tip that a request names, with the index of its key.
 pub(super) struct Target {
     pub(super) key_index: usize,
-    /// The molecule uuid of the field, which can differ in spelling from the
-    /// uuid in the stored key of an older home.
-    pub(super) canonical_uuid: String,
     pub(super) candidate: DeleteCandidate,
     pub(super) record: PerKeyRecord,
 }
@@ -37,7 +34,7 @@ impl LoadedTargets {
 pub(super) struct TargetPlan {
     pub(super) schema: Schema,
     pub(super) keys: Vec<KeyValue>,
-    plans: Vec<(usize, String, DeleteCandidate)>,
+    plans: Vec<(usize, DeleteCandidate)>,
 }
 
 impl TargetPlan {
@@ -109,17 +106,17 @@ fn candidate_plans(
     db_ops: &Arc<DbOperations>,
     schema: &Schema,
     keys: &[KeyValue],
-) -> Result<Vec<(usize, String, DeleteCandidate)>, SchemaError> {
+) -> Result<Vec<(usize, DeleteCandidate)>, SchemaError> {
     let mut plans = Vec::new();
     let mut seen = HashSet::new();
     for field in schema.runtime_fields.values() {
-        let Some(uuid) = field.common().molecule_uuid() else {
+        if field.common().molecule_uuid().is_none() {
             continue;
-        };
+        }
         for (key_index, key) in keys.iter().enumerate() {
             for candidate in delete_candidates_for_key(db_ops, field, key)? {
                 if seen.insert(candidate.mk_key.clone()) {
-                    plans.push((key_index, uuid.clone(), candidate));
+                    plans.push((key_index, candidate));
                 }
             }
         }
@@ -129,12 +126,12 @@ fn candidate_plans(
 
 async fn read_targets(
     db_ops: &Arc<DbOperations>,
-    plans: Vec<(usize, String, DeleteCandidate)>,
+    plans: Vec<(usize, DeleteCandidate)>,
     storage_prefix: Option<&str>,
 ) -> Result<Vec<Target>, SchemaError> {
     if plans
         .iter()
-        .any(|(_, _, candidate)| candidate.storage_prefix.as_deref() != storage_prefix)
+        .any(|(_, candidate)| candidate.storage_prefix.as_deref() != storage_prefix)
     {
         return Err(SchemaError::InvalidData(
             "Delete candidates have different storage scopes".into(),
@@ -142,7 +139,7 @@ async fn read_targets(
     }
     let storage_keys: Vec<String> = plans
         .iter()
-        .map(|(_, _, candidate)| candidate.mk_key.clone())
+        .map(|(_, candidate)| candidate.mk_key.clone())
         .collect();
     let records = db_ops
         .atoms()
@@ -151,10 +148,9 @@ async fn read_targets(
     Ok(plans
         .into_iter()
         .zip(records)
-        .filter_map(|((key_index, canonical_uuid, candidate), record)| {
+        .filter_map(|((key_index, candidate), record)| {
             record.map(|record| Target {
                 key_index,
-                canonical_uuid,
                 candidate,
                 record,
             })

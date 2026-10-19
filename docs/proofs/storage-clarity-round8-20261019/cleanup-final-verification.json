@@ -1,0 +1,43 @@
+{
+  "absence_checks": [
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1"
+    },
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6"
+    },
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xaryb2jg"
+    },
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dn_fsdae"
+    },
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pfx4ine4"
+    },
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.fyh5k9gc"
+    },
+    {
+      "absent_including_dangling_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukq5iuwj"
+    }
+  ],
+  "all_original_files_unchanged": true,
+  "all_original_seal_hashes_unchanged": true,
+  "all_seven_owned_roots_absent": true,
+  "original_files_verified": 56,
+  "original_seal_hashes": {
+    "cleanup-previews.json": "281a9b60092a28c295534eca7df49b7b0d0157e7e1299ff1da7dd8ab0f0b395f",
+    "cleanup-root-seal.json": "f35d45bb6ae9cd30018382bdc3a5d13598bf67662ffe0a662d018617a67f073f",
+    "receipt-manifest.json": "8bd57b9b42db2d093bd0e0fa5790a34f70b251d1ff8df0dad5819917390b5b8e"
+  },
+  "scope": "Supported exact-home reclaim only after independent approval and fresh ownership/process/file/socket checks. No raw deletes, product calls or source changes.",
+  "supported_cleanup_execution_sha256": "3ca58bffb0781fe9e12592f342a2eb7aa14ccaa84909199c8062e9a88efa7aeb"
+}

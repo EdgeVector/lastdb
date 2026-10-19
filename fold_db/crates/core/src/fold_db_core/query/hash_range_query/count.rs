@@ -101,10 +101,9 @@ impl HashRangeQueryProcessor {
         received_from_namespaces: &[String],
         keys: &mut HashSet<KeyValue>,
     ) -> Result<(), SchemaError> {
-        let Some(wanted) = Self::named_layout_hash(schema, hash_field_name, filter) else {
+        if !Self::needs_named_layout_membership(schema, hash_field_name, filter) {
             return Ok(());
-        };
-        let wanted = wanted.to_string();
+        }
         let Some(field_name) = hash_field_name else {
             return Ok(());
         };
@@ -159,7 +158,7 @@ impl HashRangeQueryProcessor {
 
         keys.retain(|key| {
             vals.get(key)
-                .is_some_and(|value| Self::field_value_is_hash(value, &wanted))
+                .is_some_and(|value| key.hash_matches_scalar(&value.value))
         });
         Ok(())
     }

@@ -1,0 +1,16 @@
+{
+  "baseline_source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "ea01331f7aa318c8748a6f41fa95e0b4eddf3b3a",
+    "source_files_checked": 1877,
+    "source_mismatches": []
+  },
+  "device": 16777231,
+  "inode": 1468921854,
+  "marker_sha256": "6e693a8f34ea8088cd1bb235ef055780b9745c892c3d18dafdaa2ac8ac5070ef",
+  "no_node_directory": true,
+  "owner_uid": 501,
+  "passed": true,
+  "private_binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+  "private_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1"
+}

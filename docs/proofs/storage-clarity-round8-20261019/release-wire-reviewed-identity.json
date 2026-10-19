@@ -1,0 +1,55 @@
+{
+  "baseline_private_binary_unchanged": true,
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "binary_bytes": 68112480,
+  "binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+  "build_result": {
+    "command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "elapsed_seconds": 118.04492637500002,
+    "exit_code": 0,
+    "head_unchanged": true,
+    "source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+    "started_utc": "2026-10-19T20:42:52.962092+00:00"
+  },
+  "checked_utc": "2026-10-19T20:45:25.942842+00:00",
+  "frozen_manifest": "docs/proofs/storage-clarity-round8-20261019/candidate-wire-reviewed-source-inputs/source-inputs.json",
+  "frozen_manifest_sha256": "aba23fa69f9eeac22a01f9eb74cbf8a5fb73a2826059c4221788d94c60dec3c3",
+  "host_settings_match": true,
+  "integrated_main_commit": "adbec20cdbf39b3fc397be5f34c3cec5e0e280cc",
+  "no_product_operation_used_this_release": true,
+  "operation_helpers_verified": 15,
+  "operation_plan_sha256": "f64fc086ee732dc3e9f4e82a4354fc3a9ad2a6c48f90cede279f8731490881a6",
+  "operation_plan_version": 7,
+  "preserved_source_attempts_match": true,
+  "prior_diagnostic_attempts_preserved": [
+    "narrow-baseline",
+    "narrow-candidate",
+    "narrow-candidate-exact-uuid",
+    "narrow-baseline-v6"
+  ],
+  "repeated_snapshots_equal": true,
+  "source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+    "source_files_checked": 1882,
+    "source_mismatches": []
+  },
+  "source_input_count": 1882,
+  "source_inventory_sha256": "3d49b0ccfc9d499d5cc6817de10ede8022fb5d8bdd7abf4354e45c123c00f2c8",
+  "state": "release_verified",
+  "version": 1
+}

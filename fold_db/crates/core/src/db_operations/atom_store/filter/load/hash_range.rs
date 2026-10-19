@@ -78,19 +78,9 @@ impl AtomStore {
             })?;
 
         let keys = self.merge_captured_tip_keys(storage_prefix, molecule_uuid, keys)?;
-        // A legacy/current forked pair is ONE record. Excluding the legacy half
-        // here rather than at the read boundary is what keeps the window and
-        // `total_count` measured in rows: the boundary's collapse only fires
-        // when both halves land in the same page, so a straddling pair is
-        // served twice and every offset past it is off by one.
-        let forked = self.forked_legacy_page_keys(molecule_uuid, &keys, &scan_prefix);
-
         let candidates = keys.iter().filter_map(|k| {
             let suffix = k.strip_prefix(&scan_prefix).unwrap_or(k.as_str());
             let (hash, range) = molecule_key_codec::decode_hash_range_suffix(suffix)?;
-            if !forked.is_empty() && forked.contains(&(hash.clone(), range.clone())) {
-                return None;
-            }
             if let Some((after_r, after_h)) = after {
                 if (range.as_str(), hash.as_str()) <= (after_r, after_h) {
                     return None;

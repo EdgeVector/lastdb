@@ -1,0 +1,829 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "full_seal": {
+    "bytes": 2017850,
+    "path": "receipt-manifest.json",
+    "sha256": "8bd57b9b42db2d093bd0e0fa5790a34f70b251d1ff8df0dad5819917390b5b8e"
+  },
+  "node_sessions": 21,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          71991,
+          73010,
+          73264,
+          73375
+        ],
+        "all_start_pids": [
+          71991,
+          73010,
+          73264,
+          73375
+        ],
+        "creator_pids": [
+          71986,
+          78437
+        ],
+        "device": 16777231,
+        "inode": 1468921854,
+        "inputs_creator_pid": 71986,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 78437,
+          "device": 16777231,
+          "inode": 1468921854,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "6e693a8f34ea8088cd1bb235ef055780b9745c892c3d18dafdaa2ac8ac5070ef",
+        "mode": "0o700",
+        "node_sessions": 4,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1/program-before-lastdbd",
+        "private_binary_bytes": 67966432,
+        "private_binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "71986,71991,73010,73264,73375,78437",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "6e693a8f34ea8088cd1bb235ef055780b9745c892c3d18dafdaa2ac8ac5070ef"
+        },
+        "inputs.json": {
+          "bytes": 1370,
+          "sha256": "1d52c6243521ff3d841bd13d65e9f5befbdc563c1d79177abda4092ed90026ee"
+        },
+        "node-b.log": {
+          "bytes": 25054,
+          "sha256": "665fc52a4913a05b5dc844b21493ff3fea0eb12797869c8808655727c77fa4d0"
+        },
+        "receipts.jsonl": {
+          "bytes": 1352281,
+          "sha256": "0e546e59a325eab9b3a2b3a324c87d1687f2a350af3ce3426b1329a4cb71540c"
+        },
+        "result.json": {
+          "bytes": 338684,
+          "sha256": "f630614c1c5e033dbcf2634eebace3845a63d4637c405af772fdcaf863368c97"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "02a54ec5d5405be0a3a68cc01e86fb2a6000e99ebdde9c67a0baf61f8daa0a81"
+        },
+        "root-identity.json": {
+          "bytes": 1453,
+          "sha256": "826c340e61d6b3c66a13296976629be265279bc5c8cb21557943da679cc72aeb"
+        },
+        "summary.json": {
+          "bytes": 144,
+          "sha256": "5fd4ed71390749f3e0b24e5af85dc88afe3a8afefc92416acfb703940ffeed2f"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/narrow-baseline",
+      "result": {
+        "all_contracts_pass": false,
+        "baseline_immutable_equivalent_main": "ea01331f7aa318c8748a6f41fa95e0b4eddf3b3a",
+        "binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+        "contract_failure_count": 82,
+        "contract_pass_count": 99,
+        "current_worktree_head": "1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5",
+        "execution_complete": true,
+        "helper_identity_sha256": "638712368b4c6b2aa059616f72c4f3e96577eb2e677e474cf887ea34df44472d",
+        "observation_count": 181,
+        "operational_error": null,
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1",
+        "plan_sha256": "29a4bbcc6ba85fc76f820309194a2ce52fac64678ac724ad8a2731c8dd74ccba",
+        "program_source_commit": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+        "role": "baseline"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          73674
+        ],
+        "all_start_pids": [
+          73674
+        ],
+        "creator_pids": [
+          71986
+        ],
+        "device": 16777231,
+        "inode": 1469132695,
+        "inputs_creator_pid": null,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 71986,
+          "device": 16777231,
+          "inode": 1469132695,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "d665b2d85c3e570cf3b38de987574d2ac1002dbe3aa8012aa50057e8ee28868f",
+        "mode": "0o700",
+        "node_sessions": 1,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6/program-lastdbd",
+        "private_binary_bytes": 68126448,
+        "private_binary_sha256": "1f6444fc47590cabd0561f8fbb8e5bc1d326a235be25587e21114bede2f4143a",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "71986,73674",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6"
+      },
+      "exit_codes": [
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "d665b2d85c3e570cf3b38de987574d2ac1002dbe3aa8012aa50057e8ee28868f"
+        },
+        "inputs.json": {
+          "bytes": 1708,
+          "sha256": "46844fde0c205f26c81277ee0113774b942b64f631a08ab26a1ce9e835eb718a"
+        },
+        "node-c.log": {
+          "bytes": 4837,
+          "sha256": "7ec22d17be742c457351f522e0fbd06227bfe840af316483a1f1c5da2051edde"
+        },
+        "receipts.jsonl": {
+          "bytes": 21287,
+          "sha256": "a586b87ff37b75d08994fc81773b5a7ee72ae474810368c2b08b62def7ad4ece"
+        },
+        "result.json": {
+          "bytes": 3105,
+          "sha256": "a52b7cb2d4f254305d6018bcc736b0c36feeb70ded4f28e849b6232545b418c2"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "a5daa74895e6312237a8afde2c4564a79f3ad859f0d285c9181f9c9d8fb88ec5"
+        },
+        "root-identity.json": {
+          "bytes": 1344,
+          "sha256": "5a05806d07bcb7a6629de6d190cc14c580dc24f6ab04633c2888067cbfae777d"
+        },
+        "summary.json": {
+          "bytes": 296,
+          "sha256": "4dba2f8fe990210bba2318bea29f4f892d29487a7c2a38e129e1501429a5f7cc"
+        }
+      },
+      "node_sessions": 1,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/narrow-candidate",
+      "result": {
+        "all_contracts_pass": false,
+        "baseline_immutable_equivalent_main": null,
+        "binary_sha256": "1f6444fc47590cabd0561f8fbb8e5bc1d326a235be25587e21114bede2f4143a",
+        "contract_failure_count": 1,
+        "contract_pass_count": 1,
+        "current_worktree_head": "1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5",
+        "execution_complete": false,
+        "helper_identity_sha256": "638712368b4c6b2aa059616f72c4f3e96577eb2e677e474cf887ea34df44472d",
+        "observation_count": 2,
+        "operational_error": "RuntimeError: Candidate status mismatch: status-before-empty-hash-write: schema_keys.domains differs; schema_keys.loads differs; schema_keys.ready differs",
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6",
+        "plan_sha256": "29a4bbcc6ba85fc76f820309194a2ce52fac64678ac724ad8a2731c8dd74ccba",
+        "program_source_commit": "1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5",
+        "role": "candidate"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          57623,
+          57896
+        ],
+        "all_start_pids": [
+          57623,
+          57896
+        ],
+        "creator_pids": [
+          57617
+        ],
+        "device": 16777231,
+        "inode": 1469224403,
+        "inputs_creator_pid": null,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 57617,
+          "device": 16777231,
+          "inode": 1469224403,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "5fe576c9ac304497fb4ec81ef89cd6dab0835884fc03a65c2bcb0878dd470836",
+        "mode": "0o700",
+        "node_sessions": 2,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xaryb2jg/program-lastdbd",
+        "private_binary_bytes": 68112480,
+        "private_binary_sha256": "0f020fd6653e581ac0e808ae3a4c6ee683369e749b32e04898dc99abb29b64ec",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "57617,57623,57896",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xaryb2jg",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xaryb2jg"
+      },
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "5fe576c9ac304497fb4ec81ef89cd6dab0835884fc03a65c2bcb0878dd470836"
+        },
+        "inputs.json": {
+          "bytes": 1707,
+          "sha256": "15518df7748b31d8fb4396157aad2e024895eccf20334b5d96aba444ccd57d73"
+        },
+        "node-c.log": {
+          "bytes": 16086,
+          "sha256": "e2c0d227eb6eee99bb6aec5dedc5bd81fc2c310777ee25dab6209eb194999e8a"
+        },
+        "receipts.jsonl": {
+          "bytes": 64062,
+          "sha256": "d40c8e4d48270583bcc19d6b53a007ff1c1f86365adad68a8d7adebb3fea3cb9"
+        },
+        "result.json": {
+          "bytes": 9760,
+          "sha256": "013d90f6b95ad5739ff086066b26ab07772271f560df07156bb537d5877c5546"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "6e5fe69d6b9be71238ea8eaf0f77976db59d6c4f917c22af29336daee9d42c49"
+        },
+        "root-identity.json": {
+          "bytes": 1372,
+          "sha256": "61f4748f5b42f6f6468b003eaeb439ee6ec8627c5b0556ddc54623cb37b8c966"
+        },
+        "summary.json": {
+          "bytes": 273,
+          "sha256": "9ceda6640c2ef02e5c4ccce44260d1ebd861be5c59028616f8b1c41f53ebadf2"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/narrow-candidate-exact-uuid",
+      "result": {
+        "all_contracts_pass": false,
+        "binary_sha256": "0f020fd6653e581ac0e808ae3a4c6ee683369e749b32e04898dc99abb29b64ec",
+        "contract_failure_count": 1,
+        "contract_pass_count": 5,
+        "current_worktree_head": "d64d918ff0e757f34863277a69dc9f07120aabbb",
+        "execution_complete": false,
+        "helper_identity_sha256": "638712368b4c6b2aa059616f72c4f3e96577eb2e677e474cf887ea34df44472d",
+        "observation_count": 6,
+        "operational_error": "RuntimeError: Candidate contract mismatch: first-cold-after-normal-reopen list-hashrange-filtered: Missing data.list envelope",
+        "original_candidate_failure_preserved": true,
+        "original_candidate_result_sha256": "a52b7cb2d4f254305d6018bcc736b0c36feeb70ded4f28e849b6232545b418c2",
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xaryb2jg",
+        "plan_sha256": "29a4bbcc6ba85fc76f820309194a2ce52fac64678ac724ad8a2731c8dd74ccba",
+        "program_source_commit": "d64d918ff0e757f34863277a69dc9f07120aabbb",
+        "role": "final-candidate"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xaryb2jg"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          66683,
+          67098
+        ],
+        "all_start_pids": [
+          66683,
+          67098
+        ],
+        "creator_pids": [
+          66675
+        ],
+        "device": 16777231,
+        "inode": 1469235199,
+        "inputs_creator_pid": null,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 66675,
+          "device": 16777231,
+          "inode": 1469235199,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "c3cae33d4896bb3e252dd20671b5929cda5af67e684b0ecade7b7c087daf54c4",
+        "mode": "0o700",
+        "node_sessions": 2,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dn_fsdae/program-lastdbd",
+        "private_binary_bytes": 67966432,
+        "private_binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "66675,66683,67098",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dn_fsdae",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dn_fsdae"
+      },
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "c3cae33d4896bb3e252dd20671b5929cda5af67e684b0ecade7b7c087daf54c4"
+        },
+        "inputs.json": {
+          "bytes": 1695,
+          "sha256": "1f54600dd10c6d8822005940f7102ba5a795accc1463a6f76d7edbf2f580a5ce"
+        },
+        "node-b.log": {
+          "bytes": 16358,
+          "sha256": "5f2a75eda1d95df31c9276c8f21a78442ce03cbe0d00c7974af1d80dcf1e09ee"
+        },
+        "receipts.jsonl": {
+          "bytes": 77218,
+          "sha256": "a6a18c86b597b3ecf1a9df4d8ddd29e39f80cbdab95e5c8e99767bcea088db79"
+        },
+        "result.json": {
+          "bytes": 13270,
+          "sha256": "94498f287b03502e2e862a2a0ecf9818bc3744a4625b03e6446a7b9429613472"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "2dcc096a1d5257b4ed13f03707f85f179a98aab228306286e22db273b730984f"
+        },
+        "root-identity.json": {
+          "bytes": 1372,
+          "sha256": "df57eee9866ac802c79c50f5b8101861280c738a9053e70da804fa4dc9c04dae"
+        },
+        "summary.json": {
+          "bytes": 164,
+          "sha256": "36eb4f975e4b8d4dd418b1b623c90afcc9a6277a906e77da4d65a8106773c5e4"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/narrow-baseline-v6",
+      "result": {
+        "all_contracts_pass": false,
+        "baseline_immutable_equivalent_main": "ea01331f7aa318c8748a6f41fa95e0b4eddf3b3a",
+        "binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+        "contract_failure_count": 7,
+        "contract_pass_count": 3,
+        "current_worktree_head": "d64d918ff0e757f34863277a69dc9f07120aabbb",
+        "execution_complete": false,
+        "helper_identity_sha256": "a7e04a91009ffa1efb394a2d2a6ea68105afd797bda082db04ae8641dbfc91fa",
+        "observation_count": 10,
+        "operational_error": "KeyError: 'range'",
+        "original_v5_attempts_preserved": true,
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dn_fsdae",
+        "plan_sha256": "0f819f24cfeaf3d6e819002e3d7ee731111652c878c629453d26d0b8faa776fb",
+        "program_source_commit": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+        "role": "baseline-v6"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dn_fsdae"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          79426,
+          79537,
+          79538,
+          79539
+        ],
+        "all_start_pids": [
+          79426,
+          79537,
+          79538,
+          79539
+        ],
+        "creator_pids": [
+          79419
+        ],
+        "device": 16777231,
+        "inode": 1469286321,
+        "inputs_creator_pid": null,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 79419,
+          "device": 16777231,
+          "inode": 1469286321,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "7c7af7269e7dbeec6660df32d7b1b8bf0b3e236596719a7c2c7fb568ab71ce86",
+        "mode": "0o700",
+        "node_sessions": 4,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pfx4ine4/program-lastdbd",
+        "private_binary_bytes": 67966432,
+        "private_binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "79419,79426,79537,79538,79539",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pfx4ine4",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pfx4ine4"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "7c7af7269e7dbeec6660df32d7b1b8bf0b3e236596719a7c2c7fb568ab71ce86"
+        },
+        "inputs.json": {
+          "bytes": 1694,
+          "sha256": "977e9af8b76c66e6ac0a3f69e1661b8aef608818b5c11150568873a906cc8b29"
+        },
+        "node-b.log": {
+          "bytes": 25054,
+          "sha256": "bba0c2852c9057231c37eabe07cdb59d237272b8cca894c0c263f4185240f379"
+        },
+        "receipts.jsonl": {
+          "bytes": 1366611,
+          "sha256": "da8bdf67017b88efc2cfffe7e6c4069afd14ddcb97b56aa6ab6dabe06237d57c"
+        },
+        "result.json": {
+          "bytes": 341400,
+          "sha256": "2ae44cdd55bf8f7b00b2338a484950bc6a17a509452ff9ec369901f739a06e77"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "df7116cdb11869ae3411ac464ce44e93da8711e3c469da4bcc3a4c3e1981798a"
+        },
+        "root-identity.json": {
+          "bytes": 1428,
+          "sha256": "11b4b6f61855a95efe9041c2c86bcd19815ee3049fe722f29c8cac6195d0243f"
+        },
+        "summary.json": {
+          "bytes": 144,
+          "sha256": "5b2fe9f905a585cdd174daedb2b4947d82e26f8dedd3fe699b2663d997ff487c"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/narrow-baseline-v7",
+      "result": {
+        "all_contracts_pass": false,
+        "baseline_immutable_equivalent_main": "ea01331f7aa318c8748a6f41fa95e0b4eddf3b3a",
+        "binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+        "contract_failure_count": 74,
+        "contract_pass_count": 107,
+        "current_worktree_head": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "execution_complete": true,
+        "helper_identity_sha256": "b788663cee5bf7074f3c1e80dbf301ccf4fe99d855df1e61c9952d4d91393925",
+        "observation_count": 181,
+        "operational_error": null,
+        "original_attempts_preserved": true,
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pfx4ine4",
+        "plan_sha256": "f64fc086ee732dc3e9f4e82a4354fc3a9ad2a6c48f90cede279f8731490881a6",
+        "program_source_commit": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+        "role": "baseline-v7"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.pfx4ine4"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          79544,
+          81956,
+          82105,
+          82141
+        ],
+        "all_start_pids": [
+          79544,
+          81956,
+          82105,
+          82141
+        ],
+        "creator_pids": [
+          79419
+        ],
+        "device": 16777231,
+        "inode": 1469289761,
+        "inputs_creator_pid": null,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 79419,
+          "device": 16777231,
+          "inode": 1469289761,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "c32f43fb38027b323a72dee0b84308f4900501d904ab09038585c3635350e7ea",
+        "mode": "0o700",
+        "node_sessions": 4,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.fyh5k9gc/program-lastdbd",
+        "private_binary_bytes": 68112480,
+        "private_binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "79419,79544,81956,82105,82141",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.fyh5k9gc",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.fyh5k9gc"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "c32f43fb38027b323a72dee0b84308f4900501d904ab09038585c3635350e7ea"
+        },
+        "inputs.json": {
+          "bytes": 1704,
+          "sha256": "6f9ccd093ad2ef9551984e6d87ae0c3185f3206c41a005d048faee1a33550c3b"
+        },
+        "node-c.log": {
+          "bytes": 25060,
+          "sha256": "e8da7fe8c495a73ef8b7a4626765824f25701ce512778cf566ccf9c01b3896e3"
+        },
+        "receipts.jsonl": {
+          "bytes": 1285672,
+          "sha256": "cc7b18d76680db2b62c072aaf9ec5554d3d3c93a2781bd0b04dba104ad882358"
+        },
+        "result.json": {
+          "bytes": 313160,
+          "sha256": "6aadd683e11d7b4b67e10c09dbe8dd39287168cb4c58f95b5c05a40b822f1cea"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "41d1303be18e2716695c1967ac3fd523b228800037b9ae3c00ef8061caca7e67"
+        },
+        "root-identity.json": {
+          "bytes": 1428,
+          "sha256": "a5b3f06dee4ba4d8264e907d99ade8add812d9c57a2cc2c0c28712cac648115e"
+        },
+        "summary.json": {
+          "bytes": 148,
+          "sha256": "0bdb68ee60c6012f3eb04faa7f989c8b6a31bef0b067566a5322d4a48d288eab"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/narrow-candidate-v7",
+      "result": {
+        "all_contracts_pass": true,
+        "baseline_immutable_equivalent_main": null,
+        "binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "contract_failure_count": 0,
+        "contract_pass_count": 181,
+        "current_worktree_head": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "execution_complete": true,
+        "helper_identity_sha256": "b788663cee5bf7074f3c1e80dbf301ccf4fe99d855df1e61c9952d4d91393925",
+        "observation_count": 181,
+        "operational_error": null,
+        "original_attempts_preserved": true,
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.fyh5k9gc",
+        "plan_sha256": "f64fc086ee732dc3e9f4e82a4354fc3a9ad2a6c48f90cede279f8731490881a6",
+        "program_source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "role": "candidate-v7"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.fyh5k9gc"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exact_root_identity": {
+        "all_nodes_stop_normally": true,
+        "all_normal_stop_pids": [
+          82914,
+          83861,
+          83864,
+          84125
+        ],
+        "all_start_pids": [
+          82914,
+          83861,
+          83864,
+          84125
+        ],
+        "creator_pids": [
+          82905
+        ],
+        "device": 16777231,
+        "inode": 1469296028,
+        "inputs_creator_pid": null,
+        "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+        "known_socket_paths_remaining": [],
+        "marker": {
+          "creator_pid": 82905,
+          "device": 16777231,
+          "inode": 1469296028,
+          "kind": "synthetic-trial",
+          "owner_uid": 501,
+          "version": 1
+        },
+        "marker_mode": "0o600",
+        "marker_sha256": "05b8f7bdf7c1e26c45ecab2aaf4fcee9a01d99eea7f689e565024219a06b8301",
+        "mode": "0o700",
+        "node_sessions": 4,
+        "owner_uid": 501,
+        "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukq5iuwj/program-lastdbd",
+        "private_binary_bytes": 68112480,
+        "private_binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "process_check": {
+          "command": [
+            "ps",
+            "-p",
+            "82905,82914,83861,83864,84125",
+            "-o",
+            "pid=,command="
+          ],
+          "exit_code": 1,
+          "stderr": "",
+          "stdout": ""
+        },
+        "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukq5iuwj",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukq5iuwj"
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "05b8f7bdf7c1e26c45ecab2aaf4fcee9a01d99eea7f689e565024219a06b8301"
+        },
+        "inputs.json": {
+          "bytes": 1706,
+          "sha256": "c1c3404cc393e8cbc57232fea11afef9f7e640b7cc9892d6acc904e99d106137"
+        },
+        "node-c.log": {
+          "bytes": 31059,
+          "sha256": "54370af2b31777023b2f432b8a8a497f0835452a9a0dc4df235d63101a0f5305"
+        },
+        "receipts.jsonl": {
+          "bytes": 9152223,
+          "sha256": "c67f8925eb5b241620de250ab715dbc44b43b5b67fce9c472ecd11fa9c30a2f0"
+        },
+        "result.json": {
+          "bytes": 751,
+          "sha256": "2c673f2d9f1db5ed1e319059de698d341ff69d82d16edd252b73d1cd348873d4"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "ffe5fad485496580d5e4ecc4073792e719b574b58ace399abfebe76893e538e2"
+        },
+        "root-identity.json": {
+          "bytes": 1428,
+          "sha256": "d15dc146abb6b02cd85802a3d29af8ba4d6476b183ddc5b7f80a190e48dcdfd6"
+        },
+        "summary.json": {
+          "bytes": 146,
+          "sha256": "115c0aa757166776e6abd0155c0d9735efbb2124beddeae5cc73a698b0f09870"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/storage-clarity-round8-20261019/cohort-candidate-v7",
+      "result": {
+        "all_contracts_pass": true,
+        "all_zero_file_checks_pass": true,
+        "binary_sha256": "bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1",
+        "checked_read_calls": 74,
+        "current_worktree_head": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "execution_complete": true,
+        "helper_identity_sha256": "b788663cee5bf7074f3c1e80dbf301ccf4fe99d855df1e61c9952d4d91393925",
+        "operational_error": null,
+        "owned_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukq5iuwj",
+        "plan_sha256": "f64fc086ee732dc3e9f4e82a4354fc3a9ad2a6c48f90cede279f8731490881a6",
+        "program_source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+        "scope": "Unchanged ordinary cohorts.run once on a separate fresh candidate home. No timing or benchmark claim.",
+        "strict_zero_file_checks": 29
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ukq5iuwj"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}

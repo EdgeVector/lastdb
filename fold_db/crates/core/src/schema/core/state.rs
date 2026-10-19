@@ -102,6 +102,16 @@ impl SchemaCore {
             .unwrap_or_default())
     }
 
+    /// All schema value and key reads share the resolved schema's state gate.
+    pub(crate) fn require_queryable_schema(&self, schema_name: &str) -> Result<(), SchemaError> {
+        if self.get_schema_state_cached(schema_name)? == SchemaState::Blocked {
+            return Err(SchemaError::Blocked(format!(
+                "Schema '{schema_name}' is blocked and cannot be queried"
+            )));
+        }
+        Ok(())
+    }
+
     pub async fn set_schema_state(
         &self,
         schema_name: &str,

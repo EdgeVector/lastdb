@@ -1,32 +1,43 @@
+//! Bounded physical-key pages, with schema membership checked before the limit.
+
 use super::*;
+use futures::FutureExt;
+
+mod logical;
+mod values;
+
+type KeyPage = (Vec<(String, String)>, Option<String>, bool);
+
+#[derive(Clone, Copy)]
+enum Membership {
+    Physical,
+    Schema { named_layout: bool },
+}
+
+struct KeyList<'a> {
+    molecule: &'a str,
+    limit: usize,
+    after: Option<&'a str>,
+    scope: Option<&'a str>,
+    hash: Option<&'a str>,
+    membership: Membership,
+}
 
 impl AtomStore {
-    /// Keys-only page of **live** record identities on one molecule.
-    ///
-    /// Walks `mk:{M}:` with [`PageFill::LiveRows`] so tombstoned tips do not
-    /// occupy the window. Decodes hash/range from the storage key. Does **not**
-    /// fetch `atom:` bodies.
-    ///
-    /// `after` is an exclusive keyset cursor (a previous page's last storage
-    /// key). It must sit under this molecule's prefix.
+    /// Keys-only page of the live physical membership of one molecule.
+    /// The continuation remains an exclusive physical `mk:` key.
     pub async fn list_live_record_keys(
         &self,
         molecule: &str,
         limit: usize,
         after: Option<&str>,
         storage_prefix: Option<&str>,
-    ) -> Result<(Vec<(String, String)>, Option<String>, bool), SchemaError> {
+    ) -> Result<KeyPage, SchemaError> {
         self.list_live_record_keys_filtered(molecule, limit, after, storage_prefix, None)
             .await
     }
 
-    /// Keys-only page, optionally restricted to one API hash partition.
-    ///
-    /// `hash_filter` is the **API** hash (not the storage token). The codec
-    /// blinds it when the home uses BlindV1, then scans
-    /// `mk:{M}:{esc(storage_hash)}\0` — O(log M) under that hash, not a
-    /// schema-wide walk. No atom bodies except BlindV1's per-key API-hash
-    /// recovery, which `list_live_record_keys` already pays.
+    /// Physical membership, optionally restricted to the caller's API hash.
     pub async fn list_live_record_keys_filtered(
         &self,
         molecule: &str,
@@ -34,78 +45,105 @@ impl AtomStore {
         after: Option<&str>,
         storage_prefix: Option<&str>,
         hash_filter: Option<&str>,
-    ) -> Result<(Vec<(String, String)>, Option<String>, bool), SchemaError> {
-        if limit == 0 {
+    ) -> Result<KeyPage, SchemaError> {
+        self.list_record_keys_read(KeyList {
+            molecule,
+            limit,
+            after,
+            scope: storage_prefix,
+            hash: hash_filter,
+            membership: Membership::Physical,
+        })
+        .await
+    }
+
+    /// Schema-facing pages exclude missing bodies and foreign named layouts.
+    pub(crate) async fn list_schema_record_keys_filtered(
+        &self,
+        molecule: &str,
+        limit: usize,
+        after: Option<&str>,
+        hash_filter: Option<&str>,
+        named_layout: bool,
+    ) -> Result<KeyPage, SchemaError> {
+        self.list_record_keys_read(KeyList {
+            molecule,
+            limit,
+            after,
+            scope: None,
+            hash: hash_filter,
+            membership: Membership::Schema { named_layout },
+        })
+        .await
+    }
+
+    async fn list_record_keys_read(&self, request: KeyList<'_>) -> Result<KeyPage, SchemaError> {
+        self.atom_read_scope(self.list_record_keys_captured(request).boxed())
+            .await
+    }
+
+    async fn list_record_keys_captured(
+        &self,
+        request: KeyList<'_>,
+    ) -> Result<KeyPage, SchemaError> {
+        if request.limit == 0 {
             return Ok((Vec::new(), None, false));
         }
-        let prefix = match hash_filter {
-            Some(api_hash) => self
-                .key_codec()
-                .api_hash_range_scan_prefix_for_hash(molecule, api_hash)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?,
-            None => molecule_key_codec::molecule_record_prefix(molecule),
+        self.load_molecule_key_bundle(request.molecule).await?;
+        let codec = self.key_codec_for_molecule(request.molecule);
+        let prefix = match request.hash {
+            Some(hash) => codec
+                .api_hash_range_scan_prefix_for_hash(request.molecule, hash)
+                .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
+            None => molecule_key_codec::molecule_record_prefix(request.molecule),
         };
-        if let Some(cursor) = after {
-            let ok = cursor.starts_with(&prefix) || cursor.contains(&format!(":{prefix}"));
-            if !ok {
-                return Err(SchemaError::InvalidCursor(
-                    "cursor is not in this schema's key molecule".into(),
+        let scope_prefix = build_storage_key(request.scope, "");
+        let after = request
+            .after
+            .map(|cursor| cursor.strip_prefix(&scope_prefix).unwrap_or(cursor));
+        if after.is_some_and(|cursor| !cursor.starts_with(&prefix)) {
+            return Err(SchemaError::InvalidCursor(
+                "cursor is not in this schema's key molecule".into(),
+            ));
+        }
+        let want = request.limit.saturating_add(1);
+        let mut cursor = after.map(str::to_owned);
+        let mut selected = Vec::new();
+        let mut refilling = false;
+        while selected.len() < want {
+            let remaining = (want - selected.len()).min(128);
+            let ask = if refilling {
+                remaining.max(64)
+            } else {
+                remaining
+            };
+            let rows = self
+                .scan_logical_tip_page(&prefix, cursor.as_deref(), request.scope, ask)
+                .await?;
+            let exhausted = rows.len() < ask;
+            let Some((last, _)) = rows.last() else { break };
+            if cursor.as_ref().is_some_and(|cursor| last <= cursor) {
+                return Err(SchemaError::InvalidData(
+                    "listed molecule key page did not advance".into(),
                 ));
             }
+            cursor = Some(last.clone());
+            let rows = self
+                .filter_delete_barriers_for_records(rows, request.scope)
+                .await?;
+            selected.extend(self.list_key_values(&request, &codec, rows).await?);
+            refilling = true;
+            if exhausted {
+                break;
+            }
         }
-
-        let want = limit.saturating_add(1);
-        let rows = self
-            .scan_per_key_window_filled(&prefix, after, storage_prefix, want, PageFill::LiveRows)
-            .await?;
-        let has_more = rows.len() > limit;
-        let kept = if has_more { &rows[..limit] } else { &rows[..] };
-        let next_cursor = has_more
-            .then(|| kept.last().map(|(key, _)| key.clone()))
-            .flatten();
-
-        let codec = self.key_codec();
-        let blind = codec.encoding() == crate::atom::HashKeyEncoding::BlindV1;
-        let mut keys = Vec::with_capacity(kept.len());
-        for (key, rec) in kept {
-            let decoded = molecule_key_codec::decode_hash_range(key, molecule).or_else(|| {
-                let bare = key
-                    .rsplit_once(":mk:")
-                    .map_or_else(|| key.clone(), |(_, rest)| format!("mk:{rest}"));
-                molecule_key_codec::decode_hash_range(&bare, molecule)
-            });
-            let (storage_hash, storage_range) =
-                decoded.unwrap_or_else(|| (key.clone(), String::new()));
-            let range = crate::crypto::E2eKeys::ope_decode_range_plaintext(&storage_range)
-                .unwrap_or_else(|| storage_range.clone());
-            let hash = if blind {
-                match self
-                    .get_atom_by_uuid(rec.entry.atom_uuid.as_str(), storage_prefix)
-                    .await?
-                {
-                    Some(atom) => {
-                        let api = atom
-                            .content()
-                            .as_str()
-                            .map(str::to_string)
-                            .unwrap_or_default();
-                        if !api.is_empty()
-                            && codec
-                                .storage_hash(molecule, &api)
-                                .is_ok_and(|blinded| blinded == storage_hash)
-                        {
-                            api
-                        } else {
-                            storage_hash
-                        }
-                    }
-                    None => storage_hash,
-                }
-            } else {
-                storage_hash
-            };
-            keys.push((hash, range));
-        }
+        let has_more = selected.len() > request.limit;
+        selected.truncate(request.limit);
+        let next_cursor = has_more.then(|| selected.last().expect("nonempty key page").2.clone());
+        let keys = selected
+            .into_iter()
+            .map(|(hash, range, _)| (hash, range))
+            .collect();
         Ok((keys, next_cursor, has_more))
     }
 }

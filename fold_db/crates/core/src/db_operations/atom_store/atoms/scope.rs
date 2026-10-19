@@ -13,7 +13,7 @@ impl AtomStore {
             .await
     }
 
-    pub(super) async fn atom_read_scope<T>(
+    pub(in crate::db_operations::atom_store) async fn atom_read_scope<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {

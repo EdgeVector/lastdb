@@ -14,7 +14,6 @@ mod exact;
 mod hash_range;
 mod hash_range_pages;
 mod hash_range_scan;
-mod legacy_fork;
 mod one_d;
 
 impl AtomStore {

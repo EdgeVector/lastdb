@@ -9,8 +9,8 @@ use crate::schema::types::field::{FieldValue, KeyWindow};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::Query;
 use crate::schema::Schema;
+use crate::schema::SchemaCore;
 use crate::schema::SchemaError;
-use crate::schema::{SchemaCore, SchemaState};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -193,13 +193,7 @@ impl QueryExecutor {
             .await?
         {
             Some(mut schema) => {
-                let resolved_state = self.schema_manager.get_schema_state_cached(&schema.name)?;
-                if resolved_state == SchemaState::Blocked {
-                    return Err(SchemaError::Blocked(format!(
-                        "Schema '{}' is blocked and cannot be queried",
-                        schema.name
-                    )));
-                }
+                self.schema_manager.require_queryable_schema(&schema.name)?;
                 crate::schema::require_logical_layout(&schema.schema_type)?;
                 crate::schema::require_logical_filter(query.filter.as_ref())?;
                 crate::schema::require_logical_query_controls(query)?;

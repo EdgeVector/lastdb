@@ -82,10 +82,9 @@ pub struct SchemaRecordKey {
     pub range: String,
 }
 
-/// Paged keys-only membership walk of one schema.
-///
-/// Source is the key-field molecule's `mk:` tips (`PageFill::LiveRows`). No
-/// `atom:` bodies are fetched and no secondary index is written.
+/// Paged API keys for one schema's current records.
+/// Schema-facing reads check the selected field bodies for membership and hash
+/// recovery. Physical-key cursors retain progress across rejected candidates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaRecordKeysReport {
     /// Caller-facing name (descriptive / `app/Name` when that is what was asked).
