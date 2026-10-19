@@ -24,8 +24,35 @@ impl<H: HostNode> QueryRun<'_, H> {
         // it still needs the cheap exact count so pagination metadata reflects the
         // full live set.
         if let Some((page_offset, page_limit)) = caller_supplied_page(query) {
+            if matches!(query.sort_order, Some(SortOrder::Desc)) {
+                // Across hashes a reversed ascending window reverses hash ties.
+                // Inspection certifies at most INTERNAL_FETCH_CAP candidates;
+                // sort that complete logical set before taking the window.
+                let mut complete = query.clone();
+                complete.filter = Some(HashRangeFilter::Page {
+                    offset: 0,
+                    limit: INTERNAL_FETCH_CAP,
+                });
+                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
+                let (rows, drops) = execute_query_rows_with_unresolved(host, complete, ctx).await?;
+                let total = rows.len();
+                let page: Vec<_> = rows
+                    .into_iter()
+                    .skip(page_offset)
+                    .take(page_limit)
+                    .collect();
+                let has_more = page_offset.saturating_add(page.len()) < total;
+                return Ok(Some(page_payload(
+                    page,
+                    Some(total),
+                    page_limit,
+                    page_offset,
+                    has_more,
+                    drops,
+                )));
+            }
             if let Some(total) = count_rows(host, query, ctx).await? {
-                let _permit = acquire_read_permit(host, Lane::for_read_rows(total)).await?;
+                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
                 let (page, drops) =
                     execute_query_rows_with_unresolved(host, query.clone(), ctx).await?;
                 // `total` is an index count, so it counts rows the materializer will
@@ -138,6 +165,9 @@ impl<H: HostNode> QueryRun<'_, H> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
         let mut query = query.clone();
+        if matches!(query.sort_order, Some(SortOrder::Desc)) {
+            return self.bounded_fallback(query).await.map(Some);
+        }
         // Unfiltered "list all", no value filters → paginated push-down: count rows
         // cheaply for an exact `total_count`, then fetch ONLY the requested page.
         // `count == None` ⇒ a view (or unknown schema): fall through.
@@ -154,7 +184,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                     offset: 0,
                     limit: INTERNAL_FETCH_CAP,
                 });
-                let _permit = acquire_read_permit(host, Lane::for_read_rows(total)).await?;
+                let _permit = acquire_read_permit(host, Lane::Bulk).await?;
                 let (all_results, drops) =
                     execute_query_rows_with_unresolved(host, query, ctx).await?;
                 // `total_count` is the counted set on every shape, so two limits
@@ -188,7 +218,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             offset,
             limit,
         ));
-        let _permit = acquire_read_permit(host, Lane::for_read_rows(total)).await?;
+        let _permit = acquire_read_permit(host, Lane::Bulk).await?;
         let (page, drops) = execute_query_rows_with_unresolved(host, query, ctx).await?;
         // Same index-count reconciliation as the caller-supplied-page shape
         // above: dropped rows were counted by `total`, so they have to be
@@ -216,6 +246,13 @@ impl<H: HostNode> QueryRun<'_, H> {
         // INTERNAL_FETCH_CAP; `has_more` flags the ceiling. A caller-supplied filter
         // is honored as-is.
         let cap_was_injected = query.filter.is_none();
+        let cap_may_truncate = cap_was_injected
+            && host
+                .fold_db()
+                .schema_manager()
+                .get_schema_metadata(&query.schema_name)
+                .map_err(|error| HostError::internal(error.to_string()))?
+                .is_none();
         if cap_was_injected {
             query.filter = Some(HashRangeFilter::Page {
                 offset: 0,
@@ -233,7 +270,9 @@ impl<H: HostNode> QueryRun<'_, H> {
         let (all_results, drops) = execute_query_rows_with_unresolved(host, query, ctx).await?;
         let total_count = all_results.len();
         let page: Vec<Value> = all_results.into_iter().skip(offset).take(limit).collect();
-        let has_more = compute_has_more(offset, page.len(), total_count, cap_was_injected);
+        // Native inspection proves its bounded set is complete, including an
+        // exact ceiling-sized set. Views keep their existing truncation signal.
+        let has_more = compute_has_more(offset, page.len(), total_count, cap_may_truncate);
         Ok(page_payload(
             page,
             Some(total_count),

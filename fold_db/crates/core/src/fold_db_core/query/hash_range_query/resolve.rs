@@ -24,6 +24,7 @@ impl HashRangeQueryProcessor {
                 .preload_bound_field(Arc::clone(&self.db_ops), schema, primary_name)
                 .await?;
         }
+        let membership_schema = schema.clone_for_read_shared();
         let field = schema.runtime_fields.get_mut(primary_name).ok_or_else(|| {
             SchemaError::InvalidField(format!(
                 "co-key primary field '{primary_name}' missing from schema runtime"
@@ -40,13 +41,9 @@ impl HashRangeQueryProcessor {
         };
         binding
             .run(async {
-                let mut selected = if matches!(request.filter, Some(HashRangeFilter::Page { .. }))
-                    && !request.received.is_empty()
-                {
-                    self.resolve_primary_merged_page(field, &request).await?
-                } else {
-                    self.resolve_primary_windowed(field, &request).await?
-                };
+                let mut selected = self
+                    .resolve_primary_windowed(&membership_schema, field, &request)
+                    .await?;
                 if !selected.had_spine {
                     selected.had_spine = self.primary_has_tips(field, &request).await?;
                 }
@@ -55,38 +52,41 @@ impl HashRangeQueryProcessor {
             .await
     }
 
-    /// Explicit physical Page plus shares retains its existing merge order.
-    async fn resolve_primary_merged_page(
-        &self,
-        field: &mut FieldVariant,
-        request: &PrimaryRequest<'_>,
-    ) -> Result<PrimarySelection, SchemaError> {
-        let full = Some(full_span_page());
-        let values = field
-            .resolve_value(&self.db_ops, full.clone(), request.include_tombstones)
-            .await?;
-        let mut selected = PrimarySelection::new(values, &request.own_prefix);
-        self.merge_primary_namespaces(field, request, full, &mut selected)
-            .await?;
-        let Some(HashRangeFilter::Page { offset, limit }) = request.filter.as_ref() else {
-            unreachable!("only explicit Page uses the merged page route")
-        };
-        let mut keys: Vec<_> = selected.values.keys().cloned().collect();
-        Self::sort_keys_for_field(field, &mut keys);
-        selected.retain_keys(&keys.into_iter().skip(*offset).take(*limit).collect());
-        Ok(selected)
-    }
-
     async fn resolve_primary_windowed(
         &self,
+        schema: &Schema,
         field: &mut FieldVariant,
         request: &PrimaryRequest<'_>,
     ) -> Result<PrimarySelection, SchemaError> {
         if request.named_layout && request.received.is_empty() {
             if let (Some(filter), Some(window)) = (request.filter.as_ref(), request.window.clone())
             {
+                let mut membership = |mut values: HashMap<KeyValue, FieldValue>| {
+                    let sources = values
+                        .keys()
+                        .map(|key| (key.clone(), request.own_prefix.clone()))
+                        .collect();
+                    async move {
+                        self.retain_named_layout(
+                            schema,
+                            request.name,
+                            &mut values,
+                            &sources,
+                            request.include_tombstones,
+                        )
+                        .await?;
+                        Ok(values)
+                    }
+                    .boxed()
+                };
                 let (values, had_spine) = field
-                    .resolve_named_window(&self.db_ops, filter, window, request.include_tombstones)
+                    .resolve_named_window(
+                        &self.db_ops,
+                        filter,
+                        window,
+                        request.include_tombstones,
+                        &mut membership,
+                    )
                     .await?;
                 let mut selected = PrimarySelection::new(values, &request.own_prefix);
                 selected.had_spine = had_spine;
@@ -110,7 +110,17 @@ impl HashRangeQueryProcessor {
         self.merge_primary_namespaces(field, request, request.filter.clone(), &mut selected)
             .await?;
         if request.named_layout {
-            selected.retain_named();
+            self.retain_named_layout(
+                schema,
+                request.name,
+                &mut selected.values,
+                &selected.sources,
+                request.include_tombstones,
+            )
+            .await?;
+            selected
+                .sources
+                .retain(|key, _| selected.values.contains_key(key));
         }
         if !request.received.is_empty() {
             if let Some(window) = request.window.clone() {

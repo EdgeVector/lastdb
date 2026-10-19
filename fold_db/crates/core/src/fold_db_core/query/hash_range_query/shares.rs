@@ -1,5 +1,5 @@
 use super::HashRangeQueryProcessor;
-use crate::schema::types::field::{FieldKind, FieldValue, FieldVariant, HashRangeFilter};
+use crate::schema::types::field::{FieldValue, FieldVariant, HashRangeFilter};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::SchemaError;
 use std::collections::HashMap;
@@ -77,35 +77,6 @@ impl HashRangeQueryProcessor {
             if fv.writer_pubkey.is_none() {
                 fv.writer_pubkey = Some(sender_hash.clone());
             }
-        }
-    }
-
-    pub(super) fn sort_keys_for_field(field: &FieldVariant, keys: &mut [KeyValue]) {
-        match field.kind {
-            FieldKind::Hash => keys.sort_by(|a, b| {
-                a.hash
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(b.hash.as_deref().unwrap_or(""))
-            }),
-            FieldKind::Range => keys.sort_by(|a, b| {
-                a.range
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(b.range.as_deref().unwrap_or(""))
-            }),
-            FieldKind::HashRange | FieldKind::Single => keys.sort_by(|a, b| {
-                a.range
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(b.range.as_deref().unwrap_or(""))
-                    .then_with(|| {
-                        a.hash
-                            .as_deref()
-                            .unwrap_or("")
-                            .cmp(b.hash.as_deref().unwrap_or(""))
-                    })
-            }),
         }
     }
 

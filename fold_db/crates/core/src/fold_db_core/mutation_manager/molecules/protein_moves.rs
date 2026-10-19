@@ -1,6 +1,9 @@
 //! A new protein key retains values and retires only a captured old association.
 
+use super::super::cas::{current_association, source_identity_molecules};
 use super::super::MutationManager;
+
+mod requests;
 use super::prepared::{SiblingMove, SiblingOrigin, SiblingUpdate, SourceId};
 use super::protein_batch::{schema_storage_prefix, ProteinFoldMetadata};
 use super::protein_key_fields::ProteinKeyFields;
@@ -10,6 +13,7 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 use chrono::Utc;
+use requests::move_requests;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub(super) struct ProteinMoveInput<'a> {
@@ -25,12 +29,13 @@ struct MoveRequest {
     source_molecule: String,
     molecule: String,
     old: Option<(KeyValue, usize)>,
-    new: KeyValue,
+    new: Option<(KeyValue, usize)>,
     trigger: SourceId,
     value: Option<String>,
     source_slot: usize,
-    new_slot: usize,
     association_slots: Vec<usize>,
+    ownership_pairs: Vec<(usize, usize)>,
+    identity_slots: Vec<usize>,
 }
 
 type Slot = (String, String, String);
@@ -39,6 +44,7 @@ type UpdateIndex = HashMap<(usize, String, String, String, String), usize>;
 struct MoveState {
     records: Vec<Option<PerKeyRecord>>,
     headers: HashMap<String, MoleculeHeader>,
+    valid_sources: HashSet<usize>,
 }
 
 impl MutationManager {
@@ -51,8 +57,17 @@ impl MutationManager {
         if self.db_ops.namespaced_store().disk_pack_runtime().is_none() {
             return Ok(Vec::new());
         }
+        if input
+            .fields
+            .after
+            .iter()
+            .all(|(index, after)| input.fields.before.get(index) == Some(after))
+        {
+            return Ok(Vec::new());
+        }
         let mut slots = BTreeMap::new();
-        let requests = move_requests(input, &mut slots)?;
+        let schemas = self.schema_manager.get_schemas()?;
+        let requests = move_requests(input, &schemas, &mut slots)?;
         if requests.is_empty() {
             return Ok(Vec::new());
         }
@@ -63,34 +78,42 @@ impl MutationManager {
             let Some(source) = state.records[request.source_slot].as_ref() else {
                 continue;
             };
-            let updated =
+            if request.new.is_some() {
                 self.ensure_moved_value(&request, source, &state, updates, origins, &mut index);
+            }
             // A previously absent peer key still needs the unchanged source
             // values. Only a captured old association can also be retired.
-            let Some((old_key, old_slot)) = request.old else {
+            let Some((old_key, old_slot)) = request.old.as_ref() else {
                 continue;
             };
-            let Some(old) = state.records[old_slot].as_ref() else {
+            let Some(old) = state.records[*old_slot].as_ref() else {
                 continue;
             };
             // An equal body alone does not establish which record owns a
             // colliding destination. Require the old source association too.
-            if old.entry.atom_uuid != source.entry.atom_uuid
-                || old.meta != source.meta
-                || (old.entry.lww_key() != source.entry.lww_key()
-                    && !request.association_slots.iter().any(|&slot| {
-                        state.records[slot]
-                            .as_ref()
-                            .is_some_and(|record| record.entry.lww_key() == old.entry.lww_key())
-                    }))
+            if !current_association(
+                &state.records,
+                &request.ownership_pairs,
+                &request.association_slots,
+                &request.identity_slots,
+            ) || !state.valid_sources.contains(&request.index)
             {
                 continue;
             }
+            let mut header = state
+                .headers
+                .get(&request.molecule)
+                .cloned()
+                .ok_or_else(|| SchemaError::StorageRead {
+                    detail: "protein old association has no molecule header".into(),
+                })?;
+            header.version = header.version.saturating_add(1);
+            header.updated_at = Utc::now();
             movements.push(SiblingMove {
-                source: origins[updated].source.clone(),
+                source: request.trigger,
                 molecule_uuid: request.molecule,
-                old_key,
-                new_key: request.new,
+                old_key: old_key.clone(),
+                header,
                 expected_old: old.clone(),
             });
         }
@@ -126,8 +149,21 @@ impl MutationManager {
                     detail: format!("read protein move headers: {error}"),
                 })
         };
-        let (records, headers) =
-            tokio::try_join!(atoms.load_first_present_candidate(prefix, &groups), headers)?;
+        let indices: Vec<_> = requests
+            .iter()
+            .map(|request| request.index)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let keys: Vec<_> = indices
+            .iter()
+            .map(|&index| input.keys[index].clone())
+            .collect();
+        let (records, headers, valid) = tokio::try_join!(
+            atoms.load_first_present_candidate(prefix, &groups),
+            headers,
+            self.source_coordinates_match(input.schema, &keys, prefix)
+        )?;
         if records.len() != groups.len() || headers.len() != molecules.len() {
             return Err(SchemaError::StorageRead {
                 detail: "protein move winner or header count differs".into(),
@@ -135,6 +171,11 @@ impl MutationManager {
         }
         Ok(MoveState {
             records,
+            valid_sources: indices
+                .into_iter()
+                .zip(valid)
+                .filter_map(|(index, valid)| valid.then_some(index))
+                .collect(),
             headers: molecules
                 .into_iter()
                 .zip(headers)
@@ -152,7 +193,8 @@ impl MutationManager {
         origins: &mut Vec<SiblingOrigin>,
         index: &mut UpdateIndex,
     ) -> usize {
-        let key = update_key(request);
+        let (new, new_slot) = request.new.as_ref().expect("protein destination");
+        let key = update_key(request, new);
         let existing = index.get(&key).copied();
         let unchanged = request
             .value
@@ -166,9 +208,9 @@ impl MutationManager {
             }
             return existing;
         }
-        let hash = request.new.hash.clone().unwrap_or_default();
-        let range = request.new.range.clone().unwrap_or_default();
-        let destination = state.records[request.new_slot].as_ref();
+        let hash = new.hash.clone().unwrap_or_default();
+        let range = new.range.clone().unwrap_or_default();
+        let destination = state.records[*new_slot].as_ref();
         let base = destination.map(|record| (record.entry.clone(), record.meta.clone()));
         let records = destination
             .map(|record| {
@@ -209,157 +251,13 @@ impl MutationManager {
     }
 }
 
-fn move_requests(
-    input: &ProteinMoveInput<'_>,
-    slots: &mut BTreeMap<Slot, usize>,
-) -> Result<Vec<MoveRequest>, SchemaError> {
-    let mut requests = Vec::new();
-    for &idx in input.fields.after.keys() {
-        let before = &input.fields.before[&idx];
-        let after = &input.fields.after[&idx];
-        for field in input.schema.runtime_fields.values() {
-            let Some(source) = field.common().molecule_uuid() else {
-                continue;
-            };
-            let Some(owner) = input.metadata.0.get(source).and_then(Option::as_ref) else {
-                continue;
-            };
-            let Some(protein) = input.metadata.1.get(owner).and_then(Option::as_ref) else {
-                continue;
-            };
-            for member in &protein.members {
-                let old = member.tip_coords_from_fields(before);
-                let Some(new) = member.tip_coords_from_fields(after) else {
-                    continue;
-                };
-                if old.as_ref() == Some(&new) {
-                    continue;
-                }
-                let entry_layout = input.schema.key.as_ref().is_some_and(|layout| {
-                    layout.hash_field.as_deref() == Some(member.hash_field.as_str())
-                        && layout.range_field == member.range_field
-                });
-                if member.molecule_uuid == *source && entry_layout {
-                    continue;
-                }
-                let Some(trigger) = move_trigger(
-                    input,
-                    idx,
-                    &member.hash_field,
-                    member.range_field.as_deref(),
-                ) else {
-                    continue;
-                };
-                let Some(source_key) = field.slot_coordinates(&input.keys[idx]) else {
-                    continue;
-                };
-                if requests.len() >= 10_000 {
-                    return Err(SchemaError::InvalidData(
-                        "protein move exceeds its complete key limit".into(),
-                    ));
-                }
-                let source_slot = slot_index(slots, (source.clone(), source_key.0, source_key.1));
-                let old = old.map(|old| {
-                    let slot = slot_index(
-                        slots,
-                        (member.molecule_uuid.clone(), old.0.clone(), old.1.clone()),
-                    );
-                    (pair_key(old), slot)
-                });
-                let new_slot = slot_index(
-                    slots,
-                    (member.molecule_uuid.clone(), new.0.clone(), new.1.clone()),
-                );
-                let association_slots = if old.is_some() {
-                    association_slots(input, member, idx, slots)
-                } else {
-                    Vec::new()
-                };
-                let value = input
-                    .eligible
-                    .iter()
-                    .find(|(index, _, molecule)| *index == idx && *molecule == source.as_str())
-                    .map(|(_, atom, _)| atom.uuid().to_owned());
-                requests.push(MoveRequest {
-                    index: idx,
-                    source_molecule: source.clone(),
-                    molecule: member.molecule_uuid.clone(),
-                    old,
-                    new: pair_key(new),
-                    trigger,
-                    value,
-                    source_slot,
-                    new_slot,
-                    association_slots,
-                });
-            }
-        }
-    }
-    Ok(requests)
-}
-
-fn association_slots(
-    input: &ProteinMoveInput<'_>,
-    member: &crate::protein::ProteinMember,
-    idx: usize,
-    slots: &mut BTreeMap<Slot, usize>,
-) -> Vec<usize> {
-    std::iter::once(&member.hash_field)
-        .chain(member.range_field.as_ref())
-        .filter_map(|name| input.schema.runtime_fields.get(name))
-        .filter_map(|field| {
-            Some((
-                field.common().molecule_uuid()?.clone(),
-                field.slot_coordinates(&input.keys[idx])?,
-            ))
-        })
-        .map(|(molecule, (hash, range))| slot_index(slots, (molecule, hash, range)))
-        .collect()
-}
-
-fn move_trigger(
-    input: &ProteinMoveInput<'_>,
-    idx: usize,
-    hash: &str,
-    range: Option<&str>,
-) -> Option<SourceId> {
-    input.eligible.iter().find_map(|(index, atom, molecule)| {
-        if *index != idx {
-            return None;
-        }
-        let name = input
-            .schema
-            .runtime_fields
-            .iter()
-            .find_map(|(name, field)| {
-                field
-                    .common()
-                    .molecule_uuid()
-                    .is_some_and(|uuid| uuid.as_str() == *molecule)
-                    .then_some(name)
-            })?;
-        let changed_key = (name == hash || range == Some(name.as_str()))
-            && input.fields.before[&idx].get(name) != input.fields.after[&idx].get(name);
-        changed_key.then(|| (idx, (*molecule).to_owned(), atom.uuid().to_owned()))
-    })
-}
-
-fn slot_index(slots: &mut BTreeMap<Slot, usize>, key: Slot) -> usize {
-    let next = slots.len();
-    *slots.entry(key).or_insert(next)
-}
-
-fn pair_key((hash, range): (String, String)) -> KeyValue {
-    KeyValue::new(Some(hash), Some(range))
-}
-
-fn update_key(request: &MoveRequest) -> (usize, String, String, String, String) {
+fn update_key(request: &MoveRequest, new: &KeyValue) -> (usize, String, String, String, String) {
     (
         request.index,
         request.source_molecule.clone(),
         request.molecule.clone(),
-        request.new.hash.clone().unwrap_or_default(),
-        request.new.range.clone().unwrap_or_default(),
+        new.hash.clone().unwrap_or_default(),
+        new.range.clone().unwrap_or_default(),
     )
 }
 

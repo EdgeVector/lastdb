@@ -162,6 +162,11 @@ async fn execute_query_scoped<H: HostNode>(
 /// Full-cap `Page` / `PageAfter` fetches (limit ≥ [`INTERNAL_FETCH_CAP`]) are
 /// treated as [`Lane::Bulk`]; everything else stays interactive.
 pub(super) fn lane_for_unknown_cardinality(query: &Query) -> Lane {
+    if !is_key_restricted_filter(query.filter.as_ref()) {
+        // Administrative inspection may need to reject many other-layout
+        // candidates before it can return even one logical record.
+        return Lane::Bulk;
+    }
     let limit = match &query.filter {
         Some(HashRangeFilter::Page { limit, .. } | HashRangeFilter::PageAfter { limit, .. }) => {
             *limit
@@ -191,6 +196,11 @@ pub(super) async fn count_rows<H: HostNode>(
     ctx: &AccessContext,
 ) -> Result<Option<usize>, HostError> {
     let started = std::time::Instant::now();
+    let _permit = if !is_key_restricted_filter(query.filter.as_ref()) {
+        Some(acquire_read_permit(host, Lane::Bulk).await?)
+    } else {
+        None
+    };
     let counted = host
         .fold_db()
         .query_executor()
