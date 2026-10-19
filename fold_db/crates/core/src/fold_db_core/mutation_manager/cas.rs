@@ -211,7 +211,7 @@ impl MutationManager {
             .filter_map(|field| field.common().molecule_uuid().map(String::as_str))
             .collect();
         let mut sibling_molecules = HashSet::new();
-        for protein in self.proteins_of_schema_molecules(source, None).await? {
+        for protein in self.proteins_of_schema_molecules(source).await? {
             for member in protein.members {
                 if !source_molecules.contains(member.molecule_uuid.as_str()) {
                     sibling_molecules.insert(member.molecule_uuid);
@@ -279,12 +279,11 @@ impl MutationManager {
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<Mutation>, SchemaError> {
-        // An org replica owns its catalog membership separately. This local
-        // open-set path must not manufacture a peer delete inside that prefix.
-        if storage_prefix.is_some()
-            || !mutations
-                .iter()
-                .any(|mutation| matches!(mutation.mutation_type, MutationType::Delete))
+        // Global protein definitions select peers. Their row reads and derived
+        // deletes stay in this batch's data scope; no catalog entry is added.
+        if !mutations
+            .iter()
+            .any(|mutation| matches!(mutation.mutation_type, MutationType::Delete))
         {
             return Ok(mutations);
         }

@@ -189,16 +189,16 @@ pub(super) fn decode_change_cursor(cursor: &str) -> Option<u64> {
 // Schemas (host-local: catalog listing / fetch / owner declare)
 // ---------------------------------------------------------------------------
 
-/// Count live records in a schema by enumerating its key field — the full
-/// node's `count_schema_records` semantics, including the deliberate `0` for
-/// a schema with no countable fields yet.
-pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> usize {
+/// Count live records through the ordinary bounded query route. A failed or
+/// unavailable count is unknown, never evidence that the schema is empty.
+pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> Option<usize> {
     let mgr = host.db.schema_manager();
-    let Ok(Some(schema)) = mgr.get_schema_following_supersession(canonical).await else {
-        return 0;
-    };
+    let schema = mgr
+        .get_schema_following_supersession(canonical)
+        .await
+        .ok()??;
     if schema.runtime_fields.is_empty() {
-        return 0;
+        return Some(0);
     }
 
     let query = fold_db::schema::types::Query::new(canonical.to_string(), Vec::new());
@@ -209,7 +209,6 @@ pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> usize 
         .await
         .ok()
         .flatten()
-        .unwrap_or(0)
 }
 
 pub(super) const LIST_RECORD_KEYS_DEFAULT_LIMIT: usize = 100;

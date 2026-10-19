@@ -137,9 +137,7 @@ impl MutationManager {
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids = super::protein_key_fields::member_ids(schema);
-        let metadata =
-            load_protein_fold_metadata(store, &member_uuids, schema_storage_prefix(schema, None))
-                .await?;
+        let metadata = load_protein_fold_metadata(store, &member_uuids).await?;
         if metadata.0.values().all(Option::is_none) {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
         }

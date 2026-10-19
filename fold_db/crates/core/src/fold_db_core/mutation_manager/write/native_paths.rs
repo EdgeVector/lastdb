@@ -81,10 +81,12 @@ impl MutationManager {
             .atoms()
             .stage_atom_locators(runtime, scope, &atom_ids)
             .await?;
+        // Schema-field/protein definitions are global. The data locations
+        // above and logical records below still use this request's scope.
         if !self
             .db_ops
             .atoms()
-            .molecule_ref_edges_v2_complete(scope)
+            .molecule_ref_edges_v2_complete(None)
             .await?
         {
             transaction::require_durable(runtime)?;
@@ -96,9 +98,7 @@ impl MutationManager {
         self.stage_native_controls(runtime, scope, &changed_molecules(job, siblings))
             .boxed()
             .await?;
-        let bindings = self
-            .native_path_bindings(job, runtime, scope, &tips)
-            .await?;
+        let bindings = self.native_path_bindings(job, runtime, &tips).await?;
         let Some(atoms) = self.path_atoms(&tips, scope).await? else {
             return Ok(transaction::require_durable(runtime)?);
         };

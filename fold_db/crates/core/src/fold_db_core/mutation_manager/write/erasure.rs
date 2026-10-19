@@ -121,9 +121,7 @@ impl MutationManager {
                 continue;
             }
 
-            let proteins = self
-                .proteins_of_schema_molecules(source_schema, storage_prefix)
-                .await?;
+            let proteins = self.proteins_of_schema_molecules(source_schema).await?;
             if proteins.is_empty() {
                 continue;
             }
@@ -174,7 +172,6 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn proteins_of_schema_molecules(
         &self,
         source_schema: &crate::schema::Schema,
-        storage_prefix: Option<&str>,
     ) -> Result<Vec<crate::protein::Protein>, SchemaError> {
         let source_molecules: Vec<String> = source_schema
             .runtime_fields
@@ -189,7 +186,7 @@ impl MutationManager {
         let mut protein_uuids: Vec<String> = self
             .db_ops
             .atoms()
-            .protein_of_molecules_in_scope(&source_molecules, storage_prefix)
+            .protein_of_molecules(&source_molecules)
             .await?
             .into_iter()
             .flatten()
@@ -202,7 +199,7 @@ impl MutationManager {
         Ok(self
             .db_ops
             .atoms()
-            .protein_get_many_in_scope(&protein_uuids, storage_prefix)
+            .protein_get_many(&protein_uuids)
             .await?
             .into_iter()
             .flatten()

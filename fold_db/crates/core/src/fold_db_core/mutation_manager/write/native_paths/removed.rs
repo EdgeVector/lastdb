@@ -181,9 +181,7 @@ impl MutationManager {
             .filter(|(_, winner)| winner.is_none())
             .map(|((molecule, _, _), _)| molecule.clone())
             .collect();
-        let bindings = self
-            .removed_path_bindings(schema, scope, &molecules)
-            .await?;
+        let bindings = self.removed_path_bindings(schema, &molecules).await?;
         let mut absent = Vec::new();
         for (((molecule, hash, range), candidates), winner) in
             slots.into_iter().zip(groups).zip(winners)
@@ -221,12 +219,11 @@ impl MutationManager {
     async fn removed_path_bindings(
         &self,
         schema: &Schema,
-        scope: Option<&str>,
         molecules: &std::collections::BTreeSet<String>,
     ) -> Result<BTreeMap<String, Vec<Binding>>, SchemaError> {
         let bindings = futures::future::try_join_all(molecules.iter().map(|molecule| async move {
             let bindings = self
-                .path_bindings(schema, scope, molecule)
+                .path_bindings(schema, molecule)
                 .await?
                 .unwrap_or(bindings::schema_bindings(schema, molecule)?);
             Ok::<_, SchemaError>((molecule.clone(), bindings))

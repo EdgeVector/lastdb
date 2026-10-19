@@ -84,6 +84,8 @@ Explicit physical helpers can still return storage tokens. They do not define sc
 Time conditions retain milliseconds and negative fractional seconds.
 Query cursors support ascending keyed reads without field conditions or value order controls.
 Other query forms use offsets. A supplied unsupported cursor receives an explicit refusal.
+An optional schema count reports `null` when the count fails or is unavailable.
+Only a successful count can establish zero records and `has_data: false`.
 
 ## Range keys
 
@@ -107,6 +109,9 @@ That transfer does not copy those prepared payloads into a second job.
 Native after-commit work sends the Search change after the disk commit.
 Related molecule definitions share one protected metadata change.
 Concurrent schema declarations cannot create competing proteins for the same unbound molecule.
+Schema and protein definitions use one shared namespace on the node.
+Related writes and deletes read those definitions, then use the caller's database scope for the records.
+The definition lookup does not select data from another database.
 Schema publication establishes the fixed encryption keys for every final field molecule.
 This includes related molecules before a write reaches them through a protein.
 Personal and named databases use the same keys for the same molecule identity.
