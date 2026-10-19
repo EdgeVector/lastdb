@@ -45,6 +45,8 @@ An atom identity includes its source schema and value. A write through another s
 Related molecules still share the current selected atom. A normal reopen retains that atom identity.
 Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
 Writes, reads, and related deletion keys use one conversion for text, numeric, and Boolean coordinates.
+Cold Hash counts and value reads use the same exact tip reader.
+That reader keeps the caller's hash and the selected atom location together.
 Hash reads trust the supplied key. A HashRange field-value check uses only the declared hash field that established the keys.
 Projection fallback establishes its own keys. Range punctuation has no special meaning.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.

@@ -1,0 +1,19 @@
+host_cargo_lock=held pid=5774 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)
+   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)
+error: this could be rewritten as `let...else`
+  --> fold_db/crates/core/src/db_operations/atom_store/filter/load/one_d/exact.rs:15:9
+   |
+15 | /         let hash = match filter {
+16 | |             F::HashKey(hash)
+17 | |             | F::HashRangeKey { hash, .. }
+18 | |             | F::HashRangePrefix { hash, .. }
+19 | |             | F::HashRangeRange { hash, .. } => hash,
+20 | |             _ => return Ok(None),
+21 | |         };
+   | |__________^ help: consider writing: `let (F::HashKey(hash) | F::HashRangeKey { hash, .. } | F::HashRangePrefix { hash, .. } | F::HashRangeRange { hash, .. }) = filter else { return Ok(None) };`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#manual_let_else
+   = note: requested on the command line with `-D clippy::manual-let-else`
+
+error: could not compile `fold_db` (lib) due to 1 previous error

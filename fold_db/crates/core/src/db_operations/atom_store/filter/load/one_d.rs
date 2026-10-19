@@ -79,14 +79,14 @@ impl AtomStore {
             return Ok(Some(Self::wrap_1d_records(&target, records)));
         }
 
-        let scanned = match slot {
-            OneDSlot::Hash => self.scan_1d_hash_slot(&target, filter).await?,
-            OneDSlot::Range => self.scan_1d_range_slot(&target, filter).await?,
+        let records = match slot {
+            OneDSlot::Hash => self.load_1d_hash_key(&target, filter).await?,
+            OneDSlot::Range => self
+                .scan_1d_range_slot(&target, filter)
+                .await?
+                .map(|scanned| Self::decode_1d_records(molecule_uuid, slot, scanned)),
         };
-        Ok(scanned.map(|scanned| {
-            let records = Self::decode_1d_records(molecule_uuid, slot, scanned);
-            Self::wrap_1d_records(&target, records)
-        }))
+        Ok(records.map(|records| Self::wrap_1d_records(&target, records)))
     }
 
     fn wrap_1d_records(
@@ -99,29 +99,6 @@ impl AtomStore {
             target.header.updated_at,
             records,
         )
-    }
-
-    /// Key-addressed read of a Hash-only molecule. `None` means the filter
-    /// does not address a hash key and the caller must fall back.
-    async fn scan_1d_hash_slot(
-        &self,
-        target: &OneDPageTarget<'_>,
-        filter: &crate::schema::types::field::HashRangeFilter,
-    ) -> Result<Option<Vec<(String, PerKeyRecord)>>, SchemaError> {
-        use crate::schema::types::field::HashRangeFilter as F;
-        let hash: &str = match filter {
-            F::HashKey(h)
-            | F::HashRangeKey { hash: h, .. }
-            | F::HashRangePrefix { hash: h, .. }
-            | F::HashRangeRange { hash: h, .. } => h,
-            _ => return Ok(None),
-        };
-        let scanned = self
-            .get_query_hash_tip(target.molecule_uuid, hash, target.storage_prefix)
-            .await?
-            .into_iter()
-            .collect();
-        Ok(Some(scanned))
     }
 
     /// Key, prefix, or range read of a Range-only molecule. `None` means the

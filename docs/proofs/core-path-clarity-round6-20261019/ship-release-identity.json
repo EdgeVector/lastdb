@@ -1,0 +1,86 @@
+{
+  "binary": "target/release/lastdbd",
+  "binary_sha256": "3be4956d99c670de4b59375969d64139df65d30375acbd01198593e21529dc29",
+  "committed_discovery_equal": true,
+  "discovery_equal_before_and_after_build": true,
+  "extension_helper_identity_sha256": "2a73f4d446a7b73ed8940a41afdcf6e7e79db4684a7ebff5f6fe9ee10ca4b0da",
+  "extension_input_sha256": "8dea44e30f7ce40138716f9bf2e66e42b8300beeab725bb901041f30883527fc",
+  "failed_prior_identity_and_sealed_receipts_unchanged": true,
+  "failed_prior_release": {
+    "binary_sha256": "09bb592cc26a331d346d88a7dc48f25653f9538c476d1f83f36bbbb67beb172d",
+    "diagnostic_seal_path": "diagnostic-seal.json",
+    "diagnostic_seal_sha256": "1bc5a84403609f5032eb7ae0e371c7b3b87eef840473d2aed311d5c2b17dfe48",
+    "release_identity_path": "final-release-identity.json",
+    "release_identity_sha256": "90ff412f17ccb2839a61f87f97edf0e797c26d1825d4200678de3a8853a214fb",
+    "role": "Initial failed ordinary release remains complete=false and immutable. The completion release uses the identical frozen requests on a separate fresh synthetic home; it does not reinterpret the earlier failure.",
+    "run_result_path": "ordinary-product/result.json",
+    "run_result_sha256": "4f87c3dc9626ead251df58aa1a1260b388bbe48ea0d88c576bb2e8f3b7597e3c",
+    "source_commit": "b5b0018e64c2ad01931a684ad75a37237bc27f17",
+    "source_snapshot_path": "final-source-inputs/source-inputs.json",
+    "source_snapshot_sha256": "15b6be15264456bc5ee27bc5a1c5d91ba21966e12af642caf2b2fbf0b30a205c"
+  },
+  "failed_sealed_files_verified": 9,
+  "host_settings_unchanged": true,
+  "input_sha256": "b9e74628040b464baa64e02566b9d51bf0cb3263b535a0ba0bc00e0118c3e835",
+  "normal_build": {
+    "command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "exit_code": 0,
+    "log": "validation/release-build-ship.txt",
+    "log_sha256": "014f6fd73a84c1bdbd3f33ef93c827988520cfeb1eb2e958aab9879caea322f3",
+    "result": "validation/release-build-ship-result.json",
+    "result_sha256": "dfa41ecd61bcedbbb6089ee90b7e4ce70edd9213afce1fe93bdfdffd05644f86"
+  },
+  "operation_helper_identity_sha256": "35267be9f19bfa25be1b1e3da5779ce2cda1fd8c4f9890b83ee0fdbed4536222",
+  "previous_prebuild_captures": [
+    {
+      "path": "completion-prebuild-only.json",
+      "role": "Superseded pre-build capture only. No normal release or product operation used it; full capture remains unchanged.",
+      "sha256": "ef5ea97b51a8566a5d7498b4e1362dffae4607151b9be71e5b7fc210ad5976fd",
+      "source_commit": "003f2d5840197426c4c339d59e2159bea0154356"
+    },
+    {
+      "path": "completion-final-prebuild-only.json",
+      "role": "Superseded pre-build capture only; no normal release build or product operation used it.",
+      "sha256": "e059e798583714780603c362931ec707dc213562f81b7ab4b962717f9b7c5518",
+      "source_commit": "ebd14f57206a55e1ae21844eb3c020440aee7eef"
+    },
+    {
+      "path": "accepted-prebuild-only.json",
+      "role": "Superseded pre-build capture only; no normal release build or product operation used it.",
+      "sha256": "5c1b7171b4dd8c91bb5b0d5e41fb9b7d387d75add347f1d1ac8f1c39c6697a18",
+      "source_commit": "7ce7d6a266515919f88da5f04890194b9f8fbfa4"
+    }
+  ],
+  "product_calls": 0,
+  "scope": "Normal default ship release from exact committed source. Root independent binary/source review remains required before fresh ordinary API operations. Previous failed results stay immutable and separate. No benchmark comparison.",
+  "source_commit": "c20b11e977e695efcd5ede080643a54c7b9728ea",
+  "source_files_unchanged_after_build": true,
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "c20b11e977e695efcd5ede080643a54c7b9728ea",
+    "source_files_checked": 1876,
+    "source_mismatches": []
+  },
+  "source_input_count": 1876,
+  "source_inventory_sha256": "49d4548cf0f89ad96d8fde138ab38d108dd127f978dcc1a3e9140b314ef37ef6",
+  "source_manifest": "ship-source-inputs/source-inputs.json",
+  "source_manifest_policy": "Ignored full snapshot retains its pre-build bytes. This separate release identity verifies source and binary after build. ship-source-provenance.json reconstructs the source inventory from the tracked Round5 reference.",
+  "source_manifest_sha256": "38f4ecfc52164089679fe84323b4fb0a6474b00cbed8a0cba94ae6a04a976d01",
+  "state": "release_verified",
+  "synthetic_homes": 0,
+  "two_postbuild_captures_equal": true,
+  "verified_utc": "2026-10-19T16:33:46.291726+00:00"
+}

@@ -4,6 +4,26 @@ use super::*;
 use crate::schema::types::key_value::KeyValue;
 
 impl AtomStore {
+    /// Hash selectors keep the caller's API hash for the later filter pass.
+    /// The exact batch reader retains the winning physical tip before remapping.
+    pub(super) async fn load_1d_hash_key(
+        &self,
+        target: &OneDPageTarget<'_>,
+        filter: &crate::schema::types::field::HashRangeFilter,
+    ) -> Result<Option<Vec<(String, String, AtomEntry, Option<KeyMetadata>)>>, SchemaError> {
+        use crate::schema::types::field::HashRangeFilter as F;
+        let (F::HashKey(hash)
+        | F::HashRangeKey { hash, .. }
+        | F::HashRangePrefix { hash, .. }
+        | F::HashRangeRange { hash, .. }) = filter
+        else {
+            return Ok(None);
+        };
+        self.load_1d_multi_get(target, OneDSlot::Hash, &[(hash.clone(), String::new())])
+            .await
+            .map(Some)
+    }
+
     /// A Hash field always uses the empty range, including every read fallback.
     pub(crate) async fn get_query_hash_tip(
         &self,

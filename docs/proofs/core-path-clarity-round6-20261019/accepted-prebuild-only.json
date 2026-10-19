@@ -1,0 +1,14 @@
+{
+  "capture_preserved": true,
+  "normal_release_builds": 0,
+  "product_calls": 0,
+  "reason": "Root reports required full workspace Clippy failure in host aggregate Finalize future layout. This source did not produce an accepted release. A later source passes the full required checks.",
+  "snapshot": {
+    "path": "accepted-source-inputs/source-inputs.json",
+    "sha256": "d3c155e251880318b057f2fa73e0d35800e62ff4e3c75960bc04249e90e761e1"
+  },
+  "source_commit": "7ce7d6a266515919f88da5f04890194b9f8fbfa4",
+  "source_inventory_sha256": "a29abc66fd4f0fba1d306ad3e5862815e15a303e526a73212bedc29dc8c6e6db",
+  "state": "superseded_prebuild_capture_only",
+  "synthetic_homes": 0
+}
