@@ -81,7 +81,7 @@ jobs:
       - name: lint no write-path syncing store
         run: bash scripts/ci/mini-gate-step.sh "lint no write-path syncing store" -- bash scripts/lints/lint-no-write-path-syncing-store.sh
       - name: Atom counter writer-boundary lint
-        run: bash scripts/ci/mini-gate-step.sh "Atom counter writer-boundary lint" -- bash scripts/lints/lint-atom-counter-writers.sh
+        run: bash scripts/ci/mini-gate-step.sh "Atom counter writer-boundary lint" -- python3 scripts/lints/lint-atom-counter-writers.py
       - name: Workspace fastembed-unification lint
         run: bash scripts/ci/mini-gate-step.sh "Workspace fastembed-unification lint" -- bash scripts/ci/lint-workspace-fastembed-unification.sh
       - name: Heavy clippy workspace-coverage lint

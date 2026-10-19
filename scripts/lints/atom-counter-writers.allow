@@ -1,47 +1,171 @@
-# Writer boundary of the atom counter. Format: rule|path|families|reason
+# Writer boundary of the atom counter. Format: path|function|families|reason
 # families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · - none of these
-# A line for a file that no longer matches fails the lint (the list stays honest).
+# One line for each function that the lint finds. The lint fails on a function that is missing,
+# on a function that names a family the line does not list, and on a line that no function matches.
+# `*` as the function is for the planner module only.
 
-# rule raw: the file writes through the atom store raw handle (`.raw()` or `main_store`).
-raw|fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
-raw|fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|T|writes the immutable generation slot rows (mgr/mgp) and drops expired generations; the live mirror tips go through the planner in the same request
-raw|fold_db/crates/core/src/db_operations/conflict_index_heal.rs|C|rewrites the mcc: id list inside a write scope; the list holds no atom reference
-raw|fold_db/crates/core/src/db_operations/conflict_operations.rs|C|hcu: home conflict events and stamp; they hold no atom reference
-raw|fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
-raw|fold_db/crates/core/src/db_operations/admin_db/order_log/compact.rs|-|deletes molecule order-log rows
-raw|fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|-|deletes empty protein rows
-raw|fold_db/crates/core/src/db_operations/atom_store/atoms/maintenance.rs|-|legacy ref: whole-molecule blobs (retired layout)
-raw|fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|-|database-catalog molecule edges (step S4 removes them)
-raw|fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|-|molecule reverse edges (step S4 removes them)
-raw|fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges/bootstrap.rs|-|molecule edge bootstrap on an isolated copy (step S4 removes it)
-raw|fold_db/crates/core/src/db_operations/atom_store/blob_ref_edges.rs|-|blob reverse edges (step S5 removes them)
-raw|fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|-|keep-small meter distrust marker
-raw|fold_db/crates/core/src/db_operations/delete_ledger.rs|-|hard-delete audit rows
-raw|fold_db/crates/core/src/db_operations/file_blob_gc/sweep.rs|-|file blob rows (step S5 removes the sweep)
-raw|fold_db/crates/core/src/protein/ops.rs|-|protein records and member back-references
-raw|fold_db/crates/core/src/schema/field_hash_coherence.rs|-|field-to-protein index rows
+fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
+fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N|the planner: its one batch_mutate joins the pending batch of the request
 
-# rule sync: a file under sync/ or a node bin that names a tip, body or counter key family and writes raw.
-# Cloud sync is off in this build. Step S3 moves replay and restore behind the planner.
-sync|fold_db/crates/core/src/sync/engine/replay/apply.rs|T C B N|cloud replay of a captured put; counters are never captured (capture_should_skip_key)
-sync|fold_db/crates/core/src/sync/engine/replay/entry.rs|B N C|cloud replay of a captured delete
-sync|fold_db/crates/core/src/sync/engine/replay/merge.rs|C|replay conflict rows when the engine has no atom store (never the serving store)
-sync|fold_db/crates/core/src/sync/engine/replay/records.rs|T|cloud replay of a peer tip under last-writer-wins; the conflict goes through the planner
-sync|fold_db/crates/core/src/sync/engine/cloud_purge_file_closure.rs|B|cloud purge file closure
-sync|lastdb_node/src/bin/csync_e2e_write.rs|T B|cloud sync end-to-end proof tool; it opens an exclusive synthetic home
+fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 
-# rule restore: generic row copy or restore of whole planes (counters travel with their bodies).
-restore|fold_db/crates/core/src/sync/snapshot/restore_scan.rs|T C B N|snapshot restore replaces a namespace row by row
-restore|fold_db/crates/core/src/sync/cloud_purge/row_copy.rs|T C B N|org instance row copy and delete by scope prefix
-restore|fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/data.rs|T C B N|inbound share replaces rows by scope prefix
-restore|fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/receivers.rs|-|inbound share receiver bindings and frontier rows
-restore|fold_db/crates/core/src/sync/cloud_purge/blob_copy.rs|-|file blob bytes
-restore|fold_db/crates/core/src/sync/engine/cloud_share_refresh/import.rs|T C B N|cloud share seed import writes shared rows once; a conflict refuses the import
+fold_db/crates/core/src/db_operations/admin_db/order_log/compact.rs|compact_order_log_live_filter_one|-|molecule order-log rows
+fold_db/crates/core/src/db_operations/admin_db/order_log/compact.rs|compact_order_log_zero_live_one|-|molecule order-log rows
 
-# rule counter: the file names AtomCounter or counter_key. Only the planner module writes counters.
-counter|fold_db/crates/core/src/atom/atom_key_codec.rs|N|the key codec: builds the counter key
-counter|fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|N|planner: builds counter writes
-counter|fold_db/crates/core/src/db_operations/atom_store/counter/mod.rs|N|the record type
-counter|fold_db/crates/core/src/db_operations/atom_store/counter/plan.rs|N|planner: pure arithmetic
-counter|fold_db/crates/core/src/db_operations/atom_store/counter/read.rs|N|planner: reads counters (read only)
-counter|fold_db/crates/core/src/db_operations/storage_breakdown.rs|N|inventory walk: reads counters (read only)
+fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|gc_orphan_proteins_in_scope|-|empty protein rows
+
+fold_db/crates/core/src/db_operations/atom_store/atoms/maintenance.rs|purge_legacy_ref_blobs|-|legacy ref: whole-molecule blobs (retired layout)
+
+fold_db/crates/core/src/db_operations/atom_store/blob_ref_edges.rs|bootstrap_blob_ref_edges_on_isolated_copy|-|blob reverse edges (step S5 removes them)
+
+fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|bind_catalog_molecules|-|database-catalog molecule edges (step S4 removes them)
+fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|unbind_catalog_molecules|-|database-catalog molecule edges (step S4 removes them)
+
+fold_db/crates/core/src/db_operations/atom_store/hard_erase_journal.rs|prune_hard_erase_journal_locked|-|hard-erase audit journal rows
+
+fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|clear_keep_small_distrust_marker|-|keep-small meter distrust marker
+fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|note_keep_small_hydrate_failure|-|keep-small meter distrust marker
+
+fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|delete_molecule_ref_edge|-|molecule reverse edges (step S4 removes them)
+fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|put_molecule_ref_edge|-|molecule reverse edges (step S4 removes them)
+fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|put_molecule_ref_edges_if_changed|-|molecule reverse edges (step S4 removes them)
+
+fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges/bootstrap.rs|bootstrap_molecule_ref_edges_on_isolated_copy|-|molecule reverse edges (step S4 removes them)
+fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges/bootstrap.rs|replace_molecule_ref_bootstrap|-|molecule reverse edges (step S4 removes them)
+
+fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|reclaim_expired_generations|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
+fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|write_generation_bodies|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
+
+fold_db/crates/core/src/db_operations/conflict_index_heal.rs|prune_conflict_index|C|rewrites the mcc: id list inside a write scope; the list holds no atom reference
+fold_db/crates/core/src/db_operations/conflict_index_heal.rs|stamp_conflict_index|C|rewrites the mcc: id list inside a write scope; the list holds no atom reference
+
+fold_db/crates/core/src/db_operations/conflict_operations.rs|delete_event_keys|C|hcu: home conflict events and stamp; they hold no atom reference
+fold_db/crates/core/src/db_operations/conflict_operations.rs|write_home_conflict_stamp|C|hcu: home conflict events and stamp; they hold no atom reference
+
+fold_db/crates/core/src/db_operations/db_catalog_store.rs|drop_prefixed_rows_for_instance|T C B N|range delete of every row of one scope (or of scopes that no catalog entry names): tips, bodies and counters of a scope go together, so I1 and I2 hold for the scopes that stay
+fold_db/crates/core/src/db_operations/db_catalog_store.rs|drop_unreferenced_prefixed_rows|T C B N|range delete of every row of one scope (or of scopes that no catalog entry names): tips, bodies and counters of a scope go together, so I1 and I2 hold for the scopes that stay
+
+fold_db/crates/core/src/db_operations/delete_ledger.rs|begin_delete_ledger_row|-|hard-delete audit rows
+fold_db/crates/core/src/db_operations/delete_ledger.rs|commit_delete_ledger_row|-|hard-delete audit rows
+
+fold_db/crates/core/src/db_operations/file_blob_gc/sweep.rs|delete_candidates|-|file blob rows (step S5 removes the sweep)
+fold_db/crates/core/src/db_operations/file_blob_gc/sweep.rs|stamp_resident_row|-|file blob rows (step S5 removes the sweep)
+
+fold_db/crates/core/src/fold_db_core/factory/boot.rs|assert_or_establish_at_rest_key_proof|-|at-rest key proof sentinel
+
+fold_db/crates/core/src/protein/ops.rs|protein_add_member_in_scope|-|protein records and member back-references
+fold_db/crates/core/src/protein/ops.rs|put_protein|-|protein records and member back-references
+
+fold_db/crates/core/src/schema/field_hash_coherence.rs|bind_cross_key_field_protein_in_scope|-|field-to-protein index rows
+
+fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|clear_reap_checkpoint|-|maintenance checkpoints
+fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|clear_reseal_checkpoint|-|maintenance checkpoints
+fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store_reap_checkpoint|-|maintenance checkpoints
+fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store_reseal_checkpoint|-|maintenance checkpoints
+
+fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|clear_strict_marker|-|encryption markers
+fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|decrypt_legacy_encrypted_namespace|T C B N|rewrites the stored bytes of every row of a namespace; the logical records do not change
+fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|decrypt_sealed_to_plaintext|T C B N|rewrites the stored bytes of every row of a namespace; the logical records do not change
+fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|mark_plaintext_sweep_completed|-|encryption markers
+
+fold_db/crates/core/src/storage/encrypting_store/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store
+
+fold_db/crates/core/src/storage/laststore/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store
+
+fold_db/crates/core/src/storage/traits/kv.rs|restore_batch_put|T C B N|store trait: default restore of one row
+
+fold_db/crates/core/src/sync/capture/worker/reexport.rs|clear_capture_reexport|-|capture re-export bookkeeping
+fold_db/crates/core/src/sync/capture/worker/reexport.rs|stage_capture_reexport|-|capture re-export bookkeeping
+fold_db/crates/core/src/sync/capture/worker/reexport.rs|stage_mutation_intent_reexport|-|capture re-export bookkeeping
+
+fold_db/crates/core/src/sync/cloud_purge/blob_copy.rs|copy_admitted|-|file blob bytes
+
+fold_db/crates/core/src/sync/cloud_purge/org_export.rs|write_export_payload|T B|writes a fresh isolated export store, not the live store; it emits no counters
+
+fold_db/crates/core/src/sync/cloud_purge/org_files.rs|copy_blobs|-|file blob bytes
+
+fold_db/crates/core/src/sync/cloud_purge/row_copy.rs|copy|T C B N|org instance row copy and delete by scope prefix; counters travel with their bodies
+fold_db/crates/core/src/sync/cloud_purge/row_copy.rs|delete|T C B N|org instance row copy and delete by scope prefix; counters travel with their bodies
+
+fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/data.rs|replace_rows|T C B N|inbound share replaces rows by scope prefix
+
+fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/metadata.rs|preserve_metadata|-|inbound share bookkeeping rows
+fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/metadata.rs|preserve_states|-|inbound share bookkeeping rows
+
+fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/receivers.rs|preserve|-|inbound share bookkeeping rows
+fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/receivers.rs|preserve_frontiers|-|inbound share bookkeeping rows
+
+fold_db/crates/core/src/sync/cloud_purge_peer/scope.rs|import_org_into_inactive_store|-|org sync target row; the row copy is in row_copy::copy
+
+fold_db/crates/core/src/sync/cloud_purge_peer/scope/hygiene.rs|reset_device_registry|-|device registry rows
+
+fold_db/crates/core/src/sync/cloud_purge_peer/scope_alias.rs|install_preserved_org_aliases|-|org alias rows
+
+fold_db/crates/core/src/sync/engine/backup.rs|scrub_undecryptable_rows|T C B N|operator repair that no route calls: removes the rows that no key can decrypt (cloud sync is off; step S6 owns repair)
+
+fold_db/crates/core/src/sync/engine/cloud_purge_file_closure.rs|complete_purge_files_inner|B|cloud purge file closure
+
+fold_db/crates/core/src/sync/engine/cloud_purge_queue.rs|detach_capture_markers|-|cloud purge queue and marker rows
+fold_db/crates/core/src/sync/engine/cloud_purge_queue.rs|detach_outbox|-|cloud purge queue and marker rows
+
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/cursors.rs|detach_generation_cursors|-|cloud purge queue and marker rows
+
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/fresh_seed.rs|clear_fresh_namespace|-|cloud purge queue and marker rows
+
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/preservation.rs|clear|-|cloud purge queue and marker rows
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/preservation.rs|copy_preserved_markers|-|cloud purge queue and marker rows
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/preservation.rs|copy_preserved_outbox|-|cloud purge queue and marker rows
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/preservation.rs|copy_preserved_pins|-|cloud purge queue and marker rows
+fold_db/crates/core/src/sync/engine/cloud_purge_queue/preservation.rs|preserve_cloud_purge_org_queues|-|cloud purge queue and marker rows
+
+fold_db/crates/core/src/sync/engine/cloud_share_refresh/commit.rs|save_binding|-|share binding, cursor and frontier rows
+fold_db/crates/core/src/sync/engine/cloud_share_refresh/commit.rs|save_cursors|-|share binding, cursor and frontier rows
+
+fold_db/crates/core/src/sync/engine/cloud_share_refresh/import.rs|put_exact|T C B N|cloud share seed import writes shared rows once; a conflict refuses the import
+
+fold_db/crates/core/src/sync/engine/cloud_share_refresh/tail.rs|download_foreign_share|-|share binding, cursor and frontier rows
+
+fold_db/crates/core/src/sync/engine/file_blob.rs|forget_file_blob_ref|-|file blob reference rows
+fold_db/crates/core/src/sync/engine/file_blob.rs|remember_file_blob_ref|-|file blob reference rows
+
+fold_db/crates/core/src/sync/engine/outbox/storage.rs|drop_oldest_outbox_entries|-|cloud outbox rows
+
+fold_db/crates/core/src/sync/engine/pin_log/cloud_generation.rs|archive_and_delete_target_entries|-|pin log rows
+fold_db/crates/core/src/sync/engine/pin_log/cloud_generation.rs|detach_marker_receipts|-|pin log rows
+
+fold_db/crates/core/src/sync/engine/pin_log/offline_s0_marker.rs|prepare_offline_s0_restore_marker|-|pin log rows
+
+fold_db/crates/core/src/sync/engine/replay/apply.rs|replay_put|T C B N|cloud replay of a captured put; counters are never captured (capture_should_skip_key); cloud sync is off
+
+fold_db/crates/core/src/sync/engine/replay/entry/ops.rs|replay_batch_delete_op|C B N|cloud replay of a captured delete; a tip delete is refused
+fold_db/crates/core/src/sync/engine/replay/entry/ops.rs|replay_delete_op|C B N|cloud replay of a captured delete; a tip delete is refused
+
+fold_db/crates/core/src/sync/engine/replay/merge.rs|store_merge_conflicts|C|replay conflict rows when the engine has no atom store (never the serving store)
+
+fold_db/crates/core/src/sync/engine/replay/order.rs|replay_order_count_record|-|replay order log and header rows
+fold_db/crates/core/src/sync/engine/replay/order.rs|replay_order_log_entry|-|replay order log and header rows
+
+fold_db/crates/core/src/sync/engine/replay/records.rs|merge_per_key_lww|T|cloud replay of a peer tip under last-writer-wins; the conflict goes through the planner
+fold_db/crates/core/src/sync/engine/replay/records.rs|replay_header_record|-|replay order log and header rows
+
+fold_db/crates/core/src/sync/engine/thumb_pack.rs|cache_thumb_ciphertext|-|thumbnail cache rows
+fold_db/crates/core/src/sync/engine/thumb_pack.rs|cache_thumb_pack|-|thumbnail cache rows
+fold_db/crates/core/src/sync/engine/thumb_pack.rs|load_thumb_ciphertext|-|thumbnail cache rows
+
+fold_db/crates/core/src/sync/engine/transfer/quarantine.rs|save_replay_quarantine_tombstone|-|transfer cursors and quarantine rows
+fold_db/crates/core/src/sync/engine/transfer/quarantine.rs|save_upload_quarantine_tombstone|-|transfer cursors and quarantine rows
+
+fold_db/crates/core/src/sync/engine/transfer/s3_io/cursor.rs|save_download_cursor|-|transfer cursors and quarantine rows
+
+fold_db/crates/core/src/sync/snapshot/restore_scan.rs|restore_namespace|T C B N|snapshot restore replaces a namespace row by row
+
+lastdb_node/src/bin/csync_e2e_write.rs|main|T B|cloud sync end-to-end proof tool; it opens an exclusive synthetic home
+
+lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_basic_write_read|-|storage recovery proof tool; it writes its own test keys to a store it creates
+lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_multiversion_mixed|-|storage recovery proof tool; it writes its own test keys to a store it creates
+lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_negative_acked_write_loss|-|storage recovery proof tool; it writes its own test keys to a store it creates
+lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_range_read|-|storage recovery proof tool; it writes its own test keys to a store it creates
+lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_reference_audit|-|storage recovery proof tool; it writes its own test keys to a store it creates
+lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_rollback_after_crash|-|storage recovery proof tool; it writes its own test keys to a store it creates
+
+lastdb_node/src/cloud_purge_adoption_org/queues.rs|copy_peer_subscriptions|-|peer subscription rows
