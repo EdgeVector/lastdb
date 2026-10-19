@@ -31,10 +31,7 @@ pub use molecule_hash_range::{
 pub use molecule_key_codec::{
     HashKeyEncoding, MoleculeKeyCodec, MoleculeKeyCodecError, RangeKeyEncoding,
 };
-pub use molecule_uuid::{
-    encode_molecule_uuid_bytes, encode_molecule_uuid_hex, molecule_uuid_alt_encoding,
-    molecule_uuid_read_candidates, MOLECULE_UUID_B64URL_LEN, MOLECULE_UUID_HEX_LEN,
-};
+pub use molecule_uuid::encode_molecule_uuid_bytes;
 pub use mutation_event::{
     FieldKey, MutationEvent, MutationEventKind, SourceMutationOrder, SuppressedByDelete,
     SuppressedByTip,
@@ -290,9 +287,8 @@ fn now_nanos() -> u64 {
 
 /// Generates a deterministic molecule UUID from schema name and field name.
 ///
-/// Identity is SHA-256(`{schema}:{field}`). The **write** spelling is unpadded
-/// base64url (43 chars). Homes that still store the 64-char hex spelling are
-/// readable via [`molecule_uuid_read_candidates`].
+/// Identity is SHA-256(`{schema}:{field}`), encoded as unpadded base64url.
+/// Logical reads and writes use that exact string, without alternate spellings.
 pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> String {
     molecule_uuid::encode_molecule_uuid_bytes(&molecule_uuid::molecule_uuid_digest(
         schema_name,

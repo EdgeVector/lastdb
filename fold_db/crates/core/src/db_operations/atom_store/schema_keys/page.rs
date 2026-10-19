@@ -16,22 +16,6 @@ impl AtomStore {
         let Some(lease) = self.ready_key_lease(&runtime, scope, molecule) else {
             return Ok(None);
         };
-        // The existing return type cannot carry another physical molecule
-        // spelling into its later exact fetch. Such homes use the disk route.
-        for uid in crate::atom::molecule_uuid_read_candidates(molecule) {
-            if uid == molecule {
-                continue;
-            }
-            let Some(alias) = self.ready_key_lease(&runtime, scope, &uid) else {
-                return Ok(None);
-            };
-            let Some(page) = runtime.with_schema_key_selection(|| alias.page(1, None, true)) else {
-                return Ok(None);
-            };
-            if !page.map_err(key_error)?.keys.is_empty() {
-                return Ok(None);
-            }
-        }
         let want = take.unwrap_or(usize::MAX);
         let mut output = Vec::new();
         let mut cursor = after.map(|(range, hash)| (range.to_string(), hash.to_string()));
@@ -62,10 +46,7 @@ impl AtomStore {
             let visible = self
                 .resolve_preloaded_tip_keys(&runtime, scope, selected)
                 .await?;
-            if crate::atom::molecule_uuid_read_candidates(molecule)
-                .iter()
-                .any(|uid| runtime.schema_key_lease(scope, uid).is_none())
-            {
+            if runtime.schema_key_lease(scope, molecule).is_none() {
                 return Ok(None);
             }
             for (base, _) in visible {

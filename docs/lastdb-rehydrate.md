@@ -64,9 +64,11 @@ A shared key that becomes usable also receives the unchanged fields through thei
 The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.
 
 Schema key lists capture the schema, selected tips, and atom values in one read.
+Value reads, counts, and schema key lists share the resolved schema's blocked-state check.
 They load the molecule's encryption keys and fetch selected values in batches.
 HashRange membership precedes the key-list limit; rejected records cause a bounded refill.
 Empty and whitespace hashes remain exact API values.
+The list command preserves those hashes in both requests and continuation commands.
 An unfiltered blinded Hash list refuses a key that it cannot recover. A filtered Hash list can use the caller's hash.
 Explicit physical helpers can still return storage tokens. They do not define schema query results.
 Time conditions retain milliseconds and negative fractional seconds.

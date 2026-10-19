@@ -41,7 +41,7 @@ impl AtomStore {
         Ok(Some(scanned))
     }
 
-    /// All ranges under one hash: prefix scan over every read spelling.
+    /// All ranges under one hash for the molecule's readable encryption keys.
     pub(super) async fn scan_hash_range_all_ranges(
         &self,
         molecule_uuid: &str,
@@ -61,8 +61,7 @@ impl AtomStore {
         self.scan_per_key_prefixes(&prefixes, storage_prefix).await
     }
 
-    /// `HashRangePrefix`: storage-form hash × range-prefix scan, dual-read
-    /// across molecule-UUID spellings.
+    /// `HashRangePrefix`: storage-form hash × range-prefix scan.
     pub(super) async fn scan_hash_range_prefix(
         &self,
         molecule_uuid: &str,
@@ -81,33 +80,31 @@ impl AtomStore {
         }
         let codec = self.key_codec_for_molecule(molecule_uuid);
         let mut out = Vec::new();
-        for uid in crate::atom::molecule_uuid_read_candidates(molecule_uuid) {
-            let hash_cands = codec
-                .storage_hash_read_candidates(&uid, hash)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            let range_prefix_cands = codec
-                .storage_range_read_candidates(&uid, prefix)
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-            for sh in &hash_cands {
-                for sr_prefix in &range_prefix_cands {
-                    let start = molecule_key_codec::hash_range_record_key(&uid, sh, sr_prefix);
-                    let end = molecule_key_codec::hash_range_record_key(
-                        &uid,
-                        sh,
-                        &FilterUtils::create_prefix_end(sr_prefix),
-                    );
-                    let rows = match self
-                        .preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
-                        .await?
-                    {
-                        Some(rows) => rows,
-                        None => {
-                            self.scan_per_key_range(&start, &end, storage_prefix)
-                                .await?
-                        }
-                    };
-                    out.extend(rows);
-                }
+        let hash_cands = codec
+            .storage_hash_read_candidates(molecule_uuid, hash)
+            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        let range_prefix_cands = codec
+            .storage_range_read_candidates(molecule_uuid, prefix)
+            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        for sh in &hash_cands {
+            for sr_prefix in &range_prefix_cands {
+                let start = molecule_key_codec::hash_range_record_key(molecule_uuid, sh, sr_prefix);
+                let end = molecule_key_codec::hash_range_record_key(
+                    molecule_uuid,
+                    sh,
+                    &FilterUtils::create_prefix_end(sr_prefix),
+                );
+                let rows = match self
+                    .preloaded_per_key_range_for_api(&start, &end, storage_prefix, Some(hash))
+                    .await?
+                {
+                    Some(rows) => rows,
+                    None => {
+                        self.scan_per_key_range(&start, &end, storage_prefix)
+                            .await?
+                    }
+                };
+                out.extend(rows);
             }
         }
         Ok(out)

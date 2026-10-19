@@ -13,10 +13,7 @@ impl MoleculeKeyStore {
         runtime: &crate::storage::disk_pack::PackRuntime,
         molecules: &[String],
     ) -> StorageResult<()> {
-        let mut molecules: Vec<_> = molecules
-            .iter()
-            .flat_map(|molecule| crate::atom::molecule_uuid_read_candidates(molecule))
-            .collect();
+        let mut molecules = molecules.to_vec();
         molecules.sort();
         molecules.dedup();
         let keys: Vec<_> = molecules

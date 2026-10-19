@@ -126,7 +126,9 @@ pub(super) fn reap_candidates(
         .collect();
     for field in field_names.iter().filter(|field| !field.is_empty()) {
         let write = crate::atom::deterministic_molecule_uuid(schema_name, field);
-        known_molecules.extend(crate::atom::molecule_uuid_read_candidates(&write));
+        known_molecules.extend(crate::atom::molecule_uuid::legacy_molecule_uuid_spellings(
+            &write,
+        ));
     }
     let has_known_molecules = !known_molecules.is_empty();
     if known_molecules.len() > MAX_REAPER_CANDIDATES {
