@@ -28,7 +28,6 @@ impl FoldDB {
         let store = Arc::new(PackNamespacedStore::open(std::path::Path::new(path))?);
         Self::initialize_from_store(
             store as Arc<dyn crate::storage::traits::NamespacedStore>,
-            path,
             None,
         )
         .await
@@ -44,7 +43,6 @@ impl FoldDB {
         let store = Arc::new(PackNamespacedStore::open(std::path::Path::new(path))?);
         Self::initialize_from_store(
             store as Arc<dyn crate::storage::traits::NamespacedStore>,
-            path,
             Some(molecule_wrap_key),
         )
         .await
@@ -64,19 +62,9 @@ impl FoldDB {
     /// Production boots go through the factory → [`FoldDB::initialize_from_init`].
     async fn initialize_from_store(
         store: Arc<dyn crate::storage::traits::NamespacedStore>,
-        db_path: &str,
         molecule_wrap_key: Option<[u8; 32]>,
     ) -> Result<Self, StorageError> {
         let signer = Self::generate_ephemeral_signer()?;
-        Self::initialize_from_store_with_signer(store, db_path, molecule_wrap_key, signer).await
-    }
-
-    async fn initialize_from_store_with_signer(
-        store: Arc<dyn crate::storage::traits::NamespacedStore>,
-        db_path: &str,
-        molecule_wrap_key: Option<[u8; 32]>,
-        signer: Arc<crate::security::Ed25519KeyPair>,
-    ) -> Result<Self, StorageError> {
         tracing::info!(
             target: "fold_node::database",
             "Using native packed storage with the core logical model"
@@ -111,11 +99,9 @@ impl FoldDB {
 
         Self::initialize_from_init(FoldDbInit {
             db_ops,
-            db_path: db_path.to_string(),
             signer,
             search_outbox_inbox: None,
             mutation_log_capture,
-            packing_slots: None,
         })
         .await
     }
@@ -178,11 +164,9 @@ impl FoldDB {
             crate::db_operations::search_index::search_inbox_dir_for_home(restore_home);
         let mut db = Self::initialize_from_init(FoldDbInit {
             db_ops,
-            db_path: db_path.to_string(),
             signer,
             search_outbox_inbox: Some(restore_inbox),
             mutation_log_capture: None,
-            packing_slots: None,
         })
         .await?;
         db.preserve_retired_restore_intents = true;
@@ -200,11 +184,9 @@ impl FoldDB {
     pub async fn initialize_from_init(init: FoldDbInit) -> Result<Self, StorageError> {
         let FoldDbInit {
             db_ops,
-            db_path: _db_path,
             signer,
             search_outbox_inbox,
             mutation_log_capture,
-            packing_slots,
         } = init;
         // Initialize pending task tracker
         let pending_tasks = Arc::new(super::super::pending_task_tracker::PendingTaskTracker::new());
@@ -256,12 +238,10 @@ impl FoldDB {
 
         let background_protein_reaper = Self::start_protein_reaper(&db_ops);
 
-        let background_tip_history_drain = Self::start_tip_history_drain(&db_ops);
-
         let background_atom_reclaim_janitor =
             Self::start_atom_reclaim_janitor(&db_ops, &mutation_manager);
 
-        let sync_coordinator = Self::start_sync_coordinator(&db_ops, packing_slots);
+        let sync_coordinator = Self::start_sync_coordinator(&db_ops);
 
         Ok(Self {
             schema_manager,
@@ -271,7 +251,6 @@ impl FoldDB {
             pending_tasks,
             background_flush,
             background_protein_reaper,
-            background_tip_history_drain,
             background_atom_reclaim_janitor,
             sync_coordinator,
             mutation_log_capture,
@@ -284,24 +263,13 @@ impl FoldDB {
 
 /// Bundled inputs for [`FoldDB::initialize_from_init`].
 ///
-/// Created at the production / test factory boundary and consumed
+/// Created at the factory or embedded constructor boundary and consumed
 /// exactly once. Keeps the initializer signature short while the
 /// surrounding subsystems (mutation manager, sync engine) each pull what
 /// they need by name.
 pub struct FoldDbInit {
     pub db_ops: Arc<DbOperations>,
-    /// Currently unused inside the initializer body; retained so callers
-    /// can name the FOLDDB_HOME path without juggling separate threads
-    /// of state.
-    pub db_path: String,
     pub signer: Arc<crate::security::Ed25519KeyPair>,
     pub search_outbox_inbox: Option<PathBuf>,
     pub(crate) mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
-    /// Packing lock from a `SyncEngine` created before FoldDB (factory
-    /// cloud-on-at-boot). `None` means the coordinator creates the process
-    /// slot and a later `start_sync_engine_runtime` must take it.
-    pub(crate) packing_slots: Option<(
-        crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
-        Arc<tokio::sync::Mutex<Option<u64>>>,
-    )>,
 }

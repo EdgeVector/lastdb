@@ -23,11 +23,16 @@ File contents stay outside this model. An atom can return a file reference and i
 A call can retain an earlier value while a later write replaces the current value.
 Its memory owner stays charged until that call returns.
 This call lifetime does not provide an old-value query or stored atom history.
+Current writes create no atom history or history reverse references.
+Private replacement and conflict records remain until their current references reach disk.
+Explicit physical cleanup commands can remove existing history files.
 A failed read cannot enter the model as a confirmed missing record.
 
 Each field keeps its current atom in its molecule.
 A query assembles a record from those fields in the selected storage scope.
 Exact reads and range reads use the same query controls and each field's own atom metadata.
+Query conditions borrow the selected field values. They do not format or copy an entire response record.
+Both steps of a field query use the same bounded reader for the other fields.
 There is no separate whole-record value or record-compaction write route.
 Native file packing combines the disk work without a second logical value representation.
 When a Hash write omits its declared key field, preparation supplies that field from the lookup key.
@@ -80,6 +85,8 @@ Their limits do not define one whole-process memory cap.
 ## Engine boundary
 
 Normal FoldDB startup opens the native packed engine. No selection flag is required.
+Factory options name the local encryption keyring and Search inbox.
+The factory takes no inactive cloud callback or worker-delay inputs.
 The logical constructor rejects an older physical store before it opens the logical namespaces.
 An existing native home can reopen. An empty home can initialize directly.
 A nonempty older-format home receives an explicit refusal. No boot migration or automatic conversion runs.
@@ -87,6 +94,8 @@ A nonempty older-format home receives an explicit refusal. No boot migration or 
 Cloud sync stays disabled for this optimization round. Startup and runtime activation must refuse it before side effects.
 The local capture router remains. No cloud engine attaches to it during this cutover.
 Raw physical format tools and vendor code do not provide an alternate logical engine.
+Logical writes do not generate tip history. Startup does not schedule a history drain.
+Explicit physical history maintenance remains separate from the normal logical routes.
 
 The core owns the logical values and their record measurements.
 Status reads those measurements from the native runtime.

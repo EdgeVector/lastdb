@@ -297,7 +297,7 @@ impl AtomStore {
         tip: &AtomEntry,
         keypair: &Ed25519KeyPair,
     ) -> Result<(), SchemaError> {
-        let (molecule_uuid, mut mol, changed, _) = self
+        let (molecule_uuid, mol, changed, _) = self
             .protein_member_tip_update(
                 molecule_uuid,
                 hash,
@@ -312,7 +312,6 @@ impl AtomStore {
             .await?;
         self.store_molecule_changed_keys(&molecule_uuid, &mol, &changed, None)
             .await?;
-        let _ = mol.take_pending_tip_versions();
         Ok(())
     }
 }

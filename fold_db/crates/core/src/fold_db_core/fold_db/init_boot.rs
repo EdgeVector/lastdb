@@ -94,31 +94,6 @@ impl FoldDB {
         }
     }
 
-    /// Opt-in bounded reclaim for legacy tip-version chains left after tip
-    /// history became write-opt-in. See `super::super::tip_history_drain`.
-    pub(super) fn start_tip_history_drain(
-        db_ops: &Arc<DbOperations>,
-    ) -> super::super::tip_history_drain::BackgroundTipHistoryDrainTask {
-        let tip_history_drain_policy =
-            super::super::tip_history_drain::TipHistoryDrainPolicy::from_env();
-        info!(
-            target: "fold_node::database",
-            drain_ms = ?tip_history_drain_policy.interval.map(|d| d.as_millis() as u64),
-            max_keys = tip_history_drain_policy.max_keys,
-            "tip-history drain policy (opt-in bounded background tv-chain reclaim)"
-        );
-        match tip_history_drain_policy.interval {
-            Some(interval) => {
-                super::super::tip_history_drain::BackgroundTipHistoryDrainTask::spawn(
-                    Arc::clone(db_ops),
-                    interval,
-                    tip_history_drain_policy.max_keys,
-                )
-            }
-            None => super::super::tip_history_drain::BackgroundTipHistoryDrainTask::disabled(),
-        }
-    }
-
     /// Opt-in bounded janitor that frees `atom:` bodies live Delete
     /// converge leaves unreferenced. See `super::super::atom_reclaim_janitor`
     /// — local-only, no exclusive barrier, does not gate ACK. Distinct from
@@ -150,17 +125,8 @@ impl FoldDB {
         }
     }
 
-    pub(super) fn start_sync_coordinator(
-        db_ops: &Arc<DbOperations>,
-        packing_slots: Option<(
-            crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
-            Arc<tokio::sync::Mutex<Option<u64>>>,
-        )>,
-    ) -> SyncCoordinator {
-        let coordinator = match packing_slots {
-            Some((backup, pause)) => SyncCoordinator::new_with_packing(backup, pause),
-            None => SyncCoordinator::new(),
-        };
+    pub(super) fn start_sync_coordinator(db_ops: &Arc<DbOperations>) -> SyncCoordinator {
+        let coordinator = SyncCoordinator::new();
         coordinator.start_automatic_gc_atoms(Arc::clone(db_ops));
         // Plane self-compaction is not a cloud feature. Start it here,
         // beside gc-atoms, so a node booted without `cloud_sync.json`

@@ -1,9 +1,8 @@
-//! SyncCoordinator - manages the optional cloud sync engine lifecycle.
+//! Local storage maintenance and the optional cloud sync engine lifecycle.
 //!
-//! Sync is opt-in. In local mode, the coordinator holds no engine and all
-//! operations are no-ops (or return None). This type encapsulates the
-//! interior mutability (RwLock + Mutex) needed so FoldDB can expose sync
-//! operations via `&self`.
+//! Local atom cleanup and file compaction run without a cloud engine.
+//! The coordinator owns their shared packing lock. Cloud operations require
+//! an attached engine; native cloud activation remains disabled.
 
 use crate::clock::unix_secs;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -59,18 +58,6 @@ pub struct SyncCoordinator {
 
 impl SyncCoordinator {
     pub fn new() -> Self {
-        Self::new_with_packing(
-            Arc::new(tokio::sync::Mutex::new(None)),
-            Arc::new(tokio::sync::Mutex::new(None)),
-        )
-    }
-
-    /// Build a coordinator that already shares packing slots with a
-    /// `SyncEngine` created first (factory cloud-on-at-boot).
-    pub(crate) fn new_with_packing(
-        backup_publish_target: crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
-        cloud_sync_disabled_at: Arc<tokio::sync::Mutex<Option<u64>>>,
-    ) -> Self {
         Self {
             engine: Arc::new(RwLock::new(None)),
             task: Mutex::new(None),
@@ -79,8 +66,8 @@ impl SyncCoordinator {
             gc_atoms_status: AutomaticGcAtomsStatusCell::default(),
             plane_compaction_task: Mutex::new(None),
             local_plane_compactor: RwLock::new(None),
-            backup_publish_target,
-            cloud_sync_disabled_at,
+            backup_publish_target: Arc::new(tokio::sync::Mutex::new(None)),
+            cloud_sync_disabled_at: Arc::new(tokio::sync::Mutex::new(None)),
             last_forced_under_blocker: Mutex::new(None),
         }
     }

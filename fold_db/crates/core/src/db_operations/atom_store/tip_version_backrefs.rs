@@ -1,17 +1,15 @@
 //! Durable atom → archived tip-version reverse references.
 //!
-//! `tv:` is authoritative and stays readable. `tvr:` is a derived access
-//! pattern: current writers dual-write it, while a bounded keyset-paged job
-//! rebuilds it from `mk:` heads and their existing `tv:` chains. Readers see
+//! `tv:` is authoritative for existing physical history and stays readable.
+//! Current writes do not create history. A bounded keyset-paged job rebuilds
+//! derived `tvr:` references from `mk:` heads and existing chains. Readers see
 //! an explicit incomplete result until the durable completion marker exists.
 
-use super::{AtomStore, MoleculeData, PerKeyRecord};
+use super::{AtomStore, PerKeyRecord};
 use crate::atom::{molecule_key_codec, AtomEntry};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::{HashMap, HashSet};
 
 mod reindex;
 use reindex::decode_mk_slot;
@@ -83,78 +81,6 @@ pub struct TipVersionBackrefReindexReport {
 }
 
 impl AtomStore {
-    /// Build reverse rows for `pending_tip_versions` from the current slot
-    /// heads. Pending nodes form chains rooted at the changed `mk:` records, so
-    /// this recovers slot identity without changing the authoritative `tv:`
-    /// value shape.
-    pub(crate) fn pending_tip_version_backref_items(
-        &self,
-        molecule_uuid: &str,
-        data: &MoleculeData,
-        records: &[(String, PerKeyRecord)],
-        storage_prefix: Option<&str>,
-    ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let pending: HashMap<&str, &AtomEntry> = data
-            .pending_tip_versions()
-            .iter()
-            .map(|(id, entry)| (id.as_str(), entry))
-            .collect();
-        if pending.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut emitted = HashSet::with_capacity(pending.len());
-        let mut out = Vec::with_capacity(pending.len());
-        for (record_key, record) in records {
-            let Some((hash, range)) =
-                molecule_key_codec::decode_hash_range(record_key, molecule_uuid)
-            else {
-                return Err(SchemaError::InvalidData(format!(
-                    "cannot decode molecule record while indexing tip versions for {molecule_uuid}"
-                )));
-            };
-            let mut version_id = record.entry.prev_tip_id.as_str();
-            let mut slot_seen = HashSet::new();
-            while let Some(entry) = pending.get(version_id).copied() {
-                if !slot_seen.insert(version_id.to_string()) {
-                    return Err(SchemaError::InvalidData(format!(
-                        "pending tip-version cycle for molecule {molecule_uuid}"
-                    )));
-                }
-                if emitted.insert(version_id.to_string()) {
-                    let row = TipVersionBackref {
-                        atom_uuid: entry.atom_uuid.clone(),
-                        version_id: version_id.to_string(),
-                        molecule_uuid: molecule_uuid.to_string(),
-                        hash: hash.clone(),
-                        range: range.clone(),
-                    };
-                    out.push((
-                        build_storage_key(
-                            storage_prefix,
-                            &molecule_key_codec::tip_version_backref_key(
-                                &row.atom_uuid,
-                                &row.version_id,
-                            ),
-                        ),
-                        serde_json::to_value(row).map_err(|e| {
-                            SchemaError::InvalidData(format!("serialize tip-version backref: {e}"))
-                        })?,
-                    ));
-                }
-                version_id = entry.prev_tip_id.as_str();
-            }
-        }
-
-        if emitted.len() != pending.len() {
-            return Err(SchemaError::InvalidData(format!(
-                "{} pending tip version(s) for molecule {molecule_uuid} are not reachable from a persisted slot",
-                pending.len() - emitted.len()
-            )));
-        }
-        Ok(out)
-    }
-
     /// Keyed atom lookup. An incomplete plane is explicit even when rows were
     /// already dual-written or backfilled; absence is authoritative only in the
     /// `Complete` variant.
@@ -170,7 +96,7 @@ impl AtomStore {
         // Derived plane: an undecodable legacy/ciphertext `tvr:` row must not
         // abort the whole lookup (and then soft-delete / mutation heal) with
         // HTTP 400 `Serialization error: expected value at line 1 column 1`.
-        // Partition and surface skipped keys; dual-write + reindex heal them.
+        // Partition and surface skipped keys; the explicit rebuild repairs them.
         let partitioned = self
             .main_store
             .scan_items_with_prefix_partition_undecodable::<TipVersionBackref>(&prefix)
@@ -193,7 +119,7 @@ impl AtomStore {
                     .first()
                     .map_or("", |(_, e)| e.as_str()),
                 "skipping undecodable tip-version reverse-ref rows (derived plane; \
-                 dual-write/reindex heals)"
+                 explicit rebuild repairs)"
             );
         }
         let rows: Vec<TipVersionBackref> =
@@ -232,9 +158,8 @@ impl AtomStore {
 
     /// Run one bounded, resumable page of the existing-data rebuild.
     ///
-    /// The cursor is the last walked `mk:` key. New `tv:` writes are already
-    /// dual-written, so advancing the old-data cursor cannot miss concurrent
-    /// post-upgrade history nodes.
+    /// The cursor is the last walked `mk:` key. This administrative path reads
+    /// existing physical history; current logical writes create no new nodes.
     pub async fn reindex_tip_version_backrefs(
         &self,
         storage_prefix: Option<&str>,

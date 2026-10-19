@@ -79,8 +79,7 @@ impl Host {
         Ok((keypair, e2e_keys, freshly_generated))
     }
 
-    /// Open the FoldDB, with cloud sync wired when `cloud_sync.json` exists.
-    #[allow(clippy::too_many_arguments)]
+    /// Open native local storage. The factory refuses configured cloud sync.
     pub(super) async fn open_boot_db(
         home: &Path,
         data_path: &Path,
@@ -89,7 +88,6 @@ impl Host {
         e2e_keys: &E2eKeys,
         cloud_sync: Option<CloudSyncConfig>,
         search_outbox_inbox: PathBuf,
-        resume_required: bool,
     ) -> Result<Arc<FoldDB>, String> {
         // The disabled local proof route refuses before database construction.
         if cloud_sync.is_none() && crate::proof_replay::boot_engine_requested(home) {
@@ -102,62 +100,22 @@ impl Host {
                 search_outbox_inbox,
             );
         }
-        // Last Store only. Legacy sled personal bootstrap is gone — restore
-        // uses `lastdb restore --into`. Auth-refresh still wires 401 self-heal
-        // when cloud_sync.json is present.
-        let storage_engine = StorageEngine::from_env()
-            .map_err(|e| map_and_record_boot_error(home, existing_store, e))?
-            .unwrap_or(StorageEngine::Laststore);
-
-        Ok(if let Some(cloud) = cloud_sync {
-            tracing::info!(
-                target: "lastdbd::cloud",
-                "LastStore boot: skipping legacy personal bootstrap; restore uses `lastdb restore --into`"
-            );
-
-            let refresh = crate::cloud::auth_refresh_callback(
-                home.to_path_buf(),
-                cloud.api_url.clone(),
-                Arc::clone(keypair),
-            );
-            let cloud = load_cloud_sync(home)?.unwrap_or(cloud);
-            let config = DatabaseConfig {
-                path: data_path.to_path_buf(),
-                engine: storage_engine,
-                cloud_sync: Some(cloud),
-            };
-            // Product rule: Mini personal at-rest == account E2E content key
-            // (portable every device). Never pass a store keyring DEK here.
-            fold_db::fold_db_core::factory::create_fold_db_with_pool_auth_refresh_and_search_outbox(
-                &config,
-                e2e_keys,
-                Arc::clone(keypair),
-                Some(refresh),
-                None, // at_rest_keyring: Mini = e2e_content_key only
-                Some(search_outbox_inbox),
-                resume_required,
-            )
-            .await
-            .map_err(|e| map_and_record_boot_error(home, existing_store, e))?
-        } else {
-            let config = DatabaseConfig {
-                path: data_path.to_path_buf(),
-                engine: storage_engine,
-                cloud_sync: None,
-            };
-            // Local-only Mini path also uses content-key at-rest (no keyring).
-            fold_db::fold_db_core::factory::create_fold_db_with_pool_auth_refresh_and_search_outbox(
-                &config,
-                e2e_keys,
-                Arc::clone(keypair),
-                None,
-                None,
-                Some(search_outbox_inbox),
-                false,
-            )
-            .await
-            .map_err(|e| map_and_record_boot_error(home, existing_store, e))?
-        })
+        let config = DatabaseConfig {
+            path: data_path.to_path_buf(),
+            engine: StorageEngine::Laststore,
+            cloud_sync,
+        };
+        fold_db::fold_db_core::factory::create_fold_db_with_options(
+            &config,
+            e2e_keys,
+            Arc::clone(keypair),
+            fold_db::fold_db_core::factory::FoldDbOptions {
+                at_rest_keyring: None,
+                search_outbox_inbox: Some(search_outbox_inbox),
+            },
+        )
+        .await
+        .map_err(|e| map_and_record_boot_error(home, existing_store, e))
     }
 
     /// Refuse the disabled local proof engine after the proof guard.

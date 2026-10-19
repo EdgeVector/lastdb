@@ -113,7 +113,6 @@ impl FoldDB {
         // two flushes (and so Drop does not try to abort a still-running tick).
         self.background_flush.stop().await;
         self.background_protein_reaper.stop();
-        self.background_tip_history_drain.stop();
         self.background_atom_reclaim_janitor.stop();
         // Drain accepted persist-lane work FIRST, while admission stays open.
         // The capture wait and the final sync below can take many seconds,

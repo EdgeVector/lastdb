@@ -63,23 +63,31 @@ impl HashRangeQueryProcessor {
         &self,
         pass_a: &CokeyRows,
         predicates: &[FieldPredicate],
-    ) -> Result<Vec<KeyValue>, SchemaError> {
-        let records = records_from_field_map(&pass_a.fields);
+    ) -> Vec<KeyValue> {
         let mut keys: Vec<KeyValue> = pass_a
             .page_keys
             .iter()
             .filter(|key| {
-                let Some(record) = records.get(*key) else {
+                if !pass_a
+                    .fields
+                    .values()
+                    .any(|values| values.contains_key(*key))
+                {
                     return false;
-                };
-                predicates
-                    .iter()
-                    .all(|predicate| field_predicate_matches(predicate, &record.fields))
+                }
+                predicates.iter().all(|predicate| {
+                    let value = pass_a
+                        .fields
+                        .get(predicate.field_name())
+                        .and_then(|values| values.get(*key))
+                        .map(|field| &field.value);
+                    field_predicate_matches(predicate, value)
+                })
             })
             .cloned()
             .collect();
         keys.sort_by_key(KeyValue::to_storage_key);
-        Ok(keys)
+        keys
     }
 
     pub(super) fn sort_keys_by_field(
@@ -112,6 +120,7 @@ impl HashRangeQueryProcessor {
         page_keys: &[KeyValue],
         key_sources: &HashMap<KeyValue, KeySource>,
         include_tombstones: bool,
+        request_concurrency: Option<usize>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
         let selected = Self::exact_key_selected_fields(schema, fields);
         let mut result: HashMap<String, HashMap<KeyValue, FieldValue>> = selected
@@ -123,23 +132,17 @@ impl HashRangeQueryProcessor {
         }
 
         let pending = self
-            .collect_exact_key_pending(
+            .collect_cokey_secondary_pending(
                 schema,
-                &selected,
+                selected,
                 page_keys,
                 key_sources,
                 include_tombstones,
+                request_concurrency,
             )
             .await?;
-        let values = self.resolve_pending_values(schema, &pending).await?;
-
-        for (entry, value) in pending.into_iter().zip(values) {
-            if let Some(value) = value {
-                if include_tombstones || !crate::atom::is_tombstone_value(&value.value) {
-                    result.entry(entry.0).or_default().insert(entry.1, value);
-                }
-            }
-        }
+        self.fill_cokey_secondaries(schema, pending, include_tombstones, &mut result)
+            .await?;
         Ok(result)
     }
 
@@ -169,29 +172,5 @@ impl HashRangeQueryProcessor {
             }
         }
         selected
-    }
-
-    /// Find each selected field's current slot for every page key.
-    async fn collect_exact_key_pending(
-        &self,
-        schema: &mut Schema,
-        selected: &[String],
-        page_keys: &[KeyValue],
-        key_sources: &HashMap<KeyValue, KeySource>,
-        include_tombstones: bool,
-    ) -> Result<Vec<SecondaryPending>, SchemaError> {
-        let mut pending: Vec<SecondaryPending> = Vec::new();
-        for fname in selected {
-            self.secondary_matches_current(
-                schema,
-                fname,
-                page_keys,
-                key_sources,
-                include_tombstones,
-                &mut pending,
-            )
-            .await?;
-        }
-        Ok(pending)
     }
 }

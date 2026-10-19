@@ -133,14 +133,8 @@ impl MutationManager {
     ) -> Result<(), SchemaError> {
         let mut heads = super::super::molecules::batch_rebase::BatchSlotHeads::default();
         for delta in deltas {
-            let (mutation_events, modified_fields) =
-                self.rebase_delta_for_publish(delta, &mut heads);
-            let mut job = private_job(
-                delta,
-                delta.schema.clone(),
-                mutation_events,
-                modified_fields,
-            );
+            let modified_fields = self.rebase_delta_for_publish(delta, &mut heads);
+            let mut job = private_job(delta, delta.schema.clone(), modified_fields);
             self.stage_native_job(&mut job).await?;
             self.stage_native_paths(&job, runtime).await?;
             heads.record(delta);
@@ -168,7 +162,6 @@ impl MutationManager {
 fn private_job(
     delta: &PreparedSchemaDelta,
     schema: crate::schema::types::Schema,
-    mutation_events: Vec<crate::atom::MutationEvent>,
     modified_fields: super::super::helpers::ModifiedFieldKeys,
 ) -> DeferredPersistJob {
     DeferredPersistJob {
@@ -182,7 +175,6 @@ fn private_job(
         share_prefixes: delta.share_prefixes.clone(),
         schema,
         modified_fields,
-        mutation_events,
         idempotency_entries: delta.idempotency_entries.clone(),
         retention_write: delta.tracks_retention_age.then(|| {
             (

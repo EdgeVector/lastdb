@@ -436,8 +436,6 @@ impl Host {
 
         let cloud_sync = load_cloud_sync(home)?;
         let sync_configured = cloud_sync.is_some();
-        let resume_required =
-            sync_configured && crate::cloud::cloud_resume_required_path(home).exists();
 
         let db = Self::open_boot_db(
             home,
@@ -447,7 +445,6 @@ impl Host {
             &e2e_keys,
             cloud_sync,
             search_outbox_inbox,
-            resume_required,
         )
         .await?;
         // No cloud config, yet an engine: only the local proof engine does that.

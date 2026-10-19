@@ -204,10 +204,7 @@ impl MutationManager {
         &self,
         delta: &mut PreparedSchemaDelta,
         heads: &mut BatchSlotHeads,
-    ) -> (
-        Vec<crate::atom::MutationEvent>,
-        super::super::helpers::ModifiedFieldKeys,
-    ) {
+    ) -> super::super::helpers::ModifiedFieldKeys {
         heads.overlay_schema(delta);
         delta.atom_results = if self.write_dedupe_enabled() {
             Self::drop_unchanged_field_writes(
@@ -220,7 +217,7 @@ impl MutationManager {
             delta.original_atom_results.clone()
         };
         let mut prospective = delta.schema.clone();
-        let (events, modified, accepted) = self.apply_mutations_to_molecules(
+        let (modified, accepted) = self.apply_mutations_to_molecules(
             &mut prospective,
             &delta.schema_mutations,
             &delta.mutation_key_values,
@@ -261,7 +258,7 @@ impl MutationManager {
             delta.sibling_updates.push((uuid, rebased, changed));
             delta.sibling_origins.push(origin);
         }
-        (events, modified)
+        modified
     }
 
     fn apply_sibling_source(data: &mut MoleculeHashRange, key: &ChangedKey, source: &SlotHead) {

@@ -14,8 +14,8 @@ use std::collections::HashMap;
 /// - Creation timestamp
 /// - The actual content data
 ///
-/// Version history is tracked via the delta event log (`MutationEvent`),
-/// not via atom-level chaining. Once created, an Atom's content cannot be modified.
+/// The current molecule tip selects the atom. Current writes do not store
+/// version history. Once created, an Atom's content cannot be modified.
 ///
 /// # Content size limit (hard fence)
 ///
