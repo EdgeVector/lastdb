@@ -1,0 +1,12 @@
+host_cargo_lock=held pid=19854 path=/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock cmd=cargo
+    Checking schema_types v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/schema_types)
+error: redundant closure
+  --> schema_service/crates/schema_types/src/declarative_schemas/validation.rs:38:26
+   |
+38 |                     .map(|mapper| mapper.source_field()),
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the method itself: `super::FieldMapper::source_field`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#redundant_closure_for_method_calls
+   = note: requested on the command line with `-D clippy::redundant-closure-for-method-calls`
+
+error: could not compile `schema_types` (lib) due to 1 previous error

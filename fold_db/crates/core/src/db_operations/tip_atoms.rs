@@ -30,16 +30,3 @@ pub async fn get_atoms_for_tips(
         .map_err(SchemaError::read_failure)?;
     require_tip_atoms(atoms, storage_prefix)
 }
-
-/// Load the body of one selected record-envelope tip.
-pub(crate) async fn get_atom_for_tip(
-    db_ops: &DbOperations,
-    atom_uuid: &str,
-) -> Result<Atom, SchemaError> {
-    db_ops
-        .atoms()
-        .get_atom_by_uuid(atom_uuid, None)
-        .await
-        .map_err(SchemaError::read_failure)?
-        .ok_or(SchemaError::MissingLocalAtom)
-}

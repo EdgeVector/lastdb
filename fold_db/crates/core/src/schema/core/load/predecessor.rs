@@ -83,7 +83,7 @@ impl SchemaCore {
         let Some(predecessor) = self.find_predecessor(schema)? else {
             return Ok(());
         };
-        Self::adopt_from_predecessor(schema, predecessor);
+        Self::adopt_from_predecessor(schema, &predecessor);
         Ok(())
     }
 
@@ -194,7 +194,7 @@ impl SchemaCore {
             }))
     }
 
-    fn adopt_from_predecessor(schema: &mut Schema, predecessor: Predecessor) {
+    fn adopt_from_predecessor(schema: &mut Schema, predecessor: &Predecessor) {
         let adopted = Self::apply_field_molecules(schema, &predecessor.field_molecule_uuids);
         if adopted > 0 {
             tracing::info!(

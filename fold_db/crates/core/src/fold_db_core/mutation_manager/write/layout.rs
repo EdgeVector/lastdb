@@ -12,7 +12,7 @@ impl MutationManager {
             .iter()
             .flat_map(|mutation| mutation.fields_and_values.keys())
         {
-            Schema::validate_field_name(field).map_err(SchemaError::InvalidData)?;
+            crate::schema::Schema::validate_field_name(field).map_err(SchemaError::InvalidData)?;
         }
         let schemas: BTreeSet<_> = mutations
             .iter()

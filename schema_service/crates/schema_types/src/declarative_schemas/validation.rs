@@ -35,7 +35,7 @@ impl DeclarativeSchemaDefinition {
                 self.field_mappers
                     .iter()
                     .flat_map(|map| map.values())
-                    .map(|mapper| mapper.source_field()),
+                    .map(super::FieldMapper::source_field),
             )
             .chain(
                 self.field_molecule_uuids
