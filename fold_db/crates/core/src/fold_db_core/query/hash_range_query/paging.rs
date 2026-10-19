@@ -226,15 +226,13 @@ impl HashRangeQueryProcessor {
         keys.iter().filter(|k| k.hash.is_some()).count() as u64
     }
 
-    /// Hash of a key-restricted filter that names one partition.
-    ///
-    /// Used to drop sibling-layout tips that share a molecule with this
-    /// schema's hash field (same storage hash, different field value).
-    pub(super) fn named_layout_hash<'a>(
+    /// Keyed reads of the declared HashRange hash field need layout membership.
+    /// Each selected API key supplies its own hash, including exact batches.
+    pub(super) fn needs_named_layout_membership(
         schema: &Schema,
         primary_name: Option<&str>,
-        filter: Option<&'a HashRangeFilter>,
-    ) -> Option<&'a str> {
+        filter: Option<&HashRangeFilter>,
+    ) -> bool {
         // Hash coordinates remain authoritative even when a caller stores a
         // different payload in its declared hash field. Only shared HashRange
         // layouts need the extra field-value disambiguation below.
@@ -242,23 +240,16 @@ impl HashRangeQueryProcessor {
             schema.schema_type,
             crate::schema::types::schema::DeclarativeSchemaType::HashRange
         ) {
-            return None;
+            return false;
         }
-        if primary_name != Some(schema.key.as_ref()?.hash_field.as_deref()?) {
-            return None;
+        let hash_field = schema
+            .key
+            .as_ref()
+            .and_then(|key| key.hash_field.as_deref());
+        if hash_field.is_none() || primary_name != hash_field {
+            return false;
         }
-        match filter? {
-            HashRangeFilter::HashKey(hash)
-            | HashRangeFilter::HashRangePrefix { hash, .. }
-            | HashRangeFilter::HashRangeRange { hash, .. }
-            | HashRangeFilter::HashRangeKey { hash, .. }
-            | HashRangeFilter::HashRangePattern { hash, .. } => Some(hash.as_str()),
-            _ => None,
-        }
-    }
-
-    pub(super) fn field_value_is_hash(fv: &FieldValue, hash: &str) -> bool {
-        scalar_key_coordinate(&fv.value).as_deref() == Some(hash)
+        Self::primary_key_form(filter) == PrimaryKeyForm::Api
     }
 
     /// Primary field for co-key: the schema key field whenever one exists,

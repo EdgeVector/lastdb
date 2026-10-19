@@ -110,6 +110,14 @@ impl KeyValue {
                     .cmp(other.hash.as_deref().unwrap_or(""))
             })
     }
+
+    /// Match a scalar field value against this key's original API hash.
+    #[must_use]
+    pub(crate) fn hash_matches_scalar(&self, value: &Value) -> bool {
+        self.hash
+            .as_deref()
+            .is_some_and(|hash| scalar_key_coordinate(value).as_deref() == Some(hash))
+    }
 }
 
 /// Resolve a field value as a string, supporting dotted nested paths (e.g., "departure.date").

@@ -215,7 +215,7 @@ pub(super) async fn count_schema_records(host: &Host, canonical: &str) -> usize 
 pub(super) const LIST_RECORD_KEYS_DEFAULT_LIMIT: usize = 100;
 pub(super) const LIST_RECORD_KEYS_MAX_LIMIT: usize = 1000;
 
-/// `GET /api/list?schema=` — paged live record keys, no atom bodies.
+/// `GET /api/list?schema=` — paged API keys for live schema records.
 pub(super) async fn execute_list_record_keys_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -235,7 +235,7 @@ pub(super) async fn execute_list_record_keys_route(
         },
     };
     let cursor = query_value(&req.target, "cursor").filter(|s| !s.is_empty());
-    let hash_filter = query_value(&req.target, "hash").filter(|s| !s.is_empty());
+    let hash_filter = query_value(&req.target, "hash");
 
     let resolved = match handlers::resolve_schema_name(host, &requested) {
         Ok(v) => v,

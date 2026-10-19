@@ -34,6 +34,7 @@ mod order_log;
 mod photo_blobs;
 mod repair;
 mod retention;
+mod schema_keys;
 mod storage_reports;
 mod tombstone_admin;
 

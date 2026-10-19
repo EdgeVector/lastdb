@@ -1,4 +1,4 @@
-//! Boot-time decrypt integrity and embedding-cache path helpers.
+//! Native-home at-rest key proof and namespace checks.
 
 use crate::error::{FoldDbError, FoldDbResult};
 
@@ -28,53 +28,9 @@ pub(super) fn map_boot_decrypt_error(msg: String) -> FoldDbError {
     }
 }
 
-/// Structural namespaces whose undecryptable rows at boot mean the daemon must
-/// refuse to serve rather than present a hollow view of the store.
-///
-/// These catalogs are small and prove the at-rest key opens real Mini homes
-/// without walking multi‑GB data namespaces.
-///
-/// **Every entry must be encrypted at rest.** Until 2026-07-28 this list was
-/// `["schemas", "schema_states", "metadata"]`, and the first two are on
-/// [`LASTSTORE_PLAINTEXT_NAMESPACES`](crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES)
-/// — plaintext by policy, therefore never undecryptable under any key. On a
-/// freshly booted LastStore home those two are also the *only* namespaces that
-/// exist (`metadata` is not created until something writes to it), so the gate
-/// scanned two namespaces that cannot fail plus one that was absent, and a
-/// wrong identity key booted clean. `boot_proof_namespaces_are_encrypted`
-/// pins this invariant.
-///
-/// Card `lastdb-widen-boot-decrypt-proof-namespaces` proposed widening this to
-/// `node_config` and `node_identity`, gated on a real-data scan. That scan ran
-/// on 2026-07-28 against a copy-on-write copy of the real primary home and the
-/// answer was **do not widen** — so the list stays at `metadata`.
-///
-/// MEASURED on the real home (report-only, via
-/// [`BOOT_DECRYPT_PROOF_EXTRA_ENV`]): `metadata` 9 rows / 0 undecryptable / 2ms,
-/// `node_config` 3 rows / 0 undecryptable / 1ms, `node_identity` 1 row / 0
-/// undecryptable / 0ms. Both candidates are clean, and cost was never the
-/// objection. They were rejected because they are **dead**:
-///
-/// - `node_identity` stopped being the identity's source of truth on 2026-07-10
-///   (card `fold-unify-node-identity`) — the canonical artifact is the
-///   `identity.key` keyfile beside the data dir. Nothing in this tree names that
-///   namespace at all.
-/// - `node_config` is the same story one layer up. [`NodeConfigStore`] is still
-///   constructed at boot and handed to `FoldDB`, but `FoldDB::config_store()`
-///   has no production caller and `set_identity`/`get_identity` have none
-///   either. The 3 rows on the real home are pre-keyfile residue.
-///
-/// A namespace nothing reads is a namespace no future migration or re-key will
-/// remember to carry — and putting one on the boot-refusal path means the
-/// primary can start refusing to boot over data no user or code path depends
-/// on. That trade buys nothing here, because the sealed sentinel below already
-/// gives unconditional wrong-key detection in O(1); scanning stale identity
-/// residue adds no detection the sentinel lacks.
-///
-/// The dead namespaces are their own finding, filed separately rather than
-/// fixed here (card `lastdb-retire-dead-node-config-node-identity-namespaces`).
-///
-/// [`NodeConfigStore`]: crate::storage::NodeConfigStore
+/// Encrypted structural namespaces checked before the native home can serve.
+/// These checks reject unreadable data; they never delete it. The sentinel
+/// independently proves the encryption key even when these namespaces are empty.
 const BOOT_DECRYPT_PROOF_STRUCTURAL: &[&str] = &["metadata"];
 
 /// Namespace and key of the at-rest key proof — one small sealed row written on
@@ -88,33 +44,12 @@ const AT_REST_KEY_PROOF_NAMESPACE: &str = "metadata";
 const AT_REST_KEY_PROOF_KEY: &[u8] = b"__at_rest_key_proof";
 const AT_REST_KEY_PROOF_VALUE: &[u8] = b"lastdb-at-rest-key-proof-v1";
 
-/// Large data namespaces that used to be full-scanned at every boot
-/// (incident-lastdbd-0226). `scan_prefix_partition_undecryptable` decrypts
-/// **every** row and retains plaintext in RAM — on Tom's real home that is
-/// tens of thousands of atoms/embeddings and multi‑GiB RSS before the socket
-/// opens. Default boot therefore only proofs structural namespaces; set
-/// `FOLD_BOOT_FULL_DECRYPT_PROOF=1` to restore the full walk (maintenance /
-/// suspected wrong-key forensics).
-///
-/// `native_index` was here until 2026-07-28 and was dropped for the same reason
-/// as the structural entries: it is plaintext by policy, so walking every
-/// embedding row cost real RSS and could not report a single undecryptable row
-/// under any key.
+/// Explicit diagnostics may also check the data namespace. Normal startup
+/// does not read every data record before the socket can open.
 const BOOT_DECRYPT_PROOF_HEAVY: &[&str] = &["main"];
 
-/// Comma-separated extra namespaces to scan at boot, **report-only**.
-///
-/// This is the tool that makes "no namespace joins
-/// [`BOOT_DECRYPT_PROOF_STRUCTURAL`] without real-data evidence" an actual
-/// procedure rather than an intention: point a node at a copy-on-write copy of
-/// a real home, name the candidate here, and read its row and undecryptable
-/// counts out of the boot log — without shipping the boot-refusal risk first
-/// and discovering the answer on someone's primary.
-///
-/// Report-only is the whole point. An extra namespace that turns out to hold
-/// undecryptable rows is logged loudly and boot continues; only the compiled-in
-/// structural list can refuse. An env var that could brick a boot would be a
-/// worse foot-gun than the widening it exists to de-risk.
+/// Additional report-only namespace checks. Unreadable records are counted
+/// but do not refuse startup. The parser cannot downgrade an enforcing check.
 const BOOT_DECRYPT_PROOF_EXTRA_ENV: &str = "FOLD_BOOT_DECRYPT_PROOF_EXTRA";
 
 /// A namespace to scan at boot, and whether an undecryptable row in it refuses
@@ -186,58 +121,26 @@ fn boot_decrypt_proof_namespaces() -> Vec<ProofNamespace> {
     ns
 }
 
-/// Boot-time decrypt integrity gate with consented org-row drop.
-///
-/// - Org-scoped keys that fail AES-GCM under the personal provider are
-///   **deleted** with a loud count (the 2026-07-13 consented drop of
-///   org-shared test data after the org-crypto map strip).
-/// - Any other undecryptable row still **refuses boot** (no phantom empty
-///   serve over a broken personal store).
+/// Refuse an unreadable enforcing namespace without changing any of its data.
 ///
 /// Default scope is structural catalogs only — see
 /// [`boot_decrypt_proof_namespaces`].
 pub(super) async fn assert_critical_namespaces_decryptable(
     enc: &crate::storage::EncryptingNamespacedStore,
 ) -> FoldDbResult<()> {
-    // The sentinel goes first. It is the O(1) key proof; the scans below are
-    // the org-row sweep plus a belt-and-braces walk. Ordering matters for one
-    // failure only: a scan that meets a hash group over the cold-load cap
-    // (`ColdGroupTooLarge`). With the sentinel already proven, that scan is
-    // skipped with a warning; without it, the refusal stands, because a
-    // young home has nothing else to prove the key with. On 2026-09-22 the
-    // candidate for the flush-storm fix could not boot the primary's copy
-    // because this walk loaded `metadata/0/g/025` (1.3 GB by then) and the
-    // cap said no — the cap was right, the walk was in the wrong place.
-    // Read-only here: establishing a sentinel before the scans would, on a
-    // pre-sentinel home opened with a wrong key, seal a wrong-key sentinel
-    // that the next correct-key boot cannot open. Establish only after the
-    // scans, exactly as before.
+    // Prove an existing sentinel before any namespace work. Establish a new
+    // sentinel only after every enforcing namespace succeeds, so a wrong key
+    // cannot create a replacement proof over unreadable data.
     let sentinel_proven = probe_at_rest_key_proof(enc).await?;
 
-    let mut org_dropped = 0usize;
     for proof in boot_decrypt_proof_namespaces() {
-        org_dropped += scan_proof_namespace(enc, &proof, sentinel_proven).await?;
-    }
-
-    if org_dropped > 0 {
-        tracing::warn!(
-            target: "lastdbd::boot",
-            dropped = org_dropped,
-            "boot dropped {org_dropped} undecryptable org-scoped at-rest row(s) \
-             (consented drop after org-crypto strip); personal store otherwise clean"
-        );
+        scan_proof_namespace(enc, &proof).await?;
     }
 
     if !sentinel_proven {
         assert_or_establish_at_rest_key_proof(enc).await?;
     }
     Ok(())
-}
-
-/// The store's refusal to load one oversized cold hash group. Matched on text
-/// because the storage error crosses the `NamespacedStore` trait as a string.
-fn is_cold_group_too_large_text(msg: &str) -> bool {
-    msg.contains("cold group too large")
 }
 
 /// Read-only check of the at-rest key proof: `true` when the sentinel exists
@@ -338,11 +241,4 @@ async fn assert_or_establish_at_rest_key_proof(
              refusing to start fresh (at-rest key proof unreadable: {e})"
         ))),
     }
-}
-
-fn is_cloud_storage_prefixed_key(key: &[u8]) -> bool {
-    std::str::from_utf8(key)
-        .ok()
-        .and_then(crate::sync::storage_prefix_for_key)
-        .is_some()
 }

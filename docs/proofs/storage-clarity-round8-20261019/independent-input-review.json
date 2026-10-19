@@ -1,0 +1,12 @@
+{
+  "approved_procedure": "Same frozen baseline/candidate requests and expectations. Preserve baseline disagreements. Stop at first candidate product mismatch. Save raw HTTP response before decode. Boot fault branches remain source/compiler only.",
+  "checked_utc": "2026-10-19T20:08:10.658390+00:00",
+  "dependent_pagination_items": 4,
+  "helper_identity_sha256": "638712368b4c6b2aa059616f72c4f3e96577eb2e677e474cf887ea34df44472d",
+  "literal_list_items": 9,
+  "literal_query_items": 37,
+  "no_product_node_started": true,
+  "plan_sha256": "29a4bbcc6ba85fc76f820309194a2ce52fac64678ac724ad8a2731c8dd74ccba",
+  "unchanged_helpers_verified": 15,
+  "version": 5
+}

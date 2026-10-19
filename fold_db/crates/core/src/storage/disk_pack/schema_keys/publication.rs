@@ -185,6 +185,7 @@ pub(super) fn supported_coordinate(domain: &CoreKeyDomain, hash: &str, range: &s
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
     let hash_supported = !domain.identity().encoding_identity.starts_with("BlindV1/")
+        || hash.is_empty()
         || (hash.len() == 22
             && hash
                 .bytes()

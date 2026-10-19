@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
-use crate::schema::types::key_value::scalar_key_coordinate;
 
 struct NamedWindow {
     skip: usize,
@@ -41,17 +40,12 @@ impl NamedWindow {
         }
     }
 
-    fn accept(
-        &mut self,
-        keys: Vec<KeyValue>,
-        mut values: HashMap<KeyValue, FieldValue>,
-        wanted: &str,
-    ) {
+    fn accept(&mut self, keys: Vec<KeyValue>, mut values: HashMap<KeyValue, FieldValue>) {
         for key in keys {
             let Some(value) = values.remove(&key) else {
                 continue;
             };
-            if scalar_key_coordinate(&value.value).as_deref() != Some(wanted) {
+            if !key.hash_matches_scalar(&value.value) {
                 continue;
             }
             if self.skip > 0 {
@@ -72,7 +66,6 @@ impl FieldVariant {
         db_ops: &Arc<DbOperations>,
         filter: &HashRangeFilter,
         window: KeyWindow,
-        wanted: &str,
         include_tombstones: bool,
     ) -> Result<(HashMap<KeyValue, FieldValue>, bool), SchemaError> {
         self.require_supported_read(Some(filter))?;
@@ -81,17 +74,11 @@ impl FieldVariant {
             return Ok((selection.values, false));
         }
         if let (FieldKind::HashRange, HashRangeFilter::HashKey(hash)) = (self.kind, filter) {
-            self.resolve_named_hash_pages(db_ops, hash, wanted, include_tombstones, &mut selection)
+            self.resolve_named_hash_pages(db_ops, hash, include_tombstones, &mut selection)
                 .await?;
         } else {
-            self.resolve_named_tip_batches(
-                db_ops,
-                filter,
-                wanted,
-                include_tombstones,
-                &mut selection,
-            )
-            .await?;
+            self.resolve_named_tip_batches(db_ops, filter, include_tombstones, &mut selection)
+                .await?;
         }
         self.stamp_molecule_meta(&mut selection.values);
         self.record_resolved_tip_keys(&selection.values);
@@ -102,7 +89,6 @@ impl FieldVariant {
         &self,
         db_ops: &Arc<DbOperations>,
         hash: &str,
-        wanted: &str,
         include_tombstones: bool,
         selection: &mut NamedWindow,
     ) -> Result<(), SchemaError> {
@@ -138,7 +124,7 @@ impl FieldVariant {
                 rows,
             )
             .await?;
-            selection.accept(keys, values, wanted);
+            selection.accept(keys, values);
             let Some(frontier) = frontier else { break };
             if selection
                 .after
@@ -161,7 +147,6 @@ impl FieldVariant {
         &mut self,
         db_ops: &Arc<DbOperations>,
         filter: &HashRangeFilter,
-        wanted: &str,
         include_tombstones: bool,
         selection: &mut NamedWindow,
     ) -> Result<(), SchemaError> {
@@ -191,7 +176,7 @@ impl FieldVariant {
             )
             .await?;
             retain_visible_values(&mut values, include_tombstones);
-            selection.accept(keys, values, wanted);
+            selection.accept(keys, values);
         }
         Ok(())
     }
