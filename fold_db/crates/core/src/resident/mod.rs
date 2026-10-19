@@ -10,7 +10,7 @@
 //! cannot inspect it. Unsupported raw controls finish on disk before their
 //! invalidation becomes visible.
 //!
-//! [`ResidentMetrics`] holds shared process counters. Typed values, logical
+//! [`PersistLaneMetrics`] holds background purge counters. Typed values, logical
 //! keys, and retained read versions belong only to the core model.
 //!
 //! ## Shared logical contract
@@ -32,7 +32,6 @@ mod core_set;
 mod key_cap;
 mod lane;
 mod metrics;
-mod types;
 
 pub use config::{
     parse_resident_bytes, parse_resident_max_deferred, parse_resident_persist_interval,
@@ -53,10 +52,5 @@ pub use key_cap::{
 pub use lane::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
     PersistLanePressure, PersistLaneSet, PersistLaneWriter, PersistReservation,
-    PersistSlotRevision,
 };
-pub use metrics::{ResidentMetrics, ResidentMetricsSnapshot};
-pub use types::{
-    ResidentKind, RESIDENT_KIND_ATOM, RESIDENT_KIND_FILE_BLOB, RESIDENT_KIND_MOLECULE,
-    RESIDENT_KIND_PROTEIN, RESIDENT_KIND_SCHEMA,
-};
+pub use metrics::{PersistLaneMetrics, PersistLaneMetricsSnapshot};

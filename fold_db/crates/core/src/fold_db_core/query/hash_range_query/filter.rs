@@ -77,7 +77,7 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
+        Self::require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
         let query = QuerySelection {
             schema,
             fields,
@@ -147,7 +147,7 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
+        Self::require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
         let selection = PredicateSelection {
             query: QuerySelection {
                 schema,

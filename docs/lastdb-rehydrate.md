@@ -63,7 +63,11 @@ Cloud sync stays disabled for this optimization round. Startup and runtime activ
 The local capture router remains. No cloud engine attaches to it during this cutover.
 Raw physical format tools and vendor code do not provide an alternate logical engine.
 
-The core owns the logical values. Shared counters use `ResidentMetrics` directly.
+The core owns the logical values and their record measurements.
+Status reads those measurements from the native runtime.
+`PersistLaneMetrics` measures background purge work; it holds no logical values.
+Historical status fields remain at the wire boundary for installed clients.
+The native sampler does not maintain their retired graph and loader counters.
 Write gates, record locks, and purge queues still control their respective work.
 The [write result](proofs/core-owned-writes-20261018/RESULTS.md) records the preceding measured source and its limits.
 Later cleanup or cutover checks must identify their own source and product evidence.

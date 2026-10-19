@@ -29,11 +29,7 @@ impl HashRangeQueryProcessor {
                         "resolved field '{name}' has no captured schema"
                     ))
                 })?;
-                let binding = FieldScope::for_runtime(
-                    self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-                    schema,
-                    &name,
-                )?;
+                let binding = FieldScope::new(schema, &name)?;
                 let matches = slots
                     .iter()
                     .map(|slot| {

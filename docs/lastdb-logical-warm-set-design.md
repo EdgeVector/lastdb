@@ -1,6 +1,7 @@
 # LastDB logical warm set design
 
 Status: native storage and shared core memory merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18.
+Selected tips without values merged in [PR 215](https://github.com/EdgeVector/lastdb/pull/215).
 The [core model spike](lastdb-core-model-warm-spike.md) records the earlier implementation.
 The retention choice below extends the full-record model with selected tips that do not yet hold values.
 The [schema preload design](lastdb-schema-range-preload-design.md) defines the first-query load and complete logical key part.
@@ -124,16 +125,16 @@ This allowance is separate from the complete-key allowance and the 10,000 logica
 It measures conservative charges, not the complete process memory size.
 Active conflict histories retain their existing event reads.
 
-The current tip and delete-control route can clear more warm paths than the changed key requires.
-A per-key generation-delete marker also clears the affected molecule's warm slots.
-The first read after these changes can fetch again; its repeat uses memory after that fetch.
-This existing performance limit remains separate from shared definition ownership.
+A recognized per-key generation record or delete marker clears the affected key's source links.
+A generation-pointer change or structural molecule replacement clears the affected molecule's warm slots.
+An unknown control identity clears authorization rather than permits an unchecked warm answer.
+The first read of an invalidated record fetches it again; its repeat can use memory.
 Without an active generation, its row and delete markers do not add keys to a ready key part.
 A later generation-pointer change clears readiness before a query can use it.
 This rule prevents a delete marker from restoring an absent key candidate.
 
-Write preparation keeps its private captured state.
-It does not trust the shared read definitions or become a memory-only write through this change.
+Write preparation uses its captured core state and matching disk root.
+A memory ack requires a complete core change and the corresponding reservations.
 The [core memory results](proofs/core-memory-state-20261018/RESULTS.md) record the operational checks and matched synthetic measurements.
 
 The flush queue owns exact disk work. It does not serve current-key reads.

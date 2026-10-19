@@ -18,7 +18,7 @@ impl FieldVariant {
         as_of: Option<DateTime<Utc>>,
         include_tombstones: bool,
     ) -> Result<Vec<KeyedAtomMatch>, SchemaError> {
-        self.require_native_read(db_ops, filter.as_ref(), as_of.is_some())?;
+        self.require_supported_read(filter.as_ref(), as_of.is_some())?;
         captured_field_read(
             db_ops,
             self.collect_matches_captured(db_ops, filter, include_tombstones)

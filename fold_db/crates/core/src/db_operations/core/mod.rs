@@ -66,8 +66,8 @@ pub struct DbOperations {
     /// `projects/molecule-provenance-dag`).
     lineage_index: LineageIndex,
 
-    /// Shared request and background-work counters from the native runtime.
-    resident_metrics: Arc<crate::resident::ResidentMetrics>,
+    /// Background purge counters shared with the native runtime.
+    persist_metrics: Arc<crate::resident::PersistLaneMetrics>,
     /// Cumulative count of query rows skipped because a tip referenced an atom
     /// body that could not be resolved. `/api/query` reads a before/after delta
     /// around one query and reports it as `unresolved_rows`.
@@ -129,9 +129,22 @@ impl DbOperations {
         &self.atom_store
     }
 
-    /// Access the process counters shared with the native runtime.
-    pub fn resident_metrics(&self) -> &Arc<crate::resident::ResidentMetrics> {
-        &self.resident_metrics
+    /// Access background purge counters, separate from logical record counts.
+    pub fn persist_metrics(&self) -> &Arc<crate::resident::PersistLaneMetrics> {
+        &self.persist_metrics
+    }
+
+    /// Logical queries require one captured core state and matching disk root.
+    pub async fn read_scope(
+        &self,
+    ) -> crate::storage::error::StorageResult<crate::storage::disk_pack::PackReadScope> {
+        crate::storage::disk_pack::PackReadScope::for_store(&self.store)
+            .await?
+            .ok_or_else(|| {
+                crate::storage::StorageError::ConfigurationError(
+                    "logical reads require native packed storage".into(),
+                )
+            })
     }
 
     /// Override the atom body key encoding for the whole node.

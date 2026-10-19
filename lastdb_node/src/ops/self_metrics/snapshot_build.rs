@@ -27,7 +27,12 @@ pub(super) async fn build_snapshot(
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
     let namespaced_store = host.db.db_ops().namespaced_store();
-    let resident = ResidentHealth::from_metrics(host.db.db_ops().resident_metrics());
+    let native = namespaced_store
+        .disk_pack_runtime()
+        .expect("logical status requires native storage")
+        .status_native();
+    let resident =
+        ResidentHealth::from_native(&native, host.db.db_ops().persist_metrics().snapshot());
     let (memory_budget, read_cost) = memory_budget_health(
         host,
         &namespaced_store,

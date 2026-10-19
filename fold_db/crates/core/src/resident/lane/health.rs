@@ -4,7 +4,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use super::super::metrics::ResidentMetrics;
+use super::super::metrics::PersistLaneMetrics;
 use super::*;
 
 pub(super) const UNHEALTHY_AFTER_FAILURES: u32 = 3;
@@ -123,7 +123,7 @@ pub(super) fn record_quarantined<T>(
     head_bytes: u64,
     mut untried: Vec<PersistEnvelope<T>>,
     metrics: &PersistLaneCounters,
-    graph_metrics: Option<&ResidentMetrics>,
+    shared_metrics: Option<&PersistLaneMetrics>,
     age_tracker: &PersistLaneAgeTracker,
 ) {
     let mut fifo = lane.fifo.lock().expect("persist lane fifo");
@@ -137,15 +137,15 @@ pub(super) fn record_quarantined<T>(
     fifo.consecutive_failures = 0;
     let was_unhealthy = fifo.unhealthy;
     fifo.unhealthy = false;
-    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), graph_metrics);
+    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), shared_metrics);
     drop(fifo);
     if was_unhealthy {
         metrics.unhealthy_lanes.fetch_sub(1, Ordering::Relaxed);
     }
     metrics.quarantined.fetch_add(1, Ordering::Relaxed);
     metrics.depth.fetch_sub(1, Ordering::Relaxed);
-    if let Some(gm) = graph_metrics {
-        gm.record_persist_lane_dequeue(1);
+    if let Some(shared) = shared_metrics {
+        shared.record_dequeue(1);
     }
     lane.notify.notify_one();
 }
@@ -161,7 +161,7 @@ pub(super) async fn handle_failed_batch<T>(
     attempted: u64,
     attempted_bytes: u64,
     metrics: &PersistLaneCounters,
-    graph_metrics: Option<&ResidentMetrics>,
+    shared_metrics: Option<&PersistLaneMetrics>,
     age_tracker: &PersistLaneAgeTracker,
 ) {
     let returned = remaining.len() as u64;
@@ -170,15 +170,16 @@ pub(super) async fn handle_failed_batch<T>(
     });
     let completed = attempted.saturating_sub(returned);
     let completed_bytes = attempted_bytes.saturating_sub(returned_bytes);
-    record_completed(lane, completed, completed_bytes, metrics, graph_metrics);
+    record_completed(lane, completed, completed_bytes, metrics, shared_metrics);
     remaining.sort_by_key(|envelope| envelope.commit_id);
-    let consecutive_failures = prepend_failed(lane, remaining, metrics, graph_metrics, age_tracker);
+    let consecutive_failures =
+        prepend_failed(lane, remaining, metrics, shared_metrics, age_tracker);
     // The failed suffix is back on the FIFO before any finished waiter runs,
     // so a follow-up reserve cannot pass that suffix.
     notify_released(finished);
     metrics.record_failure();
-    if let Some(gm) = graph_metrics {
-        gm.record_persist_lane_failure();
+    if let Some(shared) = shared_metrics {
+        shared.record_failure();
     }
     if consecutive_failures >= UNHEALTHY_AFTER_FAILURES {
         tracing::error!(
@@ -212,7 +213,7 @@ pub(super) fn record_completed<T>(
     completed: u64,
     completed_bytes: u64,
     metrics: &PersistLaneCounters,
-    graph_metrics: Option<&ResidentMetrics>,
+    shared_metrics: Option<&PersistLaneMetrics>,
 ) {
     if completed == 0 && completed_bytes == 0 {
         return;
@@ -226,8 +227,8 @@ pub(super) fn record_completed<T>(
     }
     drop(fifo);
     metrics.depth.fetch_sub(completed, Ordering::Relaxed);
-    if let Some(gm) = graph_metrics {
-        gm.record_persist_lane_dequeue(completed);
+    if let Some(shared) = shared_metrics {
+        shared.record_dequeue(completed);
     }
 }
 
@@ -236,7 +237,7 @@ pub(super) fn record_success<T>(
     completed: u64,
     completed_bytes: u64,
     metrics: &PersistLaneCounters,
-    graph_metrics: Option<&ResidentMetrics>,
+    shared_metrics: Option<&PersistLaneMetrics>,
     age_tracker: &PersistLaneAgeTracker,
 ) {
     let mut fifo = lane.fifo.lock().expect("persist lane fifo");
@@ -252,12 +253,12 @@ pub(super) fn record_success<T>(
     if was_unhealthy {
         metrics.unhealthy_lanes.fetch_sub(1, Ordering::Relaxed);
     }
-    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), graph_metrics);
+    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), shared_metrics);
     drop(fifo);
 
     metrics.depth.fetch_sub(completed, Ordering::Relaxed);
-    if let Some(gm) = graph_metrics {
-        gm.record_persist_lane_dequeue(completed);
+    if let Some(shared) = shared_metrics {
+        shared.record_dequeue(completed);
     }
     if was_unhealthy {
         tracing::info!(
@@ -272,7 +273,7 @@ pub(super) fn prepend_failed<T>(
     lane: &LaneRuntime<T>,
     mut remaining: Vec<PersistEnvelope<T>>,
     metrics: &PersistLaneCounters,
-    graph_metrics: Option<&ResidentMetrics>,
+    shared_metrics: Option<&PersistLaneMetrics>,
     age_tracker: &PersistLaneAgeTracker,
 ) -> u32 {
     let returned = remaining.len() as u64;
@@ -295,7 +296,7 @@ pub(super) fn prepend_failed<T>(
             "persist writer returned Retry without an envelope"
         );
     }
-    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), graph_metrics);
+    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), shared_metrics);
     fifo.consecutive_failures
 }
 

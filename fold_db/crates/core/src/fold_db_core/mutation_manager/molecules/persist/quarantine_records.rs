@@ -69,25 +69,11 @@ pub(super) fn describe_lane_job(
 
 /// Durable description of a quarantined envelope.
 ///
-/// It keeps the content a repair needs: atom bodies, mutation events, and
-/// idempotency entries for a write; the erasure mutations for a purge.
+/// It identifies the background purge job and its erasure mutations.
 pub(super) fn quarantine_record(
     envelope: &crate::resident::PersistEnvelope<LanePersistJob>,
     error: &str,
 ) -> serde_json::Value {
-    let slots: Vec<serde_json::Value> = envelope
-        .slot_revisions
-        .iter()
-        .map(|slot| {
-            serde_json::json!({
-                "molecule_uuid": slot.molecule_uuid,
-                "disk_hash": slot.disk_hash,
-                "disk_range": slot.disk_range,
-                "resident_revision": slot.resident_revision,
-                "durable_revision": slot.durable_revision,
-            })
-        })
-        .collect();
     let job = match &envelope.payload {
         LanePersistJob::Purge { job, .. } => serde_json::json!({
             "kind": "purge",
@@ -109,7 +95,6 @@ pub(super) fn quarantine_record(
         "bytes": envelope.bytes,
         "error": error,
         "description": describe_lane_job(envelope),
-        "slots": slots,
         "job": job,
     })
 }

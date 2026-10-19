@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::super::metrics::ResidentMetrics;
+use super::super::metrics::PersistLaneMetrics;
 use super::health::*;
 use super::*;
 
@@ -14,7 +14,7 @@ struct LaneWorker<T> {
     lane: Arc<LaneRuntime<T>>,
     writer: Arc<dyn PersistLaneWriter<T>>,
     metrics: Arc<PersistLaneCounters>,
-    graph_metrics: Option<Arc<ResidentMetrics>>,
+    shared_metrics: Option<Arc<PersistLaneMetrics>>,
     age_tracker: Arc<PersistLaneAgeTracker>,
     breaker_cooldown_base: Duration,
 }
@@ -36,7 +36,7 @@ pub(super) async fn run_lane_worker<T: Send + 'static>(
     lane: Arc<LaneRuntime<T>>,
     writer: Arc<dyn PersistLaneWriter<T>>,
     metrics: Arc<PersistLaneCounters>,
-    graph_metrics: Option<Arc<ResidentMetrics>>,
+    shared_metrics: Option<Arc<PersistLaneMetrics>>,
     age_tracker: Arc<PersistLaneAgeTracker>,
     group_commit_max: usize,
     breaker_cooldown_base: Duration,
@@ -45,7 +45,7 @@ pub(super) async fn run_lane_worker<T: Send + 'static>(
         lane,
         writer,
         metrics,
-        graph_metrics,
+        shared_metrics,
         age_tracker,
         breaker_cooldown_base,
     };
@@ -54,7 +54,7 @@ pub(super) async fn run_lane_worker<T: Send + 'static>(
             &worker.lane,
             group_commit_max,
             &worker.age_tracker,
-            worker.graph_metrics.as_deref(),
+            worker.shared_metrics.as_deref(),
         );
         if batch.is_empty() {
             if worker.lane.stop.load(Ordering::Relaxed)
@@ -107,7 +107,7 @@ impl<T: Send + 'static> LaneWorker<T> {
             attempt.count,
             attempt.bytes,
             &self.metrics,
-            self.graph_metrics.as_deref(),
+            self.shared_metrics.as_deref(),
             &self.age_tracker,
         );
     }
@@ -127,7 +127,7 @@ impl<T: Send + 'static> LaneWorker<T> {
             attempt.count,
             attempt.bytes,
             &self.metrics,
-            self.graph_metrics.as_deref(),
+            self.shared_metrics.as_deref(),
             &self.age_tracker,
         )
         .await;
@@ -174,7 +174,7 @@ impl<T: Send + 'static> LaneWorker<T> {
                 completed,
                 completed_bytes,
                 &self.metrics,
-                self.graph_metrics.as_deref(),
+                self.shared_metrics.as_deref(),
             );
             self.quarantine_head(remaining, finished, &error).await;
             return;
@@ -209,12 +209,6 @@ impl<T: Send + 'static> LaneWorker<T> {
         let head = remaining.remove(0);
         let commit_id = head.commit_id;
         let head_bytes = head.bytes;
-        let slots = head.slot_revisions.len();
-        let molecules: Vec<String> = head
-            .slot_revisions
-            .iter()
-            .map(|slot| slot.molecule_uuid.clone())
-            .collect();
         match self.writer.quarantine(head, error).await {
             Ok(()) => {
                 tracing::error!(
@@ -223,8 +217,6 @@ impl<T: Send + 'static> LaneWorker<T> {
                     storage_prefix = %self.lane.key.storage_prefix,
                     commit_id,
                     bytes = head_bytes,
-                    slots,
-                    molecules = ?molecules,
                     untried = remaining.len(),
                     "persist lane QUARANTINED an envelope that fails \
                      deterministically; the lane keeps serving other writes"
@@ -234,7 +226,7 @@ impl<T: Send + 'static> LaneWorker<T> {
                     head_bytes,
                     remaining,
                     &self.metrics,
-                    self.graph_metrics.as_deref(),
+                    self.shared_metrics.as_deref(),
                     &self.age_tracker,
                 );
                 notify_released(finished);
@@ -275,7 +267,7 @@ pub(super) fn dequeue_batch<T>(
     lane: &LaneRuntime<T>,
     max: usize,
     age_tracker: &PersistLaneAgeTracker,
-    graph_metrics: Option<&ResidentMetrics>,
+    shared_metrics: Option<&PersistLaneMetrics>,
 ) -> Vec<PersistEnvelope<T>> {
     let mut fifo = lane.fifo.lock().expect("persist lane fifo");
     let take = fifo.queue.len().min(max);
@@ -289,6 +281,6 @@ pub(super) fn dequeue_batch<T>(
         }
     }
     fifo.in_flight_oldest = out.first().map(|envelope| envelope.enqueued_at);
-    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), graph_metrics);
+    age_tracker.publish(&lane.key, fifo_oldest_enqueued_at(&fifo), shared_metrics);
     out
 }

@@ -301,7 +301,7 @@ impl MutationManager {
             policy.max_deferred_persists.max(1),
             lane_fair_share.max(1),
             writer,
-            Some(Arc::clone(db_ops.resident_metrics())),
+            Some(Arc::clone(db_ops.persist_metrics())),
         ));
         let author_clock_state_key = crate::schema::types::author_clock::mutation_author_clock_key(
             &signer.public_key_base64(),

@@ -2,14 +2,12 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Process-local lane counters (also mirrored onto [`super::ResidentMetrics`]).
+/// Process-local lane counters (also mirrored onto [`super::PersistLaneMetrics`]).
 #[derive(Debug, Default)]
 pub struct PersistLaneCounters {
     pub(super) depth: AtomicU64,
     pub(super) failures: AtomicU64,
     pub(super) unhealthy_lanes: AtomicU64,
-    /// Reserved status field for a future aggregate slot-lag gauge.
-    pub(super) resident_minus_durable_revision: AtomicU64,
     pub(super) refuse_bytes: AtomicU64,
     pub(super) refuse_entries: AtomicU64,
     pub(super) refuse_unhealthy: AtomicU64,
@@ -70,10 +68,6 @@ impl PersistLaneCounters {
 
     pub fn unhealthy_lanes(&self) -> u64 {
         self.unhealthy_lanes.load(Ordering::Relaxed)
-    }
-
-    pub fn resident_minus_durable_revision(&self) -> u64 {
-        self.resident_minus_durable_revision.load(Ordering::Relaxed)
     }
 
     pub fn refuse_bytes(&self) -> u64 {

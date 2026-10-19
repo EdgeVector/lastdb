@@ -1,6 +1,7 @@
 use super::*;
 
-/// Operator-facing resident graph telemetry.
+/// Logical records plus background work. Historical wire fields remain for
+/// installed clients; the native sampler does not maintain retired counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResidentHealth {
     /// Historical graph-cache wire field. Native values use core_model counters.
@@ -16,6 +17,7 @@ pub struct ResidentHealth {
     pub revision_slots: Gauge,
     /// Historical graph budget wire field; zero does not describe native limits.
     pub budget_bytes: u64,
+    /// Retired cache-kind counters, retained as zero for installed clients.
     pub schema_hits: u64,
     pub schema_rehydrates: u64,
     pub molecule_hits: u64,
@@ -26,34 +28,26 @@ pub struct ResidentHealth {
     pub file_blob_rehydrates: u64,
     pub protein_hits: u64,
     pub protein_rehydrates: u64,
+    /// Retired background totals. Live queue measurements use persist_lane_*.
     pub persist_enqueued: u64,
     pub persist_flushed: u64,
     pub deferred_persist_failed: u64,
-    /// Completed queued background purge tasks, success or failure. Native
-    /// logical request durability uses the native accepted/completed frontier.
-    /// An unavailable gauge is not a measured zero.
+    /// Retired completion gauge; unavailable from the native sampler.
     #[serde(default = "default_deferred_persist_completed_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_deferred_persist_completed")]
     pub deferred_persist_completed: Gauge,
-    /// Cumulative wall-clock microseconds spent inside the deferred durable
-    /// persist task across all completions. Divide by the measured
-    /// `deferred_persist_completed` for an average; this is the cost
-    /// `report_phase_totals`'s `apply` residual cannot see because the task
-    /// runs off the request's task-local scope after the client is acked.
-    ///
-    /// Unavailable when the daemon predates the counter — see
-    /// [`Self::deferred_persist_completed`].
+    /// Retired duration gauge; unavailable from the native sampler.
     #[serde(default = "default_deferred_persist_us_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_deferred_persist_us")]
     pub deferred_persist_us: Gauge,
+    /// Retired graph counters. Current purge counts use resident_purged_keys.
     pub evicted: u64,
     pub evict_refused_dirty: u64,
     #[serde(default)]
     pub key_set_hits: u64,
-    /// `key_set_overlays + key_set_unknowns`. Kept so existing readers of the
-    /// wire keep working; prefer the two components below.
+    /// Retired key-set counter, retained as zero for installed clients.
     #[serde(default)]
     pub key_set_misses: u64,
     #[serde(default)]
@@ -62,7 +56,7 @@ pub struct ResidentHealth {
     pub key_set_unknowns: u64,
     #[serde(default)]
     pub key_set_demotes: u64,
-    /// Complete partition intervals certified from required reads.
+    /// Retired key-set counter, retained as zero for installed clients.
     #[serde(default)]
     pub key_set_marked_complete: u64,
     /// Current FIFO depth across schema persist lanes.
@@ -102,51 +96,65 @@ pub struct ResidentHealth {
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_lifetime")]
     pub resident_purged_keys: Gauge,
-    /// Bytes in the loader pin table. Measurement, not a cap.
+    /// Retired loader gauge; unavailable from the native sampler.
     #[serde(default = "default_bytes_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_bytes_instant")]
     pub loader_pin_bytes: Gauge,
-    /// Hash groups the loader has open right now. Measurement, not a cap.
+    /// Retired loader gauge; unavailable from the native sampler.
     #[serde(default = "default_groups_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_groups_instant")]
     pub loader_groups_open_now: Gauge,
-    /// Point reads the logical set served from memory.
+    /// Retired point-read gauge; current lookups use warm_lookup_hits.
     #[serde(default = "default_events_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_events_lifetime")]
     pub resident_point_hits: Gauge,
-    /// Point reads that went to the loader.
+    /// Retired point-read gauge; current lookups use warm_lookup_misses.
     #[serde(default = "default_events_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_events_lifetime")]
     pub resident_point_misses: Gauge,
-    /// Purge passes that removed at least one used record.
+    /// Retired graph gauge; unavailable from the native sampler.
     #[serde(default = "default_events_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_events_lifetime")]
     pub resident_purge_runs: Gauge,
-    /// Purge passes that ended over budget (all remaining held or dirty).
+    /// Retired graph gauge; unavailable from the native sampler.
     #[serde(default = "default_events_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_events_lifetime")]
     pub resident_over_cap_stalls: Gauge,
-    /// Used records above the budget right now.
+    /// Retired graph gauge; unavailable from the native sampler.
     #[serde(default = "default_keys_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_instant")]
     pub resident_over_cap_keys: Gauge,
-    /// Loader point loads since process start.
+    /// Retired loader gauge; unavailable from the native sampler.
     #[serde(default = "default_events_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_events_lifetime")]
     pub loader_loads: Gauge,
-    /// Cumulative microseconds inside loader point loads.
+    /// Retired loader gauge; unavailable from the native sampler.
     #[serde(default = "default_micros_lifetime_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_micros_lifetime")]
     pub loader_load_us: Gauge,
+    /// Logical records with a known tip and no full value.
+    #[serde(default = "default_keys_instant_gauge")]
+    #[serde(serialize_with = "serialize_gauge_wire")]
+    #[serde(deserialize_with = "deserialize_keys_instant")]
+    pub resident_tip_only_keys: Gauge,
+    /// Core lookups, including tip-only lookups; these are not query counts.
+    #[serde(default = "default_events_lifetime_gauge")]
+    #[serde(serialize_with = "serialize_gauge_wire")]
+    #[serde(deserialize_with = "deserialize_events_lifetime")]
+    pub warm_lookup_hits: Gauge,
+    #[serde(default = "default_events_lifetime_gauge")]
+    #[serde(serialize_with = "serialize_gauge_wire")]
+    #[serde(deserialize_with = "deserialize_events_lifetime")]
+    pub warm_lookup_misses: Gauge,
 }
 
 impl Default for ResidentHealth {
@@ -197,73 +205,31 @@ impl Default for ResidentHealth {
             resident_over_cap_keys: default_keys_instant_gauge(),
             loader_loads: default_events_lifetime_gauge(),
             loader_load_us: default_micros_lifetime_gauge(),
+            resident_tip_only_keys: default_keys_instant_gauge(),
+            warm_lookup_hits: default_events_lifetime_gauge(),
+            warm_lookup_misses: default_events_lifetime_gauge(),
         }
     }
 }
 
 impl ResidentHealth {
-    pub(super) fn from_metrics(metrics: &fold_db::ResidentMetrics) -> Self {
-        Self::from_snapshot(metrics.snapshot())
-    }
-
-    pub(crate) fn from_snapshot(s: fold_db::resident::ResidentMetricsSnapshot) -> Self {
+    pub(super) fn from_native(
+        core: &fold_db::storage::disk_pack::NativeDiskStatus,
+        work: fold_db::resident::PersistLaneMetricsSnapshot,
+    ) -> Self {
         Self {
-            resident_bytes: 0,
-            resident_entries: 0,
-            revision_slots: default_keys_instant_gauge(),
-            budget_bytes: 0,
-            schema_hits: s.schema_hit,
-            schema_rehydrates: s.schema_rehydrate,
-            molecule_hits: s.molecule_hit,
-            molecule_rehydrates: s.molecule_rehydrate,
-            atom_hits: s.atom_hit,
-            atom_rehydrates: s.atom_rehydrate,
-            file_blob_hits: s.file_blob_hit,
-            file_blob_rehydrates: s.file_blob_rehydrate,
-            protein_hits: s.protein_hit,
-            protein_rehydrates: s.protein_rehydrate,
-            persist_enqueued: s.persist_enqueued,
-            persist_flushed: s.persist_flushed,
-            deferred_persist_failed: s.deferred_persist_failed,
-            // This process measured them, so they are always Measured here. The
-            // Unavailable case is produced only by deserializing an older
-            // daemon's payload, never by a live snapshot.
-            deferred_persist_completed: gauge_measured(
-                s.deferred_persist_completed,
-                Unit::Events,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            deferred_persist_us: gauge_measured(
-                s.deferred_persist_us,
-                Unit::Micros,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            evicted: s.evicted,
-            evict_refused_dirty: s.evict_refused_dirty,
-            key_set_hits: s.key_set_hit,
-            key_set_misses: s.key_set_miss,
-            key_set_overlays: s.key_set_overlay,
-            key_set_unknowns: s.key_set_unknown,
-            key_set_demotes: s.key_set_demote,
-            key_set_marked_complete: s.key_set_marked_complete,
-            persist_lane_depth: s.persist_lane_depth,
-            persist_lane_oldest_age_ms: s.persist_lane_oldest_age_ms,
-            persist_lane_failures: s.persist_lane_failures,
-            resident_minus_durable_revision: s.resident_minus_durable_revision,
-            resident_key_count: g_instant(s.resident_key_count, Unit::Keys),
-            resident_held_keys: g_instant(s.resident_held_keys, Unit::Keys),
-            resident_dirty_keys: g_instant(s.resident_dirty_keys, Unit::Keys),
-            resident_key_budget: g_instant(s.resident_key_budget, Unit::Keys),
-            resident_purged_keys: g_lifetime(s.resident_purged_keys, Unit::Keys),
-            loader_pin_bytes: g_instant(s.loader_pin_bytes, Unit::Bytes),
-            loader_groups_open_now: g_instant(s.loader_groups_open_now, Unit::Named("group(s)")),
-            resident_point_hits: g_lifetime(s.resident_point_hits, Unit::Events),
-            resident_point_misses: g_lifetime(s.resident_point_misses, Unit::Events),
-            resident_purge_runs: g_lifetime(s.resident_purge_runs, Unit::Events),
-            resident_over_cap_stalls: g_lifetime(s.resident_over_cap_stalls, Unit::Events),
-            resident_over_cap_keys: g_instant(s.resident_over_cap_keys, Unit::Keys),
-            loader_loads: g_lifetime(s.loader_loads, Unit::Events),
-            loader_load_us: g_lifetime(s.loader_load_us, Unit::Micros),
+            resident_key_count: g_instant(core.core_warm_paths as u64, Unit::Keys),
+            resident_held_keys: g_instant(core.core_warm_held as u64, Unit::Keys),
+            resident_dirty_keys: g_instant(core.core_warm_dirty as u64, Unit::Keys),
+            resident_key_budget: g_instant(core.warm_record_limit as u64, Unit::Keys),
+            resident_purged_keys: g_lifetime(core.core_warm_purged, Unit::Keys),
+            resident_tip_only_keys: g_instant(core.core_warm_tip_only_paths as u64, Unit::Keys),
+            warm_lookup_hits: g_lifetime(core.core_warm_hits, Unit::Events),
+            warm_lookup_misses: g_lifetime(core.core_warm_misses, Unit::Events),
+            persist_lane_depth: work.depth,
+            persist_lane_oldest_age_ms: work.oldest_age_ms,
+            persist_lane_failures: work.failures,
+            ..Self::default()
         }
     }
 }

@@ -130,29 +130,22 @@ impl HashRangeQueryProcessor {
     }
 
     fn require_supported_query(
-        &self,
         schema: &Schema,
         filter: Option<&HashRangeFilter>,
         historical: bool,
     ) -> Result<(), SchemaError> {
-        let native = self.db_ops.namespaced_store().disk_pack_runtime().is_some();
-        crate::schema::require_native_logical_layout(native, &schema.schema_type)?;
-        crate::schema::require_native_logical_filter(native, filter)?;
-        crate::schema::require_native_current_read(native, historical)
+        crate::schema::require_logical_layout(&schema.schema_type)?;
+        crate::schema::require_logical_filter(filter)?;
+        crate::schema::require_current_read(historical)
     }
 
     async fn current_query_scope<T>(
         &self,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {
-        let scope =
-            crate::storage::disk_pack::PackReadScope::for_store(&self.db_ops.namespaced_store())
-                .await?;
-        let future = crate::storage::disk_pack::logical_paths::field::query_scope(true, future);
-        match scope {
-            Some(scope) => scope.run_result(future).await,
-            None => future.await,
-        }
+        let scope = self.db_ops.read_scope().await?;
+        let future = crate::storage::disk_pack::logical_paths::field::query_scope(future);
+        scope.run_result(future).await
     }
 
     /// Start a live watch for one HashRange partition.

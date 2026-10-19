@@ -19,36 +19,18 @@ pub(crate) struct AtomSelection<'a> {
 
 tokio::task_local! {
     static FIELD: FieldScope;
-    static CURRENT_PROVENANCE: bool;
+    static CURRENT_PROVENANCE: ();
 }
 
-pub(crate) async fn query_scope<T>(
-    current: bool,
-    future: impl std::future::Future<Output = T>,
-) -> T {
-    CURRENT_PROVENANCE.scope(current, future).await
+pub(crate) async fn query_scope<T>(future: impl std::future::Future<Output = T>) -> T {
+    CURRENT_PROVENANCE.scope((), future).await
 }
 
 pub(in crate::storage::disk_pack) fn provenance_current() -> bool {
-    CURRENT_PROVENANCE
-        .try_with(|current| *current)
-        .unwrap_or(false)
+    CURRENT_PROVENANCE.try_with(|_| ()).is_ok()
 }
 
 impl FieldScope {
-    pub(crate) fn for_runtime(native: bool, schema: &Schema, name: &str) -> StorageResult<Self> {
-        if native {
-            Self::new(schema, name)
-        } else {
-            Ok(Self {
-                schema: String::new(),
-                field: String::new(),
-                name: String::new(),
-                record_molecule: None,
-            })
-        }
-    }
-
     pub(crate) fn new(schema: &Schema, name: &str) -> StorageResult<Self> {
         Ok(Self {
             schema: schema_identity(schema)?,
@@ -78,9 +60,6 @@ impl FieldScope {
     }
 
     pub(crate) async fn run<T>(&self, future: impl std::future::Future<Output = T>) -> T {
-        if self.schema.is_empty() {
-            return future.await;
-        }
         FIELD.scope(self.clone(), future).await
     }
 

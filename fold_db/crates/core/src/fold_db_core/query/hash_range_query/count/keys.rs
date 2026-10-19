@@ -18,10 +18,8 @@ impl HashRangeQueryProcessor {
             if !schema.runtime_fields.contains_key(field_name) {
                 continue;
             }
-            let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
-                self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-                schema,
-                field_name,
+            let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::new(
+                schema, field_name,
             )?;
             let field = schema
                 .runtime_fields
@@ -66,12 +64,9 @@ impl HashRangeQueryProcessor {
         // authoritative and must not be unioned with sparse projection keys.
         if let Some(fallback) = Self::count_fallback_field(schema, fields) {
             if let Some(field) = schema.runtime_fields.get(&fallback) {
-                let binding =
-                    crate::storage::disk_pack::logical_paths::field::FieldScope::for_runtime(
-                        self.db_ops.namespaced_store().disk_pack_runtime().is_some(),
-                        schema,
-                        &fallback,
-                    )?;
+                let binding = crate::storage::disk_pack::logical_paths::field::FieldScope::new(
+                    schema, &fallback,
+                )?;
                 keys.extend(
                     binding
                         .run(self.live_field_keys_flag_only(field, None, filter))
