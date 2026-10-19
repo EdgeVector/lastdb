@@ -53,13 +53,20 @@ impl CoreWarmSet {
                 detail: "core tip and atom identities differ",
             });
         }
-        self.ensure_path(path)?;
-        let slot = path.slot();
-        self.share_model_atom(&slot.molecule, &mut value);
+        let id = self.ensure_path(path)?;
+        let molecule = self
+            .slots
+            .get(id)
+            .expect("warm core slot")
+            .key
+            .molecule
+            .clone();
+        self.share_model_atom(&molecule, &mut value);
         self.track_atom(&value.atom);
-        let owned = self
-            .owned_slots
-            .get(&path.slot())
+        let slot = self.slots.get(id).expect("warm core slot");
+        let owned = slot
+            .owned
+            .as_ref()
             .filter(|previous| {
                 previous.value.as_ref().is_some_and(|previous| {
                     previous.entry == value.entry
@@ -69,26 +76,27 @@ impl CoreWarmSet {
             })
             .cloned()
             .unwrap_or_else(|| model::CoreModelSlot::clean(Some(value.clone())));
+        let key = slot.key.clone();
         let previous = self
             .molecules
-            .get(&slot.molecule)
-            .and_then(|molecule| molecule.get_atom_uuid(&slot.hash, &slot.range))
+            .get(&key.molecule)
+            .and_then(|molecule| molecule.get_atom_uuid(&key.hash, &key.range))
             .cloned();
         if let Some(previous) = previous {
-            self.unlink_atom(&slot, &previous);
+            self.unlink_atom(id, &previous);
         }
-        self.link_atom(&slot, value.atom, value.bytes);
+        self.link_atom(id, value.atom, value.bytes);
         self.molecules
-            .entry(slot.molecule.clone())
+            .entry(key.molecule)
             .or_insert_with(|| MoleculeHashRange::with_partial_uuid(path.molecule.clone()))
             .insert_loaded_slot_verbatim(
-                slot.hash.clone(),
-                slot.range.clone(),
+                key.hash.to_string(),
+                key.range.to_string(),
                 value.entry,
                 value.metadata,
             );
-        self.mark_slot(&slot, false, dirty_sequence);
-        self.owned_slots.insert(slot, owned);
+        self.mark_slot(id, false, dirty_sequence);
+        self.slots.get_mut(id).expect("warm core slot").owned = Some(owned);
         self.touch(path);
         Ok(())
     }
@@ -101,42 +109,45 @@ impl CoreWarmSet {
         path: &CorePath,
         tip: CoreWarmTip,
     ) -> Result<bool, CoreCapacity> {
-        let slot = path.slot();
-        let identical = self.molecules.get(&slot.molecule).is_some_and(|molecule| {
-            molecule.get_atom_entry(&slot.hash, &slot.range) == Some(&tip.entry)
-                && molecule.get_key_metadata(&slot.hash, &slot.range) == tip.metadata.as_ref()
+        let existing = self.slot_of(path).and_then(|id| self.slots.get(id));
+        let identical = existing.is_some_and(|slot| {
+            self.molecules
+                .get(&slot.key.molecule)
+                .is_some_and(|molecule| {
+                    molecule.get_atom_entry(&slot.key.hash, &slot.key.range) == Some(&tip.entry)
+                        && molecule.get_key_metadata(&slot.key.hash, &slot.key.range)
+                            == tip.metadata.as_ref()
+                })
         });
         if !identical
-            && self
-                .slot_owners
-                .get(&slot)
-                .into_iter()
-                .flatten()
-                .any(|owner| {
+            && existing.is_some_and(|slot| {
+                slot.owners.iter().any(|owner| {
                     self.paths
-                        .get(owner)
+                        .get(owner.as_ref())
                         .is_some_and(|state| state.dirty.is_some())
                 })
+            })
         {
             return Err(CoreCapacity {
                 detail: "tip-only retention cannot replace an unflushed core value",
             });
         }
-        self.ensure_path(path)?;
-        let retains_value = identical && self.slot_atom(&slot, &tip.entry.atom_uuid).is_some();
+        let id = self.ensure_path(path)?;
+        let retains_value = identical && self.slot_atom(id, &tip.entry.atom_uuid).is_some();
         if !retains_value {
-            self.forget_slot_value(&slot);
+            self.forget_slot_value(id);
         }
+        let key = self.slots.get(id).expect("warm core slot").key.clone();
         self.molecules
-            .entry(slot.molecule.clone())
+            .entry(key.molecule)
             .or_insert_with(|| MoleculeHashRange::with_partial_uuid(path.molecule.clone()))
             .insert_loaded_slot_verbatim(
-                slot.hash.clone(),
-                slot.range.clone(),
+                key.hash.to_string(),
+                key.range.to_string(),
                 tip.entry,
                 tip.metadata,
             );
-        self.mark_slot(&slot, false, None);
+        self.mark_slot(id, false, None);
         self.touch(path);
         Ok(retains_value)
     }
@@ -148,13 +159,12 @@ impl CoreWarmSet {
         path: &CorePath,
         dirty_sequence: Option<u64>,
     ) -> Result<(), CoreCapacity> {
-        self.ensure_path(path)?;
-        let slot = path.slot();
-        self.forget_slot_sources(&slot);
-        self.forget_slot_value(&slot);
-        self.mark_slot(&slot, true, dirty_sequence);
-        self.owned_slots
-            .insert(slot, model::CoreModelSlot::clean(None));
+        let id = self.ensure_path(path)?;
+        self.forget_slot_sources(id);
+        self.forget_slot_value(id);
+        self.mark_slot(id, true, dirty_sequence);
+        self.slots.get_mut(id).expect("warm core slot").owned =
+            Some(model::CoreModelSlot::clean(None));
         self.touch(path);
         Ok(())
     }
@@ -195,44 +205,46 @@ impl CoreWarmSet {
         {
             return false;
         }
-        let slot = path.slot();
-        if self.slot_atom(&slot, &entry.atom_uuid).is_none() {
+        let id = self.paths[path].slot;
+        if self.slot_atom(id, &entry.atom_uuid).is_none() {
             return false;
         }
-        let Some(molecule) = self.molecules.get_mut(&slot.molecule) else {
+        let Some(slot) = self.slots.get_mut(id) else {
             return false;
         };
-        if molecule.get_atom_uuid(&slot.hash, &slot.range) != Some(&entry.atom_uuid) {
+        let Some(molecule) = self.molecules.get_mut(&slot.key.molecule) else {
+            return false;
+        };
+        if molecule.get_atom_uuid(&slot.key.hash, &slot.key.range) != Some(&entry.atom_uuid) {
             return false;
         }
         molecule.insert_loaded_slot_verbatim(
-            slot.hash.clone(),
-            slot.range.clone(),
+            slot.key.hash.to_string(),
+            slot.key.range.to_string(),
             entry,
             metadata,
         );
-        if let Some(previous) = self.owned_slots.get(&slot) {
+        if let Some(previous) = &slot.owned {
             let mut value = previous.value.clone();
             if let Some(value) = &mut value {
                 value.entry = molecule
-                    .get_atom_entry(&slot.hash, &slot.range)
+                    .get_atom_entry(&slot.key.hash, &slot.key.range)
                     .expect("refreshed tip")
                     .clone();
-                value.metadata = molecule.get_key_metadata(&slot.hash, &slot.range).cloned();
+                value.metadata = molecule
+                    .get_key_metadata(&slot.key.hash, &slot.key.range)
+                    .cloned();
             }
-            self.owned_slots.insert(
-                slot.clone(),
-                Arc::new(model::CoreModelSlot {
-                    value,
-                    sources: previous.sources.clone(),
-                    owner: previous.owner.clone(),
-                    metadata_charge: previous.metadata_charge.clone(),
-                    charged_bytes: previous.charged_bytes,
-                }),
-            );
+            slot.owned = Some(Arc::new(model::CoreModelSlot {
+                value,
+                sources: previous.sources.clone(),
+                owner: previous.owner.clone(),
+                metadata_charge: previous.metadata_charge.clone(),
+                charged_bytes: previous.charged_bytes,
+            }));
         }
-        for owner in self.slot_owners.get(&slot).into_iter().flatten() {
-            if let Some(state) = self.paths.get_mut(owner) {
+        for owner in &slot.owners {
+            if let Some(state) = self.paths.get_mut(owner.as_ref()) {
                 state.tip_authorized = false;
             }
         }
@@ -240,11 +252,12 @@ impl CoreWarmSet {
     }
 
     fn select(&self, path: &CorePath) -> Option<CoreWarmLookup> {
-        let slot = path.slot();
-        let molecule = self.molecules.get(&slot.molecule)?;
-        let entry = molecule.get_atom_entry(&slot.hash, &slot.range)?.clone();
-        let metadata = molecule.get_key_metadata(&slot.hash, &slot.range).cloned();
-        Some(match self.slot_atom(&slot, &entry.atom_uuid) {
+        let id = self.slot_of(path)?;
+        let key = &self.slots.get(id)?.key;
+        let molecule = self.molecules.get(&key.molecule)?;
+        let entry = molecule.get_atom_entry(&key.hash, &key.range)?.clone();
+        let metadata = molecule.get_key_metadata(&key.hash, &key.range).cloned();
+        Some(match self.slot_atom(id, &entry.atom_uuid) {
             Some(atom) => CoreWarmLookup::value(CoreWarmSelection {
                 entry,
                 metadata,
@@ -255,44 +268,58 @@ impl CoreWarmSet {
         })
     }
 
-    fn slot_atom(&self, slot: &SlotKey, uuid: &str) -> Option<&SharedAtom> {
-        self.slot_atoms
-            .get(slot)
+    fn slot_atom(&self, id: tables::SlotId, uuid: &str) -> Option<&SharedAtom> {
+        self.slots
+            .get(id)?
+            .atom
+            .as_ref()
             .filter(|atom| atom.value.uuid() == uuid)
             .map(Arc::as_ref)
     }
 
-    fn ensure_path(&mut self, path: &CorePath) -> Result<(), CoreCapacity> {
-        if !self.paths.contains_key(path) {
-            self.make_room(std::slice::from_ref(path))?;
-            self.insert_path(path);
+    /// Return the slot of a path that is warm after this call.
+    fn ensure_path(&mut self, path: &CorePath) -> Result<tables::SlotId, CoreCapacity> {
+        if let Some(state) = self.paths.get(path) {
+            return Ok(state.slot);
         }
-        Ok(())
+        self.make_room(std::slice::from_ref(path))?;
+        Ok(self.insert_path(path))
     }
 
-    fn insert_path(&mut self, path: &CorePath) {
-        let slot = path.slot();
-        if !self.slot_owners.contains_key(&slot) {
-            self.charge_slot(&slot);
-        }
-        self.slot_owners
-            .entry(slot)
-            .or_default()
-            .insert(path.clone());
+    fn insert_path(&mut self, path: &CorePath) -> tables::SlotId {
+        let key = path.slot_key();
+        let id = if let Some(id) = self.slots.find(&key) {
+            id
+        } else {
+            let id = self.slots.insert(key);
+            self.charge_slot(id);
+            id
+        };
+        let shared = Arc::new(path.clone());
+        self.slots
+            .get_mut(id)
+            .expect("warm core slot")
+            .owners
+            .push(Arc::clone(&shared));
         let charge = self.charge_path(path);
         self.paths.insert(
-            path.clone(),
+            shared,
             PathState {
+                slot: id,
                 charge,
                 ..PathState::default()
             },
         );
         self.touch(path);
+        id
     }
 
-    fn mark_slot(&mut self, slot: &SlotKey, absent: bool, sequence: Option<u64>) {
-        for path in self.slot_owners.get(slot).into_iter().flatten() {
-            let state = self.paths.get_mut(path).expect("core slot owner");
+    fn mark_slot(&mut self, id: tables::SlotId, absent: bool, sequence: Option<u64>) {
+        let Some(slot) = self.slots.get(id) else {
+            return;
+        };
+        for path in &slot.owners {
+            let state = self.paths.get_mut(path.as_ref()).expect("core slot owner");
             state.known = true;
             state.absent = absent;
             state.tip_authorized = false;
@@ -302,9 +329,12 @@ impl CoreWarmSet {
         }
     }
 
-    fn link_atom(&mut self, slot: &SlotKey, value: Arc<Atom>, bytes: usize) {
+    fn link_atom(&mut self, id: tables::SlotId, value: Arc<Atom>, bytes: usize) {
+        let Some(slot) = self.slots.get_mut(id) else {
+            return;
+        };
         let key = AtomKey {
-            scope: slot.molecule.scope.clone(),
+            scope: slot.key.molecule.scope.clone(),
             uuid: value.uuid().to_string(),
         };
         let variants = self.atoms.entry(key).or_default();
@@ -318,6 +348,6 @@ impl CoreWarmSet {
             variants.push(Arc::downgrade(&atom));
             atom
         });
-        self.slot_atoms.insert(slot.clone(), atom);
+        slot.atom = Some(atom);
     }
 }

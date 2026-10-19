@@ -15,7 +15,9 @@ mod keys;
 mod lifecycle;
 mod memory;
 mod model;
+mod source_keys;
 mod sources;
+mod tables;
 
 pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
@@ -133,33 +135,40 @@ pub(crate) struct CoreWarmStats {
     pub(crate) purged: u64,
 }
 
+/// Shared name strings: every slot of a molecule clones the same `Arc`s.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct MoleculeKey {
-    scope: Option<String>,
-    molecule: String,
+    scope: Option<Arc<str>>,
+    molecule: Arc<str>,
 }
 
+impl MoleculeKey {
+    fn new(scope: Option<&str>, molecule: &str) -> Self {
+        Self {
+            scope: scope.map(Arc::from),
+            molecule: Arc::from(molecule),
+        }
+    }
+}
+
+/// Stored once in the slot table; clones only bump reference counts.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct SlotKey {
     molecule: MoleculeKey,
-    hash: String,
-    range: String,
+    hash: Arc<str>,
+    range: Arc<str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct AtomKey {
-    scope: Option<String>,
+    scope: Option<Arc<str>>,
     uuid: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct SourceKey {
-    collection: String,
-    key: String,
 }
 
 #[derive(Default)]
 struct PathState {
+    /// The interned slot this path shares with its aliases.
+    slot: tables::SlotId,
     holds: u32,
     dirty: Option<u64>,
     known: bool,
@@ -184,14 +193,14 @@ pub(crate) struct CoreWarmSet {
     // A content UUID does not identify the immutable metadata of a full atom.
     // The UUID buckets share only fully equal atoms and own no retained bytes.
     atoms: HashMap<AtomKey, Vec<Weak<SharedAtom>>>,
-    slot_atoms: HashMap<SlotKey, Arc<SharedAtom>>,
-    owned_slots: HashMap<SlotKey, Arc<model::CoreModelSlot>>,
-    paths: HashMap<CorePath, PathState>,
-    slot_owners: HashMap<SlotKey, HashSet<CorePath>>,
-    order: BTreeMap<u64, CorePath>,
+    // One `Arc<CorePath>` per path, shared by `paths`, `order`, and the
+    // owner list of its slot.
+    paths: HashMap<Arc<CorePath>, PathState>,
+    order: BTreeMap<u64, Arc<CorePath>>,
     clock: u64,
-    slot_sources: HashMap<SlotKey, HashSet<SourceKey>>,
-    source_slots: HashMap<SourceKey, HashSet<SlotKey>>,
+    // Slot owners, atoms, owned values, and source links, by interned id.
+    slots: tables::SlotTable,
+    sources: source_keys::SourceTable,
     hits: u64,
     misses: u64,
     purged: u64,
@@ -201,22 +210,22 @@ pub(crate) struct CoreWarmSet {
 impl CoreWarmSet {
     pub(crate) fn stats(&self) -> CoreWarmStats {
         let tip_only_paths = self
-            .slot_owners
+            .slots
             .iter()
-            .filter(|(slot, _)| {
+            .filter(|(_, slot)| {
                 self.molecules
-                    .get(&slot.molecule)
-                    .and_then(|molecule| molecule.get_atom_entry(&slot.hash, &slot.range))
+                    .get(&slot.key.molecule)
+                    .and_then(|molecule| molecule.get_atom_entry(&slot.key.hash, &slot.key.range))
                     .is_some_and(|entry| {
-                        self.slot_atoms
-                            .get(*slot)
+                        slot.atom
+                            .as_ref()
                             .is_none_or(|atom| atom.value.uuid() != entry.atom_uuid.as_str())
                     })
             })
-            .flat_map(|(_, owners)| owners)
+            .flat_map(|(_, slot)| &slot.owners)
             .filter(|path| {
                 self.paths
-                    .get(*path)
+                    .get(path.as_ref())
                     .is_some_and(|state| state.known && !state.absent)
             })
             .count();
@@ -246,17 +255,17 @@ impl CoreWarmSet {
         inspect: impl FnOnce(&MoleculeHashRange) -> T,
     ) -> Option<T> {
         self.molecules
-            .get(&MoleculeKey {
-                scope: scope.map(str::to_owned),
-                molecule: molecule.to_string(),
-            })
+            .get(&MoleculeKey::new(scope, molecule))
             .map(inspect)
     }
 
     /// Absence requires the same publication boundary and source links as a tip.
     pub(crate) fn authorize_path(&mut self, path: &CorePath) {
-        for owner in self.slot_owners.get(&path.slot()).into_iter().flatten() {
-            if let Some(state) = self.paths.get_mut(owner) {
+        let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get(id)) else {
+            return;
+        };
+        for owner in &slot.owners {
+            if let Some(state) = self.paths.get_mut(owner.as_ref()) {
                 state.tip_authorized = state.known;
             }
         }
@@ -274,17 +283,25 @@ impl CoreWarmSet {
             state.tip_authorized = false;
         }
     }
+
+    /// The slot of a path, or of its alias when this path is not warm.
+    /// Only the second case builds a temporary key.
+    fn slot_of(&self, path: &CorePath) -> Option<tables::SlotId> {
+        match self.paths.get(path) {
+            Some(state) => Some(state.slot),
+            None => self.slots.find(&path.slot_key()),
+        }
+    }
 }
 
 impl CorePath {
-    fn slot(&self) -> SlotKey {
+    /// A new key with fresh strings. Used to intern a slot and to group
+    /// transient write effects; warm lookups use the interned id.
+    fn slot_key(&self) -> SlotKey {
         SlotKey {
-            molecule: MoleculeKey {
-                scope: self.scope.clone(),
-                molecule: self.molecule.clone(),
-            },
-            hash: self.hash.clone(),
-            range: self.range.clone(),
+            molecule: MoleculeKey::new(self.scope.as_deref(), &self.molecule),
+            hash: Arc::from(self.hash.as_str()),
+            range: Arc::from(self.range.as_str()),
         }
     }
 }

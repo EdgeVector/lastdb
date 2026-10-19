@@ -5,25 +5,32 @@
 //! from capacities; only the per-object constants are estimates. Stage 1 only
 //! reports these charges. The record count still controls admission.
 
-use super::{CorePath, SlotKey, SourceKey};
+use super::{CorePath, SlotKey};
 use crate::atom::Atom;
 use serde_json::Value;
 
-/// Map entries, `PathState`, and the recency entry for one path (guess; calibrate in stage 2).
-const PATH_BASE: usize = 512;
+/// One path: its `paths` entry and `PathState`, the shared `Arc<CorePath>`
+/// header and struct, its recency entry, and its pointer in the slot owner
+/// list. Calibrated on 2026-10-19 from a heap profile of the interned tables
+/// (about 0.64 KB per path with its strings).
+const PATH_BASE: usize = 368;
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
 const JSON_MAP_ENTRY: usize = 96;
-/// One source link: its entries in `slot_sources` and `source_slots`, and the
-/// share of the small hash table that each side allocates (guess; calibrate).
-const LINK_BASE: usize = 384;
-/// One slot: its entries in `slot_owners`, `owned_slots`, `slot_atoms`,
-/// `slot_sources`, the molecule tip and key-metadata maps, the copies of the
-/// tip entry in `owned_slots`, and the recency map share. Calibrated on
-/// 2026-10-19 from a heap profile (about 1.76 KB of tip and molecule entries
-/// per slot) plus the map entries; recalibrate in stage 2.
-const SLOT_BASE: usize = 2816;
-/// Copies of the slot key strings kept by those maps.
-const SLOT_KEY_COPIES: usize = 6;
+/// One source link: one id in the slot's list and one in the source's set.
+/// Both lists are usually inline, so this covers spills and table growth.
+const LINK_BASE: usize = 8;
+/// One interned source key: its index entry, its table entry, and the header
+/// of its single packed allocation. Calibrated on 2026-10-19 (heap profile:
+/// about 350 bytes per source with a packed key of about 190 bytes).
+const SOURCE_BASE: usize = 96;
+/// One slot: its table and index entries, the molecule tip and key-metadata
+/// map entries, and the copy of the tip entry in its owned value. Calibrated
+/// on 2026-10-19 from a heap profile of the interned tables (about 1.87 KB
+/// per slot).
+const SLOT_BASE: usize = 1656;
+/// Copies of the slot hash and range strings: the interned key and the
+/// molecule tip map.
+const SLOT_KEY_COPIES: usize = 2;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).
 const HASH_MAP_SLOT: usize = 56;
 /// The `Arc` strong and weak counters in front of the atom.
@@ -34,8 +41,8 @@ const ROUND: usize = 16;
 
 const VALUE_SIZE: usize = std::mem::size_of::<Value>();
 
-/// One path: the base cost plus its key strings, which the core copies into
-/// `paths`, `slot_owners`, and `order`.
+/// One path: the base cost plus its key strings, held once in the shared
+/// `Arc<CorePath>`.
 pub(super) fn path_charge(path: &CorePath) -> usize {
     let strings = path.scope.as_ref().map_or(0, String::capacity)
         + path.schema.capacity()
@@ -43,27 +50,23 @@ pub(super) fn path_charge(path: &CorePath) -> usize {
         + path.molecule.capacity()
         + path.hash.capacity()
         + path.range.capacity();
-    finish(PATH_BASE + 3 * strings)
+    finish(PATH_BASE + strings)
 }
 
-/// One slot: the per-slot map entries and their copies of the slot key.
+/// One slot: the per-slot entries and the copies of its hash and range.
+/// Molecule names are shared by every slot of the molecule and not charged.
 pub(super) fn slot_charge(slot: &SlotKey) -> usize {
-    finish(SLOT_BASE + SLOT_KEY_COPIES * slot_strings(slot))
+    finish(SLOT_BASE + SLOT_KEY_COPIES * (slot.hash.len() + slot.range.len()))
 }
 
-/// One source link. The source key is stored on both sides of the link and the
-/// slot key once more in the reverse set. Lengths, not capacities, so the
-/// release computes the same charge from the stored copy.
-pub(super) fn link_charge(slot: &SlotKey, source: &SourceKey) -> usize {
-    let source_strings = source.collection.len() + source.key.len();
-    finish(LINK_BASE + 2 * source_strings + slot_strings(slot))
+/// One source link. Both sides store only ids.
+pub(super) fn link_charge() -> usize {
+    finish(LINK_BASE)
 }
 
-fn slot_strings(slot: &SlotKey) -> usize {
-    slot.molecule.scope.as_ref().map_or(0, String::len)
-        + slot.molecule.molecule.len()
-        + slot.hash.len()
-        + slot.range.len()
+/// One interned source key, from the length of its packed form.
+pub(super) fn source_charge(packed_len: usize) -> usize {
+    finish(SOURCE_BASE + packed_len)
 }
 
 /// One atom allocation: the struct, its strings, metadata, and decoded content.

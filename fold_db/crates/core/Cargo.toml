@@ -22,6 +22,9 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Inline id lists in the warm set slot and source tables.
+smallvec = "1"
+
 # Storage
 laststore = { path = "../../../vendor/laststore" }
 
