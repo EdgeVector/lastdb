@@ -83,7 +83,7 @@ pub(super) fn list_record_keys(
         percent_encode_query(schema),
         limit.max(1)
     );
-    if let Some(hash) = key_hash.filter(|s| !s.is_empty()) {
+    if let Some(hash) = key_hash {
         path.push_str("&hash=");
         path.push_str(&percent_encode_query(hash));
     }
@@ -140,8 +140,7 @@ pub(super) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
         .filter(|s| !s.is_empty());
     let hash_filter = report
         .get("hash_filter")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty());
+        .and_then(serde_json::Value::as_str);
     let layout = match (hash_field, range_field, key_field) {
         (Some(h), Some(r), _) => format!(" hash={h} range={r}"),
         (Some(h), None, _) => format!(" hash={h}"),
@@ -150,7 +149,7 @@ pub(super) fn print_list_record_keys_human(report: &serde_json::Value, verb: &st
         _ => String::new(),
     };
     let partition = hash_filter
-        .map(|h| format!(" --key-hash {h}"))
+        .map(|h| format!(" --key-hash {h:?}"))
         .unwrap_or_default();
     eprintln!(
         "lastdb {verb} {schema}{partition} — {} key{}{layout}{}",

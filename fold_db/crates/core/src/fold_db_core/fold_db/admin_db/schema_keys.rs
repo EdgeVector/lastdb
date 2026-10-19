@@ -45,6 +45,8 @@ impl FoldDB {
             .get_schema_following_supersession_for_read(schema_id)
             .await?
             .ok_or_else(|| SchemaError::NotFound(format!("schema not found: {schema_id}")))?;
+        self.schema_manager()
+            .require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
         let hash_field = schema
             .key

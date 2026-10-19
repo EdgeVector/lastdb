@@ -11,14 +11,7 @@ impl QueryExecutor {
         window: Option<KeyWindow>,
         storage_prefix: Option<String>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        // Enforce Blocked state
-        let resolved_state = self.schema_manager.get_schema_state_cached(&schema.name)?;
-        if resolved_state == SchemaState::Blocked {
-            return Err(SchemaError::Blocked(format!(
-                "Schema '{}' is blocked and cannot be queried",
-                schema.name
-            )));
-        }
+        self.schema_manager.require_queryable_schema(&schema.name)?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
         crate::schema::require_logical_filter(query.filter.as_ref())?;
         crate::schema::require_logical_query_controls(&query)?;
