@@ -16,7 +16,6 @@ pub(super) fn build_repaired_snapshot(
     schema_rows: &HashMap<String, (u64, u64)>,
     atom_bytes: u64,
     measured: MeasuredMolecules,
-    pending_protein_folds: u64,
 ) -> KeepSmallSnapshot {
     let MeasuredMolecules {
         counters,
@@ -54,7 +53,6 @@ pub(super) fn build_repaired_snapshot(
         molecule_tip_sources: tip_sources,
         molecule_key_bytes: key_bytes,
         molecule_schema,
-        pending_protein_folds,
         clean_stop: None,
         trust,
         hard_erase_totals: crate::db_operations::KeepSmallHardEraseTotals::default(),

@@ -24,9 +24,9 @@
 
 pub mod access;
 pub mod atom;
-/// Protein — UUID'd molecule set with bi-directional membership and enqueued fold.
+/// Protein — UUID'd molecule set with bi-directional membership.
 pub mod protein;
-pub use protein::{Protein, ProteinFoldJob, ProteinMember, PROTEIN_SCHEMA_MARKER};
+pub use protein::{Protein, ProteinMember, PROTEIN_SCHEMA_MARKER};
 /// Core logical memory, record retention, and background persist work.
 pub mod resident;
 pub use resident::{

@@ -147,13 +147,6 @@ impl FoldDB {
                     },
                 )
             });
-        report.pending_protein_folds = meters.pending_protein_folds();
-        if report.pending_protein_folds > 0 {
-            report.complete = false;
-            report
-                .incomplete_reason
-                .get_or_insert_with(|| "pending_protein_folds".to_string());
-        }
         for molecule_uuid in molecules {
             let Some(counter) = meters.molecule_counter(&molecule_uuid) else {
                 report.complete = false;

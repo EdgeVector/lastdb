@@ -60,6 +60,9 @@ pub struct HomeStorageInclusiveAppAttribution {
     pub overlap_logical_bytes: u64,
     /// Inclusive app bytes divided by unique app bytes, in basis points.
     pub amplification_basis_points: Option<u64>,
+    /// Retired: the protein fold queue is removed. Always 0. Kept so
+    /// installed clients can still parse this report.
+    #[serde(default)]
     pub pending_protein_folds: u64,
     pub apps: Vec<HomeStorageAppAttributionRow>,
     #[serde(default)]
@@ -108,7 +111,6 @@ pub(super) struct AppLogicalBucket {
 pub fn build_inclusive_app_attribution(
     bindings: &[AppLogicalBinding],
     counters_complete: bool,
-    pending_protein_folds: u64,
     mut unresolved_scopes: Vec<String>,
     measured_at: DateTime<Utc>,
 ) -> HomeStorageInclusiveAppAttribution {
@@ -120,9 +122,6 @@ pub fn build_inclusive_app_attribution(
 
     if !counters_complete {
         push_scope(&mut unresolved_scopes, "molecule_counters_incomplete");
-    }
-    if pending_protein_folds > 0 {
-        push_scope(&mut unresolved_scopes, "pending_protein_folds");
     }
 
     let units = collect_logical_units(bindings, &mut app_buckets, &mut unresolved_scopes);
@@ -147,7 +146,7 @@ pub fn build_inclusive_app_attribution(
             inclusive_app_logical_bytes,
             unique_logical_bytes,
         ),
-        pending_protein_folds,
+        pending_protein_folds: 0,
         apps,
         unresolved_scopes,
     }

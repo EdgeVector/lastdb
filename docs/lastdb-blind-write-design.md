@@ -229,7 +229,7 @@ CLOCK. The author clock high-water is durable before the lane writes the data (t
 - STAGE 4. MM/molecules/apply.rs:206-229: bind_peer_record_proteins runs in the worker only. C/protein/ops/tip.rs:23-37: the worker path does not call load_molecule_for_write.
 - STAGE 5. MM/cas_preconditions.rs:18-31,66-172 and MM/cas_current_state.rs:23-78,185-288: batch the heads, restore only the CAS field, and read the rest of a must_exist sweep with one get_items. KEEP recheck_delta_preconditions. [B1, B2]
 - STAGE 6. MM/write/batch_inner.rs:21-23, MM/cas.rs:267-294, MM/write/erasure.rs:88-163, MM/write/hard_erasure.rs:23-25,104-111, MM/write/delete_winners.rs:15-70 and MM/molecules/persist/purge_job.rs:60-66: move the expansion and the durable tip read into stage 0 of the lane job. Copy the peer key atom ids from graph tips under the gate.
-- LATER. Delete dead code that the stages leave: ProteinFoldJob, protein_process_folds and the pfq: prefix (C/protein/ops.rs:126-194, no caller). Write no tests.
+- DONE (2026-10-19). Delete dead code that the stages leave: ProteinFoldJob, protein_process_folds and the pfq: prefix (C/protein/ops.rs:126-194, no caller). The boot `pfq:` prefix scan and the pending protein fold meter are also removed. Reports keep the `pending_protein_folds` field at 0 for installed clients. Write no tests.
 
 ## Staged plan
 

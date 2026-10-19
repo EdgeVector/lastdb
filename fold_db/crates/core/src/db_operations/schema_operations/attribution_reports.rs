@@ -17,6 +17,9 @@ pub struct SchemaRootAttributionReport {
     /// yet a complete report. The walker never turns this into residue.
     pub size_complete: bool,
     pub missing_molecule_counters: u64,
+    /// Retired: the protein fold queue is removed. Always 0. Kept so
+    /// installed clients can still parse this report.
+    #[serde(default)]
     pub pending_protein_folds: u64,
     pub logical_value_bytes: u64,
     pub structure_bytes: u64,

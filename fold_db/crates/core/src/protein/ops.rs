@@ -1,4 +1,4 @@
-//! Protein operations on [`AtomStore`]: create, bind, write, fold, backfill.
+//! Protein operations on [`AtomStore`]: create, bind, write, backfill.
 
 use std::collections::{HashMap, HashSet};
 
@@ -9,8 +9,8 @@ use crate::db_operations::atom_store::{AtomStore, ChangedKey, MoleculeData, Mole
 use crate::schema::SchemaError;
 use crate::security::Ed25519KeyPair;
 
-use super::keys::{member_backref_key, protein_record_key, PROTEIN_FOLD_JOB_PREFIX};
-use super::types::{Protein, ProteinFoldJob, ProteinMember};
+use super::keys::{member_backref_key, protein_record_key};
+use super::types::{Protein, ProteinMember};
 
 mod batch;
 mod tip;
@@ -131,77 +131,6 @@ impl AtomStore {
                 SchemaError::InvalidData(format!("write molprot {}: {e}", member.molecule_uuid))
             })?;
         Ok(protein)
-    }
-
-    /// Process up to `max_jobs` pending fold jobs. Returns how many were applied.
-    pub async fn protein_process_folds(&self, max_jobs: usize) -> Result<usize, SchemaError> {
-        if max_jobs == 0 {
-            return Ok(0);
-        }
-        let mut jobs: Vec<(String, ProteinFoldJob)> = self
-            .raw()
-            .scan_items_with_prefix(PROTEIN_FOLD_JOB_PREFIX)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("scan protein fold jobs: {e}")))?;
-        // Stable order by job key.
-        jobs.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let mut applied = 0usize;
-        let keypair = Ed25519KeyPair::generate()
-            .map_err(|e| SchemaError::InvalidData(format!("fold keypair: {e}")))?;
-
-        for (storage_key, job) in jobs.into_iter().take(max_jobs) {
-            self.protein_apply_fold_job(&job, &keypair).await?;
-            let pending_source = format!("protein-fold:{}", job.job_id);
-            self.raw()
-                .batch_delete_keys(vec![
-                    storage_key.clone(),
-                    Self::pending_atom_ref_key(&job.atom_uuid, &pending_source, None),
-                ])
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("delete fold job {storage_key}: {e}"))
-                })?;
-            self.keep_small().complete_pending_protein_fold();
-            applied += 1;
-        }
-        if applied > 0 {
-            // Debounced persist only (2026-09-21 flush storm; see protein_write).
-            let _ = self.persist_keep_small().await;
-        }
-        Ok(applied)
-    }
-
-    /// Apply one fold job: repoint every non-entry member tip to the shared atom.
-    pub async fn protein_apply_fold_job(
-        &self,
-        job: &ProteinFoldJob,
-        keypair: &Ed25519KeyPair,
-    ) -> Result<(), SchemaError> {
-        let protein = self.protein_get(&job.protein_uuid).await?.ok_or_else(|| {
-            SchemaError::InvalidData(format!("protein {} not found for fold", job.protein_uuid))
-        })?;
-
-        let tip = AtomEntry::thin(
-            job.atom_uuid.clone(),
-            job.written_at,
-            if job.device_id.is_empty() {
-                keypair.public_key_base64()
-            } else {
-                job.device_id.clone()
-            },
-        );
-
-        for member in &protein.members {
-            if member.molecule_uuid == job.entry_molecule_uuid {
-                continue;
-            }
-            let Some((hash, range)) = member.tip_coords_from_fields(&job.fields) else {
-                continue;
-            };
-            self.protein_set_member_tip(&member.molecule_uuid, &hash, &range, &tip, keypair)
-                .await?;
-        }
-        Ok(())
     }
 
     /// One-time tip backfill when adding a new key as a self-maintaining member.
