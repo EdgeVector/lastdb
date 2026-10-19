@@ -33,13 +33,14 @@ pub(super) async fn build_snapshot(
         .status_native();
     let resident =
         ResidentHealth::from_native(&native, host.db.db_ops().persist_metrics().snapshot());
-    let (memory_budget, read_cost) = memory_budget_health(
+    let (mut memory_budget, read_cost) = memory_budget_health(
         host,
         &namespaced_store,
         footprint,
         &resident,
         &mut request_ops,
     );
+    memory_budget.core_warm = CoreWarmBytesHealth::from(&native.core_warm_bytes);
     StatusSnapshot {
         logs: daemon_log_streams(),
         sampled_at,

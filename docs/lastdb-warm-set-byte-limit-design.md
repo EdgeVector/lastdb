@@ -268,6 +268,33 @@ Each stage is one PR. The proof for each stage is the live signal named here, no
 5. **Process budget.** Replace the 2 GiB reserve input with `warm_limit_bytes`.
    Proof: the boot log shows the new projection.
 
+## Stage 1 result (2026-10-19)
+
+The process footprint is not a usable comparison. It grew 170–270 MB in every run from activity outside the warm set.
+The proof uses the allocator in-use bytes (`malloc_bytes_in_use`) in an A/B pair instead.
+Each shape runs once with the normal cap and once with `LASTDB_RESIDENT_KEY_CAP=800`. The difference is what the warm set keeps.
+
+The first gauge charged only paths and atoms. It read 0.14–0.33 of the real growth.
+A heap profile (system allocator build, `malloc_history`, 9,000 warm paths) showed that the gap is bookkeeping, not data:
+
+| Part | Per path |
+|---|---|
+| Source links (the invalidation index) | about 6.7 KB |
+| Copies of the slot key strings across about 6 maps | about 1.8 KB |
+| Tip and molecule entries, recency map share | about 1.8 KB |
+| The path table | about 1.2 KB |
+| Atom body (small records) | about 0.3 KB |
+
+The gauge now charges source links (`link_charge`) and slot entries (`slot_charge`). Result for 8,200 extra paths on a synthetic throwaway node:
+
+| Shape | Gauge growth | Allocator growth | Ratio |
+|---|---|---|---|
+| small (3,000 × 200 B) | 93.5 MB | 87.7 MB | 1.066 |
+| medium (3,000 × 8 KB) | 117.2 MB | 109.3 MB | 1.073 |
+
+Next step outside the stages: shrink the bookkeeping. Store each slot key and source key once, refer to them by small ids, and use small lists in place of many small hash sets.
+At 10,000 paths the bookkeeping is about 100 MB, while the small-record data is about 1 MB.
+
 ## Later step
 
 The same reservation type can carry the definition cache (16 MiB), the complete keys (128 MiB), and the write metadata (16 MiB).

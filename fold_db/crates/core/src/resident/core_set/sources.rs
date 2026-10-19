@@ -1,5 +1,6 @@
 //! Exact invalidation edges contain no tip or atom value copies.
 
+use super::charge::link_charge;
 use super::*;
 
 const MAX_SLOT_SOURCES: usize = 64;
@@ -56,6 +57,7 @@ impl CoreWarmSet {
             collection: collection.to_string(),
             key: key.to_string(),
         };
+        let charge = link_charge(&slot, &source);
         let sources = self.slot_sources.entry(slot.clone()).or_default();
         if sources.contains(&source) {
             return true;
@@ -65,6 +67,7 @@ impl CoreWarmSet {
         }
         sources.insert(source.clone());
         self.source_slots.entry(source).or_default().insert(slot);
+        self.charge_link(charge);
         true
     }
 
@@ -140,6 +143,8 @@ impl CoreWarmSet {
         let Some(sources) = self.slot_sources.remove(slot) else {
             return;
         };
+        let released = sources.iter().map(|source| link_charge(slot, source)).sum();
+        self.release_links(released);
         for source in sources {
             let empty = self.source_slots.get_mut(&source).is_some_and(|slots| {
                 slots.remove(slot);

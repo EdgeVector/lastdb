@@ -9,12 +9,15 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
 mod admission;
+mod bytes;
+mod charge;
 mod keys;
 mod lifecycle;
 mod memory;
 mod model;
 mod sources;
 
+pub use bytes::CoreWarmByteStats;
 pub(crate) use memory::CoreMemorySource;
 pub(crate) use memory::PreparedCoreMemory;
 pub use memory::{CoreMemoryStats, CoreMemoryValue};
@@ -163,6 +166,8 @@ struct PathState {
     absent: bool,
     tip_authorized: bool,
     tick: u64,
+    /// Byte charge of this path for the warm set gauge.
+    charge: usize,
 }
 
 struct SharedAtom {
@@ -190,6 +195,7 @@ pub(crate) struct CoreWarmSet {
     hits: u64,
     misses: u64,
     purged: u64,
+    bytes: bytes::WarmBytes,
 }
 
 impl CoreWarmSet {
