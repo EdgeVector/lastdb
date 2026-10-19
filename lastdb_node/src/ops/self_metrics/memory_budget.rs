@@ -125,6 +125,9 @@ pub struct MemoryBudgetHealth {
     /// Store durability barrier counts (see `WarmSetAdmissionStats`).
     #[serde(flatten)]
     pub flush: StoreFlushHealth,
+    /// Warm set byte gauge from the native core (not enforced in stage 1).
+    #[serde(default)]
+    pub core_warm: CoreWarmBytesHealth,
 }
 
 /// Durability barriers the store issued since process start, by kind.
@@ -182,6 +185,33 @@ impl StoreFlushHealth {
             whole_flushes_parallel: s.whole_flushes_parallel,
             flush_barriers: s.flush_barriers,
             groups_synced: s.groups_synced,
+        }
+    }
+}
+
+/// Charged warm set bytes next to the process footprint. The ratio of
+/// `used_bytes` growth to footprint growth checks the charge estimate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoreWarmBytesHealth {
+    pub limit_bytes: u64,
+    pub used_bytes: u64,
+    pub peak_bytes: u64,
+    pub held_bytes: u64,
+    pub dirty_bytes: u64,
+    pub dirty_limit_bytes: u64,
+    pub tracked_atoms: u64,
+}
+
+impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
+    fn from(stats: &fold_db::resident::CoreWarmByteStats) -> Self {
+        Self {
+            limit_bytes: stats.limit_bytes as u64,
+            used_bytes: stats.used_bytes as u64,
+            peak_bytes: stats.peak_bytes as u64,
+            held_bytes: stats.held_bytes as u64,
+            dirty_bytes: stats.dirty_bytes as u64,
+            dirty_limit_bytes: stats.dirty_limit_bytes as u64,
+            tracked_atoms: stats.tracked_atoms as u64,
         }
     }
 }
@@ -283,6 +313,7 @@ impl MemoryBudgetHealth {
                 resident.resident_key_budget.as_wire_u64(),
             ),
             flush: StoreFlushHealth::from_admission(attribution.admission),
+            core_warm: CoreWarmBytesHealth::default(),
         }
     }
 }

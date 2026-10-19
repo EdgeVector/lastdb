@@ -32,6 +32,7 @@ mod core_set;
 mod key_cap;
 mod lane;
 mod metrics;
+mod warm_bytes;
 
 pub use config::{
     parse_resident_bytes, parse_resident_max_deferred, parse_resident_persist_interval,
@@ -40,7 +41,7 @@ pub use config::{
     RESIDENT_PERSIST_MS_ENV,
 };
 pub(crate) use core_set::CoreMemorySource;
-pub use core_set::{CoreMemoryStats, CoreMemoryValue};
+pub use core_set::{CoreMemoryStats, CoreMemoryValue, CoreWarmByteStats};
 pub(crate) use core_set::{
     CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate, PreparedCoreMemory,
 };
@@ -54,3 +55,7 @@ pub use lane::{
     PersistLanePressure, PersistLaneSet, PersistLaneWriter, PersistReservation,
 };
 pub use metrics::{PersistLaneMetrics, PersistLaneMetricsSnapshot};
+pub use warm_bytes::{
+    core_warm_bytes, core_warm_dirty_bytes, init_core_warm_bytes_from_env, parse_core_warm_bytes,
+    CORE_WARM_BYTES_ENV, CORE_WARM_DIRTY_PERCENT, DEFAULT_CORE_WARM_BYTES,
+};
