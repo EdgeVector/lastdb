@@ -1,0 +1,21 @@
+{
+  "all_requests_and_expected_content_unchanged": true,
+  "approval": "Repeat the unchanged content checks for both programs in fresh version6 owned homes; preserve all version5 failures and stop first version6 candidate mismatch.",
+  "baseline_source_check": "ea01331f:lastdb_host/src/envelope.rs54-83",
+  "candidate_binary_sha256": "0f020fd6653e581ac0e808ae3a4c6ee683369e749b32e04898dc99abb29b64ec",
+  "candidate_source_check": "d64d918f:lastdb_node/src/exec/app_routes.rs259-262 + lastdb_host/src/envelope.rs54-83",
+  "candidate_source_commit": "d64d918ff0e757f34863277a69dc9f07120aabbb",
+  "checked_utc": "2026-10-19T20:38:01.912535+00:00",
+  "compiled_release_identity": "release-exact-uuid-identity.json",
+  "compiled_release_identity_sha256": "8da5e10634cb9aea3dd414029f5fdc963d4aeeb80ac00b207425fc3109d9e033",
+  "helper_identity_sha256": "a7e04a91009ffa1efb394a2d2a6ea68105afd797bda082db04ae8641dbfc91fa",
+  "no_source_or_binary_change": true,
+  "only_substantive_changes": [
+    "list.contract: data.list to list",
+    "list.pagination[1].cursor_from.json_path: [data,list,next_cursor] to [list,next_cursor]",
+    "list.pagination[3].cursor_from.json_path: [data,list,next_cursor] to [list,next_cursor]"
+  ],
+  "plan_sha256": "0f819f24cfeaf3d6e819002e3d7ee731111652c878c629453d26d0b8faa776fb",
+  "unchanged_helpers_verified": 15,
+  "version": 6
+}

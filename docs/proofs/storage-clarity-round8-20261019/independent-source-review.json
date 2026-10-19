@@ -1,5 +1,5 @@
 {
-  "disk_review": "No concrete blocker in namespace error propagation, sentinel ordering, enforcing refusal, plaintext-duplicate cleanup removal or empty-hash preload. Active/fallback token epochs remain supported.",
+  "disk_review": "No concrete blocker in namespace error propagation, sentinel ordering, enforcing refusal, plaintext-duplicate cleanup removal or empty-hash preload. The cleanup removal preserves active/fallback token candidate handling.",
   "main_integration": {
     "commit": "adbec20cdbf39b3fc397be5f34c3cec5e0e280cc",
     "overlapping_paths": [],
