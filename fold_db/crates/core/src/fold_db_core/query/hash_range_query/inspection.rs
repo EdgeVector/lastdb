@@ -11,6 +11,13 @@ use std::collections::HashSet;
 /// Pages/counts require completeness; a sample can stop at enough valid members.
 const INSPECTION_KEY_CAP: usize = 10_000;
 
+struct InspectedField {
+    values: HashMap<KeyValue, FieldValue>,
+    sources: HashMap<KeyValue, KeySource>,
+    had_spine: bool,
+    complete: bool,
+}
+
 impl HashRangeQueryProcessor {
     /// Recover API coordinates and remove other layouts before any result
     /// limit. Pages require a complete bounded set. Samples can stop after
@@ -98,7 +105,7 @@ impl HashRangeQueryProcessor {
     > {
         let mut primary_name = Self::cokey_primary_field(schema, selected);
 
-        let (mut values, mut sources, had_spine, mut complete) = self
+        let mut inspected = self
             .inspection_field(
                 schema,
                 &primary_name,
@@ -108,10 +115,10 @@ impl HashRangeQueryProcessor {
                 examined,
             )
             .await?;
-        if !had_spine {
+        if !inspected.had_spine {
             if let Some(fallback) = Self::cokey_fallback_field(selected, &primary_name) {
                 let fallback = fallback.to_string();
-                (values, sources, _, complete) = self
+                inspected = self
                     .inspection_field(
                         schema,
                         &fallback,
@@ -124,6 +131,12 @@ impl HashRangeQueryProcessor {
                 primary_name = fallback;
             }
         }
+        let InspectedField {
+            mut values,
+            mut sources,
+            complete,
+            ..
+        } = inspected;
 
         let named_primary = schema
             .key
@@ -174,15 +187,7 @@ impl HashRangeQueryProcessor {
         received: &[String],
         candidate_cap: usize,
         examined: &mut usize,
-    ) -> Result<
-        (
-            HashMap<KeyValue, FieldValue>,
-            HashMap<KeyValue, KeySource>,
-            bool,
-            bool,
-        ),
-        SchemaError,
-    > {
+    ) -> Result<InspectedField, SchemaError> {
         let field = schema.runtime_fields.get(name).ok_or_else(|| {
             SchemaError::InvalidField(format!("inspection field '{name}' is missing"))
         })?;
@@ -265,7 +270,12 @@ impl HashRangeQueryProcessor {
                 }
             }
         }
-        Ok((values, sources, had_spine, complete))
+        Ok(InspectedField {
+            values,
+            sources,
+            had_spine,
+            complete,
+        })
     }
 
     /// Only the current codec and declared hash value can recover a blind hash.
