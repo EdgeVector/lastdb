@@ -85,3 +85,6 @@
 /docs/proofs/core-quality-round3-20261018/benchmark-final/paired-tables.json
 /docs/proofs/core-quality-round3-20261018/benchmark-final/write-frontiers.json
 /docs/proofs/core-quality-round3-20261018/ordinary-*/ordinary-operation-inputs.json
+
+# Keep the full local response seal; commit the compact file hashes beside it.
+/docs/proofs/warm-set-read-boundaries-20261019/sealed-originals.json

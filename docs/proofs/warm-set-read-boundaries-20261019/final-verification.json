@@ -1,0 +1,24 @@
+{
+  "all_owned_paths_absent": true,
+  "binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+  "build_settings_unchanged": true,
+  "checked_utc": "2026-10-19T19:09:56.258372+00:00",
+  "cleanup_verification_sha256": "f26feae33c8e3848cc7b5e7db25ba47bd20b19ace32de66e99d44c5fb78775d4",
+  "frozen_inputs_unchanged": true,
+  "helpers_verified": 15,
+  "no_further_source_or_product_operation": true,
+  "original_full_and_compact_seals_unchanged": true,
+  "original_sealed_files_verified": 49,
+  "owned_root_count": 7,
+  "source_commit": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+    "source_files_checked": 1877,
+    "source_mismatches": []
+  },
+  "source_inputs_verified": 1877,
+  "source_inventory_sha256": "7feaefe071fcffd145f633d0c89894462848ee1f028ba2188b518f7ab7fa84db",
+  "two_source_snapshots_equal": true,
+  "version": 1
+}

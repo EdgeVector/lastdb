@@ -1,0 +1,59 @@
+{
+  "all_helpers_and_static_inputs_unchanged": true,
+  "all_original_sealed_hashes_unchanged": true,
+  "all_seven_roots_absent": true,
+  "cleanup_result_sha256": "d672ac8c154fb29299d4971c1ae1843555450c8649e7d26edd83c71ea42ada0f",
+  "fresh_creator_check_sha256": "fbdb7ea7f602298f08d93d407858573b37ac5010b4592bef2d4e27d1155af10f",
+  "full_and_compact_seal_hashes_unchanged": true,
+  "independent_review_sha256": "38b4778040e94801bf9a5f8556a87f1a2e01aaefcb3d6b0b0e8fc34c566f6761",
+  "no_product_operations": true,
+  "original_files_checked_after": 49,
+  "original_files_checked_before": 49,
+  "roots": [
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468497421,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ilq2rpfx"
+    },
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468531245,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xq5y9s32"
+    },
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468534133,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.amzun9lj"
+    },
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468536115,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zoamqq1g"
+    },
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468540097,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.72vqg0ob"
+    },
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468553234,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ksxpw7o4"
+    },
+    {
+      "absent": true,
+      "reviewed_device": 16777231,
+      "reviewed_inode": 1468564678,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2i1radxv"
+    }
+  ],
+  "source_head": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+  "supported_exact_cleanup_only": true,
+  "verified_utc": "2026-10-19T19:09:20.525937+00:00"
+}
