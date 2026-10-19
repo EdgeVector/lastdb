@@ -25,6 +25,12 @@ Its memory owner stays charged until that call returns.
 This call lifetime does not provide an old-value query or stored atom history.
 A failed read cannot enter the model as a confirmed missing record.
 
+A compacted record can supply several fields from one atom.
+Queries resolve that record in the selected key's storage scope before field conditions, order, and limits.
+Exact reads and range reads use the same field values and metadata rule.
+The record contains no per-field source, writer, or time, so those details remain unknown in its field results.
+A partial record preserves field values that it does not contain.
+
 ## Range keys
 
 Selected HashRange schemas load complete membership keys before their first query continues.
@@ -46,6 +52,17 @@ Ordinary reads cannot query that queue.
 The native journal supports recovery of stored writes. It does not replace the current core state.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
+
+User Delete resolves the current related molecule keys inside the same native write boundary as their removal.
+The worker checks the caller's conditions before it prepares any deletion.
+Compacted records supply their current field values for those checks and related keys.
+Source and related deletions enter one disk commit, including each schema's cleanup work.
+Search receives the deletion after that commit.
+The explicit Purge route retains its separate destructive rules.
+
+A fixed operation or byte limit refuses the whole prepared request before publication.
+A read limit also returns a refusal. Neither refusal causes an endless delete retry.
+Temporary memory or queue pressure retains its retry behavior.
 
 The native flush delay is at most 500 ms. `LASTDB_RESIDENT_PERSIST_MS` can select a delay from 1 to 500 ms.
 A crash can lose a write that received an ack before its flush.

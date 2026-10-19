@@ -34,6 +34,7 @@ mod cokey;
 mod cokey_primary;
 mod cokey_secondary;
 mod count;
+mod documents;
 mod fields;
 mod filter;
 mod paging;

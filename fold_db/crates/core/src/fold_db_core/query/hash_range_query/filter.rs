@@ -178,7 +178,7 @@ impl HashRangeQueryProcessor {
         let has_predicates = predicates.is_some_and(|p| !p.is_empty());
         let has_two_pass_shape = has_predicates || order_by.is_some() || predicate_limit.is_some();
         if !has_two_pass_shape {
-            return self.filtered_query_captured(query).await;
+            return self.document_query_captured(query).await;
         }
         let QuerySelection {
             schema,
@@ -208,7 +208,7 @@ impl HashRangeQueryProcessor {
         // `predicate_limit` are all applied to what survives it, so a window
         // here would decide the answer from an arbitrary slice of the input.
         // The two-pass shape keeps the unwindowed path.
-        let pass_a = self
+        let mut pass_a = self
             .query_cokey_with_sources(
                 schema,
                 &scan_fields,
@@ -218,6 +218,8 @@ impl HashRangeQueryProcessor {
                 &received_from_namespaces,
                 request_concurrency,
             )
+            .await?;
+        self.resolve_query_documents(schema, &mut pass_a, include_tombstones)
             .await?;
 
         let mut kept_keys =
@@ -233,24 +235,45 @@ impl HashRangeQueryProcessor {
         // it is given — so it must be handed API form or it misses on every field
         // and the whole filtered query comes back empty on a blinded home. Pass A
         // already returns API form, so the keys carry straight through.
-        let kept_sources: HashMap<KeyValue, KeySource> = kept_keys
-            .iter()
-            .filter_map(|key| {
-                pass_a
-                    .key_sources
-                    .get(key)
-                    .cloned()
-                    .map(|source| (key.clone(), source))
-            })
-            .collect();
-
         self.query_exact_keys(
             schema,
             fields,
             &kept_keys,
-            &kept_sources,
+            &pass_a.key_sources,
             include_tombstones,
         )
         .await
+    }
+
+    /// Normal reads select candidates through field molecules, then use the
+    /// current document for its covered fields. Raw field reads remain separate
+    /// for compaction, which must not copy a partial document back onto itself.
+    async fn document_query_captured(
+        &self,
+        query: QuerySelection<'_>,
+    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let QuerySelection {
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones,
+            request_concurrency,
+        } = query;
+        let received = self.collect_received_from_namespaces().await?;
+        let mut rows = self
+            .query_cokey_with_sources(
+                schema,
+                fields,
+                filter,
+                window,
+                include_tombstones,
+                &received,
+                request_concurrency,
+            )
+            .await?;
+        self.resolve_query_documents(schema, &mut rows, include_tombstones)
+            .await?;
+        Ok(rows.fields)
     }
 }

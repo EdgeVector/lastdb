@@ -1,6 +1,7 @@
 //! Persist-lane hard-erasure purge job.
 
 use super::*;
+use crate::db_operations::search_index::{IndexChangeBatch, IndexSink, SearchOutboxSink};
 use futures::FutureExt;
 
 impl MutationManager {
@@ -14,12 +15,20 @@ impl MutationManager {
             .as_ref()
             .map(|_| (job.validated_present, job.retry_requires_finalize));
         let attempt = async {
-            let result = self.attempt_purge_stages(job).await?;
+            let current_delete = native
+                .as_ref()
+                .filter(|_| job.verb != crate::fold_db_core::purge::HardEraseVerb::Purge);
+            let result = match current_delete {
+                Some(runtime) => self.attempt_current_delete_stages(job, runtime).await?,
+                None => self.attempt_purge_stages(job).await?,
+            };
             if let Some(runtime) = &native {
-                self.stage_purge_core_paths(job, runtime)
-                    .boxed()
-                    .await
-                    .map_err(PurgeAttemptError::Retry)?;
+                if current_delete.is_none() {
+                    self.stage_purge_core_paths(job, runtime)
+                        .boxed()
+                        .await
+                        .map_err(PurgeAttemptError::Retry)?;
+                }
                 self.reserve_native_core_memory(runtime)
                     .map_err(PurgeAttemptError::Retry)?;
             }
@@ -64,7 +73,13 @@ impl MutationManager {
                 }
                 Ok(())
             }
-            Err(PurgeAttemptError::Missing(error)) => {
+            Err(PurgeAttemptError::Rejected(error)) => {
+                let uuids: Vec<_> = job
+                    .erasures
+                    .iter()
+                    .map(|mutation| mutation.uuid.as_str())
+                    .collect();
+                self.db_ops.atoms().clear_pending_delete_barriers_of(&uuids);
                 if job.completion.is_some() {
                     job.pending_completion = Some(PurgeCompletion {
                         result: Err(error),
@@ -82,7 +97,7 @@ impl MutationManager {
 
     /// Validate targets, run the durable erasure core, then the schema final
     /// stages (finalize replay, retention keys, Search outbox).
-    async fn attempt_purge_stages(
+    pub(super) async fn attempt_purge_stages(
         &self,
         job: &mut PurgeEnvelope,
     ) -> Result<Vec<String>, PurgeAttemptError> {
@@ -153,7 +168,7 @@ impl MutationManager {
         }
 
         if let Some(batch) = &job.search_batch {
-            self.deliver_index_change_batch(batch)
+            self.publish_purge_search(batch)
                 .await
                 .map_err(PurgeAttemptError::Retry)?;
         }
@@ -161,8 +176,29 @@ impl MutationManager {
         Ok(result)
     }
 
+    /// Search sees a tombstone only after the entire native deletion commits.
+    async fn publish_purge_search(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
+        let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() else {
+            return self.deliver_index_change_batch(batch).await;
+        };
+        let inbox = self.search_outbox_inbox.clone();
+        let batch = batch.clone();
+        crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
+            let sink = inbox
+                .map(SearchOutboxSink::new)
+                .or_else(SearchOutboxSink::from_env);
+            if let Some(sink) = sink {
+                sink.apply_change_batch(batch).await.map_err(|error| {
+                    crate::storage::StorageError::BackendError(error.to_string())
+                })?;
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
     /// Refuse-policy jobs check once that every target is present.
-    async fn validate_purge_job_targets(
+    pub(super) async fn validate_purge_job_targets(
         &self,
         job: &mut PurgeEnvelope,
     ) -> Result<(), PurgeAttemptError> {
@@ -195,7 +231,7 @@ impl MutationManager {
                 Ok(())
             }
             crate::fold_db_core::purge::PurgeTargetPresence::Missing(error) => {
-                Err(PurgeAttemptError::Missing(error))
+                Err(PurgeAttemptError::Rejected(error))
             }
         }
     }

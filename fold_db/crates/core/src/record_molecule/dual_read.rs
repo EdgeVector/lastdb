@@ -1,6 +1,6 @@
 //! Per-key dual-read: document envelope on R's tip, else today's field zip.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::envelope::{envelope_is_complete, parse_document_fields};
 use super::is_record_molecule_field;
@@ -22,6 +22,7 @@ pub async fn hash_range_key_from_envelope(
     hash: &str,
     range: &str,
     requested: &[String],
+    include_tombstones: bool,
 ) -> Result<Option<HashMap<String, HashMap<KeyValue, FieldValue>>>, SchemaError> {
     let Some(record_uuid) = schema.molecule_uuid.clone() else {
         return Ok(None);
@@ -63,16 +64,10 @@ pub async fn hash_range_key_from_envelope(
         let Some(value) = fields.get(name) else {
             continue;
         };
-        let fv = FieldValue {
-            value: value.clone(),
-            atom_uuid: atom.uuid().to_string(),
-            source_file_name: None,
-            metadata: None,
-            molecule_uuid: Some(record_uuid.clone()),
-            molecule_version: None,
-            writer_pubkey: None,
-            written_at: None,
-        };
+        if !include_tombstones && crate::atom::is_tombstone_value(value) {
+            continue;
+        }
+        let fv = document_field_value(value.clone(), &atom, &record_uuid);
         results
             .entry(name.clone())
             .or_default()
@@ -81,18 +76,20 @@ pub async fn hash_range_key_from_envelope(
     Ok(Some(results))
 }
 
-/// Overlay envelope projection onto a zipped query result.
+/// Resolve document fields for an explicit candidate set in its selected scope.
 ///
 /// For each key whose R tip is a **complete** document envelope (`v==1` and
 /// `complete==true`), field values come from `fields`. A name absent from a
-/// complete envelope is dropped (missing). An incomplete envelope never drops
-/// a zip value: compact used to stamp partial maps, and those must not hide
-/// live field-molecule tips. Keys without an envelope keep the zip. A missing
-/// R tip never empties a row.
-pub async fn overlay_document_envelope(
+/// complete envelope is dropped (missing). An omitted name in an incomplete
+/// envelope keeps its field-molecule value. An explicit tombstone follows the
+/// requested visibility rule. Keys without an envelope keep the field values.
+pub(crate) async fn overlay_document_fields(
     db_ops: &DbOperations,
     schema: &Schema,
+    keys: &[KeyValue],
+    scope: Option<&str>,
     results: &mut HashMap<String, HashMap<KeyValue, FieldValue>>,
+    include_tombstones: bool,
 ) -> Result<(), SchemaError> {
     // Catalog `molecule_uuid` is set after compact mints R. Keys without an
     // envelope tip still zip — a missing tip is not an empty document.
@@ -100,23 +97,7 @@ pub async fn overlay_document_envelope(
         return Ok(());
     };
 
-    let mut keys: HashSet<KeyValue> = HashSet::new();
-    for (field_name, by_key) in results.iter() {
-        if is_record_molecule_field(field_name) {
-            continue;
-        }
-        keys.extend(by_key.keys().cloned());
-    }
-
-    let keys: Vec<_> = keys.into_iter().collect();
-    let atoms = load_record_tip_atoms(
-        db_ops,
-        &record_uuid,
-        &keys,
-        record_scope(schema),
-        Some(schema),
-    )
-    .await?;
+    let atoms = load_record_tip_atoms(db_ops, &record_uuid, keys, scope, Some(schema)).await?;
     for (key, atom) in atoms {
         let Some(fields) = parse_document_fields(atom.content()) else {
             continue;
@@ -128,20 +109,14 @@ pub async fn overlay_document_envelope(
                 continue;
             }
             match fields.get(field_name) {
-                Some(value) => {
-                    let entry = by_key.entry(key.clone()).or_insert_with(|| FieldValue {
-                        value: value.clone(),
-                        atom_uuid: atom.uuid().to_string(),
-                        source_file_name: None,
-                        metadata: None,
-                        molecule_uuid: Some(record_uuid.clone()),
-                        molecule_version: None,
-                        writer_pubkey: None,
-                        written_at: None,
-                    });
-                    entry.value = value.clone();
-                    entry.atom_uuid = atom.uuid().to_string();
-                    entry.molecule_uuid = Some(record_uuid.clone());
+                Some(value) if include_tombstones || !crate::atom::is_tombstone_value(value) => {
+                    by_key.insert(
+                        key.clone(),
+                        document_field_value(value.clone(), &atom, &record_uuid),
+                    );
+                }
+                Some(_) => {
+                    by_key.remove(&key);
                 }
                 None => {
                     if complete {
@@ -152,6 +127,21 @@ pub async fn overlay_document_envelope(
         }
     }
     Ok(())
+}
+
+/// The envelope stores no per-field metadata. Do not attribute its fields to
+/// either an older field atom or the writer of the whole document.
+fn document_field_value(value: serde_json::Value, atom: &Atom, molecule: &str) -> FieldValue {
+    FieldValue {
+        value,
+        atom_uuid: atom.uuid().to_string(),
+        source_file_name: None,
+        metadata: None,
+        molecule_uuid: Some(molecule.to_owned()),
+        molecule_version: None,
+        writer_pubkey: None,
+        written_at: None,
+    }
 }
 
 pub(super) async fn load_record_tip_atom(
@@ -166,7 +156,7 @@ pub(super) async fn load_record_tip_atom(
     )
 }
 
-pub(super) fn record_scope(schema: &Schema) -> Option<&str> {
+pub(crate) fn record_scope(schema: &Schema) -> Option<&str> {
     schema
         .runtime_fields
         .get(super::RECORD_SENTINEL)

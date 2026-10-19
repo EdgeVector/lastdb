@@ -85,7 +85,7 @@ impl MutationManager {
     /// the entry key, then enqueue the sibling key under its own schema. This
     /// reads one fixed-field row and checks the resident schema and protein
     /// metadata. It never traverses a data partition or scans stored records.
-    pub(super) async fn expand_protein_hashrange_erasures(
+    pub(in crate::fold_db_core::mutation_manager) async fn expand_protein_hashrange_erasures(
         &self,
         erasures: Vec<Mutation>,
         storage_prefix: Option<&str>,
@@ -129,12 +129,14 @@ impl MutationManager {
 
             let source_fields: Vec<String> = source_schema.runtime_fields.keys().cloned().collect();
             let row = match self
-                .read_current_row_fields(&erasure, &source_fields, storage_prefix)
+                .read_current_delete_fields(&erasure, &source_fields, storage_prefix)
                 .await?
             {
                 super::super::cas::CurrentRowFields::Present(row) => row,
-                super::super::cas::CurrentRowFields::Absent
-                | super::super::cas::CurrentRowFields::Corrupt { .. } => continue,
+                super::super::cas::CurrentRowFields::Absent => continue,
+                super::super::cas::CurrentRowFields::Corrupt { .. } => {
+                    return Err(SchemaError::MissingLocalAtom);
+                }
             };
 
             for (peer_name, peer_schema) in &schemas {
@@ -154,6 +156,11 @@ impl MutationManager {
                 };
                 if !seen.insert((peer_name.clone(), reverse.key_value.to_storage_key())) {
                     continue;
+                }
+                if expanded.len() >= 10_000 {
+                    return Err(SchemaError::WriteResourceLimit {
+                        detail: "Delete peer expansion exceeds 10000 keys".into(),
+                    });
                 }
                 expanded.push(reverse);
             }
@@ -250,6 +257,7 @@ impl MutationManager {
         // can already be absent after an interrupted older writer, so
         // its cleanup stays idempotent even for a loud forward delete.
         reverse.synchronous = erasure.synchronous;
+        reverse.erase_tips_before_nanos = erasure.erase_tips_before_nanos;
         if erasure.mutation_type == MutationType::Delete {
             // Both molecule keys describe one signed source Delete.
             // The derived key has no separate signature, but its

@@ -17,17 +17,18 @@ impl HashRangeQueryProcessor {
         if let Some(order_by) = order_by {
             fields.push(order_by.field.clone());
         }
-        // On a blinded home, pass A must carry the schema's hash key field even
-        // when no predicate names it: the key field is what makes the co-key
-        // primary recoverable to API form
-        // ([`Self::recover_api_page_keys`]). Without it the pass-A primary is a
-        // predicate field, whose value is not the key, so pass B would blind an
-        // already-blinded token for every field and the query would return an
-        // empty result set rather than the matching rows.
+        // Candidate discovery already prefers the declared key molecule. Only
+        // blinded reads need its value in pass A to recover the API hash.
+        // Adding it on plain homes would disable the empty-spine fallback for
+        // sibling layouts whose shared fields establish their keys.
         if self.db_ops.atoms().key_codec().encoding() != crate::atom::HashKeyEncoding::Plain {
-            if let Some(hash_field) = schema.key.as_ref().and_then(|k| k.hash_field.as_ref()) {
-                if schema.runtime_fields.contains_key(hash_field.as_str()) {
-                    fields.push(hash_field.clone());
+            if let Some(key_field) = schema
+                .key
+                .as_ref()
+                .and_then(|key| key.hash_field.as_ref().or(key.range_field.as_ref()))
+            {
+                if schema.runtime_fields.contains_key(key_field.as_str()) {
+                    fields.push(key_field.clone());
                 }
             }
         }
@@ -134,10 +135,6 @@ impl HashRangeQueryProcessor {
                 include_tombstones,
             )
             .await?;
-        if pending.is_empty() {
-            return Ok(result);
-        }
-
         let values = self.resolve_pending_values(schema, &pending).await?;
 
         for (entry, value) in pending.into_iter().zip(values) {
@@ -147,7 +144,14 @@ impl HashRangeQueryProcessor {
                 }
             }
         }
-
+        self.resolve_document_projection(
+            schema,
+            page_keys,
+            key_sources,
+            &mut result,
+            include_tombstones,
+        )
+        .await?;
         Ok(result)
     }
 

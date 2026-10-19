@@ -26,6 +26,7 @@ mod delete_winners;
 mod erase_guards;
 mod erasure;
 mod hard_erasure;
+pub(super) use hard_erasure::group_mutations_by_schema;
 mod hard_erasure_process;
 mod layout;
 mod molecule_keys;

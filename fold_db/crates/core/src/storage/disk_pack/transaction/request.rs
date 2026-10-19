@@ -67,7 +67,13 @@ where
         Arc::clone(&pending),
         WRITE.scope(Arc::clone(&pending), future),
     )
-    .await??;
+    .await;
+    // Refused complete mutations never publish their earlier private stages.
+    // Preserve this classification even if an inner helper changed its error.
+    if let Some(error) = pending.preparation_limit() {
+        return Err(error.into());
+    }
+    let result = result??;
     if pending.is_empty()? {
         // Preserve an explicit durability fence without adding an empty batch.
         let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);

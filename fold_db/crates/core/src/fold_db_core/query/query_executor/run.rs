@@ -74,7 +74,14 @@ impl QueryExecutor {
         query: &mut Query,
         window: Option<KeyWindow>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let envelope_first = if query.as_of.is_none() {
+        // Controlled reads use the common selector, which resolves document
+        // authority before predicates, ordering, limits, and projection.
+        let envelope_first = if query.as_of.is_none()
+            && query.field_predicates.as_ref().is_none_or(Vec::is_empty)
+            && query.order_by.is_none()
+            && query.predicate_limit.is_none()
+            && window.is_none()
+        {
             match query.filter.as_ref() {
                 Some(HashRangeFilter::HashRangeKey { hash, range }) => {
                     crate::record_molecule::hash_range_key_from_envelope(
@@ -83,6 +90,7 @@ impl QueryExecutor {
                         hash,
                         range,
                         &query.fields,
+                        query.include_tombstones,
                     )
                     .await?
                 }
@@ -94,8 +102,7 @@ impl QueryExecutor {
         let results = if let Some(from_r) = envelope_first {
             from_r
         } else {
-            let mut zipped = self
-                .hash_range_processor
+            self.hash_range_processor
                 .query_with_field_predicates(
                     schema,
                     &query.fields,
@@ -108,10 +115,7 @@ impl QueryExecutor {
                     query.include_tombstones,
                     query.secondary_concurrency,
                 )
-                .await?;
-            crate::record_molecule::overlay_document_envelope(&self.db_ops, schema, &mut zipped)
-                .await?;
-            zipped
+                .await?
         };
         Ok(results)
     }

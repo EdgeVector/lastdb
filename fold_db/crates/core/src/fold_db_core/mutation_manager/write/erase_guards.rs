@@ -58,8 +58,7 @@ impl MutationManager {
                     schema_name.clone(),
                     erasures,
                     storage_prefix,
-                    missing,
-                    verb,
+                    (missing, verb),
                     wait_for_durable,
                     author_clock_barrier.clone(),
                 )

@@ -39,6 +39,7 @@ pub(super) struct PendingBatch {
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
     source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
+    preparation_limit: Mutex<Option<String>>,
     operation_limit: usize,
 }
 
@@ -62,6 +63,7 @@ impl PendingBatch {
             definitions: Mutex::new(BTreeMap::new()),
             path_protection: Mutex::new(None),
             source_receipts: Mutex::new(None),
+            preparation_limit: Mutex::new(None),
             operation_limit: runtime
                 .view
                 .read()
@@ -121,14 +123,21 @@ impl PendingBatch {
                 "native accepted batch is immutable".into(),
             ));
         }
-        validate(&operations, self.operation_limit)?;
+        validate(&operations, self.operation_limit)
+            .map_err(|error| self.remember_preparation_limit(error))?;
         let mut data = self.data.lock().expect("native pending batch");
         let count = data
             .operations
             .len()
             .checked_add(operations.len())
             .filter(|count| *count <= self.operation_limit)
-            .ok_or_else(|| accounting::refusal(&data, &operations, self.operation_limit))?;
+            .ok_or_else(|| {
+                self.remember_preparation_limit(accounting::refusal(
+                    &data,
+                    &operations,
+                    self.operation_limit,
+                ))
+            })?;
         accounting::record_stage(&data, &operations, self.operation_limit);
         let mut bytes = data.bytes;
         for operation in &operations {
@@ -140,9 +149,9 @@ impl PendingBatch {
                 )
                 .filter(|bytes| *bytes <= 128 * 1024 * 1024 - 256)
                 .ok_or_else(|| {
-                    StorageError::InvalidOperation(
-                        "complete native mutation exceeds 128 MiB".into(),
-                    )
+                    self.remember_preparation_limit(StorageError::MutationLimit {
+                        detail: "complete native mutation exceeds 128 MiB".into(),
+                    })
                 })?;
         }
         let additional = count - data.operations.len();
@@ -295,9 +304,9 @@ pub(super) fn batch_bytes(
     operation_limit: usize,
 ) -> StorageResult<u64> {
     if operations.len() > operation_limit {
-        return Err(StorageError::InvalidOperation(format!(
-            "complete native batch exceeds {operation_limit} operations"
-        )));
+        return Err(StorageError::MutationLimit {
+            detail: format!("complete native batch exceeds {operation_limit} operations"),
+        });
     }
     let mut bytes = 256u64;
     for operation in operations {
@@ -313,8 +322,8 @@ pub(super) fn batch_bytes(
                     + operation.body.as_ref().map_or(0, Vec::len)) as u64,
             )
             .filter(|bytes| *bytes <= 128 * 1024 * 1024)
-            .ok_or_else(|| {
-                StorageError::InvalidOperation("complete native batch exceeds 128 MiB".into())
+            .ok_or_else(|| StorageError::MutationLimit {
+                detail: "complete native batch exceeds 128 MiB".into(),
             })?;
     }
     Ok(bytes)

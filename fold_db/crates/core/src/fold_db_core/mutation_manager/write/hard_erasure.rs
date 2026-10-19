@@ -21,9 +21,12 @@ impl MutationManager {
             return Ok(ids);
         }
 
-        let erasures = self
-            .expand_protein_hashrange_erasures(erasures, storage_prefix)
-            .await?;
+        let erasures = if verb == super::super::super::purge::HardEraseVerb::Purge {
+            self.expand_protein_hashrange_erasures(erasures, storage_prefix)
+                .await?
+        } else {
+            erasures
+        };
 
         let (schema_order, mut by_schema) = group_mutations_by_schema(erasures);
 
@@ -59,21 +62,21 @@ impl MutationManager {
 
     /// Validate one schema's erasures and reserve its ordered durable purge.
     /// Returns the completion receiver when the caller waits for durability.
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn enqueue_schema_purge_envelope(
         &self,
         schema_name: String,
         schema_erasures: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        missing: super::super::super::purge::PurgeMissingPolicy,
-        verb: super::super::super::purge::HardEraseVerb,
+        (missing, verb): (
+            super::super::super::purge::PurgeMissingPolicy,
+            super::super::super::purge::HardEraseVerb,
+        ),
         wait_for_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<PurgeEnqueue, SchemaError> {
-        let (schema, plan) = self
-            .plan_schema_purge(&schema_name, &schema_erasures, storage_prefix, verb)
+        let (schema, mut job, purge_bytes) = self
+            .prepare_schema_purge_job(&schema_name, schema_erasures, storage_prefix, missing, verb)
             .await?;
-        let purge_bytes = plan.purge_bytes;
         let lane_key =
             crate::resident::PersistLaneKey::new(storage_prefix.unwrap_or(""), schema_name.clone());
         let reservation = self
@@ -89,19 +92,19 @@ impl MutationManager {
             })?;
 
         let guards = self
-            .acquire_purge_apply_guards(&schema, &schema_name, &schema_erasures)
+            .acquire_purge_apply_guards(&schema, &schema_name, &job.erasures)
             .await?;
 
         if let Some(spared) = self
-            .spared_erasures(&schema, &schema_erasures, (storage_prefix, verb))
+            .spared_erasures(&schema, &job.erasures, (storage_prefix, verb))
             .await?
         {
-            return Ok(PurgeEnqueue::Spared(spared, schema_erasures));
+            return Ok(PurgeEnqueue::Spared(spared, job.erasures));
         }
 
         let delete_publication = if verb == super::super::super::purge::HardEraseVerb::Delete {
             Some(
-                self.prepare_delete_publication(&schema, &schema_erasures)
+                self.prepare_delete_publication(&schema, &job.erasures)
                     .await?,
             )
         } else {
@@ -116,20 +119,8 @@ impl MutationManager {
             (None, None)
         };
         let pending_task = self.pending_tasks.begin();
-        let job = super::super::molecules::PurgeEnvelope {
-            author_clock_barrier,
-            erasures: schema_erasures,
-            storage_prefix: storage_prefix.map(str::to_string),
-            missing,
-            validated_present: false,
-            retry_requires_finalize: false,
-            search_batch: plan.search_batch,
-            retention_keys: plan.retention_keys,
-            verb,
-            guarded_complement_retained: plan.guarded_complement_retained,
-            completion,
-            pending_completion: None,
-        };
+        job.author_clock_barrier = author_clock_barrier;
+        job.completion = completion;
         let envelope = crate::resident::PersistEnvelope::new(
             super::super::molecules::LanePersistJob::Purge {
                 job: Box::new(job),
@@ -142,6 +133,42 @@ impl MutationManager {
         drop(delete_publication);
         drop(guards);
         Ok(PurgeEnqueue::Queued(receiver))
+    }
+
+    /// Prepare one schema's cleanup facts without an enqueue or a lane wait.
+    pub(in crate::fold_db_core::mutation_manager) async fn prepare_schema_purge_job(
+        &self,
+        schema_name: &str,
+        erasures: Vec<Mutation>,
+        storage_prefix: Option<&str>,
+        missing: super::super::super::purge::PurgeMissingPolicy,
+        verb: super::super::super::purge::HardEraseVerb,
+    ) -> Result<
+        (
+            crate::schema::Schema,
+            super::super::molecules::PurgeEnvelope,
+            u64,
+        ),
+        SchemaError,
+    > {
+        let (schema, plan) = self
+            .plan_schema_purge(schema_name, &erasures, storage_prefix, verb)
+            .await?;
+        let job = super::super::molecules::PurgeEnvelope {
+            author_clock_barrier: None,
+            erasures,
+            storage_prefix: storage_prefix.map(str::to_string),
+            missing,
+            validated_present: false,
+            retry_requires_finalize: false,
+            search_batch: plan.search_batch,
+            retention_keys: plan.retention_keys,
+            verb,
+            guarded_complement_retained: plan.guarded_complement_retained,
+            completion: None,
+            pending_completion: None,
+        };
+        Ok((schema, job, plan.purge_bytes))
     }
 
     /// Load and validate the schema, then compute everything the purge
@@ -268,7 +295,7 @@ struct SchemaPurgePlan {
 }
 
 /// Group mutations by schema name, keeping first-seen schema order.
-pub(super) fn group_mutations_by_schema(
+pub(in crate::fold_db_core::mutation_manager) fn group_mutations_by_schema(
     mutations: Vec<Mutation>,
 ) -> (Vec<String>, HashMap<String, Vec<Mutation>>) {
     let mut schema_order = Vec::new();

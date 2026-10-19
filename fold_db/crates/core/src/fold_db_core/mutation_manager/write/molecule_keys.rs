@@ -2,7 +2,7 @@ use super::{Mutation, MutationManager, SchemaError};
 
 impl MutationManager {
     /// Resolve durable key authority before a batch reads or plans molecule keys.
-    pub(super) async fn prepare_batch_molecule_keys(
+    pub(in crate::fold_db_core::mutation_manager) async fn prepare_batch_molecule_keys(
         &self,
         mutations: &[Mutation],
         storage_prefix: Option<&str>,

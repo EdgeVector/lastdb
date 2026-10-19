@@ -180,9 +180,14 @@ impl MutationManager {
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let field = expected.field();
-        let (current_uuid, current_value) = self
-            .read_current_head(mutation, field, storage_prefix)
-            .await?;
+        let (current_uuid, current_value) =
+            if mutation.mutation_type == crate::schema::types::MutationType::Delete {
+                self.read_current_delete_head(mutation, field, storage_prefix)
+                    .await?
+            } else {
+                self.read_current_head(mutation, field, storage_prefix)
+                    .await?
+            };
 
         let conflict = |exp: String, actual: Option<String>| SchemaError::CasConflict {
             schema: mutation.schema_name.clone(),
