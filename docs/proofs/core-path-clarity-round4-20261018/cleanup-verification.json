@@ -1,0 +1,27 @@
+{
+  "all_owned_pids_absent": true,
+  "checked_utc": "2026-10-19T05:03:58.949586+00:00",
+  "complete": true,
+  "no_owned_product_process_or_operation_lock_remains": true,
+  "owned_creator_and_node_pids_checked": [
+    5361,
+    5422,
+    9551,
+    9555,
+    9666
+  ],
+  "reviewed_roots_reclaimed": 2,
+  "roots": [
+    {
+      "exists_after": false,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.w3lssf6t"
+    },
+    {
+      "exists_after": false,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cjdjksuq"
+    }
+  ],
+  "scope": "Only the two exact independently reviewed synthetic roots were reclaimed. Original operation receipts and complete=false diagnostic remain unchanged.",
+  "sealed_original_files_verified_unchanged": 24,
+  "supported_cleanup_execution": "cleanup-execution.json"
+}

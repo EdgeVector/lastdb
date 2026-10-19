@@ -1,0 +1,47 @@
+Reviewed source: e91e9b299cc37f36c0600251349b306ed4181ef5
+Base: c3a86c90b3cc0a2dd0fb28b68858fec8738e1e5d (merged PR 218)
+Scope: native startup, query preparation, current molecule persistence, and call-local physical source selection.
+
+Root and independent reviewers found no remaining blocker in this change.
+
+Startup:
+- Default and explicit-options factories converge on one native constructor.
+- Mini retains its account content key and explicit per-home Search inbox.
+- Embedded callers retain their optional unlocked keyring.
+- Cloud intent and local proof startup still refuse before store construction.
+- Boot/decrypt errors retain their existing mapping.
+- Removed init path, prebuilt packing inputs, cloud callback and worker-delay inputs had no active consumer.
+- The coordinator still owns the same shared Arc slots for local maintenance.
+
+Query:
+- Predicates borrow the same selected values as the previous formatted record.
+- A candidate still requires at least one selected field, including when there are no predicates.
+- Missing/null semantics, key order, field order, and limit order stay unchanged.
+- Both passes share the existing bounded reader, source keys, hints, and value resolver.
+- Concurrency retains 0=>1, default 1, maximum 8.
+- The final response formatter remains in use by the host.
+
+Writes:
+- The removed history flag had no setter and both constructors initialized it false.
+- The pending history queue therefore had no current product producer.
+- Replacement/removal still retains the prior tip until current reverse references retire.
+- Imported winner clocks, conflict decisions, and conflict persistence remain.
+- Immutable physical generations, activation pointers, current edges and partial-rewrite refusal remain.
+- The removed private MutationEvent list had one always-empty producer and a final consumer that discarded it.
+- Native capture admission, publication notification, Search delivery, hard erasure events, and replay events remain separate.
+- Manual physical history readers and maintenance requests remain outside ordinary logical reads and writes.
+
+Physical source:
+- Receipt retention and warm body reuse share first-read-form/first-collection selection.
+- No extra collection String or value authority was added.
+- Source budgets, primary-copy eligibility and capture scope remain unchanged.
+
+Intentional distinctions:
+- A missing warm record differs from confirmed absence, a known tip, and a loaded value.
+- Ordinary captures cannot query the private disk queue. The pointer-matched active write owner can use its own prepared changes.
+- New physical-change completeness and retained dirty-alias coverage are different checks; both remain.
+
+The first compiler pass exposed a missing explicit HashMap import in the lock helper after a parent import disappeared.
+The explicit import fixes that compiler error. Its original diagnostic remains in validation/clippy-initial-missing-import.txt.
+The subsequent full workspace Clippy pass succeeds.
+This document records source review, not a live-primary result or a benchmark.

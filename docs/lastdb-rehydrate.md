@@ -35,8 +35,10 @@ Query conditions borrow the selected field values. They do not format or copy an
 Both steps of a field query use the same bounded reader for the other fields.
 There is no separate whole-record value or record-compaction write route.
 Native file packing combines the disk work without a second logical value representation.
-When a Hash write omits its declared key field, preparation supplies that field from the lookup key.
+When a write omits declared key fields, preparation supplies their known values from the lookup key.
 This keeps the record available to field conditions without a separate membership source.
+An atom identity includes its source schema and value. A write through another schema can change that identity for the same value.
+Related molecules still share the current selected atom. A normal reopen retains that atom identity.
 Internal current-field reads select each tip once, then fetch the selected atom bodies in one batch.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
 A shared key that becomes usable also receives the unchanged fields through their existing atoms.
