@@ -64,18 +64,20 @@ impl MutationManager {
         let selected: Vec<_> = requests
             .into_iter()
             .zip(selected)
-            .map(|((index, coordinate), record)| match record {
-                Some((base, record)) => Ok(Some((
-                    index,
-                    coordinate,
-                    record.entry.atom_uuid,
-                    Some(AtomPartition::from_record_key(&base).ok_or_else(|| {
-                        SchemaError::StorageRead {
-                            detail: "protein source-coordinate tip has no physical location".into(),
-                        }
-                    })?),
-                ))),
-                None => {
+            .map(|((index, coordinate), record)| {
+                if let Some((base, record)) = record {
+                    Ok(Some((
+                        index,
+                        coordinate,
+                        record.entry.atom_uuid,
+                        Some(AtomPartition::from_record_key(&base).ok_or_else(|| {
+                            SchemaError::StorageRead {
+                                detail: "protein source-coordinate tip has no physical location"
+                                    .into(),
+                            }
+                        })?),
+                    )))
+                } else {
                     valid[index] = false;
                     Ok(None)
                 }

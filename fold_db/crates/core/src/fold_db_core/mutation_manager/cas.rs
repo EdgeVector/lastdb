@@ -36,7 +36,7 @@ fn protein_delete_key_value(
     values
         .get(field)
         .and_then(scalar_key_coordinate)
-        .map(|value| value.into_owned())
+        .map(std::borrow::Cow::into_owned)
 }
 
 /// One sibling schema that a protein delete must reach:
