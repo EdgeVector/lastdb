@@ -392,7 +392,6 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if let Some(line) = file_blob_status_line(&snapshot.file_blob) {
         lines.push(line);
     }
-    lines.push(locator_only_status_line(snapshot.locator_only.as_ref()));
     if let Some(line) = molecule_gate_status_line(&snapshot.molecule_gate) {
         lines.push(line);
     }

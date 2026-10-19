@@ -163,7 +163,6 @@ pub(super) fn plane_role_slug(role: fold_db::mini_cutover::CollectionPlaneRole) 
         Indexes => "indexes",
         HistoryAdjacent => "history_adjacent",
         TipResidue => "tip_residue",
-        Locality => "locality",
         ColdSync => "cold_sync",
         Ops => "ops",
         Aside => "aside",

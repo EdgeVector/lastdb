@@ -98,7 +98,6 @@ struct DualReadMetrics {
 pub const ATTRIBUTED_COLLECTIONS: &[&str] = &[
     "tips",
     "atoms",
-    "atom_locators",
     "proteins",
     "indexes",
     "field_tip_headers",

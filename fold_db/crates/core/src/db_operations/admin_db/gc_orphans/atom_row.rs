@@ -139,15 +139,6 @@ impl AtomStore {
         pending: &mut Vec<String>,
     ) -> Result<(), SchemaError> {
         let key = String::from_utf8_lossy(k);
-        // Parse the uuid out of EITHER key shape. Under
-        // `AtomKeyEncoding::PartitionPrefix` a body key is
-        // `{ctx.storage_prefix}:atom:{partition}\0{uuid}`, and the previous
-        // `rsplit_once("atom:")` returned the whole `{partition}\0{uuid}`
-        // tail as the "uuid". That never matches a referenced uuid, so
-        // every *live* prefixed body looked like an orphan and this loop
-        // would have deleted the entire atom collection on the first
-        // gc-atoms call after the encoding flipped. Kind-as-partition
-        // flats are `atom\0{uuid}`; `rest_of` covers both.
         let Some(uuid) = Self::atom_uuid_from_body_key(&key) else {
             return Ok(());
         };

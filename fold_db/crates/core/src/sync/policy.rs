@@ -42,8 +42,6 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 /// reconstruction / apply helper (no store scan), or be named dead residue
 /// that product writes do not emit. See [`CAPTURE_SKIP_RECONSTRUCT_CONTRACTS`].
 ///
-/// - `aloc:` — rebuild from a partition-prefixed `atom:` key
-///   (`replay_put` → `rebuild_atom_locator_if_needed`).
 /// - `mk:` — rebuild from `LogOp::MutationIntent` via
 ///   `MutationManager::apply_replayed_mutations` → serving persist
 ///   (`write_mutations_batch_inner`). Product writes already capture the
@@ -83,7 +81,6 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 /// planes to [`CAPTURE_SKIP_BY_KEY_PREFIX_PLANES`] in the same change: that
 /// would mark them capture-free and trip the unattended self-compact bar.
 pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
-    "aloc:",
     "aref:",
     "mref:v1:",
     "bref:v1:",
@@ -159,7 +156,7 @@ pub(crate) const CAPTURE_SKIP_EXACT_KEYS: &[(&str, &str)] = &[("metadata", "keep
 ///
 /// [`CAPTURE_SKIP_NAMESPACES`] answers "is this namespace captured?" and
 /// [`CAPTURE_SKIP_MAIN_KEY_PREFIXES`] answers "is this row captured?", but a
-/// LastStore collection is neither: `atom_locators` is a physical home that
+/// LastStore collection is neither: `atom_ref_edges` is a physical home that
 /// `MAIN_KEY_PREFIX_COLLECTIONS` routes one and only one main-key prefix into.
 /// Such a plane is capture-free without being a capture-skip *namespace*, and
 /// that is exactly the property
@@ -168,12 +165,11 @@ pub(crate) const CAPTURE_SKIP_EXACT_KEYS: &[(&str, &str)] = &[("metadata", "keep
 ///
 /// Each entry is `(collection, sole main-key prefix)`. The prefix half is not
 /// decoration: the bar asserts it is still in
-/// [`CAPTURE_SKIP_MAIN_KEY_PREFIXES`], so dropping `aloc:` from that list fails
-/// the test instead of quietly turning locator compaction into a mutation-log
+/// [`CAPTURE_SKIP_MAIN_KEY_PREFIXES`], so dropping `aref:` from that list fails
+/// the test instead of quietly turning edge compaction into a mutation-log
 /// amplifier — the 2026-08-08 `tips` mistake, which cost 11.58 GiB of new
 /// `sync_pin_log`.
 pub(crate) const CAPTURE_SKIP_BY_KEY_PREFIX_PLANES: &[(&str, &str)] = &[
-    ("atom_locators", "aloc:"),
     ("atom_ref_edges", "aref:"),
     ("atom_ref_edges_v2", "aref:"),
     ("molecule_ref_edges", "mref:v1:"),
@@ -274,11 +270,10 @@ pub(crate) fn capture_should_skip_namespace(name: &str) -> bool {
 /// Whether one logical KV row should be omitted from mutation-log capture.
 ///
 /// Org rows carry a 64-hex storage prefix before the ordinary main key. Strip
-/// that scope only for classification; the replay side restores the locator
-/// under the same scope.
+/// that scope only for classification.
 ///
 /// Skip applies on logical `main` **and** on the physical plane that prefix
-/// is routed into (`tips` for `mk:`, `atom_locators` for `aloc:`). Compact
+/// is routed into (`tips` for `mk:`, `atom_ref_edges` for `aref:`). Compact
 /// and leftover admin rewrites open those planes directly; a main-only skip
 /// would still full-value-capture those puts (the 2026-08-08 amplifier).
 pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
@@ -322,7 +317,6 @@ fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -
         | "gcatoms-probe-ref:"
         | "gcatoms-probe-tv-skip:"
         | "peer-apply:" => namespace == "tips",
-        "aloc:" => namespace == "atom_locators",
         "aref:" => namespace == "atom_ref_edges" || namespace == "atom_ref_edges_v2",
         "mref:v1:" => namespace == "molecule_ref_edges",
         "bref:v1:" => namespace == "blob_ref_edges",

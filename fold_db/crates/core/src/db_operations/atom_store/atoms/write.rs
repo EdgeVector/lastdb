@@ -59,7 +59,8 @@ impl AtomStore {
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         let sealed: Vec<SealedAtom> = atoms.into_iter().map(|atom| (atom, None)).collect();
-        self.batch_store_atoms_borrowed(&sealed, storage_prefix).await
+        self.batch_store_atoms_borrowed(&sealed, storage_prefix)
+            .await
     }
 
     /// Store atoms, each with the molecule whose key bundle seals the body in an

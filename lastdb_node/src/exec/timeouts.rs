@@ -224,13 +224,10 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbPurgeRefBlobs
         | DataRoute::DbReclaimKeepSmallLegacy
         | DataRoute::DbReclaimKeepSmallSnapshot
-        | DataRoute::DbRepairDanglingTips
         | DataRoute::DbDrainTipHistory
         | DataRoute::DbRetainSupersededVersions
-        | DataRoute::DbProbeLocatorOnly
         | DataRoute::DbMigratePhotoBlobs
         | DataRoute::DbMigrateThinTips
-        | DataRoute::DbRekeyAtomPartitionPrefix
         | DataRoute::DbResealAtRest
         | DataRoute::DbReapUnsealed
         | DataRoute::DbDeleteLedger

@@ -182,16 +182,3 @@ fn print_retain_summary(totals: &serde_json::Value, execute: bool) {
         println!("Re-run with --execute to drop tv: nodes older than 7 days on live records.");
     }
 }
-
-/// Per-key detail rows a `--schema` repair reports when `--audit-limit` is
-/// not given.
-pub(crate) const SCOPED_REPAIR_AUDIT_LIMIT: usize = 1000;
-
-/// Bounds and key scope for `lastdb db repair-dangling-tips`.
-pub(crate) struct RepairDanglingTipsArgs {
-    pub(crate) max_ops: Option<usize>,
-    pub(crate) tip_page: Option<usize>,
-    pub(crate) audit_limit: Option<usize>,
-    pub(crate) schema: Option<String>,
-    pub(crate) hash_key: Option<String>,
-}

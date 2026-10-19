@@ -1,5 +1,17 @@
 use super::*;
 
+/// `mk:` records one daemon call decides by default. Every one costs an atom
+/// body read, and a stamping pass adds a write, so an unbounded call runs for
+/// minutes and trips the control socket's read deadline — the operator then sees
+/// a failure for work that is still running, and after a `--execute` cannot say
+/// whether anything was written. This CLI walks in bounded passes instead.
+///
+/// 200,000 was the first guess and it was too coarse: a `--schema Card`
+/// stamping pass selects ~148,000 keys, stays under the cap, and still took
+/// longer than the deadline. Sized so a stamping pass finishes well inside it;
+/// override with `--max-keys` when the shape of a store says otherwise.
+pub(crate) const TOMBSTONE_AUDIT_KEYS_PER_CALL: usize = 50_000;
+
 pub(crate) struct TombstoneFlagAuditCliOpts {
     pub(crate) schema: Option<String>,
     pub(crate) execute: bool,

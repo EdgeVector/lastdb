@@ -71,11 +71,6 @@ pub(super) fn db_inspect_command(
             expected_key_fingerprint.as_deref(),
             json,
         ),
-        DbInspectCommand::ProbeLocatorOnly {
-            max_tips,
-            tip_page,
-            json,
-        } => db_probe_locator_only(socket, max_tips, tip_page, json),
     }
 }
 
@@ -182,26 +177,6 @@ pub(super) fn db_tips_command(socket: &Path, action: DbTipsCommand) -> Result<()
             max_prunes,
             after_key,
             from_checkpoint,
-            json,
-        ),
-        DbTipsCommand::RepairDanglingTips {
-            execute,
-            max_ops,
-            tip_page,
-            audit_limit,
-            schema,
-            hash_key,
-            json,
-        } => db_repair_dangling_tips(
-            socket,
-            execute,
-            &RepairDanglingTipsArgs {
-                max_ops,
-                tip_page,
-                audit_limit,
-                schema,
-                hash_key,
-            },
             json,
         ),
         DbTipsCommand::MigrateThinTips { execute, json } => {

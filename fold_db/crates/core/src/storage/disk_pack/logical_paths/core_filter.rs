@@ -124,12 +124,7 @@ fn captured_matches(
             return Ok(None);
         }
         let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
-        matches.push((
-            key.clone(),
-            value.entry.atom_uuid,
-            value.metadata,
-            writer,
-        ));
+        matches.push((key.clone(), value.entry.atom_uuid, value.metadata, writer));
     }
     Ok(Some(matches))
 }
@@ -193,12 +188,7 @@ fn current_matches(
             return Ok(None);
         }
         let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
-        matches.push((
-            key.clone(),
-            value.entry.atom_uuid,
-            value.metadata,
-            writer,
-        ));
+        matches.push((key.clone(), value.entry.atom_uuid, value.metadata, writer));
     }
     Ok(Some(matches))
 }

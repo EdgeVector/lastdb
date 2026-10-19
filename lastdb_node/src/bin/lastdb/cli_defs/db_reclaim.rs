@@ -28,7 +28,7 @@ pub(crate) enum DbReclaimCommand {
     /// Allowlist:
     /// `schemas`, `schema_states`, `schema_index`, `tips`, `metadata`,
     /// `idempotency`, `change_feed`, `sync_pin_log`, `sync_capture_reexport`,
-    /// `atoms`, `atom_locators`, `atom_ref_edges`, `atom_ref_edges_v2`,
+    /// `atoms`, `atom_ref_edges`, `atom_ref_edges_v2`,
     /// `molecule_ref_edges`, `blob_ref_edges`, `proteins`,
     /// `field_update_order_log`, `field_update_order_count`, `indexes`,
     /// `keep_small`, `cas_blobs`.
@@ -69,18 +69,6 @@ pub(crate) enum DbReclaimCommand {
     /// `metadata` holds captured node state with no reconstruction contract.
     /// Its physical compact is capture-neutral through capture suppression;
     /// ordinary metadata writes remain captured.
-    ///
-    /// `atom_locators` is the churn plane with a real live set: one small
-    /// `aloc:` row per live atom, rewritten in place whenever an atom is
-    /// re-addressed, and a rewrite is an append. It reached 1.45 GiB on the
-    /// primary 2026-08-17 while not even being on the allowlist, so this
-    /// command answered "not on the compact allowlist" and no other verb
-    /// returned a byte. The daemon now compacts it on the sync cycle once its
-    /// expected reclaim (filesystem allocation overhang plus dead-record
-    /// residue) reaches
-    /// `LASTDB_ATOM_LOCATORS_COMPACT_MIN_OVERHANG_BPS` (default 1500 = 15%,
-    /// probed hourly). Compacting it is capture-free because `aloc:` rows are
-    /// omitted from the mutation log by key prefix, not by namespace.
     ///
     /// `atom_ref_edges` and `atom_ref_edges_v2` hold the rebuildable legacy and
     /// compact reverse-reference shadow indexes. The residual sweep compacts

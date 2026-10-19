@@ -9,19 +9,12 @@ use crate::kind_partition::{colon_prefix_matches, split_org_storage_prefix};
 
 /// Target Last Store collections a `main` key can land in.
 ///
-/// `atom_locators` holds the `aloc:{uuid}` → partition index. It is its own
-/// collection on purpose: `atoms` is the collection whose cold group loads the
-/// partition-prefix work exists to bound, so its per-atom index does not belong
-/// in it. LastStore creates a collection lazily on first write and reads an
-/// absent one as empty, so a home that has never written a locator is unaffected.
-///
 /// `proteins` is the SOT home for protein membership + fold queue
 /// (`protein:` / `molprot:` / `fldprot:` / `pfq:`). `MAIN_KEY_PREFIX_COLLECTIONS`
 /// lists the same write target. Legacy homes may still hold those keys under
 /// `tips`; dual-read is proteins → tips (proteins-target arm in laststore).
 /// `indexes` is the single rebuildable-helper plane (K18).
-pub const MAIN_MIGRATION_COLLECTIONS: &[&str] =
-    &["atoms", "tips", "atom_locators", "proteins", "indexes"];
+pub const MAIN_MIGRATION_COLLECTIONS: &[&str] = &["atoms", "tips", "proteins", "indexes"];
 
 /// Migration-era split collections that older LastStore homes may still carry
 /// **and** that live logical-main dual-read may still consult on empty-prefix
@@ -52,8 +45,6 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
     let bare = split_org_storage_prefix(s).map_or(s, |(_, rest)| rest);
     if colon_prefix_matches(bare, "atom:") {
         Some("atoms")
-    } else if colon_prefix_matches(bare, "aloc:") {
-        Some("atom_locators")
     } else if bare.starts_with("aref:v2:") {
         Some("atom_ref_edges_v2")
     } else if colon_prefix_matches(bare, "aref:") {

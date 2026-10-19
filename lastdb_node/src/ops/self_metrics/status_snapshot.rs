@@ -181,13 +181,6 @@ pub struct StatusSnapshot {
     /// whether this node had recorded those bytes as uploaded.
     #[serde(default)]
     pub file_blob: FileBlobHealth,
-    /// Last locator-only tip population probe for this process (if any).
-    ///
-    /// Never computed on the status path — run `lastdb db probe-locator-only`
-    /// (or `POST /api/db/probe-locator-only`) to refresh. Absent means "never
-    /// probed since process start", not "population is zero".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locator_only: Option<LocatorOnlyHealth>,
     /// Per-schema purge accounting (cumulative since process start).
     ///
     /// This ledger reports purge counts, guarded critical-section time, and

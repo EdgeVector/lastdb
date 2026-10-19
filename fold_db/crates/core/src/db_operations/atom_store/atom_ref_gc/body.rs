@@ -9,7 +9,10 @@ impl AtomStore {
         candidate: &AtomGcCandidate,
         storage_prefix: Option<&str>,
     ) -> Result<DeletedAtom, SchemaError> {
-        let body_key = build_storage_key(storage_prefix, &atom_key_codec::body_key(&candidate.atom_uuid));
+        let body_key = build_storage_key(
+            storage_prefix,
+            &atom_key_codec::body_key(&candidate.atom_uuid),
+        );
         let raw = self
             .main_store
             .inner()

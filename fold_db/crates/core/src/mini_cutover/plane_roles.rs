@@ -22,8 +22,6 @@ pub enum CollectionPlaneRole {
     HistoryAdjacent,
     /// Migration-era tip dual-plane residue (field_tips* dual-read only).
     TipResidue,
-    /// Locality helper (`atom_locators`).
-    Locality,
     /// Sync/meta cold (Phase-1 same root; warm-priority exclude candidate).
     ColdSync,
     /// Node-local ops / identity / markers.
@@ -43,7 +41,6 @@ impl CollectionPlaneRole {
             Self::Indexes => "indexes",
             Self::HistoryAdjacent => "history-adjacent",
             Self::TipResidue => "tip-residue",
-            Self::Locality => "locality",
             Self::ColdSync => "cold/sync",
             Self::Ops => "ops",
             Self::Aside => "aside",
@@ -59,11 +56,10 @@ impl CollectionPlaneRole {
             Self::Indexes => 1,
             Self::HistoryAdjacent => 2,
             Self::TipResidue => 3,
-            Self::Locality => 4,
-            Self::ColdSync => 5,
-            Self::Ops => 6,
-            Self::Aside => 7,
-            Self::Unknown => 8,
+            Self::ColdSync => 4,
+            Self::Ops => 5,
+            Self::Aside => 6,
+            Self::Unknown => 7,
         }
     }
 }
@@ -162,9 +158,6 @@ pub fn classify_collection_plane(name: &str) -> CollectionPlaneRole {
 
         // ── Tip dual-plane residue ───────────────────────────────────────
         "field_tips" | "field_tip_headers" => CollectionPlaneRole::TipResidue,
-
-        // ── Locality ─────────────────────────────────────────────────────
-        "atom_locators" => CollectionPlaneRole::Locality,
 
         // ── Cold / sync (K13 Phase-1 same root) ──────────────────────────
         "sync_capture"

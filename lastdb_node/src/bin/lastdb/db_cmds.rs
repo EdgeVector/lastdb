@@ -6,9 +6,6 @@ pub(crate) use db_app_storage_cmds::*;
 #[path = "db_blob_cmds.rs"]
 mod db_blob_cmds;
 pub(crate) use db_blob_cmds::*;
-#[path = "db_dangling_tips_cmds.rs"]
-mod db_dangling_tips_cmds;
-pub(crate) use db_dangling_tips_cmds::*;
 #[path = "db_gc_atoms_cmds.rs"]
 mod db_gc_atoms_cmds;
 pub(crate) use db_gc_atoms_cmds::*;
@@ -39,12 +36,9 @@ pub(crate) use db_reap_cmds::*;
 #[path = "db_reclaim_cmds.rs"]
 mod db_reclaim_cmds;
 pub(crate) use db_reclaim_cmds::*;
-#[path = "db_rekey_cmds.rs"]
-mod db_rekey_cmds;
-pub(crate) use db_rekey_cmds::*;
-#[path = "db_rekey_partition_cmds.rs"]
-mod db_rekey_partition_cmds;
-pub(crate) use db_rekey_partition_cmds::*;
+#[path = "db_unresolved_cmds.rs"]
+mod db_unresolved_cmds;
+pub(crate) use db_unresolved_cmds::*;
 #[path = "db_reseal_cmds.rs"]
 mod db_reseal_cmds;
 pub(crate) use db_reseal_cmds::*;

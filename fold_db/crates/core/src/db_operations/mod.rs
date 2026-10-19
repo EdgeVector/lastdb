@@ -33,9 +33,9 @@ pub use admin_db::{
     AutomaticGcAtomsDeletePhase, AutomaticGcAtomsDeleteReport, AutomaticGcAtomsDeleteResult,
     AutomaticGcAtomsGraceGate, AutomaticGcAtomsPinLogReferencePage,
     AutomaticGcAtomsProbeCheckpoint, AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbePhase,
-    AutomaticGcAtomsProbeReport, AutomaticGcAtomsProbeResult, DbInventory,
-    GcAtomsPruneCheckpoint, GcAtomsRevalidationTally, HistoryClearReport, LegacyKeyForkAudit,
-    LegacyKeyForkMoleculeStat, LegacyRefBlobPurgeReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
+    AutomaticGcAtomsProbeReport, AutomaticGcAtomsProbeResult, DbInventory, GcAtomsPruneCheckpoint,
+    GcAtomsRevalidationTally, HistoryClearReport, LegacyKeyForkAudit, LegacyKeyForkMoleculeStat,
+    LegacyRefBlobPurgeReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
     MoleculeKeyRow, MoleculeKeysReport, MoleculeTombstoneFlagStat, OrderLogAudit,
     OrderLogBloatAudit, OrderLogBloatRow, OrderLogBloatSchemaStat, OrderLogRepairReport,
     OrderLogShortRow, OrderLogZeroLiveCompactionReport, ProteinGcReport,
@@ -45,8 +45,8 @@ pub use admin_db::{
     SupersededVersionRetentionOptions, SupersededVersionRetentionReport, ThinTipMigrateReport,
     TipFormatStats, TipHistoryDrainCheckpoint, TipHistoryDrainOptions, TipHistoryDrainReport,
     TombstoneFlagAudit, TombstoneFlagBackfillReport, GC_ATOMS_DELETE_CHECKPOINT_KEY,
-    GC_ATOMS_PROBE_CHECKPOINT_KEY, GC_ATOMS_PRUNE_CHECKPOINT_KEY, SUPERSEDED_VERSION_RETENTION_CHECKPOINT_KEY,
-    TIP_HISTORY_DRAIN_CHECKPOINT_KEY,
+    GC_ATOMS_PROBE_CHECKPOINT_KEY, GC_ATOMS_PRUNE_CHECKPOINT_KEY,
+    SUPERSEDED_VERSION_RETENTION_CHECKPOINT_KEY, TIP_HISTORY_DRAIN_CHECKPOINT_KEY,
 };
 pub use atom_store::{
     allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,

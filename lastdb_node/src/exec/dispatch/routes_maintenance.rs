@@ -59,9 +59,6 @@ pub(super) async fn dispatch_maintenance_repair(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::DbRepairDanglingTips => {
-            heap_route!(execute_db_repair_dangling_tips_route, req, ctx, host).await
-        }
         DataRoute::DbUnresolvedAtoms => match host.db.db_ops().unresolved_atom_identity_report() {
             Ok(report) => json_ok(&envelope(
                 &serde_json::json!({ "unresolved_atoms": report }),
@@ -75,9 +72,6 @@ pub(super) async fn dispatch_maintenance_repair(
         DataRoute::DbRetainSupersededVersions => {
             heap_route!(execute_db_retain_superseded_versions_route, req, ctx, host).await
         }
-        DataRoute::DbProbeLocatorOnly => {
-            heap_route!(execute_db_probe_locator_only_route, req, ctx, host).await
-        }
         DataRoute::DbDeleteLedger => {
             heap_route!(execute_db_delete_ledger_route, req, ctx, host).await
         }
@@ -86,9 +80,6 @@ pub(super) async fn dispatch_maintenance_repair(
         }
         DataRoute::DbMigrateThinTips => {
             heap_route!(execute_db_migrate_thin_tips_route, req, ctx, host).await
-        }
-        DataRoute::DbRekeyAtomPartitionPrefix => {
-            heap_route!(execute_db_rekey_atom_partition_prefix_route, req, ctx, host).await
         }
         DataRoute::DbResealAtRest => {
             heap_route!(execute_db_reseal_at_rest_route, req, ctx, host).await

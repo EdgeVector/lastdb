@@ -52,7 +52,7 @@ pub(super) fn covers(
         {
             return false;
         }
-        if !["atom", "aloc", "mk", "rdel", "mh", "hcu"]
+        if !["atom", "mk", "rdel", "mh", "hcu"]
             .into_iter()
             .any(|kind| crate::kind_partition::rest_of(raw, kind).is_some())
         {

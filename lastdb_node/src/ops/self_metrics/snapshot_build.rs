@@ -84,7 +84,6 @@ pub(super) async fn build_snapshot(
             .atom_ref_edge_health()
             .unwrap_or_else(|| configured_atom_ref_edge_health(host)),
         file_blob: file_blob_health(host).await,
-        locator_only: fold_db::db_operations::last_locator_only_probe().map(Into::into),
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics

@@ -12,14 +12,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 use fold_db::storage::{
     PlaneResidueDrainOptions, PlaneResidueFamily, INDEX_RESIDUE_LEGACY_COLLECTIONS,
 };
-use lastdb_node::atom_gc_reap::ReapPolicy;
 
-mod atom_gc;
 mod home;
 mod liveness;
 mod residue;
 
-use atom_gc::{atom_gc_audit, atom_gc_reap, AtomGcReapArgs};
 use liveness::{bootstrap_liveness, LivenessBootstrapArgs};
 use residue::{
     drain_plane, drain_tip_residue, index_plane_inventory, reclaim_index_residue,
@@ -243,47 +240,6 @@ enum Cmd {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
-    /// Audit atom GC candidates on an offline CoW clone.
-    ///
-    /// Read-only. Refuses primary/legacy homes unless `--i-know-this-is-primary`
-    /// is passed. The report inventories referenced and unreferenced atom body
-    /// keys, duplicate UUID groups that can be compared by raw value hash, and
-    /// whether Card / BoardCards / MilestoneCards schema metadata is visible in
-    /// the copied home.
-    AtomGcAudit {
-        /// Include at most N duplicate UUID group detail rows.
-        #[arg(long, default_value_t = 100)]
-        detail_limit: usize,
-        #[arg(long)]
-        i_know_this_is_primary: bool,
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
-    /// Reclaim redundant atom-body copies the audit proved safe (CoW only).
-    ///
-    /// Default is a dry-run plan; `--execute` deletes. Only removes a copy when
-    /// an identical-content survivor stays reachable by the read ladder — every
-    /// other case is reported ambiguous and left alone. Primary execution is not
-    /// available from this command at all: `--i-know-this-is-primary` permits a
-    /// primary *plan*, and is refused outright together with `--execute`.
-    AtomGcReap {
-        /// Delete. Without this the command only prints what it would do.
-        #[arg(long)]
-        execute: bool,
-        /// Also delete bodies no live row references.
-        ///
-        /// Off by default: a duplicate delete is provably lossless, an orphan
-        /// delete is only as good as the reference scan.
-        #[arg(long)]
-        reap_unreferenced_orphans: bool,
-        /// Include at most N per-group decision rows in the report.
-        #[arg(long, default_value_t = 100)]
-        detail_limit: usize,
-        #[arg(long)]
-        i_know_this_is_primary: bool,
-        #[arg(long, default_value_t = false)]
-        json: bool,
-    },
     /// Rebuild the molecule and blob liveness planes on a STOPPED home.
     ///
     /// Reads every schema, protein and atom, rewrites the derived edges, and
@@ -440,7 +396,7 @@ fn run_drain(home: &Path, cmd: Cmd) -> Result<(), String> {
     }
 }
 
-/// The inventory, reclaim and atom-gc subcommands.
+/// The inventory and reclaim subcommands.
 fn run_report(home: &Path, cmd: Cmd) -> Result<(), String> {
     match cmd {
         Cmd::IndexPlaneInventory {
@@ -464,27 +420,6 @@ fn run_report(home: &Path, cmd: Cmd) -> Result<(), String> {
             prefix,
             execute,
             limit,
-            i_know_this_is_primary,
-            json,
-        }),
-        Cmd::AtomGcAudit {
-            detail_limit,
-            i_know_this_is_primary,
-            json,
-        } => atom_gc_audit(home, detail_limit, i_know_this_is_primary, json),
-        Cmd::AtomGcReap {
-            execute,
-            reap_unreferenced_orphans,
-            detail_limit,
-            i_know_this_is_primary,
-            json,
-        } => atom_gc_reap(&AtomGcReapArgs {
-            home,
-            execute,
-            policy: ReapPolicy {
-                reap_unreferenced_orphans,
-            },
-            detail_limit,
             i_know_this_is_primary,
             json,
         }),

@@ -128,31 +128,6 @@ pub(super) fn db_seal_command(socket: &Path, action: DbSealCommand) -> Result<()
                 timeout_secs: timeout,
             },
         ),
-        DbSealCommand::RekeyAtomPartitionPrefix {
-            execute,
-            remove_flat,
-            max_ops,
-            tip_page,
-            audit,
-            audit_limit,
-            progress,
-            until_complete,
-            compact_after,
-            json,
-        } => db_rekey_atom_partition_prefix(
-            socket,
-            RekeyCliOpts {
-                execute,
-                remove_flat,
-                max_ops,
-                tip_page,
-                audit_unresolved: audit.then_some(audit_limit),
-                progress,
-                until_complete,
-                compact_after,
-                json_only: json,
-            },
-        ),
     }
 }
 

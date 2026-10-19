@@ -91,7 +91,6 @@ pub(crate) fn main_rows(
         "indexes",
         "tips",
         "proteins",
-        "atom_locators",
         "atoms",
     ] {
         let keys = physical_keys(store, collection, admission)?;

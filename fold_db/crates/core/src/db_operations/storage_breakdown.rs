@@ -90,7 +90,7 @@ impl AtomStore {
 
         // Single pass over canonical atom rows so logical byte totals are
         // not double-counted by the schema secondary index copies.
-        // Writes land at `atom\0{uuid}`; leftover `atom:{uuid}` still exists.
+        // Every body is one record at `atom:{uuid}\0b`.
         let wanted: HashSet<&str> = schema_names.iter().map(String::as_str).collect();
         let colon = build_storage_key(storage_prefix, "atom:");
         let (scan_prefix, scan_end) = crate::kind_partition::colon_plane_bounds(&colon);

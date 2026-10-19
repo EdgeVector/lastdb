@@ -158,7 +158,11 @@ impl MutationManager {
             .iter()
             .map(|(_, entry)| entry.atom_uuid.as_str())
             .collect();
-        let atoms = self.db_ops.atoms().get_atoms(&uuids, storage_prefix).await?;
+        let atoms = self
+            .db_ops
+            .atoms()
+            .get_atoms(&uuids, storage_prefix)
+            .await?;
         if atoms.len() != selected.len() {
             return Err(SchemaError::StorageRead {
                 detail: "point-read atom count differs from selected field count".into(),

@@ -362,10 +362,6 @@ pub enum DataRoute {
     /// `keep_small:meters` row, without loading it. OWNER socket only.
     /// Body: `{ dry_run?: bool }` (default true).
     DbReclaimKeepSmallSnapshot,
-    /// `POST /api/db/repair-dangling-tips` — remove live `mk:` tips whose atom
-    /// body is unreachable by every reader route. OWNER only. Body:
-    /// `{ dry_run?: bool, max_ops?: u64, tip_page?: u64, audit_unresolved?: u64 }`.
-    DbRepairDanglingTips,
     /// `GET /api/db/unresolved-atoms` — the bounded atom identities behind
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
@@ -381,10 +377,6 @@ pub enum DataRoute {
     /// Body: `{ dry_run?: bool, max_keys?: usize, max_prunes?: usize,
     ///    after_key?: string, from_checkpoint?: bool, retention_seconds?: u64 }`.
     DbRetainSupersededVersions,
-    /// `POST /api/db/probe-locator-only` — bounded sample of tips reachable only
-    /// via `aloc:` locator (not tip-derived/flat). OWNER only. Body:
-    /// `{ max_tips?: u64, tip_page?: u64 }` (default max_tips=512). Always read-only.
-    DbProbeLocatorOnly,
     /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
     /// trail (purge + gc-atoms), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had
@@ -396,10 +388,6 @@ pub enum DataRoute {
     /// `POST /api/db/migrate-thin-tips` — rewrite fat `mk:` tip values to thin.
     /// Body: `{ dry_run?: bool }` (default true).
     DbMigrateThinTips,
-    /// `POST /api/db/rekey-atom-partition-prefix` — dual-write atom bodies to
-    /// partition-prefixed keys (+ locators). Body:
-    /// `{ dry_run?: bool, remove_flat?: bool, max_ops?: u64 }` (dry_run default true).
-    DbRekeyAtomPartitionPrefix,
     /// `POST /api/db/reseal-at-rest` — rewrite existing `ENC:` values in one
     /// sealed plane to `ENB:` (+ deflate ≥256 B) under the same key.
     /// OWNER only. Body: `{ collection, dry_run?: bool, max_rows?: usize,

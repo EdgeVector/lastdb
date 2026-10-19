@@ -167,30 +167,6 @@ pub struct IndexPlanePrefixInventory {
 /// product could return a byte of it: the plane was on neither this list nor
 /// `SYNC_INTERNAL_NAMESPACES`.
 ///
-/// `atom_locators` joined 2026-08-17. It clears the capture bar by *key
-/// prefix* rather than by namespace, and it is the only plane in the store
-/// that does: `atom_locators` holds exactly the `aloc:` rows
-/// (`MAIN_KEY_PREFIX_COLLECTIONS`), and `aloc:` is the sole entry in
-/// `sync::policy::CAPTURE_SKIP_MAIN_KEY_PREFIXES`. Capture therefore already
-/// omits every row this plane can contain, so compacting it cannot re-enter
-/// the mutation log — the property that makes `sync_pin_log` safe, reached by
-/// the other route. `sync::policy::CAPTURE_SKIP_BY_KEY_PREFIX_PLANES` pins the
-/// pairing so removing the prefix breaks the build rather than silently making
-/// this compaction an amplifier.
-///
-/// It needed admitting because a locator row is rewritten whenever its atom is
-/// re-addressed, `LastStore::delete`/overwrite is an append, and nothing
-/// prunes the superseded records: measured on Tom's primary 2026-08-17 the
-/// plane was 1.45 GiB — the fourth-largest collection in an 18.79 GiB store —
-/// behind a live set of one small row per live atom (~1.55 M). Before this
-/// entry `lastdb db compact --collection atom_locators` answered "not on the
-/// compact allowlist", so the plane had no byte-return path of any kind.
-///
-/// Nothing is lost if a locator row is dropped: the same doc comment that
-/// admits `aloc:` to the capture skip list states the reconstruction contract
-/// — a partition-prefixed `atom:` key carries both the partition and the atom
-/// UUID, so the locator is derivable from the atom plane.
-///
 /// `cas_blobs` joined 2026-10-08: a blob delete is an append, so the 568.8 MiB
 /// plane on the primary could not return a byte. Its rows are captured and
 /// backed up as `Mutable` chunks, so it compacts under cloud isolation like
@@ -212,7 +188,6 @@ pub const COMPACT_ALLOWLIST: &[&str] = &[
     // so ~100% of the plane is dead between compactions. Capture-free.
     "keep_small",
     "atoms",
-    "atom_locators",
     "atom_ref_edges",
     "atom_ref_edges_v2",
     "molecule_ref_edges",

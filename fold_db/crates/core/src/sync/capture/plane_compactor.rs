@@ -28,10 +28,10 @@
 
 use super::worker::{
     automatic_large_plane_pauses_cloud, compact_footprint_spike_estimate, compact_lacks_headroom,
-    overhang_bps, overhang_trigger_met, photograph_compact_budget_exhausted,
-    raise_plane_floor, ChurnPlaneTrigger, PhotographDirtyPlane, PhotographPlaneKind,
-    ATOMS_NAMESPACE, CAPTURE_REEXPORT_NAMESPACE, LARGE_CAPTURED_SELF_COMPACT_PLANES,
-    ORDER_LOG_NAMESPACE, TIPS_NAMESPACE,
+    overhang_bps, overhang_trigger_met, photograph_compact_budget_exhausted, raise_plane_floor,
+    ChurnPlaneTrigger, PhotographDirtyPlane, PhotographPlaneKind, ATOMS_NAMESPACE,
+    CAPTURE_REEXPORT_NAMESPACE, LARGE_CAPTURED_SELF_COMPACT_PLANES, ORDER_LOG_NAMESPACE,
+    TIPS_NAMESPACE,
 };
 use super::{ResidualPlaneTrigger, RESIDUAL_SELF_COMPACT_PLANES};
 use crate::storage::traits::NamespacedStore;
@@ -372,8 +372,8 @@ impl PlaneCompactor {
 
 pub(crate) mod cloud_off_restore;
 mod large;
-mod residual;
 mod photograph;
 mod reexport;
+mod residual;
 mod status;
 mod tips;

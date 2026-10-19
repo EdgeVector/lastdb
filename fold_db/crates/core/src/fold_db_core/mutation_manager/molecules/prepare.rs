@@ -148,7 +148,10 @@ impl MutationManager {
             .iter()
             .zip(atoms_to_store)
             .map(|((_, field_name, _), atom)| {
-                (atom, Some(seal_molecule_for_atom(schema_name, field_name, schema)))
+                (
+                    atom,
+                    Some(seal_molecule_for_atom(schema_name, field_name, schema)),
+                )
             })
             .collect();
 

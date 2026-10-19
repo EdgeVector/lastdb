@@ -21,7 +21,9 @@ impl AtomStore {
         let mut seen = HashSet::new();
         let keys: Vec<String> = atoms
             .iter()
-            .map(|(atom, _)| build_storage_key(storage_prefix, &atom_key_codec::body_key(atom.uuid())))
+            .map(|(atom, _)| {
+                build_storage_key(storage_prefix, &atom_key_codec::body_key(atom.uuid()))
+            })
             .filter(|key| seen.insert(key.clone()))
             .collect();
         if self

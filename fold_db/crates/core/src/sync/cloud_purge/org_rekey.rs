@@ -111,7 +111,7 @@ pub(super) async fn export_main_rows(
             output.push((
                 format!(
                     "{fresh}:{}",
-                    crate::kind_partition::anchored("atom", atom.uuid())
+                    crate::atom::atom_key_codec::body_key(atom.uuid())
                 )
                 .into_bytes(),
                 crate::crypto::seal_at_rest_utf8(target_key, &bytes).map_err(error)?,

@@ -15,7 +15,6 @@ pub const KIND_PARTITION_KINDS: &[&str] = &[
     "conflict",
     "history",
     "dellog",
-    "aloc",
     "mord",
     "moc",
     "atom",

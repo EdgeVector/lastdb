@@ -5,7 +5,6 @@ use super::*;
 /// Non-default current key families. Unlisted keys belong to `tips`.
 const ROUTED_PREFIXES: &[&str] = &[
     "atom:",
-    "aloc:",
     "aref:v2:",
     "aref:",
     "mref:v1:",

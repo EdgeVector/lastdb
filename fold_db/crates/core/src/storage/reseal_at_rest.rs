@@ -22,7 +22,6 @@ pub const RESEAL_AT_REST_ALLOWLIST: &[&str] = &[
     "indexes",
     "metadata",
     "change_feed",
-    "atom_locators",
     "field_update_order_log",
 ];
 

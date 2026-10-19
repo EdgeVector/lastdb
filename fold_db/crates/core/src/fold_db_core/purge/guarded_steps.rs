@@ -271,8 +271,9 @@ pub(super) fn push_atom_storage_keys(
     keys_to_delete: &mut Vec<Vec<u8>>,
 ) {
     for uuid in atoms_to_delete {
-        keys_to_delete
-            .push(build_storage_key(None, &crate::atom::atom_key_codec::body_key(uuid)).into_bytes());
+        keys_to_delete.push(
+            build_storage_key(None, &crate::atom::atom_key_codec::body_key(uuid)).into_bytes(),
+        );
         keys_to_delete.push(
             crate::db_operations::atom_store::AtomStore::schema_index_key(None, schema_name, uuid)
                 .into_bytes(),

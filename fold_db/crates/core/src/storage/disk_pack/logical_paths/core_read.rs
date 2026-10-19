@@ -55,13 +55,7 @@ pub(crate) fn note_tip(
     if let Some((_, bytes)) = receipts.entries.remove(&identity) {
         receipts.bytes = receipts.bytes.saturating_sub(bytes);
     }
-    let bytes = receipt_bytes(
-        &identity,
-        entry,
-        metadata,
-        tip_source.as_ref(),
-        None,
-    )?;
+    let bytes = receipt_bytes(&identity, entry, metadata, tip_source.as_ref(), None)?;
     let Some(total) = receipts
         .bytes
         .checked_add(bytes)
@@ -231,7 +225,9 @@ fn holds_tip(
     Ok(receipts
         .entries
         .get(&identity)
-        .is_some_and(|(selected, _)| selected.entry == *entry && selected.metadata.as_ref() == metadata))
+        .is_some_and(|(selected, _)| {
+            selected.entry == *entry && selected.metadata.as_ref() == metadata
+        }))
 }
 
 fn receipts(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<SelectedTips>>>> {
