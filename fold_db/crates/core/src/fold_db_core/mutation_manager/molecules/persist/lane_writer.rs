@@ -1,6 +1,7 @@
 //! Persist-lane worker: runs dequeued envelopes through the persist surface.
 
 use super::*;
+use futures::FutureExt;
 
 /// Lane worker: runs dequeued envelopes through the persist surface.
 pub(in crate::fold_db_core::mutation_manager) struct DeferredLaneWriter {
@@ -49,7 +50,7 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
                     error,
                 };
             }
-            let step = self.run_envelope(&mut envelope).await;
+            let step = self.run_envelope(&mut envelope).boxed().await;
             match step {
                 LaneStep::Done(hook) => {
                     envelope.after_release = hook;
