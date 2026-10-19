@@ -214,9 +214,8 @@ impl SyncEngine {
             loser: local.entry.clone(),
         };
         // Boxed: the replay future is already deep in the node's async graph.
-        Box::pin(atoms.record_tip_conflicts(vec![conflict], storage_prefix))
+        Box::pin(atoms.record_conflicts_committed(vec![conflict], storage_prefix))
             .await
-            .map(|_| ())
             .map_err(|error| SyncError::Storage(error.to_string()))
     }
 

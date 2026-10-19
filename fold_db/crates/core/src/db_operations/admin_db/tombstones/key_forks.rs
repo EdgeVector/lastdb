@@ -3,7 +3,9 @@
 use super::*;
 
 impl AtomStore {
-    /// Audit or drain one bounded page of legacy/plain HashKey-encoding tips.
+    /// Audit one bounded page of legacy/plain HashKey-encoding tips. A drain
+    /// (`dry_run = false`) is refused: only the atom counter planner writes tip
+    /// records.
     pub async fn audit_legacy_key_forks(
         &self,
         dry_run: bool,
@@ -11,6 +13,12 @@ impl AtomStore {
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<LegacyKeyForkAudit, SchemaError> {
+        if !dry_run {
+            return Err(SchemaError::InvalidData(
+                "legacy key-fork drain was removed: only the atom counter planner writes tip records"
+                    .into(),
+            ));
+        }
         let pass_started = std::time::Instant::now();
         let mk_prefix = build_storage_key(storage_prefix, molecule_key_codec::MK_PREFIX);
         let mk_end = FilterUtils::create_prefix_end(&mk_prefix);
@@ -129,7 +137,6 @@ impl AtomStore {
         let twin_hash = self.storage_hash(&molecule, &hash)?;
         let twin_base = molecule_key_codec::hash_range_record_key(&molecule, &twin_hash, &range);
         state.pending.push(LegacyKeyForkCandidate {
-            legacy_key: key,
             twin_key: build_storage_key(storage_prefix, &twin_base),
             molecule,
             bytes,

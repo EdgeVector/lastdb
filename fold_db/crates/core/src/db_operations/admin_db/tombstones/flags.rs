@@ -4,8 +4,8 @@ use super::super::super::atom_store::PerKeyRecord;
 use super::*;
 
 impl AtomStore {
-    /// Audit `KeyMetadata.tombstoned` against atom content, optionally stamping
-    /// the flag onto legacy records whose content already says tombstone.
+    /// Audit `KeyMetadata.tombstoned` against atom content. A `stamp` request
+    /// is refused: only the atom counter planner writes tip records.
     ///
     /// `molecules` restricts the walk to the given molecule uuids and labels the
     /// per-molecule rows; `None` audits every `mk:` record in the store.
@@ -41,6 +41,12 @@ impl AtomStore {
         after_key: Option<&str>,
         storage_prefix: Option<&str>,
     ) -> Result<TombstoneFlagBackfillReport, SchemaError> {
+        if stamp {
+            return Err(SchemaError::InvalidData(
+                "tombstone-flag-audit stamping was removed: only the atom counter planner writes tip records"
+                    .into(),
+            ));
+        }
         // Started before the scan: the scan is part of what the deadline is
         // measuring, so it has to be part of what the budget measures.
         let pass_started = std::time::Instant::now();
@@ -106,7 +112,6 @@ impl AtomStore {
                     &mut state,
                     (key, molecule, &v),
                     molecules,
-                    stamp,
                     storage_prefix,
                 )
                 .await?;
@@ -116,8 +121,7 @@ impl AtomStore {
                 break;
             }
         }
-        self.finish_tombstone_audit(state, stamp, storage_prefix)
-            .await
+        self.finish_tombstone_audit(state, storage_prefix).await
     }
     /// Count one `mk:` row into the audit and queue it for classification when
     /// its flag says live. Classifies and drains writes once a batch fills.
@@ -126,7 +130,6 @@ impl AtomStore {
         state: &mut TombstoneAuditState,
         (key, molecule, value): (String, String, &[u8]),
         molecules: Option<&HashMap<String, String>>,
-        stamp: bool,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         state.last_key = Some(key.clone());
@@ -152,15 +155,7 @@ impl AtomStore {
         }
         state.pending.push((key, molecule, rec));
         if state.pending.len() >= FETCH_CHUNK {
-            self.classify_pending_tombstones(state, stamp, storage_prefix)
-                .await?;
-            // Drain writes as they accumulate rather than saving them
-            // all for after the loop. Stamping is the expensive half,
-            // and a budget that only covers the decision loop does not
-            // bound the call: the first real run broke out at its 240s
-            // budget and then spent another six minutes writing,
-            // tripping the very deadline the bound exists to stay under.
-            self.drain_tombstone_stamps(&mut state.to_stamp, &mut state.report, PUT_CHUNK)
+            self.classify_pending_tombstones(state, storage_prefix)
                 .await?;
         }
         Ok(())
@@ -169,34 +164,26 @@ impl AtomStore {
     async fn classify_pending_tombstones(
         &self,
         state: &mut TombstoneAuditState,
-        stamp: bool,
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         self.classify_tombstone_candidates(
             &mut state.pending,
             &mut state.report,
             &mut state.per_molecule,
-            stamp.then_some(&mut state.to_stamp),
             storage_prefix,
         )
         .await
     }
 
-    /// Classify the last partial batch, flush remaining stamps, and sort the
+    /// Classify the last partial batch and sort the
     /// per-molecule rows into the report.
     async fn finish_tombstone_audit(
         &self,
         mut state: TombstoneAuditState,
-        stamp: bool,
         storage_prefix: Option<&str>,
     ) -> Result<TombstoneFlagBackfillReport, SchemaError> {
-        self.classify_pending_tombstones(&mut state, stamp, storage_prefix)
+        self.classify_pending_tombstones(&mut state, storage_prefix)
             .await?;
-        if stamp {
-            self.drain_tombstone_stamps(&mut state.to_stamp, &mut state.report, 0)
-                .await?;
-            let _ = self.flush().await;
-        }
 
         let mut rows: Vec<MoleculeTombstoneFlagStat> = state.per_molecule.into_values().collect();
         rows.sort_by(|a, b| {

@@ -24,6 +24,20 @@ impl AtomStore {
         .boxed()
     }
 
+    /// Run `work` inside one native write request scope. The scope holds the
+    /// write gate from its first read to the accept of its one batch, so a
+    /// read-modify-write inside it cannot interleave with another writer.
+    pub(crate) fn in_write_scope<'a, T: Send + 'a>(
+        &'a self,
+        work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
+        let runtime = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime());
+        crate::storage::disk_pack::transaction::scope(runtime, work).boxed()
+    }
+
     /// Guard the short (read `moc:` → build items → commit) section for one
     /// molecule. See [`AtomStore::molecule_commit_locks`].
     pub(crate) async fn lock_molecule_commit(

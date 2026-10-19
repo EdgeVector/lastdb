@@ -1,0 +1,47 @@
+# Writer boundary of the atom counter. Format: rule|path|families|reason
+# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · - none of these
+# A line for a file that no longer matches fails the lint (the list stays honest).
+
+# rule raw: the file writes through the atom store raw handle (`.raw()` or `main_store`).
+raw|fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
+raw|fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|T|writes the immutable generation slot rows (mgr/mgp) and drops expired generations; the live mirror tips go through the planner in the same request
+raw|fold_db/crates/core/src/db_operations/conflict_index_heal.rs|C|rewrites the mcc: id list inside a write scope; the list holds no atom reference
+raw|fold_db/crates/core/src/db_operations/conflict_operations.rs|C|hcu: home conflict events and stamp; they hold no atom reference
+raw|fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
+raw|fold_db/crates/core/src/db_operations/admin_db/order_log/compact.rs|-|deletes molecule order-log rows
+raw|fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|-|deletes empty protein rows
+raw|fold_db/crates/core/src/db_operations/atom_store/atoms/maintenance.rs|-|legacy ref: whole-molecule blobs (retired layout)
+raw|fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|-|database-catalog molecule edges (step S4 removes them)
+raw|fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|-|molecule reverse edges (step S4 removes them)
+raw|fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges/bootstrap.rs|-|molecule edge bootstrap on an isolated copy (step S4 removes it)
+raw|fold_db/crates/core/src/db_operations/atom_store/blob_ref_edges.rs|-|blob reverse edges (step S5 removes them)
+raw|fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|-|keep-small meter distrust marker
+raw|fold_db/crates/core/src/db_operations/delete_ledger.rs|-|hard-delete audit rows
+raw|fold_db/crates/core/src/db_operations/file_blob_gc/sweep.rs|-|file blob rows (step S5 removes the sweep)
+raw|fold_db/crates/core/src/protein/ops.rs|-|protein records and member back-references
+raw|fold_db/crates/core/src/schema/field_hash_coherence.rs|-|field-to-protein index rows
+
+# rule sync: a file under sync/ or a node bin that names a tip, body or counter key family and writes raw.
+# Cloud sync is off in this build. Step S3 moves replay and restore behind the planner.
+sync|fold_db/crates/core/src/sync/engine/replay/apply.rs|T C B N|cloud replay of a captured put; counters are never captured (capture_should_skip_key)
+sync|fold_db/crates/core/src/sync/engine/replay/entry.rs|B N C|cloud replay of a captured delete
+sync|fold_db/crates/core/src/sync/engine/replay/merge.rs|C|replay conflict rows when the engine has no atom store (never the serving store)
+sync|fold_db/crates/core/src/sync/engine/replay/records.rs|T|cloud replay of a peer tip under last-writer-wins; the conflict goes through the planner
+sync|fold_db/crates/core/src/sync/engine/cloud_purge_file_closure.rs|B|cloud purge file closure
+sync|lastdb_node/src/bin/csync_e2e_write.rs|T B|cloud sync end-to-end proof tool; it opens an exclusive synthetic home
+
+# rule restore: generic row copy or restore of whole planes (counters travel with their bodies).
+restore|fold_db/crates/core/src/sync/snapshot/restore_scan.rs|T C B N|snapshot restore replaces a namespace row by row
+restore|fold_db/crates/core/src/sync/cloud_purge/row_copy.rs|T C B N|org instance row copy and delete by scope prefix
+restore|fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/data.rs|T C B N|inbound share replaces rows by scope prefix
+restore|fold_db/crates/core/src/sync/cloud_purge_peer/inbound_share/receivers.rs|-|inbound share receiver bindings and frontier rows
+restore|fold_db/crates/core/src/sync/cloud_purge/blob_copy.rs|-|file blob bytes
+restore|fold_db/crates/core/src/sync/engine/cloud_share_refresh/import.rs|T C B N|cloud share seed import writes shared rows once; a conflict refuses the import
+
+# rule counter: the file names AtomCounter or counter_key. Only the planner module writes counters.
+counter|fold_db/crates/core/src/atom/atom_key_codec.rs|N|the key codec: builds the counter key
+counter|fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|N|planner: builds counter writes
+counter|fold_db/crates/core/src/db_operations/atom_store/counter/mod.rs|N|the record type
+counter|fold_db/crates/core/src/db_operations/atom_store/counter/plan.rs|N|planner: pure arithmetic
+counter|fold_db/crates/core/src/db_operations/atom_store/counter/read.rs|N|planner: reads counters (read only)
+counter|fold_db/crates/core/src/db_operations/storage_breakdown.rs|N|inventory walk: reads counters (read only)

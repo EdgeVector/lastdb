@@ -96,7 +96,6 @@ impl AtomStore {
     /// scan allocation independently of how large the `tips` plane is.
     const TIP_SCAN_PAGE: usize = 2048;
     /// Rewrites per batched put, drained inside the walk.
-    const TIP_PUT_CHUNK: usize = 1000;
     /// Wall-clock budget for one pass, well under the 600s control-socket read
     /// deadline. A key cap alone cannot bound a pass whose per-row cost varies
     /// by home; the bound the caller actually needs is the one the socket
@@ -139,6 +138,12 @@ impl AtomStore {
     ) -> Result<ThinTipMigrateReport, SchemaError> {
         use super::super::atom_store::PerKeyRecord;
 
+        if !dry_run {
+            return Err(SchemaError::InvalidData(
+                "migrate-thin-tips execute was removed: only the atom counter planner writes tip records"
+                    .into(),
+            ));
+        }
         let pass_started = std::time::Instant::now();
         let prefix = build_storage_key(storage_prefix, "mk:");
         let end = FilterUtils::create_prefix_end(&prefix);
@@ -147,7 +152,6 @@ impl AtomStore {
             dry_run,
             ..Default::default()
         };
-        let mut to_put: Vec<(String, Value)> = Vec::new();
         let mut page_start = after_key.map_or_else(|| prefix.clone(), str::to_owned);
         let mut skip_head = after_key.map(str::to_owned);
         let mut range_exhausted = false;
@@ -185,7 +189,7 @@ impl AtomStore {
                 report.bytes_before_approx += k.len() as u64 + v.len() as u64;
                 report.next_after_key = Some(key.clone());
 
-                let Ok(mut rec) = serde_json::from_slice::<PerKeyRecord>(&v) else {
+                let Ok(rec) = serde_json::from_slice::<PerKeyRecord>(&v) else {
                     report.tips_unreadable += 1;
                     report.bytes_after_approx += k.len() as u64 + v.len() as u64;
                     continue;
@@ -195,20 +199,15 @@ impl AtomStore {
                     report.bytes_after_approx += k.len() as u64 + v.len() as u64;
                     continue;
                 }
-                rec.entry = rec.entry.to_thin();
-                let val = serde_json::to_value(&rec)
-                    .map_err(|e| SchemaError::InvalidData(format!("serialize thin tip: {e}")))?;
+                let thin = rec.entry.to_thin();
+                let val = serde_json::to_value(super::super::atom_store::PerKeyRecord {
+                    entry: thin,
+                    ..rec
+                })
+                .map_err(|e| SchemaError::InvalidData(format!("serialize thin tip: {e}")))?;
                 report.bytes_after_approx +=
                     key.len() as u64 + serde_json::to_vec(&val).map_or(0, |b| b.len() as u64);
                 report.tips_rewritten += 1;
-                // A dry run answers "how much would this return?" — it must not
-                // pay for the answer in the memory the execute path needs.
-                if !dry_run {
-                    to_put.push((key, val));
-                    if to_put.len() >= Self::TIP_PUT_CHUNK {
-                        self.drain_thin_tip_puts(&mut to_put).await?;
-                    }
-                }
             }
             skip_head = Some(page_start.clone());
             if stop_after_page {
@@ -216,29 +215,6 @@ impl AtomStore {
             }
         }
 
-        if !dry_run {
-            self.drain_thin_tip_puts(&mut to_put).await?;
-            let _ = self.flush().await;
-        }
-
         Ok(report)
-    }
-
-    /// Write and clear the pending thin-tip rewrites.
-    pub(super) async fn drain_thin_tip_puts(
-        &self,
-        to_put: &mut Vec<(String, Value)>,
-    ) -> Result<(), SchemaError> {
-        if to_put.is_empty() {
-            return Ok(());
-        }
-        for chunk in to_put.chunks(Self::TIP_PUT_CHUNK) {
-            self.raw()
-                .batch_put_items(chunk.to_vec())
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("migrate thin put: {e}")))?;
-        }
-        to_put.clear();
-        Ok(())
     }
 }

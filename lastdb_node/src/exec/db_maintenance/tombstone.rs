@@ -38,6 +38,13 @@ pub(in crate::exec) async fn execute_db_tombstone_flag_audit_route(
         }
     };
     let dry_run = body.dry_run.unwrap_or(true);
+    if !dry_run {
+        return error_response(
+            400,
+            "tombstone-flag-audit stamping was removed: only the atom counter planner writes tip records",
+            ctx,
+        );
+    }
     match host
         .db
         .audit_tombstone_flags(
@@ -86,6 +93,13 @@ pub(in crate::exec) async fn execute_db_legacy_key_fork_audit_route(
             }
         }
     };
+    if !body.dry_run.unwrap_or(true) {
+        return error_response(
+            400,
+            "legacy key-fork drain was removed: only the atom counter planner writes tip records",
+            ctx,
+        );
+    }
     match host
         .db
         .audit_legacy_key_forks(

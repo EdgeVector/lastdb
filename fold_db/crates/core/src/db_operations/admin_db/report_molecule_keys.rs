@@ -157,7 +157,6 @@ pub struct LegacyKeyForkAudit {
 }
 
 pub(super) struct LegacyKeyForkCandidate {
-    pub(super) legacy_key: String,
     pub(super) twin_key: String,
     pub(super) molecule: String,
     pub(super) bytes: u64,

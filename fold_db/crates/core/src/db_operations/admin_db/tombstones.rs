@@ -11,8 +11,6 @@ mod key_forks;
 /// Atom bodies per batched fetch. Bounds peak memory on a store whose live set
 /// is far larger than the tombstoned one.
 const FETCH_CHUNK: usize = 512;
-/// `mk:` rewrites per batched put.
-const PUT_CHUNK: usize = 1000;
 /// Raw `mk:` rows to fetch per storage page. This bounds one resumed pass's
 /// transient scan allocation independently of store size.
 const SCAN_PAGE: usize = 2048;
@@ -42,7 +40,6 @@ struct TombstoneAuditState {
     per_molecule: HashMap<String, MoleculeTombstoneFlagStat>,
     /// (storage key, molecule, record) for rows the flag calls live.
     pending: Vec<(String, String, PerKeyRecord)>,
-    to_stamp: Vec<(String, Value)>,
     last_key: Option<String>,
 }
 

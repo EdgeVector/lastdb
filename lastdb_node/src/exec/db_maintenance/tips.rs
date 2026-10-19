@@ -1,8 +1,8 @@
-//! Owner-socket routes that drain, retain and migrate tip history.
+//! Owner-socket routes that migrate tips (dry run only) and the photo blobs.
 
 use super::*;
 
-/// `POST /api/db/migrate-thin-tips` — rewrite fat mk: tips to thin.
+/// `POST /api/db/migrate-thin-tips` — count the fat mk: tips (dry run only).
 pub(in crate::exec) async fn execute_db_migrate_thin_tips_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -35,6 +35,13 @@ pub(in crate::exec) async fn execute_db_migrate_thin_tips_route(
         }
     };
     let dry_run = body.dry_run.unwrap_or(true);
+    if !dry_run {
+        return error_response(
+            400,
+            "migrate-thin-tips execute was removed: only the atom counter planner writes tip records",
+            ctx,
+        );
+    }
     match host
         .db
         .migrate_thin_tips(dry_run, body.max_keys, body.after_key.as_deref())

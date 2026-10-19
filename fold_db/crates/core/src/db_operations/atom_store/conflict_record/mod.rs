@@ -3,9 +3,9 @@
 //! LastDB resolves a write from another device by last-writer-wins. The atom
 //! that loses has no tip, so garbage collection would reclaim it. This module
 //! keeps both atoms of a decision between writes from different sync devices:
-//! it writes the reverse edges, the history row, the conflict row, the
-//! `mcc:` entry and the `hcu:` event, and it flushes them. The caller writes
-//! the tip only after that.
+//! it builds the history row, the conflict row, the `mcc:` entry and the `hcu:`
+//! event, and the atom references that the records hold. The planner writes
+//! them in the batch of the tip.
 //!
 //! Three call sites decide a tip:
 //!
@@ -29,9 +29,37 @@ use crate::atom::{AtomEntry, FieldKey, PendingTipConflict, TipConflictKind};
 use crate::schema::SchemaError;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 pub(crate) use write::{Recorded, TipConflictDigest};
+
+impl AtomStore {
+    /// Record conflicts that no tip write accompanies (a replayed pair), and
+    /// commit their rows and references in one native write scope.
+    pub(crate) async fn record_conflicts_committed(
+        &self,
+        conflicts: Vec<TipConflict>,
+        storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        self.in_write_scope(async {
+            let recorded = self.record_tip_conflicts(conflicts, storage_prefix).await?;
+            if recorded.rows.is_empty() {
+                return Ok(());
+            }
+            self.commit_tip_changes(super::counter::TipChangeSet {
+                scope: storage_prefix,
+                tips: Vec::new(),
+                bodies: &[],
+                body_source: None,
+                records: recorded.refs,
+                rows: recorded.rows,
+                deletes: Vec::new(),
+            })
+            .await
+            .map(|_| ())
+        })
+        .await
+    }
+}
 
 /// One molecule of a tip store: its uuid, the molecule, and the changed keys in API form.
 pub(in super::super) type StoreMolecule<'a> = (
@@ -141,13 +169,6 @@ impl AtomStore {
             .local_origin_device
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = bounded;
-    }
-
-    /// Take the gate of the recorder. The recorder holds it while it reads,
-    /// extends and writes an `mcc:` list. A reader that rewrites that list
-    /// takes the same gate, so neither side drops an id of the other.
-    pub(crate) async fn lock_conflict_record_gate(&self) -> tokio::sync::OwnedMutexGuard<()> {
-        Arc::clone(&self.conflict_record_gate).lock_owned().await
     }
 
     /// The number of record calls that wrote conflict rows so far. Read it
