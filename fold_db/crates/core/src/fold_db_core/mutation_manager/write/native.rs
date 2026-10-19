@@ -4,6 +4,7 @@ use super::super::molecules::{DeferredPersistJob, PreparedSchemaDelta};
 use super::*;
 use crate::db_operations::search_index::{IndexSink, SearchOutboxSink};
 use crate::storage::disk_pack::{transaction, PackRuntime};
+use futures::FutureExt;
 use std::sync::Arc;
 
 pub(super) struct NativeRequest<'a> {
@@ -93,20 +94,19 @@ impl MutationManager {
                 request
                     .runtime
                     .record_read_stage("conditions-done", mutations.len());
-                let deltas = self
-                    .prepare_grouped_deltas(
+                // Keep the private multi-schema stage behind one future
+                // allocation instead of expanding it in every host caller.
+                let delta_count = self
+                    .stage_grouped_deltas(
                         mutations,
                         hashes,
                         request.storage_prefix,
                         &mut state.timing_breakdown,
                         &mut state.stages,
+                        &request.runtime,
                     )
+                    .boxed()
                     .await?;
-                request
-                    .runtime
-                    .record_read_stage("private-prepare-done", deltas.len());
-                let delta_count = deltas.len();
-                self.commit_native_deltas(deltas, &request.runtime).await?;
                 request
                     .runtime
                     .record_read_stage("stored-stages-done", delta_count);
@@ -126,36 +126,34 @@ impl MutationManager {
         Ok(committed)
     }
 
-    pub(super) async fn commit_native_deltas(
+    pub(super) async fn stage_native_delta(
         &self,
-        deltas: Vec<PreparedSchemaDelta>,
+        mut delta: PreparedSchemaDelta,
         runtime: &Arc<PackRuntime>,
+        heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
     ) -> Result<(), SchemaError> {
-        let mut heads = super::super::molecules::batch_rebase::BatchSlotHeads::default();
-        for mut delta in deltas {
-            let modified_fields = self.rebase_delta_for_publish(&mut delta, &mut heads);
-            heads.record(&delta);
-            let pending_persist_task = delta.pending_persist_task.take();
-            let mut job = into_native_job(delta, modified_fields);
-            self.stage_native_job(&mut job).await?;
-            self.stage_native_paths(&job, runtime).await?;
-            runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
-            if let Some(batch) = job.search_batch.take() {
-                let inbox = self.search_outbox_inbox.clone();
-                transaction::after_commit(runtime, async move {
-                    let sink = inbox
-                        .map(SearchOutboxSink::new)
-                        .or_else(SearchOutboxSink::from_env);
-                    if let Some(sink) = sink {
-                        sink.apply_change_batch(batch).await.map_err(|error| {
-                            crate::storage::StorageError::BackendError(error.to_string())
-                        })?;
-                    }
-                    Ok(())
-                })?;
-            }
-            transaction::retain(runtime, pending_persist_task)?;
+        let modified_fields = self.rebase_delta_for_publish(&mut delta, heads);
+        heads.record(&delta);
+        let pending_persist_task = delta.pending_persist_task.take();
+        let mut job = into_native_job(delta, modified_fields);
+        self.stage_native_job(&mut job).await?;
+        self.stage_native_paths(&job, runtime).await?;
+        runtime.record_read_stage("logical-paths-done", job.modified_fields.len());
+        if let Some(batch) = job.search_batch.take() {
+            let inbox = self.search_outbox_inbox.clone();
+            transaction::after_commit(runtime, async move {
+                let sink = inbox
+                    .map(SearchOutboxSink::new)
+                    .or_else(SearchOutboxSink::from_env);
+                if let Some(sink) = sink {
+                    sink.apply_change_batch(batch).await.map_err(|error| {
+                        crate::storage::StorageError::BackendError(error.to_string())
+                    })?;
+                }
+                Ok(())
+            })?;
         }
+        transaction::retain(runtime, pending_persist_task)?;
         Ok(())
     }
 }

@@ -1,11 +1,7 @@
 use super::{full_span_page, FutureExt, HashRangeQueryProcessor};
-use crate::schema::types::field::{
-    fetch_atoms_with_key_metadata_async_with_prefix, FieldValue, FieldVariant, HashRangeFilter,
-    KeyedAtomMatch,
-};
+use crate::schema::types::field::{FieldVariant, HashRangeFilter, KeyedAtomMatch};
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::{Schema, SchemaError};
-use std::collections::{HashMap, HashSet};
 
 mod keys;
 
@@ -52,13 +48,42 @@ impl HashRangeQueryProcessor {
         );
         let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
 
+        if filter.is_none() {
+            let selected = Self::cokey_selected_fields(schema, fields);
+            if selected.is_empty() {
+                return Ok(0);
+            }
+            let (_, _, keys, _) = self
+                .resolve_inspection_primary_page(
+                    schema,
+                    &selected,
+                    None,
+                    false,
+                    &received_from_namespaces,
+                )
+                .await?;
+            return Ok(keys.len());
+        }
+
+        let selected = Self::cokey_selected_fields(schema, fields);
+        if selected.is_empty() {
+            return Ok(0);
+        }
+        let primary = Self::cokey_primary_field(schema, &selected);
+        if Self::needs_named_layout_membership(schema, Some(&primary), filter) {
+            let (_, _, keys, _) = self
+                .resolve_cokey_primary_page(
+                    schema,
+                    &selected,
+                    filter.cloned(),
+                    None,
+                    false,
+                    &received_from_namespaces,
+                )
+                .await?;
+            return Ok(keys.len());
+        }
         let count_field_names = Self::count_field_names(schema, fields);
-        let key_hash_field = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.as_deref())
-            .filter(|hash_field| count_field_names.iter().any(|name| name == hash_field))
-            .map(ToString::to_string);
         let mut keys = self
             .gather_count_keys(
                 schema,
@@ -78,94 +103,7 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         }
-        // A projection fallback establishes its own keys. Its empty named
-        // spine cannot authorize a field-value check over those keys.
-        self.retain_count_to_named_layout(
-            schema,
-            key_hash_field.as_deref().filter(|_| used_named_spine),
-            filter,
-            &received_from_namespaces,
-            &mut keys,
-        )
-        .await?;
-
         Ok(keys.len())
-    }
-
-    /// Mirror the actual named-spine check from the page path.
-    async fn retain_count_to_named_layout(
-        &self,
-        schema: &Schema,
-        hash_field_name: Option<&str>,
-        filter: Option<&HashRangeFilter>,
-        received_from_namespaces: &[String],
-        keys: &mut HashSet<KeyValue>,
-    ) -> Result<(), SchemaError> {
-        if !Self::needs_named_layout_membership(schema, hash_field_name, filter) {
-            return Ok(());
-        }
-        let Some(field_name) = hash_field_name else {
-            return Ok(());
-        };
-        let Some(field) = schema.runtime_fields.get(field_name) else {
-            return Ok(());
-        };
-
-        let binding =
-            crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, field_name)?;
-        let vals = binding
-            .run(async {
-                let mut vals = HashMap::new();
-                Self::merge_named_layout_values(
-                    &mut vals,
-                    fetch_atoms_with_key_metadata_async_with_prefix(
-                        &self.db_ops,
-                        self.live_field_matches_flag_only(field, None, filter)
-                            .await?
-                            .into_iter()
-                            .filter(|(key, _, _, _, _)| keys.contains(key)),
-                        field.common().storage_prefix(),
-                        field.common().molecule_uuid().map(String::as_str),
-                    )
-                    .await?,
-                );
-                for namespace in received_from_namespaces {
-                    Self::merge_named_layout_values(
-                        &mut vals,
-                        fetch_atoms_with_key_metadata_async_with_prefix(
-                            &self.db_ops,
-                            self.live_field_matches_flag_only(
-                                field,
-                                Some(namespace.as_str()),
-                                filter,
-                            )
-                            .await?
-                            .into_iter()
-                            .filter(|(key, _, _, _, _)| keys.contains(key)),
-                            Some(namespace.as_str()),
-                            field.common().molecule_uuid().map(String::as_str),
-                        )
-                        .await?,
-                    );
-                }
-                Ok::<_, SchemaError>(vals)
-            })
-            .await?;
-
-        keys.retain(|key| {
-            vals.get(key)
-                .is_some_and(|value| key.hash_matches_scalar(&value.value))
-        });
-        Ok(())
-    }
-
-    fn merge_named_layout_values(
-        dest: &mut HashMap<KeyValue, FieldValue>,
-        incoming: HashMap<KeyValue, FieldValue>,
-    ) {
-        for (key, value) in incoming {
-            dest.entry(key).or_insert(value);
-        }
     }
 
     /// Live keys for one field under an optional storage prefix, using the

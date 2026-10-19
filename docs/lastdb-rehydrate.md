@@ -74,7 +74,20 @@ Actual primary tip presence controls projection fallback, including an empty pag
 Cross-hash administrative pages use offsets. Logical `PageAfter` and non-keyed query cursors receive an explicit refusal; keyed query cursors use their API-coordinate window.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
 A shared key that becomes usable also receives the unchanged fields through their existing atoms.
-The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.
+The absence of an old key does not skip those fields.
+A missing, null, array, or object value in an optional peer-key field names no peer key.
+If a peer key loses a required scalar value, the write removes its confirmed old association.
+The addressed schema still requires scalar values for its own declared key fields.
+Old-key removal and related deletion use one current association check.
+The peer must expose every source key field with the same canonical field identity and current scalar coordinate.
+Every present shared field must also match the source atom, metadata, and author clock.
+A moved unchanged field can retain its atom and use the key-change author clock.
+Equal field values alone do not establish record ownership.
+Partial shared fields that omit the source identity do not authorize related record removal.
+Conflicts still choose each field's current atom by its author clock.
+A peer with mixed source identities or conflicting shared-field clocks remains unchanged by related cleanup.
+This rule does not introduce unique peer keys or replacement of an entire record on a field write.
+Each schema change reads the earlier private changes in the same batch before it prepares related keys and values.
 
 Schema key lists capture the schema, selected tips, and atom values in one read.
 The public key list resolves the caller's database membership inside that captured read.
@@ -152,8 +165,9 @@ Both Purge paths check shared references after removal of the target tips.
 A failed reference check stops publication before atom removal.
 Reference data uses the selected database scope. Its completion proof covers the whole home and uses unprefixed markers.
 A missing completion proof refuses atom removal. An older reference store cannot replace that proof.
-An invalid peer-key value receives an explicit refusal before any deletion starts.
-That fixed input error does not retain a write for an endless storage retry.
+An optional peer key without scalar coordinates receives no related deletion.
+The caller's addressed record remains eligible for deletion.
+Delete and Purge select related keys under the same native write boundary as their removal.
 
 A fixed operation or byte limit refuses the whole prepared request before publication.
 A missing required key also receives a refusal before write preparation.

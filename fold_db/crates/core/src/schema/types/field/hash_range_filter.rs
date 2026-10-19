@@ -31,19 +31,16 @@ pub enum HashRangeFilter {
     },
     /// Filter by range key range across all hash groups
     RangeRange { start: String, end: String },
-    /// Take a small **peek** at the data — the first [`SAMPLE_PEEK_CAP`] records
-    /// in stable key order, regardless of the `n` requested. This is a
-    /// "what does the data look like" primitive, **not** a fetch/pagination
-    /// mechanism: `n` is clamped to [`SAMPLE_PEEK_CAP`] at every apply site, so
-    /// `SampleN(10_000)` returns at most [`SAMPLE_PEEK_CAP`] rows. For real
-    /// fetches use a key/range filter or [`HashRangeFilter::Page`].
+    /// Take a bounded peek of at most [`SAMPLE_PEEK_CAP`] logical records.
+    /// A sample does not certify complete membership or global key order.
+    /// Storage candidates refill until enough valid members appear or their
+    /// source is exhausted. Resource limits refuse an incomplete short sample.
+    /// Use a key selector or an administrative Page for an ordered result.
     SampleN(usize),
     /// Paginated fetch: the stable-sorted records `[offset, offset + limit)`.
-    /// This is the bounded "list all, by page" primitive that replaced the old
-    /// `SampleN(big)` bulk-fetch abuse — it materializes only the requested
-    /// page, never the whole field. An accurate `total_count` for the page is
-    /// computed separately from a cheap key count (no atom bodies loaded), so
-    /// pagination stays exact without the O(field-size) memory blowup.
+    /// Administrative pages establish a complete bounded logical candidate
+    /// set before ordering or slicing. They refuse above the inspection key
+    /// or byte allowance. Product reads select one hash or explicit keys.
     Page { offset: usize, limit: usize },
     /// Keyset paginated fetch: the first `limit` stable-sorted records whose
     /// `(range, hash)` key is strictly greater than `after`.

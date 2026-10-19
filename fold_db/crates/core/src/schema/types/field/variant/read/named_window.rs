@@ -3,6 +3,14 @@
 use super::*;
 use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix;
 
+/// Query semantics can require another declared coordinate's field value.
+/// Owned batches avoid a borrow across the next physical tip read.
+type Membership<'a> = dyn FnMut(
+        HashMap<KeyValue, FieldValue>,
+    ) -> BoxFuture<'a, Result<HashMap<KeyValue, FieldValue>, SchemaError>>
+    + Send
+    + 'a;
+
 struct NamedWindow {
     skip: usize,
     limit: usize,
@@ -45,9 +53,6 @@ impl NamedWindow {
             let Some(value) = values.remove(&key) else {
                 continue;
             };
-            if !key.hash_matches_scalar(&value.value) {
-                continue;
-            }
             if self.skip > 0 {
                 self.skip -= 1;
             } else if self.values.len() < self.limit {
@@ -61,12 +66,13 @@ impl NamedWindow {
 impl FieldVariant {
     /// The caller holds its field binding and captured memory/disk read scope.
     /// The presence flag comes from selected tips, before hydration or slicing.
-    pub(crate) async fn resolve_named_window(
+    pub(crate) async fn resolve_named_window<'a>(
         &mut self,
         db_ops: &Arc<DbOperations>,
         filter: &HashRangeFilter,
         window: KeyWindow,
         include_tombstones: bool,
+        membership: &mut Membership<'a>,
     ) -> Result<(HashMap<KeyValue, FieldValue>, bool), SchemaError> {
         self.require_supported_read(Some(filter))?;
         let mut selection = NamedWindow::new(window);
@@ -74,23 +80,36 @@ impl FieldVariant {
             return Ok((selection.values, false));
         }
         if let (FieldKind::HashRange, HashRangeFilter::HashKey(hash)) = (self.kind, filter) {
-            self.resolve_named_hash_pages(db_ops, hash, include_tombstones, &mut selection)
-                .await?;
+            self.resolve_named_hash_pages(
+                db_ops,
+                hash,
+                include_tombstones,
+                &mut selection,
+                membership,
+            )
+            .await?;
         } else {
-            self.resolve_named_tip_batches(db_ops, filter, include_tombstones, &mut selection)
-                .await?;
+            self.resolve_named_tip_batches(
+                db_ops,
+                filter,
+                include_tombstones,
+                &mut selection,
+                membership,
+            )
+            .await?;
         }
         self.stamp_molecule_meta(&mut selection.values);
         self.record_resolved_tip_keys(&selection.values);
         Ok((selection.values, selection.had_spine))
     }
 
-    async fn resolve_named_hash_pages(
+    async fn resolve_named_hash_pages<'a>(
         &self,
         db_ops: &Arc<DbOperations>,
         hash: &str,
         include_tombstones: bool,
         selection: &mut NamedWindow,
+        membership: &mut Membership<'a>,
     ) -> Result<(), SchemaError> {
         let Some(molecule) = self.common().molecule_uuid() else {
             return Ok(());
@@ -124,7 +143,7 @@ impl FieldVariant {
                 rows,
             )
             .await?;
-            selection.accept(keys, values);
+            selection.accept(keys, membership(values).await?);
             let Some(frontier) = frontier else { break };
             if selection
                 .after
@@ -143,12 +162,13 @@ impl FieldVariant {
         Ok(())
     }
 
-    async fn resolve_named_tip_batches(
+    async fn resolve_named_tip_batches<'a>(
         &mut self,
         db_ops: &Arc<DbOperations>,
         filter: &HashRangeFilter,
         include_tombstones: bool,
         selection: &mut NamedWindow,
+        membership: &mut Membership<'a>,
     ) -> Result<(), SchemaError> {
         let mut tips = self
             .collect_matches(db_ops, Some(filter.clone()), include_tombstones)
@@ -174,7 +194,7 @@ impl FieldVariant {
             )
             .await?;
             retain_visible_values(&mut values, include_tombstones);
-            selection.accept(keys, values);
+            selection.accept(keys, membership(values).await?);
         }
         Ok(())
     }

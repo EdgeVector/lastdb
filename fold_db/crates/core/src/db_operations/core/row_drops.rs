@@ -134,10 +134,8 @@ pub fn note_tombstoned_row() {
 /// Note how many page keys a query emitted in each key form, if a tally is
 /// installed.
 ///
-/// Called once per resolved page at the single boundary that holds the
-/// storage → API key mapping
-/// (`HashRangeQueryProcessor::rename_page_to_api_keys`), because that is the
-/// only place that knows which form escaped to the caller.
+/// Called at the logical primary boundary. Keyed reads retain caller keys;
+/// administrative inspection emits only verified API coordinates.
 pub fn note_page_key_forms(api_form: u64, opaque_form: u64) {
     note_row_drop(|drops| {
         drops.keys_api_form = drops.keys_api_form.saturating_add(api_form);

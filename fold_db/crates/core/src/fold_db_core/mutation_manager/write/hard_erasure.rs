@@ -20,13 +20,6 @@ impl MutationManager {
             return Ok(ids);
         }
 
-        let erasures = if verb == super::super::super::purge::HardEraseVerb::Purge {
-            self.expand_protein_hashrange_erasures(erasures, storage_prefix)
-                .await?
-        } else {
-            erasures
-        };
-
         let (schema_order, mut by_schema) = group_mutations_by_schema(erasures);
 
         let mut completions = Vec::new();

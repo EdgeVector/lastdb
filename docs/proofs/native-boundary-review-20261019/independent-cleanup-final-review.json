@@ -1,0 +1,203 @@
+{
+  "baseline": {
+    "checks": {
+      "before_identity_still_matches": true,
+      "cleanup_success": true,
+      "exact_command": true,
+      "identity_matches_my_preflight": true,
+      "never_started_record_unchanged": true,
+      "preview_digest_matches": true,
+      "root_absent_now": true
+    },
+    "cleanup_record_sha256": "1e4979c2a445adebb540a9d71c41d5117e7483640f63813428452246dbca6c8c",
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3s53ba53"
+  },
+  "checks": {
+    "all_recorded_node_and_creator_PIDs_exited": true,
+    "all_roots_pass": true,
+    "baseline_pass": true,
+    "eleven_normal_unforced_sessions": true,
+    "execution_complete": true,
+    "five_runs_reviewed": true,
+    "no_open_files_for_recorded_PIDs": true,
+    "seal_unchanged_since_preview": true,
+    "sealed_records_stable_during_review": true
+  },
+  "cleanup_execution_sha256": "c89a898688be3be9fe0068e64053ffa88a8e0e11d42f9571eeeb26aab414047b",
+  "independent_preview_review_sha256": "3a42c3b0f33126ae7576f5173cd867ac3dbd914d4c1c4e64d825434fc936f0c0",
+  "limits": [
+    "Private run executables and data homes are removed. This review cannot hash a removed executable after runtime.",
+    "Executable identity relies on the preserved input records and construction hash guards. The independent accepted release review checks the source executable before those operations.",
+    "Original refused-operation receipts remain sealed and separate from accepted operations. Cleanup does not change their classification."
+  ],
+  "node_sessions": 11,
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "-p",
+      "32826,50307,50358,52357,57427,57432,61646,61745,61976,61986,62550,65554,65559,65695,65699,65822"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "32826,50307,50358,52357,57427,57432,61646,61745,61976,61986,62550,65554,65559,65695,65699,65822",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "receipt_seal_sha256": "dce40d4c81be9b1060b4538d4a295a48d894d55978bbcc987301a80c77b32a5e",
+  "recorded_PIDs": [
+    32826,
+    50307,
+    50358,
+    52357,
+    57427,
+    57432,
+    61646,
+    61745,
+    61976,
+    61986,
+    62550,
+    65554,
+    65559,
+    65695,
+    65699,
+    65822
+  ],
+  "result": "pass",
+  "reviewed_utc": "2026-10-19T23:45:26.407556+00:00",
+  "run_count": 5,
+  "runs": [
+    {
+      "checks": {
+        "all_sessions_stop_normally_unforced": true,
+        "cleanup_success": true,
+        "execute_identity_matches_preview": true,
+        "execute_preflight_no_open_file": true,
+        "execute_preflight_no_process": true,
+        "execute_preflight_no_socket": true,
+        "execution_summary_matches_leaf": true,
+        "known_sockets_absent_now": true,
+        "preview_preflight_unchanged": true,
+        "preview_receipt_unchanged": true,
+        "root_absent_now": true,
+        "sealed_originals_match": true,
+        "supported_exact_command": true
+      },
+      "cleanup_leaf_sha256": "5572f636e7c5ac9381214fba910bd1e78583051ebd1036a6e421cd22ca76122b",
+      "execute_preflight_sha256": "2f72c5cb4d13b414a41cbd11ec61910570bb890291f38266d6db986111229277",
+      "result": "pass",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.12zzajvv",
+      "run": "ordinary-ope-v1",
+      "sealed_file_mismatches": [],
+      "sessions": 2
+    },
+    {
+      "checks": {
+        "all_sessions_stop_normally_unforced": true,
+        "cleanup_success": true,
+        "execute_identity_matches_preview": true,
+        "execute_preflight_no_open_file": true,
+        "execute_preflight_no_process": true,
+        "execute_preflight_no_socket": true,
+        "execution_summary_matches_leaf": true,
+        "known_sockets_absent_now": true,
+        "preview_preflight_unchanged": true,
+        "preview_receipt_unchanged": true,
+        "root_absent_now": true,
+        "sealed_originals_match": true,
+        "supported_exact_command": true
+      },
+      "cleanup_leaf_sha256": "68dfd79e578a1ac5bd5287aaf2acb884a1f96ae88a4789cefe1e0ac22d9a12f9",
+      "execute_preflight_sha256": "9581e8a7a90ae984d7315f847b617d4f1dd9e32068c0abea104ef4c995eed7a6",
+      "result": "pass",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tii8smc_",
+      "run": "ordinary-ope-v2",
+      "sealed_file_mismatches": [],
+      "sessions": 1
+    },
+    {
+      "checks": {
+        "all_sessions_stop_normally_unforced": true,
+        "cleanup_success": true,
+        "execute_identity_matches_preview": true,
+        "execute_preflight_no_open_file": true,
+        "execute_preflight_no_process": true,
+        "execute_preflight_no_socket": true,
+        "execution_summary_matches_leaf": true,
+        "known_sockets_absent_now": true,
+        "preview_preflight_unchanged": true,
+        "preview_receipt_unchanged": true,
+        "root_absent_now": true,
+        "sealed_originals_match": true,
+        "supported_exact_command": true
+      },
+      "cleanup_leaf_sha256": "df60eae6f211f55d31338d5e4f5ed27129be4afb456c289cfd5007b9b815beda",
+      "execute_preflight_sha256": "f64871570f387e9acd2c295b25304125f27e2e12539bc3ef063e558656f35355",
+      "result": "pass",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.juhhwe_w",
+      "run": "ordinary-ope-v3",
+      "sealed_file_mismatches": [],
+      "sessions": 2
+    },
+    {
+      "checks": {
+        "all_sessions_stop_normally_unforced": true,
+        "cleanup_success": true,
+        "execute_identity_matches_preview": true,
+        "execute_preflight_no_open_file": true,
+        "execute_preflight_no_process": true,
+        "execute_preflight_no_socket": true,
+        "execution_summary_matches_leaf": true,
+        "known_sockets_absent_now": true,
+        "preview_preflight_unchanged": true,
+        "preview_receipt_unchanged": true,
+        "root_absent_now": true,
+        "sealed_originals_match": true,
+        "supported_exact_command": true
+      },
+      "cleanup_leaf_sha256": "ac6f6b156c16d056fd705b64c3918e84bdd5823cac705db17ddee5775e3c32d0",
+      "execute_preflight_sha256": "9838d7acbb644c5dc1ba55f3e03361826223fd49dc3b3746db4ea3abb5aaa2f8",
+      "result": "pass",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ocr6n5mo",
+      "run": "ordinary-plain",
+      "sealed_file_mismatches": [],
+      "sessions": 2
+    },
+    {
+      "checks": {
+        "all_sessions_stop_normally_unforced": true,
+        "cleanup_success": true,
+        "execute_identity_matches_preview": true,
+        "execute_preflight_no_open_file": true,
+        "execute_preflight_no_process": true,
+        "execute_preflight_no_socket": true,
+        "execution_summary_matches_leaf": true,
+        "known_sockets_absent_now": true,
+        "preview_preflight_unchanged": true,
+        "preview_receipt_unchanged": true,
+        "root_absent_now": true,
+        "sealed_originals_match": true,
+        "supported_exact_command": true
+      },
+      "cleanup_leaf_sha256": "6cc8267b577185e807c4bb36999339b08cbf47046eeb5728bcd574a9e25e7285",
+      "execute_preflight_sha256": "1334d2a5fcf86a595e8c5f211b5d10a49cde66ab4c1f06e8e3afb69f8e54d8f5",
+      "result": "pass",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.06a0gks6",
+      "run": "ordinary-cohort",
+      "sealed_file_mismatches": [],
+      "sessions": 4
+    }
+  ],
+  "scope": "Independent read-only final cleanup review. No source edit, node, build, test, helper execution, or cleanup action.",
+  "version": 1
+}

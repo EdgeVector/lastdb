@@ -1,6 +1,5 @@
 //! Duplicate short-circuit, precondition gate and per-schema delta prepare.
 
-use super::super::super::molecules::PreparedSchemaDelta;
 use super::*;
 
 impl MutationManager {
@@ -94,15 +93,18 @@ impl MutationManager {
         cas_result
     }
 
-    /// Group by schema and prepare one resident delta per group.
-    pub(in crate::fold_db_core::mutation_manager::write) async fn prepare_grouped_deltas(
+    /// Prepare each schema from the current private transaction, then stage it
+    /// before the next schema reads that state. Nothing publishes until every
+    /// group succeeds and the complete request owns its reservations.
+    pub(in crate::fold_db_core::mutation_manager::write) async fn stage_grouped_deltas(
         &self,
         new_mutations: Vec<Mutation>,
         new_hashes: Vec<String>,
         storage_prefix: Option<&str>,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
         stages: &mut ResidentCommitStages,
-    ) -> Result<Vec<PreparedSchemaDelta>, SchemaError> {
+        runtime: &std::sync::Arc<crate::storage::disk_pack::PackRuntime>,
+    ) -> Result<usize, SchemaError> {
         // Keep each idempotency decision with the schema envelope that owns
         // its data. A detached put can pass a failed lane head and make a
         // client retry skip data that never reached storage.
@@ -115,12 +117,15 @@ impl MutationManager {
         // Group mutations by schema to minimize schema reloads. First-seen
         // order is the prepare order; slot gates sort independently.
         let group_start = std::time::Instant::now();
-        let grouped_mutations = self.group_mutations_by_schema(new_mutations);
+        let grouped_mutations =
+            self.independent_key_groups(self.group_mutations_by_schema(new_mutations))?;
         Self::add_timing(timing_breakdown, "grouping", group_start.elapsed());
 
-        let mut prepared_deltas = Vec::with_capacity(grouped_mutations.len());
-        let prepare_started = std::time::Instant::now();
+        let group_count = grouped_mutations.len();
+        let mut heads = super::super::super::molecules::batch_rebase::BatchSlotHeads::default();
+        let mut prepare_elapsed = std::time::Duration::ZERO;
         for (schema_name, schema_mutations) in grouped_mutations {
+            let prepare_started = std::time::Instant::now();
             let idempotency_entries = schema_mutations
                 .iter()
                 .map(|mutation| {
@@ -151,9 +156,43 @@ impl MutationManager {
                 ),
             )
             .await?;
-            prepared_deltas.push(delta);
+            prepare_elapsed += prepare_started.elapsed();
+            self.stage_native_delta(delta, runtime, &mut heads).await?;
         }
-        stages.prepare_us = crate::request_phases::duration_us(prepare_started.elapsed());
-        Ok(prepared_deltas)
+        stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
+        Ok(group_count)
+    }
+}
+
+/// Independent keys prepare together. A repeated key starts the next group
+/// so its unchanged fields come from the earlier private write, not the
+/// request's original state. The complete request still publishes once.
+impl MutationManager {
+    fn independent_key_groups(
+        &self,
+        groups: Vec<(String, Vec<Mutation>)>,
+    ) -> Result<Vec<(String, Vec<Mutation>)>, SchemaError> {
+        let mut result = Vec::new();
+        for (name, mutations) in groups {
+            let schema = self
+                .schema_manager
+                .get_schema_metadata(&name)?
+                .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{name}' not found")))?;
+            let mut keys = std::collections::HashSet::new();
+            let mut current = Vec::new();
+            for mutation in mutations {
+                let key = Self::resolve_mutation_key_value(&name, &schema, &mutation)?;
+                if !keys.insert(key.clone()) {
+                    result.push((name.clone(), std::mem::take(&mut current)));
+                    keys.clear();
+                    keys.insert(key);
+                }
+                current.push(mutation);
+            }
+            if !current.is_empty() {
+                result.push((name, current));
+            }
+        }
+        Ok(result)
     }
 }

@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::db_operations::search_index::{IndexChangeBatch, IndexSink, SearchOutboxSink};
-use futures::FutureExt;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn run_purge_job(
@@ -20,18 +19,11 @@ impl MutationManager {
             self.check_cas_preconditions(&job.erasures, job.storage_prefix.as_deref())
                 .await
                 .map_err(PurgeAttemptError::Rejected)?;
-            let current_delete = native.as_ref().filter(|_| job.verb.is_delete());
-            let result = match current_delete {
-                Some(runtime) => self.attempt_current_delete_stages(job, runtime).await?,
+            let result = match native.as_ref() {
+                Some(runtime) => self.attempt_current_erasure_stages(job, runtime).await?,
                 None => self.attempt_purge_stages(job).await?,
             };
             if let Some(runtime) = &native {
-                if current_delete.is_none() {
-                    self.stage_purge_core_paths(job, runtime)
-                        .boxed()
-                        .await
-                        .map_err(PurgeAttemptError::Retry)?;
-                }
                 self.reserve_native_core_memory(runtime)
                     .map_err(PurgeAttemptError::Retry)?;
             }

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "scope": "Independent review of literal ordinary API requests and their raw responses. No product edit, build, node, test, or helper execution by this reviewer.",
+  "source_head": "2d9c0b6e0bcf3f6f8c13a9f5cd9464dc5afdf235",
+  "source_manifest": "release-source-inputs/release-source.json",
+  "source_manifest_sha256_at_request_review": "a245c214e5bc3a8b4c42b1b10563d9e727ef72cbf8b23d2fe540bde872d5a1ed",
+  "source_inventory_sha256": "e1bab2db9710bf07dcaaf7db3eece6456afeeac99b859dbf50bebc788cc6a275",
+  "source_input_count": 1890,
+  "request_data": "ordinary-requests.json",
+  "request_data_sha256": "7ff2143aa6eb37a7b9155681380d1ce6da58f6c69fab77d8e76b88979e2f7944",
+  "request_count": 31,
+  "query_count_including_batch_members": 51,
+  "request_review": "pass",
+  "request_review_notes": [
+    "The declarations use the isolated ordinary schema setup route. Nullable peer-key fields use Any; the addressed key fields remain String.",
+    "Hash and HashRange requests clear an optional peer key, then read the source value and the old peer key.",
+    "The collision requests give a later source the same peer key and equal payload. Delete, Purge, and a key move from the earlier source must preserve the later peer fields.",
+    "The appended exact reads cover both the moved source and its new peer key for Hash and HashRange.",
+    "The dependent write batch covers a repeated effective Hash key with an ignored range coordinate and a move through another schema. New peer keys must expose P2; old peer keys must return no records.",
+    "The mapped declarations preserve canonical field descriptions and types. Explicit field mappers select the intended shared molecules for the query cases."
+  ],
+  "runtime_review": "pending_raw_receipts",
+  "limits": [
+    "Request review does not prove the runtime result.",
+    "The small ordinary operation set does not support a latency or throughput conclusion.",
+    "Conflicting per-field peer states use the documented conservative cleanup rule; this review does not assume exclusive peer-key ownership."
+  ]
+}

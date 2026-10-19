@@ -5,7 +5,6 @@ use super::*;
 /// observation reports, and return the observation for the status snapshot.
 pub(super) fn observe_runtime_memory(
     host: &Host,
-    namespaced_store: &std::sync::Arc<dyn fold_db::storage::NamespacedStore>,
     footprint: PhysFootprint,
 ) -> fold_db::memory_budget::RuntimeMemoryBudgetObservation {
     let observation = host
@@ -19,44 +18,25 @@ pub(super) fn observe_runtime_memory(
     } else {
         footprint.current_bytes as f64 / budget.charged_bytes as f64
     };
-    log_projection_warning(
-        namespaced_store,
-        footprint,
-        &observation,
-        implied_multiplier,
-    );
+    log_projection_warning(footprint, &observation, implied_multiplier);
     log_over_limit_alarm(footprint, &observation, budget, implied_multiplier);
     log_runtime_recovered(footprint, &observation, budget);
     observation
 }
 
 fn log_projection_warning(
-    namespaced_store: &std::sync::Arc<dyn fold_db::storage::NamespacedStore>,
     footprint: PhysFootprint,
     observation: &fold_db::memory_budget::RuntimeMemoryBudgetObservation,
     implied_multiplier: f64,
 ) {
     if observation.projection_warning_now {
-        let warm_cache_reclaimed = match namespaced_store.trim_warm_cache_for_pressure() {
-            Ok(Some(bytes)) => Some(bytes),
-            Ok(None) => None,
-            Err(error) => {
-                tracing::warn!(
-                    target: "lastdbd::self_metrics",
-                    error = %error,
-                    "warm-cache pressure trim failed"
-                );
-                None
-            }
-        };
         tracing::warn!(
             target: "lastdbd::self_metrics",
             measured_footprint_mb = footprint.current_bytes / (1024 * 1024),
             projected_total_mb = observation.projected_total_bytes / (1024 * 1024),
             projection_tolerance_mb = observation.projection_tolerance_bytes / (1024 * 1024),
             implied_footprint_multiplier = implied_multiplier,
-            warm_cache_reclaimed_bytes = warm_cache_reclaimed,
-            "measured physical footprint diverges from the process memory projection; trimmed the warm cache"
+            "measured physical footprint diverges from the process memory projection"
         );
     }
 }
