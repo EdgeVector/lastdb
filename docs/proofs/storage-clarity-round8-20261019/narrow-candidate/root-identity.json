@@ -1,0 +1,47 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_normal_stop_pids": [
+    73674
+  ],
+  "all_start_pids": [
+    73674
+  ],
+  "creator_pids": [
+    71986
+  ],
+  "device": 16777231,
+  "inode": 1469132695,
+  "inputs_creator_pid": null,
+  "inputs_creator_pid_note": "Missing original input field stays absent; the original operational-context receipt records the actual executor PID.",
+  "known_socket_paths_remaining": [],
+  "marker": {
+    "creator_pid": 71986,
+    "device": 16777231,
+    "inode": 1469132695,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "marker_mode": "0o600",
+  "marker_sha256": "d665b2d85c3e570cf3b38de987574d2ac1002dbe3aa8012aa50057e8ee28868f",
+  "mode": "0o700",
+  "node_sessions": 1,
+  "owner_uid": 501,
+  "private_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6/program-lastdbd",
+  "private_binary_bytes": 68126448,
+  "private_binary_sha256": "1f6444fc47590cabd0561f8fbb8e5bc1d326a235be25587e21114bede2f4143a",
+  "process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "71986,73674",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.03gbsac6"
+}

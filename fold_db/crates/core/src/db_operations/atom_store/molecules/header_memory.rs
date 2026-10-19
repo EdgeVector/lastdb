@@ -17,11 +17,10 @@ impl AtomStore {
     ) -> Result<(), SchemaError> {
         let mut keys: Vec<_> = molecules
             .iter()
-            .flat_map(|molecule| crate::atom::molecule_uuid_read_candidates(molecule))
             .map(|molecule| {
                 crate::schema::types::field::build_storage_key(
                     scope,
-                    &crate::atom::molecule_key_codec::molecule_generation_pointer_key(&molecule),
+                    &crate::atom::molecule_key_codec::molecule_generation_pointer_key(molecule),
                 )
             })
             .collect();

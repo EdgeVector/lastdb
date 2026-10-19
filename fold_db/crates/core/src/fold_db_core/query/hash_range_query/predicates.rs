@@ -36,23 +36,29 @@ pub(super) fn parse_query_instant(value: &Value) -> Option<DateTime<Utc>> {
             .map(|dt| dt.with_timezone(&Utc));
     }
     if let Some(n) = value.as_i64() {
-        let seconds = if n.abs() > 10_000_000_000 {
-            n.checked_div(1000)?
+        return if (-10_000_000_000..=10_000_000_000).contains(&n) {
+            DateTime::from_timestamp(n, 0)
         } else {
-            n
+            DateTime::from_timestamp_millis(n)
         };
-        return DateTime::from_timestamp(seconds, 0);
     }
     let n = value.as_f64()?;
     if !n.is_finite() {
         return None;
     }
-    let seconds = if n.abs() > 10_000_000_000.0 {
-        n / 1000.0
-    } else {
+    let seconds = if (-10_000_000_000.0..=10_000_000_000.0).contains(&n) {
         n
+    } else {
+        n / 1000.0
     };
-    let secs = seconds.trunc() as i64;
-    let nanos = ((seconds.fract().abs()) * 1_000_000_000.0).round() as u32;
+    // Negative fractions belong to the preceding second with a positive
+    // remainder. Normalize nanosecond rounding across the next whole second.
+    let whole = seconds.floor();
+    let mut secs = whole as i64;
+    let mut nanos = ((seconds - whole) * 1_000_000_000.0).round() as u32;
+    if nanos == 1_000_000_000 {
+        secs = secs.checked_add(1)?;
+        nanos = 0;
+    }
     DateTime::from_timestamp(secs, nanos)
 }

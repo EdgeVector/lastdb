@@ -1,0 +1,28 @@
+{
+  "baseline_release_identity_sha256": "acf221d2006b16ad27412ba2f49bd5def5f158ac18f4d94dfc8d75cd9879b45c",
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1/program-before-lastdbd",
+  "binary_bytes": 67966432,
+  "binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+  "captured_utc": "2026-10-19T19:51:53.759658+00:00",
+  "device": 16777231,
+  "inode": 1468921854,
+  "marker": {
+    "creator_pid": 78437,
+    "device": 16777231,
+    "inode": 1468921854,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "marker_mode": "0o600",
+  "marker_sha256": "6e693a8f34ea8088cd1bb235ef055780b9745c892c3d18dafdaa2ac8ac5070ef",
+  "mode": "0o700",
+  "node_sessions": 0,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.qvuh21q1",
+  "scope": "Private executable copy only in one fresh owned marked temporary root. No node, existing home, primary or archive.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_binary_sha256_after_copy": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+  "uid": 501,
+  "version": 1
+}

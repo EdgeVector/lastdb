@@ -8,12 +8,11 @@ use std::collections::BTreeMap;
 
 struct ReadyLane {
     lease: CoreKeyLease,
-    molecule: String,
     hash: String,
     prefix: Option<String>,
     encoding_index: usize,
 }
-type SelectedLanes = (Vec<(String, CoreStoredKey)>, Option<String>);
+type SelectedLanes = (Vec<CoreStoredKey>, Option<String>);
 
 impl AtomStore {
     pub(crate) async fn preloaded_window(
@@ -55,17 +54,17 @@ impl AtomStore {
         let mut output = Vec::new();
         while output.len() < limit {
             let ask = skip.saturating_add(limit - output.len()).clamp(1, 1024);
-            let Some(selected) = runtime
-                .with_schema_key_selection(|| select_lanes(&lanes, &codec, after.as_deref(), ask))
-            else {
+            let Some(selected) = runtime.with_schema_key_selection(|| {
+                select_lanes(&lanes, &codec, molecule, after.as_deref(), ask)
+            }) else {
                 return Ok(None);
             };
             let (selected, frontier) = selected?;
             let selected = selected
                 .into_iter()
-                .map(|(uid, key)| {
+                .map(|key| {
                     ReadyTipKey::new(
-                        &uid,
+                        molecule,
                         key,
                         Some(api_hash),
                         codec.range_encoding().writes_ope(),
@@ -75,10 +74,7 @@ impl AtomStore {
             let rows = self
                 .resolve_preloaded_tip_keys(&runtime, scope, selected)
                 .await?;
-            if lanes
-                .iter()
-                .any(|lane| runtime.schema_key_lease(scope, &lane.molecule).is_none())
-            {
+            if runtime.schema_key_lease(scope, molecule).is_none() {
                 return Ok(None);
             }
             let mut union = BTreeMap::new();
@@ -125,43 +121,40 @@ impl AtomStore {
         codec: &MoleculeKeyCodec,
     ) -> Result<Option<Vec<ReadyLane>>, SchemaError> {
         let mut lanes = Vec::new();
-        for uid in crate::atom::molecule_uuid_read_candidates(molecule) {
-            let Some(lease) = self.ready_key_lease(runtime, scope, &uid) else {
-                return Ok(None);
-            };
-            let families = if codec.range_encoding().writes_ope() {
-                let ranges = codec
-                    .storage_range_read_candidates(&uid, "\0")
-                    .map_err(key_error)?;
-                let families: Vec<_> = ranges
-                    .iter()
-                    .map(|range| Some(range[..6].to_string()))
-                    .collect();
-                if families
-                    .iter()
-                    .collect::<std::collections::HashSet<_>>()
-                    .len()
-                    != families.len()
-                {
-                    return Ok(None);
-                }
-                families
-            } else {
-                vec![None]
-            };
-            for hash in codec
-                .storage_hash_read_candidates(&uid, api_hash)
-                .map_err(key_error)?
+        let Some(lease) = self.ready_key_lease(runtime, scope, molecule) else {
+            return Ok(None);
+        };
+        let families = if codec.range_encoding().writes_ope() {
+            let ranges = codec
+                .storage_range_read_candidates(molecule, "\0")
+                .map_err(key_error)?;
+            let families: Vec<_> = ranges
+                .iter()
+                .map(|range| Some(range[..6].to_string()))
+                .collect();
+            if families
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != families.len()
             {
-                for (encoding_index, prefix) in families.iter().enumerate() {
-                    lanes.push(ReadyLane {
-                        lease: lease.clone(),
-                        molecule: uid.clone(),
-                        hash: hash.clone(),
-                        prefix: prefix.clone(),
-                        encoding_index,
-                    });
-                }
+                return Ok(None);
+            }
+            families
+        } else {
+            vec![None]
+        };
+        for hash in codec
+            .storage_hash_read_candidates(molecule, api_hash)
+            .map_err(key_error)?
+        {
+            for (encoding_index, prefix) in families.iter().enumerate() {
+                lanes.push(ReadyLane {
+                    lease: lease.clone(),
+                    hash: hash.clone(),
+                    prefix: prefix.clone(),
+                    encoding_index,
+                });
             }
         }
         Ok(Some(lanes))
@@ -171,6 +164,7 @@ impl AtomStore {
 fn select_lanes(
     lanes: &[ReadyLane],
     codec: &MoleculeKeyCodec,
+    molecule: &str,
     after: Option<&str>,
     ask: usize,
 ) -> Result<SelectedLanes, SchemaError> {
@@ -182,18 +176,11 @@ fn select_lanes(
             empty.start = std::ops::Bound::Included("");
             empty.end = std::ops::Bound::Included("");
             empty.include_tombstones = true;
-            selected.extend(
-                lane.lease
-                    .select(empty)
-                    .map_err(key_error)?
-                    .keys
-                    .into_iter()
-                    .map(|key| (lane.molecule.clone(), key)),
-            );
+            selected.extend(lane.lease.select(empty).map_err(key_error)?.keys);
         }
         let encoded_after = after
             .filter(|range| !range.is_empty() || lane.prefix.is_none())
-            .map(|range| codec.storage_range_read_candidates(&lane.molecule, range))
+            .map(|range| codec.storage_range_read_candidates(molecule, range))
             .transpose()
             .map_err(key_error)?;
         let mut request = CoreKeyRange::all(&lane.hash, ask);
@@ -210,11 +197,7 @@ fn select_lanes(
                 frontier = Some(frontier.map_or(range.clone(), |current| current.min(range)));
             }
         }
-        selected.extend(
-            page.keys
-                .into_iter()
-                .map(|key| (lane.molecule.clone(), key)),
-        );
+        selected.extend(page.keys);
     }
     Ok((selected, frontier))
 }

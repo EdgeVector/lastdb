@@ -37,7 +37,7 @@ pub(super) async fn verify_boot_decrypt_integrity(
     enc: &crate::storage::EncryptingNamespacedStore,
 ) -> FoldDbResult<()> {
     use crate::storage::traits::NamespacedStore;
-    let namespaces = enc.list_namespaces().await.unwrap_or_default();
+    let namespaces = enc.list_namespaces().await?;
     if !namespaces.is_empty() {
         assert_critical_namespaces_decryptable(enc).await?;
     }

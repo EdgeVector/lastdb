@@ -15,8 +15,8 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         received_from_namespaces: &[String],
     ) -> Result<PrimarySelection, SchemaError> {
-        let named_hash =
-            Self::named_layout_hash(schema, Some(primary_name), filter.as_ref()).map(str::to_owned);
+        let named_layout =
+            Self::needs_named_layout_membership(schema, Some(primary_name), filter.as_ref());
         let binding =
             crate::storage::disk_pack::logical_paths::field::FieldScope::new(schema, primary_name)?;
         if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
@@ -36,7 +36,7 @@ impl HashRangeQueryProcessor {
             include_tombstones,
             received: received_from_namespaces,
             own_prefix: field.common().storage_prefix().map(str::to_owned),
-            named_hash,
+            named_layout,
         };
         binding
             .run(async {
@@ -82,20 +82,11 @@ impl HashRangeQueryProcessor {
         field: &mut FieldVariant,
         request: &PrimaryRequest<'_>,
     ) -> Result<PrimarySelection, SchemaError> {
-        if request.received.is_empty() {
-            if let (Some(wanted), Some(filter), Some(window)) = (
-                request.named_hash.as_deref(),
-                request.filter.as_ref(),
-                request.window.clone(),
-            ) {
+        if request.named_layout && request.received.is_empty() {
+            if let (Some(filter), Some(window)) = (request.filter.as_ref(), request.window.clone())
+            {
                 let (values, had_spine) = field
-                    .resolve_named_window(
-                        &self.db_ops,
-                        filter,
-                        window,
-                        wanted,
-                        request.include_tombstones,
-                    )
+                    .resolve_named_window(&self.db_ops, filter, window, request.include_tombstones)
                     .await?;
                 let mut selected = PrimarySelection::new(values, &request.own_prefix);
                 selected.had_spine = had_spine;
@@ -118,7 +109,9 @@ impl HashRangeQueryProcessor {
         let mut selected = PrimarySelection::new(values, &request.own_prefix);
         self.merge_primary_namespaces(field, request, request.filter.clone(), &mut selected)
             .await?;
-        selected.retain_named(request.named_hash.as_deref());
+        if request.named_layout {
+            selected.retain_named();
+        }
         if !request.received.is_empty() {
             if let Some(window) = request.window.clone() {
                 selected.bound(window);

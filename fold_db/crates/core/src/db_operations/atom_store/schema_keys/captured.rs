@@ -39,32 +39,30 @@ impl AtomStore {
             return Ok(BTreeMap::new());
         }
         let mut changes = BTreeMap::new();
-        for uid in crate::atom::molecule_uuid_read_candidates(molecule) {
-            let codec = self.key_codec_for_molecule(&uid);
-            for (hash, range, absent) in model.changes(scope, &uid) {
-                let candidates = codec
-                    .api_hash_range_record_keys_for_read(&uid, &hash, &range)
-                    .map_err(key_error)?;
-                for candidate in candidates {
-                    changes.insert(candidate, None);
-                }
-                if absent {
-                    continue;
-                }
-                let Some(value) = model.lookup_key(scope, &uid, &hash, &range).into_tip() else {
-                    continue;
-                };
-                let primary = codec
-                    .api_hash_range_record_key(&uid, &hash, &range)
-                    .map_err(key_error)?;
-                changes.insert(
-                    primary,
-                    Some(PerKeyRecord {
-                        entry: value.entry,
-                        meta: value.metadata,
-                    }),
-                );
+        let codec = self.key_codec_for_molecule(molecule);
+        for (hash, range, absent) in model.changes(scope, molecule) {
+            let candidates = codec
+                .api_hash_range_record_keys_for_read(molecule, &hash, &range)
+                .map_err(key_error)?;
+            for candidate in candidates {
+                changes.insert(candidate, None);
             }
+            if absent {
+                continue;
+            }
+            let Some(value) = model.lookup_key(scope, molecule, &hash, &range).into_tip() else {
+                continue;
+            };
+            let primary = codec
+                .api_hash_range_record_key(molecule, &hash, &range)
+                .map_err(key_error)?;
+            changes.insert(
+                primary,
+                Some(PerKeyRecord {
+                    entry: value.entry,
+                    meta: value.metadata,
+                }),
+            );
         }
         Ok(changes)
     }

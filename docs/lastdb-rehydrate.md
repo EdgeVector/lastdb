@@ -52,15 +52,29 @@ That reader keeps the caller's hash and the selected atom location together.
 Keyed reads keep the caller's key form through counts and response metadata.
 They do not reinterpret a caller key as another key's disk encoding.
 Only physical page and sample reads recover keys from their stored form.
+Reads and writes use the exact molecule identity from the schema.
+Normal reads and deletes do not try another UUID spelling or create another preloaded key set for it.
+Only explicit dropped-schema physical cleanup can enumerate historical UUID spellings.
 Narrowed reads carry the range form explicitly. Exact caller ranges receive no second decode.
 Hash reads trust the supplied key. A HashRange field-value check uses only the declared hash field that established the keys.
 Projection fallback establishes its own keys. Range punctuation has no special meaning.
 Named-layout membership precedes the result window. Bounded tip pages retain their cursor before value fetch, so rejected or missing values do not end selection early.
+Exact HashRange batches check each selected record against its own hash. Counts use the same rule.
 Actual primary tip presence controls projection fallback, including an empty page after the cursor or offset.
 Cross-hash administrative pages use offsets. Logical `PageAfter` and non-keyed query cursors receive an explicit refusal; keyed query cursors use their API-coordinate window.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
 A shared key that becomes usable also receives the unchanged fields through their existing atoms.
 The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.
+
+Schema key lists capture the schema, selected tips, and atom values in one read.
+Value reads, counts, and schema key lists share the resolved schema's blocked-state check.
+They load the molecule's encryption keys and fetch selected values in batches.
+HashRange membership precedes the key-list limit; rejected records cause a bounded refill.
+Empty and whitespace hashes remain exact API values.
+The list command preserves those hashes in both requests and continuation commands.
+An unfiltered blinded Hash list refuses a key that it cannot recover. A filtered Hash list can use the caller's hash.
+Explicit physical helpers can still return storage tokens. They do not define schema query results.
+Time conditions retain milliseconds and negative fractional seconds.
 
 ## Range keys
 
@@ -69,6 +83,7 @@ Concurrent first queries share that load. Later ranges select keys from the comp
 Tips and atom values remain partial. Key preload does not fetch every value.
 The key allowance is separate from the 10,000-record warm limit.
 Unselected schemas and refused loads use the bounded disk selector.
+An empty hash is valid for both initial key preload and later changes to the complete key set.
 
 ## Write and flush
 
@@ -124,6 +139,9 @@ The factory takes no inactive cloud callback or worker-delay inputs.
 The logical constructor rejects an older physical store before it opens the logical namespaces.
 An existing native home can reopen. An empty home can initialize directly.
 A nonempty older-format home receives an explicit refusal. No boot migration or automatic conversion runs.
+Startup namespace errors propagate. An unreadable record in an enforcing encryption check causes a refusal without deletion.
+The encryption-key proof precedes namespace checks. A new proof follows only successful checks; optional diagnostic counts stay separate.
+Normal page readers contain no plaintext-to-blinded legacy duplicate cleanup.
 The configuration reader also refuses obsolete type tags and invalid path values.
 It does not convert an older configuration or discard its cloud or engine settings.
 

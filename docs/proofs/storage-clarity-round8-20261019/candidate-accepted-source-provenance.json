@@ -1,0 +1,22 @@
+{
+  "delta": {
+    "added": {},
+    "changed": {
+      "fold_db/crates/core/src/db_operations/admin_db/report_molecule_keys.rs": {
+        "bytes": 6565,
+        "sha256": "35cfe6fda2f3790b9ebd864a4fe77bdbf09c7b4d6f4957e3dbe75a31dec6783b"
+      }
+    },
+    "removed": []
+  },
+  "integrated_main_commit": "adbec20cdbf39b3fc397be5f34c3cec5e0e280cc",
+  "reference": {
+    "path": "docs/proofs/storage-clarity-round8-20261019/candidate-final-source-provenance.json",
+    "sha256": "04b0730e583ca8119d56b0b0e674d2a546e1203de04ba4e02739a2eb0c4a2421"
+  },
+  "scope": "Final build inputs reconstruct from the tracked reference and exact delta. The sole source change after the prior inventory corrects the schema-key report comment; executable behavior is unchanged.",
+  "source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+  "source_input_count": 1882,
+  "source_inventory_sha256": "3d49b0ccfc9d499d5cc6817de10ede8022fb5d8bdd7abf4354e45c123c00f2c8",
+  "source_manifest_sha256": "aba23fa69f9eeac22a01f9eb74cbf8a5fb73a2826059c4221788d94c60dec3c3"
+}

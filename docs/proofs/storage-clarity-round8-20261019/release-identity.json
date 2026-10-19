@@ -1,0 +1,49 @@
+{
+  "baseline_private_binary_unchanged": true,
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "binary_bytes": 68126448,
+  "binary_sha256": "1f6444fc47590cabd0561f8fbb8e5bc1d326a235be25587e21114bede2f4143a",
+  "build_result": {
+    "command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "elapsed_seconds": 112.4136875,
+    "exit_code": 0,
+    "head_unchanged": true,
+    "source_commit": "1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5",
+    "started_utc": "2026-10-19T20:18:27.814293+00:00"
+  },
+  "checked_utc": "2026-10-19T20:20:34.839278+00:00",
+  "frozen_manifest": "docs/proofs/storage-clarity-round8-20261019/candidate-integrated-source-inputs/source-inputs.json",
+  "frozen_manifest_sha256": "b71584573b058ec383fe50ece353c98c04e61f2cb7877c0066bca114de905fda",
+  "host_settings_match": true,
+  "integrated_main_commit": "adbec20cdbf39b3fc397be5f34c3cec5e0e280cc",
+  "no_product_node_started": true,
+  "operation_helpers_verified": 15,
+  "operation_plan_sha256": "29a4bbcc6ba85fc76f820309194a2ce52fac64678ac724ad8a2731c8dd74ccba",
+  "operation_plan_version": 5,
+  "preserved_source_attempts_match": true,
+  "repeated_snapshots_equal": true,
+  "source_commit": "1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5",
+  "source_git_verification": {
+    "method": "git cat-file --batch of explicit frozen paths",
+    "source_commit": "1b1b3205cfd894f9bb8583ecdf0ef55f2bf839b5",
+    "source_files_checked": 1882,
+    "source_mismatches": []
+  },
+  "source_input_count": 1882,
+  "source_inventory_sha256": "19c8d4301cf04ee3aeea17bdd650cd8ee0ef8915ccf57a2d3805ccba8a08e70e",
+  "state": "release_verified",
+  "version": 1
+}

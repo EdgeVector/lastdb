@@ -1,57 +1,20 @@
-//! Per-key molecule storage key codec.
+//! Native per-key molecule storage codec.
 //!
-//! Background. A field's index (a `MoleculeHash` / `MoleculeRange` /
-//! `MoleculeHashRange`) used to live as one JSON blob under `ref:{molecule_uuid}`,
-//! so every keyed read deserialized the whole field — O(field cardinality). The
-//! per-key layout stores each key as its own Sled record so a point lookup is a
-//! single `get` and a range/prefix scan is `O(matches)` over Sled's ordered
-//! keyspace. This module owns the (only) place that builds and parses those keys.
+//! A tip uses `mk:{M}:{esc(hash)}\0{range}` and its header uses `mh:{M}`.
+//! Callers add an optional storage scope with `build_storage_key`. Hash fields
+//! use an empty range; HashRange fields use both coordinates. Physical tools
+//! can also decode the historical empty-slot layouts.
 //!
-//! Key shapes (BASE keys — callers add the optional `{storage_prefix}:` prefix via
-//! `build_storage_key`, exactly as for `ref:` today):
+//! The supplied molecule UUID is an exact identity. Reads and writes never
+//! substitute a hex or base64url spelling. Hash and range encryption bind that
+//! same identity; current and fallback encryption keys remain read candidates.
 //!
-//! - Per-key record (all field kinds): `mk:{M}:{esc(hash)}\0{range}`
-//!   - Hash-only slots use empty range (`…\0`); range-only use empty hash (`…:\0{range}`);
-//!     Single uses the empty `("", "")` slot.
-//! - HashRange page index: `mhr:{M}\0{esc(range)}\0{esc(hash)}` (range-major;
-//!   the first separator pins one molecule's whole index to one partition)
-//! - Header:          `mh:{M}`                      (molecule-level metadata + "migrated" marker)
-//! - Tip version:     `tv:{version_id}`             (archived tip in the per-slot chain)
-//! - Tip backref:     `tvr:v2:{atom_uuid}\0{version_id}` (derived atom -> archived tip lookup)
-//!
-//! where `M` is the deterministic molecule uuid (`sha256(schema:field)`).
-//!
-//! ## Why this encoding (the correctness linchpin)
-//!
-//! For HashRange we need three things at once:
-//! 1. **Exact point key** for `HashRangeKey{hash, range}` — a single `get`.
-//! 2. **Unambiguous hash prefix** so `scan_prefix(mk:{M}:{esc(hash)}\0)` returns
-//!    *only* that hash's ranges — `hash="a"` must NOT match `hash="ab"`.
-//! 3. **Order-preserving range** so a range/prefix scan within a hash visits
-//!    ranges in the same order as the old `BTreeMap<range, _>`.
-//!
-//! We get (2) by byte-stuffing the hash so it can never contain the `\0`
-//! separator, then using a single raw `\0` as the hash↔range delimiter. We get
-//! (3) by appending the range *raw* after the separator (Rust `str` ordering ==
-//! UTF-8 byte ordering == Sled key ordering). `:` is unusable as a delimiter
-//! because hash/range values routinely contain it (URLs, ISO timestamps) — the
-//! same trap that made the old `split_once(':')` conflict-key path lossy.
-//!
-//! All inputs are `String`s (always valid UTF-8); the escape only ever inserts
-//! single-byte (`< 0x80`) chars, so every key produced here is valid UTF-8 and
-//! survives the store's `from_utf8_lossy` read path byte-for-byte.
-//!
-//! ## HashKey blinding + RangeKey OPE (v1)
-//!
-//! Free functions in this module take **storage-form** segments (already
-//! plain / blinded / OPE-encoded). API plaintext HashKey/RangeKey must go
-//! through [`MoleculeKeyCodec::storage_hash`] / [`MoleculeKeyCodec::storage_range`]
-//! (or the `api_*` builders) first.
-//!
-//! - HashKey: brain `design-lastdb-hashkey-blind-v1`
-//! - RangeKey: brain `design-lastdb-rangekey-ope-v1`
+//! Free key builders take storage-form coordinates. API coordinates pass once
+//! through [`MoleculeKeyCodec::storage_hash`] and
+//! [`MoleculeKeyCodec::storage_range`], or through an `api_*` builder. The hash
+//! is byte-stuffed before the separator, so hash prefixes cannot overlap.
+//! Each OPE key preserves range order within its own encoded range stream.
 
-use crate::atom::molecule_uuid::molecule_uuid_read_candidates;
 use crate::crypto::E2eKeys;
 use crate::hex::hex_lower;
 
@@ -235,7 +198,7 @@ impl MoleculeKeyCodec {
 
     /// `mk:{M}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
     ///
-    /// Write path: one key under the caller's `molecule_uuid` spelling.
+    /// Write path: one key under the caller's exact `molecule_uuid`.
     pub fn api_hash_range_record_key(
         &self,
         molecule_uuid: &str,
@@ -247,10 +210,8 @@ impl MoleculeKeyCodec {
         Ok(hash_range_record_key(molecule_uuid, &h, &r))
     }
 
-    /// Point-read keys for one API slot: current molecule-UUID spelling first,
-    /// then the hex/base64url twin when `M` is a 32-byte digest. Hash and
-    /// range HMAC-bind `M`, so each candidate rebuilds both segments under
-    /// the same spelling — encodings are never mixed inside one key.
+    /// Point-read keys for one API slot under the supplied molecule identity.
+    /// Current and fallback encryption keys remain readable within that identity.
     pub fn api_hash_range_record_keys_for_read(
         &self,
         molecule_uuid: &str,
@@ -258,47 +219,34 @@ impl MoleculeKeyCodec {
         api_range: &str,
     ) -> Result<Vec<String>, MoleculeKeyCodecError> {
         let mut keys = Vec::new();
-        for uid in molecule_uuid_read_candidates(molecule_uuid) {
-            for h in self.storage_hash_read_candidates(&uid, api_hash)? {
-                for r in self.storage_range_read_candidates(&uid, api_range)? {
-                    let key = hash_range_record_key(&uid, &h, &r);
-                    if !keys.iter().any(|k| k == &key) {
-                        keys.push(key);
-                    }
-                }
+        let hashes = self.storage_hash_read_candidates(molecule_uuid, api_hash)?;
+        let ranges = self.storage_range_read_candidates(molecule_uuid, api_range)?;
+        for hash in hashes {
+            for range in &ranges {
+                keys.push(hash_range_record_key(molecule_uuid, &hash, range));
             }
         }
         Ok(keys)
     }
 
-    /// Prefix-scan keys for one API hash, dual-read across molecule-UUID
-    /// encodings. Same HMAC-bind rule as
-    /// [`Self::api_hash_range_record_keys_for_read`].
+    /// Prefixes for one API hash under the supplied exact molecule identity.
+    /// Current and fallback encryption keys remain separate read candidates.
     pub fn api_hash_range_scan_prefixes_for_read(
         &self,
         molecule_uuid: &str,
         api_hash: &str,
     ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        let mut prefixes = Vec::new();
-        for uid in molecule_uuid_read_candidates(molecule_uuid) {
-            for h in self.storage_hash_read_candidates(&uid, api_hash)? {
-                let prefix = hash_range_scan_prefix_for_hash(&uid, &h);
-                if !prefixes.iter().any(|p| p == &prefix) {
-                    prefixes.push(prefix);
-                }
-            }
-        }
-        Ok(prefixes)
+        Ok(self
+            .storage_hash_read_candidates(molecule_uuid, api_hash)?
+            .into_iter()
+            .map(|hash| hash_range_scan_prefix_for_hash(molecule_uuid, &hash))
+            .collect())
     }
 
-    /// `mk:{M}:` prefixes covering every per-key record of this molecule
-    /// under every readable UUID spelling.
+    /// The single `mk:{M}:` prefix for the supplied exact molecule identity.
     #[must_use]
     pub fn molecule_record_prefixes_for_read(&self, molecule_uuid: &str) -> Vec<String> {
-        molecule_uuid_read_candidates(molecule_uuid)
-            .into_iter()
-            .map(|uid| molecule_record_prefix(&uid))
-            .collect()
+        vec![molecule_record_prefix(molecule_uuid)]
     }
 
     /// `mk:{M}:{esc(storage_hash(api_hash))}\0` scan prefix from API hash.

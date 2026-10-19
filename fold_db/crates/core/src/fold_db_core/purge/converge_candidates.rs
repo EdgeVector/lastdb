@@ -6,7 +6,6 @@ use crate::db_operations::atom_store::{MoleculeHeader, PerKeyRecord};
 
 pub(super) struct CandidateTip {
     key_index: usize,
-    canonical_uuid: String,
     candidate: DeleteCandidate,
     record: PerKeyRecord,
 }
@@ -20,23 +19,23 @@ pub(super) async fn load_candidate_tips(
     let mut plans = Vec::new();
     let mut seen = HashSet::new();
     for field in schema.runtime_fields.values() {
-        let Some(uuid) = field.common().molecule_uuid() else {
+        if field.common().molecule_uuid().is_none() {
             continue;
-        };
+        }
         for (key_index, key) in keys.iter().enumerate() {
             for candidate in delete_candidates_for_key(db_ops, field, key)? {
                 if seen.insert(candidate.mk_key.clone()) {
-                    plans.push((key_index, uuid.clone(), candidate));
+                    plans.push((key_index, candidate));
                 }
             }
         }
     }
     let prefix = plans
         .first()
-        .and_then(|(_, _, candidate)| candidate.storage_prefix.as_deref());
+        .and_then(|(_, candidate)| candidate.storage_prefix.as_deref());
     if plans
         .iter()
-        .any(|(_, _, candidate)| candidate.storage_prefix.as_deref() != prefix)
+        .any(|(_, candidate)| candidate.storage_prefix.as_deref() != prefix)
     {
         return Err(SchemaError::InvalidData(
             "Delete candidates have different storage scopes".into(),
@@ -44,7 +43,7 @@ pub(super) async fn load_candidate_tips(
     }
     let storage_keys: Vec<_> = plans
         .iter()
-        .map(|(_, _, candidate)| candidate.mk_key.clone())
+        .map(|(_, candidate)| candidate.mk_key.clone())
         .collect();
     let records = db_ops
         .atoms()
@@ -53,10 +52,9 @@ pub(super) async fn load_candidate_tips(
     Ok(plans
         .into_iter()
         .zip(records)
-        .filter_map(|((key_index, canonical_uuid, candidate), record)| {
+        .filter_map(|((key_index, candidate), record)| {
             record.map(|record| CandidateTip {
                 key_index,
-                canonical_uuid,
                 candidate,
                 record,
             })
@@ -125,34 +123,27 @@ pub(super) fn protect_retained_history(
         .retain(|key| !protected_v2_edges.contains(key));
 }
 
-type CandidateGroup = (String, Vec<CandidateTip>);
 type HeaderMap = HashMap<String, MoleculeHeader>;
 
 pub(super) async fn build_candidate_removals(
     db_ops: &Arc<DbOperations>,
     tips: Vec<CandidateTip>,
 ) -> Result<Vec<OwnedMoleculeKeyRemoval>, SchemaError> {
-    let mut groups: std::collections::BTreeMap<(String, Option<String>), CandidateGroup> =
+    let mut groups: std::collections::BTreeMap<(String, Option<String>), Vec<CandidateTip>> =
         std::collections::BTreeMap::new();
     for tip in tips {
         let key = (
             tip.candidate.molecule_uuid.clone(),
             tip.candidate.storage_prefix.clone(),
         );
-        groups
-            .entry(key)
-            .or_insert_with(|| (tip.canonical_uuid.clone(), Vec::new()))
-            .1
-            .push(tip);
+        groups.entry(key).or_default().push(tip);
     }
     let mut header_keys = Vec::new();
-    for ((uuid, prefix), (canonical, _)) in &groups {
-        for spelling in [uuid, canonical] {
-            header_keys.push(build_storage_key(
-                prefix.as_deref(),
-                &crate::atom::molecule_key_codec::header_key(spelling),
-            ));
-        }
+    for (uuid, prefix) in groups.keys() {
+        header_keys.push(build_storage_key(
+            prefix.as_deref(),
+            &crate::atom::molecule_key_codec::header_key(uuid),
+        ));
     }
     header_keys.sort_unstable();
     header_keys.dedup();
@@ -170,8 +161,8 @@ pub(super) async fn build_candidate_removals(
         .filter_map(|(key, header)| header.map(|header| (key, header)))
         .collect();
     let mut removals = Vec::with_capacity(groups.len());
-    for ((uuid, prefix), (canonical, tips)) in groups {
-        let header = removal_header(&headers, &uuid, &canonical, prefix.as_deref())?;
+    for ((uuid, prefix), tips) in groups {
+        let header = removal_header(&headers, &uuid, prefix.as_deref())?;
         let records = tips
             .iter()
             .map(|tip| {
@@ -204,28 +195,10 @@ pub(super) async fn build_candidate_removals(
 fn removal_header<'a>(
     headers: &'a HeaderMap,
     uuid: &str,
-    canonical: &str,
     prefix: Option<&str>,
 ) -> Result<&'a MoleculeHeader, SchemaError> {
     let key = build_storage_key(prefix, &crate::atom::molecule_key_codec::header_key(uuid));
-    if let Some(header) = headers.get(&key) {
-        return Ok(header);
-    }
-    let identity = crate::atom::molecule_uuid::parse_molecule_uuid_bytes(uuid);
-    if identity.is_none()
-        || identity != crate::atom::molecule_uuid::parse_molecule_uuid_bytes(canonical)
-    {
-        return Err(SchemaError::InvalidData(
-            "Delete header fallback has a different molecule identity".into(),
-        ));
-    }
-    let canonical_key = build_storage_key(
-        prefix,
-        &crate::atom::molecule_key_codec::header_key(canonical),
-    );
-    headers.get(&canonical_key).ok_or_else(|| {
-        SchemaError::InvalidData(
-            "Delete target lacks a physical or canonical molecule header".into(),
-        )
-    })
+    headers
+        .get(&key)
+        .ok_or_else(|| SchemaError::InvalidData("Delete target lacks its molecule header".into()))
 }

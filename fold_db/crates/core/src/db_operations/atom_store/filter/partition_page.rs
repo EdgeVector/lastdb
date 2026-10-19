@@ -113,8 +113,8 @@ fn hash_tip_lanes(
 }
 
 impl AtomStore {
-    /// Apply a HashKey page before cloning the entire partition. Each readable
-    /// molecule spelling has one ordered stream. Current spellings win ties.
+    /// Select a HashKey page from ordered encrypted-key streams.
+    /// Current encryption-key candidates win ties within the exact molecule.
     pub(crate) async fn scan_hash_tip_window(
         &self,
         molecule: &str,

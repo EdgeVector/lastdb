@@ -220,16 +220,6 @@ impl AtomStore {
                 SchemaError::InvalidData(format!("scan hash-only molecule {molecule_uuid}: {e}"))
             })?;
         let mut decoded = Self::decode_1d_records(molecule_uuid, OneDSlot::Hash, scanned);
-        // Before the window is taken, not after: a forked pair that
-        // straddles two pages is delivered twice, and the offset the
-        // caller advances by would be counting storage keys.
-        let forked = self.forked_legacy_keys(
-            molecule_uuid,
-            decoded.iter().map(|(h, r, _, _)| (h.as_str(), r.as_str())),
-        );
-        if !forked.is_empty() {
-            decoded.retain(|(h, r, _, _)| !forked.contains(&(h.clone(), r.clone())));
-        }
         decoded.sort_by(|a, b| a.0.cmp(&b.0));
         if let Some((after_hash, _)) = after.as_ref() {
             decoded.retain(|(h, _, _, _)| h > after_hash);

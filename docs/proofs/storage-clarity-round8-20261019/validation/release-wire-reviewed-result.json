@@ -1,0 +1,21 @@
+{
+  "command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "elapsed_seconds": 118.04492637500002,
+  "exit_code": 0,
+  "head_unchanged": true,
+  "source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+  "started_utc": "2026-10-19T20:42:52.962092+00:00"
+}
