@@ -140,51 +140,9 @@ impl AtomStore {
             return Ok(());
         }
 
-        // Tails share append barriers. A full snapshot takes the exclusive
-        // commit lock. Acquire both in uuid order so a mixed batch cannot
-        // deadlock.
-        let snapshot_uuids: std::collections::HashSet<&str> = molecules
-            .iter()
-            .filter(|(_, data, _)| !data.order_is_tail())
-            .map(|(molecule_uuid, _, _)| *molecule_uuid)
-            .collect();
-        let uuid_owned: Vec<String> = {
-            let mut uuids: Vec<String> = molecules
-                .iter()
-                .map(|(molecule_uuid, _, _)| (*molecule_uuid).to_string())
-                .collect();
-            uuids.sort_unstable();
-            uuids.dedup();
-            uuids
-        };
-        // Guards are held for Drop only (lock exclusion), not read.
-        #[allow(dead_code)]
-        enum MoleculeLock {
-            Append(tokio::sync::OwnedRwLockReadGuard<()>),
-            Commit(tokio::sync::OwnedRwLockWriteGuard<()>),
-        }
-        let _append_only_guards = if snapshot_uuids.is_empty() {
-            Some(
-                self.lock_molecule_appends(&uuid_owned, storage_prefix)
-                    .await,
-            )
-        } else {
-            None
-        };
-        let mut _mixed_locks = Vec::new();
-        if !snapshot_uuids.is_empty() {
-            for uuid in &uuid_owned {
-                if snapshot_uuids.contains(uuid.as_str()) {
-                    _mixed_locks.push(MoleculeLock::Commit(
-                        self.lock_molecule_commit(uuid, storage_prefix).await,
-                    ));
-                } else {
-                    _mixed_locks.push(MoleculeLock::Append(
-                        self.lock_molecule_append(uuid, storage_prefix).await,
-                    ));
-                }
-            }
-        }
+        let _molecule_locks = self
+            .lock_molecules_for_store(molecules, storage_prefix)
+            .await;
 
         let mut all_items = Vec::new();
         for (molecule_uuid, data, changed) in molecules {
@@ -257,4 +215,52 @@ pub(in crate::db_operations::atom_store) fn accounted_items(
     }
     items.extend(rows.iter().cloned());
     Ok(items)
+}
+
+/// Guards held for their exclusion only; nothing reads them.
+#[allow(dead_code)]
+enum MoleculeLock {
+    Append(tokio::sync::OwnedRwLockReadGuard<()>),
+    Commit(tokio::sync::OwnedRwLockWriteGuard<()>),
+}
+
+impl AtomStore {
+    /// Tails share append barriers. A full snapshot takes the exclusive commit
+    /// lock. Acquire both in uuid order so a mixed batch cannot deadlock.
+    async fn lock_molecules_for_store(
+        &self,
+        molecules: &[(&str, &MoleculeData, &std::collections::HashSet<ChangedKey>)],
+        storage_prefix: Option<&str>,
+    ) -> Vec<MoleculeLock> {
+        let snapshot_uuids: std::collections::HashSet<&str> = molecules
+            .iter()
+            .filter(|(_, data, _)| !data.order_is_tail())
+            .map(|(molecule_uuid, _, _)| *molecule_uuid)
+            .collect();
+        let mut uuids: Vec<String> = molecules
+            .iter()
+            .map(|(molecule_uuid, _, _)| (*molecule_uuid).to_string())
+            .collect();
+        uuids.sort_unstable();
+        uuids.dedup();
+        let mut locks = Vec::with_capacity(uuids.len());
+        if snapshot_uuids.is_empty() {
+            for guard in self.lock_molecule_appends(&uuids, storage_prefix).await {
+                locks.push(MoleculeLock::Append(guard));
+            }
+            return locks;
+        }
+        for uuid in &uuids {
+            if snapshot_uuids.contains(uuid.as_str()) {
+                locks.push(MoleculeLock::Commit(
+                    self.lock_molecule_commit(uuid, storage_prefix).await,
+                ));
+            } else {
+                locks.push(MoleculeLock::Append(
+                    self.lock_molecule_append(uuid, storage_prefix).await,
+                ));
+            }
+        }
+        locks
+    }
 }
