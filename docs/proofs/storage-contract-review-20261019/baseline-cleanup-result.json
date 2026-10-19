@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q",
+    "--exact-home"
+  ],
+  "node_sessions": 0,
+  "returncode": 0,
+  "role": "Unused executable-only baseline; no database or node.",
+  "root_exists_after": false,
+  "stderr": "",
+  "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.sdh1yb1q (released exact synthetic seed)\n"
+}

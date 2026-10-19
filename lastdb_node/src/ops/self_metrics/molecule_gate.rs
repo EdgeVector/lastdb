@@ -196,7 +196,7 @@ pub(crate) async fn refresh_atom_ref_edge_health(host: &Host) {
     let atom_ref_store = host.db.db_ops().atoms();
     // Compact reverse-edge writes, reads and compact-only writes are always on.
     let mut health = AtomRefEdgeHealth::dual_write(v1_bytes, v2_bytes);
-    health.phase = match atom_ref_store.atom_ref_v2_reads_ready(None).await {
+    health.phase = match atom_ref_store.atom_ref_v2_reads_ready().await {
         Ok(true) => "v2_only_writes",
         Ok(false) => "read_blocked",
         Err(_) => "read_invalid",

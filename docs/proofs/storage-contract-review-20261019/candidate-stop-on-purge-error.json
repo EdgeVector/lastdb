@@ -1,0 +1,8 @@
+{
+  "command_before_signal": "85342 /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73/program-lastdbd --data-dir /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73/o/h --socket-path /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73/o/q.sock --full-socket-path /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73/o/f.sock",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73/o/h",
+  "pid": 85342,
+  "reason": "Stop first candidate after repeated named Purge failure: reverse-edge absence requires exact global completion markers. Preserve original request, no further operations.",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0wmmqu73",
+  "signal": "SIGTERM"
+}

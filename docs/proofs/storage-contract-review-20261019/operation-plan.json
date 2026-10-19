@@ -1,7 +1,11 @@
 {
   "cohort": {
+    "environment_override": {
+      "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "CoreOwnedWritesHashRange,ContractRange,ContractProteinRange"
+    },
     "expected_read_calls": 74,
     "expected_zero_file_checks": 29,
+    "scope": "Separate fresh home, same normal executable, existing helper unchanged. Selected CoreOwnedWritesHashRange follows its prior accepted cohort policy.",
     "unchanged_helper": "docs/proofs/core-owned-writes-20261018/cohorts.py"
   },
   "comparison": "Exact status, record keys/order, requested field values and JSON types, and returned count. Compare only the requested field projection; existing core responses may include the declared hash helper. Save raw response before decode. Candidate stops first mismatch. Expected refusals change no batch member.",

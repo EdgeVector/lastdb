@@ -157,7 +157,7 @@ impl AtomStore {
             }
             return Ok(());
         }
-        if !self.atom_ref_v2_reads_ready(ctx.storage_prefix).await? {
+        if !self.atom_ref_v2_reads_ready().await? {
             report.atoms_retained_incomplete_edges =
                 report.atoms_retained_incomplete_edges.saturating_add(1);
             return Ok(());

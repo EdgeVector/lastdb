@@ -128,7 +128,7 @@ pub(super) async fn delete_blocked_by_edge_reads(
     settings: &AutomaticGcAtomsSettings,
     restart_lap_at: &AtomicU64,
 ) -> Option<AutomaticGcAtomsStep> {
-    match runtime.atoms.atom_ref_v2_reads_ready(None).await {
+    match runtime.atoms.atom_ref_v2_reads_ready().await {
         Ok(true) => None,
         Ok(false) => {
             let repeated = runtime.status.snapshot().last_outcome == skip_reason::READS_NOT_READY;

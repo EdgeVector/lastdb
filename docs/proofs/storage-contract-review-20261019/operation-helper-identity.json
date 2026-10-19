@@ -37,6 +37,6 @@
       "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
     }
   },
-  "plan_sha256": "e8bebfe6789d6824207b11ab224affb5857d75f59db89b2173b78d8ee20663db",
+  "plan_sha256": "63ab1e74287b40dde2c201cd54d33b372295d5ecac7b5dd0a0384e0cb4c1ab03",
   "scope": "Existing unchanged operational helpers; no new executable checker or test harness."
 }

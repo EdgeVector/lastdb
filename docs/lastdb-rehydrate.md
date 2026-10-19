@@ -150,6 +150,8 @@ The explicit Purge route retains its separate destructive rules.
 Delete and Purge check the caller's conditions in the same database scope as the removal.
 Both Purge paths check shared references after removal of the target tips.
 A failed reference check stops publication before atom removal.
+Reference data uses the selected database scope. Its completion proof covers the whole home and uses unprefixed markers.
+A missing completion proof refuses atom removal. An older reference store cannot replace that proof.
 An invalid peer-key value receives an explicit refusal before any deletion starts.
 That fixed input error does not retain a write for an endless storage retry.
 

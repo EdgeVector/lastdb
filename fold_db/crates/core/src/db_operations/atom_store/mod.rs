@@ -160,9 +160,9 @@ pub struct AtomStore {
     /// Atom body storage-key encoding (default [`crate::atom::AtomKeyEncoding::Flat`];
     /// see `design-lastdb-atom-key-partition-locality`).
     atom_keys_partition_prefixed: Arc<AtomicBool>,
-    /// Cache successful marker checks by storage prefix. Completion markers
-    /// are immutable during one process lifetime after read cutover.
-    atom_ref_v2_read_ready: Arc<std::sync::Mutex<std::collections::HashSet<Option<String>>>>,
+    /// One home-wide completion proof covers every exact data scope. Restore
+    /// revokes the fresh-home proof and clears this successful-read cache.
+    atom_ref_v2_read_ready: Arc<std::sync::Mutex<bool>>,
     /// Per-molecule commit guards: the SHORT critical section that makes
     /// (read `moc:` → build items → commit batch) atomic for one molecule.
     ///

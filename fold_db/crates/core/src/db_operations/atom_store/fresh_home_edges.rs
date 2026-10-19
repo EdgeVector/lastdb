@@ -98,10 +98,9 @@ impl AtomStore {
             self.main_store.inner().batch_mutate(removals).await?;
             self.main_store.inner().flush().await?;
         }
-        self.atom_ref_v2_read_ready
-            .lock()
-            .map_err(|error| StorageError::BackendError(format!("lock atom read gate: {error}")))?
-            .clear();
+        *self.atom_ref_v2_read_ready.lock().map_err(|error| {
+            StorageError::BackendError(format!("lock atom read gate: {error}"))
+        })? = false;
         Ok(())
     }
 
