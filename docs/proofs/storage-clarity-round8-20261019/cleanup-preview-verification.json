@@ -1,0 +1,10 @@
+{
+  "all_creator_pids_absent": true,
+  "all_original_sealed_hashes_unchanged": true,
+  "all_roots_retained": true,
+  "compact_seal_sha256": "f35d45bb6ae9cd30018382bdc3a5d13598bf67662ffe0a662d018617a67f073f",
+  "full_seal_sha256": "8bd57b9b42db2d093bd0e0fa5790a34f70b251d1ff8df0dad5819917390b5b8e",
+  "original_files_verified": 56,
+  "previews_sha256": "281a9b60092a28c295534eca7df49b7b0d0157e7e1299ff1da7dd8ab0f0b395f",
+  "source_head": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c"
+}

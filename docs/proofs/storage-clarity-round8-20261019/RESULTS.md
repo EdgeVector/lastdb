@@ -29,18 +29,33 @@ Independent source reviews found no remaining blocker in the changed query, memo
 
 The final source includes accepted main `adbec20cdbf39b3fc397be5f34c3cec5e0e280cc`, which adds the warm-set byte gauge. The integration has no conflicting files. The gauge reports charges without a new enforced memory cap.
 
-Final source `d64d918ff0e757f34863277a69dc9f07120aabbb` passes workspace and separate-lane compiler checks, the normal release build, format, size, and added-allow checks. Its 1,882 product inputs match the frozen inventory and Git. The release SHA256 is `0f020fd6653e581ac0e808ae3a4c6ee683369e749b32e04898dc99abb29b64ec`. The earlier source identities and compiler/release attempts remain preserved.
+Final source `78f2c6a67523f34c9c2494e8c42ac638f7e37c0c` passes workspace and separate-lane compiler checks, the normal release build, format, size, and added-allow checks. Its 1,882 product inputs match the frozen inventory and Git. The release SHA256 is `bf9c5cb7451c3d862d38e6b3ecd30cb50717634108e5f4fcb7d008dd075ea6e1`. The earlier source identities and compiler/release attempts remain preserved.
 
 ## Operational checks
 
 The V5 diagnostic baseline and both stopped candidates remain preserved. The first candidate exposes duplicate key sets from the legacy UUID path. The next candidate passes all five empty-hash key-set observations, then stops at the incorrect `data.list` expectation. Both programs use the existing top-level `list` response.
 
-V6 corrects only that response path and two dependent cursor paths. Every request and expected key, value, type, count, condition, status, and page flag stays unchanged. V6 repeats both programs with fresh synthetic data before the final comparison. Its results remain in progress. It uses fresh owned synthetic homes and unchanged existing helpers. No test suite or new executable exercise helper forms part of this review.
+V6 corrects that response path and two dependent cursor paths. Its old-program run exposes another comparison error for omitted empty fields. V7 matches the existing serializer: empty ranges and absent optional fields stay absent on the wire. Whole key objects still require exact equality. All logical key values, query conditions, and normal API requests stay unchanged.
+
+The accepted V7 comparison uses the same inputs for both programs on fresh synthetic homes:
+
+| Program | Observations | Pass | Fail | Operational errors |
+|---|---:|---:|---:|---:|
+| Accepted old executable | 181 | 107 | 74 | 0 |
+| Updated executable | 181 | 181 | 0 | 0 |
+
+The updated program passes cold and warm queries, mapped exact and batch reads, counts, time conditions, typed keys, and list continuation. The empty-hash key set remains one ready domain, with keys from 0 to 2 and no second load.
+
+The queued write appears in both the key list and exact read while native work remains pending. Native accepted/completed sequences remain 4/2 after the ack, list, and exact read. The public ack does not map that record to one sequence, so this proves no individual flush time.
+
+The unchanged broader cohort also passes: 74 read checks and 29 strict checks with no file-read calls. No operational error occurs. It uses fresh owned synthetic homes and unchanged existing helpers. No test suite or new executable exercise helper forms part of this review.
 
 The old executable remains tied to source `122072ed51e20a1f67ad4915c0efcb9a2ffc1551`. Its 1,877 product inputs match accepted main `ea01331f7aa318c8748a6f41fa95e0b4eddf3b3a`. The old and updated programs receive the same saved requests and literal expected results.
 
+All 21 owned node sessions stop normally. Supported exact cleanup removes all seven owned temporary roots after independent review. The 56 original receipt files and all original seal hashes remain unchanged.
+
 ## Limits
 
-Boot refusal, corrupt-data branches, the CLI request builder, and the blocked-schema gate receive source and compiler checks only. No corrupt home or alternate identity is created. A queued-write observation proves a read before flush only when its saved native sequence span shows that fact.
+Boot refusal, corrupt-data branches, the CLI request builder, and the blocked-schema gate receive source and compiler checks only. No corrupt-home or wrong-key startup operation forms part of this review. The saved native sequence span establishes pending aggregate work during the successful reads; it does not identify an individual record's flush time.
 
 No benchmark, throughput, whole-process memory-cap, or complete key-rotation claim follows from these correctness changes. The primary and archive remain untouched. No migration, cloud activation, installation, or upgrade forms part of this review.

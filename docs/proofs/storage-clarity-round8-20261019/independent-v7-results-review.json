@@ -1,0 +1,70 @@
+{
+  "accepted_plan_version": 7,
+  "baseline": {
+    "complete": true,
+    "failed": 74,
+    "observations": 181,
+    "operational_error": null,
+    "passed": 107
+  },
+  "candidate": {
+    "complete": true,
+    "failed": 0,
+    "observations": 181,
+    "operational_error": null,
+    "passed": 181
+  },
+  "candidate_list_and_exact_read_with_native_work_pending": true,
+  "candidate_native_sequence_span": {
+    "after_ack": {
+      "accepted_sequence": 4,
+      "completed_sequence": 2
+    },
+    "after_list": {
+      "accepted_sequence": 4,
+      "completed_sequence": 2
+    },
+    "after_query": {
+      "accepted_sequence": 4,
+      "completed_sequence": 2
+    },
+    "before_write": {
+      "accepted_sequence": 1,
+      "completed_sequence": 1
+    }
+  },
+  "candidate_preload": [
+    {
+      "disk_only": 0,
+      "domains": 1,
+      "keys": 0,
+      "label": "status-before-empty-hash-write",
+      "loads": 1,
+      "memory_selections": 4,
+      "ready": 1
+    },
+    {
+      "disk_only": 0,
+      "domains": 1,
+      "keys": 2,
+      "label": "status-after-empty-hash-write",
+      "loads": 1,
+      "memory_selections": 4,
+      "ready": 1
+    },
+    {
+      "disk_only": 0,
+      "domains": 1,
+      "keys": 2,
+      "label": "status-after-empty-hash-read",
+      "loads": 1,
+      "memory_selections": 10,
+      "ready": 1
+    }
+  ],
+  "candidate_queued_durability": "queued",
+  "comparison_scope": "Fixed synthetic correctness inputs; no benchmark or memory-cap conclusion.",
+  "per_record_flush_sequence_available": false,
+  "per_record_read_before_flush_established": false,
+  "scope_correction": "The literal plan aggregate-sequence condition passes. Public ack does not identify which accepted sequence owns the record; no per-record flush-time conclusion follows."
+}

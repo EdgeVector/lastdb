@@ -1,0 +1,24 @@
+{
+  "command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "clippy",
+    "--locked",
+    "-p",
+    "generate_validated_schema_org_seeds",
+    "-p",
+    "schema_service_worker",
+    "--bins",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "elapsed_seconds": 0.5493597910000005,
+  "exit_code": 0,
+  "head_unchanged": true,
+  "source_commit": "78f2c6a67523f34c9c2494e8c42ac638f7e37c0c",
+  "started_utc": "2026-10-19T20:42:52.406615+00:00"
+}
