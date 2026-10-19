@@ -166,15 +166,24 @@ Reads that work on a synthetic home:
 | `GET /api/history/<molecule>` | The recorded mutation events of one molecule. |
 | `GET /api/atom/<atom_uuid>` | Whether an atom body is still on disk. |
 | `lastdb db inventory --json` | Atoms per schema, and the `history:` and `conflict:` key classes. |
-| `GET /api/status`, field `status.gc_atoms` | `last_lap_unreferenced_atoms`, `peer_apply_state`, `total_atoms_deleted`. |
+| `lastdb status`, line `Atom counters` | Bodies created and deleted, and the counter faults, since the daemon started. The line lags by up to 60 s. |
+| `lastdb db inventory --json`, block `atom_counters` | Counters, total references, bodies without a counter, counters without a body, zero counters and `suspect` counters. |
+| `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` | The counter, the `suspect` flag and the body state of each atom. |
 
-To age garbage in seconds on a synthetic home, start the daemon with
-`LASTDB_GC_ATOMS_START_DELAY_SECS=1 LASTDB_GC_ATOMS_STEP_INTERVAL_SECS=2
-LASTDB_GC_ATOMS_RELAP_INTERVAL_SECS=5 LASTDB_GC_ATOMS_GRACE_WINDOW_SECS=3
-LASTDB_GC_ATOMS_ALLOW_SHORT_GRACE=1` and `LASTDB_SELF_METRICS_SAMPLE_SECS=1`.
-After a peer apply, the interlock keeps the delete pass off; the proof can lift
-it with `LASTDB_GC_ATOMS_ALLOW_AFTER_PEER_APPLY=1`. Never set these on a home
-that holds data you need.
+An atom body leaves the store in the same batch as the last tip or conflict
+record that names it. There is no grace window, no garbage-collection lap and
+no peer-apply interlock, so there is nothing to age or to lift. To see a body
+go, purge or delete the last key that holds it and read `GET /api/atom/<atom_uuid>`.
+
+CAUTION: The conflict recorder fires only when the atom store knows the device
+id of its sync engine. A node without an attached sync engine records no
+conflict, and it records no conflict row to hold a loser atom. A review of the
+atom counter change could not make the recorder fire on a synthetic home, on
+this build or on main. If `GET /api/history/<molecule>` and `POST
+/api/conflicts/keys` show no conflict after the exchange, the recorder did not
+fire, and the steps above do not prove conflict handling. Steps S3 and S6 of the
+counter design (`docs/design-lastdb-counter-lifecycle.md`) add the release of
+conflict references and the verifier.
 
 ## Stop and clean up
 

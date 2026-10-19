@@ -19,8 +19,11 @@
 //! records, and counter records. The planner here reads the old state from the
 //! store inside the native write request scope and writes one batch. A crash
 //! keeps whole batches only, so each batch moves the store from one equal state
-//! to another. `scripts/lints/lint-atom-counter-writers.sh` guards this
+//! to another. `scripts/lints/lint-atom-counter-writers.py` guards this
 //! boundary at the source level.
+//!
+//! Design: `docs/design-lastdb-counter-lifecycle.md`. The contract in short:
+//! `docs/lastdb-atom-counter.md`.
 
 mod build;
 mod commit;
