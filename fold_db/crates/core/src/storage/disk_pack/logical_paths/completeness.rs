@@ -52,6 +52,11 @@ pub(super) fn covers(
         {
             return false;
         }
+        // The counter of an atom is accounting. It resolves no logical value,
+        // and the body that it counts is covered through the path sources.
+        if crate::atom::atom_key_codec::is_counter_key(raw) {
+            return true;
+        }
         if !["atom", "mk", "rdel", "mh", "hcu"]
             .into_iter()
             .any(|kind| crate::kind_partition::rest_of(raw, kind).is_some())
