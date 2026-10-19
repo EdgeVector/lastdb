@@ -168,7 +168,6 @@ impl AtomStore {
             self.hydrate_snapshot_missed(store, &durable_debits, &journal)
                 .await?;
         }
-        self.count_pending_protein_folds().await?;
         // Every branch above wrote and flushed a durable row whose trust is
         // at most what this process can vouch for, so an earlier failed boot
         // no longer needs its marker.
@@ -461,26 +460,6 @@ impl AtomStore {
         }
     }
 
-    /// Count queued protein-fold jobs into the meters. Part of a normal
-    /// hydrate, and also run on its own after a failed hydrate so a later
-    /// bootstrap in this process does not commit trust with a zero count.
-    pub(super) async fn count_pending_protein_folds(
-        &self,
-    ) -> Result<(), crate::schema::SchemaError> {
-        let fold_jobs: Vec<(String, serde_json::Value)> = self
-            .main_store
-            .scan_items_with_prefix(crate::protein::PROTEIN_FOLD_JOB_PREFIX)
-            .await
-            .map_err(|e| {
-                crate::schema::SchemaError::InvalidData(format!(
-                    "hydrate pending protein folds: {e}"
-                ))
-            })?;
-        self.keep_small
-            .set_pending_protein_folds(fold_jobs.len() as u64);
-        Ok(())
-    }
-
     /// Boot continues after a failed keep-small hydrate (Tom, 2026-09-25:
     /// fail-closed meter trust, not fail-closed availability). Leave a durable
     /// record of that outside the keep_small group, because this process may
@@ -506,13 +485,6 @@ impl AtomStore {
                 target: "fold_node::database",
                 error = %e,
                 "could not write the keep-small distrust marker"
-            );
-        }
-        if let Err(e) = self.count_pending_protein_folds().await {
-            tracing::warn!(
-                target: "fold_node::database",
-                error = %e,
-                "could not count pending protein folds after a failed keep-small hydrate"
             );
         }
     }

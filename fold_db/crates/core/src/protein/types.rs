@@ -1,9 +1,9 @@
-//! Protein record, membership, and fold-job types.
+//! Protein record and membership types.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Marker stored on fold jobs / diagnostics so callers can assert protein path.
+/// Marker stored on protein diagnostics so callers can assert protein path.
 pub const PROTEIN_SCHEMA_MARKER: &str = "lastdb.protein.v1";
 
 /// One conformation of a protein: a molecule under a particular key layout.
@@ -106,26 +106,4 @@ impl Protein {
     pub fn contains_molecule(&self, molecule_uuid: &str) -> bool {
         self.member_for_molecule(molecule_uuid).is_some()
     }
-}
-
-/// Enqueued fold: repoint sibling member tips to a shared atom tip.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProteinFoldJob {
-    pub job_id: String,
-    pub protein_uuid: String,
-    /// Molecule that already holds the new tip (skip on fold).
-    pub entry_molecule_uuid: String,
-    /// Shared atom uuid all siblings must tip at.
-    pub atom_uuid: String,
-    pub written_at: u64,
-    pub device_id: String,
-    /// Full field map from the write — used to derive sibling tip keys.
-    pub fields: HashMap<String, String>,
-    /// Schema marker for diagnostics / evidence.
-    #[serde(default = "default_schema_marker")]
-    pub schema: String,
-}
-
-fn default_schema_marker() -> String {
-    PROTEIN_SCHEMA_MARKER.to_string()
 }
