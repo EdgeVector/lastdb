@@ -54,3 +54,9 @@ Orphan-protein cleanup now captures candidates and stages their removal inside t
 Distinct existing proteins remain distinct. The change adds no repair, migration, or backfill for a prior split. The next product operation uses a fresh synthetic home.
 
 Result: no unresolved blocker in the final independent binder review. This follow-up used source and saved failure receipts only. It did not run tests, builds, or product calls. A separate operation against the corrected release must establish the final product result.
+
+## Compiler boundary
+
+The membership scope and the schema write/delete scopes return boxed futures. The lane dispatch also uses one boxed future. These four boundaries keep the compiler's type depth within its limit. Each call uses one box at its boundary; there is no nested box. They preserve the native transaction and lock order.
+
+The required workspace Clippy check passes with these boundaries. The receipt is `validation/clippy-workspace-final-layout.txt` (exit 0). The saved failure without the lane box explains why that boundary remains. This compiler check does not establish the product result.

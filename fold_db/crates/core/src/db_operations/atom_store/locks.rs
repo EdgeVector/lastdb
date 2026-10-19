@@ -1,25 +1,27 @@
 //! Molecule, tip, atom-ref, and delete-barrier locks plus GC protection.
 
 use super::*;
+use futures::{future::BoxFuture, FutureExt};
 
 impl AtomStore {
     /// Keep protein selection, membership changes, and orphan checks together.
     /// Lock order is native preparation, membership, then molecule liveness.
     /// An inherited native scope keeps its stages private until the outer commit;
     /// the clone-shared gate also serializes physical stores without that scope.
-    pub(crate) async fn with_protein_membership<T>(
-        &self,
-        work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>>,
-    ) -> Result<T, crate::schema::SchemaError> {
+    /// Box the complete scope so callers do not inherit its full future layout.
+    pub(crate) fn with_protein_membership<'a, T: Send + 'a>(
+        &'a self,
+        work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
         let runtime = self
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        crate::storage::disk_pack::transaction::scope(runtime, async {
+        crate::storage::disk_pack::transaction::scope(runtime, async move {
             let _membership = self.protein_membership_gate.lock().await;
             work.await
         })
-        .await
+        .boxed()
     }
 
     /// Guard the short (read `moc:` → build items → commit) section for one

@@ -50,6 +50,7 @@ impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
                     error,
                 };
             }
+            // Erase the full dispatch layout before the async-trait lane boundary.
             let step = self.run_envelope(&mut envelope).boxed().await;
             match step {
                 LaneStep::Done(hook) => {
