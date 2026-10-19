@@ -156,7 +156,7 @@ impl SchemaKeys {
 }
 
 impl PackRuntime {
-    /// Explicit selected-schema policy: the primary and record-envelope keys.
+    /// Explicit selected-schema policy: the primary field molecule keys.
     /// A fallback field loads its different membership only when required.
     pub(crate) async fn preload_schema_keys(
         self: &Arc<Self>,
@@ -167,7 +167,7 @@ impl PackRuntime {
         {
             return Ok(());
         }
-        let names = crate::record_molecule::declared_runtime_field_names(schema);
+        let names = schema.runtime_field_names();
         let primary = schema
             .key
             .as_ref()
@@ -184,12 +184,7 @@ impl PackRuntime {
             return Ok(());
         };
         let scope = field.common().storage_prefix();
-        self.preload_molecule_keys(Arc::clone(&db_ops), scope, molecule)
-            .await?;
-        if let Some(record_molecule) = schema.molecule_uuid.as_deref() {
-            self.preload_molecule_keys(db_ops, scope, record_molecule)
-                .await?;
-        }
+        self.preload_molecule_keys(db_ops, scope, molecule).await?;
         Ok(())
     }
 

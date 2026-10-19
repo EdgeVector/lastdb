@@ -1,0 +1,158 @@
+{
+  "benchmark_result": false,
+  "checks": [
+    {
+      "binary_sha256": "ce19d88fc0a88e5f8044ec6c914e954478b2cb17b603242f6fcc6d69c3a70ffb",
+      "evidence": [
+        "per-field-read-operations/result.json",
+        "per-field-read-operations/receipts.jsonl"
+      ],
+      "name": "controlled exact/range field queries",
+      "passed": true,
+      "query_checks": 54,
+      "scope": "Current values, added optional field, predicates, order, limits and reopen. Atom/molecule identity and atom attribution match for the same field; molecule_version is excluded. The procedure result remains false due a later refusal-body assumption.",
+      "source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "binary_sha256": "ce19d88fc0a88e5f8044ec6c914e954478b2cb17b603242f6fcc6d69c3a70ffb",
+      "evidence": [
+        "per-field-read-operations/offline-read-refusal-validation.json"
+      ],
+      "name": "obsolete schema configuration refusal",
+      "passed": true,
+      "refusals": 4,
+      "scope": "molecule_uuid and record_mapper each explicitly refuse null and non-null configuration. That six-request offline document remains incomplete for two initially unsent declarations, covered below.",
+      "source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "binary_sha256": "ce19d88fc0a88e5f8044ec6c914e954478b2cb17b603242f6fcc6d69c3a70ffb",
+      "evidence": [
+        "per-field-cutover-continuation/result.json"
+      ],
+      "name": "reserved schema names and removed compact route",
+      "passed": true,
+      "removed_route_status": 404,
+      "reserved_schema_refusals": 2,
+      "scope": "Both internal field names explicitly refuse400; the removed compact route returns404. The procedure result remains false due the later raw Hash key shape check.",
+      "source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "binary_sha256": "ce19d88fc0a88e5f8044ec6c914e954478b2cb17b603242f6fcc6d69c3a70ffb",
+      "evidence": [
+        "per-field-cutover-completion/offline-payload-refusal-validation.json",
+        "per-field-hash-completion/result.json"
+      ],
+      "name": "reserved mutation payload names",
+      "passed": true,
+      "refusals": 2,
+      "scope": "The public writable-field guard explicitly returns400 unknown_fields and identifies each field as not writable. Current data remains unchanged. The first procedure stays false because it demanded a different word.",
+      "source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "binary_sha256": "ce19d88fc0a88e5f8044ec6c914e954478b2cb17b603242f6fcc6d69c3a70ffb",
+      "evidence": [
+        "per-field-protein-operations/result.json"
+      ],
+      "fixed_pairs": 16,
+      "initial_shared_atom_checks": 48,
+      "name": "fixed Hash protein mixed order and later Delete",
+      "passed": true,
+      "query_items": 784,
+      "scope": "One cohort only. Winners survive reopen; per-field source/old/new values and absences match. Later16 Deletes remove all144 known fields before and after reopen. No preferred-winner retries.",
+      "source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c",
+      "surviving_updates": 5,
+      "winning_deletes": 11
+    },
+    {
+      "binary_sha256": "1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c",
+      "evidence": [
+        "final-hash-cas/result.json"
+      ],
+      "name": "omitted Hash id and expected-id partial Update",
+      "passed": true,
+      "query_items": 6,
+      "scope": "Payload-only Create derives id from the known hash. Payload-only Update expects the current id outside its payload and requires an existing key. Current values, optional absence, unknown key and reopen pass.",
+      "source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a"
+    },
+    {
+      "binary_sha256": "1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c",
+      "evidence": [
+        "final-range-cas/result.json"
+      ],
+      "name": "bidirectional HashRange protein and conditional Delete",
+      "passed": true,
+      "query_items": 107,
+      "scope": "Source key move and reverse peer update share current atoms. Stale expected Value returns409 with actual new-status and no changes. Correct expected Value plus must_exist succeeds; all12 known source/old/new fields stay absent, unrelated records stay unchanged, including after reopen. Missing must_exist explicitly returns400.",
+      "source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a"
+    }
+  ],
+  "complete": true,
+  "diagnostics_preserved": [
+    {
+      "directory": "read-operations",
+      "kind": "procedure",
+      "reason": "Baseline molecule_version equality was outside the changed envelope rule. Original false result stays preserved.",
+      "source": "8c26bd4d"
+    },
+    {
+      "directory": "read-operations-final",
+      "kind": "procedure",
+      "reason": "Expected projection omitted the established helper key field. Original false result stays preserved.",
+      "source": "8c26bd4d"
+    },
+    {
+      "directory": "protein-operations",
+      "kind": "procedure",
+      "reason": "One-off check used hyphens instead of declared underscore role names. Existing same cohort passes offline validation and linked continuation. No reroll.",
+      "source": "b50e6c1d"
+    },
+    {
+      "directory": "range-protein-operations",
+      "kind": "product",
+      "reason": "Compacted source moved without a new peer. Optional record-envelope feature is removed in the per-field cutover; this result stays false.",
+      "source": "b50e6c1d"
+    },
+    {
+      "directory": "per-field-read-operations",
+      "kind": "procedure",
+      "reason": "The reason check assumed JSON; the API returns explicit refusal text. Four completed refusals validate offline, two queued requests complete later. No54-query rerun.",
+      "source": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "directory": "per-field-cutover-continuation",
+      "kind": "procedure",
+      "reason": "The raw Hash key includes range:null. Existing logical.coordinates validates the same known/missing responses; remaining work uses that helper.",
+      "source": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "directory": "per-field-cutover-completion",
+      "kind": "procedure",
+      "reason": "The public earlier guard says unknown_fields/not writable. Offline validation checks that contract; no payload request is repeated.",
+      "source": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    },
+    {
+      "directory": "per-field-range-protein-operations",
+      "kind": "product",
+      "reason": "Conditional field selection reports a current HashRange field absent. The final release corrects the shared point reader; fresh Hash/HashRange conditional cases pass.",
+      "source": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c"
+    }
+  ],
+  "extra_V7_runs": 0,
+  "extra_repeated_cohorts": 0,
+  "final_binary_sha256": "1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c",
+  "final_source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a",
+  "limits": [
+    "Ordinary fresh synthetic homes only; no primary, archive, migration or cloud activation.",
+    "No new test suite, executable fixture harness, benchmark, throughput, timestamp, capacity-overflow, concurrent-interleave or physical-atom-deletion claim.",
+    "Earlier complete=false procedure and product results remain unchanged; explicit linked raw evidence supplies each accepted check."
+  ],
+  "source_carry": {
+    "changed_product_inputs": [
+      "fold_db/crates/core/src/fold_db_core/mutation_manager/cas_current_state.rs"
+    ],
+    "evidence": "cas-source-delta.json",
+    "reason": "Only the conditional field reader changes. The two fresh final-release workflows exercise that reader; unchanged query selection, schema refusal and unconditional Hash cohort results keep their original source labels.",
+    "unchanged_product_inputs": 1877,
+    "verified_product_inputs": 1878
+  }
+}

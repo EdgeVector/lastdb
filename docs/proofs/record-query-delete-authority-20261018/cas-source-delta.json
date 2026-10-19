@@ -1,0 +1,12 @@
+{
+  "previous_source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c",
+  "current_source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a",
+  "product_input_count": 1878,
+  "changed_product_inputs": [
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas_current_state.rs"
+  ],
+  "unchanged_product_inputs": 1877,
+  "previous_inventory_sha256": "bc2ea12b40508c8142c3a0d8de0e4fc6d0670f36582fc5e409bf000c52e6301e",
+  "current_inventory_sha256": "8ebfd6eebfdb141771838e6ab2ca4ff83803897450bd98cc4d199b9df7fb79ab",
+  "scope": "Only the conditional field reader changes. Earlier query selection and unconditional Hash-cohort results keep their original source/binary labels. Fresh conditional Hash and HashRange operations validate the changed reader on the current release."
+}

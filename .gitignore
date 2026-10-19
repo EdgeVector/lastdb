@@ -65,6 +65,8 @@
 /docs/proofs/**/*source-freeze.json
 /docs/proofs/**/source.json
 /docs/proofs/**/source-inputs.json
+# Keep generated copies local; the task's canonical request input is tracked.
+/docs/proofs/record-query-delete-authority-20261018/*/operation-inputs.json
 /docs/proofs/core-memory-state-20261018/current-source*.json
 /docs/proofs/core-memory-state-20261018/before-source-prior.json
 !/docs/proofs/core-memory-state-20261018/before-source.json

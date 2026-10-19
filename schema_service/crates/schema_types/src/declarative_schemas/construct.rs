@@ -25,8 +25,6 @@ impl DeclarativeSchemaDefinition {
             fields,
             transform_fields,
             field_mappers,
-            record_mapper: None,
-            molecule_uuid: None,
             hash: None,
             field_molecule_uuids: None,
             field_classifications: HashMap::new(),
@@ -62,10 +60,6 @@ impl DeclarativeSchemaDefinition {
 
     pub fn field_mappers(&self) -> Option<&HashMap<String, FieldMapper>> {
         self.field_mappers.as_ref()
-    }
-
-    pub fn record_mapper(&self) -> Option<&super::RecordMapper> {
-        self.record_mapper.as_ref()
     }
 
     /// Mint/attach `field_hashes` from each field's description, type, and version.

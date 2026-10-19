@@ -1,0 +1,93 @@
+{
+  "binary_sha256": "ce19d88fc0a88e5f8044ec6c914e954478b2cb17b603242f6fcc6d69c3a70ffb",
+  "classification": "product-failure",
+  "complete": false,
+  "correct_delete": {
+    "request": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "expected": {
+            "field": "status",
+            "type": "value",
+            "value": "new-status"
+          },
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "must_exist": true,
+          "mutation_type": "delete",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        }
+      ]
+    },
+    "request_id": "temperature-513117a7083a44d9b67757cca7edecdc-range-field-protein-15",
+    "result": {
+      "actual": null,
+      "error": "cas_conflict",
+      "expected": "\"new-status\"",
+      "field": "status",
+      "key": "{\"hash\":\"generated-bucket\",\"range\":\"record-001\"}",
+      "message": "CAS conflict on schema 'CompactedDeleteByBucket' field 'status' key '{\"hash\":\"generated-bucket\",\"range\":\"record-001\"}':                  expected \"new-status\", found <absent>",
+      "ok": false,
+      "schema": "CompactedDeleteByBucket"
+    },
+    "status": 409
+  },
+  "current_source_fields": {
+    "bucket": "generated-bucket",
+    "id": "record-001",
+    "name": "peer-updated",
+    "status": "new-status"
+  },
+  "current_source_key": {
+    "hash": "generated-bucket",
+    "range": "record-001"
+  },
+  "current_source_query_request_id": "temperature-513117a7083a44d9b67757cca7edecdc-range-field-protein-14",
+  "current_status_atom_uuid": "02492358873f4fe93473c1e365260f763c8605bd22db4747bcc0e18af2eab8ba",
+  "current_status_molecule_uuid": "IeDyYI688NuvA8ufYIzJDrvNp7otR-CocfU-lw3TZAg",
+  "failure": "Correct expected current HashRange status rejects as absent.",
+  "following_delete_missing_reopen_cases_not_executed": true,
+  "product_operations_added": 0,
+  "source_commit": "c3ff5c914c4e733f2d387ded3d1b0aade2e08c6c",
+  "stale_delete": {
+    "request": {
+      "mutations": [
+        {
+          "convergence": "sync",
+          "durability": "durable",
+          "expected": {
+            "field": "status",
+            "type": "value",
+            "value": "old-status"
+          },
+          "fields_and_values": {},
+          "key_value": {
+            "hash": "generated-bucket",
+            "range": "record-001"
+          },
+          "mutation_type": "delete",
+          "schema": "CompactedDeleteByBucket",
+          "type": "mutation"
+        }
+      ]
+    },
+    "request_id": "temperature-513117a7083a44d9b67757cca7edecdc-range-field-protein-13",
+    "result": {
+      "actual": null,
+      "error": "cas_conflict",
+      "expected": "\"old-status\"",
+      "field": "status",
+      "key": "{\"hash\":\"generated-bucket\",\"range\":\"record-001\"}",
+      "message": "CAS conflict on schema 'CompactedDeleteByBucket' field 'status' key '{\"hash\":\"generated-bucket\",\"range\":\"record-001\"}':                  expected \"old-status\", found <absent>",
+      "ok": false,
+      "schema": "CompactedDeleteByBucket"
+    },
+    "status": 409
+  }
+}

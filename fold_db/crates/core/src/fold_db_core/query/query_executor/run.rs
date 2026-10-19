@@ -66,53 +66,26 @@ impl QueryExecutor {
         Ok(results)
     }
 
-    /// Read the matching records: the document-envelope fast path for an
-    /// exact hash+range key, otherwise the field-predicate processor.
+    /// Read every query shape through the same field-molecule processor.
     async fn read_scoped_results(
         &self,
         schema: &mut Schema,
         query: &mut Query,
         window: Option<KeyWindow>,
     ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let envelope_first = if query.as_of.is_none() {
-            match query.filter.as_ref() {
-                Some(HashRangeFilter::HashRangeKey { hash, range }) => {
-                    crate::record_molecule::hash_range_key_from_envelope(
-                        &self.db_ops,
-                        schema,
-                        hash,
-                        range,
-                        &query.fields,
-                    )
-                    .await?
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-        let results = if let Some(from_r) = envelope_first {
-            from_r
-        } else {
-            let mut zipped = self
-                .hash_range_processor
-                .query_with_field_predicates(
-                    schema,
-                    &query.fields,
-                    query.filter.take(),
-                    window,
-                    query.field_predicates.as_deref(),
-                    query.order_by.as_ref(),
-                    query.predicate_limit,
-                    query.as_of,
-                    query.include_tombstones,
-                    query.secondary_concurrency,
-                )
-                .await?;
-            crate::record_molecule::overlay_document_envelope(&self.db_ops, schema, &mut zipped)
-                .await?;
-            zipped
-        };
-        Ok(results)
+        self.hash_range_processor
+            .query_with_field_predicates(
+                schema,
+                &query.fields,
+                query.filter.take(),
+                window,
+                query.field_predicates.as_deref(),
+                query.order_by.as_ref(),
+                query.predicate_limit,
+                query.as_of,
+                query.include_tombstones,
+                query.secondary_concurrency,
+            )
+            .await
     }
 }

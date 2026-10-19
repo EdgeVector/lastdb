@@ -101,12 +101,6 @@ impl MutationManager {
             let atom = &certified.atom;
             let sources = self.path_sources(tip, scope, &certified.key)?;
             for binding in &bindings[&tip.molecule] {
-                if binding.envelope
-                    && !crate::record_molecule::parse_document_fields(atom.content())
-                        .is_some_and(|fields| fields.contains_key(&binding.name))
-                {
-                    continue;
-                }
                 let record = LogicalPathRecord::from_atom(
                     LogicalPath {
                         scope: scope.map(str::to_owned),

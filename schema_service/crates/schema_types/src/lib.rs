@@ -19,8 +19,8 @@ pub use data_classification::{
 pub use declarative_schemas::{
     canonical_name_parts, compute_identity_hash_parts, derive_transform_metadata, hash_expression,
     parse_canonical_name, refuses_identity_downgrade, DeclarativeSchemaDefinition, FieldMapper,
-    IdentityRecompute, RecordMapper, SchemaSource, TransformMetadata, IDENTITY_HASH_ALGO_VERSION,
-    LEGACY_IDENTITY_HASH_ALGO_VERSION, RECORD_SENTINEL,
+    IdentityRecompute, SchemaSource, TransformMetadata, IDENTITY_HASH_ALGO_VERSION,
+    LEGACY_IDENTITY_HASH_ALGO_VERSION,
 };
 pub use error::{FoldDbError, FoldDbResult};
 pub use field_identity::{

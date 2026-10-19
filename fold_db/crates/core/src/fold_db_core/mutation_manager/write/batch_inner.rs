@@ -14,18 +14,12 @@ impl MutationManager {
             return Ok(ResidentCommitReceipt::empty());
         }
         self.validate_mutation_layouts(&mutations)?;
-        // Personal Delete expansion reads source fields before ordinary preconditions.
-        if storage_prefix.is_none() {
-            self.prepare_batch_molecule_keys(&mutations, storage_prefix)
-                .await?;
-        }
-        let mutations = self
-            .expand_protein_member_deletes(mutations, storage_prefix)
-            .await?;
+        // Delete peers are resolved by the durable worker under its complete
+        // native write boundary, after any updates in this mixed request.
         self.prepare_batch_molecule_keys(&mutations, storage_prefix)
             .await?;
         self.reject_blocked_mutation_targets(&mutations)?;
-        self.validate_hashrange_key_field_payloads(&mutations)?;
+        self.validate_key_field_payloads(&mutations)?;
         self.reject_internal_only_mutations(&mutations)?;
 
         // Hard erasure (compliance Purge + user Delete) has destructive

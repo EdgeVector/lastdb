@@ -12,14 +12,21 @@ pub(super) enum PurgeAttemptError {
     /// The store or a later durable stage failed. Keep the envelope at the
     /// lane head and retry it.
     Retry(SchemaError),
-    /// The one-time read proved that a loud target was absent. Complete the
-    /// envelope with the caller error and remove its resident overlays.
-    Missing(SchemaError),
+    /// A caller precondition failed before any destructive stage. Complete
+    /// the envelope with that error instead of retrying rejected intent.
+    Rejected(SchemaError),
 }
 
 impl From<crate::storage::StorageError> for PurgeAttemptError {
     fn from(error: crate::storage::StorageError) -> Self {
-        Self::Retry(error.into())
+        // A remembered read-limit refusal can replace the inner preparation
+        // result at the native read boundary. It still precedes publication
+        // and must reach the caller rather than hold the lane in a retry loop.
+        match error {
+            crate::storage::StorageError::ReadResourceLimit { .. }
+            | crate::storage::StorageError::MutationLimit { .. } => Self::Rejected(error.into()),
+            error => Self::Retry(error.into()),
+        }
     }
 }
 

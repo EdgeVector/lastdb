@@ -11,8 +11,6 @@ impl PartialEq for DeclarativeSchemaDefinition {
             && self.fields == other.fields
             && self.transform_fields == other.transform_fields
             && self.field_mappers == other.field_mappers
-            && self.record_mapper == other.record_mapper
-            && self.molecule_uuid == other.molecule_uuid
             && self.hash == other.hash
             && self.field_molecule_uuids == other.field_molecule_uuids
             && self.field_classifications == other.field_classifications

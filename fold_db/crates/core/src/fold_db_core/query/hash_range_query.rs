@@ -1,14 +1,14 @@
 //! HashRange Query Processor
 //!
 //! **Single co-key plan for every multi-field (and single-field) query:**
-//! 1. Primary field establishes the live key set under the request filter
-//!    (and optional share namespaces / `as_of`).
-//! 2. Secondary fields resolve only those keys (batch slot load today;
-//!    full hydrate + rewind when `as_of` is set).
+//! 1. The primary field establishes the live key set under the request filter
+//!    and selected personal or share namespace.
+//! 2. Secondary fields resolve only those keys through batched current tips.
 //! 3. Secondary atom bodies are fetched in one `get_many` (zipped by index
 //!    so fields that share keys do not clobber each other).
 //!
-//! There is no separate "legacy per-field loop" path.
+//! One captured read keeps candidate keys, values, filters and projection
+//! consistent. Historical reads are refused at the logical boundary.
 //!
 //! Share namespaces: the processor also scans `from:{sender_hash}:` for each
 //! active `ShareSubscription` so data received from other users surfaces

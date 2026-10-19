@@ -57,7 +57,6 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/db/flush", Scope::Owner, "POST", DataRoute::DbFlush),
     row("/api/db/native-status", Scope::Owner, "GET", DataRoute::DbNativeStatus),
     row("/api/db/stamp-purged-atom-retirements", Scope::Owner, "POST", DataRoute::DbStampPurgedAtomRetirements),
-    row("/api/db/compact-record", Scope::Owner, "POST", DataRoute::CompactRecord),
     row("/api/db/gc-atoms", Scope::Owner, "POST", DataRoute::DbGcAtoms),
     row("/api/db/reap-dropped-schema", Scope::Owner, "POST", DataRoute::DbReapDroppedSchema),
     row("/api/db/gc-file-blobs", Scope::Owner, "POST", DataRoute::DbGcFileBlobs),

@@ -358,7 +358,7 @@ impl HashRangeQueryProcessor {
 
         // Unprojected AND keyless: there is no primary to mirror, so the whole
         // live row set is the honest answer.
-        crate::record_molecule::declared_runtime_field_names(schema)
+        schema.runtime_field_names()
     }
 
     /// Projection fallback for a multi-key sibling whose own key field has no

@@ -6,7 +6,6 @@ use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
-use super::helpers::current_atom_uuid;
 use super::MutationManager;
 
 impl MutationManager {
@@ -17,23 +16,17 @@ impl MutationManager {
     /// as absent so `Absent` matches after a delete and `Value`/`ContentHash`
     /// correctly miss.
     ///
-    /// Mirrors the molecule-restore + head-read done by
-    /// [`Self::idempotency_hit_matches_current_state`], so it observes the same
-    /// freshly-persisted state the write pipeline will build on.
+    /// Resolve the expected field directly, independently of the mutation's
+    /// payload. Delete has no payload, and Update can compare an unchanged field.
     pub(super) async fn read_current_head(
         &self,
         mutation: &Mutation,
         field: &str,
         storage_prefix: Option<&str>,
     ) -> Result<(Option<String>, Option<serde_json::Value>), SchemaError> {
-        let mut schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
+        let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
 
         let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
-        let single = vec![mutation.clone()];
-        let key_values = vec![key_value.clone()];
-        let changed_keys = Self::changed_keys_by_field(&schema, &single, &key_values);
-        self.restore_missing_molecules(&mut schema, &changed_keys)
-            .await?;
 
         let Some(schema_field) = schema.runtime_fields.get(field) else {
             return Err(SchemaError::InvalidField(format!(
@@ -44,17 +37,23 @@ impl MutationManager {
 
         let hint = schema_field.partition_hint(&key_value);
 
-        let Some(uuid) = current_atom_uuid(schema_field, &key_value) else {
+        let Some(entry) = self
+            .point_read_field_entry(
+                &mutation.schema_name,
+                field,
+                schema_field,
+                &key_value,
+                storage_prefix,
+            )
+            .await?
+        else {
             return Ok((None, None));
         };
+        let uuid = entry.atom_uuid;
 
         // `key_value` is API-form, so this hint can be wrong under a blinded
         // HashKey encoding; that costs one point read and the flat/locator
         // fallback still returns the right atom.
-        // `restore_missing_molecules` can seed the head from an acknowledged
-        // resident tip before its atom drains to storage. Resolve the paired
-        // resident atom first or this point read can observe a new head as an
-        // absent value during that persistence window.
         let content = self
             .read_atom_content(&uuid, hint.as_ref(), storage_prefix)
             .await?;
@@ -213,8 +212,8 @@ impl MutationManager {
         }
     }
 
-    /// Find the current atom entry of one field at one key: resident overlay,
-    /// then resident tip, then the durable molecule, then the schema cache.
+    /// Load the current selected tip of one field through the core storage
+    /// reader, with the schema's field entry as a fallback when none is returned.
     /// `None` means the key is tombstoned or has no tip.
     async fn point_read_field_entry(
         &self,

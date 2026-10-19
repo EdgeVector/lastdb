@@ -177,6 +177,11 @@ fn push_peer_deletes(
         // Protein fold is eventual, so a peer can already be absent.
         peer.expected = None;
         peer.must_exist = None;
+        if expanded.len() >= 10_000 {
+            return Err(SchemaError::WriteResourceLimit {
+                detail: "Delete peer expansion exceeds 10000 keys".into(),
+            });
+        }
         expanded.push(peer);
     }
     Ok(())
@@ -245,10 +250,11 @@ impl MutationManager {
             .await?
         {
             CurrentRowFields::Present(values) => values,
-            CurrentRowFields::Absent | CurrentRowFields::Corrupt { .. } => {
+            CurrentRowFields::Absent => {
                 expanded.push(mutation);
                 return Ok(());
             }
+            CurrentRowFields::Corrupt { .. } => return Err(SchemaError::MissingLocalAtom),
         };
         overlay_caller_key(&mut values, &source, &mutation);
 

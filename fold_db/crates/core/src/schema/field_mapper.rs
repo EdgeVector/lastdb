@@ -165,13 +165,6 @@ impl FieldMapperService {
             }
         } // field_mappers non-empty
 
-        if self
-            .copy_record_molecule_uuid(&mut schema, schema_name, &mut source_cache)
-            .await?
-        {
-            updated = true;
-        }
-
         if updated {
             schema.sync_molecule_uuids();
             self.db_ops.store_schema(schema_name, &schema).await?;
@@ -184,95 +177,6 @@ impl FieldMapperService {
         }
 
         Ok(())
-    }
-
-    /// Copy the predecessor's record molecule UUID onto `schema_name` when
-    /// `record_mapper` is set and the chain root already has R.
-    ///
-    /// No-op when there is no RecordMapper, the source is not installed, or
-    /// the predecessor has no `molecule_uuid` yet (today's catalogs). Always
-    /// leaves FieldMappers in place.
-    pub async fn apply_record_mapper(&self, schema_name: &str) -> Result<(), SchemaError> {
-        let mut schema = self.db_ops.get_schema(schema_name).await?.ok_or_else(|| {
-            SchemaError::InvalidData(format!("Schema '{schema_name}' not found in database"))
-        })?;
-        let mut source_cache: HashMap<String, Option<Schema>> = HashMap::new();
-        if !self
-            .copy_record_molecule_uuid(&mut schema, schema_name, &mut source_cache)
-            .await?
-        {
-            return Ok(());
-        }
-        schema.sync_molecule_uuids();
-        self.db_ops.store_schema(schema_name, &schema).await?;
-        self.schemas_cache
-            .write()
-            .map_err(|_| SchemaError::InvalidData("Failed to acquire schemas write lock".into()))?
-            .insert(schema_name.to_string(), schema);
-        Ok(())
-    }
-
-    /// Follow `record_mapper` to the chain root and copy R when it is Some.
-    /// Returns true when `schema.molecule_uuid` changed.
-    async fn copy_record_molecule_uuid(
-        &self,
-        schema: &mut Schema,
-        schema_name: &str,
-        source_cache: &mut HashMap<String, Option<Schema>>,
-    ) -> Result<bool, SchemaError> {
-        let Some(mapper) = schema.record_mapper.clone() else {
-            return Ok(false);
-        };
-        let Some(uuid) = self
-            .resolve_chained_record_uuid(mapper.source_schema(), schema_name, source_cache)
-            .await?
-        else {
-            return Ok(false);
-        };
-        if schema.molecule_uuid.as_deref() == Some(uuid.as_str()) {
-            return Ok(false);
-        }
-        schema.molecule_uuid = Some(uuid);
-        Ok(true)
-    }
-
-    /// Walk RecordMapper hops until a schema with `molecule_uuid`, or a root
-    /// with none. Mapper hops win over a stale persisted UUID on an
-    /// intermediate, same as FieldMapper.
-    async fn resolve_chained_record_uuid(
-        &self,
-        initial_schema_name: &str,
-        target_schema_name: &str,
-        source_cache: &mut HashMap<String, Option<Schema>>,
-    ) -> Result<Option<String>, SchemaError> {
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut current = initial_schema_name.to_string();
-        loop {
-            if !visited.insert(current.clone()) {
-                return Err(SchemaError::InvalidData(format!(
-                    "apply_record_mapper: cyclic RecordMapper chain detected at \
-                     '{current}' (chain rooted at target schema '{target_schema_name}')",
-                )));
-            }
-            let Some(schema) = self.resolve_source_schema(&current, source_cache).await? else {
-                tracing::warn!(
-                    target: "fold_db::schema::field_mapper",
-                    source_schema = %current,
-                    target_schema = %target_schema_name,
-                    "apply_record_mapper: source schema not installed; no R copy this pass",
-                );
-                return Ok(None);
-            };
-            if let Some(next) = schema.record_mapper.as_ref() {
-                current = next.source_schema().to_string();
-                continue;
-            }
-            return Ok(schema
-                .molecule_uuid
-                .as_ref()
-                .filter(|u| !u.is_empty())
-                .cloned());
-        }
     }
 
     /// Walk a `FieldMapper` chain from `(initial_schema, initial_field)` back to

@@ -323,8 +323,7 @@ fn move_trigger(
             })?;
         let changed_key = (name == hash || range == Some(name.as_str()))
             && input.fields.before[&idx].get(name) != input.fields.after[&idx].get(name);
-        (changed_key || crate::record_molecule::is_record_molecule_field(name))
-            .then(|| (idx, (*molecule).to_owned(), atom.uuid().to_owned()))
+        changed_key.then(|| (idx, (*molecule).to_owned(), atom.uuid().to_owned()))
     })
 }
 

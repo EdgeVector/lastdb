@@ -1,0 +1,22 @@
+{
+  "canonical_input": "docs/proofs/record-query-delete-authority-20261018/operation-inputs.json",
+  "canonical_sha256": "71c7f85ca7bdd756d11d40dd6a57808f217a864b3a8ec4d9d57546421917a2da",
+  "bytes_per_copy": 121174,
+  "local_immutable_copies": [
+    "docs/proofs/record-query-delete-authority-20261018/per-field-cutover-completion/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/per-field-cutover-continuation/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/per-field-hash-completion/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/per-field-protein-operations/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/per-field-range-protein-operations/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/per-field-read-operations/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/protein-continuation/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/protein-operations/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/range-protein-operations/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/read-operations-accepted/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/read-operations-final/operation-inputs.json",
+    "docs/proofs/record-query-delete-authority-20261018/read-operations/operation-inputs.json"
+  ],
+  "copies_untracked_only": 12,
+  "local_bytes_changed": false,
+  "scope": "Generated exact copies remain local for sealed receipts. Git retains the canonical input once; all copies are recoverable from these exact canonical bytes."
+}

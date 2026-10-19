@@ -19,114 +19,6 @@ struct PredicateSelection<'a> {
 }
 
 impl HashRangeQueryProcessor {
-    /// Single current co-key query path for all filters, field counts and share
-    /// namespaces. A supplied `as_of` is rejected before resolution.
-    pub async fn query_with_filter(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        as_of: Option<DateTime<Utc>>,
-        include_tombstones: bool,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.query_with_filter_windowed(schema, fields, filter, None, as_of, include_tombstones)
-            .await
-    }
-
-    /// [`Self::query_with_filter`], bounded to one page of the matched keys.
-    ///
-    /// `window` is `(offset, limit)` over the [`KeyValue::cmp_page_order`]
-    /// enumeration of the keys `filter` matched, applied before any atom body
-    /// is loaded. Callers pass it only for a key-restricted filter — one that
-    /// selects a key set rather than bounding a scan — because `Page` and
-    /// `PageAfter` already carry their own bounds and windowing them twice
-    /// would page a page.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the window rides alongside the filter it bounds; bundling them into a struct would only move the argument list"
-    )]
-    pub async fn query_with_filter_windowed(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
-        include_tombstones: bool,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        self.query_with_filter_windowed_override(
-            schema,
-            fields,
-            filter,
-            window,
-            as_of,
-            include_tombstones,
-            None,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn query_with_filter_windowed_override(
-        &self,
-        schema: &mut Schema,
-        fields: &[String],
-        filter: Option<HashRangeFilter>,
-        window: Option<KeyWindow>,
-        as_of: Option<DateTime<Utc>>,
-        include_tombstones: bool,
-        request_concurrency: Option<usize>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        Self::require_supported_query(schema, filter.as_ref(), as_of.is_some())?;
-        let query = QuerySelection {
-            schema,
-            fields,
-            filter,
-            window,
-            include_tombstones,
-            request_concurrency,
-        };
-        self.current_query_scope(self.filtered_query_captured(query).boxed())
-            .await
-    }
-
-    async fn filtered_query_captured(
-        &self,
-        query: QuerySelection<'_>,
-    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let QuerySelection {
-            schema,
-            fields,
-            filter,
-            window,
-            include_tombstones,
-            request_concurrency,
-        } = query;
-        let current_user = crate::user_context::get_current_user_id();
-        let current_user_redacted = current_user
-            .as_deref()
-            .map(|u| observability::redact_id!(u));
-        tracing::debug!(
-            "HashRangeQueryProcessor: schema={}, filter={}, window={:?}, user_context={:?}",
-            schema.name,
-            OptRedactedFilter(&filter),
-            window,
-            current_user_redacted
-        );
-
-        let received_from_namespaces: Vec<String> = self.collect_received_from_namespaces().await?;
-        self.query_cokey(
-            schema,
-            fields,
-            filter,
-            window,
-            include_tombstones,
-            &received_from_namespaces,
-            request_concurrency,
-        )
-        .await
-    }
-
     /// Two-pass field predicate query.
     ///
     /// Pass A scans candidate keys while loading only predicate fields and the
@@ -178,7 +70,7 @@ impl HashRangeQueryProcessor {
         let has_predicates = predicates.is_some_and(|p| !p.is_empty());
         let has_two_pass_shape = has_predicates || order_by.is_some() || predicate_limit.is_some();
         if !has_two_pass_shape {
-            return self.filtered_query_captured(query).await;
+            return self.query_fields_captured(query).await;
         }
         let QuerySelection {
             schema,
@@ -219,7 +111,6 @@ impl HashRangeQueryProcessor {
                 request_concurrency,
             )
             .await?;
-
         let mut kept_keys =
             self.matching_field_predicate_keys(&pass_a, predicates.unwrap_or(&[]))?;
         if let Some(order_by) = order_by {
@@ -233,23 +124,38 @@ impl HashRangeQueryProcessor {
         // it is given — so it must be handed API form or it misses on every field
         // and the whole filtered query comes back empty on a blinded home. Pass A
         // already returns API form, so the keys carry straight through.
-        let kept_sources: HashMap<KeyValue, KeySource> = kept_keys
-            .iter()
-            .filter_map(|key| {
-                pass_a
-                    .key_sources
-                    .get(key)
-                    .cloned()
-                    .map(|source| (key.clone(), source))
-            })
-            .collect();
-
         self.query_exact_keys(
             schema,
             fields,
             &kept_keys,
-            &kept_sources,
+            &pass_a.key_sources,
             include_tombstones,
+        )
+        .await
+    }
+
+    /// All values come from the selected field molecules in the captured read.
+    async fn query_fields_captured(
+        &self,
+        query: QuerySelection<'_>,
+    ) -> Result<HashMap<String, HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let QuerySelection {
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones,
+            request_concurrency,
+        } = query;
+        let received = self.collect_received_from_namespaces().await?;
+        self.query_cokey(
+            schema,
+            fields,
+            filter,
+            window,
+            include_tombstones,
+            &received,
+            request_concurrency,
         )
         .await
     }

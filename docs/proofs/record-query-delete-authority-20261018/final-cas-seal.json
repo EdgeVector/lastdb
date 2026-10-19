@@ -1,0 +1,492 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "node_sessions": 4,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "c73a37e8a4f6b505278a43e622dcffb25af53d692a663bdce939594a2b4c1824"
+        },
+        "cas-field-selection-extra-requests.json": {
+          "bytes": 911,
+          "sha256": "65ee7a489993de1ab37924c4245bc44e6497b480b749f977dc323fe26c264b2e"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/default_node.py": {
+          "bytes": 2682,
+          "sha256": "dbccdb86e1a712cdf69a82fbfe0dedcea6d82ac05659b8c7a5950b04eb55df1b"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/freeze_driver.py": {
+          "bytes": 2008,
+          "sha256": "4c511ca8a55971d8a82601986b1f0f792533459e1490415c5160fe4c7bdf11fd"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/run_clarity.py": {
+          "bytes": 2195,
+          "sha256": "d04f42d0c169e52f5e8d34e7cc18f5e101d49d959af25a79e774ce7b0315919a"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/supplement.py": {
+          "bytes": 13148,
+          "sha256": "c79becf7dfbe50cf5373001ea057ff9d84fdcc60940ffc868be5ea9748373d05"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/driver-identity-v5.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "helper-identity.json": {
+          "bytes": 4057,
+          "sha256": "898f396743ad339e3873318d0287ba094a0edb4b0f272e4cbc6488b7745e3ca0"
+        },
+        "inputs.json": {
+          "bytes": 1438,
+          "sha256": "d8ec0c30371ab313c98b8023e227036f06a170489dd505f1995e5cd03e854483"
+        },
+        "node.log": {
+          "bytes": 10735,
+          "sha256": "f0e955cafc2cca76d33d530faaa9ce72e36339ee79b78b0f3f0fdf4ccc3ed62a"
+        },
+        "operation-inputs.json": {
+          "bytes": 121174,
+          "sha256": "71c7f85ca7bdd756d11d40dd6a57808f217a864b3a8ec4d9d57546421917a2da"
+        },
+        "per-field-operation-overrides.json": {
+          "bytes": 10601,
+          "sha256": "5346949c3f50daa723297abcfdb36925e8ea497e99c6c9a4d6a654a9e73b30b8"
+        },
+        "receipts.jsonl": {
+          "bytes": 30170,
+          "sha256": "5e350bcf994176eb80ad9782d64736680d6763cab1750b4c6e0148abcceebbc2"
+        },
+        "result.json": {
+          "bytes": 1327,
+          "sha256": "268876a844f519e9a4cffc5d3e839f06b170dcc66e3383e9cbe636ffda95d8ac"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "4673d7c41bbc467c0ca257454c682f40b0cfa96fd392ed857ae155662e32aa62"
+        },
+        "source-identity.json": {
+          "bytes": 358569,
+          "sha256": "75835195f4c11aa419c7c6e492a4acbc8f6dfe832d73763bcb9779e56f3acf35"
+        },
+        "summary.json": {
+          "bytes": 143,
+          "sha256": "c44d7a4a21664f89b84b347db3133bc98f3e62d5747c1996eda61be09a46a3aa"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/record-query-delete-authority-20261018/final-hash-cas",
+      "result": {
+        "benchmark_result": false,
+        "binary_sha256": "1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c",
+        "checks": [
+          {
+            "current_payload_matches": true,
+            "implicit_id_matches": true,
+            "optional_absent": true,
+            "phase": "after-create",
+            "query_checks": 2,
+            "request_id": "temperature-58a71221198645a2809c87f14800feb9-hash-conditional-5",
+            "unknown_key_absent": true
+          },
+          {
+            "current_payload_matches": true,
+            "implicit_id_matches": true,
+            "optional_absent": true,
+            "phase": "after-conditional-update",
+            "query_checks": 2,
+            "request_id": "temperature-58a71221198645a2809c87f14800feb9-hash-conditional-7",
+            "unknown_key_absent": true
+          },
+          {
+            "current_payload_matches": true,
+            "implicit_id_matches": true,
+            "optional_absent": true,
+            "phase": "after-normal-reopen",
+            "query_checks": 2,
+            "request_id": "temperature-58a71221198645a2809c87f14800feb9-hash-conditional-12",
+            "unknown_key_absent": true
+          }
+        ],
+        "complete": true,
+        "error": null,
+        "expected_id_outside_payload": true,
+        "must_exist": true,
+        "original_writes": [
+          {
+            "background_tasks_drained": true,
+            "durability": "durable",
+            "original_input_count": 1,
+            "phase": "payload-only-create",
+            "public_count": 1
+          },
+          {
+            "background_tasks_drained": true,
+            "durability": "durable",
+            "original_input_count": 1,
+            "phase": "payload-only-expected-id-must-exist-update",
+            "public_count": 1
+          }
+        ],
+        "source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a",
+        "workflow": "omitted-hash-id-and-expected-id-partial-update"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gyqj4oko"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "acd8628c7ca9dd74806327f85bdc038d85b2b416cbb5b0b35d966757eb9cb820"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/default_node.py": {
+          "bytes": 2682,
+          "sha256": "dbccdb86e1a712cdf69a82fbfe0dedcea6d82ac05659b8c7a5950b04eb55df1b"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/freeze_driver.py": {
+          "bytes": 2008,
+          "sha256": "4c511ca8a55971d8a82601986b1f0f792533459e1490415c5160fe4c7bdf11fd"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/run_clarity.py": {
+          "bytes": 2195,
+          "sha256": "d04f42d0c169e52f5e8d34e7cc18f5e101d49d959af25a79e774ce7b0315919a"
+        },
+        "driver-source-inputs/docs/proofs/core-clarity-20261018/supplement.py": {
+          "bytes": 13148,
+          "sha256": "c79becf7dfbe50cf5373001ea057ff9d84fdcc60940ffc868be5ea9748373d05"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/hash_all.py": {
+          "bytes": 3511,
+          "sha256": "1aa7336443e94144ed75bc6e063f14a35782bde81d3221da28135e3ce3947a1e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-completion-20261018/operations.py": {
+          "bytes": 11783,
+          "sha256": "8c42fed2ebe3b6df9d350e64a8b482bd5c2b216f495c1d9e9a30a104fec667fb"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/api.py": {
+          "bytes": 7337,
+          "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/driver.py": {
+          "bytes": 6378,
+          "sha256": "86bfc6651bfc55f21cfbfbc7a05dd9285ac75f6e7502aa799b344712ae24247e"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/operational.py": {
+          "bytes": 18148,
+          "sha256": "99003f1a1335fb1b9cf6b0474816092e1a394c0ba7ab9bc1796d3293130b69b4"
+        },
+        "driver-source-inputs/docs/proofs/core-memory-state-20261018/workload.py": {
+          "bytes": 7441,
+          "sha256": "d0a0997761002405d0b062c8600cf6b157fbbd6196833c49de455f6d6f7bd804"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/cohorts.py": {
+          "bytes": 5570,
+          "sha256": "599f15c307bd1ce10753e1c034c0a30e9c71d5cbff1fd07207592547fb1ef6c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/driver-identity-v5.json": {
+          "bytes": 3257,
+          "sha256": "a12fc96da1d278e2ed364ec2ef7ab666a414b4d8c111993b1ccd84a88149d546"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/freeze_driver.py": {
+          "bytes": 2294,
+          "sha256": "58f249b09f75da5e7d2180926e3c7818af430e7bea2a39a531bcaf8dc5cf7992"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/logical.py": {
+          "bytes": 8763,
+          "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/memory.py": {
+          "bytes": 7865,
+          "sha256": "ffdf729df8f06c166cf70809591ec07ec77fa4c56dbb6747d969d78d741b9acb"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/protein.py": {
+          "bytes": 3913,
+          "sha256": "2a9eb881389205c9951d26970a83bbd12c60b433da9bfcf6ff3d36597f2f52c4"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/replay.py": {
+          "bytes": 6179,
+          "sha256": "d75f5490b8a52972c376288e898abd6c620cfe423dd769cb2b81e84d595239d7"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/run_operations.py": {
+          "bytes": 7325,
+          "sha256": "8cb8a60b3785247085dfeb7ca6be1f1df11ec631dab8239ac17b6b3c45cf434f"
+        },
+        "driver-source-inputs/docs/proofs/core-owned-writes-20261018/scoped.py": {
+          "bytes": 4402,
+          "sha256": "ce388594d81cd1f8ea7ce75e05bad8bb4c79a607151c4cba01979cd97e71e1a7"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/ownership.py": {
+          "bytes": 794,
+          "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+        },
+        "driver-source-inputs/docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+          "bytes": 19493,
+          "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+        },
+        "driver-source-inputs/docs/proofs/schema-preload-product-20261017/measure.py": {
+          "bytes": 23399,
+          "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+        },
+        "helper-identity.json": {
+          "bytes": 4057,
+          "sha256": "898f396743ad339e3873318d0287ba094a0edb4b0f272e4cbc6488b7745e3ca0"
+        },
+        "inputs.json": {
+          "bytes": 1620,
+          "sha256": "2928b13c6de3f439a95e304b2b252964cf46896b0d001512ece29ca8e0afc084"
+        },
+        "node.log": {
+          "bytes": 13340,
+          "sha256": "908f086c36e752f44be9bff7e265fc2ebbcd3048063235cdf6313c26bc6b20cf"
+        },
+        "operation-inputs.json": {
+          "bytes": 121174,
+          "sha256": "71c7f85ca7bdd756d11d40dd6a57808f217a864b3a8ec4d9d57546421917a2da"
+        },
+        "per-field-operation-overrides.json": {
+          "bytes": 10601,
+          "sha256": "5346949c3f50daa723297abcfdb36925e8ea497e99c6c9a4d6a654a9e73b30b8"
+        },
+        "receipts.jsonl": {
+          "bytes": 212666,
+          "sha256": "3f6108d54502e7d518eb677a1297433efa602a7775e55615c27ba49c1107985a"
+        },
+        "result.json": {
+          "bytes": 4146,
+          "sha256": "6a422e26fab3072ada45053e34d9836977260f555daf4b11e71ef2b7bd5951c5"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "c10333d3df6f4d4dff16c0d96d7f2ecbcb7d2185f0dedb3f605a65ef6965c8b6"
+        },
+        "source-identity.json": {
+          "bytes": 358569,
+          "sha256": "75835195f4c11aa419c7c6e492a4acbc8f6dfe832d73763bcb9779e56f3acf35"
+        },
+        "summary.json": {
+          "bytes": 147,
+          "sha256": "c43d8ec6456eafe364760e498a8cd39863666f30518a5008969c67670ee88a35"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/record-query-delete-authority-20261018/final-range-cas",
+      "result": {
+        "benchmark_result": false,
+        "binary_sha256": "1b79500275f732f15b6405bd0d46d63fe853362790dcd76934cead37651b1c6c",
+        "checks": [
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 0,
+            "phase": "initial-shared-records",
+            "shared_current_atom_checks": 4,
+            "state": "initial",
+            "unrelated_records_unchanged": true
+          },
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 12,
+            "phase": "after-source-key-move",
+            "shared_current_atom_checks": 4,
+            "state": "moved",
+            "unrelated_records_unchanged": true
+          },
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 12,
+            "phase": "after-peer-updates-source",
+            "shared_current_atom_checks": 4,
+            "state": "moved",
+            "unrelated_records_unchanged": true
+          },
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 12,
+            "phase": "after-rejected-stale-delete",
+            "shared_current_atom_checks": 4,
+            "state": "moved",
+            "unrelated_records_unchanged": true
+          },
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 12,
+            "phase": "after-correct-must-exist-delete",
+            "shared_current_atom_checks": 0,
+            "state": "absent",
+            "unrelated_records_unchanged": true
+          },
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 12,
+            "phase": "after-missing-must-exist-refusal",
+            "shared_current_atom_checks": 0,
+            "state": "absent",
+            "unrelated_records_unchanged": true
+          },
+          {
+            "all_current_values_and_absences_match": true,
+            "full_selected_reads": 3,
+            "narrow_selected_reads": 12,
+            "phase": "after-normal-reopen",
+            "shared_current_atom_checks": 0,
+            "state": "absent",
+            "unrelated_records_unchanged": true
+          }
+        ],
+        "compaction_calls": 0,
+        "complete": true,
+        "error": null,
+        "expected_refusals": [
+          {
+            "body": "{\"actual\":\"\\\"new-status\\\"\",\"error\":\"cas_conflict\",\"expected\":\"\\\"old-status\\\"\",\"field\":\"status\",\"key\":\"{\\\"hash\\\":\\\"generated-bucket\\\",\\\"range\\\":\\\"record-001\\\"}\",\"message\":\"CAS conflict on schema 'CompactedDeleteByBucket' field 'status' key '{\\\"hash\\\":\\\"generated-bucket\\\",\\\"range\\\":\\\"record-001\\\"}':                  expected \\\"old-status\\\", found \\\"new-status\\\"\",\"ok\":false,\"schema\":\"CompactedDeleteByBucket\"}",
+            "http_status": 409,
+            "phase": "stale-expected-value",
+            "request_id": "temperature-73361d16e4be4ef7801e852663f35904-final-range-protein-15",
+            "result": {
+              "actual": "\"new-status\"",
+              "error": "cas_conflict",
+              "expected": "\"old-status\"",
+              "field": "status",
+              "key": "{\"hash\":\"generated-bucket\",\"range\":\"record-001\"}",
+              "message": "CAS conflict on schema 'CompactedDeleteByBucket' field 'status' key '{\"hash\":\"generated-bucket\",\"range\":\"record-001\"}':                  expected \"old-status\", found \"new-status\"",
+              "ok": false,
+              "schema": "CompactedDeleteByBucket"
+            },
+            "source_contract": "A stale expected Value returns HTTP409"
+          },
+          {
+            "body": "Invalid data: Delete target not found: schema 'CompactedDeleteByBucket', key hash='generated-bucket' range='record-001' \u2014 refusing to silently no-op (must_exist)",
+            "http_status": 400,
+            "phase": "missing-must-exist",
+            "request_id": "temperature-73361d16e4be4ef7801e852663f35904-final-range-protein-19",
+            "result": null,
+            "source_contract": "PurgeMissingPolicy::Refuse -> missing_targets_error; one Delete target not found"
+          }
+        ],
+        "original_write_counts": [
+          {
+            "phase": "initial-four-original-inputs",
+            "public_count": 4,
+            "returned_mutation_ids": 4,
+            "submitted_original_inputs": 4
+          },
+          {
+            "phase": "source-status-key-move",
+            "public_count": 1,
+            "returned_mutation_ids": 1,
+            "submitted_original_inputs": 1
+          },
+          {
+            "phase": "peer-name-update",
+            "public_count": 1,
+            "returned_mutation_ids": 1,
+            "submitted_original_inputs": 1
+          },
+          {
+            "phase": "correct-value-must-exist-delete",
+            "public_count": 1,
+            "returned_mutation_ids": 1,
+            "submitted_original_inputs": 1
+          }
+        ],
+        "query_items": 107,
+        "scope": "Fresh ordinary source key move, reverse peer update, stale expected Value conflict, current Value plus must_exist Delete, missing-target refusal and normal reopen. Known source/old/new fields and unrelated records stay explicit; no physical body deletion or concurrent interleave claim.",
+        "source_commit": "7e457dabd819f1d56467e233148a5b13e98c081a",
+        "workflow": "per-field-bidirectional-hashrange-protein-delete"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.nrjffd2a"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}

@@ -23,9 +23,6 @@ fn schema_molecule_ref_edges(schema_name: &str, schema: &Schema) -> Vec<Molecule
         .flat_map(|molecules| molecules.iter())
         .map(|(field, molecule)| MoleculeRefEdge::schema_field(schema_name, field, molecule))
         .collect();
-    if let Some(record) = schema.molecule_uuid.as_deref() {
-        fields.push(MoleculeRefEdge::schema_record(schema_name, record));
-    }
     fields.sort_by(|left, right| left.source.cmp(&right.source));
     fields
 }
@@ -47,6 +44,9 @@ impl DbOperations {
         schema_name: &str,
         schema: &Schema,
     ) -> Result<(), SchemaError> {
+        schema
+            .validate_field_names()
+            .map_err(SchemaError::InvalidData)?;
         let old = self.schemas().get_schema(schema_name).await?;
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)

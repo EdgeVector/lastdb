@@ -17,13 +17,6 @@ impl SchemaCore {
         self.field_mapper.apply_field_mappers(schema_name).await
     }
 
-    /// Copy the predecessor's record molecule UUID when `record_mapper` is set
-    /// and the source already has R. No-op when the predecessor has only
-    /// `field_molecule_uuids`. Does not drop FieldMappers.
-    pub async fn apply_record_mapper(&self, schema_name: &str) -> Result<(), SchemaError> {
-        self.field_mapper.apply_record_mapper(schema_name).await
-    }
-
     /// Load schema from JSON string (creates Available schema)
     /// Only supports declarative schema format
     pub async fn load_schema_from_json(&self, json_str: &str) -> Result<(), SchemaError> {

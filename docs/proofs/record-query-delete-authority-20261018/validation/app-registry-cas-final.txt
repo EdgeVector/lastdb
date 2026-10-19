@@ -1,0 +1,5 @@
+Frozen source: 7e457dabd819f1d56467e233148a5b13e98c081a
+Comparison base: origin/main (9260acca6308b99655057d5c6d4d1add98f3ae14)
+Command: bash scripts/lints/lint-app-registry-shelf.sh
+Exit: 0
+No output; check passed.

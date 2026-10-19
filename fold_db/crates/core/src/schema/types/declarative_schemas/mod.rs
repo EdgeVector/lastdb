@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 mod runtime;
 
 // Pure wire helpers live in schema_types (shared with schema_service).
-pub use schema_types::{FieldMapper, RecordMapper, SchemaSource, RECORD_SENTINEL};
+pub use schema_types::{FieldMapper, SchemaSource};
 
 /// Declarative schema definition - the primary schema representation.
 ///
@@ -36,6 +36,11 @@ impl DerefMut for DeclarativeSchemaDefinition {
 }
 
 impl DeclarativeSchemaDefinition {
+    /// Share the wire contract with direct core mutation callers.
+    pub fn validate_field_name(name: &str) -> Result<(), String> {
+        schema_types::DeclarativeSchemaDefinition::validate_field_name(name)
+    }
+
     /// Creates a new schema with no runtime fields and all hash mappings generated.
     pub fn new(
         name: String,

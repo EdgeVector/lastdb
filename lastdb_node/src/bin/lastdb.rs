@@ -412,8 +412,7 @@ fn run(cli: Cli) -> Result<(), String> {
         cmd @ (Command::Mutate { .. }
         | Command::List { .. }
         | Command::GetKeys { .. }
-        | Command::Get { .. }
-        | Command::CompactRecord { .. }) => record_command(cli.data_dir, cmd),
+        | Command::Get { .. }) => record_command(cli.data_dir, cmd),
         Command::Schema { action } => schema_inspect_dispatch(cli.data_dir, action),
         Command::Liveness { action } => liveness_dispatch(cli.data_dir, action),
         Command::Db { action } => db_command(cli.data_dir, action),

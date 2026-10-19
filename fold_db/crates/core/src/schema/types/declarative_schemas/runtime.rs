@@ -2,6 +2,13 @@ use super::{DeclarativeSchemaDefinition, FieldMapper};
 use std::collections::HashMap;
 
 impl DeclarativeSchemaDefinition {
+    /// All ordinary runtime fields, in deterministic name order.
+    pub fn runtime_field_names(&self) -> Vec<String> {
+        let mut names: Vec<_> = self.runtime_fields.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     /// `&self` twin of [`Self::clone_for_read`], for the **concurrent** read path.
     ///
     /// `clone_for_read` takes `&mut self` purely as an optimization: it
@@ -43,8 +50,9 @@ impl DeclarativeSchemaDefinition {
 
         // Reject cross-app FieldMappers before deriving any deterministic
         // molecule UUIDs from them — see method docs for the threat model.
+        self.validate_field_names()
+            .map_err(crate::schema::SchemaError::InvalidData)?;
         self.validate_field_mapper_ownership()?;
-        self.validate_record_mapper_ownership()?;
 
         // Reject FieldMappers whose target field isn't declared in `fields`
         // or `transform_fields` — see method docs for why this asymmetry
@@ -115,36 +123,11 @@ impl DeclarativeSchemaDefinition {
             field.common_mut().set_molecule_uuid(mol_uuid);
         }
 
-        self.ensure_record_molecule_runtime_field();
-
         // Regenerate transform metadata that isn't persisted (marked with #[serde(skip)])
         // This is needed when schemas are loaded from the database
         self.regenerate_metadata();
 
         Ok(())
-    }
-
-    /// Attach the runtime-only record molecule field when `molecule_uuid` is set.
-    ///
-    /// `RECORD_SENTINEL` is not a declared catalog field. Compact and document
-    /// writes tip R through this runtime field.
-    pub fn ensure_record_molecule_runtime_field(&mut self) {
-        use crate::schema::types::field::FieldVariant;
-        use crate::schema::types::RECORD_SENTINEL;
-        use std::collections::HashMap;
-
-        let Some(record_uuid) = self.molecule_uuid.clone() else {
-            self.runtime_fields.remove(RECORD_SENTINEL);
-            return;
-        };
-        if let Some(field) = self.runtime_fields.get_mut(RECORD_SENTINEL) {
-            field.common_mut().set_molecule_uuid(record_uuid);
-            return;
-        }
-        let mut field = FieldVariant::from_schema_type(self.schema_type.clone(), HashMap::new());
-        field.common_mut().set_molecule_uuid(record_uuid);
-        self.runtime_fields
-            .insert(RECORD_SENTINEL.to_string(), field);
     }
 
     /// Enforce app_identity v3.1 molecule isolation at schema load time.
@@ -180,37 +163,6 @@ impl DeclarativeSchemaDefinition {
             }
         }
 
-        Ok(())
-    }
-
-    /// Same isolation as FieldMapper: a RecordMapper must not name another
-    /// app's schema. That would route the record molecule onto a foreign R.
-    fn validate_record_mapper_ownership(&self) -> Result<(), crate::schema::SchemaError> {
-        use crate::schema::SchemaError;
-
-        let Some(owner) = self.owner_app_id.as_deref().filter(|s| !s.is_empty()) else {
-            return Ok(());
-        };
-        let Some(mapper) = self.record_mapper.as_ref() else {
-            return Ok(());
-        };
-        let (source_owner_opt, _) = Self::parse_canonical_name(mapper.source_schema());
-        match source_owner_opt.as_deref() {
-            Some(source_owner) if source_owner != owner => {
-                return Err(SchemaError::InvalidData(format!(
-                    "schema '{}' (owner_app_id='{}') declares a RecordMapper \
-                     pointing at source schema '{}', which is owned by a different \
-                     app ('{}'). Cross-app RecordMappers are forbidden because they \
-                     would bypass app_identity Read gating by routing onto another \
-                     app's record molecule.",
-                    self.canonical_name(),
-                    owner,
-                    mapper.source_schema(),
-                    source_owner,
-                )));
-            }
-            _ => {}
-        }
         Ok(())
     }
 
@@ -286,9 +238,6 @@ impl DeclarativeSchemaDefinition {
     pub fn sync_molecule_uuids(&mut self) {
         let mut uuids = HashMap::new();
         for (field_name, field) in &self.runtime_fields {
-            if field_name == crate::schema::types::RECORD_SENTINEL {
-                continue;
-            }
             if let Some(uuid) = field.common().molecule_uuid() {
                 uuids.insert(field_name.clone(), uuid.clone());
             }

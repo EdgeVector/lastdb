@@ -16,6 +16,11 @@ pub enum StorageError {
     #[error("write resource limit exceeded: {detail}")]
     WriteResourceLimit { detail: String },
 
+    /// One complete mutation exceeds a fixed operation or encoded-byte cap.
+    /// The caller must reduce the request; waiting for capacity cannot help.
+    #[error("complete mutation limit exceeded: {detail}")]
+    MutationLimit { detail: String },
+
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 

@@ -1,0 +1,12 @@
+{
+  "binary_sha256": "8a1588e696350d03592ba7ff3ff01d80564a1f69f7d12f4950afa547bb680b68",
+  "method": "git cat-file --batch of explicit frozen paths",
+  "scope": "Exact committed product source bytes. Proof documents and later result-only commits are outside this product inventory.",
+  "source_commit": "8c26bd4d41cbc1cd6921cac2702646241f0ddb24",
+  "source_files_checked": 1885,
+  "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/record-query-delete-authority-20261018/candidate-source.json",
+  "source_identity_sha256": "2a1de23296ccd9e2e5177e8fa50b5d500391a1f17982d520f2ea84ee4816c6e9",
+  "source_inventory_sha256": "7478513c90fa7986baee856f019626077f65a896ad793f6904f5e00265c74926",
+  "source_mismatches": [],
+  "source_tree": "0c05b7e41bc987940877fbc169f8c8ab025cc92e"
+}

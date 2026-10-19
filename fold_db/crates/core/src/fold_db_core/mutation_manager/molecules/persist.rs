@@ -289,6 +289,7 @@ mod deferred_job;
 mod key_moves;
 mod lane_writer;
 mod locks;
+mod protein_delete;
 mod purge_job;
 mod purge_resident;
 mod purge_types;

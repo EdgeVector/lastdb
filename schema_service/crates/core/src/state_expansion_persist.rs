@@ -9,17 +9,13 @@ use schema_types::Schema;
 use super::state::SchemaServiceState;
 
 impl SchemaServiceState {
-    /// Dual-stamp: keep N FieldMappers (old Mini copies field UUIDs) AND
-    /// one RecordMapper (new Mini copies R once the predecessor has one).
-    /// Never sets field_mappers = None here — that hides historical rows
-    /// for a Mini that ignores record_mapper.
+    /// Preserve every predecessor field through its canonical molecule mapper.
     pub(super) fn stamp_predecessor_mappers(
         schema: &mut Schema,
-        existing: &Schema,
         existing_fields: &[String],
         old_name: &str,
     ) {
-        use schema_types::{FieldMapper, RecordMapper};
+        use schema_types::FieldMapper;
         let mut mappers: HashMap<String, FieldMapper> =
             schema.field_mappers().cloned().unwrap_or_default();
         for field in existing_fields {
@@ -28,12 +24,6 @@ impl SchemaServiceState {
                 .or_insert_with(|| FieldMapper::new(old_name.to_string(), field.clone()));
         }
         schema.field_mappers = Some(mappers);
-        schema.record_mapper = Some(RecordMapper::new(old_name.to_string()));
-        // Copy R only when the predecessor already holds a record molecule.
-        // Today's catalogs have field_molecule_uuids, not molecule_uuid.
-        if schema.molecule_uuid.is_none() {
-            schema.molecule_uuid = existing.molecule_uuid.clone();
-        }
         schema.field_molecule_uuids = None;
     }
 

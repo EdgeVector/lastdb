@@ -81,53 +81,6 @@ pub(super) fn get_query_body(
     })
 }
 
-pub(super) fn compact_record_command(
-    data_dir: Option<PathBuf>,
-    schema: &str,
-    key_hash: &str,
-    key_range: &str,
-    json_only: bool,
-) -> Result<(), String> {
-    if schema.trim().is_empty() || key_hash.trim().is_empty() || key_range.trim().is_empty() {
-        return Err("compact-record needs <schema> --key-hash --key-range".into());
-    }
-    let (_, socket) = resolve_client_home_and_socket(data_dir)?;
-    let body = serde_json::json!({
-        "schema": schema.trim(),
-        "hash": key_hash.trim(),
-        "range": key_range.trim(),
-    });
-    let response = post_json_admin(&socket, "/api/db/compact-record", &body)?;
-    let value = parse_json_response(&response, "compact-record")?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?
-        );
-        return Ok(());
-    }
-    let keys = value
-        .get("keys_compacted")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let r = value
-        .get("record_molecule_uuid")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let skipped = value
-        .get("keys_skipped")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    println!("compact-record keys_compacted={keys} keys_skipped={skipped} r={r}");
-    if skipped > 0 {
-        eprintln!(
-            "compact-record: {skipped} key(s) skipped: the field zip was empty or missed a live \
-             field tip, so no envelope was stamped. Retry after pending writes persist."
-        );
-    }
-    Ok(())
-}
-
 pub(super) fn get_record(
     data_dir: Option<PathBuf>,
     schema_name: &str,

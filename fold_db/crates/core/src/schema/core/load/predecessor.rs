@@ -40,7 +40,6 @@ fn key_fingerprint(s: &Schema) -> (Option<String>, Option<String>) {
 struct Predecessor {
     name: String,
     field_molecule_uuids: HashMap<String, String>,
-    molecule_uuid: Option<String>,
 }
 
 impl SchemaCore {
@@ -84,7 +83,7 @@ impl SchemaCore {
         let Some(predecessor) = self.find_predecessor(schema)? else {
             return Ok(());
         };
-        Self::adopt_from_predecessor(schema, predecessor);
+        Self::adopt_from_predecessor(schema, &predecessor);
         Ok(())
     }
 
@@ -105,7 +104,7 @@ impl SchemaCore {
     /// Returns true when the stored field map was restored, which ends the
     /// adoption (no predecessor search).
     fn restore_own_stored_molecules(schema: &mut Schema, own_stored: Option<&Schema>) -> bool {
-        let field_mapper_refresh = {
+        let mapper_refresh = {
             let incoming = schema.field_mappers.as_ref().filter(|m| !m.is_empty());
             let stored = own_stored
                 .and_then(|st| st.field_mappers.as_ref())
@@ -115,21 +114,6 @@ impl SchemaCore {
                 None => false,
             }
         };
-        let record_mapper_refresh = match (
-            schema.record_mapper.as_ref(),
-            own_stored.and_then(|st| st.record_mapper.as_ref()),
-        ) {
-            (Some(incoming), stored) => stored != Some(incoming),
-            (None, _) => false,
-        };
-        let mapper_refresh = field_mapper_refresh || record_mapper_refresh;
-        if !mapper_refresh {
-            if let Some(stored_r) = own_stored.and_then(|st| st.molecule_uuid.clone()) {
-                if !stored_r.is_empty() {
-                    schema.molecule_uuid = Some(stored_r);
-                }
-            }
-        }
         let Some(stored_map) = own_stored
             .filter(|_| !mapper_refresh)
             .and_then(|st| st.field_molecule_uuids.as_ref())
@@ -202,24 +186,16 @@ impl SchemaCore {
                 c.field_molecule_uuids
                     .as_ref()
                     .is_some_and(|m| !m.is_empty())
-                    || c.molecule_uuid.as_ref().is_some_and(|u| !u.is_empty())
             })
             .max_by_key(|c| c.fields.as_ref().map_or(0, Vec::len))
             .map(|c| Predecessor {
                 name: c.name.clone(),
                 field_molecule_uuids: c.field_molecule_uuids.clone().unwrap_or_default(),
-                molecule_uuid: c.molecule_uuid.clone(),
             }))
     }
 
-    fn adopt_from_predecessor(schema: &mut Schema, predecessor: Predecessor) {
-        let mut adopted = Self::apply_field_molecules(schema, &predecessor.field_molecule_uuids);
-        if let Some(r) = predecessor.molecule_uuid.filter(|u| !u.is_empty()) {
-            if schema.molecule_uuid.as_deref() != Some(r.as_str()) {
-                schema.molecule_uuid = Some(r);
-                adopted += 1;
-            }
-        }
+    fn adopt_from_predecessor(schema: &mut Schema, predecessor: &Predecessor) {
+        let adopted = Self::apply_field_molecules(schema, &predecessor.field_molecule_uuids);
         if adopted > 0 {
             tracing::info!(
                 schema = %schema.name,

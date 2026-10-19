@@ -8,13 +8,12 @@ use super::cas::CurrentRowFields;
 use super::MutationManager;
 
 impl MutationManager {
-    /// Verify every CAS mutation's precondition against the current persisted
-    /// head. Must run while the batch holds the relevant CAS locks (see
-    /// [`Self::acquire_cas_locks`]). Returns the first
-    /// [`SchemaError::CasConflict`] encountered — the whole batch is rejected,
-    /// matching the all-or-nothing contract the write pipeline already applies
-    /// to access-control and type-validation failures, so a client never sees a
-    /// batch where some CAS writes landed and others were rejected.
+    /// Verify each supplied CAS mutation against the current
+    /// head. The caller must exclude writes through comparison and publication:
+    /// requests hold their CAS locks, and the Delete worker holds the native
+    /// write gate. Return the first [`SchemaError::CasConflict`] before this
+    /// phase publishes. A mixed request has separate update and delete phases;
+    /// this helper does not make the whole mixed request atomic.
     pub(super) async fn check_cas_preconditions(
         &self,
         mutations: &[Mutation],

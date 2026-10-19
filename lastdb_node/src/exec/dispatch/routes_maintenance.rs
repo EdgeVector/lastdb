@@ -29,7 +29,6 @@ pub(super) async fn dispatch_maintenance_gc(
             )
             .await
         }
-        DataRoute::CompactRecord => heap_route!(execute_compact_record_route, req, ctx, host).await,
         DataRoute::DbGcAtoms => heap_route!(execute_db_gc_atoms_route, req, ctx, host).await,
         DataRoute::DbReapDroppedSchema => {
             heap_route!(execute_db_reap_dropped_schema_route, req, ctx, host).await

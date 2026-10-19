@@ -127,33 +127,6 @@ impl MutationManager {
         )
     }
 
-    /// Bind cross-key record proteins against every peer schema when this batch
-    /// writes a record-molecule field.
-    async fn bind_peer_record_proteins(
-        &self,
-        schema: &Schema,
-        atom_results: &[(usize, String, crate::atom::Atom)],
-    ) -> Result<(), SchemaError> {
-        let store = self.db_ops.atoms();
-        if atom_results
-            .iter()
-            .any(|(_, name, _)| crate::record_molecule::is_record_molecule_field(name))
-        {
-            if let Ok(peers) = self.schema_manager.get_schemas() {
-                for (peer_name, peer) in peers {
-                    if peer_name == schema.name {
-                        continue;
-                    }
-                    crate::schema::field_hash_coherence::bind_cross_key_record_protein(
-                        store, schema, &peer,
-                    )
-                    .await?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// After normal molecule tip writes, prepare protein sibling tip updates
     /// when the entry field molecule is bound (field_hash auto-protein or
     /// explicit bind).
@@ -172,8 +145,6 @@ impl MutationManager {
         let mut sibling_updates = Vec::new();
         let mut sibling_origins = Vec::new();
 
-        self.bind_peer_record_proteins(schema, atom_results).await?;
-
         let eligible =
             eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids = super::protein_key_fields::member_ids(schema);
@@ -188,7 +159,6 @@ impl MutationManager {
                 schema,
                 schema_mutations,
                 mutation_key_values,
-                atom_results,
                 &eligible,
                 &metadata,
             )
