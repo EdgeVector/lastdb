@@ -1,25 +1,16 @@
-//! `MutationType::Purge` dispatch.
+//! User Delete and physical Purge dispatch.
 //!
 //! Purge is the compliance/GDPR verb — it irreversibly removes a
 //! `(schema, key)` record: the molecule entries for the key, its `tv:`
 //! tip-version chain, the atoms only that key referenced (live head AND
 //! superseded), the legacy `history:` rows that mention the key's
 //! field_key, and the record's resident (T0) tips and atom bodies.
-//! `MutationType::Delete` peels through this same module (slice A of
-//! north-star-lastdb-delete-returns-the-bytes) so a user delete is not N
-//! per-field tombstone atoms, but **live** `Delete` (missing-target policy
-//! `Skip`, i.e. `HardEraseVerb::Delete`) no longer reaches
-//! [`purge_records_bulk`] itself: [`converge_delete_tips`] persists tip
-//! absence only — molecule entries and the `tv:` chain — and leaves atom
-//! reclaim to a later janitor pass (see
-//! `design-lastdb-delete-converge-then-reclaim`). `must_exist` delete
-//! (`HardEraseVerb::DeleteMustExist`) and compliance `Purge` are unchanged:
-//! both still run the full atom-reachability erasure below, and the
-//! distinction that remains between them is **missing-target policy**:
-//! compliance `Purge` is still a loud error when the target is absent;
-//! `must_exist` delete is the same loud contract worded for the caller's
-//! own verb. There is nothing left for the admin restore endpoint to undo
-//! after either.
+//! Both user Delete forms use [`converge_delete_tips`]: they remove the
+//! selected molecule tips and leave shared atom bodies for later reclamation.
+//! `must_exist` adds a caller precondition; it does not select physical Purge.
+//! The native worker checks that condition before it resolves related keys
+//! and removes their tips in the same complete transaction. Explicit Purge
+//! alone reaches [`purge_records_bulk`] and its atom-reachability erasure.
 //!
 //! Current logical writes keep only the current tip. They create no `tv:`
 //! history nodes or archived-tip reverse references. An updated-then-purged
@@ -56,9 +47,9 @@
 //! Idempotency note: **compliance** purge of a target that doesn't exist
 //! (already purged, or never written) is a *loud* error, not a silent
 //! no-op — audit needs to know the target wasn't found. The **delete**
-//! caller of this same path uses [`PurgeMissingPolicy::Skip`]: missing
-//! targets are filtered out and a fully-missing batch is a successful
-//! no-op.
+//! caller normally uses [`PurgeMissingPolicy::Skip`]: missing targets are
+//! filtered out and a fully-missing batch is a successful no-op. A user
+//! Delete with `must_exist` refuses a missing caller key before tip removal.
 //!
 //! That contract is about the **request**, and the policy is chosen by the
 //! caller's origin, not by the verb alone. A purge arriving from mutation-log
@@ -119,11 +110,8 @@ type OwnedMoleculeKeyRemoval = (
     Option<String>,
 );
 
-/// What to do when a key in the batch has no molecule / history / tip-version
-/// trace at all.
-///
-/// Label for one peel of [`purge_records_bulk`]: ledger `verb` and miss copy.
-/// Not a third [`PurgeMissingPolicy`].
+/// Internal erasure label and missing-target wording. Both Delete labels
+/// remove tips only; the must-exist label preserves the caller's loud miss.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HardEraseVerb {
     /// Wire `purge`. Ledger + CDC `"purge"`.
@@ -135,6 +123,10 @@ pub(crate) enum HardEraseVerb {
 }
 
 impl HardEraseVerb {
+    pub(super) fn is_delete(self) -> bool {
+        matches!(self, Self::Delete | Self::DeleteMustExist)
+    }
+
     pub(super) fn ledger_verb(self) -> &'static str {
         match self {
             Self::Purge => crate::db_operations::LEDGER_VERB_PURGE,
@@ -160,12 +152,11 @@ impl HardEraseVerb {
     }
 }
 
-/// Compliance `Purge` keeps [`Self::Refuse`] so operators learn a target was
-/// already gone. User-facing `Delete` uses [`Self::Skip`] so re-delete is a
-/// safe no-op.
+/// Compliance Purge and must-exist Delete refuse a missing caller key.
+/// Ordinary Delete and derived peer cleanup skip a missing key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PurgeMissingPolicy {
-    /// Loud `SchemaError::InvalidData` before any mutation (compliance).
+    /// Loud `SchemaError::InvalidData` before any mutation.
     Refuse,
     /// Drop untraced keys from the batch; empty remainder → success no-op.
     Skip,

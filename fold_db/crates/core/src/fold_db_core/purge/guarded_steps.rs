@@ -187,9 +187,10 @@ pub(super) async fn persist_molecule_removals(
     Ok(())
 }
 
-/// Disk reverse edges lag T0. A concurrent ack of a shared atom has no durable
-/// edge yet; GuardedComplement already unions the resident set. Appends the
-/// unreferenced candidates to `atoms_to_delete` and returns the read count.
+/// Final body-removal authority for both purge modes, after target edge removal.
+/// Preserve live core heads and shared reverse references. Unknown reference
+/// completeness or a failed read aborts the native transaction before publication.
+/// Append unreferenced candidates to `atoms_to_delete` and return the read count.
 pub(super) async fn collect_unreferenced_by_reverse_edges(
     db_ops: &Arc<DbOperations>,
     schema: &crate::schema::types::Schema,

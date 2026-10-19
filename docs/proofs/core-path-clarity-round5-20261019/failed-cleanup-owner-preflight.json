@@ -1,0 +1,22 @@
+{
+  "checked_utc": "2026-10-19T12:04:08.954697+00:00",
+  "command": [
+    "ps",
+    "-p",
+    "72980,72984,72987,73041,73170,73291",
+    "-o",
+    "pid=,command="
+  ],
+  "exit_code": 1,
+  "pids": [
+    72980,
+    72984,
+    72987,
+    73041,
+    73170,
+    73291
+  ],
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.bmonj0th",
+  "stderr": "",
+  "stdout": ""
+}

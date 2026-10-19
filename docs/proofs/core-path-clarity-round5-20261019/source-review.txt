@@ -1,0 +1,44 @@
+Source: a619a7e34a58a6878afd4897545fb7cd00326061
+Base: e52106cc788d60dd4452420b1081ad9e31d258fc (merged PR 219)
+Root and independent reviews found no blocker in the changes below.
+
+Native write ownership:
+- commit_native_deltas has one caller, which now transfers the owned Vec.
+- Rebase selects the same source and sibling winners. Local heads record those exact winners before ownership moves.
+- Staging formerly changed only a cloned job. Recording the original rebased delta before staging therefore sees the same data.
+- The next delta starts only after the previous stages succeed. A failed stage aborts the request and discards local heads.
+- The pending task moves into a separate local guard before the delta is consumed.
+- That guard spans atom/molecule/path stages and Search registration, then moves into native transaction retention.
+- Schema, located atoms, Search changes, shares, sibling tips/moves, and idempotency records move into the private storage stage.
+- The retention-hash key vector still clones before age retention can consume it; either or both retention flags keep their data.
+- Native memory quotes, admission rules, publication locks, and captured-read owners do not change.
+
+Search:
+- stage_native_job always removed search_batch before its only call to store_deferred_side_records.
+- The inline delivery branch was therefore unreachable.
+- The native after_commit delivery remains; its registration order does not change.
+- Delete/Purge Search delivery stays separate and active.
+- The five commit_id inputs were always zero and affected only misleading trace fields. They are removed.
+
+Current query controls:
+- Every ordinary query route reaches run_query_on_schema before key preload or field reads.
+- Count reaches the same logical control rule before schema-key loading and count work.
+- as_of remains an explicit unsupported input with the existing error text.
+- rehydrate_depth is now an explicit unsupported input, including zero; it previously had no reader.
+- Omitted/null controls retain their normal meaning.
+- Current field and processor APIs had only None timestamp callers. Those arguments and their dead branches are removed.
+- All repository callers use the new signatures. External embedded Rust callers must drop those arguments and use the renamed query-control helper.
+- Physical history maintenance is not removed or treated as a logical serving route.
+
+Definition publication:
+- One helper shares the existing remove/reverse-source-link/recency/entry-install sequence.
+- Read reservation, purge/refusal and uncached return behavior remain outside that helper.
+- Prepared writes still use their precharged owner. Sources, Arc lifetimes, revision checks and invalidation remain unchanged.
+
+Complete-key detach:
+- Detach removes a molecule only when it has no sparse tips and no attached key domain.
+- Existing absent/path records remain independent.
+- Held key-domain Arcs and memory reservations survive until their holders release them.
+- This removes bounded empty metadata, not an unbounded-memory defect.
+
+This is a source review, not a primary result or benchmark.

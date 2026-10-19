@@ -1,0 +1,18 @@
+{
+  "all_owned_pids_absent": true,
+  "checked_utc": "2026-10-19T12:04:09.580838+00:00",
+  "complete": true,
+  "creator_and_node_pids": [
+    72980,
+    72984,
+    72987,
+    73041,
+    73170,
+    73291
+  ],
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.bmonj0th",
+  "root_exists_after": false,
+  "scope": "Only the exact independently reviewed failed synthetic root was reclaimed. The complete=false result and all sealed failure bytes remain unchanged.",
+  "sealed_original_files_verified_unchanged": 13,
+  "supported_command_receipts": "failed-cleanup-execution.json"
+}

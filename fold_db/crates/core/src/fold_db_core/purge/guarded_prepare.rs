@@ -205,17 +205,23 @@ pub(super) async fn prepare_guarded_erasure(
     )
     .await?;
 
-    let mut reverse_edge_reads = 0;
-    if inputs.reachability == PurgeReachability::AtomRefEdges {
-        reverse_edge_reads = collect_unreferenced_by_reverse_edges(
-            db_ops,
-            schema,
-            inputs.candidate_atoms,
-            storage_slots,
-            &mut atoms_to_delete,
-        )
-        .await?;
-    }
+    // Both modes authorize body removal through the same current reverse
+    // references after the target tip edges are gone. The complement's
+    // live/history checks can retain more atoms, but cannot authorize deletion
+    // of an atom another schema still references.
+    let complement_candidates = (inputs.reachability == PurgeReachability::GuardedComplement)
+        .then(|| std::mem::take(&mut atoms_to_delete).into_iter().collect());
+    let candidates = complement_candidates
+        .as_ref()
+        .unwrap_or(inputs.candidate_atoms);
+    let reverse_edge_reads = collect_unreferenced_by_reverse_edges(
+        db_ops,
+        schema,
+        candidates,
+        storage_slots,
+        &mut atoms_to_delete,
+    )
+    .await?;
     let (file_pointer_atoms_purged, live_head_debits) =
         account_blob_and_live_head_debits(db_ops, &atoms_to_delete, &live_head_atoms, acct).await?;
     let keys_to_delete = collect_keys_to_delete(

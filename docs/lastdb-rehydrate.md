@@ -64,7 +64,7 @@ Unselected schemas and refused loads use the bounded disk selector.
 
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
-Search receives its change through the native after-commit callback once the disk commit completes.
+Native after-commit work sends the Search change after the disk commit.
 
 The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.
@@ -77,7 +77,12 @@ The worker checks the caller's conditions before it prepares any deletion.
 The current field atoms supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
 Search receives the deletion after that commit.
+Both Delete forms remove tips and keep shared atom bodies. The `must_exist` option checks the caller's key before removal.
+Delete crosses Hash and HashRange layouts only for complete records with the same field names and canonical field identities.
+Partial membership records keep their separate deletion boundary.
 The explicit Purge route retains its separate destructive rules.
+Both Purge paths check shared references after removal of the target tips.
+A failed reference check stops publication before atom removal.
 An invalid peer-key value receives an explicit refusal before any deletion starts.
 That fixed input error does not retain a write for an endless storage retry.
 

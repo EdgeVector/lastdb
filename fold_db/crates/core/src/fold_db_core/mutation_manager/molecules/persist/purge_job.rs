@@ -15,9 +15,7 @@ impl MutationManager {
             .as_ref()
             .map(|_| (job.validated_present, job.retry_requires_finalize));
         let attempt = async {
-            let current_delete = native
-                .as_ref()
-                .filter(|_| job.verb != crate::fold_db_core::purge::HardEraseVerb::Purge);
+            let current_delete = native.as_ref().filter(|_| job.verb.is_delete());
             let result = match current_delete {
                 Some(runtime) => self.attempt_current_delete_stages(job, runtime).await?,
                 None => self.attempt_purge_stages(job).await?,
