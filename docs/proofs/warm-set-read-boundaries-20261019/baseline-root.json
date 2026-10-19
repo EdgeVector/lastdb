@@ -1,0 +1,28 @@
+{
+  "baseline_release_identity_sha256": "38811681e6992324347b3c8c5478a2e512c9a240c8b6a0238a6fef3e06f9be38",
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ilq2rpfx/program-before-lastdbd",
+  "binary_bytes": 67864416,
+  "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+  "captured_utc": "2026-10-19T18:48:30.631240+00:00",
+  "device": 16777231,
+  "inode": 1468497421,
+  "marker": {
+    "creator_pid": 87523,
+    "device": 16777231,
+    "inode": 1468497421,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "marker_mode": "0o600",
+  "marker_sha256": "08c5af730960462b64e3f90a44de5d0f70b47809d90240fdb8045ff14dcd1451",
+  "mode": "0o700",
+  "node_sessions": 0,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ilq2rpfx",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ilq2rpfx",
+  "scope": "Private executable copy only in a new marked owned synthetic root. No node, existing home, primary or archive.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_binary_sha256_after_copy": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+  "uid": 501,
+  "version": 1
+}

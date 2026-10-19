@@ -20,7 +20,7 @@ pub(super) struct PrimarySelection {
 }
 
 impl PrimarySelection {
-    pub fn new(values: HashMap<KeyValue, FieldValue>, source: KeySource) -> Self {
+    pub fn new(values: HashMap<KeyValue, FieldValue>, source: &KeySource) -> Self {
         let had_spine = !values.is_empty();
         let sources = values
             .keys()
@@ -54,10 +54,10 @@ impl PrimarySelection {
                 .take(limit)
                 .collect(),
         };
-        self.retain_keys(kept);
+        self.retain_keys(&kept);
     }
 
-    pub fn retain_keys(&mut self, keys: HashSet<KeyValue>) {
+    pub fn retain_keys(&mut self, keys: &HashSet<KeyValue>) {
         self.values.retain(|key, _| keys.contains(key));
         self.sources.retain(|key, _| keys.contains(key));
     }

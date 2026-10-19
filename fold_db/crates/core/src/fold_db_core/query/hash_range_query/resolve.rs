@@ -65,7 +65,7 @@ impl HashRangeQueryProcessor {
         let values = field
             .resolve_value(&self.db_ops, full.clone(), request.include_tombstones)
             .await?;
-        let mut selected = PrimarySelection::new(values, request.own_prefix.clone());
+        let mut selected = PrimarySelection::new(values, &request.own_prefix);
         self.merge_primary_namespaces(field, request, full, &mut selected)
             .await?;
         let Some(HashRangeFilter::Page { offset, limit }) = request.filter.as_ref() else {
@@ -73,7 +73,7 @@ impl HashRangeQueryProcessor {
         };
         let mut keys: Vec<_> = selected.values.keys().cloned().collect();
         Self::sort_keys_for_field(field, &mut keys);
-        selected.retain_keys(keys.into_iter().skip(*offset).take(*limit).collect());
+        selected.retain_keys(&keys.into_iter().skip(*offset).take(*limit).collect());
         Ok(selected)
     }
 
@@ -97,7 +97,7 @@ impl HashRangeQueryProcessor {
                         request.include_tombstones,
                     )
                     .await?;
-                let mut selected = PrimarySelection::new(values, request.own_prefix.clone());
+                let mut selected = PrimarySelection::new(values, &request.own_prefix);
                 selected.had_spine = had_spine;
                 return Ok(selected);
             }
@@ -115,7 +115,7 @@ impl HashRangeQueryProcessor {
                 request.include_tombstones,
             )
             .await?;
-        let mut selected = PrimarySelection::new(values, request.own_prefix.clone());
+        let mut selected = PrimarySelection::new(values, &request.own_prefix);
         self.merge_primary_namespaces(field, request, request.filter.clone(), &mut selected)
             .await?;
         selected.retain_named(request.named_hash.as_deref());
