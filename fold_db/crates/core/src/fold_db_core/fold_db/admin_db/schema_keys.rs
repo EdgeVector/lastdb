@@ -92,7 +92,7 @@ impl FoldDB {
         .await?;
         Ok(SchemaRecordKeysReport {
             schema: requested.to_string(),
-            schema_id: schema.name,
+            schema_id: schema.name.clone(),
             key_field,
             hash_field,
             range_field,
