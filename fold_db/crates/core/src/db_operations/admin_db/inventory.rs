@@ -110,6 +110,7 @@ impl AtomStore {
             main_total_bytes,
             per_schema_atoms: atoms.per_schema,
             per_schema_atoms_total_bytes: atoms.total_logical_bytes,
+            atom_counters: atoms.atom_counters,
             per_schema_history,
             per_schema_order_log,
             tip_format,
@@ -196,8 +197,8 @@ fn inventory_notes(main_classes: &[MainKeyClass], tip_format: &TipFormatStats) -
     let mut notes = vec![
             "main = single sled namespace holding atoms, molecule indexes, and history (not a schema itself).".into(),
             "Sizes are live key+value lengths (decrypted path when store is encrypting); sled freelist not included.".into(),
-            "clear-history: keep_last=N trims; keep_last=0 purges all history: rows. New writes no longer append history: (prev is tip prev_atom_uuid). Tips/atoms kept; orphan atoms need gc-atoms.".into(),
-            "schemaidx markers now live in the local-only schema_index namespace; main-tree schemaidx rows are legacy leftovers.".into(),
+            "clear-history: keep_last=N trims; keep_last=0 purges all history: rows. New writes no longer append history: (prev is tip prev_atom_uuid). Tips and atoms stay.".into(),
+            "atom: holds two records for each atom: the body (atom:{uuid}\\0b) and its counter (atom:{uuid}\\0c). atom_counters reports the counters.".into(),
             "live dual-read for schemaidx: is indexes → tips only; legacy_schema_secondary_index is not consulted (explicit CoW drain still available).".into(),
         ];
     if main_classes

@@ -77,7 +77,9 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 ///   [`DEAD_INDEX_RESIDUE_CAPTURE_SKIP_PREFIXES`].
 ///
 /// Do **not** add `atom:` or protein prefixes here without their own written
-/// contract. Atoms and proteins are primary values. Do **not** add order-log
+/// contract. Atoms and proteins are primary values. The one exception is the
+/// atom counter record (`atom:{uuid}\0c`), which `capture_should_skip_key`
+/// skips by its tag, because the planner rebuilds it on every node. Do **not** add order-log
 /// planes to [`CAPTURE_SKIP_BY_KEY_PREFIX_PLANES`] in the same change: that
 /// would mark them capture-free and trip the unattended self-compact bar.
 pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
@@ -288,6 +290,12 @@ pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
     }
     if CAPTURE_SKIP_EXACT_KEYS.contains(&(namespace, key)) {
         return true;
+    }
+    // An atom counter (`atom:{uuid}\0c`) is node-local state. The planner
+    // rebuilds it from the tips and the bodies that replay applies, so a peer
+    // must never import another node's count.
+    if crate::atom::atom_key_codec::is_counter_key(key) {
+        return namespace == "main" || namespace == "atoms";
     }
     let base_key =
         crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base_key)| base_key);

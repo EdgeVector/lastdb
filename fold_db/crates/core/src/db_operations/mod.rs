@@ -92,4 +92,4 @@ pub use search_index::{
     SearchRebuildReport,
 };
 // SchemaStorage is embedded in DbInventory; StorageBreakdown stays module-private.
-pub use storage_breakdown::SchemaStorage;
+pub use storage_breakdown::{AtomCounterTotals, SchemaStorage};

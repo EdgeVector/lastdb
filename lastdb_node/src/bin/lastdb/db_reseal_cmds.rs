@@ -51,7 +51,7 @@ pub(crate) fn db_migrate_photo_blobs(
     }
     if !execute {
         println!();
-        println!("Re-run with --execute, then: lastdb db gc-atoms --execute");
+        println!("Re-run with --execute.");
     }
     Ok(())
 }

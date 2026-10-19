@@ -159,6 +159,9 @@ pub struct DbInventory {
     /// Tip format stats (`mk:` values): thin vs legacy fat.
     #[serde(default)]
     pub tip_format: TipFormatStats,
+    /// Atom counter totals and pairing faults from the same walk as `per_schema_atoms`.
+    #[serde(default)]
+    pub atom_counters: super::super::storage_breakdown::AtomCounterTotals,
     /// Attribution ledger summary: object counts by class (schema/retention/
     /// system/derived/residue/unknown) and total path-row count. Absent
     /// (all-zero) on a home written before this field existed.

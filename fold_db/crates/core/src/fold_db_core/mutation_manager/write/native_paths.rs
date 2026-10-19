@@ -141,14 +141,11 @@ impl MutationManager {
         }
         let ids: Vec<&str> = targets.values().copied().collect();
         let fetched = self.db_ops.atoms().get_atoms(&ids, storage_prefix).await?;
-        let expected: Vec<_> = fetched
-            .into_iter()
-            .map(|atom| {
-                atom.ok_or_else(|| SchemaError::StorageRead {
-                    detail: "native write path has no staged or stored atom content".into(),
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        // A body that this scope does not hold makes the write fall back to
+        // the durable path. Memory keeps no path for a tip without a body.
+        let Some(expected) = fetched.into_iter().collect::<Option<Vec<_>>>() else {
+            return Ok(None);
+        };
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         let certified = crate::storage::disk_pack::logical_paths::source::certified_atoms(
             runtime,
