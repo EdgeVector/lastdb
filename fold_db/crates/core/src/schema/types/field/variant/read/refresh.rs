@@ -1,4 +1,5 @@
 use super::*;
+use crate::db_operations::atom_store::MoleculeRangeForm;
 
 impl FieldVariant {
     pub(super) fn record_resolved_tip_keys(&self, values: &HashMap<KeyValue, FieldValue>) {
@@ -36,9 +37,10 @@ impl FieldVariant {
         db_ops: &DbOperations,
         filter: &HashRangeFilter,
         include_tombstones: bool,
-    ) -> Result<(), SchemaError> {
+    ) -> Result<MoleculeRangeForm, SchemaError> {
         let Some(molecule_uuid) = self.common().molecule_uuid().cloned() else {
-            return self.refresh_from_db(db_ops).await;
+            self.refresh_from_db(db_ops).await?;
+            return Ok(MoleculeRangeForm::Storage);
         };
         let narrowed = db_ops
             .atoms()
@@ -51,9 +53,14 @@ impl FieldVariant {
             )
             .await?;
         match narrowed {
-            Some(data) if self.kind.matches_data(&data) => self.molecule = Some(data),
-            _ => self.refresh_from_db(db_ops).await?,
+            Some((data, ranges)) if self.kind.matches_data(&data) => {
+                self.molecule = Some(data);
+                Ok(ranges)
+            }
+            _ => {
+                self.refresh_from_db(db_ops).await?;
+                Ok(MoleculeRangeForm::Storage)
+            }
         }
-        Ok(())
     }
 }

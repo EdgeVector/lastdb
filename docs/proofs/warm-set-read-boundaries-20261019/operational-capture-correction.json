@@ -1,0 +1,39 @@
+{
+  "authorized_correction": "Save status, headers and raw body before any decode. Compare plain-text refusal with the unchanged owner_text_contains contract. Rerun all72 unchanged frozen requests on a separate fresh marked home.",
+  "no_helper_source_plan_or_head_change": true,
+  "no_new_executable_harness": true,
+  "no_product_expectation_change": true,
+  "original_directory": "narrow-candidate",
+  "original_failure": "JSONDecodeError before a plain-text administrative400 refusal body was captured. Original execution remains incomplete and not accepted.",
+  "original_files": {
+    ".synthetic-seed-owner.json": {
+      "bytes": 123,
+      "sha256": "3f363431e7222e2bedbc1efd9e2e4618cfa9dc2dc33bb5215d27e6f1ad8f4637"
+    },
+    "inputs.json": {
+      "bytes": 1669,
+      "sha256": "f7063ac80694d5692699eabc25112d8e4e309f6fc7ed224b46f1e6bc30192b74"
+    },
+    "node.log": {
+      "bytes": 11915,
+      "sha256": "99e5a1da16bfd5d5c4f49307497c4837ee63ab85938d8ee3deda3d064b6e4c55"
+    },
+    "receipts.jsonl": {
+      "bytes": 115561,
+      "sha256": "a111a6155e87056d7eb80be0f0afca51828154c9466cf44cbaf8c326ebf5beeb"
+    },
+    "result.json": {
+      "bytes": 51888,
+      "sha256": "6745b2379e2738ab1ca4be0a065597b9c1376930056c24e84ea7ed3f827617b8"
+    },
+    "retained-root.json": {
+      "bytes": 180,
+      "sha256": "8f176ab778e20e6a43ef92be49b09bfa0838f1eddf3858408f1b40b4b878f303"
+    },
+    "summary.json": {
+      "bytes": 201,
+      "sha256": "f4054fd6bc12f9a7bc8e9e14ac3acade01ad4cae6e577d7be235656bc01eabf7"
+    }
+  },
+  "version": 1
+}

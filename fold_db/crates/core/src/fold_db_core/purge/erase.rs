@@ -210,6 +210,7 @@ async fn apply_plan(
         keys,
         targets,
     } = loaded;
+    let tips_read = targets.len();
     let ErasePlan {
         remove,
         spared,
@@ -226,6 +227,16 @@ async fn apply_plan(
         .filter_map(|(target, removed)| removed.then_some(target))
         .collect();
     let erased_keys: HashSet<usize> = removed.iter().map(|target| target.key_index).collect();
+    tracing::debug!(
+        schema = %schema_name,
+        verb = options.verb.ledger_verb(),
+        keys = keys.len(),
+        tips_read = tips_read,
+        tips_removed = removed.len(),
+        barrier_rows = barrier_rows.len(),
+        spared_keys = spared_keys.len(),
+        "erase plan"
+    );
     if removed.is_empty() && barrier_rows.is_empty() {
         return Ok(BulkPurgeReport {
             spared_keys,

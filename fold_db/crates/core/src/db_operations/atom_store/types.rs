@@ -16,6 +16,15 @@ use serde::{Deserialize, Serialize};
 /// "molecule data"; prefer [`MoleculeHashRange`] in new code.
 pub type MoleculeData = MoleculeHashRange;
 
+/// Range coordinates in one transient query molecule, independent of its codec.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MoleculeRangeForm {
+    /// Exact narrowed reads retain the caller's original range.
+    Api,
+    /// Ordered walks retain stored ranges until the field reader projects them.
+    Storage,
+}
+
 impl MoleculeHashRange {
     /// Normalize 1-D slot orientation for Hash-only / Range-only fields.
     ///

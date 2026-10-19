@@ -2,7 +2,7 @@ use crate::db_operations::MoleculeData;
 use crate::schema::types::key_value::KeyValue;
 use crate::schema::types::SchemaError;
 
-use super::FieldVariant;
+use super::{FieldKind, FieldVariant};
 
 impl FieldVariant {
     /// AtomEntry at `key`, using the field kind's unified HashRange disk slot.
@@ -72,6 +72,9 @@ impl FieldVariant {
     /// Returns the writer public key from a Single molecule, if present and non-empty.
     #[must_use]
     pub fn molecule_writer_pubkey(&self) -> Option<String> {
+        if self.kind != FieldKind::Single {
+            return None;
+        }
         match &self.molecule {
             Some(m) => m
                 .get_atom_entry("", "")

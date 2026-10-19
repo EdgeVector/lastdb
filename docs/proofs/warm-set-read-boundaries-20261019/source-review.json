@@ -1,0 +1,88 @@
+{
+  "format": "lastdb-source-review-v1",
+  "reviewed_commit_sha": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+  "reviewer": "independent route review agent",
+  "review_kind": "source only",
+  "result": "no blockers in the reviewed scope",
+  "checks": [
+    {
+      "change": "Named-layout membership precedes the result window",
+      "result": "The page records tip presence, exhaustion, and its last examined API key before the atom body fetch. Membership checks precede the matching-record offset and limit. Refill advances from that examined key when a body is absent or a value fails membership. Each body batch contains at most 1024 candidates.",
+      "sources": [
+        "fold_db/crates/core/src/schema/types/field/variant/read/named_window.rs:32",
+        "fold_db/crates/core/src/schema/types/field/variant/read/named_window.rs:44",
+        "fold_db/crates/core/src/schema/types/field/variant/read/named_window.rs:101",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/partition_page.rs:118",
+        "fold_db/crates/core/src/db_operations/atom_store/schema_keys/hash_window.rs:31"
+      ]
+    },
+    {
+      "change": "Actual primary tips control projection fallback and share precedence",
+      "result": "An empty body result or a cursor at the end does not authorize projection fallback. The primary tip probe omits the result window. Personal values enter the merged set first; shared values fill absent keys. The merged set receives membership checks before its window. Existing tombstone visibility rules remain in place.",
+      "sources": [
+        "fold_db/crates/core/src/schema/types/field/variant/read/named_window.rs:199",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/resolve.rs:48",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/resolve.rs:118",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/resolve.rs:130",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/resolve.rs:169",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey_primary.rs:65"
+      ]
+    },
+    {
+      "change": "Exact range reads retain an explicit range form",
+      "result": "Composite exact and batch producers retain caller API ranges. Ordered walks retain stored ranges until conversion. Exact singular receipt capture also retains the caller range. Metadata uses the selected transient coordinates, and the selected physical tip receipt remains available. The authoritative HashKey caller receives stored ranges and decodes them once.",
+      "sources": [
+        "fold_db/crates/core/src/db_operations/atom_store/types.rs",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/load.rs:27",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/load/hash_range.rs:209",
+        "fold_db/crates/core/src/db_operations/atom_store/filter/load/hash_range_pages.rs:112",
+        "fold_db/crates/core/src/schema/types/field/variant/read/refresh.rs:35",
+        "fold_db/crates/core/src/schema/types/field/variant/read/collect.rs:54",
+        "fold_db/crates/core/src/schema/types/field/variant/read/collect.rs:132"
+      ]
+    },
+    {
+      "change": "Keyed fields retain the selected tip writer",
+      "result": "The molecule-wide writer helper returns a writer only for Single fields. Hash and HashRange values retain the selected per-key writer. The atom identity, per-key source metadata, atom time, and body location remain under their existing selection rules.",
+      "sources": [
+        "fold_db/crates/core/src/schema/types/field/variant/access.rs:74",
+        "fold_db/crates/core/src/schema/types/field/variant/read/resolve.rs:227",
+        "fold_db/crates/core/src/schema/types/field/filter_utils/fetch.rs:102",
+        "fold_db/crates/core/src/storage/disk_pack/logical_paths/field.rs:90"
+      ]
+    },
+    {
+      "change": "Positive memory tips consume the shared read budget",
+      "result": "Captured and current core-filter paths charge the key plus selected AtomEntry and KeyMetadata before visibility or tombstone rejection. Full values charge their bodies separately. The budget helper retains a resource failure. Core-model, collect, and secondary callers propagate that error; they do not convert it to a disk fallback or partial success. Returned tip metadata and physical location remain unchanged.",
+      "sources": [
+        "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs:114",
+        "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs:186",
+        "fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs:215",
+        "fold_db/crates/core/src/storage/disk_pack/read/budget.rs:29",
+        "fold_db/crates/core/src/schema/types/field/variant/read/core_model.rs:18",
+        "fold_db/crates/core/src/schema/types/field/variant/read/collect.rs:37",
+        "fold_db/crates/core/src/fold_db_core/query/hash_range_query/secondary.rs:177"
+      ]
+    },
+    {
+      "change": "Cross-hash cursor use receives an explicit refusal",
+      "result": "The logical boundary refuses PageAfter. The host refuses an incoming unfiltered cursor before cursor normalization. Administrative initial pages, offsets, and samples retain their supported paths. Administrative pages advertise no next cursor. Fixed-hash KeyWindow::After retains its API-coordinate route.",
+      "sources": [
+        "fold_db/crates/core/src/schema/logical_rules.rs:21",
+        "lastdb_host/src/handlers/query.rs",
+        "lastdb_host/src/handlers/query/plan.rs",
+        "lastdb_host/src/handlers/query/paging.rs:5"
+      ]
+    }
+  ],
+  "review_limits": [
+    "This source review does not prove a product result, compiler result, or performance result. Those receipts remain separate.",
+    "Normal local API writes use the node writer. The different-writer case receives source review; an ordinary empty-key read cannot prove it.",
+    "The captured dirty-memory snapshot route receives source review. This review includes no dedicated product receipt for that branch.",
+    "Large offsets inspect preceding candidate bodies to establish named-layout membership. A finite read budget can refuse those calls.",
+    "Prefix and bounded-range routes can collect the complete candidate tip list before their bounded body batches. The 1024 bound applies to each body batch, not all tip work or all call memory.",
+    "Dormant standalone Range multi-get code echoes API ranges, but the logical layout guard rejects standalone Range before the supported read boundary. The producer contract here covers supported Hash and HashRange reads.",
+    "The borrow-only changes in 122072ed retain the pagination decisions reviewed at a56a72fb. The touched source files remain below 400 lines, and the reviewed new or changed functions remain below 100 lines by source inspection; formal gate receipts remain separate.",
+    "No throughput improvement follows from this source review or these correctness fixes."
+  ]
+}

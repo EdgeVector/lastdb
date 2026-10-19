@@ -230,15 +230,17 @@ impl AtomStore {
             // client already supplied the plaintext partition/range.
             let hash = api_hash_for_response.map_or(storage_hash, str::to_string);
             let range = api_range_for_response.map_or(storage_range, str::to_string);
-            let api_range = if self
-                .key_codec_for_molecule(molecule_uuid)
-                .range_encoding()
-                .writes_ope()
-            {
-                crate::crypto::E2eKeys::ope_decode_range_plaintext(&range)
-                    .unwrap_or_else(|| range.clone())
-            } else {
-                range.clone()
+            let api_range = match api_range_for_response {
+                Some(api) => api.to_string(),
+                None if self
+                    .key_codec_for_molecule(molecule_uuid)
+                    .range_encoding()
+                    .writes_ope() =>
+                {
+                    crate::crypto::E2eKeys::ope_decode_range_plaintext(&range)
+                        .unwrap_or_else(|| range.clone())
+                }
+                None => range.clone(),
             };
             let api_key =
                 crate::schema::types::key_value::KeyValue::new(Some(hash.clone()), Some(api_range));

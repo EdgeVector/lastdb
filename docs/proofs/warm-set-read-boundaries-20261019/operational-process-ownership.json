@@ -1,0 +1,247 @@
+{
+  "all_recorded_creators_absent": true,
+  "distinct_node_pids": [
+    18776,
+    19035,
+    19036,
+    22646,
+    22826,
+    23735,
+    23738,
+    26718,
+    26907,
+    26908,
+    28528,
+    28689,
+    32176,
+    32391,
+    32439,
+    32478,
+    35974,
+    36106,
+    36107,
+    36209,
+    37290
+  ],
+  "node_sessions": 21,
+  "roots": [
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "87523",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468497421,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 87523,
+      "marker_sha256": "08c5af730960462b64e3f90a44de5d0f70b47809d90240fdb8045ff14dcd1451",
+      "mode": "0o700",
+      "node_pids": [
+        18776,
+        19035,
+        19036
+      ],
+      "node_sessions": 3,
+      "normal_stop_count": 3,
+      "receipt_directory": "narrow-baseline",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ilq2rpfx",
+      "uid": 501
+    },
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "22642",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468531245,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 22642,
+      "marker_sha256": "e8aaac9381bbd2c75183db91dbcd675d69b3d63c77877345232a1530c7b2182d",
+      "mode": "0o700",
+      "node_pids": [
+        22646,
+        22826
+      ],
+      "node_sessions": 2,
+      "normal_stop_count": 2,
+      "receipt_directory": "budget-baseline",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xq5y9s32",
+      "uid": 501
+    },
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "23731",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468534133,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 23731,
+      "marker_sha256": "3f363431e7222e2bedbc1efd9e2e4618cfa9dc2dc33bb5215d27e6f1ad8f4637",
+      "mode": "0o700",
+      "node_pids": [
+        23735,
+        23738
+      ],
+      "node_sessions": 2,
+      "normal_stop_count": 2,
+      "receipt_directory": "narrow-candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.amzun9lj",
+      "uid": 501
+    },
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "26714",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468536115,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 26714,
+      "marker_sha256": "573c2e01d130c1bc72fd2249260a67c28a4440bc99e3da808fb18a1f6f4974d4",
+      "mode": "0o700",
+      "node_pids": [
+        26718,
+        26907,
+        26908
+      ],
+      "node_sessions": 3,
+      "normal_stop_count": 3,
+      "receipt_directory": "narrow-candidate-rerun",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.zoamqq1g",
+      "uid": 501
+    },
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "28523",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468540097,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 28523,
+      "marker_sha256": "1128f8a899509e8750c9773e8a57a90402de3a83dba200a77312a6b136fb9445",
+      "mode": "0o700",
+      "node_pids": [
+        28528,
+        28689
+      ],
+      "node_sessions": 2,
+      "normal_stop_count": 2,
+      "receipt_directory": "budget-candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.72vqg0ob",
+      "uid": 501
+    },
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "32172",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468553234,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 32172,
+      "marker_sha256": "bc4e1e2e631759cf6f179c40bc80d26eabde7b015abf542ef9273c11d90bb535",
+      "mode": "0o700",
+      "node_pids": [
+        32176,
+        32391,
+        32439,
+        32478
+      ],
+      "node_sessions": 4,
+      "normal_stop_count": 4,
+      "receipt_directory": "standard-candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ksxpw7o4",
+      "uid": 501
+    },
+    {
+      "creator_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "35969",
+          "-o",
+          "pid=,ppid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "device": 16777231,
+      "inode": 1468564678,
+      "inputs_creator_pid": null,
+      "inputs_creator_pid_recorded": false,
+      "marker_creator_pid": 35969,
+      "marker_sha256": "755cbaf26637747f9546e8d7ce9987b20654e2d32a90f0462795013123c1e457",
+      "mode": "0o700",
+      "node_pids": [
+        35974,
+        36106,
+        36107,
+        36209,
+        37290
+      ],
+      "node_sessions": 5,
+      "normal_stop_count": 5,
+      "receipt_directory": "standard-candidate-rerun",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2i1radxv",
+      "uid": 501
+    }
+  ],
+  "scope": "Existing inputs.json format contains no creator_pid field. The fresh-root marker creator PID is checked for each root. All start and stop PIDs stay in original receipts. No missing PID is inferred."
+}
