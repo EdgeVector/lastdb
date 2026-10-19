@@ -37,6 +37,7 @@ mod filter;
 mod paging;
 mod pending_values;
 mod predicates;
+mod primary_selection;
 mod resolve;
 mod secondary;
 mod shares;

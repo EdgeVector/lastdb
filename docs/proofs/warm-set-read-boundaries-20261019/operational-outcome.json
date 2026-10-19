@@ -1,0 +1,151 @@
+{
+  "all_helpers_inputs_unchanged": true,
+  "all_sealed_original_hashes_unchanged_after_preview": true,
+  "artifacts": {
+    "baseline-release-identity.json": {
+      "bytes": 1961,
+      "sha256": "38811681e6992324347b3c8c5478a2e512c9a240c8b6a0238a6fef3e06f9be38"
+    },
+    "baseline-root.json": {
+      "bytes": 1299,
+      "sha256": "d4e8049533d87eb62f3d80becf08ebf982fd4d11be8256950296cb11715de536"
+    },
+    "budget-inputs.json": {
+      "bytes": 1772246,
+      "sha256": "d7276d9a754efdb5ec49a944e135438b21cd6033dde48f88bb4331bbb61b048b"
+    },
+    "cleanup-previews.json": {
+      "bytes": 5927,
+      "sha256": "d3818804e9c006fe66417d553524a88612fdf168a05aa0e8e14f4569e92dad20"
+    },
+    "cleanup-root-seal.json": {
+      "bytes": 13960,
+      "sha256": "270a141560018fc6524a59be8bd22756146fa9ecee6c8e17e47a94b3f298988b"
+    },
+    "operation-helper-identity.json": {
+      "bytes": 2958,
+      "sha256": "2a513dfe7a4016bef742eecb248c0d12f21b06d5732568663ea193a6d4e7f556"
+    },
+    "operation-plan.json": {
+      "bytes": 21042,
+      "sha256": "885033d2adcf5e6fadddbe30ed44dacb9c6ea175efa99f3f8bfd7ed1eda1503c"
+    },
+    "operational-capture-correction.json": {
+      "bytes": 1555,
+      "sha256": "32b2b5ec69274dc7f2150bc71b16cef15d7c877405eef4c704a2062d8898f038"
+    },
+    "operational-key-comparison-correction.json": {
+      "bytes": 1764,
+      "sha256": "8daf7d3912beafe0554294d9db8a3450e132b7e4a30fe6080b38acca0ff1107e"
+    },
+    "operational-process-ownership.json": {
+      "bytes": 6261,
+      "sha256": "4ad997d5e4c05d335eb59558d5e2fb22f434b8ff66d5a1c2576bd22ced44af16"
+    },
+    "sealed-originals.json": {
+      "bytes": 2746024,
+      "sha256": "35337fa8b10a655bd833fc21f3712034c7dd950be45df0c8827f55c9a6a66ed5"
+    }
+  },
+  "baseline": {
+    "budget": {
+      "count_statuses": {
+        "409": 64
+      },
+      "fixed_contract_pass": false,
+      "prime_pass": true,
+      "warm_zero_file_read_pass": true
+    },
+    "narrow": {
+      "all_failures_preserved": true,
+      "failed": 26,
+      "observations": 72,
+      "pass": 46
+    }
+  },
+  "baseline_program": {
+    "binary_sha256": "563aa1ba49440f76e43e7c478b439bbd8e07b0b6cdf868888e908f7b8b482a1b",
+    "built_source_commit": "3de98eff48d662cd8a8c631b953400aa35c03d99",
+    "identity": "baseline-release-identity.json",
+    "immutable_equivalent_merged_main": "8ed44f56118ec00173f38dd4b05c0872c9e700f7"
+  },
+  "candidate": {
+    "budget": {
+      "all_pass": true,
+      "count_statuses": {
+        "409": 39,
+        "503": 25
+      },
+      "zero_file_reads": true
+    },
+    "narrow": {
+      "all_pass": true,
+      "observations": 72
+    },
+    "standard": {
+      "all_pass": true,
+      "cohort": {
+        "all_zero_file_checks_pass": true,
+        "checked_read_calls": 74,
+        "strict_zero_file_checks": 29,
+        "unchanged_helper": true
+      },
+      "static_items": 100,
+      "status_counts": {
+        "200": 99,
+        "400": 1
+      }
+    }
+  },
+  "candidate_program": {
+    "binary_sha256": "fb68635e41651eb14c3ff91210bfa4a96c83c63239f5d3cd4b89868c4e523127",
+    "built_source_commit": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+    "identity": "release-identity.json"
+  },
+  "cleanup": "Supported previews only. All roots remain for independent root review.",
+  "coverage_limits": [
+    "Different-writer empty/nonempty winner selection remains source review only. The host assigns one writer identity. No writer forgery or debug flag is allowed.",
+    "Captured-dirty positive-tip allowance remains source review only. Ordinary calls do not choose a deterministic internal capture point.",
+    "The mapped-layout case uses literal explicit field_mappers. Existing protein.install canonical sharing does not prove mapped-layout paging.",
+    "No throughput or benchmark claim follows from these operations."
+  ],
+  "current_worktree_head": "122072ed51e20a1f67ad4915c0efcb9a2ffc1551",
+  "incomplete_attempts": {
+    "narrow-candidate": "Original JSON decode failure remains incomplete. Correction only captures raw refusal before decode.",
+    "standard-candidate": "Original optional-key comparison failure remains incomplete. Correction only uses logical.coordinates for absent/null range."
+  },
+  "no_benchmark_or_performance_claim": true,
+  "normal_node_sessions": 21,
+  "owned_roots": 7,
+  "run_results": {
+    "budget-baseline": {
+      "bytes": 327557,
+      "sha256": "f7d1066217de9492e57717ac0b16ba4a438f702a73a74cb1c417c7a539a5a7e4"
+    },
+    "budget-candidate": {
+      "bytes": 331538,
+      "sha256": "c4ac6b0eca8ba8a60994fe0420de010e9ea80887e7df1f525461f85dbd4db554"
+    },
+    "narrow-baseline": {
+      "bytes": 224336,
+      "sha256": "d8297386973c1f5d08f427f979a7c9823f8f2adb349114bd25aa14c40698c912"
+    },
+    "narrow-candidate": {
+      "bytes": 51888,
+      "sha256": "6745b2379e2738ab1ca4be0a065597b9c1376930056c24e84ea7ed3f827617b8"
+    },
+    "narrow-candidate-rerun": {
+      "bytes": 228314,
+      "sha256": "a6cfe97de0f8d31201a8b986f370b5dd7c3a52326bad81be3542abf3d002f33d"
+    },
+    "standard-candidate": {
+      "bytes": 3034,
+      "sha256": "0b4e590fcf434de42428d57dc6a2a099e81bd0121b240cfe50327b28ce4d6765"
+    },
+    "standard-candidate-rerun": {
+      "bytes": 248045,
+      "sha256": "653389ec818bf65851ffd811ec922f3411d8cd68b122e0b3e54e57430420ee12"
+    }
+  },
+  "version": 1
+}

@@ -24,12 +24,17 @@ impl HashRangeQueryProcessor {
     ) -> Result<CokeyPrimaryPage, SchemaError> {
         let mut primary_name = Self::cokey_primary_field(schema, selected);
         let key_form = Self::primary_key_form(filter.as_ref());
+        if matches!(
+            window,
+            Some(KeyWindow::Offset { limit: 0, .. } | KeyWindow::After { limit: 0, .. })
+        ) {
+            return Ok((primary_name, HashMap::new(), Vec::new(), HashMap::new()));
+        }
 
         // --- 1. Primary: current resolve under filter / namespaces ---
-        // The primary establishes the page of keys; secondaries only fill those
-        // keys. So windowing the primary windows the whole row set, and the
-        // secondary fan-out below shrinks with it for free.
-        let (primary_vals, key_sources) = self
+        // The primary selects its layout before the window. Secondaries fill
+        // only those keys, and actual tip presence controls the fallback.
+        let primary = self
             .resolve_primary(
                 schema,
                 &primary_name,
@@ -39,31 +44,15 @@ impl HashRangeQueryProcessor {
                 received_from_namespaces,
             )
             .await?;
+        let had_named_spine_keys = primary.had_spine;
         // Keyed reads already echo caller hashes. Only page/sample walks return
         // physical hashes that require value-based recovery at this boundary.
-        let (mut primary_vals, mut page_keys, mut key_sources) = self.rename_page_to_api_keys(
+        let (primary_vals, page_keys, key_sources) = self.rename_page_to_api_keys(
             schema,
             &primary_name,
             key_form,
-            primary_vals,
-            key_sources,
-        );
-
-        // Shared-molecule multi-key (graph-edge planes): one molecule holds
-        // tips for both key layouts. HashKey(slug) therefore lists every tip
-        // whose storage hash is slug, inbound and outbound. Keep only tips
-        // whose *named* hash-field value equals that slug so schema S returns
-        // S's layout. Stage 0 dump 2026-09-02: all GRAPH_EDGE_FIELDS share
-        // molecule_uuid across BySource/ByDestination; HashKey and empty
-        // Prefix both returned the union (12 = 5 out + 7 in).
-        let had_named_spine_keys = !page_keys.is_empty();
-        Self::retain_named_layout_primary(
-            schema,
-            &primary_name,
-            &filter,
-            &mut primary_vals,
-            &mut page_keys,
-            &mut key_sources,
+            primary.values,
+            primary.sources,
         );
 
         // A schema key field is the dense row spine for rows written through
@@ -76,7 +65,7 @@ impl HashRangeQueryProcessor {
         let fallback = Self::cokey_fallback_field(selected, &primary_name)
             .filter(|_| page_keys.is_empty() && !had_named_spine_keys);
         let (primary_vals, page_keys, key_sources) = if let Some(fallback) = fallback {
-            let (values, sources) = self
+            let fallback_page = self
                 .resolve_primary(
                     schema,
                     fallback,
@@ -87,7 +76,13 @@ impl HashRangeQueryProcessor {
                 )
                 .await?;
             primary_name = fallback.to_string();
-            self.rename_page_to_api_keys(schema, &primary_name, key_form, values, sources)
+            self.rename_page_to_api_keys(
+                schema,
+                &primary_name,
+                key_form,
+                fallback_page.values,
+                fallback_page.sources,
+            )
         } else {
             (primary_vals, page_keys, key_sources)
         };

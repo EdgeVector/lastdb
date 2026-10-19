@@ -18,6 +18,12 @@ pub fn require_logical_layout(schema_type: &DeclarativeSchemaType) -> Result<(),
 /// Keep key queries within one hash while preserving explicit page and
 /// sample operations. Catalog metadata does not establish a logical read path.
 pub fn require_logical_filter(filter: Option<&HashRangeFilter>) -> Result<(), SchemaError> {
+    if matches!(filter, Some(HashRangeFilter::PageAfter { .. })) {
+        return Err(SchemaError::InvalidData(
+            "LastDB does not support cross-hash PageAfter cursors; query one hash with a query cursor, or use Page with an offset"
+                .into(),
+        ));
+    }
     if matches!(
         filter,
         Some(

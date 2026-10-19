@@ -33,6 +33,8 @@ The request decoder retains those names for an explicit refusal. Current field r
 Each field keeps its current atom in its molecule.
 A query assembles a record from those fields in the selected storage scope.
 Exact reads and range reads use the same query controls and each field's own atom metadata.
+Successful memory tip reads consume the same call allowance as other required reads, including records rejected by visibility checks.
+Keyed fields keep each selected tip's writer; the Single-field writer helper does not override them.
 Field and numeric conditions fetch their fields before the result limit, even when the response omits those fields.
 The final sort uses the same value order as key selection. An omitted sort field remains internal and leaves the response before return.
 Query conditions borrow the selected field values. They do not format or copy an entire response record.
@@ -50,8 +52,12 @@ That reader keeps the caller's hash and the selected atom location together.
 Keyed reads keep the caller's key form through counts and response metadata.
 They do not reinterpret a caller key as another key's disk encoding.
 Only physical page and sample reads recover keys from their stored form.
+Narrowed reads carry the range form explicitly. Exact caller ranges receive no second decode.
 Hash reads trust the supplied key. A HashRange field-value check uses only the declared hash field that established the keys.
 Projection fallback establishes its own keys. Range punctuation has no special meaning.
+Named-layout membership precedes the result window. Bounded tip pages retain their cursor before value fetch, so rejected or missing values do not end selection early.
+Actual primary tip presence controls projection fallback, including an empty page after the cursor or offset.
+Cross-hash administrative pages use offsets. Logical `PageAfter` and non-keyed query cursors receive an explicit refusal; keyed query cursors use their API-coordinate window.
 Schema metadata supplies definitions. It does not supply a fallback value when the current tip is absent.
 A shared key that becomes usable also receives the unchanged fields through their existing atoms.
 The absence of an old key does not skip those fields. Only a confirmed old association permits its removal.

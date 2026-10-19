@@ -1,4 +1,5 @@
 use super::*;
+use crate::db_operations::atom_store::MoleculeRangeForm;
 
 impl FieldVariant {
     /// Hydrate + filter into [`KeyedAtomMatch`] tuples **without** fetching
@@ -49,7 +50,8 @@ impl FieldVariant {
             limit: DEFAULT_UNFILTERED_PAGE_LIMIT,
         });
 
-        self.refresh_for_read(db_ops, &effective_filter, include_tombstones)
+        let range_form = self
+            .refresh_for_read(db_ops, &effective_filter, include_tombstones)
             .await?;
 
         // In-memory apply uses string compare on molecule range slots. Under
@@ -75,13 +77,15 @@ impl FieldVariant {
             }
             None => self.apply_filter(Some(effective_filter)),
         };
-        let remap_ope_range = db_ops.atoms().key_codec().range_encoding().writes_ope();
+        let remap_ope_range = range_form == MoleculeRangeForm::Storage
+            && db_ops.atoms().key_codec().range_encoding().writes_ope();
 
         let mut matches_with_meta: Vec<KeyedAtomMatch> = results
             .matches
             .into_iter()
             .map(|(storage_key, atom_uuid)| {
-                // Meta + partition must use storage-form range/hash (molecule keys).
+                // Metadata uses the transient molecule's own coordinates. Exact
+                // API ranges retain their previously selected physical receipt.
                 let (key_meta, writer_pubkey) = self.entry_meta_at(&storage_key);
                 let kv = if remap_ope_range {
                     api_key_value_from_storage(storage_key.clone())
