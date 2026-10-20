@@ -15,7 +15,6 @@ pub(in crate::fold_db_core::mutation_manager) struct PreparedSchemaDelta {
     pub schema_mutations: Vec<Mutation>,
     pub mutation_key_values: Vec<KeyValue>,
     pub atom_results: Vec<(usize, String, Atom)>,
-    pub original_atom_results: Vec<(usize, String, Atom)>,
     pub deferred_atoms: Option<Vec<(Atom, Option<String>)>>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,

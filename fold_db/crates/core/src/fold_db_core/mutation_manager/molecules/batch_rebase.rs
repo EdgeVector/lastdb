@@ -206,16 +206,6 @@ impl MutationManager {
         heads: &mut BatchSlotHeads,
     ) -> super::super::helpers::ModifiedFieldKeys {
         heads.overlay_schema(delta);
-        delta.atom_results = if self.write_dedupe_enabled() {
-            Self::drop_unchanged_field_writes(
-                &delta.schema,
-                &delta.schema_mutations,
-                &delta.mutation_key_values,
-                delta.original_atom_results.clone(),
-            )
-        } else {
-            delta.original_atom_results.clone()
-        };
         let mut prospective = delta.schema.clone();
         let (modified, accepted) = self.apply_mutations_to_molecules(
             &mut prospective,

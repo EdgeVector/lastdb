@@ -249,7 +249,7 @@ pub struct MutationEnvelope {
     /// Mutation-level signature over content, id, and the complete author clock.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_signature: String,
-    /// Zero for legacy envelopes; two for the signed author-clock scheme.
+    /// Zero for unsigned input; see `MUTATION_AUTHOR_SIGNATURE_VERSION` for signed input.
     #[serde(
         default,
         skip_serializing_if = "crate::schema::types::mutation::is_zero_u8"

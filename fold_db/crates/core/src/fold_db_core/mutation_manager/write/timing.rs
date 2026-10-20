@@ -86,7 +86,7 @@ impl MutationManager {
     ///
     /// `restore_molecules`, `schema_reload`, `protein_sibling_fold`,
     /// `grouping`, `idempotency_check`, `sync_uuids`, `spawn_indexing`,
-    /// `apply_memory`, `schema_load` and `dedupe_scan` were each measured
+    /// `apply_memory` and `schema_load` were each measured
     /// into `timing_breakdown` (for the `tracing::debug!`-only log below) and
     /// then silently folded into the `apply` residual by the `_ => {}` arm
     /// here — measured, but not reported anywhere a live node's operator
@@ -135,7 +135,6 @@ impl MutationManager {
         let mut spawn_indexing = std::time::Duration::ZERO;
         let mut apply_memory = std::time::Duration::ZERO;
         let mut schema_load = std::time::Duration::ZERO;
-        let mut dedupe_scan = std::time::Duration::ZERO;
         for (key, elapsed) in timing_breakdown {
             // Keys are the literal breakdown map keys — the "  - " prefix is
             // the debug log's indentation and part of the key.
@@ -154,7 +153,6 @@ impl MutationManager {
                 "spawn_indexing" => spawn_indexing += *elapsed,
                 "  - update_memory_serial" => apply_memory += *elapsed,
                 "schema_load" => schema_load += *elapsed,
-                "  - dedupe_scan" => dedupe_scan += *elapsed,
                 // "  - molecule_write_locks" folds into `molecule_lock_wait`
                 // below (accumulated by the caller across schema groups, not
                 // this map). "  - create_atoms_batch" already matched above.
@@ -178,8 +176,7 @@ impl MutationManager {
             + sync_uuids
             + spawn_indexing
             + apply_memory
-            + schema_load
-            + dedupe_scan;
+            + schema_load;
         // The durable-store sub-steps carved out of `persist`. Subtracted from
         // the residual alongside `persist` itself so the two do not
         // double-count the same microseconds — the same reason
@@ -206,7 +203,6 @@ impl MutationManager {
         add_phase(RequestPhase::Apply, apply);
         add_phase(RequestPhase::ApplyMemory, apply_memory);
         add_phase(RequestPhase::SchemaLoad, schema_load);
-        add_phase(RequestPhase::DedupeScan, dedupe_scan);
         add_phase(RequestPhase::Persist, persist);
         add_phase(RequestPhase::PersistMolecules, persist_molecules);
         add_phase(RequestPhase::PersistSchema, persist_schema);
