@@ -33,7 +33,6 @@ pub(super) fn phase_timings(
         apply_us: phase_totals.apply_us,
         apply_memory_us: phase_totals.apply_memory_us,
         schema_load_us: phase_totals.schema_load_us,
-        dedupe_scan_us: phase_totals.dedupe_scan_us,
         idempotency_check_us: phase_totals.idempotency_check_us,
         grouping_us: phase_totals.grouping_us,
         restore_molecules_us: phase_totals.restore_molecules_us,

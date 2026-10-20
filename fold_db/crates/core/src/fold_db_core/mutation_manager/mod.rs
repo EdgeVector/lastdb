@@ -4,7 +4,6 @@
 //! - [`helpers`] — free helpers (tombstone, key normalize, native-index allowlist, derived guard)
 //! - [`write`] — public write entry points, purge peel, batch pipeline, finalize
 //! - [`cas`] — write preconditions and idempotency; aggregate guards retain their own locks
-//! - [`dedupe`] — per-molecule write dedupe (`LASTDB_WRITE_DEDUPE`)
 //! - [`molecules`] — atom prep, molecule apply/persist
 //! - [`receipt`] — what one logical resident commit answers to its caller
 //! - [`index`] — best-effort native-index side effects
@@ -15,7 +14,6 @@ mod cas;
 mod cas_current_state;
 mod cas_idempotency;
 mod cas_preconditions;
-pub mod dedupe;
 pub(super) mod helpers;
 mod index;
 mod molecules;
@@ -225,12 +223,6 @@ pub struct MutationManager {
     /// applying a changed key; two concurrent writers must not both append a
     /// different key at the same `mord:{M}:{seq}` slot.
     molecule_persist_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Per-molecule write dedupe (`LASTDB_WRITE_DEDUPE`). When true, a field
-    /// write whose value already equals the stored tip is dropped before the
-    /// apply/fold/persist steps ever see it. Off by default: the skip also
-    /// skips the tip's `written_at` refresh, which is the per-slot LWW
-    /// tie-break. See [`dedupe`] for the full contract.
-    write_dedupe: bool,
     /// Sync engine used by administrative capture status and direct callers.
     capture_engine: std::sync::RwLock<Option<std::sync::Arc<crate::sync::SyncEngine>>>,
     /// Bounded post-ack capture queue shared with the serving store wrapper.
@@ -259,7 +251,6 @@ impl MutationManager {
         let defer_gauge = Arc::new(DeferredPersistGauge::from_process_budget_with_count(
             policy.max_deferred_persists,
         ));
-        let write_dedupe = dedupe::parse_write_dedupe(std::env::var(dedupe::WRITE_DEDUPE_ENV).ok());
         let purge_barrier = Arc::new(std::sync::Mutex::new(HashMap::new()));
         let purge_stats = Arc::new(PurgeLedger::default());
         let capture_router = Arc::new(std::sync::RwLock::new(None));
@@ -271,7 +262,6 @@ impl MutationManager {
                 Arc::clone(&pending_tasks),
                 search_outbox_inbox.clone(),
                 Arc::clone(&defer_gauge),
-                write_dedupe,
                 Arc::clone(&purge_barrier),
                 Arc::clone(&purge_stats),
                 Arc::clone(&capture_router),
@@ -309,7 +299,6 @@ impl MutationManager {
             purge_barrier,
             purge_stats,
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
-            write_dedupe,
             capture_engine: std::sync::RwLock::new(None),
             capture_router,
             persist_lanes,
@@ -330,7 +319,6 @@ impl MutationManager {
         pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
         search_outbox_inbox: Option<PathBuf>,
         defer_gauge: Arc<DeferredPersistGauge>,
-        write_dedupe: bool,
         purge_barrier: Arc<std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
         purge_stats: Arc<PurgeLedger>,
         capture_router: std::sync::Arc<
@@ -354,7 +342,6 @@ impl MutationManager {
             purge_barrier,
             purge_stats,
             molecule_persist_locks: std::sync::Mutex::new(HashMap::new()),
-            write_dedupe,
             capture_engine: std::sync::RwLock::new(None),
             capture_router,
             persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),

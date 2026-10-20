@@ -197,13 +197,12 @@ fn phase_sums_from_fields(fields: &serde_json::Value) -> PhaseTimings {
         annotate_us: field_u64(fields, "sum_annotate_us").unwrap_or(0),
         apply_us: field_u64(fields, "sum_apply_us").unwrap_or(0),
         // Rows written before the apply residual was carved carry the
-        // whole bucket in `sum_apply_us` and nothing in these three, so
+        // whole bucket in `sum_apply_us` and nothing in these fields, so
         // `apply` appears to drop at the upgrade boundary rather than
         // the work having moved. Same additive-migration shape as the
         // persist and hydrate splits.
         apply_memory_us: field_u64(fields, "sum_apply_memory_us").unwrap_or(0),
         schema_load_us: field_u64(fields, "sum_schema_load_us").unwrap_or(0),
-        dedupe_scan_us: field_u64(fields, "sum_dedupe_scan_us").unwrap_or(0),
         idempotency_check_us: field_u64(fields, "sum_idempotency_check_us").unwrap_or(0),
         grouping_us: field_u64(fields, "sum_grouping_us").unwrap_or(0),
         restore_molecules_us: field_u64(fields, "sum_restore_molecules_us").unwrap_or(0),

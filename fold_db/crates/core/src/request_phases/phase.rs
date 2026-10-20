@@ -282,12 +282,6 @@ pub enum RequestPhase {
     /// write-back after the mutation). Large here means the catalog read is
     /// on the write's critical path.
     SchemaLoad,
-    /// Mutation: the optional per-molecule write-dedupe pass
-    /// (`LASTDB_WRITE_DEDUPE`, off by default) that drops field writes whose
-    /// value already equals the stored tip. Zero when the feature is off —
-    /// which is itself the reading worth having, since a zero here means the
-    /// downstream savings it exists to produce are not being taken.
-    DedupeScan,
     /// Mutation: schema reload back into the schema manager after a write —
     /// covers both the inline path (`mode != write` or over the defer cap)
     /// and, once surfaced from the deferred task, the write-mode background
