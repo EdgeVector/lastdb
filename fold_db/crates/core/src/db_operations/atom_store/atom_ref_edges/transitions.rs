@@ -11,13 +11,27 @@ impl AtomStore {
     /// [`AtomRefV2Transition`] while it also supports existing multi-row write
     /// batches. An active edge in the same batch cancels a matching delete.
     ///
-    /// SHA-256 atom identities write compact v2 keys and omit the v1 JSON row.
-    /// Non-hex test identities keep the v1 JSON row so existing fixtures still
-    /// store.
+    /// SHA-256 atom identities use compact v2 keys and omit the v1 JSON row.
+    /// Other identities retain the JSON encoding.
     pub(crate) async fn batch_put_items_with_atom_ref_v2(
         &self,
         items: Vec<(String, Value)>,
         storage_prefix: Option<&str>,
+    ) -> Result<(), SchemaError> {
+        self.batch_put_items_with_blob_roots(
+            items,
+            storage_prefix,
+            super::super::blob_ref_edges::TipBlobChanges::default(),
+        )
+        .await
+    }
+
+    /// Blob roots precede selected tip puts; retired roots follow source puts.
+    pub(crate) async fn batch_put_items_with_blob_roots(
+        &self,
+        items: Vec<(String, Value)>,
+        storage_prefix: Option<&str>,
+        blob_changes: super::super::blob_ref_edges::TipBlobChanges,
     ) -> Result<(), SchemaError> {
         let plan = self.atom_ref_v2_mutations_for_v1_items(&items, storage_prefix)?;
         let CompactEdgePlan {
@@ -25,7 +39,11 @@ impl AtomStore {
             inactive_edges,
             converted_v1_keys,
         } = plan;
-        if active_edges.is_empty() && inactive_edges.is_empty() {
+        if active_edges.is_empty()
+            && inactive_edges.is_empty()
+            && blob_changes.puts.is_empty()
+            && blob_changes.deletes.is_empty()
+        {
             return self
                 .main_store
                 .batch_put_items(items)
@@ -44,6 +62,7 @@ impl AtomStore {
         count_atoms.sort_unstable();
         count_atoms.dedup();
         let _count_guards = self.lock_atom_ref_counts(&count_atoms).await;
+        let _blob_guards = self.lock_liveness_blobs(&blob_changes.targets).await;
 
         let active_edge_puts: Vec<KvMutation> = active_edges
             .keys()
@@ -62,6 +81,7 @@ impl AtomStore {
         let mut mutations = Vec::with_capacity(
             active_edge_puts.len() + count_puts.len() + items.len() + inactive_edge_deletes.len(),
         );
+        mutations.extend(blob_changes.puts);
         mutations.extend(active_edge_puts.iter().cloned());
         mutations.extend(count_puts);
         for (key, value) in &items {
@@ -74,6 +94,7 @@ impl AtomStore {
             mutations.push(KvMutation::put(key.as_bytes().to_vec(), value));
         }
         mutations.extend(inactive_edge_deletes.iter().cloned());
+        mutations.extend(blob_changes.deletes);
         self.main_store
             .inner()
             .batch_mutate(mutations)

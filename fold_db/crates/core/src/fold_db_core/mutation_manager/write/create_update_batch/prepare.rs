@@ -157,7 +157,9 @@ impl MutationManager {
             )
             .await?;
             prepare_elapsed += prepare_started.elapsed();
-            self.stage_native_delta(delta, runtime, &mut heads).await?;
+            let fold_elapsed = self.stage_native_delta(delta, runtime, &mut heads).await?;
+            prepare_elapsed += fold_elapsed;
+            Self::add_timing(timing_breakdown, "  - protein_sibling_fold", fold_elapsed);
         }
         stages.prepare_us = crate::request_phases::duration_us(prepare_elapsed);
         Ok(group_count)

@@ -86,16 +86,22 @@ impl AtomStore {
             .iter_mut()
             .flat_map(|item| std::mem::take(&mut item.activation_items))
             .collect();
-        self.retain_durable_tip_winners(&mut activation_items)
+        let (_, mut blob_changes) = self
+            .retain_durable_tip_winners(&mut activation_items)
             .await?;
 
         for item in &ready {
-            self.tombstone_stale_direct_rows(item, storage_prefix, &mut activation_items)
-                .await?;
+            self.tombstone_stale_direct_rows(
+                item,
+                storage_prefix,
+                &mut activation_items,
+                &mut blob_changes,
+            )
+            .await?;
             activation_items.push(Self::generation_pointer_item(item, storage_prefix)?);
         }
 
-        self.batch_put_items_with_atom_ref_v2(activation_items, storage_prefix)
+        self.batch_put_items_with_blob_roots(activation_items, storage_prefix, blob_changes)
             .await
             .map_err(|error| {
                 SchemaError::InvalidData(format!("activate molecule generation batch: {error}"))
@@ -245,6 +251,7 @@ impl AtomStore {
         item: &ReadyMoleculeGenerationActivation,
         storage_prefix: Option<&str>,
         activation_items: &mut Vec<(String, Value)>,
+        blob_changes: &mut super::super::super::blob_ref_edges::TipBlobChanges,
     ) -> Result<(), SchemaError> {
         let stale_keys: Vec<String> = item
             .stale_direct
@@ -275,6 +282,7 @@ impl AtomStore {
             if current.entry.lww_key() != old.entry.lww_key() {
                 continue;
             }
+            blob_changes.replace(&key, Some(&current), None)?;
             current.meta.get_or_insert_with(Default::default).tombstoned = true;
             activation_items.push(self.inactive_atom_ref_tip_edge_item(
                 &item.molecule_uuid,

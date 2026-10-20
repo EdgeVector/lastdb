@@ -5,8 +5,9 @@
 //! File bytes are content-addressed by the **plaintext** hash
 //! (`blob_ref = sha256:<hex>`), so one blob can be referenced by atoms of any
 //! record in any schema. Purge's atom guards prove an *atom* is unshared; they
-//! cannot prove a *blob* is. The `bref:v1` reverse-edge set supplies that exact
-//! target-partition proof. A missing completeness marker retains every blob.
+//! cannot prove a *blob* is. Blob reverse edges supply the exact target proof.
+//! The node-global `bref:v2:complete` proof covers every scope's atom bodies
+//! and current tips. A missing proof retains every blob.
 //!
 //! # What it covers — the two local planes
 //!
@@ -20,9 +21,10 @@
 //!
 //! # Reachability
 //!
-//! A blob is referenced when an active `bref:v1` edge names it. Atom writes
-//! add that edge before they persist the atom source. Atom reclaim removes the
-//! source first and the edge second. Source formats include content pointers
+//! A blob is referenced when an immutable atom body or current tip owns an
+//! active blob edge. Atom writes add their edges before the body source.
+//! Current tip changes update their edges in the same native transaction.
+//! Atom reclaim removes the source before its edges. Source formats include content pointers
 //! (`$lastdb_file.blob_ref` and legacy `$blob_ref`) and metadata references
 //! (`file_blob_ref`, or `file_hash` as `sha256:{file_hash}`).
 //!
@@ -33,11 +35,12 @@
 //! # The write race
 //!
 //! Candidate enumeration can scan the two local blob planes. It never scans
-//! atoms. For each candidate, the janitor holds the blob target gate, reads
-//! the exact `bref:v1` partition, and rechecks the blob row's `stored_at`.
-//! A concurrent writer either publishes its edge before the check or runs
-//! after the gate and refreshes the immutable blob before it publishes the
-//! atom source. The age gate remains a conservative extra guard.
+//! atoms. Each bounded recheck takes the retired-intent fence before the native
+//! gate, then takes blob target locks. Its private read includes earlier
+//! accepted writes that still await flush. The final root and age checks share
+//! one native transaction with deletion, including deferred main-store keys.
+//! Blob puts take the native gate before target locks too. The age gate remains
+//! a conservative extra guard between a blob put and its later record write.
 //!
 //! Rows from before `stored_at` existed cannot be aged, so the sweep **stamps**
 //! them instead of deleting them: the first pass dates the legacy population,
@@ -59,11 +62,12 @@
 
 use crate::db_operations::DbOperations;
 use crate::schema::SchemaError;
-use chrono::Utc;
+use crate::storage::disk_pack::transaction;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sweep::{
     classify_candidates, collect_candidates, delete_candidates, execute_ledger_entry,
-    record_empty_pass, stamp_candidates,
+    record_empty_pass, stamp_candidates, BlobCandidate,
 };
 
 mod sweep;
@@ -84,13 +88,13 @@ pub struct FileBlobGcReport {
     pub scan_started_at: String,
     /// Atom rows walked to build the reference set.
     pub atoms_scanned: u64,
-    /// Distinct blob refs named by live atoms.
+    /// Distinct blob refs named by atom bodies or current tips.
     pub blob_refs_referenced: u64,
     /// Blob rows walked across both local planes.
     pub file_blobs_scanned: u64,
-    /// Rows kept because a live atom or a retired-intent outcome references them.
+    /// Rows kept because an atom body, current tip, or retired-intent outcome references them.
     pub file_blobs_referenced: u64,
-    /// Rows retained because the `bref:v1` completeness marker is absent.
+    /// Rows retained because the node-global `bref:v2` proof is absent.
     pub file_blobs_retained_incomplete: u64,
     /// Unreferenced rows deleted (would-delete on dry run).
     pub file_blobs_deleted: u64,
@@ -107,7 +111,7 @@ pub struct FileBlobGcReport {
     pub bytes_freed_approx: u64,
 }
 
-/// Delete every local blob row no live atom references, oldest-first-safe.
+/// Delete local blob rows with no atom, current-tip, or retired-intent root.
 /// See the module docs for the exact contract.
 pub async fn gc_orphan_file_blobs(
     db_ops: &DbOperations,
@@ -153,7 +157,7 @@ pub async fn gc_orphan_file_blobs(
     // ---- Classify candidates.
     let reclaim_before = scan_started_at - chrono::Duration::seconds(FRESH_WRITE_GRACE_SECS);
     let (to_delete, to_stamp) =
-        classify_candidates(db_ops, candidates, reclaim_before, &mut report).await?;
+        classify_in_batches(db_ops, &candidates, reclaim_before, &mut report).await?;
 
     if dry_run {
         return Ok(report);
@@ -167,9 +171,16 @@ pub async fn gc_orphan_file_blobs(
         .begin_delete_ledger_row(None, ledger_entry)
         .await?;
 
-    stamp_candidates(db_ops, &to_stamp, &report.scan_started_at).await?;
+    let stamp = report.scan_started_at.clone();
+    execute_in_batches(db_ops, &to_stamp, ReclaimStep::Stamp(&stamp), &mut report).await?;
 
-    delete_candidates(db_ops, &to_delete, reclaim_before, &mut report).await?;
+    execute_in_batches(
+        db_ops,
+        &to_delete,
+        ReclaimStep::Delete(reclaim_before),
+        &mut report,
+    )
+    .await?;
 
     if !to_delete.is_empty() || !to_stamp.is_empty() {
         let _ = db_ops.flush().await;
@@ -191,4 +202,61 @@ pub async fn gc_orphan_file_blobs(
     );
 
     Ok(report)
+}
+
+async fn classify_in_batches(
+    db_ops: &DbOperations,
+    mut candidates: &[BlobCandidate],
+    reclaim_before: DateTime<Utc>,
+    report: &mut FileBlobGcReport,
+) -> Result<(Vec<BlobCandidate>, Vec<BlobCandidate>), SchemaError> {
+    let mut to_delete = Vec::new();
+    let mut to_stamp = Vec::new();
+    while !candidates.is_empty() {
+        let count = sweep::batch_len(candidates);
+        // Retention takes this fence before the native gate. Never reacquire
+        // it inside the scope: a queued exclusive waiter would deadlock.
+        let _retired_reclaim = db_ops.atoms().retired_intent_reclaim_guard().await;
+        let runtime = db_ops.namespaced_store().disk_pack_runtime();
+        let (delete, stamp) = transaction::background_scope(
+            runtime,
+            classify_candidates(db_ops, candidates[..count].to_vec(), reclaim_before, report),
+        )
+        .await?;
+        to_delete.extend(delete);
+        to_stamp.extend(stamp);
+        candidates = &candidates[count..];
+    }
+    Ok((to_delete, to_stamp))
+}
+
+#[derive(Clone, Copy)]
+enum ReclaimStep<'a> {
+    Stamp(&'a str),
+    Delete(DateTime<Utc>),
+}
+
+async fn execute_in_batches(
+    db_ops: &DbOperations,
+    mut candidates: &[BlobCandidate],
+    step: ReclaimStep<'_>,
+    report: &mut FileBlobGcReport,
+) -> Result<(), SchemaError> {
+    while !candidates.is_empty() {
+        let count = sweep::batch_len(candidates);
+        let chunk = &candidates[..count];
+        let _retired_reclaim = db_ops.atoms().retired_intent_reclaim_guard().await;
+        let runtime = db_ops.namespaced_store().disk_pack_runtime();
+        transaction::background_scope(runtime, async {
+            match step {
+                ReclaimStep::Stamp(at) => stamp_candidates(db_ops, chunk, at).await,
+                ReclaimStep::Delete(before) => {
+                    delete_candidates(db_ops, chunk, before, report).await
+                }
+            }
+        })
+        .await?;
+        candidates = &candidates[count..];
+    }
+    Ok(())
 }

@@ -168,18 +168,14 @@ pub async fn drop_unreferenced_prefixed_rows(
     live_instances: &std::collections::HashSet<String>,
 ) -> StorageResult<usize> {
     let rows = main.scan_prefix(b"").await?;
-    let mut deleted = 0usize;
-    for (key, _) in rows {
-        let Some(prefix) = leftover_db_hash_prefix(&key) else {
-            continue;
-        };
-        if live_instances.contains(prefix) {
-            continue;
-        }
-        main.delete(&key).await?;
-        deleted += 1;
-    }
-    Ok(deleted)
+    let keys = rows
+        .into_iter()
+        .filter_map(|(key, _)| {
+            let prefix = leftover_db_hash_prefix(&key)?;
+            (!live_instances.contains(prefix)).then_some(key)
+        })
+        .collect();
+    drop_scoped_source_rows(main, keys).await
 }
 
 /// Drop every main-store key for one instance prefix (`{instance_id}:…`).
@@ -192,12 +188,29 @@ pub async fn drop_prefixed_rows_for_instance(
     }
     let prefix = format!("{instance_id}:");
     let rows = main.scan_prefix(prefix.as_bytes()).await?;
-    let mut deleted = 0usize;
-    for (key, _) in rows {
-        main.delete(&key).await?;
-        deleted += 1;
+    let keys = rows.into_iter().map(|(key, _)| key).collect();
+    drop_scoped_source_rows(main, keys).await
+}
+
+async fn drop_scoped_source_rows(
+    main: &dyn crate::storage::traits::KvStore,
+    keys: Vec<Vec<u8>>,
+) -> StorageResult<usize> {
+    if keys.is_empty() {
+        return Ok(0);
     }
-    Ok(deleted)
+    // Blob roots are node-global. Raw scope erasure cannot reconstruct
+    // encrypted atom/tip ownership, so revoke proof before removing sources.
+    // An offline whole-home rebuild retires those roots and restores blob GC.
+    main.batch_delete(vec![
+        b"bref:v2:complete".to_vec(),
+        b"bref:v1:complete".to_vec(),
+    ])
+    .await?;
+    for chunk in keys.chunks(2_048) {
+        main.batch_delete(chunk.to_vec()).await?;
+    }
+    Ok(keys.len())
 }
 
 pub fn leftover_db_hash_prefix(key: &[u8]) -> Option<&str> {

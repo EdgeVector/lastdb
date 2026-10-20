@@ -88,6 +88,9 @@ A moved unchanged field can retain its atom and use the key-change author clock.
 Equal field values alone do not establish record ownership.
 Partial shared fields that omit the source identity do not authorize related record removal.
 Conflicts still choose each field's current atom by its author clock.
+A related key uses the field values that the source write accepts.
+A rejected field value cannot change that key, even when another field in the same mutation wins.
+The source decision precedes related key preparation inside the private native write boundary.
 A peer with mixed source identities or conflicting shared-field clocks remains unchanged by related cleanup.
 This rule does not introduce unique peer keys or replacement of an entire record on a field write.
 Each schema change reads the earlier private changes in the same batch before it prepares related keys and values.
@@ -164,6 +167,22 @@ Equal atoms do not create a different-atom conflict or a replacement-history ent
 The same commit retires the prior tip's reference. A reference that the current tip still uses stays active.
 A present key-metadata record supplies all its optional fields. An omitted member clears that value.
 Only the absence of the entire key-metadata record permits atom creation metadata as a fallback.
+Current key metadata can reference a file blob independently of the immutable atom metadata.
+Each tip owns the protection for its current metadata references.
+Replacement and deletion change that protection with the selected tip.
+All databases on the node share the file blob store.
+The protection uses the exact database scope of each source.
+
+File cleanup requires a completion proof for both atom references and current tip metadata references.
+The older atom-only proof cannot authorize file cleanup.
+Only a whole-home offline rebuild can issue the new proof.
+A scoped rebuild receives an error.
+The rebuild reads both sources in every database scope before it records the proof.
+It refuses a database scope that overlaps a reserved storage key name.
+Raw database removal clears the proof; the next whole-home rebuild removes the old file protection.
+
+File cleanup checks current accepted writes and deletes file blobs inside bounded native write scopes.
+The check and deletion share the same scope, including writes that still await flush.
 Single and batch requests carry the declared source file name through the same write pipeline.
 Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.

@@ -23,6 +23,7 @@ struct SlotRemovalPlan {
     headers: Vec<(String, serde_json::Value)>,
     trailing_keys: Vec<Vec<u8>>,
     removed_tip_edges: Vec<(Option<String>, super::super::AtomRefEdge)>,
+    blob_changes: super::super::blob_ref_edges::TipBlobChanges,
     molecule_count: usize,
     slot_count: usize,
 }
@@ -149,10 +150,17 @@ impl AtomStore {
             headers,
             mut trailing_keys,
             removed_tip_edges,
+            blob_changes,
             molecule_count,
             slot_count,
         } = plan;
 
+        trailing_keys.extend(
+            blob_changes
+                .deletes
+                .iter()
+                .map(|mutation| mutation.key().to_vec()),
+        );
         keys.append(&mut extra_keys);
         keys.sort_unstable();
         keys.dedup();
@@ -171,6 +179,7 @@ impl AtomStore {
         ref_atoms.sort_unstable();
         ref_atoms.dedup();
         let _count_guards = self.lock_atom_ref_counts(&ref_atoms).await;
+        let _blob_guards = self.lock_liveness_blobs(&blob_changes.targets).await;
         let count_mutations = self
             .removed_tip_edge_count_mutations(removed_tip_edges)
             .await?;
@@ -299,6 +308,11 @@ impl AtomStore {
     ) -> Result<(), SchemaError> {
         let base_key = molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range);
         if let Some(current) = current.get(&build_storage_key(storage_prefix, &base_key)) {
+            plan.blob_changes.replace(
+                &build_storage_key(storage_prefix, &base_key),
+                Some(current),
+                None,
+            )?;
             let edge = Self::live_tip_ref_edge(molecule_uuid, hash, range, &current.entry);
             if let Ok(edge_key) = edge.storage_key_v2(storage_prefix) {
                 plan.trailing_keys.push(edge_key.into_bytes());

@@ -125,7 +125,8 @@ impl AtomStore {
         for blob_ref in
             crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
         {
-            let edge = BlobRefEdge::atom(atom.uuid(), &blob_ref);
+            let mut edge = BlobRefEdge::atom(atom.uuid(), &blob_ref);
+            edge.atom_scope = storage_prefix.map(str::to_string);
             let edge_key = edge.storage_key(storage_prefix);
             if seen_blob_edges.insert(edge_key.clone()) {
                 let edge_value = serde_json::to_vec(&edge).map_err(|error| {

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::atom::{AtomEntry, ImportedTip, KeyMetadata, MoleculeHashRange};
 use crate::db_operations::ChangedKey;
 use crate::schema::types::Schema;
+use crate::schema::SchemaError;
 
 use super::super::MutationManager;
 use super::delta::PreparedSchemaDelta;
@@ -200,11 +201,17 @@ fn winning_sources(
 
 impl MutationManager {
     /// Rebase both the serving delta and its persist envelope under the held gates.
-    pub(in crate::fold_db_core::mutation_manager) fn rebase_delta_for_publish(
+    pub(in crate::fold_db_core::mutation_manager) async fn rebase_delta_for_publish(
         &self,
         delta: &mut PreparedSchemaDelta,
         heads: &mut BatchSlotHeads,
-    ) -> super::super::helpers::ModifiedFieldKeys {
+    ) -> Result<
+        (
+            super::super::helpers::ModifiedFieldKeys,
+            std::time::Duration,
+        ),
+        SchemaError,
+    > {
         heads.overlay_schema(delta);
         let mut prospective = delta.schema.clone();
         let (modified, accepted) = self.apply_mutations_to_molecules(
@@ -214,6 +221,27 @@ impl MutationManager {
             delta.atom_results.clone(),
         );
         let sources = winning_sources(delta, &prospective, &accepted);
+        let fold_started = std::time::Instant::now();
+        let eligible = super::protein_batch::eligible_protein_atoms(
+            &prospective,
+            &delta.mutation_key_values,
+            &delta.atom_results,
+            &accepted,
+        );
+        // Select sibling coordinates only after the source's final LWW
+        // decision. All reads remain inside the private native transaction.
+        let (updates, origins, moves) = self
+            .fold_protein_siblings_after_write(
+                &delta.schema,
+                &delta.schema_mutations,
+                &delta.mutation_key_values,
+                &eligible,
+            )
+            .await?;
+        let fold_elapsed = fold_started.elapsed();
+        delta.sibling_updates = updates;
+        delta.sibling_origins = origins;
+        delta.sibling_moves = moves;
         delta
             .sibling_moves
             .retain(|movement| sources.contains_key(&movement.source));
@@ -248,7 +276,7 @@ impl MutationManager {
             delta.sibling_updates.push((uuid, rebased, changed));
             delta.sibling_origins.push(origin);
         }
-        modified
+        Ok((modified, fold_elapsed))
     }
 
     fn apply_sibling_source(data: &mut MoleculeHashRange, key: &ChangedKey, source: &SlotHead) {
