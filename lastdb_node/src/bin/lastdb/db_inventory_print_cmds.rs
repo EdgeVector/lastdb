@@ -48,6 +48,10 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
         print_atom_counters(counters);
         println!();
     }
+    if let Some(counters) = inventory.get("molecule_counters") {
+        print_molecule_counters(counters);
+        println!();
+    }
     print_per_schema_history(inventory);
     if let Some(notes) = array_of(inventory, "notes") {
         println!();
@@ -180,6 +184,43 @@ fn print_atom_counters(counters: &Value) {
         "  counters without body:  {}",
         u64_of(counters, "counters_without_body")
     );
+}
+
+fn print_molecule_counters(counters: &Value) {
+    println!("Molecule counters (slots and records in mh:{{M}}, bindings in mref:v1:n:{{M}}):");
+    println!("  headers:                {}", u64_of(counters, "headers"));
+    println!(
+        "  slots total:            {}",
+        u64_of(counters, "slots_total")
+    );
+    println!(
+        "  records total:          {}",
+        u64_of(counters, "records_total")
+    );
+    println!(
+        "  bindings total:         {} (binding records read: {})",
+        u64_of(counters, "bindings_total"),
+        u64_of(counters, "binding_records")
+    );
+    println!(
+        "  molecules with bindings: {}",
+        u64_of(counters, "bound_molecules")
+    );
+    println!("  live (a counter > 0):   {}", u64_of(counters, "live"));
+    println!(
+        "  droppable (all zero):   {}",
+        u64_of(counters, "droppable")
+    );
+    println!("  suspect:                {}", u64_of(counters, "suspect"));
+    println!(
+        "  headers without counters: {}",
+        u64_of(counters, "counters_unset")
+    );
+    if let Some(sample) = array_of(counters, "droppable_sample") {
+        for molecule in sample.iter().filter_map(|item| item.as_str()).take(5) {
+            println!("    droppable: {molecule}");
+        }
+    }
 }
 
 fn print_history_tips() {

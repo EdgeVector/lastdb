@@ -1,11 +1,12 @@
 # Writer boundary of the atom counter. Format: path|function|families|reason
-# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · - none of these
+# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · M molecule header counters and the bindings counter · - none of these
 # One line for each function that the lint finds. The lint fails on a function that is missing,
 # on a function that names a family the line does not list, and on a line that no function matches.
 # `*` as the function is for the planner module only.
 
 fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
-fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N|the planner: its one batch_mutate joins the pending batch of the request
+fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N M|the planner: its one batch_mutate joins the pending batch of the request; the molecule counters in the header rows of the batch come from counter/molecule.rs
+fold_db/crates/core/src/db_operations/atom_store/molecule_bindings.rs|flip_molecule_bindings|M|the one writer of binding records and of the bindings counter: both change in one batch inside the write gate, from the state of the records
 
 fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 
@@ -14,17 +15,12 @@ fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|gc_orphan_prot
 
 
 
-fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|bind_catalog_molecules|-|database-catalog molecule edges (step S4 removes them)
-fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|unbind_catalog_molecules|-|database-catalog molecule edges (step S4 removes them)
 
 fold_db/crates/core/src/db_operations/atom_store/hard_erase_journal.rs|prune_hard_erase_journal_locked|-|hard-erase audit journal rows
 
 fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|clear_keep_small_distrust_marker|-|keep-small meter distrust marker
 fold_db/crates/core/src/db_operations/atom_store/keep_small.rs|note_keep_small_hydrate_failure|-|keep-small meter distrust marker
 
-fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|delete_molecule_ref_edge|-|molecule reverse edges (step S4 removes them)
-fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|put_molecule_ref_edge|-|molecule reverse edges (step S4 removes them)
-fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|put_molecule_ref_edges_if_changed|-|molecule reverse edges (step S4 removes them)
 
 
 fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|reclaim_expired_generations|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
@@ -137,7 +133,7 @@ fold_db/crates/core/src/sync/engine/replay/merge.rs|store_merge_conflicts|C|repl
 
 
 fold_db/crates/core/src/sync/engine/replay/records.rs|merge_per_key_lww|T|cloud replay of a peer tip under last-writer-wins; the conflict goes through the planner
-fold_db/crates/core/src/sync/engine/replay/records.rs|replay_header_record|-|replay order log and header rows
+fold_db/crates/core/src/sync/engine/replay/records.rs|replay_header_record|M|cloud replay of a peer header: it writes the version and the time and no counters, so the molecule counters read as unset and the next planner change marks the molecule suspect; cloud sync is off in this build
 
 fold_db/crates/core/src/sync/engine/thumb_pack.rs|cache_thumb_ciphertext|-|thumbnail cache rows
 fold_db/crates/core/src/sync/engine/thumb_pack.rs|cache_thumb_pack|-|thumbnail cache rows

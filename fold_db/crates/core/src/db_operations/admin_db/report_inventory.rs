@@ -156,6 +156,9 @@ pub struct DbInventory {
     /// Atom counter totals and pairing faults from the same walk as `per_schema_atoms`.
     #[serde(default)]
     pub atom_counters: super::super::storage_breakdown::AtomCounterTotals,
+    /// Molecule counter totals: slots, records and bindings, joined per molecule.
+    #[serde(default)]
+    pub molecule_counters: super::MoleculeCounterTotals,
     /// Attribution ledger summary: object counts by class (schema/retention/
     /// system/derived/residue/unknown) and total path-row count. Absent
     /// (all-zero) on a home written before this field existed.

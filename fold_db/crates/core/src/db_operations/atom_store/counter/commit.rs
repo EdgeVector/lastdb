@@ -7,6 +7,7 @@
 //! `batch_mutate` at the end joins the pending batch of the request.
 
 use super::build::build_mutations;
+use super::molecule::molecule_changes;
 use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::report::CounterEvent;
@@ -29,6 +30,9 @@ pub(crate) struct RecordRefs {
     pub key: String,
     /// The distinct atoms that the record names.
     pub atoms: Vec<String>,
+    /// The molecule the record belongs to. When the record is new, the planner
+    /// raises `records` in the header of this molecule, in the same batch.
+    pub molecule: String,
 }
 
 /// Everything one planner run needs.
@@ -107,6 +111,7 @@ impl AtomStore {
         let old = self.read_old_tips(&tips).await?;
         let new_records = self.read_new_records(&records).await?;
         let deltas = ref_deltas(&tips, &old, &records, &new_records);
+        let changes = molecule_changes(&tips, &old, &records, &new_records);
         let before = self.read_counters(&deltas, scope).await?;
         let sources = BodySources {
             bodies,
@@ -116,8 +121,13 @@ impl AtomStore {
             .offer_bodies(&deltas, &before, &tips, &sources, scope)
             .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
-        let (mutations, commit) =
+        let (rows, molecule_run) = self.apply_molecule_counters(scope, &changes, rows).await?;
+        let (mutations, mut commit) =
             build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
+        for (molecule, fault) in molecule_run.faults {
+            self.counter_report().note_molecule(&molecule, fault);
+            commit.counter_events += 1;
+        }
         if !mutations.is_empty() {
             self.main_store
                 .inner()

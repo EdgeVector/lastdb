@@ -91,6 +91,7 @@ impl AtomStore {
             recorded.refs.push(RecordRefs {
                 key: history_key.clone(),
                 atoms: event_atoms(&event),
+                molecule: event.molecule_uuid.clone(),
             });
             recorded.rows.push((history_key, to_value(&event)?));
             recorded.rows.push((

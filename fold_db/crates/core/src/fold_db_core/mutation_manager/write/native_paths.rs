@@ -71,14 +71,6 @@ impl MutationManager {
         self.stage_native_headers(job, runtime, scope, siblings)?;
         // Schema-field/protein definitions are global. The logical records
         // below use this request's scope.
-        if !self
-            .db_ops
-            .atoms()
-            .molecule_ref_edges_v2_complete(None)
-            .await?
-        {
-            transaction::require_durable(runtime)?;
-        }
         if !runtime.write_has_feature(laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS) {
             transaction::require_durable(runtime)?;
         }

@@ -11,12 +11,13 @@ pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         return vec!["Atom counters: unsupported by daemon (no planner report)".to_string()];
     };
     let mut head = format!(
-        "Atom counters: bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={}; process-lifetime totals (reset on daemon restart)",
+        "Atom counters: bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} molecule_faults={}; process-lifetime totals (reset on daemon restart)",
         report.bodies_created,
         report.bodies_deleted,
         report.underflows,
         report.counters_absent,
         report.dangling_removals,
+        report.molecule_faults,
     );
     if !report.recent_faults.is_empty() {
         head.push_str(&format!(

@@ -11,7 +11,7 @@ pub(super) async fn execute_liveness_explain_route(
         class: String,
         #[serde(default)]
         id: String,
-        /// Several atom ids in one call. Only the class `atom` reads them.
+        /// Several ids in one call. The classes `atom` and `molecule` read them.
         #[serde(default)]
         ids: Vec<String>,
     }
@@ -49,6 +49,9 @@ pub(super) async fn execute_liveness_explain_route(
     }
     if class == "atom" {
         return explain_atoms(host, ctx, id, request.ids).await;
+    }
+    if class == "molecule" {
+        return explain_molecules(host, ctx, id, request.ids).await;
     }
     let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
 
@@ -110,12 +113,6 @@ async fn read_liveness_references(
     atoms: &fold_db::db_operations::AtomStore,
 ) -> Result<LivenessReferences, fold_db::schema::SchemaError> {
     match class {
-        "molecule" => {
-            let lookup = atoms
-                .molecule_ref_edges_for_molecule(id, storage_prefix)
-                .await?;
-            LivenessReferences::with_edges(lookup.complete, lookup.edges)
-        }
         "blob" => {
             let lookup = atoms.blob_ref_edges_for_blob(id, storage_prefix).await?;
             LivenessReferences::with_edges(lookup.complete, lookup.edges)

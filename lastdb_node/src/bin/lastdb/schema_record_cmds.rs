@@ -407,6 +407,13 @@ pub(super) fn liveness_explain_command(
         crate::liveness_atom_print::print_atom_liveness(atoms);
         return Ok(());
     }
+    if let Some(molecules) = report
+        .get("molecules")
+        .and_then(serde_json::Value::as_array)
+    {
+        crate::liveness_molecule_print::print_molecule_liveness(molecules);
+        return Ok(());
+    }
     let returned_class = report
         .get("class")
         .and_then(serde_json::Value::as_str)
