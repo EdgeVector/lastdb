@@ -7,20 +7,13 @@ pub const HASH_GROUP_WARM_BOUNDS: &str =
 /// Retired graph wire fields; the native core has its own current counters.
 pub const RESIDENT_GRAPH_BOUNDS: &str = "retired graph fields; use core_model";
 
-/// What `resident_key_count` / `resident_key_budget` bound.
-///
-/// The in-force used-record cap is `resident_key_budget`. Name
-/// `RESIDENT_KEY_CAP=10000` only when that budget is the default;
-/// `LASTDB_RESIDENT_KEY_CAP` can lower it.
-pub const LOGICAL_KEY_MEMORY_LIMIT: &str = "memory limit for logical keys (tips and atoms)";
+/// What bounds `resident_key_count`. The path-count cap is retired; the warm
+/// set is limited by charged bytes (`memory_budget.core_warm.limit_bytes`).
+pub const LOGICAL_KEY_MEMORY_LIMIT: &str =
+    "no path-count limit; the warm set is limited by bytes (see Warm set bytes)";
 
-pub(super) fn logical_key_memory_limit_for(budget: Option<u64>) -> String {
-    match budget {
-        Some(n) if n == fold_db::resident::RESIDENT_KEY_CAP as u64 => {
-            format!("{LOGICAL_KEY_MEMORY_LIMIT}; RESIDENT_KEY_CAP={n}")
-        }
-        _ => LOGICAL_KEY_MEMORY_LIMIT.to_string(),
-    }
+pub(super) fn logical_key_memory_limit_for(_budget: Option<u64>) -> String {
+    LOGICAL_KEY_MEMORY_LIMIT.to_string()
 }
 
 /// Cheap runtime view of the memory budget declared at boot.
@@ -125,7 +118,7 @@ pub struct MemoryBudgetHealth {
     /// Store durability barrier counts (see `WarmSetAdmissionStats`).
     #[serde(flatten)]
     pub flush: StoreFlushHealth,
-    /// Warm set byte gauge from the native core (not enforced in stage 1).
+    /// Warm set byte charge and limit from the native core.
     #[serde(default)]
     pub core_warm: CoreWarmBytesHealth,
 }
@@ -200,6 +193,32 @@ pub struct CoreWarmBytesHealth {
     pub dirty_bytes: u64,
     pub dirty_limit_bytes: u64,
     pub tracked_atoms: u64,
+    #[serde(default)]
+    pub purged_bytes: u64,
+    #[serde(default)]
+    pub over_limit_admissions: u64,
+}
+
+impl CoreWarmBytesHealth {
+    /// One `lastdb status` line. `None` from a daemon that predates the gauge.
+    pub(super) fn status_line(&self) -> Option<String> {
+        if self.limit_bytes == 0 {
+            return None;
+        }
+        Some(format!(
+            "Warm set bytes: used={} / limit={} peak={} held={} dirty={} / {} \
+             purged={} over_limit_admissions={} atoms={}",
+            format_bytes(self.used_bytes),
+            format_bytes(self.limit_bytes),
+            format_bytes(self.peak_bytes),
+            format_bytes(self.held_bytes),
+            format_bytes(self.dirty_bytes),
+            format_bytes(self.dirty_limit_bytes),
+            format_bytes(self.purged_bytes),
+            self.over_limit_admissions,
+            self.tracked_atoms,
+        ))
+    }
 }
 
 impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
@@ -212,6 +231,8 @@ impl From<&fold_db::resident::CoreWarmByteStats> for CoreWarmBytesHealth {
             dirty_bytes: stats.dirty_bytes as u64,
             dirty_limit_bytes: stats.dirty_limit_bytes as u64,
             tracked_atoms: stats.tracked_atoms as u64,
+            purged_bytes: stats.purged_bytes,
+            over_limit_admissions: stats.over_limit_admissions,
         }
     }
 }

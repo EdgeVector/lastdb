@@ -353,6 +353,9 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
         lines.insert(2, line);
     }
+    if let Some(line) = snapshot.memory_budget.core_warm.status_line() {
+        lines.insert(3.min(lines.len()), line);
+    }
     lines
 }
 

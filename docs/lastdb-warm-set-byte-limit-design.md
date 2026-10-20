@@ -261,7 +261,7 @@ Each stage is one PR. The proof for each stage is the live signal named here, no
    Proof: status on a synthetic home shows `warm_used_bytes`, and the ratio to the footprint growth is inside 0.9 to 1.3.
 2. **Calibrate.** Set the constants from the synthetic fills (see "Calibration").
    Proof: the ratio is inside 1.0 to 1.1 for the three shapes.
-3. **Enforce bytes for reads.** Switch `make_room` to bytes. Every read enters, and the purge makes room. Remove the count limit.
+3. **Enforce bytes for reads.** DONE (2026-10-19, see "Stage 3 result"). Switch `make_room` to bytes. Every read enters, and the purge makes room. Remove the count limit.
    Proof: a fill above the limit on a synthetic home keeps `warm_used_bytes` at or under `warm_limit_bytes` when no call holds records, with zero read errors.
 4. **Dirty share.** Add the dirty counter and the write check.
    Proof: a synthetic write burst keeps `warm_dirty_bytes` at or under its limit. Writes above the share finish on disk, and every write gets its ack.
@@ -341,6 +341,31 @@ Result for 8,800 extra paths (normal cap against a cap of 1,200; 4 molecules per
 | medium (3,000 × 8 KB) | 5.4 KB | 4.0 KB | 1.067 |
 
 The warm set core part falls from about 2.9 KB to about 1.25 KB for each path. The molecule tip and key metadata (about 0.74 KB) are outside the warm set code and did not change.
+
+## Stage 3 result (2026-10-19)
+
+What changed:
+
+- `make_room` purges least recently used clean, unheld paths until the incoming path charges fit `LASTDB_CORE_WARM_BYTES`. It never refuses. If only held or unflushed paths remain, the new paths enter over the limit and `over_limit_admissions` counts it.
+- `admit` trims back to the limit after the atom charge, because the atom size is known only at admission.
+- `complete_flush` also trims. Flushed paths become purgeable then, and without this trim a quiet node stayed over the limit until its next admission (measured: 17.6 MiB against an 8 MiB limit after an update pass).
+- Every check starts with an O(1) comparison, so a warm set under its limit pays no extra allocation.
+- The 10,000-path count is removed (D3). `LASTDB_RESIDENT_KEY_CAP` is ignored with a warning. The status fields `warm_record_limit` and `resident_key_budget` stay on the wire for installed clients: the first reads 0, the second is "not served".
+- New status fields: `purged_bytes` and `over_limit_admissions`, and a "Warm set bytes" line in `lastdb status`.
+- Two stage 1 review fixes that did not reach main with PR 224 are included: the status line, and a peak recorded only after a sweep.
+
+Proof on synthetic throwaway nodes, with an update check that rewrites every 7th record twice and reads every record back after each acknowledgement:
+
+| Case | Charge after the reads and after the flush | Reads | Reads after updates |
+|---|---|---|---|
+| Small records, 8 MiB limit | 7.9 MiB in every round and after the flush | 9,000 correct | 6,000 correct |
+| 16 parallel clients, 8 MiB limit | 7.9 MiB | 9,000 correct | 6,000 correct |
+| Medium records, 16 MiB limit | 15.9 MiB | 9,000 correct | 6,000 correct |
+| Small records, default 256 MiB limit | 18.5 MiB (everything fits) | 9,000 correct | 6,000 correct |
+
+The 16-client case at 8 MiB failed before this change with "all core warm path slots are held or unflushed". Latency at the default limit is unchanged (p50 3.3–4.0 ms against 3.4–3.5 ms on main, the same warm round times).
+
+Known limit: a read that admits a record while an unflushed write exists marks that record unflushed until the flush, so a read burst during writes can go over the limit for up to the flush delay (500 ms). Stage 4 (the dirty share) bounds this.
 
 ## Later step
 

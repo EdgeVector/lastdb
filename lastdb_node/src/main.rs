@@ -154,12 +154,11 @@ fn log_allocator_tuning(tuning: &lastdb_node::allocator::AllocatorTuning) {
 }
 
 fn init_resident_key_cap() -> Result<(), String> {
-    let resident_key_cap = fold_db::resident::init_resident_key_cap_from_env()?;
-    if resident_key_cap != fold_db::resident::RESIDENT_KEY_CAP {
+    if std::env::var_os(fold_db::resident::RETIRED_KEY_CAP_ENV).is_some() {
         eprintln!(
-            "lastdbd: {}={resident_key_cap} (test cap; default {})",
-            fold_db::resident::RESIDENT_KEY_CAP_ENV,
-            fold_db::resident::RESIDENT_KEY_CAP
+            "lastdbd: {} is retired and ignored; the warm set is limited by {}",
+            fold_db::resident::RETIRED_KEY_CAP_ENV,
+            fold_db::resident::CORE_WARM_BYTES_ENV
         );
     }
     let warm_bytes = fold_db::resident::init_core_warm_bytes_from_env()?;
