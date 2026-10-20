@@ -3,7 +3,8 @@
 use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
 use super::pages::{phase_range, AtomsPage, ReferencedPage};
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
-use super::state::{digest, Run, StepGuard, Watch};
+use super::state::{Run, StepGuard};
+use super::totals::{digest, Watch};
 use crate::db_operations::atom_store::counter::scan::CounterRead;
 use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress, RangeWalk};
 use crate::schema::SchemaError;

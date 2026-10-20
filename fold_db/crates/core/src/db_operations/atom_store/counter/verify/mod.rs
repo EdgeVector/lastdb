@@ -46,6 +46,7 @@ mod pages;
 mod report;
 mod run;
 mod state;
+mod totals;
 
 pub use report::{VerifyReport, VerifyRequest, VerifySummary};
 pub(crate) use state::VerifyState;
