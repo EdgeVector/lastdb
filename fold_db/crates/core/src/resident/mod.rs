@@ -20,8 +20,9 @@
 //! protein binds molecules
 //! ```
 //!
-//! [`RESIDENT_KEY_CAP`] limits used logical records. A call holds its selected
-//! paths. The purge skips held records and writes that still await flush.
+//! The warm set is limited by charged bytes ([`core_warm_bytes`]). A call holds
+//! its selected paths. The purge skips held records and writes that still
+//! await flush; when only those remain, a new record enters over the limit.
 //! CAS file bytes stay outside the logical model. Queries return file
 //! references and access metadata rather than retaining file contents.
 //! See `docs/lastdb-rehydrate.md` for the explicit backend boundary.
@@ -29,7 +30,6 @@
 mod config;
 pub(crate) mod core_keys;
 mod core_set;
-mod key_cap;
 mod lane;
 mod metrics;
 mod warm_bytes;
@@ -46,10 +46,6 @@ pub(crate) use core_set::{
     CoreModelChange, CoreModelSnapshot, CoreModelStats, CoreModelUpdate, PreparedCoreMemory,
 };
 pub(crate) use core_set::{CorePath, CoreWarmLookup, CoreWarmSet, CoreWarmSlot, CoreWarmTip};
-pub use key_cap::{
-    init_resident_key_cap_from_env, parse_resident_key_cap, resident_key_cap, RESIDENT_KEY_CAP,
-    RESIDENT_KEY_CAP_ENV,
-};
 pub use lane::{
     PersistBatchOutcome, PersistEnvelope, PersistLaneFull, PersistLaneKey, PersistLaneOccupancy,
     PersistLanePressure, PersistLaneSet, PersistLaneWriter, PersistReservation,
@@ -57,5 +53,5 @@ pub use lane::{
 pub use metrics::{PersistLaneMetrics, PersistLaneMetricsSnapshot};
 pub use warm_bytes::{
     core_warm_bytes, core_warm_dirty_bytes, init_core_warm_bytes_from_env, parse_core_warm_bytes,
-    CORE_WARM_BYTES_ENV, CORE_WARM_DIRTY_PERCENT, DEFAULT_CORE_WARM_BYTES,
+    CORE_WARM_BYTES_ENV, CORE_WARM_DIRTY_PERCENT, DEFAULT_CORE_WARM_BYTES, RETIRED_KEY_CAP_ENV,
 };

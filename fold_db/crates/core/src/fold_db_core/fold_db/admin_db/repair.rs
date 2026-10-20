@@ -1,13 +1,12 @@
-//! Delete ledger and thin-tip migrate.
+//! Delete ledger and molecule keys.
 
 use super::*;
 
 impl FoldDB {
     /// Read the durable atom hard-delete ledger, oldest first.
     ///
-    /// The audit counterpart to [`Self::gc_orphan_atoms`] and the purge verb:
-    /// every hard-delete batch either appears here or did not happen. `limit`
-    /// of 0 means unbounded. See [`crate::db_operations::delete_ledger`] for
+    /// The audit counterpart to the purge verb: every hard-delete batch either
+    /// appears here or did not happen. `limit` of 0 means unbounded. See [`crate::db_operations::delete_ledger`] for
     /// what a row does and does not carry.
     pub async fn list_atom_delete_ledger(
         &self,
@@ -19,22 +18,30 @@ impl FoldDB {
             .await
             .map_err(|e| FoldDbError::Database(format!("list_atom_delete_ledger: {e}")))
     }
+}
 
-    /// Rewrite fat `mk:` tip values to thin `{atom_uuid, written_at, device_id}` in place.
-    ///
-    /// Bounded and resumable — see
-    /// [`crate::db_operations::AtomStore::migrate_thin_tips`]. Callers follow
-    /// `next_after_key` while `more_remaining` is true.
-    pub async fn migrate_thin_tips(
+impl FoldDB {
+    pub async fn list_molecule_keys(
         &self,
-        dry_run: bool,
+        molecule: &str,
         max_keys: Option<usize>,
-        after_key: Option<&str>,
-    ) -> Result<ThinTipMigrateReport, FoldDbError> {
+    ) -> Result<crate::db_operations::MoleculeKeysReport, FoldDbError> {
         self.db_ops()
             .atoms()
-            .migrate_thin_tips(dry_run, max_keys, after_key, None)
+            .list_molecule_keys(molecule, max_keys, None)
             .await
-            .map_err(|e| admin_op_error("migrate_thin_tips", e))
+            .map_err(|e| admin_op_error("list_molecule_keys", e))
+    }
+    pub async fn debug_molecule_hash_bucket(
+        &self,
+        molecule: &str,
+        api_hash: &str,
+        max_keys: usize,
+    ) -> Result<crate::db_operations::MoleculeHashBucketReport, FoldDbError> {
+        self.db_ops()
+            .atoms()
+            .debug_molecule_hash_bucket(molecule, api_hash, max_keys, None)
+            .await
+            .map_err(|e| admin_op_error("debug_molecule_hash_bucket", e))
     }
 }

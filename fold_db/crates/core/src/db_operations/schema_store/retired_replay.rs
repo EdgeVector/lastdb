@@ -62,10 +62,7 @@ impl AuthorityPlan {
         let mut states = Vec::with_capacity(names.len());
         for name in &names {
             let mut residual = Vec::new();
-            for key in crate::kind_partition::read_forms(name)
-                .into_iter()
-                .chain([name_claim_key(name)])
-            {
+            for key in [name.clone(), name_claim_key(name)] {
                 residual.push(key_position(
                     key.into_bytes(),
                     &mut state_keys,

@@ -49,10 +49,6 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
         println!();
     }
     print_per_schema_history(inventory);
-    if let Some(tf) = inventory.get("tip_format") {
-        println!();
-        print_tip_format(tf);
-    }
     if let Some(notes) = array_of(inventory, "notes") {
         println!();
         println!("Notes:");
@@ -91,9 +87,6 @@ fn print_collection_planes(planes: &Value) {
                 names
             );
         }
-    }
-    if let Some(names) = joined_names(planes, "legacy_split_named") {
-        println!("  legacy splits: {names}");
     }
     if let Some(names) = joined_names(planes, "unknown_active_collections") {
         println!("  UNKNOWN active planes: {names}");
@@ -187,30 +180,6 @@ fn print_atom_counters(counters: &Value) {
         "  counters without body:  {}",
         u64_of(counters, "counters_without_body")
     );
-}
-
-fn print_tip_format(tf: &Value) {
-    println!("Tip format (mk: values):");
-    let thin = u64_of(tf, "tips_thin");
-    let fat = u64_of(tf, "tips_fat");
-    let unreadable = u64_of(tf, "tips_unreadable");
-    println!("  scanned:     {}", u64_of(tf, "tips_scanned"));
-    println!(
-        "  thin:        {thin}  ({})",
-        format_bytes(u64_of(tf, "thin_bytes_approx"))
-    );
-    println!(
-        "  fat (legacy):{fat}  ({})",
-        format_bytes(u64_of(tf, "fat_bytes_approx"))
-    );
-    if unreadable > 0 {
-        println!("  unreadable:  {unreadable}");
-    }
-    if fat > 0 {
-        println!();
-        println!("  → migrate: lastdb db migrate-thin-tips            # dry-run");
-        println!("             lastdb db migrate-thin-tips --execute  # rewrite in place");
-    }
 }
 
 fn print_history_tips() {

@@ -14,7 +14,7 @@ pub struct MainKeyClass {
 /// Per-schema logical atom storage — the dedicated `lastdb db schemas` report.
 ///
 /// This is the atom-only walk (`storage_breakdown`). It does **not** scan
-/// history, order-log, or tip-format the way [`DbInventory`] does.
+/// history the way [`DbInventory`] does.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaStorageReport {
     /// RFC 3339 timestamp when this walk finished.
@@ -153,12 +153,6 @@ pub struct DbInventory {
     pub per_schema_atoms_total_bytes: u64,
     /// Rough history row counts per schema (via field molecules).
     pub per_schema_history: Vec<SchemaHistoryStat>,
-    /// Per-schema HashRange update-order log sizes (via field molecules).
-    #[serde(default)]
-    pub per_schema_order_log: Vec<SchemaOrderLogStat>,
-    /// Tip format stats (`mk:` values): thin vs legacy fat.
-    #[serde(default)]
-    pub tip_format: TipFormatStats,
     /// Atom counter totals and pairing faults from the same walk as `per_schema_atoms`.
     #[serde(default)]
     pub atom_counters: super::super::storage_breakdown::AtomCounterTotals,
@@ -168,52 +162,6 @@ pub struct DbInventory {
     #[serde(default)]
     pub attribution: crate::db_operations::AttributionSummary,
     pub notes: Vec<String>,
-}
-
-/// How many `mk:` tip values are thin vs legacy fat (signed).
-///
-/// A pass is bounded (see [`AtomStore::scan_tip_format`]), so a report is a
-/// window over the `mk:` keyspace, not necessarily the whole of it.
-/// `more_remaining` says whether the window closed early; `next_after_key`
-/// resumes it. Reading either count as a store total without checking
-/// `more_remaining` understates the plane.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TipFormatStats {
-    pub tips_scanned: u64,
-    pub tips_thin: u64,
-    pub tips_fat: u64,
-    pub tips_unreadable: u64,
-    pub fat_bytes_approx: u64,
-    pub thin_bytes_approx: u64,
-    /// True when this pass stopped on its key cap or time budget with keys
-    /// left in the range.
-    #[serde(default)]
-    pub more_remaining: bool,
-    /// Cursor to resume past: the last `mk:` storage key this pass decided.
-    #[serde(default)]
-    pub next_after_key: Option<String>,
-}
-
-/// Report from rewriting fat `mk:` tips to thin in place.
-///
-/// Bounded and resumable like [`TipFormatStats`]: one call decides a window of
-/// the `mk:` keyspace and reports whether more is left.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ThinTipMigrateReport {
-    pub dry_run: bool,
-    pub tips_scanned: u64,
-    pub tips_already_thin: u64,
-    pub tips_rewritten: u64,
-    pub tips_unreadable: u64,
-    pub bytes_before_approx: u64,
-    pub bytes_after_approx: u64,
-    /// True when this pass stopped on its key cap or time budget with keys
-    /// left in the range.
-    #[serde(default)]
-    pub more_remaining: bool,
-    /// Cursor to resume past: the last `mk:` storage key this pass decided.
-    #[serde(default)]
-    pub next_after_key: Option<String>,
 }
 
 /// Report from deleting empty, unbound `protein:` rows.
@@ -229,84 +177,11 @@ pub struct ProteinGcReport {
     pub bytes_freed_approx: u64,
 }
 
-/// Per-molecule row of [`TombstoneFlagAudit`].
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MoleculeTombstoneFlagStat {
-    /// Molecule uuid as it appears in the `mk:{M}:…` key.
-    pub molecule: String,
-    /// `schema.field`, when the caller supplied a label map.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    pub keys: u64,
-    pub meta_tombstoned: u64,
-    /// Keys whose `meta.tombstoned` is false but whose atom CONTENT is a
-    /// tombstone — the legacy population that still shortens a page.
-    pub content_tombstoned_meta_false: u64,
-    /// Live keys whose atom body could not be resolved at all.
-    pub atoms_missing: u64,
-}
-
-/// Result of auditing `KeyMetadata.tombstoned` against atom content.
-///
-/// `KeyMetadata.tombstoned` is `#[serde(default)]`, so an `mk:` record written
-/// before the field existed deserializes as `false` even when its atom content
-/// is a tombstone. `PageFill` (fold #919) spends the page window on the flag,
-/// and `resolve_value` rejects such a row afterwards by content — so those rows
-/// re-open the short-page defect on a narrower population.
-///
-/// [`Self::content_tombstoned_meta_false`] is the size of that population. Zero
-/// means the flag and the content agree everywhere and no backfill is owed.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TombstoneFlagAudit {
-    /// `mk:` records walked (after any molecule filter).
-    pub keys_scanned: u64,
-    /// Records whose value would not deserialize as a `PerKeyRecord`.
-    pub keys_unreadable: u64,
-    /// Records with `meta.tombstoned == true` — agreed dead, cheap to skip.
-    pub meta_tombstoned: u64,
-    /// Records with the flag false whose atom body resolved to live content.
-    pub live: u64,
-    /// **The number this audit exists for**: flag false, content tombstone.
-    pub content_tombstoned_meta_false: u64,
-    /// Flag false and no atom body resolved (neither flat, hinted, nor located).
-    pub atoms_missing: u64,
-    /// Atom bodies fetched to decide the above (the audit's real cost).
-    pub atoms_fetched: u64,
-    /// Molecules touched, worst first (`content_tombstoned_meta_false` desc).
-    pub per_molecule: Vec<MoleculeTombstoneFlagStat>,
-}
-
-/// Result of stamping `meta.tombstoned` onto legacy `mk:` records.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TombstoneFlagBackfillReport {
-    pub dry_run: bool,
-    /// The audit that decided the work (also the post-state when `dry_run`).
-    pub audit: TombstoneFlagAudit,
-    /// `mk:` records rewritten with `meta.tombstoned = true`.
-    pub keys_stamped: u64,
-    /// True when a `max_keys` cap stopped this call before the end of the
-    /// selected records. Resume with `after_key = next_after_key`.
-    pub more_remaining: bool,
-    /// Last selected key this call decided — the resume cursor. `None` when the
-    /// call selected nothing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_after_key: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaHistoryStat {
     pub schema_name: String,
     pub history_events: u64,
     pub history_bytes_approx: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SchemaOrderLogStat {
-    pub schema_name: String,
-    pub order_log_entries: u64,
-    pub order_log_bytes_approx: u64,
-    pub order_count_keys: u64,
-    pub order_count_bytes_approx: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,7 +218,7 @@ pub(in crate::db_operations) const INVENTORY_PAGE_BYTE_BUDGET: u64 = 8 * 1024 * 
 /// Lower bound on the adaptive page, and the size of the *first* page of every
 /// scan.
 ///
-/// One fixed row limit cannot serve this verb: `moc:` rows are tens of bytes
+/// A fixed record limit cannot bound all values: some records contain few bytes
 /// while `atom:` rows run to `ABSOLUTE_MAX_ATOM_CONTENT_BYTES` (1 MiB). A page
 /// large enough to keep the small classes cheap in round trips is a spike on
 /// the large ones, so the first page is deliberately small and each page

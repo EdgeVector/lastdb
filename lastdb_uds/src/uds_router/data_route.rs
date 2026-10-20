@@ -249,9 +249,6 @@ pub enum DataRoute {
     /// the source instance_id and grants target-domain key wraps.
     /// OWNER socket only.
     DbCatalogShare,
-    /// `POST /api/db/catalog/reclaim` — drop leftover `{64hex}:` copy-geometry
-    /// rows whose prefix is not a live catalog instance. OWNER socket only.
-    DbCatalogReclaim,
     /// `POST /api/sync/heal-staging` — live cloud snapshot + clear upload
     /// staging (OWNER only). Never stops Mini; concurrent local R/W continue.
     SyncHealStaging,
@@ -306,9 +303,6 @@ pub enum DataRoute {
     /// `POST /api/storage/liveness/explain` — point-read one target's active
     /// reverse-edge partition and fail-closed completeness state.
     LivenessExplain,
-    /// `POST /api/storage/liveness/bootstrap` — rebuild local derived edges
-    /// on a daemon started for an isolated copy. OWNER socket only.
-    LivenessBootstrap,
     /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
     /// OWNER socket only. Body: `{schema?, keep_last?, dry_run?}`.
     /// `keep_last: 0` = full purge (latest tip only).
@@ -340,11 +334,6 @@ pub enum DataRoute {
     /// `POST /api/db/gc-proteins` — delete empty, unbound `protein:` rows.
     /// OWNER socket only. Body: `{ dry_run?: bool }` (default true).
     DbGcProteins,
-    /// `POST /api/db/reclaim-keep-small-legacy` — drop the dead `metadata`
-    /// hash group that held the keep-small snapshot before 2026-09-21,
-    /// without loading it. OWNER socket only. Body: `{ dry_run?: bool }`
-    /// (default true).
-    DbReclaimKeepSmallLegacy,
     /// `POST /api/db/reclaim-keep-small-snapshot` — drop the current
     /// `keep_small` hash group when it holds only the rebuildable
     /// `keep_small:meters` row, without loading it. OWNER socket only.
@@ -358,12 +347,6 @@ pub enum DataRoute {
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,
-    /// `POST /api/db/migrate-photo-blobs` — move Photo.file_bytes into cas_blobs.
-    /// Body: `{ dry_run?: bool }` (default true).
-    DbMigratePhotoBlobs,
-    /// `POST /api/db/migrate-thin-tips` — rewrite fat `mk:` tip values to thin.
-    /// Body: `{ dry_run?: bool }` (default true).
-    DbMigrateThinTips,
     /// `POST /api/db/reseal-at-rest` — rewrite existing `ENC:` values in one
     /// sealed plane to `ENB:` (+ deflate ≥256 B) under the same key.
     /// OWNER only. Body: `{ collection, dry_run?: bool, max_rows?: usize,
@@ -374,20 +357,6 @@ pub enum DataRoute {
     /// `{ collection, dry_run?: bool, max_rows?: usize, max_secs?: u64,
     /// progress_only?: bool, restart?: bool }` (dry_run default true).
     DbReapUnsealed,
-    /// `POST /api/db/tombstone-flag-audit` — count `mk:` records whose
-    /// `meta.tombstoned` disagrees with their atom content, and optionally stamp
-    /// the flag onto them. Body: `{ schema?: string, dry_run?: bool }`
-    /// (default: whole store, dry run).
-    DbTombstoneFlagAudit,
-    /// `POST /api/db/legacy-key-fork-audit` — audit or drain legacy/plain
-    /// HashKey-encoding tips. Body:
-    /// `{ dry_run?: bool, max_keys?: usize, after_key?: string }`.
-    DbLegacyKeyForkAudit,
-    /// `POST /api/db/order-log-audit` — compare every `moc:{M}` order-log count
-    /// against its molecule's live `mk:` record count. Read-only detector for a
-    /// truncated `update_order` log, which no point read can see. Body:
-    /// `{ max_keys?: usize, after_key?: string }`.
-    DbOrderLogAudit,
     /// `POST /api/db/pin-log-audit` — bounded, resumable, read-only pin-log
     /// plane audit. Classifies entry rows as confirmed-orphan vs pending using
     /// durable published-F high-water marks. Never deletes. Body:
@@ -403,18 +372,6 @@ pub enum DataRoute {
     /// segments in a local directory through the live peer-apply path. Same
     /// refusal rules as [`Self::DbExportMutationLog`]. Body: `{ dir: string }`.
     DbReplayMutationLog,
-    /// `POST /api/db/order-log-bloat-audit` — measure append-only order-log
-    /// excess (stale entries + zero-live residue) with exact stored bytes.
-    /// Read-only. Body: `{ max_keys?: usize, after_key?: string }`.
-    DbOrderLogBloatAudit,
-    /// `POST /api/db/compact-order-log` — plan or delete the order log of a
-    /// zero-live molecule, a bloated molecule, and a clean molecule. Does not
-    /// write a new log. Body:
-    /// `{ dry_run?: bool, max_keys?: usize, after_key?: string, retention_seconds?: u64 }`.
-    DbCompactOrderLog,
-    /// `POST /api/db/repair-order-log-shortfall` — the verb writes nothing.
-    /// Body: `{ dry_run?: bool, max_keys?: usize, after_key?: string }`.
-    DbRepairOrderLogShortfall,
     /// `POST /api/db/molecule-keys` — list one molecule's live `mk:` storage
     /// keys (decoded hash/range + collision flag). Read-only.
     DbMoleculeKeys,
@@ -429,15 +386,6 @@ pub enum DataRoute {
     /// declared key-field molecules for one named HashRange partition.
     /// Owner only. Body: `{ schema, api_hash, execute?: bool }`.
     DbRepairHashRangeKeyFields,
-    /// `POST /api/db/drain-plane-residue` — copy one bounded page of rows
-    /// sitting outside their canonical plane collection (for example
-    /// `conflict:` rows in legacy `sync_conflicts`) into the canonical home,
-    /// deleting the source copy per key once the target holds it. Body:
-    /// `{ family: "tip"|"protein"|"index"|"conflict"|"order_log",
-    ///    source_collection: string, target_collection: string,
-    ///    after?: string, limit?: usize, execute?: bool,
-    ///    drop_empty_source?: bool }` (default: dry run).
-    DbDrainPlaneResidue,
     /// `POST /api/db/fetch-file-blob` — explicitly fetch exactly one
     /// `$lastdb_file` pointer's remote CAS object and cache it locally.
     /// Body: `{ "pointer": <field value> }`.

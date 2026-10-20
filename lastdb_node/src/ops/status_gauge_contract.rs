@@ -17,9 +17,9 @@ use std::collections::HashMap;
 use super::gauge::Gauge;
 use super::self_metrics::{
     AtomRefEdgeHealth, BackupProgressHealth, BackupStorageHealth, BuildHealth, CodecPolicyHealth,
-    DualReadHealth, DurabilityHealth, FileBlobHealth, IntegrityHealth, LimitsHealth,
-    LogStreamHealth, MemoryBudgetHealth, MemoryGuardMetric, QosHealth, ReadCostHealth,
-    ResidentHealth, SamplerStatus, StatusSnapshot, SyncHealth, UdsPoolHealth, WatchersHealth,
+    DurabilityHealth, FileBlobHealth, IntegrityHealth, LimitsHealth, LogStreamHealth,
+    MemoryBudgetHealth, MemoryGuardMetric, QosHealth, ReadCostHealth, ResidentHealth,
+    SamplerStatus, StatusSnapshot, SyncHealth, UdsPoolHealth, WatchersHealth,
 };
 use crate::request_telemetry::RequestTelemetrySnapshot;
 
@@ -249,21 +249,6 @@ fn collect_file_blob(out: &mut Vec<GaugeContractEntry>, f: &FileBlobHealth) {
     push_gauge(out, "file_blob.absent_without_memo", &f.absent_without_memo);
 }
 
-fn collect_dual_read(out: &mut Vec<GaugeContractEntry>, d: &DualReadHealth) {
-    push_gauge(out, "dual_read.gets", &d.gets);
-    push_gauge(out, "dual_read.target_hits", &d.target_hits);
-    push_gauge(out, "dual_read.legacy_hits", &d.legacy_hits);
-    push_gauge(out, "dual_read.by_design_hits", &d.by_design_hits);
-    push_gauge(out, "dual_read.misses", &d.misses);
-    for plane in &d.legacy_hits_by_plane {
-        push_gauge(
-            out,
-            format!("dual_read.legacy_hits_by_plane.{}.legacy_hits", plane.role),
-            &plane.legacy_hits,
-        );
-    }
-}
-
 fn collect_read_cost(out: &mut Vec<GaugeContractEntry>, r: &ReadCostHealth) {
     push_gauge(out, "read_cost.cold_shard_loads", &r.cold_shard_loads);
     push_gauge(
@@ -489,7 +474,6 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
         collect_read_cost(&mut gauges, rc);
     }
     collect_resident(&mut gauges, &snapshot.resident);
-    collect_dual_read(&mut gauges, &snapshot.dual_read);
     collect_integrity(&mut gauges, &snapshot.integrity);
     collect_atom_ref_edges(&mut gauges, &snapshot.atom_ref_edges);
     collect_file_blob(&mut gauges, &snapshot.file_blob);
@@ -638,7 +622,6 @@ fn default_status_snapshot(
         limits: LimitsHealth::default(),
         read_cost: None,
         resident: ResidentHealth::default(),
-        dual_read: DualReadHealth::default(),
         build: BuildHealth::default(),
         integrity: IntegrityHealth::default(),
         atom_ref_edges: AtomRefEdgeHealth::default(),

@@ -43,18 +43,15 @@ pub(crate) fn capture_reexport_probe_interval_s() -> u64 {
 
 pub(crate) const TIPS_NAMESPACE: &str = "tips";
 pub(crate) const ATOMS_NAMESPACE: &str = "atoms";
-pub(crate) const ORDER_LOG_NAMESPACE: &str = "field_update_order_log";
 
 /// Large captured planes with crash-safe physical compaction contracts.
 ///
 /// These planes do not belong in the capture-free residual sweep. Their
 /// physical rewrite runs under capture suppression and the backup-publish-target
 /// packing lock. Atoms (D5) does not pause Cloud Sync: capture-suppress plus
-/// the signed retired-chunk-sha receipt is the isolation. Order-log automatic
-/// compact still pauses uploads. Owner `lastdb db compact --execute` isolation
+/// the signed retired-chunk-sha receipt is the isolation. Owner `lastdb db compact --execute` isolation
 /// for `atoms` is a separate CLI contract and stays on.
-pub(crate) const LARGE_CAPTURED_SELF_COMPACT_PLANES: &[&str] =
-    &[ATOMS_NAMESPACE, ORDER_LOG_NAMESPACE];
+pub(crate) const LARGE_CAPTURED_SELF_COMPACT_PLANES: &[&str] = &[ATOMS_NAMESPACE];
 // `tips` stays a dedicated trigger: same overhang-ratio + floor as D2, plus
 // the backup-starvation warn and a no-pause compact. Do not add it here —
 // `automatic_large_plane_pauses_cloud` would pause it.
@@ -149,14 +146,6 @@ pub(crate) fn atoms_compact_max_bytes() -> u64 {
     env_flag::var_or("LASTDB_ATOMS_COMPACT_MAX_BYTES", 3 * 1024 * 1024 * 1024)
 }
 
-/// Status-only order-log budget alarm. Not a compaction trigger (D2).
-pub(crate) fn order_log_compact_max_bytes() -> u64 {
-    env_flag::var_or(
-        "LASTDB_FIELD_UPDATE_ORDER_LOG_COMPACT_MAX_BYTES",
-        256 * 1024 * 1024,
-    )
-}
-
 /// Atoms overhang ratio in basis points. Zero disables unattended atoms compact.
 pub(crate) fn atoms_compact_min_overhang_bps() -> u64 {
     env_flag::var_or(
@@ -170,22 +159,6 @@ pub(crate) fn atoms_compact_min_overhang_bytes() -> u64 {
     env_flag::var_or(
         "LASTDB_ATOMS_COMPACT_MIN_OVERHANG_BYTES",
         LARGE_OVERHANG_FLOOR_BYTES,
-    )
-}
-
-/// Order-log overhang ratio in basis points. Zero disables the trigger.
-pub(crate) fn order_log_compact_min_overhang_bps() -> u64 {
-    env_flag::var_or(
-        "LASTDB_FIELD_UPDATE_ORDER_LOG_COMPACT_MIN_OVERHANG_BPS",
-        DEFAULT_OVERHANG_BPS,
-    )
-}
-
-/// Order-log absolute overhang floor. Zero disables the trigger.
-pub(crate) fn order_log_compact_min_overhang_bytes() -> u64 {
-    env_flag::var_or(
-        "LASTDB_FIELD_UPDATE_ORDER_LOG_COMPACT_MIN_OVERHANG_BYTES",
-        DEFAULT_OVERHANG_FLOOR_BYTES,
     )
 }
 

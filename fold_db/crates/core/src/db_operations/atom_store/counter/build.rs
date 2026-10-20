@@ -1,8 +1,9 @@
 //! Turn the plans of one planner run into the mutations of one batch.
 //!
-//! The order inside the batch: bodies and their blob references, counters, tip
-//! records and other rows, and then every delete. A batch is atomic, so the
-//! order only fixes which write wins when two operations name one key.
+//! The order inside the batch: bodies and their blob references, counters, the
+//! blob references of tip records, tip records and other rows, and then every
+//! delete. A batch is atomic, so the order only fixes which write wins when two
+//! operations name one key.
 
 use super::commit::DeletedAtom;
 use super::plan::{AtomPlan, SuspectKind};
@@ -10,6 +11,7 @@ use super::read::Offer;
 use super::report::CounterEvent;
 use super::{AtomCounter, TipCommit};
 use crate::atom::atom_key_codec;
+use crate::db_operations::atom_store::blob_ref_edges::TipBlobChanges;
 use crate::db_operations::atom_store::{AtomStore, BlobRefEdge, PerKeyRecord};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -22,6 +24,7 @@ pub(super) async fn build_mutations(
     store: &AtomStore,
     scope: Option<&str>,
     tips: &BTreeMap<String, Option<PerKeyRecord>>,
+    old_tips: &HashMap<String, PerKeyRecord>,
     (rows, deletes): (Vec<(String, Value)>, Vec<Vec<u8>>),
     plans: Vec<(String, AtomPlan)>,
     mut offers: HashMap<String, Offer>,
@@ -66,6 +69,14 @@ pub(super) async fn build_mutations(
             commit.note_fault(&event);
         }
     }
+    // A tip record that carries file metadata names a blob. The blob roots of
+    // the old and the new record change in the same batch as the record.
+    let mut tip_blobs = TipBlobChanges::default();
+    for (key, new) in tips {
+        tip_blobs.replace(key, scope, old_tips.get(key), new.as_ref())?;
+    }
+    puts.extend(tip_blobs.puts);
+    removals.extend(tip_blobs.deletes);
     let mut mutations = puts;
     for (key, new) in tips {
         match new {
@@ -116,11 +127,9 @@ async fn create_puts(
         body,
     )];
     for blob in &counter.blobs {
-        let edge = BlobRefEdge::atom(atom, blob);
-        puts.push(KvMutation::put(
-            edge.storage_key(scope).into_bytes(),
-            to_bytes(&edge, "blob reference edge")?,
-        ));
+        for (key, value) in BlobRefEdge::atom(atom, blob, scope).put_rows()? {
+            puts.push(KvMutation::put(key, value));
+        }
     }
     puts.push(counter_put(scope, atom, counter)?);
     Ok(puts)
@@ -135,11 +144,7 @@ fn delete_removals(scope: Option<&str>, atom: &str, blobs: &[String]) -> Vec<KvM
         KvMutation::delete(build_storage_key(scope, &atom_key_codec::body_key(atom)).into_bytes()),
     ];
     for blob in blobs {
-        removals.push(KvMutation::delete(
-            BlobRefEdge::atom(atom, blob)
-                .storage_key(scope)
-                .into_bytes(),
-        ));
+        removals.extend(BlobRefEdge::atom(atom, blob, scope).delete_mutations());
     }
     removals
 }

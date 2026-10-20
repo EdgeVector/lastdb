@@ -1,131 +1,3 @@
-//! Option/report types for residue drains, reclaim, and owner collection compaction.
-
-/// One invocation of the tip-residue drain.
-#[derive(Debug, Clone)]
-pub struct TipResidueDrainOptions {
-    pub legacy_collection: String,
-    pub after: Option<String>,
-    pub limit: usize,
-    pub execute: bool,
-    pub drop_empty_collection: bool,
-}
-
-/// Report from one paged tip-residue drain invocation.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TipResidueDrainReport {
-    pub legacy_collection: String,
-    pub dry_run: bool,
-    pub keys_scanned: u64,
-    pub copied_to_tips: u64,
-    pub tips_already_won: u64,
-    pub deleted_from_legacy: u64,
-    pub skipped: u64,
-    pub after: Option<String>,
-    pub done: bool,
-    pub collection_dropped: bool,
-}
-
-/// Which plane family a generic residue drain walks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PlaneResidueFamily {
-    /// `mk:` / `mh:` / `tv:` → collection `tips`.
-    Tip,
-    /// `protein:` / `molprot:` / `fldprot:` / `pfq:` → collection `proteins`.
-    Protein,
-    /// Rebuildable index prefixes → collection `indexes` (never order-log).
-    Index,
-    /// `conflict:` → collection `tips` (from legacy `sync_conflicts`).
-    Conflict,
-    /// `mord:` / `moc:` / `mo:` → collection `tips` (from the legacy
-    /// `field_update_order_log` / `field_update_order_count` collections).
-    /// History-adjacent SoT: copy-then-delete, never rebuild.
-    OrderLog,
-}
-
-/// Legacy collections the [`PlaneResidueFamily::OrderLog`] drain may read.
-pub const ORDER_LOG_LEGACY_COLLECTIONS: &[&str] =
-    &["field_update_order_log", "field_update_order_count"];
-
-/// Legacy collection the [`PlaneResidueFamily::Conflict`] drain reads.
-pub const SYNC_CONFLICTS_COLLECTION: &str = "sync_conflicts";
-
-/// One invocation of a plane residue drain (protein / index / multi-source).
-#[derive(Debug, Clone)]
-pub struct PlaneResidueDrainOptions {
-    pub family: PlaneResidueFamily,
-    /// Collection to scan (legacy split or `tips` when keys still live there).
-    pub source_collection: String,
-    /// Canonical plane home (`tips` / `proteins` / `indexes`).
-    pub target_collection: String,
-    /// Optional id prefix for the paged walk (e.g. `protein:`, `mhr:`).
-    ///
-    /// When draining protein/index residue out of the large `tips` collection,
-    /// callers must pass family prefixes — a full tips scan is not viable.
-    pub key_prefix: Option<String>,
-    pub after: Option<String>,
-    pub limit: usize,
-    pub execute: bool,
-    pub drop_empty_source: bool,
-}
-
-/// Report from one paged plane-residue drain invocation.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PlaneResidueDrainReport {
-    pub family: String,
-    pub source_collection: String,
-    pub target_collection: String,
-    pub dry_run: bool,
-    pub keys_scanned: u64,
-    pub copied_to_target: u64,
-    pub target_already_won: u64,
-    pub deleted_from_source: u64,
-    pub skipped: u64,
-    pub after: Option<String>,
-    pub done: bool,
-    pub source_dropped: bool,
-}
-
-/// One page of a retired derived-index reclaim.
-#[derive(Debug, Clone)]
-pub struct IndexResidueReclaimOptions {
-    /// Key prefix to walk — required, and must be on
-    /// [`RECLAIMABLE_RETIRED_INDEX_PREFIXES`].
-    pub prefix: String,
-    /// Exclusive cursor: the previous page's last id.
-    pub after: Option<String>,
-    pub limit: usize,
-    pub execute: bool,
-}
-
-/// Report from one page of [`LastStoreNamespacedStore::reclaim_retired_index_residue`].
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct IndexResidueReclaimReport {
-    pub prefix: String,
-    pub dry_run: bool,
-    pub keys_scanned: u64,
-    pub keys_deleted: u64,
-    /// Stored key+value bytes of the deleted rows. Approximate as reclaimed
-    /// disk: `LastStore::delete` is an append, so the segment bytes come back
-    /// only after `compact --collection indexes`.
-    pub bytes_freed_approx: u64,
-    /// Rows whose bare key did not actually carry the prefix. Always zero in
-    /// practice; non-zero means the scan bound and the key disagreed.
-    pub skipped: u64,
-    pub after: Option<String>,
-    pub done: bool,
-}
-
-/// One page of a read-only per-prefix `indexes` measurement.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct IndexPlanePrefixInventory {
-    pub prefix: String,
-    pub keys: u64,
-    pub bytes: u64,
-    pub after: Option<String>,
-    pub done: bool,
-}
-
 /// Collections safe to compact from the owner admin path.
 ///
 /// Mutable planes whose superseded segment bytes are safe to reclaim.
@@ -188,19 +60,10 @@ pub const COMPACT_ALLOWLIST: &[&str] = &[
     // so ~100% of the plane is dead between compactions. Capture-free.
     "keep_small",
     "atoms",
-    "atom_ref_edges",
-    "atom_ref_edges_v2",
-    "molecule_ref_edges",
     "blob_ref_edges",
     // Captured SOT (~364 MiB live). Compact only under cloud isolation —
     // protein: puts are not capture-skipped (no reconstruct contract).
     "proteins",
-    // History-adjacent captured SOT. compact-order-log deletes are appends;
-    // these two physical compacts return the bytes. Isolation required.
-    "field_update_order_log",
-    "field_update_order_count",
-    // Dead index residue; every prefix is capture-skipped. Capture-free.
-    "indexes",
     // Local file-blob rows. Captured SOT, backed up (Mutable). Isolation required.
     "cas_blobs",
 ];
@@ -221,13 +84,7 @@ pub const COMPACT_ALLOWLIST: &[&str] = &[
 pub fn compact_requires_cloud_isolation(collection: &str) -> bool {
     matches!(
         collection,
-        "atoms"
-            | "schemas"
-            | "schema_states"
-            | "proteins"
-            | "field_update_order_log"
-            | "field_update_order_count"
-            | "cas_blobs"
+        "atoms" | "schemas" | "schema_states" | "proteins" | "cas_blobs"
     )
 }
 
@@ -244,7 +101,7 @@ pub struct CollectionCompactOptions {
     pub seed_committed_history: bool,
 }
 
-/// One owner drop of a dead hash group (`lastdb db reclaim-keep-small-legacy`).
+/// One owner drop of a dead hash group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadHashGroupDropOptions {
     /// Physical collection that owns the group.

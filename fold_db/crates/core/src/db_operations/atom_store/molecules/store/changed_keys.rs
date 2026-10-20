@@ -3,8 +3,7 @@ use super::*;
 impl AtomStore {
     /// Incremental budget/churn: tip bytes + bookkeeping + live-replace correction.
     ///
-    /// Must not GET the live store. Repair tests (and LastStore wrappers)
-    /// treat tip reads as observable; a metering GET would fire them.
+    /// Meter from the accepted source items without extra store reads.
     ///
     /// Two passes on purpose. Pass one binds each molecule to the schema that
     /// owns it, using the atom the tip points at; pass two meters. A batch
@@ -38,7 +37,7 @@ impl AtomStore {
             // measurer, so both count the same rows at the same size. The old
             // `contains("mord:")` / `contains("moc:")` test missed the
             // kind-anchored `mord\0` / `moc\0` rows (52 bytes on the
-            // schema_storage_is_scan_free fixture).
+            // measured source shape).
             let Some((row, row_molecule)) = molecule_key_codec::molecule_counter_row(key) else {
                 continue;
             };

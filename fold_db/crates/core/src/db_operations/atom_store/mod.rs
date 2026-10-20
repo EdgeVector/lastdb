@@ -17,7 +17,6 @@
 //! - [`locks`] — molecule, tip, atom-ref and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
 //! - [`atom_ref_edges`], [`blob_ref_edges`], [`molecule_ref_edges`],
-//!   [`tip_version_backrefs`] — durable reverse-reference planes
 //! - [`atom_ref_gc`], [`dropped_schema_reap`],
 //!   [`hard_erase_journal`], [`keep_small`] — GC, reap and maintenance passes
 
@@ -30,6 +29,7 @@ mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
 mod filter;
+mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
@@ -218,8 +218,8 @@ pub struct AtomStore {
     /// uuids are `sha256("{schema}:{field}")` — deterministic, so two stores
     /// sharing a schema and field name derive the same prefix. Without this id
     /// one store's observation would answer another's question. See
-    /// [`crate::atom::legacy_history_memo`].
-    store_id: crate::atom::legacy_history_memo::StoreId,
+    /// [`crate::atom::history_event_memo`].
+    store_id: crate::atom::history_event_memo::StoreId,
 }
 
 impl AtomStore {
@@ -230,7 +230,7 @@ impl AtomStore {
 
     /// This store's identity in the legacy-history memo.
     #[must_use]
-    pub(crate) fn store_id(&self) -> crate::atom::legacy_history_memo::StoreId {
+    pub(crate) fn store_id(&self) -> crate::atom::history_event_memo::StoreId {
         self.store_id
     }
 

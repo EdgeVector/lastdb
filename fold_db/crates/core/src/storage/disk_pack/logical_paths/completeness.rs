@@ -85,7 +85,7 @@ pub(super) fn covers(
         {
             // The typed model supplies current membership. These rows only
             // track update order or rebuildable liveness/GC bookkeeping.
-            return ["mord", "moc", "aref", "mref", "bref", "gcatoms-probe-ref"]
+            return ["mref", "bref", "gcatoms-probe-ref"]
                 .into_iter()
                 .any(|kind| crate::kind_partition::rest_of(raw, kind).is_some());
         }

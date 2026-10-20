@@ -314,11 +314,6 @@ fn liveness_dispatch(data_dir: Option<PathBuf>, action: LivenessCommand) -> Resu
         LivenessCommand::Explain { class, id, json } => {
             liveness_explain_command(data_dir, &class, &id, json)
         }
-        LivenessCommand::Bootstrap {
-            isolated_copy,
-            storage_prefix,
-            json,
-        } => liveness_bootstrap_command(data_dir, isolated_copy, storage_prefix.as_deref(), json),
     }
 }
 
@@ -391,20 +386,6 @@ fn run(cli: Cli) -> Result<(), String> {
                 db_hash,
                 manifest_sha256,
             },
-        ),
-        Command::MigrateHashGroup {
-            from,
-            into,
-            hash_group_key,
-            partition_fanout,
-            json,
-        } => migrate_hash_group_command(
-            cli.data_dir,
-            &from,
-            &into,
-            hash_group_key,
-            partition_fanout,
-            json,
         ),
         Command::Cloud { action } => cloud_command(cli.data_dir, action),
         Command::BackupGcCompact(args) => backup_gc_compact_cmd::command(cli.data_dir, &args),

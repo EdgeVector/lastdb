@@ -3,26 +3,6 @@
 use super::*;
 
 impl FoldDB {
-    /// Drain one bounded page of plane residue toward its canonical
-    /// collection, on the live store, over the owner socket.
-    ///
-    /// This is what lets the residue that dual-read attribution names (for
-    /// example `sync_conflicts` serving 87% of legacy hits, 2026-07-30) be
-    /// drained without an offline exclusive open of the primary home. The
-    /// underlying pass is bounded, resumable, dry-run by default, and
-    /// copy-then-delete per key — see
-    /// [`crate::storage::laststore::LastStoreNamespacedStore::drain_plane_residue_collection`].
-    pub async fn drain_plane_residue(
-        &self,
-        options: crate::storage::laststore::PlaneResidueDrainOptions,
-    ) -> Result<crate::storage::laststore::PlaneResidueDrainReport, FoldDbError> {
-        self.db_ops()
-            .namespaced_store()
-            .drain_plane_residue(options)
-            .await
-            .map_err(|e| FoldDbError::Database(format!("plane-residue drain: {e}")))
-    }
-
     /// Rewrite sealed values in one plane to the requested ENB target policy.
     ///
     /// Dry-run is the default. Never point this at the live primary from a

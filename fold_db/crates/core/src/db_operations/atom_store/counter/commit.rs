@@ -117,7 +117,7 @@ impl AtomStore {
             .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
         let (mutations, commit) =
-            build_mutations(self, scope, &tips, (rows, deletes), plans, offers).await?;
+            build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
         if !mutations.is_empty() {
             self.main_store
                 .inner()

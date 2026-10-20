@@ -1,52 +1,148 @@
-//! Durable active atom-to-blob reverse edges.
-//!
-//! The key partitions by blob reference. A writer places the edge before the
-//! immutable atom body in one ordered batch. Atom reclaim removes the body
-//! before it removes these derived edges. A crash can therefore retain a blob,
-//! but cannot leave a live atom without a retaining edge.
+//! Canonical node-global blob roots, with exact scoped owner rows.
 
 use super::AtomStore;
 use crate::hex::hex_lower;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
-use crate::storage::traits::PhysicalScanCursor;
+use crate::storage::KvMutation;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 
-/// Atom rows read per page by the bootstrap walk.
-const BLOB_BOOTSTRAP_PAGE_ROWS: usize = 2_048;
-const BLOB_REF_PREFIX: &str = "bref:v1:e:";
-pub const BLOB_REF_COMPLETE_KEY: &str = "bref:v1:complete";
-const BLOB_REF_DOMAIN: &[u8] = b"lastdb:blob-ref-edge-source:v1\0";
+mod tips;
+pub(crate) use tips::TipBlobChanges;
+
+type BlobRefRows = Vec<(Vec<u8>, Vec<u8>)>;
+
+const BLOB_REF_PREFIX: &str = "bref:v2:e:";
+const BLOB_OWNER_PREFIX: &str = "bref:v2:s:";
+pub const BLOB_REF_COMPLETE_KEY: &str = "bref:v2:complete";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum BlobRefSource {
+    Atom {
+        atom_uuid: String,
+        scope: Option<String>,
+    },
+    Tip {
+        atom_uuid: String,
+        key: String,
+        scope: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct BlobRefEdge {
     pub blob_ref: String,
-    pub atom_uuid: String,
+    pub source: BlobRefSource,
 }
 
 impl BlobRefEdge {
     #[must_use]
-    pub fn atom(atom_uuid: &str, blob_ref: &str) -> Self {
+    pub fn atom(atom_uuid: &str, blob_ref: &str, scope: Option<&str>) -> Self {
         Self {
             blob_ref: blob_ref.to_string(),
-            atom_uuid: atom_uuid.to_string(),
+            source: BlobRefSource::Atom {
+                atom_uuid: atom_uuid.to_string(),
+                scope: scope.map(str::to_string),
+            },
         }
     }
 
-    pub(crate) fn storage_key(&self, storage_prefix: Option<&str>) -> String {
+    fn scope(&self) -> Option<&str> {
+        match &self.source {
+            BlobRefSource::Atom { scope, .. } | BlobRefSource::Tip { scope, .. } => {
+                scope.as_deref()
+            }
+        }
+    }
+
+    fn suffix(&self) -> String {
         let target = hex_lower(Sha256::digest(self.blob_ref.as_bytes()));
+        let (kind, owner) = match &self.source {
+            BlobRefSource::Atom { atom_uuid, .. } => ("atom", atom_uuid.as_str()),
+            BlobRefSource::Tip { key, .. } => ("tip", key.as_str()),
+        };
         let mut source = Sha256::new();
-        source.update(BLOB_REF_DOMAIN);
-        source.update(self.atom_uuid.as_bytes());
+        source.update(b"lastdb:blob-reference-owner:v2\0");
+        for part in [kind, self.scope().unwrap_or(""), owner] {
+            source.update((part.len() as u64).to_be_bytes());
+            source.update(part.as_bytes());
+        }
+        format!("{target}\0{}", hex_lower(source.finalize()))
+    }
+
+    pub(crate) fn storage_key(&self) -> String {
+        format!("{BLOB_REF_PREFIX}{}", self.suffix())
+    }
+
+    pub(crate) fn owner_key(&self) -> String {
         build_storage_key(
-            storage_prefix,
-            &format!(
-                "{BLOB_REF_PREFIX}{target}\0{}",
-                hex_lower(source.finalize())
-            ),
+            self.scope(),
+            &format!("{BLOB_OWNER_PREFIX}{}", self.suffix()),
         )
+    }
+
+    pub(crate) fn put_rows(&self) -> Result<BlobRefRows, SchemaError> {
+        let value = serde_json::to_vec(self).map_err(|error| {
+            SchemaError::InvalidData(format!("encode canonical blob reference: {error}"))
+        })?;
+        Ok(vec![
+            (self.storage_key().into_bytes(), value.clone()),
+            (self.owner_key().into_bytes(), value),
+        ])
+    }
+
+    pub(crate) fn delete_mutations(&self) -> Vec<KvMutation> {
+        vec![
+            KvMutation::delete(self.storage_key().into_bytes()),
+            KvMutation::delete(self.owner_key().into_bytes()),
+        ]
+    }
+
+    pub(crate) fn target_from_owner_key(key: &[u8]) -> Option<Vec<u8>> {
+        let key = std::str::from_utf8(key).ok()?;
+        let bare = match crate::storage::current_keys::exact_scope(key).ok()? {
+            Some(scope) => key.get(scope.len() + 1..)?,
+            None => key,
+        };
+        let suffix = bare.strip_prefix(BLOB_OWNER_PREFIX)?;
+        let (target, source) = suffix.split_once('\0')?;
+        if target.len() != 64
+            || source.len() != 64
+            || !target
+                .bytes()
+                .chain(source.bytes())
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return None;
+        }
+        Some(format!("{BLOB_REF_PREFIX}{suffix}").into_bytes())
+    }
+
+    pub(crate) fn is_target_key(key: &[u8]) -> bool {
+        key.starts_with(BLOB_REF_PREFIX.as_bytes())
+    }
+
+    pub(crate) fn scoped_owner_row(
+        key: &[u8],
+        value: &[u8],
+        scope: &str,
+    ) -> Result<Option<Self>, crate::storage::StorageError> {
+        let prefix = build_storage_key(Some(scope), BLOB_OWNER_PREFIX);
+        if !key.starts_with(prefix.as_bytes()) {
+            return Ok(None);
+        }
+        let edge: Self = serde_json::from_slice(value).map_err(|error| {
+            crate::storage::StorageError::BackendError(format!("decode blob owner row: {error}"))
+        })?;
+        if edge.scope() != Some(scope) || edge.owner_key().as_bytes() != key {
+            return Err(crate::storage::StorageError::BackendError(
+                "blob owner identity mismatch".into(),
+            ));
+        }
+        Ok(Some(edge))
     }
 }
 
@@ -56,208 +152,56 @@ pub struct BlobRefLookup {
     pub edges: Vec<BlobRefEdge>,
 }
 
-/// Durable proof that the bootstrap read every canonical atom source.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct BlobRefCompleteness {
     pub version: u8,
-    pub atoms_read: u64,
-    pub edges_written: u64,
 }
 
 impl AtomStore {
-    pub async fn blob_ref_edges_complete(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<bool, SchemaError> {
-        let key = build_storage_key(storage_prefix, BLOB_REF_COMPLETE_KEY);
-        self.main_store.exists_item(&key).await.map_err(|error| {
-            SchemaError::InvalidData(format!("probe blob reference completeness: {error}"))
-        })
+    pub async fn blob_ref_edges_complete(&self, _scope: Option<&str>) -> Result<bool, SchemaError> {
+        let proof = self
+            .main_store
+            .get_item::<BlobRefCompleteness>(BLOB_REF_COMPLETE_KEY)
+            .await?;
+        Ok(proof.is_some_and(|proof| proof.version == 2))
     }
 
     pub async fn blob_ref_edges_for_blob(
         &self,
         blob_ref: &str,
-        storage_prefix: Option<&str>,
+        scope: Option<&str>,
     ) -> Result<BlobRefLookup, SchemaError> {
         let target = hex_lower(Sha256::digest(blob_ref.as_bytes()));
-        let prefix = build_storage_key(storage_prefix, &format!("{BLOB_REF_PREFIX}{target}\0"));
+        let prefix = format!("{BLOB_REF_PREFIX}{target}\0");
         let edges = self
             .main_store
             .scan_items_with_prefix::<BlobRefEdge>(&prefix)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("read blob reference edges: {error}"))
-            })?
+            .await?
             .into_iter()
             .map(|(_, edge)| edge)
             .collect();
-        let complete = self.blob_ref_edges_complete(storage_prefix).await?;
-        Ok(BlobRefLookup { complete, edges })
+        Ok(BlobRefLookup {
+            complete: self.blob_ref_edges_complete(scope).await?,
+            edges,
+        })
     }
 
     pub async fn has_active_blob_refs(
         &self,
         blob_ref: &str,
-        storage_prefix: Option<&str>,
+        scope: Option<&str>,
     ) -> Result<bool, SchemaError> {
-        if !self.blob_ref_edges_complete(storage_prefix).await? {
+        if !self.blob_ref_edges_complete(scope).await? {
             return Ok(true);
         }
         let target = hex_lower(Sha256::digest(blob_ref.as_bytes()));
-        let prefix = build_storage_key(storage_prefix, &format!("{BLOB_REF_PREFIX}{target}\0"));
-        self.main_store
+        let prefix = format!("{BLOB_REF_PREFIX}{target}\0");
+        Ok(!self
+            .main_store
             .inner()
             .scan_prefix_paged(prefix.as_bytes(), 1)
-            .await
-            .map(|rows| !rows.is_empty())
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("probe blob reference edges: {error}"))
-            })
-    }
-
-    /// Install all atom-to-blob edges after an isolated-copy atom walk.
-    /// The marker is durable only after every edge write succeeds.
-    pub async fn bootstrap_blob_ref_edges_on_isolated_copy(
-        &self,
-        edges: &[BlobRefEdge],
-        atoms_read: u64,
-        storage_prefix: Option<&str>,
-    ) -> Result<BlobRefCompleteness, SchemaError> {
-        let complete_key = build_storage_key(storage_prefix, BLOB_REF_COMPLETE_KEY);
-        self.main_store
-            .delete_item(&complete_key)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "clear blob reference completeness before bootstrap: {error}"
-                ))
-            })?;
-        let edge_prefix = build_storage_key(storage_prefix, BLOB_REF_PREFIX);
-        let old_rows: Vec<(String, serde_json::Value)> = self
-            .main_store
-            .scan_items_with_prefix(&edge_prefix)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "scan old blob reference edges before bootstrap: {error}"
-                ))
-            })?;
-        for (key, _) in old_rows {
-            self.main_store.delete_item(&key).await.map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "clear old blob reference edge before bootstrap: {error}"
-                ))
-            })?;
-        }
-        let mut expected = HashSet::new();
-        for edge in edges {
-            let key = edge.storage_key(storage_prefix);
-            if !expected.insert(key.clone()) {
-                continue;
-            }
-            self.main_store
-                .put_item(&key, edge)
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!("put blob reference edge: {error}"))
-                })?;
-        }
-        let written: Vec<(String, BlobRefEdge)> = self
-            .main_store
-            .scan_items_with_prefix(&edge_prefix)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("audit blob reference bootstrap: {error}"))
-            })?;
-        let actual: HashSet<String> = written.into_iter().map(|(key, _)| key).collect();
-        if actual != expected {
-            return Err(SchemaError::InvalidData(format!(
-                "blob reference bootstrap audit failed: expected {} edge keys, found {}",
-                expected.len(),
-                actual.len()
-            )));
-        }
-        let proof = BlobRefCompleteness {
-            version: 1,
-            atoms_read,
-            edges_written: expected.len() as u64,
-        };
-        self.main_store
-            .put_item(&complete_key, &proof)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("persist blob reference completeness: {error}"))
-            })?;
-        Ok(proof)
-    }
-
-    /// Rebuild one storage domain from its canonical immutable atom bodies.
-    /// Any unreadable atom aborts before the completeness marker is written.
-    ///
-    /// The walk reads the atom plane one page at a time, so memory holds one
-    /// page of rows and the edges found so far, never the whole plane. The
-    /// caller must still keep every other writer away from the home: an
-    /// isolated copy, or a stopped home held by `maintenance.lock`.
-    pub async fn bootstrap_blob_ref_edges_from_atoms_on_isolated_copy(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<BlobRefCompleteness, SchemaError> {
-        let (start, end) =
-            crate::kind_partition::colon_plane_bounds(&build_storage_key(storage_prefix, "atom:"));
-        let mut edges = Vec::new();
-        let mut atoms_read = 0u64;
-        let mut cursor: Option<PhysicalScanCursor> = None;
-        loop {
-            let page = self
-                .main_store
-                .inner()
-                .scan_range_physical_paged(
-                    start.as_bytes(),
-                    end.as_bytes(),
-                    cursor.as_ref(),
-                    BLOB_BOOTSTRAP_PAGE_ROWS,
-                    1,
-                )
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "scan atoms for blob reference bootstrap: {error}"
-                    ))
-                })?;
-            for (key, value) in &page.rows {
-                let key = String::from_utf8_lossy(key);
-                if crate::atom::atom_key_codec::is_counter_key(&key) {
-                    continue;
-                }
-                let uuid = crate::atom::atom_key_codec::body_uuid_of(&key).ok_or_else(|| {
-                    SchemaError::InvalidData(format!(
-                        "blob reference bootstrap found malformed atom key {key:?}"
-                    ))
-                })?;
-                let atom = self.decode_atom_bytes(value).await.map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "blob reference bootstrap cannot decode atom {uuid}: {error}"
-                    ))
-                })?;
-                edges.extend(
-                    crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
-                        .into_iter()
-                        .map(|blob_ref| BlobRefEdge::atom(uuid, &blob_ref)),
-                );
-                atoms_read = atoms_read.saturating_add(1);
-            }
-            let Some(next) = page.next_cursor else {
-                break;
-            };
-            if cursor.as_ref() == Some(&next) {
-                return Err(SchemaError::InvalidData(
-                    "blob reference bootstrap atom scan did not advance".to_string(),
-                ));
-            }
-            cursor = Some(next);
-        }
-        self.bootstrap_blob_ref_edges_on_isolated_copy(&edges, atoms_read, storage_prefix)
-            .await
+            .await?
+            .is_empty())
     }
 }

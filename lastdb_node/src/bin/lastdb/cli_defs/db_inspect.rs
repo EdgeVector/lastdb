@@ -64,34 +64,12 @@ pub(crate) enum DbInspectCommand {
         json: bool,
     },
     /// List one molecule's live `mk:` storage keys (decoded hash/range +
-    /// collision flag). Read-only diagnostic for H1 vs H2 order-log shortfall.
+    /// collision flag). Read-only diagnostic for the current key format.
     MoleculeKeys {
         /// Molecule uuid (the `M` in `mk:{M}:…`).
         #[arg(long)]
         molecule: String,
         /// Cap rows returned (default 10_000).
-        #[arg(long)]
-        max_keys: Option<usize>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Detect molecules whose `update_order` append-log is shorter than their
-    /// live key set — a truncated log that no point read can see.
-    ///
-    /// `update_order` only grows: a write appends an entry every time a key's
-    /// value changes and never removes one, so `moc:{M} >= count(mk:{M}:…)`
-    /// holds for every molecule that has a log. Below that bound, entries were
-    /// lost. Because a truncation restamps `moc:` and deletes the `mord:` rows
-    /// above it together, the log stays self-consistent and only `SampleN`
-    /// (the sole reader that walks the log) ever sees the hole — the `mk:`
-    /// count is the only witness left.
-    ///
-    /// Read-only, and cheap: the molecule uuid comes out of the key, so no atom
-    /// body is ever fetched. Exits non-zero when a short molecule is found.
-    OrderLogAudit {
-        /// `mk:` records one daemon call walks before returning a resume
-        /// cursor. Soft — a call always finishes the molecule it is inside.
         #[arg(long)]
         max_keys: Option<usize>,
         /// Emit raw JSON only.
@@ -111,63 +89,6 @@ pub(crate) enum DbInspectCommand {
         #[arg(long)]
         after_key: Option<String>,
         /// Emit the page report as raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Measure append-only order-log excess (stale entries + zero-live residue)
-    /// with exact stored bytes. Read-only; follows bounded daemon cursors.
-    OrderLogBloatAudit {
-        /// `mk:` records one daemon call walks before returning a resume cursor.
-        #[arg(long)]
-        max_keys: Option<usize>,
-        /// Emit raw aggregate JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Count `mk:` records whose `meta.tombstoned` flag disagrees with their
-    /// atom content, and optionally stamp the flag onto them.
-    ///
-    /// A record written before the flag existed reads as `tombstoned: false`
-    /// while its atom content is a tombstone. The page window is spent on such a
-    /// row and the content gate rejects it afterwards, so a page comes back
-    /// short. `content_tombstoned_meta_false` is how many such rows remain.
-    ///
-    /// Reads every atom body under the selected molecules — narrow it with
-    /// `--schema`. Default is dry-run; `--execute` stamps the flag (idempotent,
-    /// so an interrupted run resumes by re-running).
-    ///
-    /// `--max-keys` bounds one daemon POST, not the whole walk. The CLI follows
-    /// `more_remaining` until the store is exhausted unless `--once` is set.
-    TombstoneFlagAudit {
-        /// Audit only this schema's field molecules (default: whole store).
-        #[arg(long)]
-        schema: Option<String>,
-        /// Stamp `meta.tombstoned` on records whose content says tombstone.
-        #[arg(long)]
-        execute: bool,
-        /// Records one daemon call decides before returning a resume cursor.
-        /// This is a per-call cap, not a total. Lower it if a pass approaches
-        /// the control socket's read deadline.
-        #[arg(long)]
-        max_keys: Option<usize>,
-        /// Resume after a prior page's `next_after_key`.
-        #[arg(long = "after-key", alias = "after")]
-        after_key: Option<String>,
-        /// Issue one daemon POST, print that page (including `more_remaining`
-        /// and `next_after_key`), then exit. Without this flag the CLI follows
-        /// cursors until the store is exhausted. During a multi-pass `--json`
-        /// walk, per-pass progress is written to stderr while stdout remains a
-        /// single final JSON document.
-        #[arg(long)]
-        once: bool,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Survey legacy/plain HashKey-encoding tips and classify safe forks.
-    LegacyKeyForkAudit {
-        #[arg(long)]
-        max_keys: Option<usize>,
         #[arg(long)]
         json: bool,
     },

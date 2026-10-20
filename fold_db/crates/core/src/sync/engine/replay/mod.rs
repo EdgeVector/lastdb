@@ -1,7 +1,4 @@
-//! Convergent replay: per-key / header / order merge paths.
-//!
-//! Legacy whole-molecule `ref:` blobs are retired (delete-train): replay drops
-//! them and never migrates or dual-reads product ref blobs.
+//! Convergent replay of current per-key records.
 
 mod apply;
 mod decode;
@@ -9,5 +6,4 @@ mod entry;
 mod fence;
 mod foreign_intent;
 mod merge;
-mod order;
 mod records;

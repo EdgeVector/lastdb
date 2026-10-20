@@ -7,7 +7,7 @@
 //! ## Operation Trinity (Holy Ghost)
 //! Durable local cache must not store plaintext file bytes when a file KDK is
 //! available. Prefer [`put_blob_sealed_under_dek_in_ops`]. Plain puts require
-//! `LASTDB_ALLOW_PLAIN_CAS=1` (tests / migrate only).
+//! `LASTDB_ALLOW_PLAIN_CAS=1` for an explicit legacy migration.
 
 use super::delivery_wire::{
     content_addressed_blob_sealed_under_dek, decode_blob_bytes, decode_blob_bytes_with_dek,
@@ -95,12 +95,18 @@ async fn put_raw_record(
     ops: &DbOperations,
     blob: &ContentAddressedBlob,
 ) -> Result<(), FoldDbError> {
-    let _target_gate = ops
-        .atoms()
-        .lock_liveness_blobs(std::slice::from_ref(&blob.blob_ref))
-        .await;
-    let store = namespace(ops).await?;
-    write_row_under_gate(&store, blob).await
+    let runtime = ops.namespaced_store().disk_pack_runtime();
+    // Match GC's native -> blob order. The native write view includes earlier
+    // accepted source/root changes even while they still await disk flush.
+    crate::storage::disk_pack::transaction::background_scope(runtime, async {
+        let _target_gate = ops
+            .atoms()
+            .lock_liveness_blobs(std::slice::from_ref(&blob.blob_ref))
+            .await;
+        let store = namespace(ops).await?;
+        write_row_under_gate(&store, blob).await
+    })
+    .await
 }
 
 /// Write one row. The caller holds the blob's liveness target gate.

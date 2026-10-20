@@ -12,7 +12,6 @@ use super::AtomStore;
 
 mod events;
 mod history;
-mod maintenance;
 mod read;
 mod scan;
 mod scope;

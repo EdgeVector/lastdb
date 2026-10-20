@@ -29,15 +29,10 @@ mod storage_breakdown;
 pub mod tip_atoms;
 // Re-exports
 pub use admin_db::{
-    DbInventory, HistoryClearReport, LegacyKeyForkAudit, LegacyKeyForkMoleculeStat, MainKeyClass,
-    MoleculeHashBucketReport, MoleculeHashBucketRow, MoleculeKeyRow, MoleculeKeysReport,
-    MoleculeTombstoneFlagStat, OrderLogAudit, OrderLogBloatAudit, OrderLogBloatRow,
-    OrderLogBloatSchemaStat, OrderLogRepairReport, OrderLogShortRow,
-    OrderLogZeroLiveCompactionReport, ProteinGcReport, SchemaCurrentStorageReport,
+    DbInventory, HistoryClearReport, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
+    MoleculeKeyRow, MoleculeKeysReport, ProteinGcReport, SchemaCurrentStorageReport,
     SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
-    SchemaOrderLogStat, SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest,
-    SchemaStorageReport, ThinTipMigrateReport, TipFormatStats, TombstoneFlagAudit,
-    TombstoneFlagBackfillReport,
+    SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
 pub use atom_store::{AtomCounterReport, AtomCounterView, AtomStore, MoleculeData};
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
@@ -49,9 +44,8 @@ pub use attribution_ledger::{
 };
 pub use change_feed::{ChangeFeedEvent, ChangeFeedPage, ChangeFeedStore};
 pub use db_catalog_store::{
-    drop_prefixed_rows_for_instance, drop_unreferenced_prefixed_rows, leftover_db_hash_prefix,
-    referenced_instance_ids, DbCatalogEntry, DbCatalogKeySelection, DbCatalogStore,
-    UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, leftover_db_hash_prefix, referenced_instance_ids,
+    DbCatalogEntry, DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
 };
 pub use delete_ledger::{
     key_fingerprint, AtomDeleteLedgerEntry, DeleteLedgerHandle, ATOM_DELETE_LEDGER_PREFIX,
@@ -85,9 +79,7 @@ pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;
 pub use molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use public_key_store::PublicKeyStore;
-pub use schema_operations::{
-    LivenessBootstrapReport, SchemaRetentionAttributionReport, SchemaRootAttributionReport,
-};
+pub use schema_operations::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 pub use schema_store::{SchemaDropReceipt, SchemaStore};
 pub use search_index::{
     run_search_rebuild_for_home, IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink,

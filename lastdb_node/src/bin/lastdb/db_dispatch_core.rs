@@ -23,38 +23,11 @@ pub(super) fn db_inspect_command(
             max_keys,
             json,
         } => db_molecule_keys(socket, &molecule, max_keys, json),
-        DbInspectCommand::OrderLogAudit { max_keys, json } => {
-            db_order_log_audit(socket, max_keys, json)
-        }
         DbInspectCommand::PinLogAudit {
             max_keys,
             after_key,
             json,
         } => db_pin_log_audit(socket, max_keys, after_key.as_deref(), json),
-        DbInspectCommand::OrderLogBloatAudit { max_keys, json } => {
-            db_order_log_bloat_audit(socket, max_keys, json)
-        }
-        DbInspectCommand::TombstoneFlagAudit {
-            schema,
-            execute,
-            max_keys,
-            after_key,
-            once,
-            json,
-        } => db_tombstone_flag_audit(
-            socket,
-            &TombstoneFlagAuditCliOpts {
-                schema,
-                execute,
-                max_keys,
-                after_key,
-                once,
-                json_only: json,
-            },
-        ),
-        DbInspectCommand::LegacyKeyForkAudit { max_keys, json } => {
-            db_legacy_key_forks(socket, false, max_keys, json)
-        }
     }
 }
 
@@ -75,9 +48,6 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
         } => db_clear_history(socket, schema.as_deref(), keep_last, execute, json),
         DbReclaimCommand::GcFileBlobs { execute, json } => db_gc_file_blobs(socket, execute, json),
         DbReclaimCommand::GcProteins { execute, json } => db_gc_proteins(socket, execute, json),
-        DbReclaimCommand::ReclaimKeepSmallLegacy { execute, json } => {
-            db_reclaim_keep_small_legacy(socket, execute, json)
-        }
         DbReclaimCommand::ReclaimKeepSmallSnapshot { execute, json } => {
             db_reclaim_keep_small_snapshot(socket, execute, json)
         }
@@ -85,17 +55,5 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
             db_stamp_purged_atom_retirements(socket, execute, json)
         }
         DbReclaimCommand::DeleteLedger { limit, json } => db_delete_ledger(socket, limit, json),
-    }
-}
-
-/// Dispatch the tip migration and photo blob verbs.
-pub(super) fn db_tips_command(socket: &Path, action: &DbTipsCommand) -> Result<(), String> {
-    match *action {
-        DbTipsCommand::MigrateThinTips { execute, json } => {
-            db_migrate_thin_tips(socket, execute, json)
-        }
-        DbTipsCommand::MigratePhotoBlobs { execute, json } => {
-            db_migrate_photo_blobs(socket, execute, json)
-        }
     }
 }

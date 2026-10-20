@@ -13,6 +13,7 @@ pub struct NativeDiskStatus {
     pub completed_sequence: u64,
     pub writer_failed: bool,
     pub warm_records: usize,
+    /// Retired path-count limit; always 0. The limit is `core_warm_bytes.limit_bytes`.
     pub warm_record_limit: usize,
     pub core_warm_paths: usize,
     pub core_warm_tip_only_paths: usize,
@@ -39,6 +40,16 @@ pub(super) struct NativeReadView {
 }
 
 impl PackRuntime {
+    /// Detect accepted writes and durable root changes across a paged backup.
+    pub(crate) fn snapshot_boundary(&self) -> (u64, u64, u64) {
+        let view = self.view.read().expect("native snapshot boundary");
+        (
+            view.revision,
+            view.current.generation,
+            view.current.frontier,
+        )
+    }
+
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         let view = self.view.read().expect("native disk status view");
@@ -60,7 +71,7 @@ impl PackRuntime {
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.failed.load(Ordering::Acquire),
             warm_records: core.paths,
-            warm_record_limit: crate::resident::resident_key_cap(),
+            warm_record_limit: 0,
             core_warm_paths: core.paths,
             core_warm_tip_only_paths: core.tip_only_paths,
             core_warm_molecules: core.molecules,

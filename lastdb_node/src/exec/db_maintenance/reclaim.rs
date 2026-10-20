@@ -1,54 +1,6 @@
-//! Owner-socket routes that reclaim keep-small space, delete ledgers and migrate photo blobs.
+//! Owner-socket local meter reclaim and delete-ledger routes.
 
 use super::*;
-
-/// `POST /api/db/reclaim-keep-small-legacy` — drop the dead `metadata` hash
-/// group that held `keep_small:meters` before the snapshot moved to its own
-/// plane (2026-09-21 restart loop: 39 GB in `metadata/0/g/025`).
-///
-/// The store proves the group holds only that id from its sidecar and never
-/// loads it. Runs on a blocking thread: the execute path removes thousands of
-/// segment files and fsyncs the parent, which must not stall the UDS reactor.
-pub(in crate::exec) async fn execute_db_reclaim_keep_small_legacy_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        #[serde(default)]
-        dry_run: Option<bool>,
-    }
-    let body: Body = if req.body.is_empty() {
-        Body { dry_run: None }
-    } else {
-        match serde_json::from_slice(&req.body) {
-            Ok(b) => b,
-            Err(e) => {
-                return error_response(
-                    400,
-                    &format!("invalid /api/db/reclaim-keep-small-legacy body: {e}"),
-                    ctx,
-                )
-            }
-        }
-    };
-    let dry_run = body.dry_run.unwrap_or(true);
-    let db = std::sync::Arc::clone(&host.db);
-    let outcome = tokio::task::spawn_blocking(move || db.reclaim_keep_small_legacy(dry_run)).await;
-    match outcome {
-        Ok(Ok(report)) => json_ok(&envelope(
-            &serde_json::json!({ "reclaim_keep_small_legacy": report }),
-            ctx.user_id.as_str(),
-        )),
-        Ok(Err(e)) => error_response(409, &format!("reclaim-keep-small-legacy refused: {e}"), ctx),
-        Err(e) => error_response(
-            500,
-            &format!("reclaim-keep-small-legacy task failed: {e}"),
-            ctx,
-        ),
-    }
-}
 
 /// `POST /api/db/reclaim-keep-small-snapshot` — drop the current local
 /// meter-snapshot group without loading it. The store-side proof requires the
@@ -120,50 +72,5 @@ pub(in crate::exec) async fn execute_db_delete_ledger_route(
             ctx.user_id.as_str(),
         )),
         Err(e) => error_response(500, &format!("delete-ledger failed: {e}"), ctx),
-    }
-}
-
-/// `POST /api/db/migrate-photo-blobs` — Photo.file_bytes → cas_blobs.
-pub(in crate::exec) async fn execute_db_migrate_photo_blobs_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        #[serde(default)]
-        dry_run: Option<bool>,
-    }
-    let body: Body = if req.body.is_empty() {
-        Body { dry_run: None }
-    } else {
-        match serde_json::from_slice(&req.body) {
-            Ok(b) => b,
-            Err(e) => {
-                return error_response(
-                    400,
-                    &format!("invalid /api/db/migrate-photo-blobs body: {e}"),
-                    ctx,
-                )
-            }
-        }
-    };
-    let dry_run = body.dry_run.unwrap_or(true);
-    match crate::maintenance_write_gate::run(
-        host,
-        host.db.migrate_photo_file_bytes_to_blobs(dry_run),
-    )
-    .await
-    {
-        Some(Ok(report)) => json_ok(&envelope(
-            &serde_json::json!({ "migrate_photo_blobs": report }),
-            ctx.user_id.as_str(),
-        )),
-        Some(Err(e)) => error_response(500, &format!("migrate-photo-blobs failed: {e}"), ctx),
-        None => error_response(
-            409,
-            "local writes are paused for the selected cloud source",
-            ctx,
-        ),
     }
 }

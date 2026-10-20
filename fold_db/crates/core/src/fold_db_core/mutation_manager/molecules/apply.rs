@@ -11,9 +11,7 @@ use crate::schema::SchemaError;
 
 use super::super::helpers::ModifiedFieldKeys;
 use super::super::MutationManager;
-use super::protein_batch::{
-    eligible_protein_atoms, load_protein_fold_metadata, schema_storage_prefix,
-};
+use super::protein_batch::{load_protein_fold_metadata, schema_storage_prefix};
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn apply_mutations_to_molecules(
@@ -128,14 +126,12 @@ impl MutationManager {
         schema: &Schema,
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
-        atom_results: &[(usize, String, crate::atom::Atom)],
+        eligible: &[(usize, &Atom, &str)],
     ) -> Result<super::PreparedSiblingUpdates, SchemaError> {
         let store = self.db_ops.atoms();
         let mut sibling_updates = Vec::new();
         let mut sibling_origins = Vec::new();
 
-        let eligible =
-            eligible_protein_atoms(schema, schema_mutations, mutation_key_values, atom_results);
         let member_uuids = super::protein_key_fields::member_ids(schema);
         let metadata = load_protein_fold_metadata(store, &member_uuids).await?;
         if metadata.0.values().all(Option::is_none) {
@@ -146,7 +142,7 @@ impl MutationManager {
                 schema,
                 schema_mutations,
                 mutation_key_values,
-                &eligible,
+                eligible,
                 &metadata,
             )
             .boxed()
@@ -155,7 +151,7 @@ impl MutationManager {
 
         // Keep the atom order. Two fields can target the same sibling slot,
         // and the later tip must still observe the earlier update.
-        for &(idx, atom, mol_uuid) in &eligible {
+        for &(idx, atom, mol_uuid) in eligible {
             let mutation = &schema_mutations[idx];
             let Some(protein_uuid) = owners_by_molecule.get(mol_uuid).and_then(Option::as_ref)
             else {
@@ -204,7 +200,7 @@ impl MutationManager {
                 &super::protein_moves::ProteinMoveInput {
                     schema,
                     keys: mutation_key_values,
-                    eligible: &eligible,
+                    eligible,
                     fields: &key_maps,
                     metadata: &metadata,
                 },

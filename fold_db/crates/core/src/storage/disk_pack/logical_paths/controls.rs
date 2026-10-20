@@ -69,7 +69,7 @@ pub(in crate::storage::disk_pack) fn invalidate(
             core.clear_authorizations();
             continue;
         }
-        if matches!(family, "mgp:v1:" | "ref:") {
+        if family == "mgp:v1:" {
             core.invalidate_molecule(scope, molecule);
         } else if let Some(base) = generation_tip(molecule, bare, family) {
             let key = build_storage_key(scope, &base);
@@ -91,7 +91,7 @@ fn generation_tip(molecule: &str, bare: &str, family: &str) -> Option<String> {
 
 fn control_coordinate(raw: &str) -> Option<(Option<&str>, &str, &str)> {
     let (at, family) = [
-        "mk:", "rdel:v2:", "atom:", "mh:", "mgp:v1:", "mgr:v1:", "mgd:v1:", "ref:",
+        "mk:", "rdel:v2:", "atom:", "mh:", "mgp:v1:", "mgr:v1:", "mgd:v1:",
     ]
     .into_iter()
     .filter_map(|family| {

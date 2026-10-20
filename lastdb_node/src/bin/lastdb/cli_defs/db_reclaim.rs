@@ -4,140 +4,15 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
-    /// Compact allowlisted LastStore collections (reclaim superseded segs).
+    /// Compact current allowlisted LastStore collections.
     ///
-    /// Omit `--collection` (or pass `--all`) to walk every allowlisted plane
-    /// except `cas_blobs` in one pass. Cloud Sync is paused once if any plane
-    /// needs isolation, then restored. Pass `--collection <name>` to compact
-    /// a single plane; `cas_blobs` is reached only that way.
+    /// Without `--execute`, report the live keys and file sizes only.
+    /// Omit `--collection` to compact all allowed collections except `cas_blobs`.
+    /// Name `cas_blobs` explicitly. The command pauses cloud sync when required.
     ///
-    /// Default is dry-run (report live keys + bytes). Pass `--execute` to
-    /// rewrite live keys and drop dead segment history. Execute skips while a
-    /// backup cut is held (same packing lock as automatic self-compaction).
-    ///
-    /// Execute on captured user-state planes (`atoms`, `schemas`,
-    /// `schema_states`, `proteins`, `field_update_order_log`,
-    /// `field_update_order_count`, `cas_blobs`) pauses Cloud Sync for the
-    /// rewrite and restores it afterwards if it was on. `tips` and `metadata`
-    /// compact are capture-neutral (physical shard rewrite + suppress) and do
-    /// not pause.
-    /// Capture-free planes also skip that.
-    /// A crash mid-compact leaves sync paused — run `lastdb cloud on`.
-    /// Dry-run does not touch cloud.
-    ///
-    /// Allowlist:
-    /// `schemas`, `schema_states`, `schema_index`, `tips`, `metadata`,
-    /// `idempotency`, `change_feed`, `sync_pin_log`, `sync_capture_reexport`,
-    /// `atoms`, `molecule_ref_edges`, `blob_ref_edges`, `proteins`,
-    /// `field_update_order_log`, `field_update_order_count`, `indexes`,
-    /// `keep_small`, `cas_blobs`.
-    /// Atom execute records the retired chunk shas for the next signed
-    /// manifest receipt.
-    ///
-    /// `sync_pin_log` is usually the largest plane in the store. Its rows are
-    /// deleted after cloud confirms them, but a delete is an append, so only a
-    /// compaction returns the bytes. The daemon self-compacts it on two
-    /// triggers: enough confirmed truncations in this process
-    /// (`LASTDB_PIN_LOG_COMPACT_AFTER_ROWS`), or the plane exceeding its
-    /// on-disk cap (`LASTDB_PIN_LOG_COMPACT_MAX_BYTES`, default 16 MiB). The
-    /// second is what bounds the plane — the row counter is process-local, so a
-    /// restart zeroes it, and on 2026-08-17 that left 20.4 GiB behind one live
-    /// record with compaction permitted and never attempted.
-    ///
-    /// `keep_small` holds the single storage-meters gauge row (`keep_small:meters`)
-    /// that lived in `metadata` until 2026-09-21, when a per-write flush wrote
-    /// 39 GB of identical snapshots into one hash group and the primary could
-    /// not load it (papercut-lastdb-primary-transient-30gb-footprint-spike-guard-restart-loop-20260921).
-    /// It is capture-free and rebuildable, so the residual sweep compacts it
-    /// like `idempotency`. The legacy `metadata` group is reclaimed by
-    /// `lastdb db reclaim-keep-small-legacy`, never by loading it.
-    ///
-    /// `sync_capture_reexport` is the same shape with a smaller cap. It holds one
-    /// crash-safe intent marker per captured write in flight, so its live set is
-    /// a handful of records; because a `LastStore` delete is an append, the plane
-    /// still gains two records per write forever. It reached 3.14 GiB behind a
-    /// live set of zero before self-compaction existed. The daemon compacts it on
-    /// the sync cycle once it exceeds `LASTDB_CAPTURE_REEXPORT_COMPACT_MAX_BYTES`
-    /// (default 16 MiB).
-    ///
-    /// `idempotency` and `change_feed` are also append/delete churn planes whose
-    /// physical records are omitted from mutation-log capture. The daemon's
-    /// residual sweep compacts them above
-    /// `LASTDB_RESIDUAL_PLANE_COMPACT_MAX_BYTES` (default 64 MiB).
-    ///
-    /// `metadata` holds captured node state with no reconstruction contract.
-    /// Its physical compact is capture-neutral through capture suppression;
-    /// ordinary metadata writes remain captured.
-    ///
-    /// `molecule_ref_edges` and `blob_ref_edges` hold the rebuildable active
-    /// molecule and local-blob liveness sets. The same capture-free residual
-    /// sweep compacts them.
-    ///
-    /// `tips` is captured user state whose physical compact is capture-neutral
-    /// (shard rewrite + suppress) and does not pause Cloud Sync. The daemon
-    /// self-compacts it on expected reclaim — filesystem allocation overhang
-    /// plus the store's dead-record residue (superseded and deleted records
-    /// and their delete markers, the bytes a delete leaves behind): ratio
-    /// `LASTDB_TIPS_COMPACT_MIN_OVERHANG_BPS` (default 1500 = 15%) AND floor
-    /// `LASTDB_TIPS_COMPACT_MIN_OVERHANG_BYTES` (default 512 MiB), probed
-    /// hourly, never while a backup cut is held. `LASTDB_TIPS_COMPACT_MAX_BYTES`
-    /// (default 3 GiB) is a status-only alarm on `automatic_compactions`, not
-    /// a trigger. Zero on either overhang knob disables unattended tips compact.
-    ///
-    /// `atoms` self-compacts on the same expected-reclaim trigger: ratio
-    /// `LASTDB_ATOMS_COMPACT_MIN_OVERHANG_BPS` (default 1000 = 10%) AND floor
-    /// `LASTDB_ATOMS_COMPACT_MIN_OVERHANG_BYTES` (default 512 MiB), probed
-    /// hourly; `LASTDB_ATOMS_COMPACT_MAX_BYTES` (default 3 GiB) is a
-    /// status-only alarm. The automatic path holds the photograph packing
-    /// lock and runs the signed retirement-provenance rewrite under
-    /// capture-suppress; it does not pause Cloud Sync. Owner `--execute`
-    /// still pauses captured user-state planes including atoms. Zero
-    /// disables the trigger.
-    ///
-    /// The live photograph keep-set is a copy of disk. Historical atom
-    /// keep-set UUIDs enter `pending_shas` after packing-lock stamp-before-cut,
-    /// or after this compact succeeds when `seed_committed_history` is on
-    /// (`in_progress` stays local inventory). Owner `--execute` on atoms
-    /// rewrites ~3.6 GiB and is **not** the one-shot; use
-    /// `lastdb db stamp-purged-atom-retirements`.
-    ///
-    /// Before each ~6h photograph, a compact-if-dirty pass
-    /// (`LASTDB_PHOTOGRAPH_COMPACT_INTERVAL_SECS`, default 21600) reuses the
-    /// expected-reclaim trigger, bounded by
-    /// `LASTDB_PHOTOGRAPH_COMPACT_BUDGET_SECS` (default 300). Planes that
-    /// miss the budget wait for the next photograph cycle. The photograph
-    /// proceeds when the budget ends. Continuous ~120s snapshot+log cuts do
-    /// not wait on this pass.
-    ///
-    /// `proteins` is captured source-of-truth (no reconstruct contract).
-    /// Owner `--execute` uses the captured-plane pause/restore route.
-    ///
-    /// `field_update_order_log` and `field_update_order_count` hold captured
-    /// `mord:` / `moc:` rows. `lastdb db compact-order-log --execute` deletes
-    /// those rows and does not write a new log. This command then returns the
-    /// dead segment bytes on each collection. `--execute` pauses
-    /// Cloud Sync if it was on. The daemon self-compacts
-    /// `field_update_order_log` above
-    /// `LASTDB_FIELD_UPDATE_ORDER_LOG_COMPACT_MAX_BYTES` (default 256 MiB,
-    /// probed hourly) under the same live pause and photograph lock. Zero
-    /// disables the trigger. `field_update_order_count` stays owner-compacted.
-    ///
-    /// `indexes` holds only capture-skipped dead residue prefixes (`mhr:` /
-    /// `mhk:` / `mhi:` / `schema_atoms:` / `idx:` / `schemaidx:`). Compacting
-    /// it does not pause Cloud Sync. The residual self-compact sweep also
-    /// arms it. Compact only drops superseded segs — live residue keys stay
-    /// until a separate delete/drain.
-    ///
-    /// `cas_blobs` holds the local file-blob rows (sealed under the file key).
-    /// A blob delete is an append, so only this verb returns the bytes. It is
-    /// owner-compacted only; the daemon never self-compacts it. A run reads
-    /// every group and rewrites only the groups that hold dead bytes, with
-    /// about three copies of one group in memory (a group can reach tens of
-    /// MB). Compact it alone, never under host memory pressure.
-    ///
-    /// Keep this list in step with `COMPACT_ALLOWLIST`; the
-    /// `compact_help_lists_every_allowlisted_collection` test in
-    /// `lastdb_node`'s lib pins it.
+    /// Current collections: schemas, schema_states, schema_index, tips,
+    /// metadata, idempotency, change_feed, sync_pin_log, sync_capture_reexport,
+    /// keep_small, atoms, blob_ref_edges, proteins and cas_blobs.
     Compact {
         /// One collection (e.g. `schemas`). Omit with `--all` (or omit both)
         /// to compact every allowlisted plane except `cas_blobs`.
@@ -196,18 +71,6 @@ pub(crate) enum DbReclaimCommand {
     /// Bound proteins are protected by their member list and by `molprot:`
     /// back-refs. Default is dry-run. Pass `--execute` to apply.
     GcProteins {
-        #[arg(long)]
-        execute: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Drop the dead `metadata` hash group that held the keep-small snapshot
-    /// before it moved to its own plane (2026-09-21: 39 GB of superseded
-    /// copies of one key, loaded whole on the first write after boot, which
-    /// looped the primary). Proves from the group's id sidecar that it holds
-    /// only `keep_small:meters`; never loads it. Default is dry-run. Pass
-    /// `--execute` to remove the directory.
-    ReclaimKeepSmallLegacy {
         #[arg(long)]
         execute: bool,
         #[arg(long)]

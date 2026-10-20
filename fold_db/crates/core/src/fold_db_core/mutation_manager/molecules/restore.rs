@@ -128,18 +128,16 @@ impl MutationManager {
             let plan = schema.runtime_fields.get(&field_name).and_then(|field| {
                 let uuid = field.common().molecule_uuid()?.clone();
                 let prefix = field.common().storage_prefix().map(str::to_string);
-                let kind = field.kind;
-                Some((uuid, prefix, kind))
+                Some((uuid, prefix))
             });
             async move {
-                let Some((uuid, prefix, kind)) = plan else {
+                let Some((uuid, prefix)) = plan else {
                     return Ok((field_name, None));
                 };
                 let data = db_ops
                     .atoms()
                     .load_molecule_per_key(&uuid, prefix.as_deref())
                     .await?;
-                let data = data.map(|d| d.retyped_to_slot(kind.retype_slot()));
                 Ok::<_, SchemaError>((field_name, data))
             }
         }))

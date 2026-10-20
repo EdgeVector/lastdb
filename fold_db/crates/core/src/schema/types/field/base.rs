@@ -21,9 +21,7 @@ async fn load_per_key_exact(
 
 /// Refresh a unified [`super::FieldVariant`]'s molecule slot from storage.
 ///
-/// Per-key layout (`mk:` / `mh:`) is the only source of truth. Legacy `ref:`
-/// blobs are not read; sync migrates them on receive when a peer still ships
-/// them.
+/// The exact current per-key layout (`mk:` / `mh:`) is the source of truth.
 pub(crate) async fn refresh_field_molecule_from_db(
     inner: &mut FieldCommon,
     molecule_slot: &mut Option<MoleculeData>,
@@ -38,8 +36,6 @@ pub(crate) async fn refresh_field_molecule_from_db(
 
     if kind.is_per_key() {
         if let Some(data) = load_per_key_exact(db_ops, &molecule_uuid, storage_prefix_ref).await? {
-            // Normalize 1-D slot orientation for Hash-only / Range-only fields.
-            let data = data.retyped_to_slot(kind.retype_slot());
             if !kind.matches_data(&data) {
                 return Err(SchemaError::InvalidData(format!(
                     "refresh_field_molecule_from_db: per-key molecule {molecule_uuid} kind mismatch with field kind {kind:?}"

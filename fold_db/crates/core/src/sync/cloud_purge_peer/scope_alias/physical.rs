@@ -33,8 +33,6 @@ fn data_namespace(namespace: &str) -> bool {
             | "indexes"
             | "proteins"
             | "mutation_history"
-            | "field_update_order_log"
-            | "field_update_order_count"
             | "field_hashrange_page_index"
             | "field_hashrange_hash_index"
             | "field_hashrange_complete"

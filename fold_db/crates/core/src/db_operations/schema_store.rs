@@ -205,8 +205,7 @@ impl SchemaStore {
                             ))
                         },
                     )?;
-                let logical_key = crate::kind_partition::logical_row_id(&key);
-                if crate::kind_partition::logical_row_id(&schema.name) != logical_key {
+                if schema.name != key {
                     return Err(SchemaError::InvalidData(format!(
                         "schema catalog repair found unresolved row {key}: payload names {}",
                         schema.name
@@ -218,10 +217,8 @@ impl SchemaStore {
                     ))
                 })?;
 
-                // Ordered storage places the anchored NUL form before its
-                // legacy colon twin, so the first logical row is authoritative.
                 rows_by_logical_key
-                    .entry(logical_key)
+                    .entry(key.clone())
                     .or_insert((key, schema));
             }
 

@@ -49,19 +49,6 @@ impl NamespacedStore for EncryptingNamespacedStore {
         self.inner.delete_namespace(name).await
     }
 
-    // The plane drain moves opaque value bytes between collections BELOW the
-    // encryption seam (collection placement lives inside one encrypted
-    // namespace), so ciphertext stays valid — the same reason the offline
-    // `lastdb_local_maintain` drain works on real homes. Delegate, or the
-    // production stack — which always wraps LastStore in this store — would
-    // report "unsupported" on exactly the node the drain exists for.
-    async fn drain_plane_residue(
-        &self,
-        options: crate::storage::laststore::PlaneResidueDrainOptions,
-    ) -> StorageResult<crate::storage::laststore::PlaneResidueDrainReport> {
-        self.inner.drain_plane_residue(options).await
-    }
-
     async fn compact_collection(
         &self,
         options: crate::storage::laststore::CollectionCompactOptions,

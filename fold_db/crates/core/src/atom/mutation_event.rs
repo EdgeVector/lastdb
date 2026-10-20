@@ -1,7 +1,7 @@
 use crate::atom::provenance::Provenance;
 use crate::schema::types::key_value::KeyValue;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 /// Records a single field-level change within a mutation.
 /// Stored at key "history:{molecule_uuid}:{timestamp_nanos_padded}"
@@ -95,13 +95,13 @@ pub struct SuppressedByTip {
 
 /// Identifies which slot in the molecule was changed.
 ///
-/// Unified shape matching [`KeyValue`]: `(hash, range)` with either component
-/// optional. Serializes as a flat object; deserializes both the new form and
-/// the legacy four-way enum (`Single` / `Hash` / `Range` / `HashRange`) so
-/// on-disk mutation-event history remains readable.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Current flat object matching [`KeyValue`]. Older tagged key objects are refused.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldKey {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub range: Option<String>,
 }
 
@@ -157,99 +157,5 @@ impl From<KeyValue> for FieldKey {
             hash: kv.hash,
             range: kv.range,
         }
-    }
-}
-
-impl Serialize for FieldKey {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // Flat KeyValue-shaped object — the unified on-the-wire form.
-        #[derive(Serialize)]
-        struct Flat<'a> {
-            #[serde(skip_serializing_if = "Option::is_none")]
-            hash: &'a Option<String>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            range: &'a Option<String>,
-        }
-        Flat {
-            hash: &self.hash,
-            range: &self.range,
-        }
-        .serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for FieldKey {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = serde_json::Value::deserialize(deserializer)?;
-        // New flat form: {"hash":..,"range":..} (either/both optional, including {})
-        if let Some(obj) = value.as_object() {
-            let has_legacy_tag = obj.contains_key("Single")
-                || obj.contains_key("Hash")
-                || obj.contains_key("Range")
-                || obj.contains_key("HashRange");
-            if !has_legacy_tag
-                && (obj.is_empty()
-                    || obj.contains_key("hash")
-                    || obj.contains_key("range")
-                    || obj.keys().all(|k| k == "hash" || k == "range"))
-            {
-                let hash = obj
-                    .get("hash")
-                    .and_then(|v| v.as_str())
-                    .map(ToString::to_string);
-                let range = obj
-                    .get("range")
-                    .and_then(|v| v.as_str())
-                    .map(ToString::to_string);
-                // Reject unknown keys in the flat form for safety.
-                if obj.keys().all(|k| k == "hash" || k == "range") {
-                    return Ok(Self { hash, range });
-                }
-            }
-        }
-
-        // Legacy externally-tagged enum forms.
-        // "Single" | {"Single":null} | {"Hash":{"hash":"x"}} | ...
-        if value.as_str() == Some("Single") {
-            return Ok(Self::single());
-        }
-        if let Some(obj) = value.as_object() {
-            if obj.contains_key("Single") {
-                return Ok(Self::single());
-            }
-            if let Some(inner) = obj.get("Hash") {
-                let hash = inner
-                    .get("hash")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::custom("FieldKey::Hash missing hash"))?
-                    .to_string();
-                return Ok(Self::hash(hash));
-            }
-            if let Some(inner) = obj.get("Range") {
-                let range = inner
-                    .get("range")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::custom("FieldKey::Range missing range"))?
-                    .to_string();
-                return Ok(Self::range(range));
-            }
-            if let Some(inner) = obj.get("HashRange") {
-                let hash = inner
-                    .get("hash")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::custom("FieldKey::HashRange missing hash"))?
-                    .to_string();
-                let range = inner
-                    .get("range")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| serde::de::Error::custom("FieldKey::HashRange missing range"))?
-                    .to_string();
-                return Ok(Self::hash_range(hash, range));
-            }
-        }
-
-        Err(serde::de::Error::custom(format!(
-            "unrecognized FieldKey form: {value}"
-        )))
     }
 }
