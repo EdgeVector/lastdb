@@ -236,7 +236,9 @@ fn apply_atoms(run: &mut Run, watch: &Watch, page: AtomsPage) {
         let CounterRead::Present(counter) = &pair.counter else {
             continue;
         };
-        if !run.tally.complete {
+        // A counter without a body is one fault, already reported by the
+        // pairing check. Its count says nothing more.
+        if !run.tally.complete || !pair.body {
             continue;
         }
         let key = digest(&pair.atom);
