@@ -68,12 +68,18 @@ The catalog row and its binding records are written in one batch by the share ro
 the put route, the declare of a schema under a named database, and the delete of a
 catalog row (`fold_db_core/fold_db/catalog_*.rs`).
 
-## Hook for the recorder (step S3)
+## The recorder and the release of records (step S3)
 
 A conflict record offered to the planner is a `RecordRefs` with the molecule it
 belongs to. When the record is new, the planner raises `records` of that molecule in
-the same batch. A step that releases records adds its removals to
-`counter/molecule.rs::molecule_changes` the same way.
+the same batch. A release of a record (`ReleaseRequest`, step S3: the end of its
+window, a purge, a TTL sweep or a delete of its key, or the drain of an erased
+slot) lowers `records` in the same batch: the planner reads the history row inside
+the write gate and takes the molecule from the row (`counter/records.rs`,
+`lower_molecules`, merged into `molecule_changes`). A record whose row is already
+gone lowers nothing. An erase reads the header of each molecule it touches and
+looks for kept records only in a molecule whose `records` is above zero (or whose
+header cannot be trusted: `suspect`, or no counters).
 
 ## Underflow
 
