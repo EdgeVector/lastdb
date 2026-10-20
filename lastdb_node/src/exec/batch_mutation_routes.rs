@@ -116,7 +116,7 @@ pub(super) async fn execute_mutations_batch_route(
                 .filter(|ids| ids.len() == watch_hints.len())
                 .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
                 .ok_or_else(|| {
-                    HostError::internal("Batch receipt does not match its input identities")
+                    HostError::new(500, "Batch receipt does not match its input identities")
                 })?;
             let mut durable_events = Vec::with_capacity(watch_hints.len());
             let mut change_record_elapsed = std::time::Duration::ZERO;

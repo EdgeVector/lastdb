@@ -1,0 +1,22 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--lib",
+      "--bins",
+      "--locked",
+      "--exclude",
+      "generate_validated_schema_org_seeds",
+      "--exclude",
+      "schema_service_worker",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "elapsed_seconds": 42.699601375,
+    "exit_code": 101,
+    "stage": "broad-clippy"
+  }
+]

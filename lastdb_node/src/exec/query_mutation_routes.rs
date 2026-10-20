@@ -126,7 +126,7 @@ pub(super) async fn execute_mutation_route(
                 .get("mutation_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    HostError::internal("Single mutation receipt has no input identity")
+                    HostError::new(500, "Single mutation receipt has no input identity")
                 })?;
             let event = durable_change_event(
                 watch_schema.clone(),
