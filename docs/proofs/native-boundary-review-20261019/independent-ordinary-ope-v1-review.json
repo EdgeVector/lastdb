@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "scope": "Independent read of raw ordinary API responses and receipts. No node, build, test, product edit, or helper execution by this reviewer.",
+  "source_head": "fca23b6ff69613adc42d683dd95e071c861c61f7",
+  "binary_sha256": "cdbabbee5b79238469d805226c60b9092e4fdebf9b9d98ebc92d86aae50f2a4c",
+  "source_inventory_sha256": "02914c01e00c130d67bfed8fc00ae5f67b2c49077d70c3bbb198031b20be587b",
+  "request_data_sha256": "7ff2143aa6eb37a7b9155681380d1ce6da58f6c69fab77d8e76b88979e2f7944",
+  "mode": "blind_v1 + ope_v1",
+  "receipts_sha256": "d2ec60936c2daf1c590f43985e0bada8d1a475c060ca22c5c3e01e31cc355435",
+  "result_sha256": "5ebe3d0f3a980221441494c5ecd8f61b6cd007696fbfd5d3b8aa133bf13150d2",
+  "inputs_sha256": "1b0502812d03a8df2836ba9d57ba95b6a0ae5b140a73e3dc13c49f47a7017f0c",
+  "raw_response_files": 25,
+  "raw_hash_mismatches": [],
+  "top_level_status": {"200": 25},
+  "query_child_status": {"200": 72, "400": 14},
+  "session_exit_codes": [0, 0],
+  "forced_kill": false,
+  "result": "not_accepted_for_complete_operation_claim",
+  "refusal": {
+    "phase": ["current", "reopened"],
+    "raw_files": ["current-018.json", "reopened-023.json"],
+    "kind": "full_schema_scan_not_allowed",
+    "cause": "The operation data uses X-LastDB-Allow-Full-Scan: true. The documented administrative override value is 1.",
+    "unproved_labels": ["mapped-page", "mapped-sample", "descending-tie-0", "descending-tie-1", "descending-tie-2", "range-map-page", "range-map-sample"]
+  },
+  "raw_value_review": [
+    "Both nullable source reads retain the payload and show email=null; both old peer keys return no records.",
+    "After Delete/Purge, addressed old sources return no records. Current collision peers retain owner-two, purge-two, and move-two with all requested fields, before and after process reopen.",
+    "The moved source and new peer key both expose move-one, move-new, and equal-value for Hash and HashRange, before and after reopen.",
+    "Repeated effective-key and cross-schema private writes expose P2 at G-same and G-cross. E-same and E-cross return no records, before and after reopen.",
+    "The keyed mapped-range reads expose only g/R with left=L and right=R. The exact g/L read is empty. The requested counts are 1, before and after reopen."
+  ],
+  "limits": [
+    "The 14 refused child calls prevent a complete pass, despite all top-level HTTP statuses being 200.",
+    "The operation result complete=true records completion of transport work; its semantic_review field remains pending.",
+    "No latency or throughput conclusion follows from this small operation set."
+  ]
+}

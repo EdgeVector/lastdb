@@ -19,23 +19,6 @@ impl MutationManager {
             return Ok(ids);
         }
 
-        // A key that the caller names keeps the caller's missing-key policy.
-        // A sibling that only the expansion names is derived: it can already
-        // be gone, so its erase skips a missing key.
-        let caller_schemas: HashSet<String> = erasures
-            .iter()
-            .map(|mutation| mutation.schema_name.clone())
-            .collect();
-        let erasures = if verb == super::super::super::purge::HardEraseVerb::Purge {
-            let erasures = self
-                .expand_protein_member_deletes(erasures, storage_prefix)
-                .await?;
-            self.expand_protein_hashrange_erasures(erasures, storage_prefix)
-                .await?
-        } else {
-            erasures
-        };
-
         let (schema_order, mut by_schema) = group_mutations_by_schema(erasures);
 
         let mut completions = Vec::new();
@@ -43,17 +26,12 @@ impl MutationManager {
             let schema_erasures = by_schema
                 .remove(&schema_name)
                 .expect("schema order came from grouped erasures");
-            let policy = if caller_schemas.contains(&schema_name) {
-                missing
-            } else {
-                super::super::super::purge::PurgeMissingPolicy::Skip
-            };
             let receiver = self
                 .enqueue_schema_purge_envelope(
                     schema_name,
                     schema_erasures,
                     storage_prefix,
-                    (policy, verb),
+                    (missing, verb),
                     author_clock_barrier.clone(),
                 )
                 .await?;

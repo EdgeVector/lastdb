@@ -11,8 +11,8 @@ pub(super) type CokeyPrimaryPage = (
 );
 
 impl HashRangeQueryProcessor {
-    /// Resolve the primary field (falling back to the first selected field when
-    /// the key spine is empty) and rename the page to API-form keys.
+    /// The primary establishes API keys before secondary reads. Administrative
+    /// inspection proves its complete bounded set before taking a page.
     pub(super) async fn resolve_cokey_primary_page(
         &self,
         schema: &mut Schema,
@@ -22,8 +22,21 @@ impl HashRangeQueryProcessor {
         include_tombstones: bool,
         received_from_namespaces: &[String],
     ) -> Result<CokeyPrimaryPage, SchemaError> {
-        let mut primary_name = Self::cokey_primary_field(schema, selected);
         let key_form = Self::primary_key_form(filter.as_ref());
+        if key_form == paging::PrimaryKeyForm::Storage {
+            let page = self
+                .resolve_inspection_primary_page(
+                    schema,
+                    selected,
+                    filter.as_ref(),
+                    include_tombstones,
+                    received_from_namespaces,
+                )
+                .await?;
+            crate::db_operations::note_page_key_forms(Self::countable_keys(&page.2), 0);
+            return Ok(page);
+        }
+        let mut primary_name = Self::cokey_primary_field(schema, selected);
         if matches!(
             window,
             Some(KeyWindow::Offset { limit: 0, .. } | KeyWindow::After { limit: 0, .. })
@@ -45,15 +58,9 @@ impl HashRangeQueryProcessor {
             )
             .await?;
         let had_named_spine_keys = primary.had_spine;
-        // Keyed reads already echo caller hashes. Only page/sample walks return
-        // physical hashes that require value-based recovery at this boundary.
-        let (primary_vals, page_keys, key_sources) = self.rename_page_to_api_keys(
-            schema,
-            &primary_name,
-            key_form,
-            primary.values,
-            primary.sources,
-        );
+        let primary_vals = primary.values;
+        let page_keys: Vec<_> = primary_vals.keys().cloned().collect();
+        let key_sources = primary.sources;
 
         // A schema key field is the dense row spine for rows written through
         // that layout. Multi-key expand is the exception: a sibling layout can
@@ -76,16 +83,12 @@ impl HashRangeQueryProcessor {
                 )
                 .await?;
             primary_name = fallback.to_string();
-            self.rename_page_to_api_keys(
-                schema,
-                &primary_name,
-                key_form,
-                fallback_page.values,
-                fallback_page.sources,
-            )
+            let keys = fallback_page.values.keys().cloned().collect();
+            (fallback_page.values, keys, fallback_page.sources)
         } else {
             (primary_vals, page_keys, key_sources)
         };
+        crate::db_operations::note_page_key_forms(Self::countable_keys(&page_keys), 0);
         Ok((primary_name, primary_vals, page_keys, key_sources))
     }
 }

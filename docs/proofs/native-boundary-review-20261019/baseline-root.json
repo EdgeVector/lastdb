@@ -1,0 +1,18 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3s53ba53/program-before-lastdbd",
+  "binary_sha256": "e59db226ac5eea1cdef524dffaf48ad8c07302b377529e3e087a31e4e41a592b",
+  "marker": {
+    "creator_pid": 32826,
+    "device": 16777231,
+    "inode": 1470501607,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "node_sessions": 0,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.3s53ba53",
+  "scope": "Accepted executable only. No primary, archive, existing home, or node.",
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/before-identity.json",
+  "source_identity_sha256": "c4bd1e51c7bfe4382c0daea4692b1d74964bff02447d837914a71f34d6c26f6b"
+}

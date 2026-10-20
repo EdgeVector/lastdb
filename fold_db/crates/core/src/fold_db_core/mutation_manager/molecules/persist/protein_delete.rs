@@ -1,4 +1,4 @@
-//! Resolve user Delete peers under the same native boundary as their removal.
+//! Resolve erasure peers under the same native boundary as their removal.
 
 use super::*;
 use crate::storage::disk_pack::{transaction, PackRuntime};
@@ -7,14 +7,14 @@ use futures::FutureExt;
 impl MutationManager {
     /// The lane owns the native gate. A concurrent key move cannot change the
     /// source between its peer-key read and the complete destructive batch.
-    pub(super) async fn attempt_current_delete_stages(
+    pub(super) async fn attempt_current_erasure_stages(
         &self,
         job: &mut PurgeEnvelope,
         runtime: &Arc<PackRuntime>,
     ) -> Result<Vec<String>, PurgeAttemptError> {
         if !transaction::publication::active(Some(Arc::clone(runtime))) {
             return Err(PurgeAttemptError::Retry(SchemaError::InvalidData(
-                "Delete peer resolution requires a complete native write scope".into(),
+                "protein erasure resolution requires a complete native write scope".into(),
             )));
         }
         // Caller conditions pass at the shared erasure entry point. Only the
@@ -25,7 +25,7 @@ impl MutationManager {
             .iter()
             .map(|mutation| mutation.uuid.clone())
             .collect();
-        let erasures = self.current_delete_targets(job).await?;
+        let erasures = self.current_erasure_targets(job).await?;
         let (order, mut grouped) = super::super::super::write::group_mutations_by_schema(erasures);
         for schema in order {
             let erasures = grouped.remove(&schema).expect("prepared Delete schema");
@@ -47,7 +47,7 @@ impl MutationManager {
         Ok(ids)
     }
 
-    async fn current_delete_targets(
+    async fn current_erasure_targets(
         &self,
         job: &PurgeEnvelope,
     ) -> Result<Vec<crate::schema::types::Mutation>, PurgeAttemptError> {
@@ -58,7 +58,8 @@ impl MutationManager {
             .map_err(target_error)?;
         // This pass also handles scoped HashRange peers and can reach an
         // extra peer through fields declared only on a first-pass sibling.
-        // Purge uses it separately. Neither pass changes the source clock.
+        // Neither pass changes the source clock. Purge reaches its reverse
+        // HashRange peers here too, after the native boundary is acquired.
         let erasures = self
             .expand_protein_hashrange_erasures(erasures, scope)
             .await

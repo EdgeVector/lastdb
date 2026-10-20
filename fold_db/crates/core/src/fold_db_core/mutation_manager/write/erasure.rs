@@ -115,6 +115,7 @@ impl MutationManager {
                 }
             };
 
+            let mut candidates = Vec::new();
             for (peer_name, peer_schema) in &schemas {
                 if peer_name == &erasure.schema_name
                     || !matches!(peer_schema.schema_type, DeclarativeSchemaType::HashRange)
@@ -130,15 +131,25 @@ impl MutationManager {
                 ) else {
                     continue;
                 };
-                if !seen.insert((peer_name.clone(), reverse.key_value.to_storage_key())) {
+                if seen.contains(&(peer_name.clone(), reverse.key_value.to_storage_key())) {
                     continue;
                 }
-                if expanded.len() >= 10_000 {
+                if expanded.len().saturating_add(candidates.len()) >= 10_000 {
                     return Err(SchemaError::WriteResourceLimit {
                         detail: "Delete peer expansion exceeds 10000 keys".into(),
                     });
                 }
-                expanded.push(reverse);
+                candidates.push(reverse);
+            }
+            for confirmed in self
+                .confirmed_peer_erasures(&erasure, candidates, storage_prefix)
+                .await?
+            {
+                seen.insert((
+                    confirmed.schema_name.clone(),
+                    confirmed.key_value.to_storage_key(),
+                ));
+                expanded.push(confirmed);
             }
         }
 
@@ -224,9 +235,8 @@ impl MutationManager {
             erasure.pub_key.clone(),
             erasure.mutation_type,
         );
-        // The forward row proves the logical edge exists. The sibling
-        // can already be absent after an interrupted older writer, so
-        // its cleanup stays idempotent even for a loud forward delete.
+        // Current selected tips must certify this candidate's association
+        // before removal. The caller's presence condition stays on its key.
         reverse.synchronous = erasure.synchronous;
         reverse.erase_tips_before_nanos = erasure.erase_tips_before_nanos;
         if erasure.mutation_type == MutationType::Delete {

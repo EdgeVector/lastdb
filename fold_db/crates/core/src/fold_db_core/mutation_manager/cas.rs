@@ -8,6 +8,10 @@ use crate::schema::SchemaError;
 
 use super::MutationManager;
 
+mod association;
+mod coordinates;
+pub(super) use association::{current_association, source_identity_molecules};
+
 /// Integrity-aware result for an exact fixed-field row read.
 ///
 /// Missing selected bodies return an error. Tombstone-only fields are absent;
@@ -22,28 +26,17 @@ pub(super) enum CurrentRowFields {
 
 /// Resolve one sibling key value from the source row.
 ///
-/// `Ok(None)` means the source row has no atom for that key field. A row that
-/// was written without its sibling key (BoardCards residue: a `slug` atom with
-/// no `sk`) cannot address a sibling row, so there is no sibling tip to
-/// remove. The caller skips that sibling and still deletes the addressed row.
-/// A present but non-scalar value is still an error: it names a real key the
-/// engine cannot encode.
+/// An absent or non-scalar optional field names no peer association. The
+/// caller still deletes its own addressed key. Source key validation remains
+/// separate and requires scalar values for declared source coordinates.
 fn protein_delete_key_value(
     values: &BTreeMap<String, serde_json::Value>,
     field: &str,
-    schema_name: &str,
-) -> Result<Option<String>, SchemaError> {
-    let Some(value) = values.get(field) else {
-        return Ok(None);
-    };
-    scalar_key_coordinate(value)
-        .map(|value| Some(value.into_owned()))
-        .ok_or_else(|| {
-            // A stable refusal must finish Delete instead of a storage retry.
-            SchemaError::InvalidField(format!(
-                "protein delete key field '{field}' for sibling schema '{schema_name}' must be a scalar"
-            ))
-        })
+) -> Option<String> {
+    values
+        .get(field)
+        .and_then(scalar_key_coordinate)
+        .map(std::borrow::Cow::into_owned)
 }
 
 /// One sibling schema that a protein delete must reach:
@@ -126,10 +119,7 @@ fn protein_delete_peer_fields(peers: &[ProteinDeletePeer]) -> Vec<String> {
     fields
 }
 
-/// The caller's own key names the source key fields exactly. A row
-/// can lack the atom of its own key field (BoardCards residue has
-/// no `sk` atom at `(board, sk)`), and a sibling that shares that
-/// key field is still addressable through the caller's key.
+/// The caller's own key supplies the authoritative source coordinates.
 fn overlay_caller_key(
     values: &mut BTreeMap<String, serde_json::Value>,
     source: &Schema,
@@ -166,7 +156,7 @@ fn push_peer_deletes(
     values: &BTreeMap<String, serde_json::Value>,
 ) -> Result<(), SchemaError> {
     for (schema_name, hash_field, range_field) in peers {
-        let Some(hash) = protein_delete_key_value(values, &hash_field, &schema_name)? else {
+        let Some(hash) = protein_delete_key_value(values, &hash_field) else {
             tracing::debug!(
                 "protein delete: source row in '{}' has no '{hash_field}' atom; \
                  skip sibling '{schema_name}'",
@@ -177,7 +167,7 @@ fn push_peer_deletes(
         let range = match range_field.as_deref() {
             None => None,
             Some(field) => {
-                if let Some(range) = protein_delete_key_value(values, field, &schema_name)? {
+                if let Some(range) = protein_delete_key_value(values, field) {
                     Some(range)
                 } else {
                     tracing::debug!(
@@ -278,7 +268,18 @@ impl MutationManager {
         overlay_caller_key(&mut values, &source, &mutation);
 
         expanded.push(mutation.clone());
-        push_peer_deletes(expanded, &mutation, peers, &values)
+        let mut candidates = Vec::new();
+        push_peer_deletes(&mut candidates, &mutation, peers, &values)?;
+        let confirmed = self
+            .confirmed_peer_erasures(&mutation, candidates, storage_prefix)
+            .await?;
+        if expanded.len().saturating_add(confirmed.len()) > 10_000 {
+            return Err(SchemaError::WriteResourceLimit {
+                detail: "Delete peer expansion exceeds 10000 keys".into(),
+            });
+        }
+        expanded.extend(confirmed);
+        Ok(())
     }
 
     /// Add one idempotent delete or purge target for each sibling schema that

@@ -3,6 +3,7 @@
 use super::super::MutationManager;
 use super::protein_batch::{schema_storage_prefix, ProteinFoldMetadata};
 use crate::atom::Atom;
+use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
 use std::collections::{BTreeSet, HashMap};
@@ -99,11 +100,11 @@ impl MutationManager {
             let atom = atom.ok_or_else(|| SchemaError::StorageRead {
                 detail: "protein key-field tip has no atom".into(),
             })?;
-            if let Some(value) = scalar(atom.content()) {
+            if let Some(value) = scalar_key_coordinate(atom.content()) {
                 fields
                     .get_mut(&idx)
                     .expect("protein source key")
-                    .insert(name.clone(), value);
+                    .insert(name.clone(), value.into_owned());
             }
         }
         Ok(())
@@ -143,8 +144,8 @@ fn after_fields(
         for name in names {
             let value = mutations[idx].fields_and_values.get(name);
             if let Some(value) = value {
-                if let Some(value) = scalar(value) {
-                    fields.insert(name.clone(), value);
+                if let Some(value) = scalar_key_coordinate(value) {
+                    fields.insert(name.clone(), value.into_owned());
                 } else {
                     fields.remove(name);
                 }
@@ -181,12 +182,4 @@ fn required_fields(
         .iter()
         .flat_map(|idx| names.iter().map(move |name| (*idx, name.clone())))
         .collect()
-}
-
-fn scalar(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(value) => Some(value.clone()),
-        serde_json::Value::Number(_) | serde_json::Value::Bool(_) => Some(value.to_string()),
-        _ => None,
-    }
 }

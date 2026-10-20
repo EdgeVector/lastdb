@@ -21,8 +21,9 @@ pub(in crate::fold_db_core::mutation_manager) struct SiblingMove {
     pub source: SourceId,
     pub molecule_uuid: String,
     pub old_key: crate::schema::types::KeyValue,
-    pub new_key: crate::schema::types::KeyValue,
+    pub header: crate::db_operations::atom_store::MoleculeHeader,
     pub expected_old: crate::db_operations::atom_store::PerKeyRecord,
 }
+
 pub(in crate::fold_db_core::mutation_manager) type PreparedSiblingUpdates =
     (Vec<SiblingUpdate>, Vec<SiblingOrigin>, Vec<SiblingMove>);

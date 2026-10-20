@@ -33,12 +33,6 @@ impl PrimarySelection {
         }
     }
 
-    pub fn retain_named(&mut self) {
-        self.values
-            .retain(|key, value| key.hash_matches_scalar(&value.value));
-        self.sources.retain(|key, _| self.values.contains_key(key));
-    }
-
     pub fn bound(&mut self, window: KeyWindow) {
         let mut keys: Vec<_> = self.values.keys().cloned().collect();
         keys.sort_by(KeyValue::cmp_page_order);

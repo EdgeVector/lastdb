@@ -54,24 +54,22 @@ impl MutationManager {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let current = atoms
-            .load_first_present_candidate_with_key(job.storage_prefix.as_deref(), &groups)
+            .load_first_present_candidate(job.storage_prefix.as_deref(), &groups)
             .await?;
-        if current.len() != job.sibling_moves.len() {
+        if current.len() != groups.len() {
             return Err(SchemaError::StorageRead {
                 detail: "protein old-key count differs".into(),
             });
         }
         let mut removals = BTreeMap::new();
         for ((movement, candidates), current) in job.sibling_moves.iter().zip(groups).zip(current) {
-            if movement.old_key == movement.new_key
-                || current.as_ref().is_none_or(|(_, record)| {
-                    record.entry != movement.expected_old.entry
-                        || record.meta != movement.expected_old.meta
-                })
-            {
+            if current.as_ref().is_none_or(|record| {
+                record.entry != movement.expected_old.entry
+                    || record.meta != movement.expected_old.meta
+            }) {
                 continue;
             }
-            plan_removals(job, movement, &candidates, &mut removals)?;
+            plan_removals(movement, &candidates, &mut removals)?;
         }
         for (_, slots) in removals.values_mut() {
             slots.sort();
@@ -96,19 +94,10 @@ impl MutationManager {
 }
 
 fn plan_removals(
-    job: &DeferredPersistJob,
     movement: &SiblingMove,
     candidates: &[String],
     removals: &mut RemovedMolecules,
 ) -> Result<(), SchemaError> {
-    let data = job
-        .sibling_updates
-        .iter()
-        .find(|(uuid, _, _)| uuid == &movement.molecule_uuid)
-        .map(|(_, data, _)| data)
-        .ok_or_else(|| {
-            SchemaError::InvalidData("protein move has no destination molecule".into())
-        })?;
     for candidate in candidates {
         let uuid =
             molecule_key_codec::molecule_uuid_from_storage_key(candidate).ok_or_else(|| {
@@ -124,8 +113,8 @@ fn plan_removals(
             (
                 MoleculeHashRange::from_write_records(
                     uuid.to_owned(),
-                    data.version(),
-                    data.updated_at(),
+                    movement.header.version,
+                    movement.header.updated_at,
                     Vec::new(),
                 ),
                 Vec::new(),

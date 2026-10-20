@@ -26,6 +26,9 @@ pub(super) async fn build_snapshot(
     let durability = durability_health(host, sampled_at, backup.as_ref());
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
+    let runtime_memory = footprint.map(|footprint| observe_runtime_memory(host, footprint));
+    // Pressure relief can purge clean logical records. Capture native status
+    // afterward so its current counts describe the state after that relief.
     let namespaced_store = host.db.db_ops().namespaced_store();
     let native = namespaced_store
         .disk_pack_runtime()
@@ -37,6 +40,7 @@ pub(super) async fn build_snapshot(
         host,
         &namespaced_store,
         footprint,
+        runtime_memory,
         &resident,
         &mut request_ops,
     );
@@ -239,11 +243,10 @@ fn memory_budget_health(
     host: &Host,
     namespaced_store: &std::sync::Arc<dyn fold_db::storage::NamespacedStore>,
     footprint: Option<PhysFootprint>,
+    runtime_memory: Option<fold_db::memory_budget::RuntimeMemoryBudgetObservation>,
     resident: &ResidentHealth,
     request_ops: &mut crate::request_telemetry::RequestTelemetrySnapshot,
 ) -> (MemoryBudgetHealth, Option<ReadCostHealth>) {
-    let runtime_memory =
-        footprint.map(|footprint| observe_runtime_memory(host, namespaced_store, footprint));
     // Read after the pressure correction so this status response reports the
     // corrected metadata. The accessor only takes the warm-set mutex.
     let read_cost = host.db.db_ops().read_cost().map(ReadCostHealth::from);

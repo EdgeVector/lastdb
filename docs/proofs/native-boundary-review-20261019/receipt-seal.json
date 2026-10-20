@@ -1,0 +1,759 @@
+{
+  "all_nodes_stop_normally": true,
+  "all_run_processes_exit_unforced": true,
+  "node_sessions": 11,
+  "runs": [
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "a6559b4d1423b419a92a440056823b367af034c2a340950a657781b62145073e"
+        },
+        "inputs.json": {
+          "bytes": 1709,
+          "sha256": "1b0502812d03a8df2836ba9d57ba95b6a0ae5b140a73e3dc13c49f47a7017f0c"
+        },
+        "node-c.log": {
+          "bytes": 20287,
+          "sha256": "0b1b138d1235840307bd53edf20c60b666585d9efafe699d28f6e1ebb9b69071"
+        },
+        "raw-http/current-001.json": {
+          "bytes": 118,
+          "sha256": "cf7820efdae41b70bf0e35936e6777057ecf564f3c6c68c94313de4bbe084495"
+        },
+        "raw-http/current-002.json": {
+          "bytes": 118,
+          "sha256": "f9f1d6bfd6ec07fded37c0d789004bec35da41d0c42cc12cf2365ea1277e768c"
+        },
+        "raw-http/current-003.json": {
+          "bytes": 119,
+          "sha256": "ea44071b33bfe48f5438f5b7acddf43d6b761012731abfbbdf1770cbe098a67b"
+        },
+        "raw-http/current-004.json": {
+          "bytes": 119,
+          "sha256": "68679553528de2d0a4f5423ac41fcf27f21eba558e4f12566ba486a68b06061e"
+        },
+        "raw-http/current-005.json": {
+          "bytes": 117,
+          "sha256": "ac9763e10a921cbe7485196933f4646b1e99d14704afc947c52010baa3ae6b4a"
+        },
+        "raw-http/current-006.json": {
+          "bytes": 117,
+          "sha256": "097e8e090a7eb52c8aed9d472ae42b241ff17327a80af468584f7baa39cf3477"
+        },
+        "raw-http/current-007.json": {
+          "bytes": 117,
+          "sha256": "ce84ee1154dcdc728333c7abced2be8a136306473f9ee3abe606dafe59f7b312"
+        },
+        "raw-http/current-008.json": {
+          "bytes": 122,
+          "sha256": "b25f7e1e7efb909b98375d4b27d7ed3d72716c916ad096d3553fc1a1a3c6d602"
+        },
+        "raw-http/current-009.json": {
+          "bytes": 122,
+          "sha256": "924ed2143b5e2849a2cbfc3e5989e9c833d9fc65c2b6b78ffa5144c7c5ad58d7"
+        },
+        "raw-http/current-010.json": {
+          "bytes": 119,
+          "sha256": "6bb808dcc44c48ed267b2aafe728915869e2c51f6983fccca62df5ca0daf1928"
+        },
+        "raw-http/current-011.json": {
+          "bytes": 119,
+          "sha256": "86f5a1eca0fb21488cecf4f6238a47fc36d7c5ebc5734063b44fc6455828abfb"
+        },
+        "raw-http/current-012.json": {
+          "bytes": 119,
+          "sha256": "2f99cf97260e482b06c0c79f648cde401d878da4f8419dd7d72874f3bb483550"
+        },
+        "raw-http/current-013.json": {
+          "bytes": 940,
+          "sha256": "93d8cab9f34b19b14539052e6b2aec74fcdcffce95f017ea854ef06450169c4f"
+        },
+        "raw-http/current-014.json": {
+          "bytes": 664,
+          "sha256": "b7c284617db7331d6b66627fe53114334707167c1582381a0109980557b61a3f"
+        },
+        "raw-http/current-015.json": {
+          "bytes": 30658,
+          "sha256": "31aa69b9b01430bcec80d05cca0a603cc5bda8fcbae368d09f5aa026982ea628"
+        },
+        "raw-http/current-016.json": {
+          "bytes": 431,
+          "sha256": "62d5ae9487376d21dc447d1e3f090bc4bad8b11733997e1d1bfafc9e991be18c"
+        },
+        "raw-http/current-017.json": {
+          "bytes": 25510,
+          "sha256": "1ba0b2a2fdb546b962ea8857ef215ccf7031c492515cd63e4489b0f092ab05ba"
+        },
+        "raw-http/current-018.json": {
+          "bytes": 19147,
+          "sha256": "89c06372fc2c4d2c93d770505d4fc0e7922a7fa489d927459d078e3e975f6186"
+        },
+        "raw-http/current-019.json": {
+          "bytes": 508,
+          "sha256": "cfd8a8529fbf12cab4c78d1d96933ecde2a511ce5b4606066534c7656dd4ddca"
+        },
+        "raw-http/current-020.json": {
+          "bytes": 6634,
+          "sha256": "62da1ee81cfc8b09b96d134e225e4fbdf2f2ee80b1a42743e25cb5fe8a5c6d4f"
+        },
+        "raw-http/current-021.json": {
+          "bytes": 8129,
+          "sha256": "185052248bd1046e46d80192305cdf3f8965237218d42ff17b95e4d2801de3ca"
+        },
+        "raw-http/reopened-022.json": {
+          "bytes": 26141,
+          "sha256": "26a6ae00b1bbd4e4a8ea9852c81a662bd1d52310c9c6afdb5c3b459c9d53091d"
+        },
+        "raw-http/reopened-023.json": {
+          "bytes": 19311,
+          "sha256": "61dc977a5c01c0af441833879454db067ad8da0285cfc5277f79cd9a1240159e"
+        },
+        "raw-http/reopened-024.json": {
+          "bytes": 6772,
+          "sha256": "cd0e098c688b4faa189b6d6daff2445646561899b6ecf99c70131fdce0cadcf3"
+        },
+        "raw-http/reopened-025.json": {
+          "bytes": 8325,
+          "sha256": "58af857d251f99170e9c5c1fdcebf23a3a2866e570469eabf6e2f15d6c7a62db"
+        },
+        "receipts.jsonl": {
+          "bytes": 205373,
+          "sha256": "d2ec60936c2daf1c590f43985e0bada8d1a475c060ca22c5c3e01e31cc355435"
+        },
+        "result.json": {
+          "bytes": 277,
+          "sha256": "5ebe3d0f3a980221441494c5ecd8f61b6cd007696fbfd5d3b8aa133bf13150d2"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "4ab0d6b6589d318b2a8db91cd01e15750339e17cfc09a3c56160d15d14f00679"
+        },
+        "summary.json": {
+          "bytes": 136,
+          "sha256": "da4ed530c180eb5f42c3efa96b9cf806cf0f5b5e5b804fccf07f5239aa1e5581"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/ordinary-ope-v1",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "http_calls": 25,
+        "plan_sha256": "7ff2143aa6eb37a7b9155681380d1ce6da58f6c69fab77d8e76b88979e2f7944",
+        "semantic_review": "pending independent raw response review",
+        "workflow": "ordinary-api-requests"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.12zzajvv"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "64173359494b0d82f6995f9c773de5144279ffe10f63bcaccaf032d85d00bac4"
+        },
+        "inputs.json": {
+          "bytes": 1711,
+          "sha256": "685a04facf26fea5b5802c493a30258c68219646840484410eb709a4508a2623"
+        },
+        "node-c.log": {
+          "bytes": 13363,
+          "sha256": "3e897f1ad080308ad167851fc735044daab4d2f8cbdf284b7b36e513ef98184e"
+        },
+        "raw-http/current-001.json": {
+          "bytes": 118,
+          "sha256": "e37a5cb6fb973b234a29f634f0905b61ddb21e877af5b0c03b7492a555e78c8f"
+        },
+        "raw-http/current-002.json": {
+          "bytes": 118,
+          "sha256": "299828e79dadf813960bca45c26b01628e95d70173a909a96fb5b87230a42aaa"
+        },
+        "raw-http/current-003.json": {
+          "bytes": 119,
+          "sha256": "aeb591d87eb2f1c2b8d8c3eac028d2d89e0b98a37b8b575a3cde3dd208b60bd8"
+        },
+        "raw-http/current-004.json": {
+          "bytes": 119,
+          "sha256": "600cdd2ba5a9903b2ae5e1f534965cf901ac257d99548c30ccdb048e886bab7c"
+        },
+        "raw-http/current-005.json": {
+          "bytes": 117,
+          "sha256": "d25d97168004a634a707c33d7628064b1aaf2883b341e93e9c0e74546a7bd323"
+        },
+        "raw-http/current-006.json": {
+          "bytes": 117,
+          "sha256": "32ec79bf69998f5860106e38779f0d42043080a438442726a214218a2e177654"
+        },
+        "raw-http/current-007.json": {
+          "bytes": 117,
+          "sha256": "4fa64f1edbcdf7344050d7ddb831b81b647659f0f144af411bceeee87cd0a49f"
+        },
+        "raw-http/current-008.json": {
+          "bytes": 122,
+          "sha256": "fd8faa9378dbc29b883ad1658b93df625fe1d87d63e865b357a86cd0ecf08c7f"
+        },
+        "raw-http/current-009.json": {
+          "bytes": 122,
+          "sha256": "10ef78ba3a108bc6621439e32444fa5298664a5c5a2d633e14d3228e56dc9616"
+        },
+        "raw-http/current-010.json": {
+          "bytes": 119,
+          "sha256": "61a9fa2246d53159e463bb0c3a9622669ea3c44d0ce79b4199534b13c8308b8d"
+        },
+        "raw-http/current-011.json": {
+          "bytes": 119,
+          "sha256": "0ed7b7d2362f521c16bd4d06ddd314a4ff97b551c399da6083bee02a7dd04306"
+        },
+        "raw-http/current-012.json": {
+          "bytes": 119,
+          "sha256": "75f55d8c80362163669836944e8512b093128e81a9b35cacc26efc1bcf21f433"
+        },
+        "raw-http/current-013.json": {
+          "bytes": 940,
+          "sha256": "dddd37d6ca4f4cc2fee974666b358958b85a921bfd10da2612e6a42754e94af2"
+        },
+        "raw-http/current-014.json": {
+          "bytes": 665,
+          "sha256": "1ffb7d4fb6ecf7ab2816e71a1354311092f58680857292718336206a89ea3a9c"
+        },
+        "raw-http/current-015.json": {
+          "bytes": 30670,
+          "sha256": "67cc8d5c9c8ac7a7d6bbc233622b006c29ca550ac4309d9b9cc0bad79eb1546e"
+        },
+        "raw-http/current-016.json": {
+          "bytes": 431,
+          "sha256": "aa4347bb611dda6e8b28bcd7ea98a26cb815a4257700651d92a6dd35164fd504"
+        },
+        "raw-http/current-017.json": {
+          "bytes": 25520,
+          "sha256": "7f189a494a39c165dae72457958c000416f1ca72d469b189d10fc6e086e2c244"
+        },
+        "raw-http/current-018.json": {
+          "bytes": 19134,
+          "sha256": "8e161262f5e2b194ae5867482d63fc9f0f3a7c755b62f9219a8f61e57a4f99fe"
+        },
+        "receipts.jsonl": {
+          "bytes": 108529,
+          "sha256": "1027420fa9415d77078d12460039e5deb64440fc53af557f66d238a96d3889cb"
+        },
+        "result.json": {
+          "bytes": 338,
+          "sha256": "69411df82ccfb583992ec81897a888f72115ffd272f85e280209f3bd1db7519d"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "0daacaeac5e4f4ff1e5a044d84b3dc5d32ef69ad00d1db97a4b91f7ae9724e03"
+        },
+        "summary.json": {
+          "bytes": 206,
+          "sha256": "b4f18485ac94451e8f834d9797e19a183bc5946603a0ef6ed8eb6f53d6f63664"
+        }
+      },
+      "node_sessions": 1,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/ordinary-ope-v2",
+      "result": {
+        "benchmark_result": false,
+        "complete": false,
+        "error": "RuntimeError: An ordinary query batch member returns a refusal",
+        "http_calls": 18,
+        "plan_sha256": "2f0a5747e08b81ae45b29dc6e56378097b0a41a5695598783675f9e60bdd6f7d",
+        "semantic_review": "pending independent raw response review",
+        "workflow": "ordinary-api-requests"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tii8smc_"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "b204b11865bed82c818ea272e5a30bb9a79aa623573b7555e579c2bce388a33e"
+        },
+        "inputs.json": {
+          "bytes": 1710,
+          "sha256": "e49a98d75068e68bb1d3a3dd23f9725831cc05d79a171af36e4d53286d7e0362"
+        },
+        "node-c.log": {
+          "bytes": 20289,
+          "sha256": "c5709aacd1435c7cc72a425c98a738319f5cb24ca4ca26b2c1ccb4e4a42f6e64"
+        },
+        "raw-http/current-001.json": {
+          "bytes": 118,
+          "sha256": "afc26655e91f47af1b72148440b8d36c76fbebe6f3eb7836bcd287c80106e631"
+        },
+        "raw-http/current-002.json": {
+          "bytes": 118,
+          "sha256": "0c0c19f727c4c99f4d9a74845a80e084b282db478e8243e8554cb2598e161fd4"
+        },
+        "raw-http/current-003.json": {
+          "bytes": 119,
+          "sha256": "6c7a657d420b37028e795758817b74b12288802f7b99554482c098a07c22fc2e"
+        },
+        "raw-http/current-004.json": {
+          "bytes": 119,
+          "sha256": "8d774112ba10f9a67dfe694314472a938f9a7685ff102585bd04a7338ae03266"
+        },
+        "raw-http/current-005.json": {
+          "bytes": 117,
+          "sha256": "ebbc70702391d66e2cbc894afd256e0bb6c3ffda9931e92be8dc1fd75f2cbd63"
+        },
+        "raw-http/current-006.json": {
+          "bytes": 117,
+          "sha256": "201feb8e7d92734983c5aeb7e404b9eb13e8defc7c50828a2a63d23f6f390b72"
+        },
+        "raw-http/current-007.json": {
+          "bytes": 117,
+          "sha256": "384ec692245646026d22278d3a4772d24c71ae695f7fc4ef148d177c4dd496eb"
+        },
+        "raw-http/current-008.json": {
+          "bytes": 122,
+          "sha256": "d41ec4d90463e196a6854e858a9bb36e344f8c6d16be73f4e305fb49a17c9497"
+        },
+        "raw-http/current-009.json": {
+          "bytes": 122,
+          "sha256": "c80c7e0d7ea36c49eb88417930cb7909049c8609ff99aa195ab5e200062ec63f"
+        },
+        "raw-http/current-010.json": {
+          "bytes": 119,
+          "sha256": "3c21225bddb13b3fd08592d90673cceecdd4ad5fdb7d8bc9615727877062e0c4"
+        },
+        "raw-http/current-011.json": {
+          "bytes": 119,
+          "sha256": "e9bbc3cba029e8602069a617e8909a7c300a2356ef0b5247844df14891ced1d4"
+        },
+        "raw-http/current-012.json": {
+          "bytes": 119,
+          "sha256": "ee273aa38c6034558f545791fb91fbe4b9dbc5e80199c4a1c4a19565fd6f5626"
+        },
+        "raw-http/current-013.json": {
+          "bytes": 940,
+          "sha256": "9ffda1a9eb222d7f3828f4ee1370f4a687255d59d2d24b2b15be6aa5ce742af3"
+        },
+        "raw-http/current-014.json": {
+          "bytes": 665,
+          "sha256": "5f976c7047c52122df0e0898a195262d674740393ed2c84a633342c91aed792e"
+        },
+        "raw-http/current-015.json": {
+          "bytes": 30666,
+          "sha256": "8e290270e1165a5cd1bcb25ea18f4ec6697e530a0e32abf4f257b426956d8a67"
+        },
+        "raw-http/current-016.json": {
+          "bytes": 430,
+          "sha256": "ed3515fdd1ed94fc6df1b46feeb7cfdb0b78e39c045e5df4e280f48c409796e1"
+        },
+        "raw-http/current-017.json": {
+          "bytes": 25513,
+          "sha256": "20d34ba58cb9e94877b082d1f468d89d61a811e0a62fa585eb28d16ec357bbaa"
+        },
+        "raw-http/current-018.json": {
+          "bytes": 1203,
+          "sha256": "401cbc44c4e99daafea0656ffe1f0c43d10b4937b07deeea2987b841172fc2c0"
+        },
+        "raw-http/current-019.json": {
+          "bytes": 1204,
+          "sha256": "d72c1eefe29d92aac81b67166a0d2d1ef18ffe9446b249502111bae6c3c91278"
+        },
+        "raw-http/current-020.json": {
+          "bytes": 762,
+          "sha256": "6f555d796ba668939b5541634d175d20c5768b954681be7f623e36a4b4b0421f"
+        },
+        "raw-http/current-021.json": {
+          "bytes": 762,
+          "sha256": "0d6a6de42010b5a64a748c6145b497be24c88cb28eef1b3e882662e4e6d2729e"
+        },
+        "raw-http/current-022.json": {
+          "bytes": 763,
+          "sha256": "d21b1bf1e07632d83d30c2ecf3523016b7bce148e5a6a41e32f55e51a63dd0ec"
+        },
+        "raw-http/current-023.json": {
+          "bytes": 1198,
+          "sha256": "18e87832c78689468079dbf07222e9dbcd3e816059eef6a09601b67d8324cb7a"
+        },
+        "raw-http/current-024.json": {
+          "bytes": 1199,
+          "sha256": "f770103419927300c4158ab8067f323f1e34e162fdd97ee54ba824cc048a7612"
+        },
+        "raw-http/current-025.json": {
+          "bytes": 7625,
+          "sha256": "3ffd60aa668634704bd04377aadcb7fb2c370137795986cf6e0b5833c38e6cd5"
+        },
+        "raw-http/current-026.json": {
+          "bytes": 509,
+          "sha256": "e1bc1e335d36f5be2ed28259af882d63690698f5e5edb89e3d996673723cb021"
+        },
+        "raw-http/current-027.json": {
+          "bytes": 6631,
+          "sha256": "b13e7e71034a94ff23a793d8126c1badf11c76c5020c616073a87d1967638bff"
+        },
+        "raw-http/current-028.json": {
+          "bytes": 8130,
+          "sha256": "00d966ee2a61cdc1834850bba982f63a9035ca13c8adee1dee8b1179b6574bb5"
+        },
+        "raw-http/reopened-029.json": {
+          "bytes": 26152,
+          "sha256": "7a7bc7162a7508a1f50d2a3f0c41e2403bfde01072a37b6cae537753e3f1a306"
+        },
+        "raw-http/reopened-030.json": {
+          "bytes": 1203,
+          "sha256": "401cbc44c4e99daafea0656ffe1f0c43d10b4937b07deeea2987b841172fc2c0"
+        },
+        "raw-http/reopened-031.json": {
+          "bytes": 1204,
+          "sha256": "d72c1eefe29d92aac81b67166a0d2d1ef18ffe9446b249502111bae6c3c91278"
+        },
+        "raw-http/reopened-032.json": {
+          "bytes": 762,
+          "sha256": "6f555d796ba668939b5541634d175d20c5768b954681be7f623e36a4b4b0421f"
+        },
+        "raw-http/reopened-033.json": {
+          "bytes": 762,
+          "sha256": "0d6a6de42010b5a64a748c6145b497be24c88cb28eef1b3e882662e4e6d2729e"
+        },
+        "raw-http/reopened-034.json": {
+          "bytes": 763,
+          "sha256": "d21b1bf1e07632d83d30c2ecf3523016b7bce148e5a6a41e32f55e51a63dd0ec"
+        },
+        "raw-http/reopened-035.json": {
+          "bytes": 1198,
+          "sha256": "18e87832c78689468079dbf07222e9dbcd3e816059eef6a09601b67d8324cb7a"
+        },
+        "raw-http/reopened-036.json": {
+          "bytes": 1199,
+          "sha256": "f770103419927300c4158ab8067f323f1e34e162fdd97ee54ba824cc048a7612"
+        },
+        "raw-http/reopened-037.json": {
+          "bytes": 7686,
+          "sha256": "5596514eea3ad3174251ae952edbdac73199d02ce6a1c9034f500739767785ff"
+        },
+        "raw-http/reopened-038.json": {
+          "bytes": 6771,
+          "sha256": "988549169247fe7441024d3e4032717258a85a673c209e5f5ca2dfaac0ebc9b8"
+        },
+        "raw-http/reopened-039.json": {
+          "bytes": 8330,
+          "sha256": "8ca919b94d129a41753c74dc8649ba6bbb599587edc92ad61b3f06534f13c14f"
+        },
+        "receipts.jsonl": {
+          "bytes": 202360,
+          "sha256": "62f66fe7d2ee2fbe2a25bbe9b33c14792b4a19b65012c7ec240204bd52ab0e72"
+        },
+        "result.json": {
+          "bytes": 304,
+          "sha256": "5aee4d2f9458b9e5d6ee7f2466653bc75db32e1e50b57bafef34c115ab8c3d52"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "99441b104430f8528fb6893fc18def711978e8d1b7ac897a6745861ca1be1e3c"
+        },
+        "summary.json": {
+          "bytes": 141,
+          "sha256": "7beae5a1e9810ea2b41c1557b64aa4e6abb8da395333a2c3c02a09c53dedc38e"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/ordinary-ope-v3",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "http_calls": 39,
+        "plan_sha256": "2f0a5747e08b81ae45b29dc6e56378097b0a41a5695598783675f9e60bdd6f7d",
+        "semantic_review": "pending independent raw response review",
+        "transport_revision": 3,
+        "workflow": "ordinary-api-requests"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.juhhwe_w"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "2177958489d8b7e54f849f26e9cebce63ccbc633c3d944f3e1dad546a733683f"
+        },
+        "inputs.json": {
+          "bytes": 1700,
+          "sha256": "42d886efc3eb6c109abb5fd4524d62ae09546a69651b8088e54a693bfeb4d562"
+        },
+        "node-c.log": {
+          "bytes": 20284,
+          "sha256": "ef9de82f0636fe24299d77476382e546c78acb3ba8652989039329cdf042d337"
+        },
+        "raw-http/current-001.json": {
+          "bytes": 118,
+          "sha256": "66b937f8b66718841ded209287568745edde3a4f1cb90d7d7a3b76b723db1bbf"
+        },
+        "raw-http/current-002.json": {
+          "bytes": 118,
+          "sha256": "6d662ef9d607fe9bd6593326fe4faa94a7fbd9f84209acceea4856c7f947245e"
+        },
+        "raw-http/current-003.json": {
+          "bytes": 119,
+          "sha256": "ed8823b4a1697d879a409bb1767d0544a4d13afbaf9881bb011c50f6f59ea697"
+        },
+        "raw-http/current-004.json": {
+          "bytes": 119,
+          "sha256": "2dffd27a0a635bbc3659fd30b2ce260ac4c2b2c5abd14459c2e864f5425f9cbb"
+        },
+        "raw-http/current-005.json": {
+          "bytes": 117,
+          "sha256": "6b9d4bc7c7d08c6ce90e4a2d95d33a4865c704f043a2d5e8ac20cbde99e84b14"
+        },
+        "raw-http/current-006.json": {
+          "bytes": 117,
+          "sha256": "5bfa2e5431bfaacd0d9010811ef14aea74691c3b882fe41c4fe6b92c2e4ede2c"
+        },
+        "raw-http/current-007.json": {
+          "bytes": 117,
+          "sha256": "bbcb6ac1a5142effa7d635d3c4bce6f9e1f8d103ee2c0cc5e163193570a7afeb"
+        },
+        "raw-http/current-008.json": {
+          "bytes": 122,
+          "sha256": "f1f2a7b31f16deb9bcdc620e227fbabd19f8885417ff6b1df88c098696ba1b4a"
+        },
+        "raw-http/current-009.json": {
+          "bytes": 122,
+          "sha256": "ac235a67f62bbd1cfbcb401c58efa9818b2db7f797ca2d588fb76a413b38075f"
+        },
+        "raw-http/current-010.json": {
+          "bytes": 119,
+          "sha256": "06964d6ac415486a7cee64917df2d323465a69b65aa91134da4808cda2604849"
+        },
+        "raw-http/current-011.json": {
+          "bytes": 119,
+          "sha256": "83757534f0368eb01e9ca96d8b63fe30cee2f8382920c44b7b73a7a7cb646570"
+        },
+        "raw-http/current-012.json": {
+          "bytes": 119,
+          "sha256": "77ee430e369806d4cd62a8fb933ac5bf6de2de83a54c8d76ec222f703420a0ed"
+        },
+        "raw-http/current-013.json": {
+          "bytes": 940,
+          "sha256": "2a72628e1a94a885b644e35716f49963986399e5423dc5012787ff154ae54d38"
+        },
+        "raw-http/current-014.json": {
+          "bytes": 665,
+          "sha256": "a4ccae724e08d064dfbcddcdf9af3001fb67286446c93ef64be86675cce7669b"
+        },
+        "raw-http/current-015.json": {
+          "bytes": 30662,
+          "sha256": "171d95eb5384f1c488f52072beb1bb1c6f19b016449541f6af192a97f1d8e249"
+        },
+        "raw-http/current-016.json": {
+          "bytes": 431,
+          "sha256": "0c7b4f1c66d26d7878d5828c9c78c9d4ef8857b943a3e8587321e390af2ecb14"
+        },
+        "raw-http/current-017.json": {
+          "bytes": 25513,
+          "sha256": "83ff6f76a8db4c2d8ef69e1d2b950fef124cffde6bdf2b075bcf3bbb7692914f"
+        },
+        "raw-http/current-018.json": {
+          "bytes": 1203,
+          "sha256": "9d13bd3d5dd5fd29982b773e4cd397fd9d36688d0250adc6b67a4ba04847b9c2"
+        },
+        "raw-http/current-019.json": {
+          "bytes": 1204,
+          "sha256": "685b547437f1f3f65dd44cd644b3f61a771c8acdbcaca796f9fb7e2fd0a633b6"
+        },
+        "raw-http/current-020.json": {
+          "bytes": 762,
+          "sha256": "18d2b79f6e7508a2b1662743b0edaa37839e0d741cbf0f0dd36e803808ad080e"
+        },
+        "raw-http/current-021.json": {
+          "bytes": 762,
+          "sha256": "d23be4d6a622a79df49c461465e9e6cacb0849acdfab2e6f640b1d19b9accce3"
+        },
+        "raw-http/current-022.json": {
+          "bytes": 763,
+          "sha256": "f11efc4bce363bfe770b8d318df4c6e208142c3a5741ab1815d7597f307999af"
+        },
+        "raw-http/current-023.json": {
+          "bytes": 1198,
+          "sha256": "299b0ebc747bdd65bb54dd4ca9b48f719188cb7467b505d2256b9f5a79295280"
+        },
+        "raw-http/current-024.json": {
+          "bytes": 1199,
+          "sha256": "41b74552e29bf224d5cbb8cdce7fad7e4ac452ccef366e094332a941a66e925e"
+        },
+        "raw-http/current-025.json": {
+          "bytes": 7616,
+          "sha256": "6c0f1b74c1ac692e54ee0a762b3f16211b4e5b68956adc55776001eca9ac7246"
+        },
+        "raw-http/current-026.json": {
+          "bytes": 508,
+          "sha256": "bf4c53e5b41aaa38d56f30682ec021fe825bc47a5f3b934e76c0df5517d33740"
+        },
+        "raw-http/current-027.json": {
+          "bytes": 6634,
+          "sha256": "d123fb7c4a93ebfe4dafeb2c354a8430fb0b6199bdcfef9ad37fa7f0908b45d1"
+        },
+        "raw-http/current-028.json": {
+          "bytes": 8129,
+          "sha256": "326519366683c94271dedcff8419ec5649b7969a9a171e21e500dddda7a2b86d"
+        },
+        "raw-http/reopened-029.json": {
+          "bytes": 26137,
+          "sha256": "1a577a3843558188e3bf0700ae43287fcba89e397447253ffa156383a3050cd7"
+        },
+        "raw-http/reopened-030.json": {
+          "bytes": 1203,
+          "sha256": "9d13bd3d5dd5fd29982b773e4cd397fd9d36688d0250adc6b67a4ba04847b9c2"
+        },
+        "raw-http/reopened-031.json": {
+          "bytes": 1204,
+          "sha256": "685b547437f1f3f65dd44cd644b3f61a771c8acdbcaca796f9fb7e2fd0a633b6"
+        },
+        "raw-http/reopened-032.json": {
+          "bytes": 762,
+          "sha256": "18d2b79f6e7508a2b1662743b0edaa37839e0d741cbf0f0dd36e803808ad080e"
+        },
+        "raw-http/reopened-033.json": {
+          "bytes": 762,
+          "sha256": "d23be4d6a622a79df49c461465e9e6cacb0849acdfab2e6f640b1d19b9accce3"
+        },
+        "raw-http/reopened-034.json": {
+          "bytes": 763,
+          "sha256": "f11efc4bce363bfe770b8d318df4c6e208142c3a5741ab1815d7597f307999af"
+        },
+        "raw-http/reopened-035.json": {
+          "bytes": 1198,
+          "sha256": "299b0ebc747bdd65bb54dd4ca9b48f719188cb7467b505d2256b9f5a79295280"
+        },
+        "raw-http/reopened-036.json": {
+          "bytes": 1199,
+          "sha256": "41b74552e29bf224d5cbb8cdce7fad7e4ac452ccef366e094332a941a66e925e"
+        },
+        "raw-http/reopened-037.json": {
+          "bytes": 7706,
+          "sha256": "7c25f7428ea313aa96286121f27843190f1cf43be8f00732e3685425da68adfe"
+        },
+        "raw-http/reopened-038.json": {
+          "bytes": 6776,
+          "sha256": "0deffce364fb91a6a470775e43d850625f2dc26753e4201b02500fd1c9afcedd"
+        },
+        "raw-http/reopened-039.json": {
+          "bytes": 8340,
+          "sha256": "1380adb89b8d80a910b9dffb1545921cb47209ece7e087874ccc6e85dca3b540"
+        },
+        "receipts.jsonl": {
+          "bytes": 202366,
+          "sha256": "b4ae5b1160b483c822b1c8b6587253e3ac798be9ac46eac6e38a0cfe483f85be"
+        },
+        "result.json": {
+          "bytes": 304,
+          "sha256": "5aee4d2f9458b9e5d6ee7f2466653bc75db32e1e50b57bafef34c115ab8c3d52"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "4359db795a7210d68c58d8b9da48fea1599fed40030318e28a6bd63cd36bdb9a"
+        },
+        "summary.json": {
+          "bytes": 147,
+          "sha256": "af6d0845a005613debb1dc9009c7a5899b78d799085126f150cd1135b6721056"
+        }
+      },
+      "node_sessions": 2,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/ordinary-plain",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "http_calls": 39,
+        "plan_sha256": "2f0a5747e08b81ae45b29dc6e56378097b0a41a5695598783675f9e60bdd6f7d",
+        "semantic_review": "pending independent raw response review",
+        "transport_revision": 3,
+        "workflow": "ordinary-api-requests"
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ocr6n5mo"
+      }
+    },
+    {
+      "all_nodes_stop_normally": true,
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "files": {
+        ".synthetic-seed-owner.json": {
+          "bytes": 123,
+          "sha256": "b53bb5e689bf60edd06e14f46d93899ac866a22c0a21718ba7b6f2671a64a860"
+        },
+        "inputs.json": {
+          "bytes": 1653,
+          "sha256": "14101b15d5e09c2e52f800d26716508b6a2541e54650e5603143fb3912c1bcf1"
+        },
+        "node-c.log": {
+          "bytes": 31061,
+          "sha256": "d352b39bde37e27fafed61f9ae54ab5a199119d78226681acad0783ef03034b0"
+        },
+        "receipts.jsonl": {
+          "bytes": 9150684,
+          "sha256": "e2a172da56908edac6c5ffcc9702e591778ed929f6744d353f357969de611ee1"
+        },
+        "result.json": {
+          "bytes": 180,
+          "sha256": "30ad5e83766af36d0eb779a62bc54496ece084638b70e24127927553a68001fc"
+        },
+        "retained-root.json": {
+          "bytes": 180,
+          "sha256": "ceff30fd26643aef5798f1374835d19d89a8a30a0543d8ad1ed4f34815da948d"
+        },
+        "summary.json": {
+          "bytes": 143,
+          "sha256": "42a3f5c2d222450d67b17f06bca4e1243604a65bf59629bb9f2b9ac42c8413f3"
+        }
+      },
+      "node_sessions": 4,
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/ordinary-cohort",
+      "result": {
+        "benchmark_result": false,
+        "complete": true,
+        "error": null,
+        "read_observations": 74,
+        "workflow": "unchanged-core-owned-write-cohorts",
+        "zero_file_observations": 29
+      },
+      "retained_root": {
+        "all_owned_nodes_stopped": true,
+        "retained_for": "supported cleanup review after receipt preservation",
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.06a0gks6"
+      }
+    }
+  ],
+  "scope": "Expected failed value gates remain failed. Startup exit1 is recorded separately from normal stops. This seal does not establish cleanup safety or change acceptance."
+}

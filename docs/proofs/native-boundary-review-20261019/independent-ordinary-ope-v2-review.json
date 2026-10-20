@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "scope": "Independent read of preserved raw API responses and receipts. No node, build, test, product edit, or helper execution by this reviewer.",
+  "source_head": "fca23b6ff69613adc42d683dd95e071c861c61f7",
+  "binary_sha256": "cdbabbee5b79238469d805226c60b9092e4fdebf9b9d98ebc92d86aae50f2a4c",
+  "request_data_sha256": "2f0a5747e08b81ae45b29dc6e56378097b0a41a5695598783675f9e60bdd6f7d",
+  "receipts_sha256": "1027420fa9415d77078d12460039e5deb64440fc53af557f66d238a96d3889cb",
+  "result_sha256": "69411df82ccfb583992ec81897a888f72115ffd272f85e280209f3bd1db7519d",
+  "inputs_sha256": "685a04facf26fea5b5802c493a30258c68219646840484410eb709a4508a2623",
+  "raw_response_files": 18,
+  "raw_hash_mismatches": [],
+  "top_level_status": {"200": 18},
+  "query_child_status": {"200": 36, "400": 7},
+  "session_exit_codes": [0],
+  "forced_kill": false,
+  "result": "not_accepted_incomplete_operation_run",
+  "refusal": {
+    "raw_file": "current-018.json",
+    "kind": "full_schema_scan_not_allowed",
+    "cause": "The batch route deliberately removes the administrative override header from child requests. Header value 1 does not enable administrative reads through this route.",
+    "source": "lastdb_node/src/exec/query_batch.rs:36",
+    "unproved_labels": ["mapped-page", "mapped-sample", "descending-tie-0", "descending-tie-1", "descending-tie-2", "range-map-page", "range-map-sample"]
+  },
+  "raw_value_review": "Completed keyed reads show nullable peer removal, intact later collision peers after old-source Delete/Purge/move, and g/R mapped membership. The run stops at the first administrative batch refusal, before dependent writes or reopen.",
+  "limits": [
+    "The 18 completed top-level HTTP calls do not establish a complete pass.",
+    "The existing product guard correctly refuses the administrative child calls. This is an operation setup error.",
+    "No latency or throughput conclusion follows."
+  ]
+}

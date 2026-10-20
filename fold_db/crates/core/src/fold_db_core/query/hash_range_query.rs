@@ -34,6 +34,8 @@ mod cokey_secondary;
 mod count;
 mod fields;
 mod filter;
+mod inspection;
+mod layout;
 mod paging;
 mod pending_values;
 mod predicates;
@@ -108,9 +110,7 @@ type SecondaryPending = (
     Option<String>,
 );
 
-/// A resolved page. Keyed reads preserve API coordinates. Physical page/sample
-/// walks recover hashes at `rename_page_to_api_keys` when their values verify
-/// the mapping; any unrecovered physical hashes retain an opaque wire label.
+/// A resolved page carries verified API coordinates into secondary reads.
 struct CokeyRows {
     fields: HashMap<String, HashMap<KeyValue, FieldValue>>,
     page_keys: Vec<KeyValue>,
