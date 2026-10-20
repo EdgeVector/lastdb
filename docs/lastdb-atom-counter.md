@@ -374,6 +374,8 @@ Faults, by name:
 | `suspect_counter` | a counter has the `suspect` flag |
 | `tip_without_body` | a tip names an atom that has no body (a lost body) |
 | `record_without_body` | a conflict record names an atom that has no body |
+| `record_without_queue_entry` | no queue entry can be reached from a conflict record: its slot directory entry is missing, does not decode, or names a queue entry that is missing (the janitor never releases the record) |
+| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it) |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
 | `unconfirmed_count_mismatch` | not a fault: see below |
 

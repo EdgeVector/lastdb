@@ -70,6 +70,12 @@ pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String>
             report.purge_capped_slots
         ));
     }
+    if report.net_sweeps > 0 {
+        line.push_str(&format!(
+            "; queue net swept {} times, buckets repaired {}",
+            report.net_sweeps, report.buckets_repaired
+        ));
+    }
     if report.undecodable_rows > 0 {
         line.push_str(&format!("; undecodable rows {}", report.undecodable_rows));
     }

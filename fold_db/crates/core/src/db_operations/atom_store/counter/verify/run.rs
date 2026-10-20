@@ -1,11 +1,12 @@
 //! The driver of the verifier: steps with a page budget and a time budget.
 
 use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
-use super::pages::{phase_range, AtomsPage, ReferencedPage};
+use super::pages::{phase_range, AtomsPage, ReferencedPage, SuspectsPage};
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{Run, StepGuard};
 use super::totals::{digest, Watch};
 use crate::db_operations::atom_store::counter::scan::CounterRead;
+use crate::db_operations::atom_store::time_queue::QueueSurvey;
 use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress, RangeWalk};
 use crate::schema::SchemaError;
 use std::time::{Duration, Instant};
@@ -24,6 +25,7 @@ const DEFAULT_MAX_ATOMS: usize = 1_000_000;
 enum Page {
     Referenced(ReferencedPage),
     Atoms(AtomsPage),
+    Suspects(SuspectsPage),
 }
 
 impl AtomStore {
@@ -93,6 +95,9 @@ impl AtomStore {
         if guard.run().phase.reads_molecules() && !guard.run().walk.done() {
             return self.verify_molecule_page(guard).await;
         }
+        if guard.run().phase == Phase::Queue {
+            return self.verify_queue_page(guard).await;
+        }
         let (run, watch) = guard.split();
         if run.walk.done() {
             next_phase(run);
@@ -112,7 +117,17 @@ impl AtomStore {
                 .read_referenced_page(run.phase, scope.as_deref(), request)
                 .await
                 .map(Page::Referenced),
-            Phase::Headers | Phase::Bindings | Phase::BindingRecords | Phase::Done => return Ok(()),
+            Phase::Suspects => {
+                let suspects = std::mem::take(&mut run.suspects);
+                let page = self.read_suspects_page(&suspects, request).await;
+                run.suspects = suspects;
+                page.map(Page::Suspects)
+            }
+            Phase::Headers
+            | Phase::Bindings
+            | Phase::BindingRecords
+            | Phase::Queue
+            | Phase::Done => return Ok(()),
         };
         match page {
             Ok(Page::Referenced(page)) => {
@@ -122,6 +137,27 @@ impl AtomStore {
                     .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
                 {
                     Progress::Moved => apply_referenced(run, page),
+                    Progress::Widened => run.report.page_retries += 1,
+                    Progress::Stuck => return Err(unsealed_run_error()),
+                }
+            }
+            Ok(Page::Suspects(page)) => {
+                run.note_unsealed(page.scan_unsealed);
+                match run
+                    .walk
+                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
+                {
+                    Progress::Moved => {
+                        run.report.pages += 1;
+                        for key in &page.keys {
+                            run.note_fault(
+                                Kind::RecordWithoutQueueEntry,
+                                key,
+                                "no queue entry names this record (its entry was deleted, or never written)"
+                                    .into(),
+                            );
+                        }
+                    }
                     Progress::Widened => run.report.page_retries += 1,
                     Progress::Stuck => return Err(unsealed_run_error()),
                 }
@@ -177,7 +213,9 @@ fn next_phase(run: &mut Run) {
         Phase::Atoms => Phase::Headers,
         Phase::Headers => Phase::Bindings,
         Phase::Bindings => Phase::BindingRecords,
-        Phase::BindingRecords | Phase::Done => Phase::Done,
+        Phase::BindingRecords => Phase::Queue,
+        // The queue phase ends in `finish_queue`, which picks the next phase.
+        Phase::Queue | Phase::Suspects | Phase::Done => Phase::Done,
     };
     if run.phase == Phase::Bindings {
         super::molecule_run::finish_headers(run);
@@ -235,6 +273,13 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
         Holder::Tip => run.report.tips_read += page.rows as u64,
         Holder::Record => run.report.records_read += page.rows as u64,
     }
+    for id in &page.record_ids {
+        if run.record_ids.len() >= run.max_ids {
+            run.ids_complete = false;
+            break;
+        }
+        run.record_ids.insert(*id);
+    }
     for key in &page.unreadable_keys {
         run.note_fault(unreadable_kind, key, "the row does not decode".into());
     }
@@ -287,5 +332,90 @@ fn apply_atoms(run: &mut Run, watch: &Watch, page: AtomsPage) {
         if let Some(finding) = judge_total(counter, &seen) {
             run.note_fault(finding.kind, &pair.atom, finding.detail);
         }
+    }
+}
+
+impl AtomStore {
+    /// One page of the queue phase: the first call lists the directory and the
+    /// unlisted slices, each later call reads one page of one bucket. The last
+    /// call judges the survey.
+    async fn verify_queue_page(&self, guard: &mut StepGuard<'_>) -> Result<(), SchemaError> {
+        let (run, _) = guard.split();
+        if run.survey.is_none() {
+            let state = self.retention_state();
+            run.survey = Some(QueueSurvey::new(
+                state.queue(),
+                state.clock_nanos(),
+                state.window_nanos(),
+                run.page_rows,
+                run.max_ids,
+            ));
+        }
+        let survey = run.survey.as_mut().expect("the survey was just made");
+        let done = survey.step(self).await?;
+        run.report.pages += 1;
+        if done {
+            self.finish_queue(run).await?;
+        }
+        Ok(())
+    }
+
+    /// Judge the survey: buckets without a directory row, and the records that
+    /// no entry names. The records are read again in the last phase.
+    async fn finish_queue(&self, run: &mut Run) -> Result<(), SchemaError> {
+        let Some(survey) = run.survey.take() else {
+            return Ok(());
+        };
+        run.report.queue_entries_read = survey.entries();
+        for (bucket, found) in survey.confirmed_unlisted(self).await? {
+            let sample = found.sample.first().cloned().unwrap_or_default();
+            run.note_faults(
+                Kind::QueueEntryWithoutDirectory,
+                &sample.replace('\0', "\\0"),
+                format!(
+                    "bucket {bucket} holds {} entries and the directory of the queue has no row for it",
+                    found.entries
+                ),
+                found.entries,
+            );
+        }
+        if survey.unknown() > 0 {
+            run.report.notes.push(format!(
+                "the probe of {} queue slices gave up; they were not judged",
+                survey.unknown()
+            ));
+        }
+        let judge = survey.complete() && run.ids_complete;
+        if !judge {
+            run.report.notes.push(
+                "more records or queue entries than --max-atoms; records were not compared with the queue"
+                    .into(),
+            );
+        }
+        run.suspects = if judge {
+            run.record_ids
+                .iter()
+                .filter(|id| !survey.has(**id))
+                .copied()
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+        run.record_ids = std::collections::HashSet::new();
+        if run.suspects.is_empty() {
+            run.phase = Phase::Done;
+            if !run.tally.complete {
+                run.report.notes.push(format!(
+                    "more than {} atoms are referenced; counters were not compared with the totals of the pass",
+                    run.tally.len()
+                ));
+            }
+        } else {
+            run.phase = Phase::Suspects;
+            if let Some((start, end)) = phase_range(Phase::Suspects, run.report.scope.as_deref()) {
+                run.walk = RangeWalk::new(&start, &end, run.page_rows);
+            }
+        }
+        Ok(())
     }
 }

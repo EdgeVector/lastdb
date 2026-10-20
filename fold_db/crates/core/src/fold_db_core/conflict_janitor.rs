@@ -72,6 +72,12 @@ pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 10;
 const MIN_PAUSE: Duration = Duration::from_millis(25);
 /// The longest rest between two pages.
 const MAX_PAUSE: Duration = Duration::from_secs(30);
+/// Env: seconds between two sweeps of the safety net of the queue (`0` = off).
+/// A sweep probes every slice that can hold a live entry, by arithmetic, and
+/// registers again a bucket that holds entries and has no directory row.
+pub const CONFLICT_JANITOR_NET_SECS_ENV: &str = "LASTDB_CONFLICT_JANITOR_NET_SECS";
+/// Default time between sweeps: one hour. The first sweep runs at the start.
+pub const DEFAULT_CONFLICT_JANITOR_NET_SECS: u64 = 3_600;
 /// The cursors of the live buckets start again, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
 /// The longest wait after a wake that failed.
@@ -86,6 +92,8 @@ pub struct ConflictJanitorPolicy {
     pub interval: Option<Duration>,
     /// The share of wall time, in percent, that release batches may take.
     pub duty_pct: u64,
+    /// The time between two sweeps of the safety net. `None` turns it off.
+    pub net_every: Option<Duration>,
 }
 
 impl ConflictJanitorPolicy {
@@ -99,6 +107,33 @@ impl ConflictJanitorPolicy {
             duty_pct: parse_conflict_janitor_duty(
                 std::env::var(CONFLICT_JANITOR_DUTY_PCT_ENV).ok().as_deref(),
             ),
+            net_every: parse_conflict_janitor_net(
+                std::env::var(CONFLICT_JANITOR_NET_SECS_ENV).ok().as_deref(),
+            ),
+        }
+    }
+}
+
+/// `LASTDB_CONFLICT_JANITOR_NET_SECS` to the time between two sweeps of the
+/// safety net. Unset or invalid gives the default (one hour), and zero turns the
+/// net off.
+#[must_use]
+pub fn parse_conflict_janitor_net(raw: Option<&str>) -> Option<Duration> {
+    let default = Some(Duration::from_secs(DEFAULT_CONFLICT_JANITOR_NET_SECS));
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return default;
+    };
+    match raw.parse::<u64>() {
+        Ok(0) => None,
+        Ok(secs) => Some(Duration::from_secs(secs)),
+        Err(_) => {
+            tracing::warn!(
+                raw,
+                env = CONFLICT_JANITOR_NET_SECS_ENV,
+                default_secs = DEFAULT_CONFLICT_JANITOR_NET_SECS,
+                "invalid conflict janitor net interval; using the default"
+            );
+            default
         }
     }
 }
@@ -167,7 +202,12 @@ impl BackgroundConflictJanitorTask {
     }
 
     /// Spawn the periodic janitor on the current Tokio runtime.
-    pub fn spawn(db_ops: Arc<DbOperations>, interval: Duration, duty_pct: u64) -> Self {
+    pub fn spawn(
+        db_ops: Arc<DbOperations>,
+        interval: Duration,
+        duty_pct: u64,
+        net_every: Option<Duration>,
+    ) -> Self {
         db_ops
             .atoms()
             .retention_state()
@@ -180,6 +220,7 @@ impl BackgroundConflictJanitorTask {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
             let mut cursor = db_ops.atoms().retention_cursor();
+            cursor.set_net_every(net_every);
             let mut wakes = 0u64;
             let mut failures = 0u64;
             let mut retry_at: Option<std::time::Instant> = None;
@@ -276,6 +317,32 @@ async fn run_wake(
     let mut wake = Wake::default();
     let mut ordinary_ok = true;
     let mut drain_ok = true;
+    // The safety net sweeps the slices once in a while. A sweep is a few chunks,
+    // each paced like a batch.
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return wake;
+        }
+        let started = std::time::Instant::now();
+        let now = atoms.retention_state().clock_nanos();
+        match atoms.net_step(cursor, now).await {
+            Ok(Some(outcome)) => {
+                tracing::debug!(
+                    target: "fold_node::database",
+                    lane = ?outcome.lane,
+                    repaired = outcome.repaired,
+                    took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "conflict janitor net chunk"
+                );
+                tokio::time::sleep(pause_after(started.elapsed(), duty_pct)).await;
+            }
+            Ok(None) => break,
+            Err(failure) => {
+                wake.fail(&failure);
+                break;
+            }
+        }
+    }
     let mut batches = 0usize;
     'wake: while batches < PAGES_PER_WAKE && (ordinary_ok || drain_ok) {
         let mut progressed = false;

@@ -21,6 +21,7 @@ use crate::db_operations::atom_store::time_queue::{DuePage, QueueReader, TimeQue
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 /// The kind of work that one step did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -32,6 +33,8 @@ pub(crate) enum Lane {
     Drain,
     /// The retirement of a queue bucket.
     Retire,
+    /// A chunk of a sweep of the safety net.
+    Net,
 }
 
 /// What one step did.
@@ -44,11 +47,16 @@ pub(crate) struct StepOutcome {
     pub(crate) finished: u64,
     /// The step deleted the directory row of a bucket.
     pub(crate) retired: bool,
+    /// Buckets that a net chunk registered again.
+    pub(crate) repaired: u64,
 }
 
 /// Pages of drain markers that one ordinary step reads before it returns. A page
 /// of markers needs no write gate, so it costs no batch and no rest.
 const MARKER_PAGES_PER_STEP: usize = 64;
+/// Slices that one net chunk probes. A chunk is one batch read and, for each
+/// slice without a row, one bounded range read.
+const NET_CHUNK_SLICES: usize = 16;
 /// A bucket whose marker found no room waits this long before the next read.
 const RETRY_NANOS: u64 = 1_000_000_000;
 
@@ -59,6 +67,18 @@ pub(crate) struct RetentionCursor {
     queue: TimeQueue,
     reader: QueueReader,
     pending: VecDeque<PendingDrain>,
+    net: Net,
+}
+
+/// The schedule of the safety net, and the sweep in progress.
+#[derive(Debug)]
+struct Net {
+    /// The time between two sweeps. `None` turns the net off.
+    every: Option<Duration>,
+    /// The next sweep starts at or after this time. The first one is at once.
+    next_at: Instant,
+    /// Slices of the sweep in progress that are not probed yet.
+    todo: VecDeque<u64>,
 }
 
 impl RetentionCursor {
@@ -67,7 +87,19 @@ impl RetentionCursor {
             queue,
             reader: QueueReader::new(queue, RELEASE_BATCH_RECORDS),
             pending: VecDeque::new(),
+            net: Net {
+                every: None,
+                next_at: Instant::now(),
+                todo: VecDeque::new(),
+            },
         }
+    }
+
+    /// Sweep the slices of the queue for buckets without a directory row, once in
+    /// `every`, and now. `None` turns the safety net off.
+    pub(crate) fn set_net_every(&mut self, every: Option<Duration>) {
+        self.net.every = every;
+        self.net.next_at = Instant::now();
     }
 
     /// Walk the live buckets again from their start, and read the directory
@@ -236,6 +268,53 @@ impl AtomStore {
             }
         }
         (records, markers)
+    }
+
+    /// One chunk of the safety net: probe the next slices of the sweep, and
+    /// register again each bucket that holds a live entry and has no directory
+    /// row. A new sweep starts when the net is on and its time has come. `None`
+    /// means no sweep is due.
+    ///
+    /// The probe covers the slices that can hold a live entry, by arithmetic
+    /// (`TimeQueue::net_slices`), so it needs no scan. See `time_queue/net.rs`.
+    pub(crate) async fn net_step(
+        &self,
+        cursor: &mut RetentionCursor,
+        now_nanos: u64,
+    ) -> Result<Option<StepOutcome>, SchemaError> {
+        if cursor.net.todo.is_empty() {
+            let Some(every) = cursor.net.every else {
+                return Ok(None);
+            };
+            if Instant::now() < cursor.net.next_at {
+                return Ok(None);
+            }
+            cursor.net.next_at = Instant::now() + every;
+            let state = self.retention_state();
+            cursor
+                .net
+                .todo
+                .extend(cursor.queue.net_slices(now_nanos, state.window_nanos()));
+            state.note_net_sweep();
+        }
+        let take = cursor.net.todo.len().min(NET_CHUNK_SLICES);
+        let slices: Vec<u64> = cursor.net.todo.iter().take(take).copied().collect();
+        let chunk = cursor.queue.mend_slices(self, &slices, now_nanos).await?;
+        cursor.net.todo.drain(..take);
+        for bucket in &chunk.unlisted {
+            tracing::warn!(
+                target: "fold_node::database",
+                bucket,
+                "a queue bucket held live entries and had no directory row; it is registered again"
+            );
+        }
+        let repaired = chunk.unlisted.len() as u64;
+        self.retention_state().note_buckets_repaired(repaired);
+        Ok(Some(StepOutcome {
+            lane: Lane::Net,
+            repaired,
+            ..StepOutcome::default()
+        }))
     }
 
     /// One batch of slot drains. `None` means the janitor holds no drain. A

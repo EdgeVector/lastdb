@@ -59,6 +59,8 @@ pub(crate) struct RetentionState {
     pending_drains: AtomicU64,
     consecutive_failures: AtomicU64,
     next_retry_unix_ms: AtomicU64,
+    net_sweeps: AtomicU64,
+    buckets_repaired: AtomicU64,
     last_error: Mutex<Option<String>>,
 }
 
@@ -92,6 +94,8 @@ impl RetentionState {
             pending_drains: AtomicU64::new(0),
             consecutive_failures: AtomicU64::new(0),
             next_retry_unix_ms: AtomicU64::new(0),
+            net_sweeps: AtomicU64::new(0),
+            buckets_repaired: AtomicU64::new(0),
             last_error: Mutex::new(None),
         }
     }
@@ -148,6 +152,17 @@ impl RetentionState {
             .fetch_add(released, Ordering::Relaxed);
     }
 
+    /// The safety net of the queue started a sweep of the slices.
+    pub(crate) fn note_net_sweep(&self) {
+        self.net_sweeps.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The safety net registered `buckets` again: they held live entries and had
+    /// no directory row.
+    pub(crate) fn note_buckets_repaired(&self, buckets: u64) {
+        self.buckets_repaired.fetch_add(buckets, Ordering::Relaxed);
+    }
+
     /// The janitor holds this many slot drains that are not finished.
     pub(crate) fn set_pending_drains(&self, pending: u64) {
         self.pending_drains.store(pending, Ordering::Relaxed);
@@ -197,6 +212,8 @@ impl RetentionState {
             pending_drains: self.pending_drains.load(Ordering::Relaxed),
             consecutive_failures: self.consecutive_failures.load(Ordering::Relaxed),
             next_retry_unix_ms: self.next_retry_unix_ms.load(Ordering::Relaxed),
+            net_sweeps: self.net_sweeps.load(Ordering::Relaxed),
+            buckets_repaired: self.buckets_repaired.load(Ordering::Relaxed),
             last_error: self
                 .last_error
                 .lock()
@@ -249,5 +266,14 @@ pub struct ConflictRetentionReport {
     /// the janitor keeps its ordinary interval.
     #[serde(default)]
     pub next_retry_unix_ms: u64,
+    /// Sweeps of the safety net since the node started. A sweep probes every
+    /// slice that can hold a live entry.
+    #[serde(default)]
+    pub net_sweeps: u64,
+    /// Buckets that the safety net registered again: they held live entries
+    /// and had no directory row. A count above zero means that something wrote
+    /// or deleted queue rows outside the queue, or that a retirement was wrong.
+    #[serde(default)]
+    pub buckets_repaired: u64,
     pub last_error: Option<String>,
 }

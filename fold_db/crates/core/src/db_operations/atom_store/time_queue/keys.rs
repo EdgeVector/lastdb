@@ -22,6 +22,9 @@ pub(crate) const MIN_SLICE_NANOS: u64 = 1_000_000_000;
 pub(crate) const MAX_SLICE_NANOS: u64 = 3_600_000_000_000;
 /// A queue holds about this many slices over a retention window, at most.
 const SLICES_PER_WINDOW: u64 = 64;
+/// The most slices a list of slices holds. A window holds about 64, so this
+/// bounds only a list for a very short slice and a very long span.
+const MAX_SLICES: usize = 4_096;
 
 /// The layout of one time-bucketed queue. It holds names and a number, and no
 /// state, so it is cheap to copy.
@@ -78,6 +81,32 @@ impl TimeQueue {
         format!("{}\0{bucket:020}", self.directory)
     }
 
+    /// The length of a slice in nanoseconds.
+    pub(crate) fn slice_nanos(&self) -> u64 {
+        self.slice_nanos
+    }
+
+    /// The starts of the slices from the one that holds `from` to the one that
+    /// holds `to`, oldest first. At most [`MAX_SLICES`] of them.
+    pub(crate) fn slices(&self, from: u64, to: u64) -> Vec<u64> {
+        let mut starts = Vec::new();
+        let mut bucket = self.bucket_of(from);
+        let last = self.bucket_of(to);
+        while bucket <= last && starts.len() < MAX_SLICES {
+            starts.push(bucket);
+            match bucket.checked_add(self.slice_nanos) {
+                Some(next) => bucket = next,
+                None => break,
+            }
+        }
+        starts
+    }
+
+    /// The directory row of `bucket` with the token `token`.
+    pub(crate) fn directory_row(&self, bucket: u64, token: &str) -> (String, Value) {
+        (self.directory_key(bucket), json!({ "v": 1, "t": token }))
+    }
+
     /// The two rows that one new entry writes in its batch: the entry, and the
     /// directory row of its bucket with a new token. The token names the entry,
     /// so two entries never leave the same row. A reader that retires a bucket
@@ -87,10 +116,7 @@ impl TimeQueue {
         let bucket = self.bucket_of(expires);
         vec![
             (self.entry_key(expires, id), value.clone()),
-            (
-                self.directory_key(bucket),
-                json!({ "v": 1, "t": format!("{expires:020}:{id}") }),
-            ),
+            self.directory_row(bucket, &format!("{expires:020}:{id}")),
         ]
     }
 
@@ -103,6 +129,13 @@ impl TimeQueue {
             return None;
         }
         Some((bucket.parse().ok()?, expires.parse().ok()?))
+    }
+
+    /// The id in the key of an entry, as a 128-bit digest of its first 32 hex
+    /// digits. The ids of a queue are hashes, so the digest names an entry.
+    pub(crate) fn entry_digest(&self, key: &str) -> Option<u128> {
+        self.parse_entry(key)?;
+        digest_of_id(key.rsplit(':').next()?)
     }
 
     /// The expiry in the key of an entry.
@@ -137,4 +170,9 @@ impl TimeQueue {
         }
         digits.parse().ok()
     }
+}
+
+/// The first 128 bits of an id of hex digits (at least 32 digits), or `None`.
+pub(crate) fn digest_of_id(id: &str) -> Option<u128> {
+    u128::from_str_radix(id.get(..32)?, 16).ok()
 }

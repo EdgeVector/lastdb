@@ -28,7 +28,8 @@ pub use query::{HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashR
 
 pub use conflict_janitor::{
     BackgroundConflictJanitorTask, ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV,
-    CONFLICT_JANITOR_MS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
+    CONFLICT_JANITOR_MS_ENV, CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT,
+    DEFAULT_CONFLICT_JANITOR_MS,
 };
 pub use mutation_flush::{
     mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,

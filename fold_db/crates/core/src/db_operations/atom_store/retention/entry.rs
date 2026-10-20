@@ -82,7 +82,12 @@ impl RetentionEntry {
 
     /// The release the planner runs for this record.
     pub(crate) fn request(&self) -> ReleaseRequest {
-        let mut deletes = vec![self.dir.as_bytes().to_vec(), self.queue.as_bytes().to_vec()];
+        // An entry that a repair wrote again has no slot directory entry of its own
+        // (`dir` is empty): there is no key to delete.
+        let mut deletes = vec![self.queue.as_bytes().to_vec()];
+        if !self.dir.is_empty() {
+            deletes.push(self.dir.as_bytes().to_vec());
+        }
         if let Some(conflict) = &self.conflict {
             deletes.push(conflict.as_bytes().to_vec());
         }
