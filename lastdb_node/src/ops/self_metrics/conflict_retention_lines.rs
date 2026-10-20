@@ -4,7 +4,9 @@ use super::*;
 ///
 /// The janitor releases a kept conflict record at the end of its retention
 /// window. The line shows the window, the janitor's last run, the queue depth
-/// when the status was sampled, and what the janitor and the purge released. Always emits one
+/// and the number of queue buckets when the status was sampled, the slot drains
+/// that wait, the failed wakes of the janitor, and what the janitor and the
+/// purge released. Always emits one
 /// line, so a daemon that predates the field reads differently from one with
 /// an empty queue.
 pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
@@ -36,10 +38,32 @@ pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String>
         Some(depth) if report.queue_depth_capped => format!("{depth}+"),
         Some(depth) => depth.to_string(),
     };
+    let buckets = report
+        .queue_buckets
+        .map_or_else(String::new, |buckets| format!(" in {buckets} buckets"));
     let mut line = format!(
-        "Conflict retention: window {} s; {janitor}; {last}; queue depth {depth}; released by janitor {}, by purge {}",
+        "Conflict retention: window {} s; {janitor}; {last}; queue depth {depth}{buckets}; released by janitor {}, by purge {}",
         report.window_secs, report.released_by_janitor, report.released_by_purge,
     );
+    if report.pending_drains > 0 {
+        line.push_str(&format!("; slot drains pending {}", report.pending_drains));
+    }
+    if report.consecutive_failures > 0 {
+        line.push_str(&format!(
+            "; janitor failed {} wakes in a row",
+            report.consecutive_failures
+        ));
+        if report.next_retry_unix_ms > 0 {
+            let at = chrono::DateTime::from_timestamp_millis(
+                i64::try_from(report.next_retry_unix_ms).unwrap_or(0),
+            )
+            .map_or_else(
+                || report.next_retry_unix_ms.to_string(),
+                |at| at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            );
+            line.push_str(&format!(", next try {at}"));
+        }
+    }
     if report.purge_capped_slots > 0 {
         line.push_str(&format!(
             "; slots whose records a purge left to the window {}",

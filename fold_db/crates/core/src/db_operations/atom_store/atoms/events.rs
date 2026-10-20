@@ -69,6 +69,7 @@ impl AtomStore {
                 releases: Vec::new(),
                 rows,
                 deletes: Vec::new(),
+                guarded_deletes: Vec::new(),
             }))
             .await?;
         self.account_stored_bodies(bodies, &commit);

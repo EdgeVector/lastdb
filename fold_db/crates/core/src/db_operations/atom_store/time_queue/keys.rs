@@ -1,0 +1,140 @@
+//! Key layout of a time-bucketed queue.
+//!
+//! - Entry: `{entries}:{bucket:020}\0{expires:020}:{id}`. The first NUL ends the
+//!   hash, so the hash is one time slice of the expiry, and the range is the
+//!   expiry and then the id. A range read of one bucket returns the oldest
+//!   expiry first.
+//! - Directory row: `{directory}\0{bucket:020}`. One hash for the whole
+//!   directory, one row for each bucket that holds, or held, an entry. The
+//!   value is a token that changes with every entry written to the bucket.
+//!
+//! `bucket` is the start of the slice in nanoseconds, not an index, so a change
+//! of the slice length cannot make an old bucket name a different slice.
+
+use crate::kind_partition::exact_prefix_bounds;
+use serde_json::{json, Value};
+
+/// Digits of a nanosecond number in a key. `u64::MAX` has 20.
+const WIDTH: usize = 20;
+/// The shortest slice: one second.
+pub(crate) const MIN_SLICE_NANOS: u64 = 1_000_000_000;
+/// The longest slice: one hour.
+pub(crate) const MAX_SLICE_NANOS: u64 = 3_600_000_000_000;
+/// A queue holds about this many slices over a retention window, at most.
+const SLICES_PER_WINDOW: u64 = 64;
+
+/// The layout of one time-bucketed queue. It holds names and a number, and no
+/// state, so it is cheap to copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TimeQueue {
+    entries: &'static str,
+    directory: &'static str,
+    slice_nanos: u64,
+}
+
+impl TimeQueue {
+    /// A queue with slices of `slice_nanos` (at least 1).
+    pub(crate) const fn new(
+        entries: &'static str,
+        directory: &'static str,
+        slice_nanos: u64,
+    ) -> Self {
+        Self {
+            entries,
+            directory,
+            slice_nanos: if slice_nanos == 0 { 1 } else { slice_nanos },
+        }
+    }
+
+    /// A queue for entries that live about `window_nanos`: a slice of a 64th of
+    /// the window, between one second and one hour. A short window gets short
+    /// slices, so a bucket ends soon after its entries do. A long window gets
+    /// one-hour slices, so the directory stays small.
+    pub(crate) fn for_window(
+        entries: &'static str,
+        directory: &'static str,
+        window_nanos: u64,
+    ) -> Self {
+        let slice = (window_nanos / SLICES_PER_WINDOW).clamp(MIN_SLICE_NANOS, MAX_SLICE_NANOS);
+        Self::new(entries, directory, slice)
+    }
+
+    /// The start of the slice that holds `expires`.
+    pub(crate) fn bucket_of(&self, expires: u64) -> u64 {
+        expires - expires % self.slice_nanos
+    }
+
+    /// The key of the entry that expires at `expires`.
+    pub(crate) fn entry_key(&self, expires: u64, id: &str) -> String {
+        format!(
+            "{}:{:020}\0{expires:020}:{id}",
+            self.entries,
+            self.bucket_of(expires)
+        )
+    }
+
+    /// The key of the directory row of `bucket`.
+    pub(crate) fn directory_key(&self, bucket: u64) -> String {
+        format!("{}\0{bucket:020}", self.directory)
+    }
+
+    /// The two rows that one new entry writes in its batch: the entry, and the
+    /// directory row of its bucket with a new token. The token names the entry,
+    /// so two entries never leave the same row. A reader that retires a bucket
+    /// deletes the row only if the token is the one it read before it walked
+    /// the bucket (see `AtomStore::retire_bucket`).
+    pub(crate) fn rows(&self, expires: u64, id: &str, value: &Value) -> Vec<(String, Value)> {
+        let bucket = self.bucket_of(expires);
+        vec![
+            (self.entry_key(expires, id), value.clone()),
+            (
+                self.directory_key(bucket),
+                json!({ "v": 1, "t": format!("{expires:020}:{id}") }),
+            ),
+        ]
+    }
+
+    /// The expiry and the bucket in the key of an entry.
+    fn parse_entry(&self, key: &str) -> Option<(u64, u64)> {
+        let rest = key.strip_prefix(self.entries)?.strip_prefix(':')?;
+        let (bucket, tail) = rest.split_once('\0')?;
+        let (expires, id) = tail.split_once(':')?;
+        if bucket.len() != WIDTH || expires.len() != WIDTH || id.is_empty() {
+            return None;
+        }
+        Some((bucket.parse().ok()?, expires.parse().ok()?))
+    }
+
+    /// The expiry in the key of an entry.
+    pub(crate) fn entry_expiry(&self, key: &str) -> Option<u64> {
+        self.parse_entry(key).map(|(_, expires)| expires)
+    }
+
+    /// The bucket in the key of an entry.
+    pub(crate) fn entry_bucket(&self, key: &str) -> Option<u64> {
+        self.parse_entry(key).map(|(bucket, _)| bucket)
+    }
+
+    /// The half-open key range of every entry of one bucket: one hash.
+    pub(crate) fn bucket_range(&self, bucket: u64) -> (String, String) {
+        exact_prefix_bounds(&format!("{}:{bucket:020}\0", self.entries))
+    }
+
+    /// The half-open key range of the directory rows of the buckets from `from`
+    /// to `upto`, both included.
+    pub(crate) fn directory_range(&self, from: u64, upto: u64) -> (String, String) {
+        (
+            self.directory_key(from),
+            format!("{}\0", self.directory_key(upto)),
+        )
+    }
+
+    /// The bucket in the key of a directory row.
+    pub(crate) fn directory_bucket(&self, key: &str) -> Option<u64> {
+        let digits = key.strip_prefix(self.directory)?.strip_prefix('\0')?;
+        if digits.len() != WIDTH {
+            return None;
+        }
+        digits.parse().ok()
+    }
+}

@@ -98,6 +98,7 @@ impl AtomStore {
                     releases: slot_releases.releases,
                     rows,
                     deletes: Vec::new(),
+                    guarded_deletes: Vec::new(),
                 })
                 .await
                 .map_err(|e| {
@@ -118,6 +119,7 @@ impl AtomStore {
                     releases: Vec::new(),
                     rows,
                     deletes: Vec::new(),
+                    guarded_deletes: Vec::new(),
                 })
                 .await?;
             total.absorb(commit);

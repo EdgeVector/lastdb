@@ -73,10 +73,24 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     Ok(())
 }
 
-/// The retention queue and the slot directory of kept conflict records.
+/// The retention queue, its bucket directory, and the slot directory of kept
+/// conflict records.
 fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        "crq" => key.starts_with("crq:v1\0"),
+        // `crq:v1:{bucket:020}\0{expires:020}:{id}`
+        "crq" => key
+            .strip_prefix("crq:v1:")
+            .and_then(|rest| rest.split_once('\0'))
+            .is_some_and(|(bucket, tail)| {
+                digits(bucket, 20)
+                    && tail
+                        .split_once(':')
+                        .is_some_and(|(at, id)| digits(at, 20) && !id.is_empty())
+            }),
+        // `crb:v1\0{bucket:020}`
+        "crb" => key
+            .strip_prefix("crb:v1\0")
+            .is_some_and(|bucket| digits(bucket, 20)),
         "crs" => key
             .strip_prefix("crs:v1:")
             .and_then(|rest| rest.split_once('\0'))
@@ -86,6 +100,10 @@ fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
     current
         .then_some(())
         .ok_or_else(|| unsupported("invalid retention key format"))
+}
+
+fn digits(text: &str, width: usize) -> bool {
+    text.len() == width && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn validate_record(rest: &str) -> StorageResult<()> {
@@ -242,6 +260,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
             | "tvr-meta"
             | "history"
             | "crq"
+            | "crb"
             | "crs"
             | "conflict"
             | "dellog"

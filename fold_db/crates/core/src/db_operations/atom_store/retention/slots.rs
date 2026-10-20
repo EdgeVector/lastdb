@@ -6,6 +6,13 @@
 //! records after that, it writes one drain marker (`entry::DrainMarker`), due
 //! at once, in the same batch. The janitor then releases the rest in bounded
 //! pages. So no record of a removed slot waits for its window.
+//!
+//! The erase reads the directory of a slot inside the write gate, and a read
+//! call may spend a fixed budget of pages and keys, deleted keys included. So
+//! the erase reads the directories of at most [`MAX_SLOT_READS`] slots. A slot
+//! after that, or after the cap of records is full, gets a marker and no read:
+//! the janitor reads it, outside the gate, with a range walk that cannot fail
+//! on deleted keys.
 
 use super::entry::{DrainMarker, RetentionEntry, ENTRY_VERSION};
 use super::keys;
@@ -20,6 +27,13 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The most records one erase request releases in its own batch. The whole
 /// request shares the cap, not each slot.
 pub(crate) const RELEASE_RECORD_CAP: usize = 100;
+
+/// The slots whose directory one erase reads in the write gate, at most. A
+/// range read costs a few metadata pages of a budget of 4,096 for the whole
+/// request, so the reads of a wide erase (one key of a wide schema has hundreds
+/// of slots) would end the request with a read limit error. A slot beyond this
+/// number gets a drain marker without a read.
+pub(crate) const MAX_SLOT_READS: usize = 256;
 
 /// Headers one batch read asks for, at most.
 const HEADER_READ_CHUNK: usize = 10_000;
@@ -49,8 +63,9 @@ impl AtomStore {
     ///
     /// The headers of the molecules say which of them hold records (`records`
     /// above zero). A molecule with none costs nothing more. For a molecule
-    /// that holds records, each removed slot costs one range read under the
-    /// hash of the molecule.
+    /// that holds records, a removed slot costs one range read under the hash
+    /// of the molecule, for the first [`MAX_SLOT_READS`] slots while the cap of
+    /// records has room. Any other slot costs one marker.
     pub(crate) async fn slot_release_requests(
         &self,
         scope: Option<&str>,
@@ -67,7 +82,11 @@ impl AtomStore {
         let names: Vec<&str> = by_molecule.keys().copied().collect();
         let with_records = self.molecules_with_records(scope, &names).await?;
         let mut entries: Vec<RetentionEntry> = Vec::new();
-        let mut rows = Vec::new();
+        // Two markers of one erase share the directory row of their bucket. The
+        // map keeps the last row of a key, so the batch writes each key once.
+        let mut rows: BTreeMap<String, Value> = BTreeMap::new();
+        let mut markers = 0u64;
+        let mut reads = 0usize;
         for (molecule, slots) in by_molecule {
             if !with_records.contains(molecule) {
                 continue;
@@ -75,27 +94,36 @@ impl AtomStore {
             for (hash, range) in slots {
                 let prefix = keys::slot_dir_prefix(scope, molecule, hash, range);
                 let slot = keys::slot_key(scope, molecule, hash, range);
-                let room = RELEASE_RECORD_CAP.saturating_sub(entries.len());
+                if entries.len() >= RELEASE_RECORD_CAP || reads >= MAX_SLOT_READS {
+                    // No room in this batch, or no read budget left: the
+                    // janitor reads this slot.
+                    rows.extend(self.drain_marker_rows(&prefix, &slot, now)?);
+                    markers += 1;
+                    continue;
+                }
+                reads += 1;
+                let room = RELEASE_RECORD_CAP - entries.len();
                 let (found, more) = self
                     .matching_entries(&prefix, &slot, room, u64::MAX)
                     .await?;
                 entries.extend(found);
                 if more {
-                    rows.push(drain_marker_row(&prefix, &slot, now)?);
+                    rows.extend(self.drain_marker_rows(&prefix, &slot, now)?);
+                    markers += 1;
                 }
             }
         }
-        if !rows.is_empty() {
+        if markers > 0 {
             tracing::warn!(
-                slots = rows.len(),
+                slots = markers,
                 cap = RELEASE_RECORD_CAP,
                 "an erase passed the records of some slots to the janitor"
             );
-            self.retention_state().note_capped_slots(rows.len() as u64);
+            self.retention_state().note_capped_slots(markers);
         }
         Ok(SlotReleases {
             releases: entries.iter().map(RetentionEntry::request).collect(),
-            rows,
+            rows: rows.into_iter().collect(),
         })
     }
 
@@ -137,11 +165,35 @@ impl AtomStore {
             .collect())
     }
 
+    /// The entry that one slot directory row holds, when it is a record of
+    /// `slot` that was written at or before `created_max`.
+    pub(super) fn slot_entry(
+        &self,
+        key: &[u8],
+        value: &[u8],
+        slot: &str,
+        created_max: u64,
+    ) -> Option<RetentionEntry> {
+        let Ok(entry) = serde_json::from_slice::<RetentionEntry>(value) else {
+            // An entry that does not decode names nothing to release. Its
+            // record stays until its own window ends.
+            tracing::error!(
+                key = %String::from_utf8_lossy(key),
+                "slot directory entry does not decode"
+            );
+            self.retention_state().note_undecodable();
+            return None;
+        };
+        // A range that begins with the same bytes can belong to another slot
+        // (a range that holds a NUL). Use an exact match only.
+        (entry.slot == slot && entry.created <= created_max).then_some(entry)
+    }
+
     /// The entries of one slot, at most `room`, that were written at or before
     /// `created_max`. The flag is true when more such entries may follow: more
     /// were seen, or the search looked at [`SCAN_ROWS_MAX`] rows and stopped.
     /// It is false only when the range of the slot has no more rows.
-    pub(super) async fn matching_entries(
+    async fn matching_entries(
         &self,
         dir_prefix: &str,
         slot: &str,
@@ -162,21 +214,9 @@ impl AtomStore {
                 })?;
             for (key, value) in &rows {
                 examined += 1;
-                let Ok(entry) = serde_json::from_slice::<RetentionEntry>(value) else {
-                    // An entry that does not decode names nothing to release.
-                    // Its record stays until its own window ends.
-                    tracing::error!(
-                        key = %String::from_utf8_lossy(key),
-                        "slot directory entry does not decode"
-                    );
-                    self.retention_state().note_undecodable();
+                let Some(entry) = self.slot_entry(key, value, slot, created_max) else {
                     continue;
                 };
-                // A range that begins with the same bytes can belong to another
-                // slot (a range that holds a NUL). Use an exact match only.
-                if entry.slot != slot || entry.created > created_max {
-                    continue;
-                }
                 if found.len() == room {
                     return Ok((found, true));
                 }
@@ -196,22 +236,28 @@ impl AtomStore {
     }
 }
 
-/// The drain marker row of one erased slot, due now.
-fn drain_marker_row(
-    dir_prefix: &str,
-    slot: &str,
-    now: u64,
-) -> Result<(String, Value), SchemaError> {
-    let queue = keys::queue_key(now, &keys::drain_id(dir_prefix));
-    let marker = DrainMarker {
-        version: ENTRY_VERSION,
-        drain: true,
-        dir_prefix: dir_prefix.to_string(),
-        slot: slot.to_string(),
-        queue: queue.clone(),
-        erased_at: now,
-    };
-    let value = serde_json::to_value(&marker)
-        .map_err(|error| SchemaError::InvalidData(format!("serialize drain marker: {error}")))?;
-    Ok((queue, value))
+impl AtomStore {
+    /// The rows of the drain marker of one erased slot, due now: the marker in
+    /// the bucket of now, and the directory row of that bucket.
+    fn drain_marker_rows(
+        &self,
+        dir_prefix: &str,
+        slot: &str,
+        now: u64,
+    ) -> Result<Vec<(String, Value)>, SchemaError> {
+        let queue = self.retention_state().queue();
+        let id = keys::drain_id(dir_prefix);
+        let marker = DrainMarker {
+            version: ENTRY_VERSION,
+            drain: true,
+            dir_prefix: dir_prefix.to_string(),
+            slot: slot.to_string(),
+            queue: queue.entry_key(now, &id),
+            erased_at: now,
+        };
+        let value = serde_json::to_value(&marker).map_err(|error| {
+            SchemaError::InvalidData(format!("serialize drain marker: {error}"))
+        })?;
+        Ok(queue.rows(now, &id, &value))
+    }
 }

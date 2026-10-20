@@ -26,7 +26,7 @@ use crate::db_operations::atom_store::conflict_record::is_counted_record_key;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const READ_CHUNK: usize = 10_000;
 
@@ -39,15 +39,26 @@ pub(super) fn dedupe_records(records: Vec<RecordRefs>) -> Vec<RecordRefs> {
         .collect()
 }
 
-/// Add the rows of each new record to the rows of the batch.
+/// Add the rows of each new record to the rows of the batch. Two records of one
+/// run can name the same key (the directory row of a queue bucket). The last
+/// value of a key stays, so the batch writes each key once.
 pub(super) fn with_new_record_rows(
     mut rows: Vec<(String, Value)>,
     records: &[RecordRefs],
     new_records: &[bool],
 ) -> Vec<(String, Value)> {
+    let mut at: HashMap<&str, usize> = HashMap::new();
     for (record, is_new) in records.iter().zip(new_records) {
-        if *is_new {
-            rows.extend(record.new_rows.iter().cloned());
+        if !*is_new {
+            continue;
+        }
+        for (key, value) in &record.new_rows {
+            if let Some(&index) = at.get(key.as_str()) {
+                rows[index].1 = value.clone();
+            } else {
+                at.insert(key.as_str(), rows.len());
+                rows.push((key.clone(), value.clone()));
+            }
         }
     }
     rows

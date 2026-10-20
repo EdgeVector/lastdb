@@ -1,8 +1,11 @@
 //! The retention window, and what the janitor and the purge report.
 
+use super::keys::{QUEUE_DIRECTORY, QUEUE_ENTRIES};
+use crate::db_operations::atom_store::time_queue::TimeQueue;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// Env: how long a kept conflict record stays, in seconds.
 pub const CONFLICT_RETENTION_SECS_ENV: &str = "LASTDB_CONFLICT_RETENTION_SECS";
@@ -39,6 +42,8 @@ fn wall_clock_nanos() -> u64 {
 #[derive(Debug)]
 pub(crate) struct RetentionState {
     window_secs: u64,
+    /// The layout of the queue. The slice of a bucket follows the window.
+    queue: TimeQueue,
     /// The wall clock when the store was made, and the monotonic clock then.
     /// They give an estimate of the time that a clock excursion cannot move.
     anchor_wall_nanos: u64,
@@ -51,6 +56,9 @@ pub(crate) struct RetentionState {
     released_by_purge: AtomicU64,
     undecodable: AtomicU64,
     purge_capped_slots: AtomicU64,
+    pending_drains: AtomicU64,
+    consecutive_failures: AtomicU64,
+    next_retry_unix_ms: AtomicU64,
     last_error: Mutex<Option<String>>,
 }
 
@@ -66,6 +74,11 @@ impl RetentionState {
     pub(crate) fn with_window(window_secs: u64) -> Self {
         Self {
             window_secs,
+            queue: TimeQueue::for_window(
+                QUEUE_ENTRIES,
+                QUEUE_DIRECTORY,
+                window_secs.saturating_mul(1_000_000_000),
+            ),
             anchor_wall_nanos: wall_clock_nanos(),
             anchor: std::time::Instant::now(),
             janitor_interval_ms: AtomicU64::new(0),
@@ -76,8 +89,16 @@ impl RetentionState {
             released_by_purge: AtomicU64::new(0),
             undecodable: AtomicU64::new(0),
             purge_capped_slots: AtomicU64::new(0),
+            pending_drains: AtomicU64::new(0),
+            consecutive_failures: AtomicU64::new(0),
+            next_retry_unix_ms: AtomicU64::new(0),
             last_error: Mutex::new(None),
         }
+    }
+
+    /// The layout of the retention queue.
+    pub(crate) fn queue(&self) -> TimeQueue {
+        self.queue
     }
 
     pub(crate) fn window_nanos(&self) -> u64 {
@@ -126,14 +147,32 @@ impl RetentionState {
             .fetch_add(released, Ordering::Relaxed);
     }
 
+    /// The janitor holds this many slot drains that are not finished.
+    pub(crate) fn set_pending_drains(&self, pending: u64) {
+        self.pending_drains.store(pending, Ordering::Relaxed);
+    }
+
     /// One janitor wake ended: how many records it released, and why it
-    /// stopped early.
-    pub(crate) fn note_run(&self, released: u64, error: Option<String>) {
+    /// stopped early. `failures` is the number of wakes in a row that ended
+    /// with an error (zero after a good wake), and `retry_in` is the wait that
+    /// the janitor now keeps before its next wake.
+    pub(crate) fn note_run(
+        &self,
+        released: u64,
+        error: Option<String>,
+        failures: u64,
+        retry_in: Option<Duration>,
+    ) {
         self.runs.fetch_add(1, Ordering::Relaxed);
         self.last_run_released.store(released, Ordering::Relaxed);
         let now = chrono::Utc::now().timestamp_millis();
-        self.last_run_unix_ms
-            .store(u64::try_from(now).unwrap_or(0), Ordering::Relaxed);
+        let now = u64::try_from(now).unwrap_or(0);
+        self.last_run_unix_ms.store(now, Ordering::Relaxed);
+        self.consecutive_failures.store(failures, Ordering::Relaxed);
+        let retry_at = retry_in.map_or(0, |wait| {
+            now.saturating_add(u64::try_from(wait.as_millis()).unwrap_or(u64::MAX))
+        });
+        self.next_retry_unix_ms.store(retry_at, Ordering::Relaxed);
         *self
             .last_error
             .lock()
@@ -153,6 +192,10 @@ impl RetentionState {
             purge_capped_slots: self.purge_capped_slots.load(Ordering::Relaxed),
             queue_depth: None,
             queue_depth_capped: false,
+            queue_buckets: None,
+            pending_drains: self.pending_drains.load(Ordering::Relaxed),
+            consecutive_failures: self.consecutive_failures.load(Ordering::Relaxed),
+            next_retry_unix_ms: self.next_retry_unix_ms.load(Ordering::Relaxed),
             last_error: self
                 .last_error
                 .lock()
@@ -184,10 +227,25 @@ pub struct ConflictRetentionReport {
     /// releases. The window ends the records that the erase left.
     pub purge_capped_slots: u64,
     /// Entries in the queue when the report was built, counted up to a limit.
-    /// `None` means the count failed.
+    /// `None` means that the directory of the queue could not be read.
     pub queue_depth: Option<u64>,
     /// True when the queue holds at least `queue_depth` entries (the count
-    /// stopped at its limit).
+    /// stopped at its limit, or at a bucket that it could not read).
     pub queue_depth_capped: bool,
+    /// Rows in the bucket directory of the queue: buckets that hold, or held,
+    /// an entry. The count reads the directory only.
+    #[serde(default)]
+    pub queue_buckets: Option<u64>,
+    /// Slot drains the janitor has started and not finished.
+    #[serde(default)]
+    pub pending_drains: u64,
+    /// Janitor wakes in a row that ended with an error. The janitor waits
+    /// longer after each one, and a good wake sets the count to zero.
+    #[serde(default)]
+    pub consecutive_failures: u64,
+    /// Unix milliseconds of the next janitor wake after an error. Zero means
+    /// the janitor keeps its ordinary interval.
+    #[serde(default)]
+    pub next_retry_unix_ms: u64,
     pub last_error: Option<String>,
 }

@@ -5,20 +5,36 @@
 //! by `LASTDB_CONFLICT_RETENTION_SECS`) or with a purge of its key. This task
 //! ends the records that reach the end of their window.
 //!
-//! One wake reads the queue of expiring records oldest first, in bounded pages.
-//! The read of a page holds no write gate. Each page that has due records runs
-//! one release batch (`AtomStore::release_due_entries`): one native write scope,
-//! one batch, and the gate is free again before the next page. The janitor
-//! rests after each batch for `took * (100 - duty) / duty` (a duty share of 10
-//! percent by default), so the flush of a release batch leaves the disk to the
-//! writers most of the time. The janitor deletes no atom. The batch names the history
-//! rows to the planner, which lowers the references and deletes a body only
-//! when its count reaches zero.
+//! The queue is time-bucketed (`db_operations::atom_store::time_queue`). One
+//! wake reads the directory of the buckets that have started, and then walks
+//! them oldest first in bounded pages. The read of a page holds no write gate.
+//! Each page that has due records runs one release batch
+//! (`AtomStore::release_step`): one native write scope, one batch, and the gate
+//! is free again before the next page. The janitor rests after each batch for
+//! `took * (100 - duty) / duty` (a duty share of 10 percent by default), so the
+//! flush of a release batch leaves the disk to the writers most of the time. The
+//! janitor deletes no atom. The batch names the history rows to the planner,
+//! which lowers the references and deletes a body only when its count reaches
+//! zero.
 //!
-//! The queue is sorted by expiry, so a page whose first entry is not due ends
-//! the wake. A watermark remembers the last released key, so a page read skips
-//! the keys already deleted. The watermark resets every hour, in case the node
-//! clock stepped back.
+//! The janitor keeps a cursor for each bucket and for each slot drain, in
+//! memory. A cursor moves over deleted keys and never goes back to the head of
+//! a hash, so a long history of released records costs nothing to pass. A
+//! bucket that is read to its end leaves the directory (`retire_bucket`).
+//!
+//! The wake does two kinds of work, and alternates them: up to
+//! [`DRAIN_BATCHES_PER_TURN`] batches of slot drains, then up to
+//! [`ORDINARY_BATCHES_PER_TURN`] batches of due records, and again. A long
+//! drain cannot hold back the due records, and a backlog cannot hold back a
+//! drain. Once every [`FULL_PASS_EVERY`] wakes the cursors of the live buckets
+//! start again from the start of their buckets, in case the node clock stepped
+//! back. A bucket that the directory dropped is not read again.
+//!
+//! A wake that ends with an error (the storage refused a write, a read failed)
+//! makes the janitor wait longer before the next wake: the wait doubles with
+//! each wake in a row that fails, from the interval (at least one second) up to
+//! ten minutes. The status line shows the error, the count of failed wakes, and
+//! the time of the next try. A good wake sets the count to zero.
 //!
 //! | Variable | Meaning |
 //! |----------|---------|
@@ -30,17 +46,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::db_operations::atom_store::RELEASE_BATCH_RECORDS;
+use crate::db_operations::atom_store::{Lane, RetentionCursor};
 use crate::db_operations::DbOperations;
 
 /// Env: interval between janitor wakes in milliseconds (`0` = off).
 pub const CONFLICT_JANITOR_MS_ENV: &str = "LASTDB_CONFLICT_JANITOR_MS";
 /// Default interval between wakes: one minute.
 pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
-/// Queue keys that one page reads, and so the most records of one release batch.
-const PAGE: usize = RELEASE_BATCH_RECORDS;
-/// Pages of one wake, at most. A larger backlog continues at the next wake.
+/// Batches of one wake, at most. A larger backlog continues at the next wake.
 const PAGES_PER_WAKE: usize = 256;
+/// Batches of slot drains in one turn, at most. Then due records get a turn.
+const DRAIN_BATCHES_PER_TURN: usize = 4;
+/// Batches of due records in one turn, at most. Then the drains get a turn.
+const ORDINARY_BATCHES_PER_TURN: usize = 4;
 /// Env: the share of wall time, in percent, that the janitor may spend inside
 /// release batches. A batch deletes many keys, and its flush shares the disk
 /// with every writer. The janitor rests after each batch for
@@ -54,8 +72,12 @@ pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 10;
 const MIN_PAUSE: Duration = Duration::from_millis(25);
 /// The longest rest between two pages.
 const MAX_PAUSE: Duration = Duration::from_secs(30);
-/// A wake that reads the queue from its start, once in this many wakes.
+/// The cursors of the live buckets start again, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
+/// The longest wait after a wake that failed.
+const BACKOFF_MAX: Duration = Duration::from_secs(600);
+/// The shortest base of the wait after a wake that failed.
+const BACKOFF_BASE_MIN: Duration = Duration::from_secs(1);
 
 /// Resolved janitor policy for this process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,18 +179,36 @@ impl BackgroundConflictJanitorTask {
             let mut ticker = tokio::time::interval(interval);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
-            let mut watermark: Option<String> = None;
+            let mut cursor = db_ops.atoms().retention_cursor();
             let mut wakes = 0u64;
+            let mut failures = 0u64;
+            let mut retry_at: Option<std::time::Instant> = None;
             loop {
                 ticker.tick().await;
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
                 }
+                if retry_at.is_some_and(|at| std::time::Instant::now() < at) {
+                    continue;
+                }
                 if wakes.is_multiple_of(FULL_PASS_EVERY) {
-                    watermark = None;
+                    cursor.restart();
                 }
                 wakes += 1;
-                run_wake(&db_ops, &stop_flag, &mut watermark, duty_pct).await;
+                let wake = run_wake(&db_ops, &stop_flag, &mut cursor, duty_pct).await;
+                failures = if wake.error.is_some() {
+                    failures + 1
+                } else {
+                    0
+                };
+                let retry_in = (failures > 0).then(|| backoff_after(failures, interval));
+                retry_at = retry_in.map(|wait| std::time::Instant::now() + wait);
+                db_ops.atoms().retention_state().note_run(
+                    wake.released,
+                    wake.error,
+                    failures,
+                    retry_in,
+                );
             }
         });
         Self {
@@ -199,84 +239,120 @@ fn pause_after(took: Duration, duty_pct: u64) -> Duration {
         .clamp(MIN_PAUSE, MAX_PAUSE)
 }
 
-/// One wake: release the due records page by page.
+/// The wait before the next wake after `failures` wakes in a row that failed.
+fn backoff_after(failures: u64, interval: Duration) -> Duration {
+    let base = interval.max(BACKOFF_BASE_MIN);
+    let shift = u32::try_from(failures.min(10)).unwrap_or(10);
+    base.saturating_mul(1 << shift).min(BACKOFF_MAX)
+}
+
+/// What one wake did.
+#[derive(Default)]
+struct Wake {
+    released: u64,
+    skipped: u64,
+    /// The first error of the wake.
+    error: Option<String>,
+}
+
+impl Wake {
+    fn fail(&mut self, failure: &crate::schema::SchemaError) {
+        if self.error.is_none() {
+            self.error = Some(failure.to_string());
+        }
+    }
+}
+
+/// One wake: read the directory, then alternate slot drains and due records,
+/// batch by batch. A lane that fails ends for this wake. The other lane goes on.
 async fn run_wake(
     db_ops: &DbOperations,
     stop: &AtomicBool,
-    watermark: &mut Option<String>,
+    cursor: &mut RetentionCursor,
     duty_pct: u64,
-) {
+) -> Wake {
     let atoms = db_ops.atoms();
-    let mut released = 0u64;
-    let mut skipped = 0u64;
-    let mut error: Option<String> = None;
-    for _ in 0..PAGES_PER_WAKE {
-        if stop.load(Ordering::Relaxed) {
-            break;
-        }
-        let now = atoms.retention_state().clock_nanos();
-        let page = match atoms.read_queue_page(watermark.as_deref(), PAGE).await {
-            Ok(page) => page,
-            Err(failure) => {
-                error = Some(failure.to_string());
-                break;
-            }
-        };
-        let due = page.due(now);
-        if due.is_empty() {
-            break;
-        }
-        let due_keys = due.len();
-        let page_full = due_keys == page.keys.len() && page.full;
-        let batch_started = std::time::Instant::now();
-        let more_due = match atoms.release_due_entries(due.clone(), now).await {
-            Ok(outcome) => {
-                atoms.retention_state().note_released(outcome.released);
-                released += outcome.released;
-                skipped += outcome.skipped;
-                tracing::debug!(
-                    target: "fold_node::database",
-                    released = outcome.released,
-                    skipped = outcome.skipped,
-                    completed = outcome.completed,
-                    took_ms = u64::try_from(batch_started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    "conflict janitor release batch"
-                );
-                // The watermark passes the keys that the batch finished. A drain
-                // marker that still holds records stays after it, and the next
-                // page read starts at that marker.
-                if let Some(last) = outcome.completed.checked_sub(1).and_then(|at| due.get(at)) {
-                    *watermark = Some(last.clone());
+    let mut wake = Wake::default();
+    let mut ordinary_ok = true;
+    let mut drain_ok = true;
+    if let Err(failure) = atoms
+        .refresh_queue(cursor, atoms.retention_state().clock_nanos())
+        .await
+    {
+        wake.fail(&failure);
+        ordinary_ok = false;
+    }
+    let mut batches = 0usize;
+    'wake: while batches < PAGES_PER_WAKE && (ordinary_ok || drain_ok) {
+        let mut progressed = false;
+        for lane in [Lane::Drain, Lane::Ordinary] {
+            let (turn, lane_ok) = match lane {
+                Lane::Drain => (DRAIN_BATCHES_PER_TURN, &mut drain_ok),
+                _ => (ORDINARY_BATCHES_PER_TURN, &mut ordinary_ok),
+            };
+            for _ in 0..turn {
+                if stop.load(Ordering::Relaxed) {
+                    break 'wake;
                 }
-                if outcome.completed == 0 && outcome.released == 0 {
-                    // No progress. Do not spin on the same page.
+                if !*lane_ok {
                     break;
                 }
-                outcome.completed < due_keys || page_full
+                let started = std::time::Instant::now();
+                let step = if lane == Lane::Drain {
+                    atoms.drain_step(cursor).await
+                } else {
+                    let now = atoms.retention_state().clock_nanos();
+                    atoms.release_step(cursor, now).await
+                };
+                let outcome = match step {
+                    Ok(Some(outcome)) => outcome,
+                    Ok(None) => break,
+                    Err(failure) => {
+                        wake.fail(&failure);
+                        *lane_ok = false;
+                        break;
+                    }
+                };
+                progressed = true;
+                batches += 1;
+                atoms.retention_state().note_released(outcome.released);
+                wake.released += outcome.released;
+                wake.skipped += outcome.skipped;
+                tracing::debug!(
+                    target: "fold_node::database",
+                    lane = ?outcome.lane,
+                    released = outcome.released,
+                    skipped = outcome.skipped,
+                    finished = outcome.finished,
+                    retired = outcome.retired,
+                    took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "conflict janitor batch"
+                );
+                tokio::time::sleep(pause_after(started.elapsed(), duty_pct)).await;
             }
-            Err(failure) => {
-                error = Some(failure.to_string());
-                break;
-            }
-        };
-        if !more_due {
+        }
+        if !progressed {
             break;
         }
-        tokio::time::sleep(pause_after(batch_started.elapsed(), duty_pct)).await;
     }
-    if let Some(failure) = &error {
+    atoms
+        .retention_state()
+        .set_pending_drains(cursor.pending_drains() as u64);
+    if let Some(failure) = &wake.error {
         tracing::warn!(
             target: "fold_node::database",
             error = %failure,
-            "conflict janitor stopped before the queue was empty"
+            "conflict janitor stopped before its work was done"
         );
-    } else if released > 0 || skipped > 0 {
+    } else if wake.released > 0 || wake.skipped > 0 {
         tracing::info!(
             target: "fold_node::database",
-            released,
-            skipped,
+            released = wake.released,
+            skipped = wake.skipped,
+            buckets = cursor.buckets(),
+            pending_drains = cursor.pending_drains(),
             "conflict janitor released kept conflict records"
         );
     }
-    atoms.retention_state().note_run(released, error);
+    wake
 }

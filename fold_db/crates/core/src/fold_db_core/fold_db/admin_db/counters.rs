@@ -57,17 +57,25 @@ impl FoldDB {
     }
 
     /// The retention window of kept conflict records, the janitor's last run,
-    /// and the queue depth (one bounded range read, counted up to 1,000).
+    /// and the size of the queue: the buckets by the directory, and the entries
+    /// counted up to 1,000 with bounded reads. A bucket that cannot be read
+    /// makes the entry count a lower bound (`queue_depth_capped`). Only a
+    /// failure to read the directory leaves `queue_depth` empty.
     pub async fn conflict_retention_report(&self) -> crate::db_operations::ConflictRetentionReport {
         let atoms = self.db_ops().atoms();
         let mut report = atoms.retention_state().snapshot();
-        if let Ok((depth, capped)) = atoms.queue_depth(CONFLICT_QUEUE_DEPTH_CAP).await {
-            report.queue_depth = Some(u64::try_from(depth).unwrap_or(u64::MAX));
-            report.queue_depth_capped = capped;
+        let queue = atoms.retention_state().queue();
+        if let Ok(stats) = atoms
+            .time_queue_stats(&queue, CONFLICT_QUEUE_DEPTH_CAP)
+            .await
+        {
+            report.queue_depth = Some(stats.entries);
+            report.queue_depth_capped = stats.capped;
+            report.queue_buckets = Some(stats.buckets);
         }
         report
     }
 }
 
 /// The queue depth that the status counts up to.
-const CONFLICT_QUEUE_DEPTH_CAP: usize = 1_000;
+const CONFLICT_QUEUE_DEPTH_CAP: u64 = 1_000;

@@ -56,6 +56,7 @@ impl AtomStore {
                 releases: Vec::new(),
                 rows: recorded.rows,
                 deletes: Vec::new(),
+                guarded_deletes: Vec::new(),
             })
             .await
             .map(|_| ())

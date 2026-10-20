@@ -11,6 +11,7 @@
 //! - [`construct`] — `AtomStore` constructors and builder hooks
 //! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
 //! - [`retention`] — queue, slot directory and release of kept conflict records
+//! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
@@ -44,6 +45,7 @@ mod molecules;
 mod retention;
 mod retired_intent_retention;
 mod schema_keys;
+mod time_queue;
 mod types;
 
 pub(crate) use atoms::SealedAtom;
@@ -63,7 +65,7 @@ pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{RecordSlot, RELEASE_BATCH_RECORDS};
+pub(crate) use retention::{Lane, RecordSlot, RetentionCursor};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };

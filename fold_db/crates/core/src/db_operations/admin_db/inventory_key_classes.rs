@@ -38,8 +38,13 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
     ),
     (
         "retention_queue",
-        "crq:v1\0",
-        "crq:v1:{expires}:{record} — time-ordered queue of kept conflict records (the janitor reads it)",
+        "crq:v1:",
+        "crq:v1:{bucket}\0{expires}:{record} — time-bucketed queue of kept conflict records (the janitor reads it)",
+    ),
+    (
+        "retention_bucket_directory",
+        "crb:v1\0",
+        "crb:v1\0{bucket} — one row for each bucket of the retention queue (the janitor lists it)",
     ),
     (
         "retention_directory",

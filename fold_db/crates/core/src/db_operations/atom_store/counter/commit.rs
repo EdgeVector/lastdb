@@ -52,6 +52,14 @@ pub(crate) struct ReleaseRequest {
     pub deletes: Vec<Vec<u8>>,
 }
 
+/// A delete that runs only while the key still holds the value the caller read.
+/// The planner reads the key in the write gate. A key that holds other bytes, or
+/// none, is left alone.
+pub(crate) struct GuardedDelete {
+    pub key: Vec<u8>,
+    pub expected: Vec<u8>,
+}
+
 /// Everything one planner run needs.
 #[derive(Default)]
 pub(crate) struct TipChangeSet<'a> {
@@ -73,6 +81,9 @@ pub(crate) struct TipChangeSet<'a> {
     pub rows: Vec<(String, Value)>,
     /// Other keys that the same batch deletes.
     pub deletes: Vec<Vec<u8>>,
+    /// Keys that the batch deletes only if they still hold the bytes read
+    /// before (the retirement of a queue bucket).
+    pub guarded_deletes: Vec<GuardedDelete>,
 }
 
 /// Where the planner finds a body for an atom that is new in the scope.
@@ -99,6 +110,8 @@ pub(crate) struct TipCommit {
     pub records_released: u64,
     /// Counter faults: an underflow, an absent counter, or a dangling removal.
     pub counter_events: u64,
+    /// Guarded deletes that found the expected bytes and deleted the key.
+    pub guarded_deleted: u64,
 }
 
 impl TipCommit {
@@ -108,6 +121,7 @@ impl TipCommit {
         self.deleted.extend(other.deleted);
         self.records_released += other.records_released;
         self.counter_events += other.counter_events;
+        self.guarded_deleted += other.guarded_deleted;
     }
 }
 
@@ -131,6 +145,7 @@ impl AtomStore {
             releases,
             rows,
             deletes,
+            guarded_deletes,
         } = set;
         let tips = collapse_tips(tips);
         let records = dedupe_records(records);
@@ -147,6 +162,9 @@ impl AtomStore {
         let records_released = released.count();
         let mut deletes = deletes;
         deletes.extend(released.into_deletes());
+        let guarded = self.guarded_delete_keys(guarded_deletes).await?;
+        let guarded_deleted = guarded.len() as u64;
+        deletes.extend(guarded);
         let before = self.read_counters(&deltas, scope).await?;
         let sources = BodySources {
             bodies,
@@ -160,6 +178,7 @@ impl AtomStore {
         let (mutations, mut commit) =
             build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
         commit.records_released = records_released;
+        commit.guarded_deleted = guarded_deleted;
         for (molecule, fault) in molecule_run.faults {
             self.counter_report().note_molecule(&molecule, fault);
             commit.counter_events += 1;
