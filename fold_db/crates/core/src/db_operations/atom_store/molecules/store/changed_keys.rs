@@ -172,8 +172,10 @@ impl AtomStore {
                 bodies,
                 body_source: None,
                 records: recorded.refs,
+                releases: Vec::new(),
                 rows,
                 deletes: Vec::new(),
+                guarded_deletes: Vec::new(),
             })
             .await
             .map_err(|e| {

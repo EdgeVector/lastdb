@@ -238,6 +238,8 @@ impl FoldDB {
 
         let background_protein_reaper = Self::start_protein_reaper(&db_ops);
 
+        let background_conflict_janitor = Self::start_conflict_janitor(&db_ops);
+
         let sync_coordinator = Self::start_sync_coordinator(&db_ops);
 
         Ok(Self {
@@ -248,6 +250,7 @@ impl FoldDB {
             pending_tasks,
             background_flush,
             background_protein_reaper,
+            background_conflict_janitor,
             sync_coordinator,
             mutation_log_capture,
             preserve_retired_restore_intents: false,

@@ -2,6 +2,7 @@
 
 use super::TipConflict;
 use crate::db_operations::atom_store::counter::{event_atoms, RecordRefs};
+use crate::db_operations::atom_store::RecordSlot;
 use crate::db_operations::AtomStore;
 use crate::db_operations::{
     home_conflict_event_key, next_home_conflict_event_seq, HomeConflictEvent,
@@ -88,14 +89,27 @@ impl AtomStore {
         for conflict in unique.values() {
             let event = conflict.event();
             let history_key = conflict.history_key(storage_prefix);
+            let conflict_key = conflict.conflict_key(storage_prefix);
+            // The queue entry and the slot directory entry go with a new record.
+            let new_rows = self.retention_rows(
+                storage_prefix,
+                &history_key,
+                &RecordSlot {
+                    molecule: &conflict.molecule_uuid,
+                    hash: &conflict.storage_hash,
+                    range: &conflict.storage_range,
+                },
+                Some(conflict_key.clone()),
+            )?;
             recorded.refs.push(RecordRefs {
                 key: history_key.clone(),
                 atoms: event_atoms(&event),
+                new_rows,
                 molecule: event.molecule_uuid.clone(),
             });
             recorded.rows.push((history_key, to_value(&event)?));
             recorded.rows.push((
-                conflict.conflict_key(storage_prefix),
+                conflict_key,
                 to_value(&conflict.sync_conflict(detected_at))?,
             ));
             new_ids

@@ -101,6 +101,144 @@ of keys of the request, and never the size of the schema.
   bring the key back.
 - Both verbs reach the protein siblings of the key.
 
+## Conflict records and their retention
+
+The database keeps every conflicting write. A conflict record is a history row:
+`history\0{molecule}:{ts}:conflict:{digest}` from the tip-conflict recorder, or
+`history\0{molecule}:{ts}:suppressed:{digest}` from a Put that lost to a Delete.
+It holds one counted reference to each distinct atom it names (I1). A Replaced
+record names the loser and the winner. A Dropped record names the loser only.
+So a kept loser keeps its body while its record exists, also when its last tip
+is purged.
+
+Three more rows go with a new record, in the same batch as its history row and
+only when the record is new (a repeat of one decision writes none of them):
+
+| Row | Key | Use |
+|---|---|---|
+| Queue entry | `crq:v1:{bucket:020}\0{expires_at_nanos:020}:{record_id}` | one hash for each time slice of the expiry; the range is the expiry, so a range read of a bucket returns the oldest expiry first |
+| Bucket directory row | `crb:v1\0{bucket:020}` | one row for each bucket that holds, or held, an entry; the value is a token that changes with each entry |
+| Slot directory entry | `{scope:}crs:v1:{M}\0{esc(hash)}\0{range}\0{record_id}` | one hash for each scope and molecule; a purge reads the entries of the slots it removes |
+
+The queue is a time-bucketed queue. Its contract (layout, writers, readers,
+retirement of a bucket, count of its size) is in `docs/lastdb-time-queue.md`.
+The bucket is the start of a slice of the expiry. The slice is a 64th of the
+retention window, between one second and one hour (one hour for the default
+window).
+
+`record_id` is the SHA-256 of the full key of the history row. Both entries hold
+the same JSON: the history key, the conflict row key, both entry keys and the
+`mk:` key of the slot. The queue and the directories hold no atom reference. The
+history row is the only holder.
+
+A record ends in two ways, and both use the same release:
+
+1. **The key goes.** A delete, a purge and a TTL sweep read the directory of the
+   slots they remove (inside `remove_molecules_keys_with_rows`) and release the
+   records in the same batch as the tip deletes. The erase first reads the
+   header of each molecule it touches, in one batch read, and skips a molecule
+   whose `records` is zero (a molecule that is `suspect` or has no counters is
+   read as if it held records). For a molecule that holds records, a removed
+   slot costs one range read, and an entry counts only when its `mk:` key
+   matches the slot exactly. The reads run in the write gate and a call may
+   spend a fixed budget (4,096 metadata pages, 40,000 keys, deleted keys
+   included), so one erase request reads the directories of at most 256 slots.
+   One erase request releases at most 100 records in its own batch
+   (the cap is for the whole request, not for each slot). For each slot that
+   still holds records, and for each slot that the erase did not read (the cap
+   was full, or 256 slots were read), the same batch writes one **drain marker**, a queue
+   entry that is due at once, in the bucket of now (the key holds the hash of
+   the slot prefix). It costs one operation for each slot, however many
+   records the slot holds, and it needs no read of the records. The janitor
+   keeps a cursor for each marker: a range walk over the directory of the slot
+   that moves over the keys of the records it released. It releases the records,
+   32 for each batch, and deletes the marker with the last batch. So no record
+   of a removed slot waits for its window: the janitor ends it in the wake that
+   follows the erase, and a slot of any size drains in batches of one size. The
+   drain releases only the records written before the erase (`created` in the
+   entry). A drain does not hold back the due records of the queue: the janitor
+   alternates a few drain batches with a few batches of due records. A protein
+   key move is not an erase and releases nothing. `purge_capped_slots` in the
+   status counts the slots that got a marker.
+
+   The reads of the erase run in the write gate. A read passes the deleted
+   directory keys of its slot, and the gate allows 40,000 keys for the request. A
+   slot that had more than that many records released before can make the read of
+   a later erase of the same slot fail with a read error. The erase then fails as
+   a whole and changes nothing. Compaction of the files removes the deleted keys.
+   The drain of the janitor has no such limit: it reads outside the gate.
+2. **The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes
+   every `LASTDB_CONFLICT_JANITOR_MS` (60,000; zero turns it off). It lists the
+   bucket directory (the buckets that have started), and walks those buckets
+   oldest first, in pages of 32 keys, with no write gate. It runs one
+   release batch for each page that has due entries (`background_scope`: one
+   gate hold, then durable). Its cursors are in memory, one range walk for each
+   bucket, and they move over deleted keys: no read starts again at the head of a
+   hash that holds many deleted keys. A bucket that is read to its end, with
+   no marker in it that waits for a drain, leaves the directory. The directory
+   row is deleted in the write gate only while its token is the one the janitor
+   read before the walk, so an entry that a writer added after the walk keeps the
+   bucket. The deleted keys of a retired bucket are never read again. The gate is
+   free between pages, and the janitor
+   rests after each batch for `took * (100 - duty) / duty`
+   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10), because the flush of a
+   release batch shares the disk with the writers. The window is
+   `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
+   records the pair.
+
+   The queue reads one clock (`RetentionState::clock_nanos`) both when it writes
+   an expiry and when the janitor tests it: the wall clock, but never more than
+   a day ahead of the time that the monotonic clock gives since the store was
+   made. A forward excursion of the wall clock longer than a day therefore gives
+   no record a far-future expiry and makes the janitor release nothing early. A
+   smaller forward jump moves the clock, and the janitor then releases records
+   early by at most the size of the jump (acceptable for a conflict record). A
+   backward jump delays the release by its size. A wall clock that was wrong
+   when the node started and was corrected by more than a day later is read as
+   the monotonic time; at the next start the records written in the wrong period
+   are released early.
+
+   A restart loses the cursors. The janitor then lists the directory once and
+   walks each live bucket once from its start, with bounded reads. Once in 60
+   wakes the cursors of the live buckets start again the same way, in case the
+   clock stepped back. Neither reads a bucket that the directory dropped.
+
+   A page of drain markers needs no write gate and costs no batch: the janitor
+   keeps the markers it reads as pending drains (at most 1,024).
+
+   The wake alternates two kinds of work: up to 4 batches of slot drains, then
+   up to 4 batches of due records, and again. So a long drain delays the due
+   records by at most 4 batches, and a long backlog delays a drain by at most 4
+   batches. A wake that ends with an error (for example, the storage refuses a
+   write because a file holds too many parts) makes the janitor wait longer: the
+   wait doubles with each wake in a row that fails, from the interval (at least
+   one second) up to ten minutes. The status shows the error, the number of failed
+   wakes and the time of the next try. A good wake sets the number to zero.
+
+A release names the history row to the planner (`counter::ReleaseRequest`). The
+planner reads the row inside the same gate hold, lowers one reference for each
+distinct atom the row names, lowers `records` in the header of the molecule that
+the row names (a record raises it when it is new), and deletes the row, the
+conflict row, the directory entry and the queue entry in one batch. A caller never names an atom,
+and the janitor never deletes an atom: an atom whose count reaches zero goes by
+the delete-on-zero rule above. A release of a row that is gone lowers nothing,
+and a row that does not decode is kept with its references and counted
+(`undecodable_rows`). Only a row that `is_counted_record_key` accepts can be
+released.
+
+`lastdb status` shows the window, the janitor's last run, the queue depth (up to
+1,000 entries) and the number of buckets, the slot drains that wait, the failed
+wakes, and the records released by the janitor and by purges. The buckets come
+from the directory. The entries are counted with bounded range walks, which pass
+deleted keys, so a queue that holds many deleted keys still shows its depth. A
+bucket that cannot be read makes the depth a lower bound (shown as `N+`). `lastdb
+db inventory` has the classes `retention_queue`, `retention_bucket_directory` and
+`retention_directory`.
+
+Not done in this step: the conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
+when it finds a conflict row gone. The keep-small meters are not debited when a
+release deletes rows or atoms (the old reaper did not debit them either).
+
 ## Memory acknowledgement
 
 A write that asks for a memory acknowledgement (`durability: queued`) returns
@@ -402,7 +540,6 @@ refuses the home. This build refuses a home without the bit.
 
 Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
-- S3: the recorder releases conflict references (a janitor), and a purge reads the slot directory.
 - S5: blob counters replace the blob edges and the file blob sweep.
 - S7: a resumable drain of a dead molecule.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.

@@ -191,6 +191,10 @@ pub struct StatusSnapshot {
     /// `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub atom_counters: Option<fold_db::db_operations::AtomCounterReport>,
+    /// The retention window of kept conflict records, the janitor's last run
+    /// and the queue depth. `None` means the daemon predates this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict_retention: Option<fold_db::db_operations::ConflictRetentionReport>,
     /// Process-lifetime effectiveness of plaintext compression before sealing.
     ///
     /// `None` means the serving daemon predates this status field. A current
