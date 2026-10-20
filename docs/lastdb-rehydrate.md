@@ -185,6 +185,9 @@ Both Purge paths check shared references after removal of the target tips.
 A failed reference check stops publication before atom removal.
 Reference data uses the selected database scope. Its completion proof covers the whole home and uses unprefixed markers.
 A missing completion proof refuses atom removal. An older reference store cannot replace that proof.
+The atom liveness report reads the current exact reference count. A missing or inexact count remains unknown.
+The report does not reconstruct atom references from retired JSON records or invent an empty reference list.
+This diagnostic accepts the default owner scope. It refuses named database handles because it lacks a schema for their alias lookup.
 An optional peer key without scalar coordinates receives no related deletion.
 The caller's addressed record remains eligible for deletion.
 Delete and Purge select related keys under the same native write boundary as their removal.

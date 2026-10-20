@@ -1,0 +1,13 @@
+{
+  "accepted": false,
+  "binary_sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e",
+  "core_cohort": "passed",
+  "focused_values": "passed",
+  "private_copy": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6vui6_vw",
+  "receipt_seal": "receipt-seal-a126.json",
+  "reference_diagnostic": "not proved: obsolete v1 edge reader returns empty arrays even while compact native tip references are live",
+  "release_build": "passed",
+  "replacement": "Use the exact current reference count; preserve unknown counts, default owner scope, and truthful CLI output. Repeat the ordinary operations on the replacement source.",
+  "source_commit": "42b5102165e649f5348d1d055d2f91a598b29f8c",
+  "source_inventory_sha256": "4a66f0aaa79899a7e952c478ddfbb87ad8b4d0836553de0c4f1ef20c92003060"
+}
