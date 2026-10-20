@@ -1,26 +1,13 @@
 use super::*;
 
 impl Host {
-    /// Record, at boot, what the home knows about peer data and reverse edges.
-    ///
-    /// `brand_new` is the one boot that created the home: it minted the identity
-    /// over a store that did not exist. A restored identity or an existing store
-    /// never stamps. The stamps are best effort and cannot fail boot. A home a
-    /// restore finished (the `.peer_derived` marker) holds data it did not
-    /// author: that is recorded durably, and a failure to record it fails boot.
+    /// Record a restored home's peer-derived state before serving it.
+    /// The storage constructor initializes fresh-home reference proofs.
     pub(super) async fn record_boot_peer_state(
         db: &fold_db::FoldDB,
         home: &Path,
-        brand_new: bool,
+        _brand_new: bool,
     ) -> Result<(), String> {
-        if brand_new {
-            // First: the fresh-home stamp writes `aref:` rows, which the
-            // emptiness proof of the peer-apply stamp would then see. A home
-            // this boot created has applied no peer mutation yet; every other
-            // home stays `unknown`.
-            db.stamp_peer_apply_never_on_new_home().await;
-            db.stamp_fresh_home_atom_ref_markers().await;
-        }
         if crate::cloud::peer_derived_marker_path(home).exists() {
             db.mark_peer_apply_seen()
                 .await

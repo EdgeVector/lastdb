@@ -234,7 +234,7 @@ impl AtomStore {
         let count_keys: Vec<String> = atoms
             .iter()
             .map(|atom_uuid| atom_live_ref_count_key(atom_uuid, storage_prefix))
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         let stored_counts = self
             .main_store
             .get_items::<AtomLiveRefCount>(&count_keys)
@@ -308,7 +308,7 @@ impl AtomStore {
                     mutations,
                     atom_uuid,
                     key,
-                    "serialize legacy database-catalog atom count",
+                    "serialize inexact database-catalog atom count",
                     storage_prefix,
                 )
                 .await;
@@ -333,7 +333,7 @@ impl AtomStore {
             before.checked_sub(delta)
         };
         let Some(after) = after else {
-            // A legacy counter may omit older references. Keep the atom
+            // An inexact count cannot authorize removal. Keep the atom
             // and clear any zero-count GC candidate.
             return self
                 .catalog_atom_count_unknown(

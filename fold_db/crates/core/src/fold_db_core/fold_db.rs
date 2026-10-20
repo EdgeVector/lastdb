@@ -27,7 +27,7 @@ mod provenance;
 mod schema_api;
 mod sync;
 
-pub use catalog_gc::{CatalogDeleteReclaimResult, CatalogReclaimResult};
+pub use catalog_gc::CatalogDeleteReclaimResult;
 pub use catalog_share::DbSchemaShareResult;
 pub use file_blobs::{
     PersonalFileBlobFork, PersonalFileBlobForkResult, PersonalFileBlobWrite,

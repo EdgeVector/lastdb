@@ -41,16 +41,6 @@ impl FieldKind {
         }
     }
 
-    /// Optional 1-D retype for dual-read flat slots.
-    #[must_use]
-    pub(crate) fn retype_slot(self) -> Option<OneDSlot> {
-        match self {
-            Self::Hash => Some(OneDSlot::Hash),
-            Self::Range => Some(OneDSlot::Range),
-            Self::Single | Self::HashRange => None,
-        }
-    }
-
     /// True when this field uses the per-key (`mk:`/`mh:`) layout.
     #[must_use]
     pub(crate) fn is_per_key(self) -> bool {

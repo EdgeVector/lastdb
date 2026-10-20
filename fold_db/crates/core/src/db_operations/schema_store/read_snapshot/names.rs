@@ -16,15 +16,11 @@ impl SchemaStore {
         let mut keys = Vec::new();
         let mut entries = Vec::with_capacity(schemas.len());
         for schema in schemas.into_values() {
-            let start = keys.len();
-            keys.extend(
-                crate::kind_partition::read_forms(&schema.name)
-                    .into_iter()
-                    .map(String::into_bytes),
-            );
+            let state = keys.len();
+            keys.push(schema.name.as_bytes().to_vec());
             let claim = keys.len();
             keys.push(name_claim_key(&schema.name).into_bytes());
-            entries.push((schema, start..claim, claim));
+            entries.push((schema, state, claim));
         }
         let count = keys.len();
         let values = self.schema_states_store.inner().get_many(keys).await?;
@@ -34,10 +30,9 @@ impl SchemaStore {
             });
         }
         let mut directory = Vec::with_capacity(entries.len());
-        for (schema, states, claim) in entries {
-            let state = states
-                .into_iter()
-                .find_map(|slot| values[slot].as_deref())
+        for (schema, state, claim) in entries {
+            let state = values[state]
+                .as_deref()
                 .map(|bytes| self.decode_name_value::<SchemaState>(bytes))
                 .transpose()?
                 .unwrap_or_default();

@@ -23,36 +23,6 @@ pub(super) use cloud_purge::*;
 pub(super) use db::*;
 pub(super) use schema::*;
 
-/// CLI spelling of [`laststore::HashGroupKey`].
-///
-/// Kept local so the storage crate does not grow a clap dependency.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
-pub(super) enum HashGroupKeyArg {
-    /// Hash the whole id — today's placement, and what every existing home uses.
-    #[default]
-    FullKey,
-    /// Hash only the partition prefix, giving HashRange partitions physical locality.
-    PartitionPrefix,
-}
-
-impl From<HashGroupKeyArg> for laststore::HashGroupKey {
-    fn from(arg: HashGroupKeyArg) -> Self {
-        match arg {
-            HashGroupKeyArg::FullKey => Self::FullKey,
-            HashGroupKeyArg::PartitionPrefix => Self::PartitionPrefix,
-        }
-    }
-}
-
-impl HashGroupKeyArg {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::FullKey => "full_key",
-            Self::PartitionPrefix => "partition_prefix",
-        }
-    }
-}
-
 /// Target envelope policy for `db reseal-at-rest`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(super) enum ResealAtRestTargetArg {
@@ -318,38 +288,6 @@ pub(super) enum Command {
         /// Require one exact manifest; normal remote restore still checks latest.
         #[arg(long)]
         manifest_sha256: Option<String>,
-    },
-    /// Offline-copy a stopped LastStore home into hash-group layout.
-    ///
-    /// Accepts a legacy `segment_log` source (the original conversion) or an
-    /// existing `hash_group` source (a *relayout*, which changes only physical
-    /// placement). A relayout is how a populated home adopts
-    /// `--hash-group-key partition-prefix`: placement is recorded in the durable
-    /// layout descriptor, so it cannot change on a reopen.
-    MigrateHashGroup {
-        /// Stopped source LastDB home. The source is never modified.
-        #[arg(long)]
-        from: PathBuf,
-        /// Fresh destination LastDB home. Never replaces or promotes automatically.
-        #[arg(long)]
-        into: PathBuf,
-        /// Which part of a document id picks its hash group in the destination.
-        ///
-        /// `partition-prefix` hashes only through the first NUL, so one
-        /// HashRange partition lands in a bounded set of groups and a partition
-        /// read resolves them directly instead of sweeping every group.
-        #[arg(long, value_enum, default_value_t = HashGroupKeyArg::FullKey)]
-        hash_group_key: HashGroupKeyArg,
-        /// How many groups one partition may occupy under `partition-prefix`.
-        ///
-        /// Power of two. Pure locality (1) makes group size follow partition
-        /// size, so a large board becomes one oversized group; raising this
-        /// trades a few extra group visits per read for a bounded max group.
-        #[arg(long, default_value_t = 1)]
-        partition_fanout: u32,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
     },
     /// Pack one exact terminal backup job through local files while Mini stays online.
     BackupGcCompact(BackupGcCompactArgs),

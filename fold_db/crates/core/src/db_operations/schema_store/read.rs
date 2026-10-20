@@ -75,19 +75,12 @@ impl SchemaStore {
         &self,
         schema_name: &str,
     ) -> Result<Option<SchemaState>, SchemaError> {
-        let mut found = None;
-        for form in crate::kind_partition::read_forms(schema_name) {
-            if let Some(bytes) = self
-                .schema_states_store
-                .inner()
-                .get(form.as_bytes())
-                .await?
-            {
-                found = Some(bytes);
-                break;
-            }
-        }
-        let Some(bytes) = found else {
+        let Some(bytes) = self
+            .schema_states_store
+            .inner()
+            .get(schema_name.as_bytes())
+            .await?
+        else {
             return Ok(None);
         };
         let was_sealed = is_sealed_at_rest(&bytes);

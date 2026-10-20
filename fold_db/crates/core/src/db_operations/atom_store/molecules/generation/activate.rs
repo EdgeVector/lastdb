@@ -87,7 +87,7 @@ impl AtomStore {
             .flat_map(|item| std::mem::take(&mut item.activation_items))
             .collect();
         let (_, mut blob_changes) = self
-            .retain_durable_tip_winners(&mut activation_items)
+            .retain_durable_tip_winners(&mut activation_items, storage_prefix)
             .await?;
 
         for item in &ready {
@@ -282,7 +282,7 @@ impl AtomStore {
             if current.entry.lww_key() != old.entry.lww_key() {
                 continue;
             }
-            blob_changes.replace(&key, Some(&current), None)?;
+            blob_changes.replace(&key, storage_prefix, Some(&current), None)?;
             current.meta.get_or_insert_with(Default::default).tombstoned = true;
             activation_items.push(self.inactive_atom_ref_tip_edge_item(
                 &item.molecule_uuid,

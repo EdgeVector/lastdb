@@ -1,5 +1,13 @@
 use super::*;
 
+#[path = "db_reap_unsealed_cmds.rs"]
+mod db_reap_unsealed_cmds;
+pub(crate) use db_reap_unsealed_cmds::*;
+
+#[path = "db_pin_log_cmds.rs"]
+mod db_pin_log_cmds;
+pub(crate) use db_pin_log_cmds::*;
+
 #[path = "db_app_storage_cmds.rs"]
 mod db_app_storage_cmds;
 pub(crate) use db_app_storage_cmds::*;
@@ -15,18 +23,9 @@ pub(crate) use db_gc_atoms_cmds::*;
 #[path = "db_inventory_print_cmds.rs"]
 mod db_inventory_print_cmds;
 pub(crate) use db_inventory_print_cmds::*;
-#[path = "db_key_forks_cmds.rs"]
-mod db_key_forks_cmds;
-pub(crate) use db_key_forks_cmds::*;
 #[path = "db_ledger_cmds.rs"]
 mod db_ledger_cmds;
 pub(crate) use db_ledger_cmds::*;
-#[path = "db_order_log_bloat_cmds.rs"]
-mod db_order_log_bloat_cmds;
-pub(crate) use db_order_log_bloat_cmds::*;
-#[path = "db_order_log_repair_cmds.rs"]
-mod db_order_log_repair_cmds;
-pub(crate) use db_order_log_repair_cmds::*;
 #[path = "db_proof_cmds.rs"]
 mod db_proof_cmds;
 use db_proof_cmds::*;
@@ -39,42 +38,11 @@ pub(crate) use db_reap_cmds::*;
 #[path = "db_reclaim_cmds.rs"]
 mod db_reclaim_cmds;
 pub(crate) use db_reclaim_cmds::*;
-#[path = "db_rekey_cmds.rs"]
-mod db_rekey_cmds;
-pub(crate) use db_rekey_cmds::*;
-#[path = "db_rekey_partition_cmds.rs"]
-mod db_rekey_partition_cmds;
-pub(crate) use db_rekey_partition_cmds::*;
 #[path = "db_reseal_cmds.rs"]
 mod db_reseal_cmds;
 pub(crate) use db_reseal_cmds::*;
-#[path = "db_retain_cmds.rs"]
-mod db_retain_cmds;
-pub(crate) use db_retain_cmds::*;
-#[path = "db_thin_tips_cmds.rs"]
-mod db_thin_tips_cmds;
-pub(crate) use db_thin_tips_cmds::*;
-#[path = "db_tombstone_audit_cmds.rs"]
-mod db_tombstone_audit_cmds;
-pub(crate) use db_tombstone_audit_cmds::*;
-#[path = "db_tombstone_cmds.rs"]
-mod db_tombstone_cmds;
-pub(crate) use db_tombstone_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
-    if let DbCommand::Tips(DbTipsCommand::RetainSupersededVersionsOffline {
-        execute,
-        version_cutoff_nanos,
-        json,
-    }) = action
-    {
-        return db_retain_superseded_versions_offline(
-            data_dir,
-            execute,
-            version_cutoff_nanos,
-            json,
-        );
-    }
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
     if lastdb_node::health_alert::probe_health(&socket).is_err() {
         return Err(format!(

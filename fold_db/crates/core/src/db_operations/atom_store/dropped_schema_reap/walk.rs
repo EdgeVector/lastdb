@@ -9,7 +9,7 @@ use crate::atom::molecule_key_codec;
 use crate::db_operations::atom_store::helpers::schema_index_codec;
 use crate::db_operations::atom_store::AtomStore;
 use crate::db_operations::key_fingerprint;
-use crate::kind_partition::{exact_prefix_bounds, form_twin};
+use crate::kind_partition::exact_prefix_bounds;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::traits::{KvStore, PhysicalScanCursor};
@@ -97,10 +97,11 @@ async fn key_page(
     })
 }
 
-pub(super) fn index_prefixes(schema_name: &str) -> [String; 2] {
-    let anchored = build_storage_key(None, &schema_index_codec::schema_prefix(schema_name));
-    let legacy = form_twin(&anchored).unwrap_or_else(|| anchored.clone());
-    [anchored, legacy]
+pub(super) fn index_prefixes(schema_name: &str) -> [String; 1] {
+    [build_storage_key(
+        None,
+        &schema_index_codec::schema_prefix(schema_name),
+    )]
 }
 
 /// Build the candidate molecule set and its fingerprint, enforcing the input
@@ -126,9 +127,7 @@ pub(super) fn reap_candidates(
         .collect();
     for field in field_names.iter().filter(|field| !field.is_empty()) {
         let write = crate::atom::deterministic_molecule_uuid(schema_name, field);
-        known_molecules.extend(crate::atom::molecule_uuid::legacy_molecule_uuid_spellings(
-            &write,
-        ));
+        known_molecules.insert(write);
     }
     let has_known_molecules = !known_molecules.is_empty();
     if known_molecules.len() > MAX_REAPER_CANDIDATES {
@@ -171,7 +170,7 @@ pub(super) fn validate_cursor_state(
     if cursor_bytes.len() > MAX_REAPER_CURSOR_BYTES
         || state.schema != schema_name
         || state.candidate_fingerprint != candidate_fingerprint
-        || state.index_form > 2
+        || state.index_form > 1
         || (!has_known_molecules && state.phase == DroppedSchemaReapPhase::Tips)
         || (state.phase == DroppedSchemaReapPhase::Tips
             && (state.index_form != 0 || state.index_position.is_some()))
@@ -179,7 +178,7 @@ pub(super) fn validate_cursor_state(
             && (state.tip_molecule.is_some()
                 || state.tip_position.is_some()
                 || state.molecule_after.is_some()))
-        || (state.index_form == 2 && state.index_position.is_some())
+        || (state.index_form == 1 && state.index_position.is_some())
         || state
             .tip_molecule
             .as_deref()
@@ -200,7 +199,7 @@ pub(super) fn validate_cursor_state(
             })
         })
         || state.index_position.as_ref().is_some_and(|position| {
-            state.index_form >= 2
+            state.index_form >= 1
                 || validate_position(
                     position,
                     &index_prefixes(schema_name)[state.index_form as usize],
@@ -353,12 +352,12 @@ impl AtomStore {
     /// the report is final (no resume cursor).
     pub(super) async fn reap_index_phase(
         &self,
-        prefixes: &[String; 2],
+        prefixes: &[String; 1],
         state: &mut ReapCursorState,
         budget: usize,
         report: &mut DroppedSchemaReapReport,
     ) -> Result<bool, SchemaError> {
-        if state.index_form >= 2 {
+        if state.index_form >= 1 {
             return Ok(true);
         }
         let prefix = &prefixes[state.index_form as usize];
@@ -379,6 +378,6 @@ impl AtomStore {
             state.index_form += 1;
             state.index_position = None;
         }
-        Ok(state.index_form >= 2)
+        Ok(state.index_form >= 1)
     }
 }

@@ -8,17 +8,10 @@ const GC_PERSIST_CUT_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 impl FoldDB {
     /// Delete `atom:` rows not referenced by tips / remaining history / conflicts.
     ///
-    /// Prunes tip-version chains on **tombstoned** tips only (preserves `as_of`
-    /// history on live tips).
     pub async fn gc_orphan_atoms(&self, dry_run: bool) -> Result<AtomGcReport, FoldDbError> {
-        self.gc_orphan_atoms_with(dry_run, false, false).await
+        self.gc_orphan_atoms_with(dry_run, false).await
     }
 
-    /// Like [`Self::gc_orphan_atoms`]. When `prune_live_history` is true, also
-    /// drop tip-version chains on **live** tips (tip becomes the only version;
-    /// historical body atoms become freeable). Use for reclaim after
-    /// append-heavy rewrites; sacrifices `as_of` depth.
-    ///
     /// `allow_after_peer_apply` is the explicit operator acceptance that the
     /// atoms of a lost multi-device write can be deleted; without it a delete
     /// refuses on a node that has applied a peer mutation (or cannot prove it
@@ -26,7 +19,6 @@ impl FoldDB {
     pub async fn gc_orphan_atoms_with(
         &self,
         dry_run: bool,
-        prune_live_history: bool,
         allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, FoldDbError> {
         // A delete run waits for the mutation work that existed when it began.
@@ -54,7 +46,6 @@ impl FoldDB {
             .gc_orphan_atoms_with_roots_at_cut(
                 dry_run,
                 None,
-                prune_live_history,
                 &extra_roots,
                 scan_started_at,
                 allow_after_peer_apply,
@@ -108,14 +99,8 @@ impl FoldDB {
         &self,
         requested_schema: &str,
         dry_run: bool,
-        prune_live_history: bool,
         allow_after_peer_apply: bool,
     ) -> Result<AtomGcReport, FoldDbError> {
-        if prune_live_history {
-            return Err(FoldDbError::Database(
-                "schema-scoped gc-atoms does not support --prune-live-history".into(),
-            ));
-        }
         let schemas = self
             .db_ops()
             .get_all_schemas()
@@ -155,7 +140,6 @@ impl FoldDB {
             .gc_orphan_atoms_with_roots_for_schema_at_cut(
                 dry_run,
                 None,
-                false,
                 &extra_roots,
                 crate::db_operations::GcAtomsRunScope {
                     source_schema_name: Some(&schema_name),

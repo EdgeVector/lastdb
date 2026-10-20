@@ -1,4 +1,4 @@
-//! Durable per-molecule-key order for normal Delete and physical peer Delete.
+//! Durable per-molecule-key order for Delete.
 
 use super::AtomEntry;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,6 @@ pub(crate) struct DeleteBarrier {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum DeleteKind {
     Normal,
-    LegacyPhysical,
 }
 
 /// Version two groups barriers by the exact `mk:` partition, including its

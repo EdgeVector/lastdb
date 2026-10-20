@@ -51,10 +51,6 @@ pub(crate) struct PurgeEnvelope {
     pub(in crate::fold_db_core::mutation_manager) retention_keys:
         Option<Vec<crate::schema::types::KeyValue>>,
     pub(in crate::fold_db_core::mutation_manager) verb: crate::fold_db_core::purge::HardEraseVerb,
-    /// Retained-chain atoms collected off the persist lane. `None` for
-    /// barrierless cutover and for Skip-Delete converge.
-    pub(in crate::fold_db_core::mutation_manager) guarded_complement_retained:
-        Option<std::collections::HashSet<String>>,
     pub(in crate::fold_db_core::mutation_manager) completion:
         Option<tokio::sync::oneshot::Sender<PurgeCompletion>>,
     /// Set when the purge is terminal. The lane sends it after byte release.

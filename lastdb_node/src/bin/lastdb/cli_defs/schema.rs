@@ -101,18 +101,6 @@ pub(crate) enum LivenessCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Rebuild derived liveness edges on an isolated-copy daemon.
-    Bootstrap {
-        /// Confirm that this daemon serves only an isolated data copy.
-        #[arg(long)]
-        isolated_copy: bool,
-        /// Optional organization storage prefix.
-        #[arg(long)]
-        storage_prefix: Option<String>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
 }
 
 #[derive(Subcommand, Debug)]

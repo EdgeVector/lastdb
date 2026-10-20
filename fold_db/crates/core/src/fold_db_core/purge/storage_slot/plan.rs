@@ -6,7 +6,6 @@ use super::*;
 pub(super) struct StorageSlotPlan {
     pub(super) planned: Vec<PlannedStorageSlot>,
     pub(super) candidate_atoms: HashSet<String>,
-    pub(super) tip_version_keys: Vec<String>,
     pub(super) atom_ref_v2_edge_keys: Vec<String>,
 }
 
@@ -48,7 +47,7 @@ pub(super) fn validate_slot_target(
 }
 
 /// Validate every target, drop duplicates and (under `Skip`) absent slots, and
-/// collect the atoms and chain keys the guarded purge needs.
+/// collect the current atoms and reference keys the guarded purge needs.
 pub(super) async fn plan_storage_slot_targets(
     db_ops: &Arc<DbOperations>,
     schema: &crate::schema::Schema,
@@ -59,7 +58,6 @@ pub(super) async fn plan_storage_slot_targets(
     let mut plan = StorageSlotPlan {
         planned: Vec::new(),
         candidate_atoms: HashSet::new(),
-        tip_version_keys: Vec::new(),
         atom_ref_v2_edge_keys: Vec::new(),
     };
     let mut seen: HashSet<(String, String, String)> = HashSet::new();
@@ -92,11 +90,11 @@ pub(super) async fn plan_storage_slot_targets(
             }
         };
         plan.candidate_atoms.insert(atom_uuid);
-        let chain = collect_target_chain(db_ops, field, &target.storage_key).await?;
-        plan.tip_version_keys.extend(chain.tip_version_keys);
-        plan.atom_ref_v2_edge_keys
-            .extend(chain.atom_ref_v2_edge_keys);
-        plan.candidate_atoms.extend(chain.atom_uuids);
+        plan.atom_ref_v2_edge_keys.extend(collect_target_edges(
+            db_ops,
+            field,
+            &target.storage_key,
+        )?);
         plan.planned.push(PlannedStorageSlot {
             field_name: target.field_name.clone(),
             molecule_uuid: target.molecule_uuid.clone(),

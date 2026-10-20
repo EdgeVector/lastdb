@@ -11,11 +11,14 @@ impl MutationManager {
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         // The admitted write owns the complete mutation pipeline. Keep that
         // future off callers' default request and maintenance thread stacks.
-        let future = Box::pin(self.write_mutations_batch_with_receipt_cloud_admitted(
-            mutations,
-            storage_prefix,
-            cloud_policy,
-        ));
+        // Erase its concrete type here so spawned callers need not resolve the
+        // complete nested pipeline again to prove that their future is Send.
+        let future: futures::future::BoxFuture<'_, Result<ResidentCommitReceipt, SchemaError>> =
+            Box::pin(self.write_mutations_batch_with_receipt_cloud_admitted(
+                mutations,
+                storage_prefix,
+                cloud_policy,
+            ));
         crate::sync::capture::with_mutation_admission(self.capture_router(), future).await
     }
 }

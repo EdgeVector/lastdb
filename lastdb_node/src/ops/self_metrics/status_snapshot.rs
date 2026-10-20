@@ -157,10 +157,6 @@ pub struct StatusSnapshot {
     /// Resident graph counters (T0 memory hits, rehydrates, deferred persists).
     #[serde(default)]
     pub resident: ResidentHealth,
-    /// Dual-read residue counters (tip-plane legacy fallthrough). Process-lifetime;
-    /// see `fold_db::storage::DualReadMetricsSnapshot` / design PR-5.
-    #[serde(default)]
-    pub dual_read: DualReadHealth,
     /// Daemon build identity + the phase vocabulary it knows, so a client can
     /// detect that it is about to render a truncated breakdown. Defaults empty
     /// when read from a daemon predating this field.

@@ -37,12 +37,6 @@ pub(super) async fn dispatch_maintenance_gc(
             heap_route!(execute_db_gc_file_blobs_route, req, ctx, host).await
         }
         DataRoute::DbGcProteins => heap_route!(execute_db_gc_proteins_route, req, ctx, host).await,
-        DataRoute::DbPurgeRefBlobs => {
-            heap_route!(execute_db_purge_ref_blobs_route, req, ctx, host).await
-        }
-        DataRoute::DbReclaimKeepSmallLegacy => {
-            heap_route!(execute_db_reclaim_keep_small_legacy_route, req, ctx, host).await
-        }
         DataRoute::DbReclaimKeepSmallSnapshot => {
             heap_route!(execute_db_reclaim_keep_small_snapshot_route, req, ctx, host).await
         }
@@ -69,44 +63,17 @@ pub(super) async fn dispatch_maintenance_repair(
             )),
             Err(error) => error_response(500, &error, ctx),
         },
-        DataRoute::DbDrainTipHistory => {
-            heap_route!(execute_db_drain_tip_history_route, req, ctx, host).await
-        }
-        DataRoute::DbRetainSupersededVersions => {
-            heap_route!(execute_db_retain_superseded_versions_route, req, ctx, host).await
-        }
         DataRoute::DbProbeLocatorOnly => {
             heap_route!(execute_db_probe_locator_only_route, req, ctx, host).await
         }
         DataRoute::DbDeleteLedger => {
             heap_route!(execute_db_delete_ledger_route, req, ctx, host).await
         }
-        DataRoute::DbMigratePhotoBlobs => {
-            heap_route!(execute_db_migrate_photo_blobs_route, req, ctx, host).await
-        }
-        DataRoute::DbMigrateThinTips => {
-            heap_route!(execute_db_migrate_thin_tips_route, req, ctx, host).await
-        }
-        DataRoute::DbRekeyAtomPartitionPrefix => {
-            heap_route!(execute_db_rekey_atom_partition_prefix_route, req, ctx, host).await
-        }
         DataRoute::DbResealAtRest => {
             heap_route!(execute_db_reseal_at_rest_route, req, ctx, host).await
         }
         DataRoute::DbReapUnsealed => {
             heap_route!(execute_db_reap_unsealed_route, req, ctx, host).await
-        }
-        DataRoute::DbTombstoneFlagAudit => {
-            heap_route!(execute_db_tombstone_flag_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbDrainLegacyTombstones => {
-            heap_route!(execute_db_drain_legacy_tombstones_route, req, ctx, host).await
-        }
-        DataRoute::DbLegacyKeyForkAudit => {
-            heap_route!(execute_db_legacy_key_fork_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbOrderLogAudit => {
-            heap_route!(execute_db_order_log_audit_route, req, ctx, host).await
         }
         DataRoute::DbPinLogAudit => {
             heap_route!(execute_db_pin_log_audit_route, req, ctx, host).await
@@ -116,15 +83,6 @@ pub(super) async fn dispatch_maintenance_repair(
         }
         DataRoute::DbReplayMutationLog => {
             heap_route!(execute_db_replay_mutation_log_route, req, ctx, host).await
-        }
-        DataRoute::DbOrderLogBloatAudit => {
-            heap_route!(execute_db_order_log_bloat_audit_route, req, ctx, host).await
-        }
-        DataRoute::DbCompactOrderLog => {
-            heap_route!(execute_db_compact_order_log_route, req, ctx, host).await
-        }
-        DataRoute::DbRepairOrderLogShortfall => {
-            heap_route!(execute_db_repair_order_log_shortfall_route, req, ctx, host).await
         }
         DataRoute::DbMoleculeKeys => {
             heap_route!(execute_db_molecule_keys_route, req, ctx, host).await
@@ -151,9 +109,6 @@ pub(super) async fn dispatch_blob_identity(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::DbDrainPlaneResidue => {
-            heap_route!(execute_db_drain_plane_residue_route, req, ctx, host).await
-        }
         DataRoute::DbFetchFileBlob => {
             heap_route!(execute_db_fetch_file_blob_route, req, ctx, host).await
         }

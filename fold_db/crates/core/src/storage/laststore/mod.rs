@@ -33,7 +33,6 @@
 mod backup_descriptor;
 mod backup_manifest;
 mod compact_dispatch;
-pub mod dual_read_metrics;
 pub mod high_water;
 mod key_routing;
 mod value_lengths;
@@ -74,14 +73,6 @@ pub use backup_manifest::{
     UNBACKABLE_RETIREMENT_REASON_ABSENT_LOCAL_AND_CLOUD,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-pub use dual_read_metrics::{
-    apply_tip_residue_copy_page, classify_conflict_residue_copy, classify_index_residue_copy,
-    classify_order_log_residue_copy, classify_protein_residue_copy, classify_tip_residue_copy,
-    dual_read_metrics_snapshot, DualReadMetricsSnapshot, PlaneResidueCopyAction,
-    TipResidueCopyAction, TipResidueCopyPageReport, CONFLICT_KEY_PREFIXES,
-    INDEX_RESIDUE_KEY_PREFIXES, INDEX_RESIDUE_LEGACY_COLLECTIONS, ORDER_LOG_KEY_PREFIXES,
-    PROTEIN_FAMILY_KEY_PREFIXES, TIP_RESIDUE_KEY_PREFIXES, TIP_RESIDUE_LEGACY_COLLECTIONS,
-};
 pub use high_water::{
     cloud_db_hash_for_store_uuid, high_water_path_for_store_root, read_backup_durability,
     read_cloud_db_hash, BackupDurability,
@@ -100,17 +91,6 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const TIPS_COLLECTION: &str = "tips";
-const INDEXES_COLLECTION: &str = "indexes";
-
-/// `indexes`-plane prefixes [`LastStoreNamespacedStore::reclaim_retired_index_residue`]
-/// will delete.
-///
-/// The authority for *whether* these are retired is the engine flags in
-/// `db_operations::atom_store::helpers`; this list is the storage layer's own
-/// independent bound on what a caller may ask it to delete, so a drifting
-/// caller cannot reach `schemaidx:` (its own verb), `schema_atoms:`, or `idx:`
-/// (governed by no retirement flag).
-pub const RECLAIMABLE_RETIRED_INDEX_PREFIXES: &[&str] = &["mhr:", "mhi:", "mhk:"];
 
 /// Catalog collections are plaintext-by-policy (Trinity-only). Persisting an
 /// An at-rest envelope there is what made Tom's primary unbootable on 2026-08-16:

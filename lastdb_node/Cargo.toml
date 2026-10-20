@@ -30,12 +30,6 @@ path = "src/bin/lastdb.rs"
 [[bin]]
 bench = false
 test = false
-name = "lastdb_local_maintain"
-path = "src/bin/lastdb_local_maintain/main.rs"
-
-[[bin]]
-bench = false
-test = false
 name = "lastdb_storage_recovery_rollback_proof"
 path = "src/bin/lastdb_storage_recovery_rollback_proof.rs"
 

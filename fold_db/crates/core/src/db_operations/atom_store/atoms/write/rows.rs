@@ -125,17 +125,10 @@ impl AtomStore {
         for blob_ref in
             crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
         {
-            let mut edge = BlobRefEdge::atom(atom.uuid(), &blob_ref);
-            edge.atom_scope = storage_prefix.map(str::to_string);
-            let edge_key = edge.storage_key(storage_prefix);
+            let edge = BlobRefEdge::atom(atom.uuid(), &blob_ref, storage_prefix);
+            let edge_key = edge.storage_key();
             if seen_blob_edges.insert(edge_key.clone()) {
-                let edge_value = serde_json::to_vec(&edge).map_err(|error| {
-                    SchemaError::InvalidData(format!(
-                        "serialize blob reference edge for {}: {error}",
-                        atom.uuid()
-                    ))
-                })?;
-                blob_edge_items.push((edge_key.into_bytes(), edge_value));
+                blob_edge_items.extend(edge.put_rows()?);
             }
         }
         Ok(())

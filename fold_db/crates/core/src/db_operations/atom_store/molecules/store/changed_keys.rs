@@ -143,7 +143,9 @@ impl AtomStore {
             .await;
         let tip_keys = tip_item_keys(&items);
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
-        let (decisions, blob_changes) = self.retain_durable_tip_winners(&mut items).await?;
+        let (decisions, blob_changes) = self
+            .retain_durable_tip_winners(&mut items, storage_prefix)
+            .await?;
         // The conflict rows reach disk before the tip. See `conflict_record`.
         // Boxed: the store future is already deep in the node's async graph,
         // and the recorder adds a second deep subtree.
@@ -280,7 +282,9 @@ impl AtomStore {
             .await;
         let tip_keys = tip_item_keys(&all_items);
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
-        let (decisions, blob_changes) = self.retain_durable_tip_winners(&mut all_items).await?;
+        let (decisions, blob_changes) = self
+            .retain_durable_tip_winners(&mut all_items, storage_prefix)
+            .await?;
         // The conflict rows reach disk before the tips. See `conflict_record`.
         if Self::has_conflicts_to_record(molecules, &decisions) {
             Box::pin(self.record_store_conflicts(molecules, decisions, storage_prefix)).await?;

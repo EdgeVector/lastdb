@@ -48,9 +48,6 @@ pub(super) async fn dispatch_core(
         DataRoute::LivenessExplain => {
             heap_route!(execute_liveness_explain_route, req, ctx, host).await
         }
-        DataRoute::LivenessBootstrap => {
-            heap_route!(execute_liveness_bootstrap_route, req, ctx, host).await
-        }
         _ => return None,
     })
 }

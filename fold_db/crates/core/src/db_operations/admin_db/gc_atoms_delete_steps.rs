@@ -88,7 +88,7 @@ impl AtomStore {
                 .await?
             {
                 if let Some(row) = row.as_ref() {
-                    keys.extend(Self::atom_gc_delete_pass_keys(row, storage_prefix));
+                    keys.extend(Self::atom_gc_delete_pass_keys(row, storage_prefix)?);
                 }
                 validated.push((candidate, keys));
             }
@@ -143,22 +143,6 @@ impl AtomStore {
             tally.active_edge += 1;
             return Ok(None);
         }
-        // A conflict loser or history atom can hold only a legacy v1 edge.
-        // An edge that cannot be read keeps the atom: it is never a pass.
-        let legacy_edge = self
-            .has_active_legacy_atom_ref_edge(&candidate.uuid, storage_prefix)
-            .await;
-        if legacy_edge.as_ref().map_or(true, |active| *active) {
-            if let Err(error) = &legacy_edge {
-                tracing::warn!(
-                    atom_uuid = candidate.uuid,
-                    %error,
-                    "automatic gc-atoms kept a candidate whose legacy edges could not be read"
-                );
-            }
-            tally.active_edge += 1;
-            return Ok(None);
-        }
         if self
             .has_any_pending_atom_refs(&candidate.uuid, storage_prefix)
             .await?
@@ -181,9 +165,13 @@ impl AtomStore {
         let blob_keys =
             crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
                 .into_iter()
-                .map(|blob_ref| {
-                    crate::db_operations::atom_store::BlobRefEdge::atom(&candidate.uuid, &blob_ref)
-                        .storage_key(storage_prefix)
+                .flat_map(|blob_ref| {
+                    let edge = crate::db_operations::atom_store::BlobRefEdge::atom(
+                        &candidate.uuid,
+                        &blob_ref,
+                        storage_prefix,
+                    );
+                    [edge.storage_key(), edge.owner_key()]
                 })
                 .collect();
         Ok(Some(blob_keys))

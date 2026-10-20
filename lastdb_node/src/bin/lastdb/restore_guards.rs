@@ -204,7 +204,7 @@ pub(crate) fn refuse_non_fresh_restore_home(target_home: &Path) -> Result<(), St
     Ok(())
 }
 
-pub(crate) fn refuse_non_fresh_migration_home(target_home: &Path) -> Result<(), String> {
+pub(crate) fn require_empty_restore_home(target_home: &Path) -> Result<(), String> {
     if !target_home.exists() {
         return Ok(());
     }
@@ -213,38 +213,11 @@ pub(crate) fn refuse_non_fresh_migration_home(target_home: &Path) -> Result<(), 
         .map_err(|e| format!("read {}: {e}", target_home.display()))?;
     if entries.next().is_some() {
         return Err(format!(
-            "refusing to migrate into non-empty destination home {}",
+            "refusing to restore into non-empty destination home {}",
             target_home.display()
         ));
     }
     Ok(())
-}
-
-pub(crate) fn laststore_home_has_chunk_layout(store_root: &Path) -> bool {
-    let Ok(collections) = std::fs::read_dir(store_root.join("data")) else {
-        return false;
-    };
-    for collection in collections.filter_map(Result::ok) {
-        let Ok(shards) = std::fs::read_dir(collection.path()) else {
-            continue;
-        };
-        for shard in shards.filter_map(Result::ok) {
-            let shard_path = shard.path();
-            if shard_path.join("tail").is_dir() || shard_path.join("chunks").is_dir() {
-                return true;
-            }
-            let Ok(groups) = std::fs::read_dir(shard_path.join("g")) else {
-                continue;
-            };
-            for group in groups.filter_map(Result::ok) {
-                let group_path = group.path();
-                if group_path.join("tail").is_dir() || group_path.join("chunks").is_dir() {
-                    return true;
-                }
-            }
-        }
-    }
-    false
 }
 
 pub(crate) fn write_owner_only_local(path: &Path, bytes: &[u8]) -> Result<(), String> {

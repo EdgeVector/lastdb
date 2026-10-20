@@ -387,40 +387,6 @@ impl AtomStore {
         Ok(DeleteLedgerHandle { key, entry })
     }
 
-    /// Resume an unconfirmed write-ahead row for a bounded multi-pass verb.
-    ///
-    /// The caller stores the key in its durable checkpoint. Reusing the row
-    /// prevents each partial pass from adding a new physical handle to the
-    /// same plane that the pass must traverse.
-    pub(crate) async fn resume_delete_ledger_row(
-        &self,
-        key: &str,
-    ) -> Result<DeleteLedgerHandle, SchemaError> {
-        let entry: AtomDeleteLedgerEntry = self
-            .raw()
-            .get_item(key)
-            .await
-            .map_err(|e| {
-                SchemaError::InvalidData(format!(
-                    "delete ledger: failed to resume intent {key}: {e}"
-                ))
-            })?
-            .ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "delete ledger: checkpoint names missing intent {key}"
-                ))
-            })?;
-        if entry.committed {
-            return Err(SchemaError::InvalidData(format!(
-                "delete ledger: checkpoint names committed intent {key}"
-            )));
-        }
-        Ok(DeleteLedgerHandle {
-            key: key.to_string(),
-            entry,
-        })
-    }
-
     /// Re-put the row with final counts and `committed: true`.
     ///
     /// Unlike [`Self::begin_delete_ledger_row`] a failure here does **not** fail

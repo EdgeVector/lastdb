@@ -12,6 +12,7 @@ impl AtomStore {
     pub(in super::super) async fn retain_durable_tip_winners(
         &self,
         items: &mut Vec<(String, Value)>,
+        storage_prefix: Option<&str>,
     ) -> Result<
         (
             Vec<crate::db_operations::atom_store::DurableTipDecision>,
@@ -55,7 +56,7 @@ impl AtomStore {
             if incoming_loses {
                 continue;
             }
-            blob_changes.replace(&key, durable.as_ref(), Some(&incoming))?;
+            blob_changes.replace(&key, storage_prefix, durable.as_ref(), Some(&incoming))?;
             let value = serde_json::to_value(&incoming).map_err(|error| {
                 SchemaError::InvalidData(format!("serialize durable tip winner {key}: {error}"))
             })?;

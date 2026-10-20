@@ -81,7 +81,6 @@ pub(super) async fn build_snapshot(
         limits: LimitsHealth::default(),
         read_cost,
         resident,
-        dual_read: fold_db::storage::dual_read_metrics_snapshot().into(),
         build: BuildHealth::current(),
         integrity: integrity_health(host),
         atom_ref_edges: host

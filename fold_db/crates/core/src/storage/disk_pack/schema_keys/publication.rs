@@ -44,12 +44,7 @@ impl PackRuntime {
             };
             let mut state = entry.state.lock().expect("key publication state");
             if structural {
-                let (phase, reason) = if bare.starts_with("ref:") {
-                    (Phase::DiskOnly, "legacy_membership_blob")
-                } else {
-                    (Phase::Unloaded, "membership_control")
-                };
-                self.invalidate_key_entry(entry, &mut state, phase, reason);
+                self.invalidate_key_entry(entry, &mut state, Phase::Unloaded, "membership_control");
                 continue;
             }
             let Some(candidate) = candidate_key(&entry.id.1, bare) else {
@@ -215,7 +210,6 @@ fn membership_coordinate(raw: &str) -> Option<(DomainId, &str, bool)> {
         ("mgp:v1:", true),
         ("mgr:v1:", false),
         ("mgd:v1:", false),
-        ("ref:", true),
         ("mk:", false),
     ];
     let (at, family, structural) = families

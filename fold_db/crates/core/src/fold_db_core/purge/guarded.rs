@@ -13,7 +13,7 @@ pub(super) async fn execute_guarded_purge(
     scope: PurgeScope<'_>,
     mut schema: crate::schema::types::Schema,
     storage_slots: &[PlannedStorageSlot],
-    mut purge: GuardedPurge,
+    purge: GuardedPurge,
     ledger_descriptor: &str,
     verb: HardEraseVerb,
     acct: &mut PurgeCommitAccounting,
@@ -24,20 +24,12 @@ pub(super) async fn execute_guarded_purge(
         schema_name,
         storage_prefix,
     } = scope;
-    let precomputed_retained = purge.mode.precomputed_retained.take();
     let caller = purge.mode.caller;
-    let target_slot_ids: HashSet<StorageSlotIdentity> = storage_slots
-        .iter()
-        .map(PlannedStorageSlot::identity)
-        .collect();
     let inputs = GuardedRemovalInputs {
         candidate_atoms: &purge.candidate_atoms,
         history_keys: &purge.history_keys,
-        tip_version_keys: &purge.tip_version_keys,
-        atom_ref_edge_keys: &purge.atom_ref_edge_keys,
         atom_ref_v2_edge_keys: &purge.atom_ref_v2_edge_keys,
         history_referenced_by_retained: &purge.history_referenced_by_retained,
-        target_slot_ids: &target_slot_ids,
         reachability: purge.mode.reachability,
     };
     let GuardedErasure {
@@ -56,7 +48,6 @@ pub(super) async fn execute_guarded_purge(
         storage_slots,
         &inputs,
         purge.records_purged,
-        precomputed_retained,
         acct,
     )
     .await?;

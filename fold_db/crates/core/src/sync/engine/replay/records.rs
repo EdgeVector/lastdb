@@ -77,7 +77,7 @@ impl SyncEngine {
         // delete's origin order in a separate durable row so a delayed older
         // Put cannot revive it after a restart or an out-of-order cloud list.
         let marker = self
-            .read_replay_delete_barrier(&kv, namespace, key_bytes, mol_uuid, crypto)
+            .read_replay_delete_barrier(&kv, namespace, key_bytes, crypto)
             .await?;
         if marker
             .as_ref()
@@ -117,9 +117,6 @@ impl SyncEngine {
                 local,
             )
             .await?;
-        if accepted_incoming {
-            Self::invalidate_hash_range_page_index_if_needed(&kv, key_bytes, mol_uuid).await?;
-        }
         // C4: absorb only when remote actually applied (local-win stays dirty).
         self.absorb_put_or_warn(
             namespace,
@@ -319,21 +316,5 @@ impl SyncEngine {
 
         // Unrecognized key shape — best-effort display key.
         FieldKey::hash(suffix.to_string())
-    }
-
-    pub(super) async fn invalidate_hash_range_page_index_if_needed(
-        kv: &Arc<dyn crate::storage::traits::KvStore>,
-        key_bytes: &[u8],
-        mol_uuid: &str,
-    ) -> SyncResult<()> {
-        let Ok(key_str) = std::str::from_utf8(key_bytes) else {
-            return Ok(());
-        };
-        let Some(index_key) = hash_range_page_index_complete_key_for_record_key(key_str, mol_uuid)
-        else {
-            return Ok(());
-        };
-        kv.delete(index_key.as_bytes()).await?;
-        Ok(())
     }
 }

@@ -53,7 +53,6 @@ fn batch_write_error(what: &str, error: crate::storage::StorageError) -> SchemaE
 mod events;
 mod history;
 mod locator_memory;
-mod maintenance;
 mod read;
 mod schema_index;
 mod scope;

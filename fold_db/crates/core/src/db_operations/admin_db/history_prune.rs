@@ -146,18 +146,6 @@ impl AtomStore {
         Ok(report)
     }
 
-    /// Measure (and optionally delete) legacy `ref:` whole-molecule blobs in
-    /// `legacy_blob_refs`. Dry-run by default; pass `dry_run: false` to delete
-    /// only keys already rehydrated as per-key tips/headers. Blocked keys
-    /// (no `mh:`/`mk:`) are never force-deleted.
-    pub async fn purge_ref_blobs(
-        &self,
-        dry_run: bool,
-        storage_prefix: Option<&str>,
-    ) -> Result<LegacyRefBlobPurgeReport, SchemaError> {
-        self.purge_legacy_ref_blobs(dry_run, storage_prefix).await
-    }
-
     /// Rows fetched per storage page when a GC pass streams a whole plane.
     ///
     /// Bounds one pass's transient scan allocation by the page, not by the

@@ -7,22 +7,18 @@ use std::collections::HashSet;
 
 /// One phase of the durable automatic orphan-byte probe.
 ///
-/// The two clear phases keep probe markers bounded across completed laps. The
-/// remaining phases match the manual `gc-atoms` reachability walk, but each
+/// The clear phase keeps reference markers bounded across completed laps. The
+/// other phases match the current reachability walk, but each
 /// call advances at most one physical storage page.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AutomaticGcAtomsProbePhase {
     #[default]
     ClearReferenceMarkers,
-    ClearTipVersionSkipMarkers,
-    Prologue,
     PinLogReferences,
     Tips,
-    TipVersions,
     History,
     Conflicts,
-    LegacyRefs,
     Atoms,
     Complete,
 }
@@ -30,15 +26,11 @@ pub enum AutomaticGcAtomsProbePhase {
 impl AutomaticGcAtomsProbePhase {
     pub(crate) fn next(self) -> Self {
         match self {
-            Self::ClearReferenceMarkers => Self::ClearTipVersionSkipMarkers,
-            Self::ClearTipVersionSkipMarkers => Self::Prologue,
-            Self::Prologue => Self::PinLogReferences,
+            Self::ClearReferenceMarkers => Self::PinLogReferences,
             Self::PinLogReferences => Self::Tips,
-            Self::Tips => Self::TipVersions,
-            Self::TipVersions => Self::History,
+            Self::Tips => Self::History,
             Self::History => Self::Conflicts,
-            Self::Conflicts => Self::LegacyRefs,
-            Self::LegacyRefs => Self::Atoms,
+            Self::Conflicts => Self::Atoms,
             Self::Atoms | Self::Complete => Self::Complete,
         }
     }
@@ -46,8 +38,7 @@ impl AutomaticGcAtomsProbePhase {
 
 /// Durable state for a bounded automatic orphan-byte probe.
 ///
-/// This row stays constant-size. Reference membership and planned `tv:` skips
-/// live in separate keyed rows, never in an unbounded vector in this value.
+/// This record stays constant-size. Reference membership uses separate keyed records.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct AutomaticGcAtomsProbeCheckpoint {
     pub version: u8,
@@ -61,10 +52,6 @@ pub struct AutomaticGcAtomsProbeCheckpoint {
     pub completed_at: Option<String>,
     #[serde(default)]
     pub pages_completed: u64,
-    #[serde(default)]
-    pub prologue_tips_scanned: u64,
-    #[serde(default)]
-    pub prologue_tip_versions_planned: u64,
     /// Last durable pin-log key consumed by the external reference page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin_log_after_key: Option<Vec<u8>>,
@@ -130,8 +117,7 @@ pub struct AutomaticGcAtomsProbeReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<PhysicalScanCursor>,
     pub rows_scanned_this_call: u64,
-    /// Present only when the full prologue, every reference plane, and the atom
-    /// walk completed.
+    /// Present only after all current reference and atom reads complete.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<AutomaticGcAtomsProbeResult>,
 }

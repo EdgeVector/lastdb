@@ -54,7 +54,7 @@ impl AtomStore {
         let keys: Vec<String> = atom_uuids
             .iter()
             .map(|uuid| atom_live_ref_count_key(uuid, storage_prefix))
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         self.main_store
             .get_items::<AtomLiveRefCount>(&keys)
             .await
@@ -71,12 +71,12 @@ impl AtomStore {
         let keyed_atoms: Vec<(String, String)> = atom_uuids
             .iter()
             .map(|atom_uuid| {
-                (
-                    atom_live_ref_count_key(atom_uuid, storage_prefix),
+                Ok((
+                    atom_live_ref_count_key(atom_uuid, storage_prefix)?,
                     atom_uuid.clone(),
-                )
+                ))
             })
-            .collect::<std::collections::BTreeMap<_, _>>()
+            .collect::<Result<std::collections::BTreeMap<_, _>, SchemaError>>()?
             .into_iter()
             .collect();
         let keys: Vec<String> = keyed_atoms.iter().map(|(key, _)| key.clone()).collect();
@@ -92,16 +92,11 @@ impl AtomStore {
         let mut items = Vec::new();
         for ((key, atom_uuid), count) in keyed_atoms.into_iter().zip(stored) {
             if count.is_none() {
-                // Pre-count atoms can already have live tips. Preserve them
-                // until an offline rebuild can establish an exact count.
-                let legacy = self
-                    .has_active_atom_refs(&atom_uuid, storage_prefix)
-                    .await?;
                 items.push((
                     key.into_bytes(),
                     serde_json::to_vec(&AtomLiveRefCount {
                         live_refs: 0,
-                        exact: !legacy,
+                        exact: true,
                     })
                     .map_err(|error| {
                         SchemaError::InvalidData(format!(
@@ -109,13 +104,11 @@ impl AtomStore {
                         ))
                     })?,
                 ));
-                if !legacy {
-                    items.extend(Self::new_atom_gc_candidate_items(
-                        &atom_uuid,
-                        storage_prefix,
-                        unix_nanos(),
-                    )?);
-                }
+                items.extend(Self::new_atom_gc_candidate_items(
+                    &atom_uuid,
+                    storage_prefix,
+                    unix_nanos(),
+                )?);
             }
         }
         Ok(items)

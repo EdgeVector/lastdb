@@ -1,63 +1,7 @@
-//! User Delete and physical Purge dispatch.
-//!
-//! Purge is the compliance/GDPR verb — it irreversibly removes a
-//! `(schema, key)` record: the molecule entries for the key, its `tv:`
-//! tip-version chain, the atoms only that key referenced (live head AND
-//! superseded), the legacy `history:` rows that mention the key's
-//! field_key, and the record's resident (T0) tips and atom bodies.
-//! Both user Delete forms use [`converge_delete_tips`]: they remove the
-//! selected molecule tips and leave shared atom bodies for later reclamation.
-//! `must_exist` adds a caller precondition; it does not select physical Purge.
-//! The native worker checks that condition before it resolves related keys
-//! and removes their tips in the same complete transaction. Explicit Purge
-//! alone reaches [`purge_records_bulk`] and its atom-reachability erasure.
-//!
-//! Current logical writes keep only the current tip. They create no `tv:`
-//! history nodes or archived-tip reverse references. An updated-then-purged
-//! current key therefore has no history chain to walk; superseded atom bodies
-//! become reclaim candidates rather than retained history. `gc-atoms` reaps
-//! unreferenced bodies, then `gc-file-blobs` reaps blobs nothing references.
-//!
-//! The explicit physical cleanup routes still understand existing `tv:`
-//! chains and old `history:` rows. Their historical reach comes from the
-//! tip-version chain; current logical writes do not create either format.
-//!
-//! Deleting a chain node and deleting the atom it names are separate
-//! decisions, and conflating them is how this path breaks a sibling. A
-//! `tv:` row is private to one slot, so the target's rows always go. The
-//! atoms they name are content-addressed by `(schema, content)` and can
-//! be shared, so each is checked against BOTH guards — live heads
-//! (`collect_live_atom_uuids`) and retained keys' chains
-//! (`collect_retained_chain_atoms`) — before it is hard-deleted.
-//!
-//! File blobs: purge destroys the pointer (and the DEK it carries), counts
-//! the destroyed pointers into the delete-ledger row
-//! (`file_pointer_atoms_purged`), and drops the resident-cache copies of the
-//! refs those atoms named. It does NOT delete the durable blob rows: a
-//! blob_ref is a hash of the file's plaintext, shared freely across records
-//! and schemas, and proving "no other referrer" needs the reachability scan
-//! only an admin sweep may run. The reclaim path for the sealed bytes is
-//! `db_operations::file_blob_gc::gc_orphan_file_blobs` (`gc-file-blobs`).
-//!
-//! Erasure must reach every tier that can answer a read, not just
-//! storage. See the resident-eviction block in [`purge_records_bulk`]
-//! for the defect that taught us this and why an eviction API is not an
-//! erasure API.
-//!
-//! Idempotency note: **compliance** purge of a target that doesn't exist
-//! (already purged, or never written) is a *loud* error, not a silent
-//! no-op — audit needs to know the target wasn't found. The **delete**
-//! caller normally uses [`PurgeMissingPolicy::Skip`]: missing targets are
-//! filtered out and a fully-missing batch is a successful no-op. A user
-//! Delete with `must_exist` refuses a missing caller key before tip removal.
-//!
-//! That contract is about the **request**, and the policy is chosen by the
-//! caller's origin, not by the verb alone. A purge arriving from mutation-log
-//! **replay** is `Skip`: it is a restatement of an act that already happened,
-//! there is no requester to inform, and on the authoring node the local apply
-//! is precisely what made the targets absent. See `WriteOrigin` in
-//! `mutation_manager::write` for what a `Refuse` there costs — a pinned sync
-//! cursor and a stopped backup queue, not a warning.
+//! Delete removes exact current tips. Purge also removes unreferenced bodies
+//! and current mutation-history events that identify the selected keys.
+//! Current aref2 references authorize body deletion after tip removal; shared
+//! tips and retained history remain protected. No archived-tip format is read.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -69,7 +13,6 @@ use crate::schema::{SchemaCore, SchemaError};
 
 mod absent;
 mod bulk;
-mod chain_walk;
 mod converge;
 mod converge_candidates;
 mod converge_plan;
@@ -83,12 +26,10 @@ mod guarded_prepare;
 mod guarded_steps;
 mod helpers;
 mod storage_slot;
-mod target_chain;
+mod target_edges;
 
 pub(super) use absent::absent_purge_targets;
-pub(super) use bulk::{
-    plan_guarded_complement_retained, purge_records_bulk, validate_purge_targets_present,
-};
+pub(super) use bulk::{purge_records_bulk, validate_purge_targets_present};
 pub(super) use converge::converge_delete_tips;
 pub(crate) use delete_candidates::{delete_candidates_for_key, plan_normal_delete_barriers};
 use guarded::execute_guarded_purge;
@@ -98,8 +39,8 @@ pub use storage_slot::*;
 // Re-export helpers for sibling modules under `fold_db_core`.
 pub(super) use helpers::{
     atom_ref_cutover_ready, collect_core_live_atom_uuids, collect_event_atom_uuids,
-    collect_live_atom_uuids, collect_retained_chain_atoms_for_storage_slots, collect_target_chain,
-    current_atom_for_key, describe_key, field_key_matches_value, refresh_runtime_field_molecules,
+    collect_live_atom_uuids, collect_target_edges, current_atom_for_key, describe_key,
+    field_key_matches_value, refresh_runtime_field_molecules,
     refresh_runtime_field_molecules_for_purge_keys, remove_key_from_field, storage_form_keys,
     validate_purge_key_shape,
 };
@@ -172,8 +113,7 @@ pub(super) struct BulkPurgeReport {
     /// retired those rows — [`Self::tip_versions_pruned`] is where a purge's
     /// historical reach shows up now.
     pub history_rows_deleted: usize,
-    /// Number of `tv:` tip-version chain nodes deleted — the purged keys'
-    /// superseded values.
+    /// Retained report field; current writes create no archived tip nodes.
     pub tip_versions_pruned: usize,
     /// Number of `atom:` rows deleted (after refcount-safe filtering).
     pub atom_rows_deleted: usize,
@@ -241,7 +181,6 @@ impl PurgeScope<'_> {
 /// How a purge proves reachability and what it evicts afterwards.
 pub(super) struct PurgeMode {
     pub(super) reachability: PurgeReachability,
-    pub(super) precomputed_retained: Option<HashSet<String>>,
     /// Who asked, for the delete ledger row.
     pub(super) caller: &'static str,
 }
@@ -250,8 +189,6 @@ pub(super) struct PurgeMode {
 pub(super) struct GuardedPurge {
     pub(super) candidate_atoms: HashSet<String>,
     pub(super) history_keys: Vec<String>,
-    pub(super) tip_version_keys: Vec<String>,
-    pub(super) atom_ref_edge_keys: Vec<String>,
     pub(super) atom_ref_v2_edge_keys: Vec<String>,
     pub(super) history_referenced_by_retained: HashSet<String>,
     pub(super) records_purged: usize,
@@ -298,15 +235,13 @@ impl PurgeCommitAccounting {
 /// Everything the planner learns about a batch before it destroys anything.
 ///
 /// Used by compliance erasure and its retained-atom plan. Live `Delete` uses
-/// only exact current tips and their archived chains in [`converge_delete_tips`];
+/// only exact current tips in [`converge_delete_tips`];
 /// it must not read this trace's legacy field history or atom candidates.
 pub(super) struct PurgeTrace {
     /// Atoms any target referenced. A set because content-addressing means two
     /// targets can name the same atom.
     candidate_atoms: HashSet<String>,
     history_keys: Vec<String>,
-    tip_version_keys: Vec<String>,
-    atom_ref_edge_keys: Vec<String>,
     atom_ref_v2_edge_keys: Vec<String>,
     history_referenced_by_retained: HashSet<String>,
     /// Indices into `keys` that left any trace. Tracked per key so the

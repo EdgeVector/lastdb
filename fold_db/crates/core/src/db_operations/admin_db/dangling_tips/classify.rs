@@ -4,42 +4,17 @@ impl AtomStore {
     /// For each slot, whether its body already exists at either derived key.
     pub(super) async fn probe_page_bodies_present(
         &self,
-        decoded: &[RekeySlot],
+        decoded: &[DanglingTipSlot],
     ) -> Result<Vec<bool>, SchemaError> {
-        // Decide the healthy majority with ONE probe for the page.
-        //
-        // Almost every tip a full walk sees has its body exactly where the
-        // tip derives it, and `classify_repairable_dangling_tip` settles
-        // that case on its first `exists` alone. Asking that question one
-        // tip at a time made the walk's cheap-tier round trips scale with
-        // the page — the cost `rekey_page_round_trips_do_not_scale_with_page_size`
-        // exists to hold down on the migration walk over the same `mk:`
-        // plane, which this walk did not inherit.
-        //
-        // Measured on the live primary (0.23.3-1663-gd5a4bba77, 16.5 GiB
-        // store, 8.68 GiB of tips): a bounded dry run cost 49.7 s for 100
-        // tips and 62.2 s for 1000 within one page, i.e. ~13.9 ms of
-        // marginal classify per tip against hash-scattered partitions. At
-        // the ~750K-1.9M tips that plane has held, sizing a repair is a
-        // multi-hour job, and `probe_locator_only_population` — a cheap
-        // bounded gauge, 4096 tips over 512 windows — inherits the same
-        // per-tip cost. A full `mk:` dry run exceeded the CLI's own 600 s
-        // admin deadline on that store on 2026-09-07, against 2m35s for the
-        // same walk on 2026-08-18, so the bounded probe is now the only
-        // affordable instrument and its spread has to carry the answer.
-        //
-        // The probe below asks the same question on the same tier for the
-        // same keys, so a slot it calls present takes exactly the branch the
-        // per-slot classifier took. Only the slots it calls absent — bounded
-        // by the damage, not by the store — walk on to the locator reads and
-        // the live re-confirmation, which are deliberately left per-slot.
+        // Batch current flat and located body addresses for the page.
+        // Final candidates receive a live check before removal.
         let mut probe_keys = Vec::with_capacity(decoded.len() * 2);
         for slot in decoded {
             probe_keys.push(slot.prefixed_key.clone());
             probe_keys.push(slot.flat_key.clone());
         }
         let found = self
-            .rekey_exists(&probe_keys, "repair exists body (page)")
+            .repair_exists(&probe_keys, "repair exists body (page)")
             .await?;
         Ok(decoded
             .iter()
@@ -55,7 +30,7 @@ impl AtomStore {
     /// or count it as repairable (and queue it for repair on an execute run).
     pub(super) async fn classify_dangling_tip_slot(
         &self,
-        slot: RekeySlot,
+        slot: DanglingTipSlot,
         report: &mut DanglingTipRepairReport,
         walk: &mut DanglingTipWalk<'_>,
     ) -> Result<(), SchemaError> {
@@ -132,10 +107,10 @@ pub(super) fn decode_dangling_tip_page(
     head: Option<&str>,
     page_start: &mut String,
     storage_prefix: Option<&str>,
-) -> Vec<RekeySlot> {
+) -> Vec<DanglingTipSlot> {
     use crate::atom::{atom_key_codec, atom_locator_codec, AtomKeyEncoding, AtomPartition};
 
-    let mut decoded: Vec<RekeySlot> = Vec::with_capacity(rows.len());
+    let mut decoded: Vec<DanglingTipSlot> = Vec::with_capacity(rows.len());
     for (k, v) in rows {
         let tip_key = String::from_utf8_lossy(&k).into_owned();
         *page_start = tip_key.clone();
@@ -159,7 +134,7 @@ pub(super) fn decode_dangling_tip_page(
             continue;
         };
         let uuid = uuid.to_string();
-        decoded.push(RekeySlot {
+        decoded.push(DanglingTipSlot {
             flat_key: build_storage_key(storage_prefix, &atom_key_codec::flat_key(&uuid)),
             prefixed_key: build_storage_key(
                 storage_prefix,

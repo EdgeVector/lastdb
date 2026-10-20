@@ -310,6 +310,7 @@ impl AtomStore {
         if let Some(current) = current.get(&build_storage_key(storage_prefix, &base_key)) {
             plan.blob_changes.replace(
                 &build_storage_key(storage_prefix, &base_key),
+                storage_prefix,
                 Some(current),
                 None,
             )?;

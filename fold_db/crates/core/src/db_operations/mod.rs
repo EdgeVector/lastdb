@@ -30,30 +30,19 @@ pub mod tip_atoms;
 // Re-exports
 pub(crate) use admin_db::GcAtomsRunScope;
 pub use admin_db::{
-    last_locator_only_probe, AtomGcReport, AtomPartitionRekeyCheckpoint, AtomPartitionRekeyOptions,
-    AtomPartitionRekeyReport, AutomaticGcAtomsDeleteCheckpoint, AutomaticGcAtomsDeleteOptions,
-    AutomaticGcAtomsDeletePhase, AutomaticGcAtomsDeleteReport, AutomaticGcAtomsDeleteResult,
-    AutomaticGcAtomsGraceGate, AutomaticGcAtomsPinLogReferencePage,
+    last_locator_only_probe, AtomGcReport, AutomaticGcAtomsDeleteCheckpoint,
+    AutomaticGcAtomsDeleteOptions, AutomaticGcAtomsDeletePhase, AutomaticGcAtomsDeleteReport,
+    AutomaticGcAtomsDeleteResult, AutomaticGcAtomsGraceGate, AutomaticGcAtomsPinLogReferencePage,
     AutomaticGcAtomsProbeCheckpoint, AutomaticGcAtomsProbeOptions, AutomaticGcAtomsProbePhase,
     AutomaticGcAtomsProbeReport, AutomaticGcAtomsProbeResult, DanglingTipRepairOptions,
     DanglingTipRepairReport, DanglingTipRepairScope, DanglingTipRepairScopeReport, DbInventory,
-    GcAtomsPruneCheckpoint, GcAtomsRevalidationTally, HistoryClearReport, LegacyKeyForkAudit,
-    LegacyKeyForkMoleculeStat, LegacyRefBlobPurgeReport, LocatorOnlyPopulationReport,
+    GcAtomsRevalidationTally, HistoryClearReport, LocatorOnlyPopulationReport,
     LocatorOnlyProbeOptions, MainKeyClass, MoleculeHashBucketReport, MoleculeHashBucketRow,
-    MoleculeKeyRow, MoleculeKeysReport, MoleculeTombstoneFlagStat, OrderLogAudit,
-    OrderLogBloatAudit, OrderLogBloatRow, OrderLogBloatSchemaStat, OrderLogRepairReport,
-    OrderLogShortRow, OrderLogZeroLiveCompactionReport, ProteinGcReport,
-    SchemaCurrentStorageReport, SchemaHistoryClearStat, SchemaHistoryStat,
-    SchemaLogicalStorageReport, SchemaLogicalStorageRow, SchemaOrderLogStat, SchemaRecordKey,
-    SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
-    SupersededVersionRetentionCheckpoint, SupersededVersionRetentionOptions,
-    SupersededVersionRetentionReport, ThinTipMigrateReport, TipFormatStats,
-    TipHistoryDrainCheckpoint, TipHistoryDrainOptions, TipHistoryDrainReport, TombstoneFlagAudit,
-    TombstoneFlagBackfillReport, ATOM_PARTITION_REKEY_CHECKPOINT_KEY,
+    MoleculeKeyRow, MoleculeKeysReport, ProteinGcReport, SchemaCurrentStorageReport,
+    SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
+    SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
     DEFAULT_LOCATOR_ONLY_PROBE_MAX_TIPS, GC_ATOMS_DELETE_CHECKPOINT_KEY,
-    GC_ATOMS_PROBE_CHECKPOINT_KEY, GC_ATOMS_PRUNE_CHECKPOINT_KEY, LOCATOR_ONLY_PROBE_STRATA,
-    LOCATOR_ONLY_PROBE_TARGET_QUOTA, SUPERSEDED_VERSION_RETENTION_CHECKPOINT_KEY,
-    TIP_HISTORY_DRAIN_CHECKPOINT_KEY,
+    GC_ATOMS_PROBE_CHECKPOINT_KEY, LOCATOR_ONLY_PROBE_STRATA, LOCATOR_ONLY_PROBE_TARGET_QUOTA,
 };
 pub use atom_store::{
     allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,
@@ -73,9 +62,8 @@ pub use attribution_ledger::{
 };
 pub use change_feed::{ChangeFeedEvent, ChangeFeedPage, ChangeFeedStore};
 pub use db_catalog_store::{
-    drop_prefixed_rows_for_instance, drop_unreferenced_prefixed_rows, leftover_db_hash_prefix,
-    referenced_instance_ids, DbCatalogEntry, DbCatalogKeySelection, DbCatalogStore,
-    UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, leftover_db_hash_prefix, referenced_instance_ids,
+    DbCatalogEntry, DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
 };
 pub use delete_ledger::{
     key_fingerprint, AtomDeleteLedgerEntry, DeleteLedgerHandle, ATOM_DELETE_LEDGER_PREFIX,
@@ -109,9 +97,7 @@ pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;
 pub use molecule_key_store::{MoleculeKeyBundle, MoleculeKeyStore};
 pub use public_key_store::PublicKeyStore;
-pub use schema_operations::{
-    LivenessBootstrapReport, SchemaRetentionAttributionReport, SchemaRootAttributionReport,
-};
+pub use schema_operations::{SchemaRetentionAttributionReport, SchemaRootAttributionReport};
 pub use schema_store::{SchemaDropReceipt, SchemaStore};
 pub use search_index::{
     run_search_rebuild_for_home, IndexChange, IndexChangeBatch, IndexChangeKind, IndexSink,

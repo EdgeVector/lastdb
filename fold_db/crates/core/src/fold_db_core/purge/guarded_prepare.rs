@@ -4,50 +4,12 @@ use super::guarded_atoms::{account_atom_erasures, push_atom_storage_keys, AtomEr
 use super::guarded_steps::*;
 use super::*;
 
-/// Chain atoms that retained history still reaches (GuardedComplement), or an
-/// empty set under atom-ref-edge reachability.
-pub(super) async fn retained_chain_atoms(
-    db_ops: &Arc<DbOperations>,
-    schema: &crate::schema::types::Schema,
-    candidate_atoms: &HashSet<String>,
-    target_slot_ids: &HashSet<StorageSlotIdentity>,
-    reachability: PurgeReachability,
-    precomputed_retained: Option<HashSet<String>>,
-    acct: &mut PurgeCommitAccounting,
-) -> Result<HashSet<String>, SchemaError> {
-    match reachability {
-        PurgeReachability::GuardedComplement => {
-            if let Some(retained) = precomputed_retained {
-                Ok(retained)
-            } else {
-                let guard_start = std::time::Instant::now();
-                let retained = collect_retained_chain_atoms_for_storage_slots(
-                    db_ops,
-                    schema,
-                    candidate_atoms,
-                    target_slot_ids,
-                )
-                .await;
-                acct.record(
-                    crate::request_phases::RequestPhase::PurgeRetentionGuard,
-                    guard_start.elapsed(),
-                );
-                retained
-            }
-        }
-        PurgeReachability::AtomRefEdges => Ok(HashSet::new()),
-    }
-}
-
 /// Inputs of the molecule-removal stage that the caller already owns.
 pub(super) struct GuardedRemovalInputs<'a> {
     pub(super) candidate_atoms: &'a HashSet<String>,
     pub(super) history_keys: &'a [String],
-    pub(super) tip_version_keys: &'a [String],
-    pub(super) atom_ref_edge_keys: &'a [String],
     pub(super) atom_ref_v2_edge_keys: &'a [String],
     pub(super) history_referenced_by_retained: &'a HashSet<String>,
-    pub(super) target_slot_ids: &'a HashSet<StorageSlotIdentity>,
     pub(super) reachability: PurgeReachability,
 }
 
@@ -55,7 +17,6 @@ pub(super) struct GuardedRemovalInputs<'a> {
 pub(super) struct GuardedRemoval {
     pub(super) atoms_to_delete: Vec<String>,
     pub(super) tip_debits: Vec<(String, u64)>,
-    pub(super) tip_version_backref_keys: Vec<Vec<u8>>,
 }
 
 /// Remove the purged slots from the schema and persist each field's removal
@@ -80,7 +41,6 @@ pub(super) async fn remove_slots_and_persist(
     schema_name: &str,
     storage_slots: &[PlannedStorageSlot],
     inputs: &GuardedRemovalInputs<'_>,
-    chain_referenced_by_retained: &HashSet<String>,
     acct: &mut PurgeCommitAccounting,
 ) -> Result<GuardedRemoval, SchemaError> {
     let removed_by_field =
@@ -92,7 +52,6 @@ pub(super) async fn remove_slots_and_persist(
                 schema,
                 inputs.candidate_atoms,
                 inputs.history_referenced_by_retained,
-                chain_referenced_by_retained,
                 storage_slots,
                 acct,
             )?
@@ -107,11 +66,7 @@ pub(super) async fn remove_slots_and_persist(
         .atoms()
         .keep_small_measure_tip_keys(&removed_tip_keys)
         .await;
-    let tip_version_backref_keys = db_ops
-        .atoms()
-        .tip_version_backref_delete_keys_for_tv_keys(inputs.tip_version_keys)
-        .await?;
-    persist_molecule_removals(db_ops, &owned_for_batch, inputs, &tip_version_backref_keys).await?;
+    persist_molecule_removals(db_ops, &owned_for_batch, inputs).await?;
     acct.record(
         crate::request_phases::RequestPhase::PurgeDelete,
         remove_keys_start.elapsed(),
@@ -119,7 +74,6 @@ pub(super) async fn remove_slots_and_persist(
     Ok(GuardedRemoval {
         atoms_to_delete,
         tip_debits,
-        tip_version_backref_keys,
     })
 }
 
@@ -137,20 +91,16 @@ pub(super) async fn collect_keys_to_delete(
     db_ops: &Arc<DbOperations>,
     storage_prefix: Option<&str>,
     inputs: &GuardedRemovalInputs<'_>,
-    tip_version_backref_keys: Vec<Vec<u8>>,
     atoms_to_delete: &[String],
     acct: &mut PurgeCommitAccounting,
 ) -> Result<Vec<Vec<u8>>, SchemaError> {
     let mut keys_to_delete: Vec<Vec<u8>> =
         if inputs.reachability == PurgeReachability::GuardedComplement {
-            let mut keys: Vec<Vec<u8>> = inputs
+            inputs
                 .history_keys
                 .iter()
-                .chain(inputs.tip_version_keys)
                 .map(|key| key.as_bytes().to_vec())
-                .collect();
-            keys.extend(tip_version_backref_keys);
-            keys
+                .collect()
         } else {
             Vec::new()
         };
@@ -171,7 +121,6 @@ pub(super) async fn prepare_guarded_erasure(
     storage_slots: &[PlannedStorageSlot],
     inputs: &GuardedRemovalInputs<'_>,
     records_purged: usize,
-    precomputed_retained: Option<HashSet<String>>,
     acct: &mut PurgeCommitAccounting,
 ) -> Result<GuardedErasure, SchemaError> {
     let PurgeScope {
@@ -180,31 +129,11 @@ pub(super) async fn prepare_guarded_erasure(
         storage_prefix,
         ..
     } = scope;
-    let chain_referenced_by_retained = retained_chain_atoms(
-        db_ops,
-        schema,
-        inputs.candidate_atoms,
-        inputs.target_slot_ids,
-        inputs.reachability,
-        precomputed_retained,
-        acct,
-    )
-    .await?;
     let live_head_atoms = collect_live_head_atoms(schema, storage_slots);
     let GuardedRemoval {
         mut atoms_to_delete,
         tip_debits,
-        tip_version_backref_keys,
-    } = remove_slots_and_persist(
-        db_ops,
-        schema,
-        schema_name,
-        storage_slots,
-        inputs,
-        &chain_referenced_by_retained,
-        acct,
-    )
-    .await?;
+    } = remove_slots_and_persist(db_ops, schema, schema_name, storage_slots, inputs, acct).await?;
 
     // Both modes authorize body removal through the same current reverse
     // references after the target tip edges are gone. The complement's
@@ -231,19 +160,12 @@ pub(super) async fn prepare_guarded_erasure(
         acct,
     )
     .await?;
-    let keys_to_delete = collect_keys_to_delete(
-        db_ops,
-        storage_prefix,
-        inputs,
-        tip_version_backref_keys,
-        &atoms_to_delete,
-        acct,
-    )
-    .await?;
+    let keys_to_delete =
+        collect_keys_to_delete(db_ops, storage_prefix, inputs, &atoms_to_delete, acct).await?;
     let report = BulkPurgeReport {
         records_purged,
         history_rows_deleted: inputs.history_keys.len(),
-        tip_versions_pruned: inputs.tip_version_keys.len(),
+        tip_versions_pruned: 0,
         atom_rows_deleted: atoms_to_delete.len(),
         embedding_rows_deleted: records_purged,
         target_slots: u64::try_from(storage_slots.len()).unwrap_or(u64::MAX),

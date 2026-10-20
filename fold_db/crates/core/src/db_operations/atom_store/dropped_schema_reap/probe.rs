@@ -4,7 +4,6 @@ use super::super::helpers::schema_index_codec;
 use super::super::PerKeyRecord;
 use super::{AtomStore, DroppedSchemaTipProbe};
 use crate::db_operations::key_fingerprint;
-use crate::kind_partition::form_twin;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
@@ -132,23 +131,14 @@ impl AtomStore {
             None,
             &schema_index_codec::record_key(schema_name, atom_uuid),
         );
-        let mut index_forms = vec![index_key.clone()];
-        if let Some(twin) = form_twin(&index_key) {
-            if twin != index_key {
-                index_forms.push(twin);
-            }
-        }
-        let mut index_present = false;
-        for form in index_forms {
-            index_present |= self
-                .schema_index_store
-                .inner()
-                .exists(form.as_bytes())
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!("point-read dropped schema index: {error}"))
-                })?;
-        }
+        let index_present = self
+            .schema_index_store
+            .inner()
+            .exists(index_key.as_bytes())
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!("point-read dropped schema index: {error}"))
+            })?;
         result.schema_index_present = Some(index_present);
         Ok(())
     }

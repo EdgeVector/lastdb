@@ -107,7 +107,7 @@ impl SyncEngine {
             // LastStore does not provide a cross-group WAL crash transaction.
             kv.batch_put(writes).await?;
             for event_key in &event_keys {
-                crate::atom::legacy_history_memo::invalidate_for_event_key(event_key);
+                crate::atom::history_event_memo::invalidate_for_event_key(event_key);
             }
         }
         Ok(())

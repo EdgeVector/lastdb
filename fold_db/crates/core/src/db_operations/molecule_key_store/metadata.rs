@@ -63,10 +63,7 @@ impl MoleculeKeyStore {
                 "molecule key metadata mismatch for {molecule_uuid}"
             )));
         }
-        let sources = crate::kind_partition::read_forms(&key)
-            .into_iter()
-            .flat_map(|form| core_memory_sources("molecule_keys", form.as_bytes()))
-            .collect();
+        let sources = core_memory_sources("molecule_keys", key.as_bytes());
         let bytes = metadata.as_ref().map_or(256, |value| {
             value.molecule_uuid.capacity().saturating_add(256)
         });

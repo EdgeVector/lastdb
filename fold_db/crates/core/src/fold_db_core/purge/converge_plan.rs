@@ -70,12 +70,10 @@ pub(super) async fn flush_converge_barriers(
     Ok(removable_tip_keys)
 }
 
-/// Archived tv: chain keys and atom-ref edge keys traced for removable tips.
+/// Exact current atom-ref edge keys for removable tips.
 pub(super) struct ConvergeTrace {
     /// Indexes of `keys` that have a current atom on a removable tip.
     pub(super) traced: HashSet<usize>,
-    pub(super) tip_version_keys: Vec<String>,
-    pub(super) atom_ref_edge_keys: Vec<String>,
     pub(super) atom_ref_v2_edge_keys: Vec<String>,
 }
 
@@ -102,8 +100,6 @@ pub(super) struct ConvergePlan {
     pub(super) owned_for_batch: Vec<OwnedMoleculeKeyRemoval>,
     pub(super) removed_tip_keys: Vec<String>,
     pub(super) tip_debits: Vec<(String, u64)>,
-    pub(super) tip_version_keys: Vec<String>,
-    pub(super) atom_ref_edge_keys: Vec<String>,
     pub(super) atom_ref_v2_edge_keys: Vec<String>,
     pub(super) timings: ConvergeTimings,
 }
@@ -133,13 +129,11 @@ pub(super) async fn prepare_converge_plan(
     let refresh_elapsed = step_started.elapsed();
 
     let step_started = std::time::Instant::now();
-    let mut removable_trace = trace_candidate_tips(db_ops, &candidate_tips).await?;
-    let retained_trace = trace_candidate_tips(db_ops, &retained_tips).await?;
+    let mut removable_trace = trace_candidate_tips(db_ops, &candidate_tips)?;
+    let retained_trace = trace_candidate_tips(db_ops, &retained_tips)?;
     protect_retained_history(&mut removable_trace, retained_trace);
     let ConvergeTrace {
         traced,
-        tip_version_keys,
-        atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
     } = removable_trace;
     let trace_elapsed = step_started.elapsed();
@@ -180,8 +174,6 @@ pub(super) async fn prepare_converge_plan(
         owned_for_batch,
         removed_tip_keys,
         tip_debits,
-        tip_version_keys,
-        atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
         timings: ConvergeTimings {
             refresh: refresh_elapsed,

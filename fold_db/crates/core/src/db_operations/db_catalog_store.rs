@@ -162,23 +162,7 @@ pub fn referenced_instance_ids(entries: &[DbCatalogEntry]) -> std::collections::
         .collect()
 }
 
-/// Drop leftover `{64hex}:` copy-geometry rows whose prefix is not a live catalog instance.
-pub async fn drop_unreferenced_prefixed_rows(
-    main: &dyn crate::storage::traits::KvStore,
-    live_instances: &std::collections::HashSet<String>,
-) -> StorageResult<usize> {
-    let rows = main.scan_prefix(b"").await?;
-    let keys = rows
-        .into_iter()
-        .filter_map(|(key, _)| {
-            let prefix = leftover_db_hash_prefix(&key)?;
-            (!live_instances.contains(prefix)).then_some(key)
-        })
-        .collect();
-    drop_scoped_source_rows(main, keys).await
-}
-
-/// Drop every main-store key for one instance prefix (`{instance_id}:…`).
+/// Remove one current database scope and its exact global blob roots.
 pub async fn drop_prefixed_rows_for_instance(
     main: &dyn crate::storage::traits::KvStore,
     instance_id: &str,
@@ -187,30 +171,73 @@ pub async fn drop_prefixed_rows_for_instance(
         return Ok(0);
     }
     let prefix = format!("{instance_id}:");
-    let rows = main.scan_prefix(prefix.as_bytes()).await?;
-    let keys = rows.into_iter().map(|(key, _)| key).collect();
-    drop_scoped_source_rows(main, keys).await
+    let (start, end) = crate::kind_partition::exact_prefix_bounds(&prefix);
+    let rows = current_scope_rows(main, start.as_bytes(), end.as_bytes()).await?;
+    let mut selected = Vec::new();
+    for (key, value) in rows {
+        let Ok(text) = std::str::from_utf8(&key) else {
+            continue;
+        };
+        if crate::storage::current_keys::exact_scope(text)? == Some(instance_id) {
+            selected.push((instance_id.to_string(), key, value));
+        }
+    }
+    drop_scoped_source_rows(main, selected).await
+}
+
+async fn current_scope_rows(
+    main: &dyn crate::storage::traits::KvStore,
+    start: &[u8],
+    end: &[u8],
+) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut rows = Vec::new();
+    let mut cursor: Option<crate::storage::traits::PhysicalScanCursor> = None;
+    loop {
+        let page = main
+            .scan_range_physical_paged(start, end, cursor.as_ref(), 128, 1)
+            .await?;
+        rows.extend(page.rows);
+        let Some(next) = page.next_cursor else { break };
+        if cursor.as_ref() == Some(&next) {
+            return Err(StorageError::BackendError(
+                "current scope walk did not advance".into(),
+            ));
+        }
+        cursor = Some(next);
+    }
+    Ok(rows)
 }
 
 async fn drop_scoped_source_rows(
     main: &dyn crate::storage::traits::KvStore,
-    keys: Vec<Vec<u8>>,
+    rows: Vec<(String, Vec<u8>, Vec<u8>)>,
 ) -> StorageResult<usize> {
-    if keys.is_empty() {
-        return Ok(0);
+    let removed = rows.len();
+    let mut sources = Vec::new();
+    let mut owners = Vec::new();
+    for (scope, key, value) in rows {
+        if let Some(edge) = super::atom_store::BlobRefEdge::scoped_owner_row(&key, &value, &scope)?
+        {
+            owners.push(edge);
+        } else {
+            sources.push(key);
+        }
     }
-    // Blob roots are node-global. Raw scope erasure cannot reconstruct
-    // encrypted atom/tip ownership, so revoke proof before removing sources.
-    // An offline whole-home rebuild retires those roots and restores blob GC.
-    main.batch_delete(vec![
-        b"bref:v2:complete".to_vec(),
-        b"bref:v1:complete".to_vec(),
-    ])
-    .await?;
-    for chunk in keys.chunks(2_048) {
+    // Owner rows stay until their sources are gone. A process stop leaves
+    // enough exact owner rows for a repeated catalog cleanup to finish.
+    for chunk in sources.chunks(2_048) {
         main.batch_delete(chunk.to_vec()).await?;
     }
-    Ok(keys.len())
+    for chunk in owners.chunks(1_024) {
+        main.batch_mutate(
+            chunk
+                .iter()
+                .flat_map(super::atom_store::BlobRefEdge::delete_mutations)
+                .collect(),
+        )
+        .await?;
+    }
+    Ok(removed)
 }
 
 pub fn leftover_db_hash_prefix(key: &[u8]) -> Option<&str> {
@@ -232,6 +259,9 @@ fn validate_entry(entry: &DbCatalogEntry) -> StorageResult<()> {
         return Err(StorageError::InvalidOperation(
             "database catalog instance_id must be absent or non-empty".to_string(),
         ));
+    }
+    if let Some(scope) = entry.instance_id.as_deref() {
+        crate::storage::current_keys::validate_scope(scope)?;
     }
     Ok(())
 }

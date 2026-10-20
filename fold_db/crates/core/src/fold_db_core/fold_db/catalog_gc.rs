@@ -1,7 +1,6 @@
 use crate::db_operations::search_index::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::db_operations::{
-    drop_prefixed_rows_for_instance, drop_unreferenced_prefixed_rows, referenced_instance_ids,
-    UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, referenced_instance_ids, UNPREFIXED_INSTANCE_ID,
 };
 use crate::error::FoldDbResult;
 use crate::schema::types::{KeyValue, Schema};
@@ -18,12 +17,6 @@ pub struct CatalogDeleteReclaimResult {
     pub reclaimed_rows: usize,
     pub reclaimed_wraps: usize,
     pub search_tombstones: usize,
-}
-
-/// Result of leftover copy-geometry reclaim.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub struct CatalogReclaimResult {
-    pub reclaimed_rows: usize,
 }
 
 /// What `reclaim_unreferenced_instance` removed.
@@ -215,17 +208,5 @@ impl FoldDB {
             searchable_fields: None,
             changes,
         })
-    }
-
-    /// Drop `{64hex}:` main rows whose prefix is not a live catalog instance.
-    pub async fn reclaim_unreferenced_prefixed_rows(&self) -> FoldDbResult<CatalogReclaimResult> {
-        let live = referenced_instance_ids(&self.db_ops().db_catalog().list_entries().await?);
-        let main = self
-            .db_ops()
-            .namespaced_store()
-            .open_namespace("main")
-            .await?;
-        let reclaimed_rows = drop_unreferenced_prefixed_rows(main.as_ref(), &live).await?;
-        Ok(CatalogReclaimResult { reclaimed_rows })
     }
 }

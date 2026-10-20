@@ -1,4 +1,4 @@
-//! Dangling-tip repair, locator probe, delete ledger, thin-tip migrate and atom rekey.
+//! Current dangling-tip repair, locator probe and delete ledger.
 
 use super::*;
 
@@ -120,36 +120,63 @@ impl FoldDB {
             .await
             .map_err(|e| FoldDbError::Database(format!("list_atom_delete_ledger: {e}")))
     }
+}
 
-    /// Rewrite fat `mk:` tip values to thin `{atom_uuid, written_at, device_id}` in place.
-    ///
-    /// Bounded and resumable — see
-    /// [`crate::db_operations::AtomStore::migrate_thin_tips`]. Callers follow
-    /// `next_after_key` while `more_remaining` is true.
-    pub async fn migrate_thin_tips(
-        &self,
-        dry_run: bool,
-        max_keys: Option<usize>,
-        after_key: Option<&str>,
-    ) -> Result<ThinTipMigrateReport, FoldDbError> {
-        self.db_ops()
-            .atoms()
-            .migrate_thin_tips(dry_run, max_keys, after_key, None)
-            .await
-            .map_err(|e| admin_op_error("migrate_thin_tips", e))
+impl FoldDB {
+    pub(super) async fn molecule_schema_index(&self) -> std::collections::HashMap<String, String> {
+        let mut index = std::collections::HashMap::new();
+        let Ok(schemas) = self.db_ops().get_all_schemas().await else {
+            return index;
+        };
+        let mut labels: std::collections::HashMap<String, String> =
+            std::collections::HashMap::with_capacity(schemas.len());
+        let names: Vec<String> = schemas
+            .iter()
+            .map(|(stored, schema)| {
+                let label = schema
+                    .descriptive_name
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| stored.clone());
+                labels.insert(stored.clone(), label);
+                stored.clone()
+            })
+            .collect();
+        for (schema_name, molecules) in self.schema_field_molecules(&names) {
+            let label = labels
+                .get(&schema_name)
+                .cloned()
+                .unwrap_or_else(|| schema_name.clone());
+            for molecule in molecules {
+                index.insert(molecule, label.clone());
+            }
+        }
+        index
     }
+}
 
-    /// Resumable dual-readable rekey of atom bodies onto partition-prefixed
-    /// keys. See [`crate::db_operations::AtomStore::rekey_atoms_to_partition_prefix`].
-    /// Live primary flip of `LASTDB_ATOM_KEY_ENCODING` remains Tom-gated.
-    pub async fn rekey_atoms_to_partition_prefix(
+impl FoldDB {
+    pub async fn list_molecule_keys(
         &self,
-        options: AtomPartitionRekeyOptions,
-    ) -> Result<AtomPartitionRekeyReport, FoldDbError> {
+        molecule: &str,
+        max_keys: Option<usize>,
+    ) -> Result<crate::db_operations::MoleculeKeysReport, FoldDbError> {
         self.db_ops()
             .atoms()
-            .rekey_atoms_to_partition_prefix(options)
+            .list_molecule_keys(molecule, max_keys, None)
             .await
-            .map_err(|e| FoldDbError::Database(format!("rekey_atoms_to_partition_prefix: {e}")))
+            .map_err(|e| admin_op_error("list_molecule_keys", e))
+    }
+    pub async fn debug_molecule_hash_bucket(
+        &self,
+        molecule: &str,
+        api_hash: &str,
+        max_keys: usize,
+    ) -> Result<crate::db_operations::MoleculeHashBucketReport, FoldDbError> {
+        self.db_ops()
+            .atoms()
+            .debug_molecule_hash_bucket(molecule, api_hash, max_keys, None)
+            .await
+            .map_err(|e| admin_op_error("debug_molecule_hash_bucket", e))
     }
 }

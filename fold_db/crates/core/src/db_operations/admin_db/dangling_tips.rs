@@ -2,6 +2,10 @@
 
 use super::*;
 
+const DANGLING_TIP_PAGE: usize = 1024;
+// The inclusive cursor consumes one record on every page after the first.
+const DANGLING_TIP_MIN_PAGE: usize = 2;
+
 impl AtomStore {
     pub async fn repair_dangling_tips(
         &self,
@@ -9,8 +13,8 @@ impl AtomStore {
     ) -> Result<DanglingTipRepairReport, SchemaError> {
         let tip_page = options
             .tip_page
-            .unwrap_or(ATOM_PARTITION_REKEY_TIP_PAGE)
-            .max(ATOM_PARTITION_REKEY_MIN_TIP_PAGE);
+            .unwrap_or(DANGLING_TIP_PAGE)
+            .max(DANGLING_TIP_MIN_PAGE);
         let storage_prefix = options.storage_prefix.as_deref();
         let scan_started_at = Utc::now().to_rfc3339();
         let windows = self.dangling_tip_walk_windows(&options, storage_prefix)?;
@@ -218,7 +222,7 @@ impl AtomStore {
     /// slot. Sets `walk.saw_remaining` when the budget cut the page short.
     async fn process_dangling_tip_page(
         &self,
-        mut decoded: Vec<RekeySlot>,
+        mut decoded: Vec<DanglingTipSlot>,
         report: &mut DanglingTipRepairReport,
         walk: &mut DanglingTipWalk<'_>,
     ) -> Result<(), SchemaError> {
@@ -342,3 +346,5 @@ mod classify;
 use classify::decode_dangling_tip_page;
 mod probe;
 mod repair_group;
+
+mod exists;

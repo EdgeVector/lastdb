@@ -36,7 +36,7 @@ impl AtomStore {
         self.batch_put_items_with_atom_ref_v2(items, storage_prefix)
             .await?;
         for key in keys {
-            crate::atom::legacy_history_memo::invalidate_for_event_key(&key);
+            crate::atom::history_event_memo::invalidate_for_event_key(&key);
         }
         Ok(())
     }

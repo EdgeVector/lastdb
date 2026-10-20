@@ -215,7 +215,7 @@ impl AtomStore {
         Ok(out)
     }
 
-    /// Read exact current keys first; only a missed flat key needs its alias.
+    /// Read the exact current keys that the caller selected.
     async fn load_cold_atom_bytes(
         &self,
         keys: &[String],
@@ -233,21 +233,8 @@ impl AtomStore {
             .collect();
         let values = self.main_store.inner().get_many(lookup).await?;
         let mut raw = vec![None; keys.len()];
-        let mut missing = Vec::new();
         for (index, value) in cold.into_iter().zip(values) {
-            if value.is_none() {
-                if let Some(alias) = crate::kind_partition::form_twin(&keys[index]) {
-                    missing.push((index, alias.into_bytes()));
-                }
-            }
             raw[index] = value;
-        }
-        if !missing.is_empty() {
-            let lookup = missing.iter().map(|(_, alias)| alias.clone()).collect();
-            let values = self.main_store.inner().get_many(lookup).await?;
-            for ((index, _), value) in missing.into_iter().zip(values) {
-                raw[index] = value;
-            }
         }
         Ok(raw)
     }

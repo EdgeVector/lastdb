@@ -97,12 +97,11 @@ impl AtomStore {
 
         let atoms: StorageBreakdown = self.storage_breakdown(schema_names, storage_prefix).await?;
 
-        let (per_schema_history, per_schema_order_log) = self
+        let per_schema_history = self
             .inventory_schema_history(schema_field_molecules, storage_prefix)
             .await?;
 
-        let tip_format = self.scan_tip_format(None, None, storage_prefix).await?;
-        let notes = inventory_notes(&main_classes, &tip_format);
+        let notes = inventory_notes(&main_classes);
 
         Ok(DbInventory {
             main_classes,
@@ -111,28 +110,20 @@ impl AtomStore {
             per_schema_atoms: atoms.per_schema,
             per_schema_atoms_total_bytes: atoms.total_logical_bytes,
             per_schema_history,
-            per_schema_order_log,
-            tip_format,
             attribution: crate::db_operations::AttributionSummary::default(),
             notes,
         })
     }
-    /// Per-schema history and order-log sizes, summed over each schema's field
-    /// molecules, largest first.
+    /// Per-schema history sizes, summed over each schema's field molecules.
     async fn inventory_schema_history(
         &self,
         schema_field_molecules: &[(String, Vec<String>)],
         storage_prefix: Option<&str>,
-    ) -> Result<(Vec<SchemaHistoryStat>, Vec<SchemaOrderLogStat>), SchemaError> {
+    ) -> Result<Vec<SchemaHistoryStat>, SchemaError> {
         let mut per_schema_history = Vec::new();
-        let mut per_schema_order_log = Vec::new();
         for (schema_name, mols) in schema_field_molecules {
             let mut events = 0u64;
             let mut bytes = 0u64;
-            let mut order_log_entries = 0u64;
-            let mut order_log_bytes = 0u64;
-            let mut order_count_keys = 0u64;
-            let mut order_count_bytes = 0u64;
             for mol in mols {
                 let base = crate::atom::molecule_key_codec::history_molecule_prefix(mol);
                 let prefix = build_storage_key(storage_prefix, &base);
@@ -141,32 +132,6 @@ impl AtomStore {
                     .await?;
                 events += mol_events;
                 bytes += mol_bytes;
-
-                let order_base = format!("mord:{mol}:");
-                let order_prefix = build_storage_key(storage_prefix, &order_base);
-                let (mol_order_entries, mol_order_bytes) = self
-                    .inventory_accumulate_prefix(&order_prefix, &format!("order-log {schema_name}"))
-                    .await?;
-                order_log_entries += mol_order_entries;
-                order_log_bytes += mol_order_bytes;
-
-                // `moc:{mol}` is a single key, and the prefix scan this replaces
-                // discarded every row but the exact match — so a point read is
-                // the same answer without walking the molecule's neighbours.
-                let count_base = format!("moc:{mol}");
-                let count_key = build_storage_key(storage_prefix, &count_base);
-                if let Some(v) =
-                    self.raw()
-                        .inner()
-                        .get(count_key.as_bytes())
-                        .await
-                        .map_err(|e| {
-                            SchemaError::InvalidData(format!("order-count read {schema_name}: {e}"))
-                        })?
-                {
-                    order_count_keys += 1;
-                    order_count_bytes += count_key.len() as u64 + v.len() as u64;
-                }
             }
             if events > 0 {
                 per_schema_history.push(SchemaHistoryStat {
@@ -175,43 +140,18 @@ impl AtomStore {
                     history_bytes_approx: bytes,
                 });
             }
-            if order_log_entries > 0 || order_count_keys > 0 {
-                per_schema_order_log.push(SchemaOrderLogStat {
-                    schema_name: schema_name.clone(),
-                    order_log_entries,
-                    order_log_bytes_approx: order_log_bytes,
-                    order_count_keys,
-                    order_count_bytes_approx: order_count_bytes,
-                });
-            }
         }
         per_schema_history.sort_by_key(|b| std::cmp::Reverse(b.history_bytes_approx));
-        per_schema_order_log.sort_by_key(|b| std::cmp::Reverse(b.order_log_bytes_approx));
-        Ok((per_schema_history, per_schema_order_log))
+        Ok(per_schema_history)
     }
 }
 
 /// Human-readable caveats and residue warnings for a finished inventory.
-fn inventory_notes(main_classes: &[MainKeyClass], tip_format: &TipFormatStats) -> Vec<String> {
+fn inventory_notes(main_classes: &[MainKeyClass]) -> Vec<String> {
     let mut notes = vec![
-            "main = single sled namespace holding atoms, molecule indexes, and history (not a schema itself).".into(),
-            "Sizes are live key+value lengths (decrypted path when store is encrypting); sled freelist not included.".into(),
-            "clear-history: keep_last=N trims; keep_last=0 purges all history: rows. New writes no longer append history: (prev is tip prev_atom_uuid). Tips/atoms kept; orphan atoms need gc-atoms.".into(),
-            "schemaidx markers now live in the local-only schema_index namespace; main-tree schemaidx rows are legacy leftovers.".into(),
-            "live dual-read for schemaidx: is indexes → tips only; legacy_schema_secondary_index is not consulted (explicit CoW drain still available).".into(),
-        ];
-    if main_classes
-        .iter()
-        .any(|c| c.class == "legacy_schema_secondary_index")
-    {
-        notes.push(
-            "legacy_schema_secondary_index residue may still exist on disk: purge via \
-                 `lastdb-local-maintain drain-index-residue --source legacy-schema-secondary-index \
-                 --execute --drop-empty-source` on CoW first; active listings use schema_index."
-                .into(),
-        );
-    }
-
+        "Sizes count live keys and values; physical file sizes can differ.".into(),
+        "History contains current mutation events and conflict records.".into(),
+    ];
     // A protein is reachable only through some molecule's `molprot:` back-ref,
     // and at most one back-ref points at each protein a client created for a
     // single molecule. So `protein:` rows far exceeding `molprot:` rows means
@@ -231,13 +171,5 @@ fn inventory_notes(main_classes: &[MainKeyClass], tip_format: &TipFormatStats) -
             ));
     }
 
-    if tip_format.tips_fat > 0 {
-        notes.push(format!(
-                "LEGACY fat tips still present: {} of {} mk: values — run `lastdb db migrate-thin-tips --execute`.",
-                tip_format.tips_fat, tip_format.tips_scanned
-            ));
-    } else if tip_format.tips_scanned > 0 {
-        notes.push("All scanned mk: tips are thin (no per-tip signature/pubkey).".into());
-    }
     notes
 }

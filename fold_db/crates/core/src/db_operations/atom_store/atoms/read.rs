@@ -13,8 +13,7 @@ impl AtomStore {
     /// partition-prefixed body too. It does that in a bounded two point reads:
     /// the flat key, then the [`atom_locator_codec`] row and the prefixed key
     /// that row names. A missing locator is not an error — it is the ordinary
-    /// answer for an atom that does not exist, and for one written before the
-    /// locator existed.
+    /// answer for an atom that does not exist, and for a body with no owning slot.
     ///
     /// A caller that knows the owning slot should pass it to
     /// [`Self::get_atom_by_uuid_in_partition`] instead and skip the locator hop;
@@ -43,8 +42,7 @@ impl AtomStore {
     ///
     /// 1. the hinted prefixed key — one read, the common case for a caller that
     ///    knows its slot;
-    /// 2. the flat key `atom:{uuid}` — every body on every shipped home, and
-    ///    every body whose partition was unknown at write time;
+    /// 2. the flat key `atom\0{uuid}` for a body whose owning slot is unknown;
     /// 3. the [`atom_locator_codec`] row, then the prefixed key it names — the
     ///    backstop that makes the uuid-only surface complete.
     ///
@@ -108,9 +106,7 @@ impl AtomStore {
     /// round trip per step, not per atom, and only for the atoms still missing:
     ///
     /// 1. the key `encoding` + hint name — the whole batch, one read;
-    /// 2. the flat key, for the atoms that had a hint and missed — a body
-    ///    written before the migration reached it, so a home mid-migration
-    ///    reads correctly under either addressing;
+    /// 2. the flat key for an atom whose owning slot was unknown at write time;
     /// 3. the [`atom_locator_codec`] rows for whatever is *still* missing,
     ///    then the prefixed keys they name — the backstop that catches a
     ///    caller whose hint was wrong or absent.
@@ -145,18 +141,18 @@ impl AtomStore {
 
         // Step 2 — only the slots that named a partition got a non-flat key in
         // step 1, so only those have a flat key left to try.
-        let unmigrated: Vec<usize> = out
+        let unresolved_flat: Vec<usize> = out
             .iter()
             .enumerate()
             .filter(|(i, atom)| atom.is_none() && slots[*i].1.is_some())
             .map(|(i, _)| i)
             .collect();
-        if !unmigrated.is_empty() {
-            let flat_keys: Vec<String> = unmigrated
+        if !unresolved_flat.is_empty() {
+            let flat_keys: Vec<String> = unresolved_flat
                 .iter()
                 .map(|&i| build_storage_key(storage_prefix, &atom_key_codec::flat_key(slots[i].0)))
                 .collect();
-            for ((&i, atom), key) in unmigrated
+            for ((&i, atom), key) in unresolved_flat
                 .iter()
                 .zip(self.get_atoms_by_storage_keys(&flat_keys).await?)
                 .zip(flat_keys)

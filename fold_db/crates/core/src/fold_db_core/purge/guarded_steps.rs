@@ -56,14 +56,13 @@ pub(super) fn remove_slots_from_schema(
     Ok(removed_by_field)
 }
 
-/// Candidate atoms no live head, retained history, or retained chain still
+/// Candidate atoms no live head or retained mutation history still
 /// references (GuardedComplement reachability only).
 pub(super) fn unreferenced_candidate_atoms(
     db_ops: &Arc<DbOperations>,
     schema: &crate::schema::types::Schema,
     candidate_atoms: &HashSet<String>,
     history_referenced_by_retained: &HashSet<String>,
-    chain_referenced_by_retained: &HashSet<String>,
     storage_slots: &[PlannedStorageSlot],
     acct: &mut PurgeCommitAccounting,
 ) -> Result<Vec<String>, SchemaError> {
@@ -77,9 +76,7 @@ pub(super) fn unreferenced_candidate_atoms(
     Ok(candidate_atoms
         .iter()
         .filter(|uuid| {
-            !still_referenced.contains(*uuid)
-                && !history_referenced_by_retained.contains(*uuid)
-                && !chain_referenced_by_retained.contains(*uuid)
+            !still_referenced.contains(*uuid) && !history_referenced_by_retained.contains(*uuid)
         })
         .cloned()
         .collect())
@@ -133,13 +130,10 @@ pub(super) async fn persist_molecule_removals(
     db_ops: &Arc<DbOperations>,
     owned_for_batch: &[OwnedMoleculeKeyRemoval],
     inputs: &GuardedRemovalInputs<'_>,
-    tip_version_backref_keys: &[Vec<u8>],
 ) -> Result<(), SchemaError> {
     let GuardedRemovalInputs {
-        atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
         history_keys,
-        tip_version_keys,
         reachability,
         ..
     } = *inputs;
@@ -153,19 +147,14 @@ pub(super) async fn persist_molecule_removals(
         })
         .collect();
     if reachability == PurgeReachability::AtomRefEdges || !atom_ref_v2_edge_keys.is_empty() {
-        let mut derived_keys: Vec<Vec<u8>> = if reachability == PurgeReachability::AtomRefEdges {
-            atom_ref_edge_keys
+        let derived_keys: Vec<Vec<u8>> = if reachability == PurgeReachability::AtomRefEdges {
+            history_keys
                 .iter()
-                .chain(history_keys)
-                .chain(tip_version_keys)
                 .map(|key| key.as_bytes().to_vec())
                 .collect()
         } else {
             Vec::new()
         };
-        if reachability == PurgeReachability::AtomRefEdges {
-            derived_keys.extend(tip_version_backref_keys.iter().cloned());
-        }
         let compact_edge_keys = atom_ref_v2_edge_keys
             .iter()
             .map(|key| key.as_bytes().to_vec())

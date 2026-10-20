@@ -16,22 +16,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// Extend the list in a later card if another sealed plane needs the same
 /// pass. Unknown names return a skipped report, they do not scan.
-pub const RESEAL_AT_REST_ALLOWLIST: &[&str] = &[
-    "atoms",
-    "tips",
-    "indexes",
-    "metadata",
-    "change_feed",
-    "atom_locators",
-    "field_update_order_log",
-];
+pub const RESEAL_AT_REST_ALLOWLIST: &[&str] =
+    &["atoms", "tips", "metadata", "change_feed", "atom_locators"];
 
 /// Metadata key prefix for the durable per-plane resume checkpoint.
 pub const RESEAL_CHECKPOINT_KEY_PREFIX: &str = "amigr:reseal_at_rest_v2:";
-
-/// Retired checkpoint prefix. V1 did not record target semantics and is never
-/// safe to resume, but metadata walks must still exclude its rows.
-pub const RESEAL_LEGACY_CHECKPOINT_KEY_PREFIX: &str = "amigr:reseal_at_rest_v1:";
 
 /// Durable checkpoint schema version.
 pub const RESEAL_CHECKPOINT_VERSION: u8 = 2;
@@ -214,15 +203,8 @@ pub fn checkpoint_key(collection: &str) -> String {
     format!("{RESEAL_CHECKPOINT_KEY_PREFIX}{collection}")
 }
 
-/// Retired V1 metadata key for one plane.
-#[must_use]
-pub fn legacy_checkpoint_key(collection: &str) -> String {
-    format!("{RESEAL_LEGACY_CHECKPOINT_KEY_PREFIX}{collection}")
-}
-
 /// True when a metadata key is a reseal checkpoint (skip during metadata walk).
 #[must_use]
 pub fn is_checkpoint_key(key: &[u8]) -> bool {
     key.starts_with(RESEAL_CHECKPOINT_KEY_PREFIX.as_bytes())
-        || key.starts_with(RESEAL_LEGACY_CHECKPOINT_KEY_PREFIX.as_bytes())
 }

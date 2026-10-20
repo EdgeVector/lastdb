@@ -33,9 +33,7 @@ impl SchemaStore {
 
 pub(crate) fn snapshot_sources(name: &str) -> Vec<CoreMemorySource> {
     let mut sources = core_memory_sources("schemas", name.as_bytes());
-    for form in crate::kind_partition::read_forms(name) {
-        sources.extend(core_memory_sources("schema_states", form.as_bytes()));
-    }
+    sources.extend(core_memory_sources("schema_states", name.as_bytes()));
     sources.extend(core_memory_sources("schema_superseded_by", name.as_bytes()));
     sources
 }

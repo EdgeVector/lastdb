@@ -34,44 +34,32 @@ impl PackKvStore {
         let namespace = self.namespace.clone();
         let observed = Arc::clone(&context);
         let result = LastStoreKvStore::run_blocking(move || {
-            let forms = if namespace == "main" {
-                // Current constructors use both atom\0UUID and atom:mk:…\0UUID,
-                // and aref\0manifest beside aref:v1:e:…\0edge. A kind prefix
-                // must cover both layouts even in a fresh home. Rewriting each
-                // result preserves the prefix requested by typed consumers.
-                crate::kind_partition::read_forms(&prefix)
-            } else {
-                vec![prefix.clone()]
-            };
             let mut combined = Vec::new();
-            for form in forms {
-                let collections = if namespace == "main" {
-                    native_routing::prefix_collections(form.as_bytes())
-                        .into_iter()
-                        .map(str::to_string)
-                        .collect()
-                } else {
-                    vec![namespace.clone()]
-                };
-                for collection in collections {
-                    let end = text_upper(&form).map_or_else(|| vec![255], String::into_bytes);
-                    let (rows, exhausted) = runtime.raw_rows(
-                        &context,
-                        &collection,
-                        form.as_bytes(),
-                        &end,
-                        limit,
-                        pending.as_ref(),
-                    )?;
-                    if require_end && !exhausted {
-                        return Err(StorageError::ReadResourceLimit {
-                            detail: "native prefix result requires a bounded continuation".into(),
-                        });
-                    }
-                    for (key, body) in rows {
-                        let key = crate::kind_partition::rewrite_key_like(&key, &prefix);
-                        combined.push((native_routing::decode(&key)?, body));
-                    }
+            let collections = if namespace == "main" {
+                native_routing::prefix_collections(prefix.as_bytes())
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect()
+            } else {
+                vec![namespace.clone()]
+            };
+            for collection in collections {
+                let end = text_upper(&prefix).map_or_else(|| vec![255], String::into_bytes);
+                let (rows, exhausted) = runtime.raw_rows(
+                    &context,
+                    &collection,
+                    prefix.as_bytes(),
+                    &end,
+                    limit,
+                    pending.as_ref(),
+                )?;
+                if require_end && !exhausted {
+                    return Err(StorageError::ReadResourceLimit {
+                        detail: "native prefix result requires a bounded continuation".into(),
+                    });
+                }
+                for (key, body) in rows {
+                    combined.push((native_routing::decode(&key)?, body));
                 }
             }
             finish_rows(combined, limit, require_end)

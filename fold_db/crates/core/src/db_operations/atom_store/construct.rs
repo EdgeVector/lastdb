@@ -28,7 +28,11 @@ impl AtomStore {
                     ))
                 })?,
         ));
-        Ok(Self::new(main_store, schema_index_store).with_namespaced_store(store))
+        Self::new(main_store, schema_index_store)
+            .with_namespaced_store(store)
+            .resolve_boot_encoding()
+            .await
+            .map_err(|error| crate::schema::SchemaError::InvalidData(error.to_string()))
     }
 
     pub(crate) fn new(
@@ -118,7 +122,7 @@ impl AtomStore {
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))
                     .collect(),
             ),
-            store_id: crate::atom::legacy_history_memo::StoreId::next(),
+            store_id: crate::atom::history_event_memo::StoreId::next(),
         }
     }
 

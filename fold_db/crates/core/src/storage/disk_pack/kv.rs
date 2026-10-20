@@ -12,6 +12,9 @@ impl PackKvStore {
                 detail: "native request exceeds 10000 keys".into(),
             });
         }
+        for key in &keys {
+            super::super::current_keys::validate(&self.namespace, key)?;
+        }
         let runtime = Arc::clone(&self.runtime);
         let context = read::ReadContext::current(&runtime).await?;
         let pending = transaction::PendingBatch::current(&runtime);
@@ -70,6 +73,9 @@ fn prepare(
         return Err(StorageError::InvalidOperation(format!(
             "native mutation exceeds {operation_limit} operation admission limit"
         )));
+    }
+    for mutation in &mutations {
+        super::super::current_keys::validate(namespace, mutation.key())?;
     }
     let targets: Vec<_> = mutations
         .iter()
