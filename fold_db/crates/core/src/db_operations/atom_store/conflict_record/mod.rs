@@ -23,6 +23,8 @@
 mod rows;
 mod write;
 
+pub(crate) use rows::is_counted_record_key;
+
 use super::types::ChangedKey;
 use super::AtomStore;
 use crate::atom::{AtomEntry, FieldKey, PendingTipConflict, TipConflictKind};

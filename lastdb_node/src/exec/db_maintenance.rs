@@ -12,6 +12,7 @@ mod schema_maps;
 mod seal;
 mod tips;
 mod tombstone;
+mod verify_refs;
 
 pub(super) use gc::*;
 use molecule_map_candidates::*;
@@ -23,3 +24,4 @@ pub(super) use schema_maps::*;
 pub(super) use seal::*;
 pub(super) use tips::*;
 pub(super) use tombstone::*;
+pub(super) use verify_refs::*;

@@ -210,6 +210,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         // Owner admin work that walks the store, or blocks on a remote service.
         // Full-prefix scans over a multi-GiB home; minutes, not seconds.
         DataRoute::DbInventory
+        | DataRoute::DbVerifyRefs
         | DataRoute::DbSchemas
         | DataRoute::DbClearHistory
         | DataRoute::DbCompact
@@ -265,6 +266,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::Query
         | DataRoute::DbFlush
         | DataRoute::DbNativeStatus
+        | DataRoute::DbVerifyRefsLast
         | DataRoute::Mutation
         | DataRoute::AggregateFinalize
         | DataRoute::MutationBatch

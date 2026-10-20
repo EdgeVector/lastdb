@@ -56,7 +56,7 @@ pub(crate) struct WalkTotals {
 }
 
 impl WalkTotals {
-    fn add(&self, stats: WalkStats) {
+    pub(crate) fn add(&self, stats: WalkStats) {
         self.calls.fetch_add(stats.calls, Ordering::Relaxed);
         self.shrinks.fetch_add(stats.shrinks, Ordering::Relaxed);
         self.splits.fetch_add(stats.splits, Ordering::Relaxed);

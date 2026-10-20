@@ -33,6 +33,9 @@ pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;
+#[path = "db_verify_refs_cmds.rs"]
+mod db_verify_refs_cmds;
+pub(crate) use db_verify_refs_cmds::*;
 #[path = "db_report_util_cmds.rs"]
 mod db_report_util_cmds;
 pub(crate) use db_report_util_cmds::*;

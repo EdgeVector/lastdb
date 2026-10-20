@@ -46,7 +46,7 @@ pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_R
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{successor, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
-pub use counter::{AtomCounterReport, AtomCounterView};
+pub use counter::{AtomCounterReport, AtomCounterView, VerifyReport, VerifyRequest, VerifySummary};
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
 pub use molecule_ref_edges::{
@@ -202,6 +202,9 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// The verifier: the run in progress, the last result and the watch of
+    /// atoms that writers touch while a run reads. Memory only.
+    counter_verify: Arc<counter::VerifyState>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
@@ -231,6 +234,11 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The verifier state: the run in progress, the last result, the watch.
+    pub(crate) fn counter_verify(&self) -> &counter::VerifyState {
+        &self.counter_verify
     }
 
     /// Totals of the bounded range reads of the admin walks.

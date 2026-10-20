@@ -115,3 +115,17 @@ fn suppressed_by(entry: &AtomEntry) -> SuppressedByTip {
         origin_device: entry.origin_device.clone(),
     }
 }
+
+/// True when `key` is a history row that a recorder wrote as a counted record:
+/// `history\0{molecule}:{ts}:conflict:{digest}` from the tip-conflict recorder
+/// or `history\0{molecule}:{ts}:suppressed:{digest}` from a Put that lost to a
+/// Delete. Each such row holds one reference to every atom it names. A history
+/// row of another shape holds none.
+pub(crate) fn is_counted_record_key(key: &str) -> bool {
+    let Some(rest) = crate::kind_partition::rest_of(key, "history") else {
+        return false;
+    };
+    let mut parts = rest.rsplitn(3, ':');
+    let (_digest, tag) = (parts.next(), parts.next());
+    matches!(tag, Some("conflict" | "suppressed")) && parts.next().is_some()
+}

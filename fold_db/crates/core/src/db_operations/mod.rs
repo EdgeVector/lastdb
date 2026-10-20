@@ -39,7 +39,10 @@ pub use admin_db::{
     SchemaStorageReport, ThinTipMigrateReport, TipFormatStats, TombstoneFlagAudit,
     TombstoneFlagBackfillReport,
 };
-pub use atom_store::{AtomCounterReport, AtomCounterView, AtomStore, MoleculeData};
+pub use atom_store::{
+    AtomCounterReport, AtomCounterView, AtomStore, MoleculeData, VerifyReport, VerifyRequest,
+    VerifySummary, WalkStats,
+};
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,

@@ -1,0 +1,365 @@
+//! Memory of the verifier. Nothing here is a counter and nothing is stored on
+//! disk: a run, the last result, and the set of atoms that writers touched.
+
+use super::report::{
+    Mismatches, Phase, Sample, VerifyLast, VerifyProgress, VerifyReport, VerifyRequest,
+    VerifySummary,
+};
+use crate::db_operations::atom_store::{RangeWalk, WalkStats};
+use crate::schema::SchemaError;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// A run that no step touched for this long is dropped.
+const RUN_IDLE_LIMIT: Duration = Duration::from_secs(600);
+/// The most atoms the touched set holds. Beyond it every difference is a candidate.
+const MAX_TOUCHED: usize = 1_000_000;
+/// The most atoms the below-set holds (atoms a page reported as below).
+const MAX_REPORTED_BELOW: usize = 100_000;
+/// The most samples of one kind in a report.
+const SAMPLES_PER_KIND: usize = 8;
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A short key for an atom id: the first 128 bits of its SHA-256.
+pub(super) fn digest(atom: &str) -> u128 {
+    let hash = Sha256::digest(atom.as_bytes());
+    let mut head = [0u8; 16];
+    head.copy_from_slice(&hash[..16]);
+    u128::from_be_bytes(head)
+}
+
+/// Holders per atom over the tips and records pages.
+pub(super) struct Tally {
+    counts: HashMap<u128, u32>,
+    max_atoms: usize,
+    /// False once an atom did not fit. Then no total is exact.
+    pub complete: bool,
+}
+
+impl Tally {
+    fn new(max_atoms: usize) -> Self {
+        Self {
+            counts: HashMap::new(),
+            max_atoms,
+            complete: true,
+        }
+    }
+
+    pub(super) fn add(&mut self, atom: u128, holders: u32) {
+        if let Some(count) = self.counts.get_mut(&atom) {
+            *count = count.saturating_add(holders);
+        } else if self.counts.len() < self.max_atoms {
+            self.counts.insert(atom, holders);
+        } else {
+            self.complete = false;
+        }
+    }
+
+    pub(super) fn holders(&self, atom: u128) -> u64 {
+        self.counts.get(&atom).map_or(0, |count| u64::from(*count))
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.counts.len()
+    }
+}
+
+/// The atoms that a planner batch changed while a run reads.
+///
+/// A tip or a record that names an atom can come or go between two pages of a
+/// run. The planner tells the watch which atoms it touched, and the verifier
+/// takes a difference for such an atom as a candidate, not a fault. The watch
+/// is off when no run reads, so a write pays one atomic load.
+#[derive(Default)]
+pub(crate) struct Watch {
+    active: AtomicBool,
+    touched: Mutex<(HashSet<u128>, bool)>,
+}
+
+impl Watch {
+    pub(crate) fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    /// Called by the planner inside the write gate, with every atom of a tip
+    /// or record change. Call it only when [`Self::is_active`] is true.
+    pub(crate) fn note<'a>(&self, atoms: impl IntoIterator<Item = &'a str>) {
+        let mut touched = lock(&self.touched);
+        for atom in atoms {
+            if touched.0.len() >= MAX_TOUCHED {
+                touched.1 = true;
+                return;
+            }
+            touched.0.insert(digest(atom));
+        }
+    }
+
+    fn start(&self) {
+        *lock(&self.touched) = (HashSet::new(), false);
+        self.active.store(true, Ordering::Release);
+    }
+
+    fn stop(&self) {
+        self.active.store(false, Ordering::Release);
+        *lock(&self.touched) = (HashSet::new(), false);
+    }
+
+    /// True when a writer touched the atom, or when the set overflowed.
+    pub(super) fn touched(&self, atom: u128) -> bool {
+        let touched = lock(&self.touched);
+        touched.1 || touched.0.contains(&atom)
+    }
+
+    pub(super) fn count(&self) -> u64 {
+        lock(&self.touched).0.len() as u64
+    }
+}
+
+/// One run of the verifier.
+pub(super) struct Run {
+    pub phase: Phase,
+    pub walk: RangeWalk,
+    pub tally: Tally,
+    pub reported_below: HashSet<u128>,
+    pub report: VerifyReport,
+    pub page_rows: usize,
+    started: Instant,
+    touched_at: Instant,
+}
+
+impl Run {
+    pub(super) fn new(
+        request: &VerifyRequest,
+        walk: RangeWalk,
+        page_rows: usize,
+        max_atoms: usize,
+    ) -> Self {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        Self {
+            phase: Phase::Tips,
+            walk,
+            tally: Tally::new(max_atoms),
+            reported_below: HashSet::new(),
+            report: VerifyReport {
+                run_id: id,
+                scope: request.scope.clone(),
+                phase: Phase::Tips,
+                done: false,
+                next_cursor: None,
+                started_at: chrono::Utc::now(),
+                finished_at: None,
+                elapsed_ms: 0,
+                steps: 0,
+                pages: 0,
+                tips_read: 0,
+                records_read: 0,
+                counters_read: 0,
+                bodies_read: 0,
+                page_retries: 0,
+                range_reads: WalkStats::default(),
+                tally_atoms: 0,
+                tally_complete: true,
+                touched_atoms: 0,
+                mismatches: Mismatches::default(),
+                mismatches_total: 0,
+                suspect_atoms: 0,
+                samples: Vec::new(),
+                notes: Vec::new(),
+            },
+            page_rows,
+            started: Instant::now(),
+            touched_at: Instant::now(),
+        }
+    }
+
+    /// The cursor of the next step. It names the run and the number of steps
+    /// done, so a repeated or stale step is refused.
+    pub(super) fn cursor(&self) -> String {
+        format!("{}.{}", self.report.run_id, self.report.steps)
+    }
+
+    /// Record one fault: the count, and a sample while the kind has room.
+    pub(super) fn note_fault(&mut self, kind: super::report::Kind, atom: &str, detail: String) {
+        self.report.mismatches.add(kind);
+        let name = kind.name();
+        let held = self
+            .report
+            .samples
+            .iter()
+            .filter(|s| s.kind == name)
+            .count();
+        if held < SAMPLES_PER_KIND {
+            self.report.samples.push(Sample {
+                kind: name.to_string(),
+                atom: atom.to_string(),
+                detail,
+            });
+        }
+    }
+
+    /// Remember that a page reported this atom as below its holders.
+    /// Returns false when an earlier page did, so one atom counts once.
+    pub(super) fn first_below(&mut self, atom: u128) -> bool {
+        if self.reported_below.len() >= MAX_REPORTED_BELOW {
+            return !self.reported_below.contains(&atom);
+        }
+        self.reported_below.insert(atom)
+    }
+
+    /// Copy the running totals into the report before it leaves the node.
+    pub(super) fn refresh_report(&mut self, touched_atoms: u64) {
+        let report = &mut self.report;
+        report.phase = self.phase;
+        report.tally_atoms = self.tally.len() as u64;
+        report.tally_complete = self.tally.complete;
+        report.touched_atoms = touched_atoms;
+        report.mismatches_total = report.mismatches.total();
+        report.suspect_atoms = report.mismatches.suspect_counter;
+        report.elapsed_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.touched_at = Instant::now();
+    }
+}
+
+#[derive(Default)]
+struct Inner {
+    run: Option<Run>,
+    /// A step holds the run. A second step is refused.
+    busy: bool,
+    last: Option<VerifyLast>,
+}
+
+/// The verifier state of one atom store.
+#[derive(Default)]
+pub(crate) struct VerifyState {
+    inner: Mutex<Inner>,
+    watch: Watch,
+}
+
+impl VerifyState {
+    pub(crate) fn watch(&self) -> &Watch {
+        &self.watch
+    }
+
+    /// What `lastdb status` shows.
+    pub(crate) fn summary(&self) -> VerifySummary {
+        let mut inner = lock(&self.inner);
+        self.expire(&mut inner);
+        VerifySummary {
+            last: inner.last.clone(),
+            running: inner.run.as_ref().map(|run| VerifyProgress {
+                run_id: run.report.run_id.clone(),
+                phase: run.phase,
+                pages: run.report.pages,
+                started_at: run.report.started_at,
+            }),
+        }
+    }
+
+    fn expire(&self, inner: &mut Inner) {
+        let idle = inner
+            .run
+            .as_ref()
+            .is_some_and(|run| !inner.busy && run.touched_at.elapsed() > RUN_IDLE_LIMIT);
+        if idle {
+            inner.run = None;
+            self.watch.stop();
+        }
+    }
+
+    /// Take the run for one step. Without a cursor, start a new run with `new`.
+    pub(super) fn checkout(
+        &self,
+        request: &VerifyRequest,
+        new: impl FnOnce() -> Run,
+    ) -> Result<StepGuard<'_>, SchemaError> {
+        let mut inner = lock(&self.inner);
+        self.expire(&mut inner);
+        if inner.busy {
+            return Err(SchemaError::InvalidData(
+                "a verify step is already running; wait for it, then continue with the cursor"
+                    .into(),
+            ));
+        }
+        let run = match request.cursor.as_deref() {
+            None => {
+                self.watch.start();
+                new()
+            }
+            Some(cursor) => {
+                let run = inner.run.take().ok_or_else(|| {
+                    SchemaError::InvalidCursor(
+                        "no verify run in progress; start a new run without a cursor".into(),
+                    )
+                })?;
+                if run.cursor() != cursor {
+                    let expected = run.cursor();
+                    inner.run = Some(run);
+                    return Err(SchemaError::InvalidCursor(format!(
+                        "the cursor does not match the run in progress (expected {expected})"
+                    )));
+                }
+                run
+            }
+        };
+        inner.run = None;
+        inner.busy = true;
+        Ok(StepGuard {
+            state: self,
+            run: Some(run),
+        })
+    }
+}
+
+/// Holds the run during a step. Dropping it, also after a cancelled request,
+/// gives the run back in the state of the last finished page.
+pub(super) struct StepGuard<'a> {
+    state: &'a VerifyState,
+    run: Option<Run>,
+}
+
+impl StepGuard<'_> {
+    pub(super) fn run(&mut self) -> &mut Run {
+        self.run.as_mut().expect("the guard holds a run")
+    }
+
+    pub(super) fn watch(&self) -> &Watch {
+        &self.state.watch
+    }
+
+    /// The run and the watch together, for a caller that needs both.
+    pub(super) fn split(&mut self) -> (&mut Run, &Watch) {
+        (
+            self.run.as_mut().expect("the guard holds a run"),
+            &self.state.watch,
+        )
+    }
+
+    /// End the run: keep its result as the last result, drop its memory.
+    pub(super) fn finish(mut self) {
+        let Some(run) = self.run.take() else {
+            return;
+        };
+        let mut inner = lock(&self.state.inner);
+        inner.last = run.report.last();
+        inner.busy = false;
+        self.state.watch.stop();
+    }
+}
+
+impl Drop for StepGuard<'_> {
+    fn drop(&mut self) {
+        let mut inner = lock(&self.state.inner);
+        inner.busy = false;
+        if let Some(run) = self.run.take() {
+            inner.run = Some(run);
+        }
+    }
+}

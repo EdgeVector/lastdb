@@ -93,6 +93,7 @@ impl CounterEvents {
                 .iter()
                 .cloned()
                 .collect(),
+            verify_refs: None,
         }
     }
 }
@@ -106,4 +107,8 @@ pub struct AtomCounterReport {
     pub counters_absent: u64,
     pub dangling_removals: u64,
     pub recent_faults: Vec<String>,
+    /// The verifier: the last complete run and a run in progress. Memory only;
+    /// it is empty after a restart. `None` when the daemon predates the field.
+    #[serde(default)]
+    pub verify_refs: Option<super::VerifySummary>,
 }

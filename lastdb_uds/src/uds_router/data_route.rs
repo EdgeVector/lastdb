@@ -292,6 +292,15 @@ pub enum DataRoute {
     /// summarizes the ledger, so a GET here has real (idempotent, catalog-sized)
     /// write side effects.
     DbInventory,
+    /// `POST /api/db/verify-refs` — one bounded step of the atom counter
+    /// verifier. OWNER socket only. Body: `{cursor?, max_pages?, max_ms?,
+    /// pause_ms?, page_rows?, scope?, max_atoms?}`. Reads and reports; it
+    /// writes nothing and takes no write gate. Without `cursor` it starts a
+    /// new run; with the `next_cursor` of the last step it continues the run.
+    DbVerifyRefs,
+    /// `GET /api/db/verify-refs` — the last complete verify run and the run in
+    /// progress, from memory. OWNER socket only. Reads no store.
+    DbVerifyRefsLast,
     /// `GET /api/db/schemas` — atom-only per-schema logical storage.
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
     /// order-log / tip-format walks) but still a heavy admin scan.
