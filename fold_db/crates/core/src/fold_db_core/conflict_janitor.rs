@@ -9,9 +9,9 @@
 //! The read of a page holds no write gate. Each page that has due records runs
 //! one release batch (`AtomStore::release_due_entries`): one native write scope,
 //! one batch, and the gate is free again before the next page. The janitor
-//! rests after each batch for three times the batch time (a duty share of 25
-//! percent), so the flush of a release batch leaves the disk to the writers
-//! most of the time. The janitor deletes no atom. The batch names the history
+//! rests after each batch for `took * (100 - duty) / duty` (a duty share of 25
+//! percent by default), so the flush of a release batch leaves the disk to the
+//! writers most of the time. The janitor deletes no atom. The batch names the history
 //! rows to the planner, which lowers the references and deletes a body only
 //! when its count reaches zero.
 //!
@@ -23,6 +23,7 @@
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_CONFLICT_JANITOR_MS` | Interval between wakes. Zero turns the janitor off. Default 60000. |
+//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of wall time, in percent, that release batches may take (1 to 100). Default 25. |
 //! | `LASTDB_CONFLICT_RETENTION_SECS` | The retention window. Default 30 days. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,11 +40,13 @@ pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
 const PAGE: usize = 32;
 /// Pages of one wake, at most. A larger backlog continues at the next wake.
 const PAGES_PER_WAKE: usize = 256;
-/// The share of wall time, in percent, that the janitor may spend inside
+/// Env: the share of wall time, in percent, that the janitor may spend inside
 /// release batches. A batch deletes many keys, and its flush shares the disk
 /// with every writer. The janitor rests after each batch for
 /// `took * (100 - duty) / duty`, like the TTL sweep (`ttl_sweep/pace.rs`).
-const DUTY_PCT: u64 = 25;
+pub const CONFLICT_JANITOR_DUTY_PCT_ENV: &str = "LASTDB_CONFLICT_JANITOR_DUTY_PCT";
+/// Default duty share: 25 percent.
+pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 25;
 /// The shortest rest between two pages.
 const MIN_PAUSE: Duration = Duration::from_millis(25);
 /// The longest rest between two pages.
@@ -56,6 +59,8 @@ const FULL_PASS_EVERY: u64 = 60;
 pub struct ConflictJanitorPolicy {
     /// The interval between wakes. `None` means no janitor.
     pub interval: Option<Duration>,
+    /// The share of wall time, in percent, that release batches may take.
+    pub duty_pct: u64,
 }
 
 impl ConflictJanitorPolicy {
@@ -65,6 +70,9 @@ impl ConflictJanitorPolicy {
         Self {
             interval: parse_conflict_janitor_interval(
                 std::env::var(CONFLICT_JANITOR_MS_ENV).ok().as_deref(),
+            ),
+            duty_pct: parse_conflict_janitor_duty(
+                std::env::var(CONFLICT_JANITOR_DUTY_PCT_ENV).ok().as_deref(),
             ),
         }
     }
@@ -93,6 +101,27 @@ pub fn parse_conflict_janitor_interval(raw: Option<&str>) -> Option<Duration> {
     }
 }
 
+/// `LASTDB_CONFLICT_JANITOR_DUTY_PCT` to a percentage from 1 to 100. Unset or
+/// invalid gives the default, and a value outside the range is clamped.
+#[must_use]
+pub fn parse_conflict_janitor_duty(raw: Option<&str>) -> u64 {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return DEFAULT_CONFLICT_JANITOR_DUTY_PCT;
+    };
+    raw.parse::<u64>().map_or_else(
+        |_| {
+            tracing::warn!(
+                raw,
+                env = CONFLICT_JANITOR_DUTY_PCT_ENV,
+                default = DEFAULT_CONFLICT_JANITOR_DUTY_PCT,
+                "invalid conflict janitor duty share; using the default"
+            );
+            DEFAULT_CONFLICT_JANITOR_DUTY_PCT
+        },
+        |duty| duty.clamp(1, 100),
+    )
+}
+
 /// Handle for the periodic janitor task.
 ///
 /// Aborted on [`super::fold_db::FoldDB::shutdown`] before the final
@@ -113,7 +142,7 @@ impl BackgroundConflictJanitorTask {
     }
 
     /// Spawn the periodic janitor on the current Tokio runtime.
-    pub fn spawn(db_ops: Arc<DbOperations>, interval: Duration) -> Self {
+    pub fn spawn(db_ops: Arc<DbOperations>, interval: Duration, duty_pct: u64) -> Self {
         db_ops
             .atoms()
             .retention_state()
@@ -136,7 +165,7 @@ impl BackgroundConflictJanitorTask {
                     watermark = None;
                 }
                 wakes += 1;
-                run_wake(&db_ops, &stop_flag, &mut watermark).await;
+                run_wake(&db_ops, &stop_flag, &mut watermark, duty_pct).await;
             }
         });
         Self {
@@ -161,9 +190,9 @@ impl Drop for BackgroundConflictJanitorTask {
 }
 
 /// The rest after a release batch that took `took`.
-fn pause_after(took: Duration) -> Duration {
+fn pause_after(took: Duration, duty_pct: u64) -> Duration {
     let took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
-    Duration::from_millis(took_ms.saturating_mul(100 - DUTY_PCT) / DUTY_PCT)
+    Duration::from_millis(took_ms.saturating_mul(100 - duty_pct) / duty_pct)
         .clamp(MIN_PAUSE, MAX_PAUSE)
 }
 
@@ -173,7 +202,12 @@ fn now_nanos() -> u64 {
 }
 
 /// One wake: release the due records page by page.
-async fn run_wake(db_ops: &DbOperations, stop: &AtomicBool, watermark: &mut Option<String>) {
+async fn run_wake(
+    db_ops: &DbOperations,
+    stop: &AtomicBool,
+    watermark: &mut Option<String>,
+    duty_pct: u64,
+) {
     let atoms = db_ops.atoms();
     let mut released = 0u64;
     let mut skipped = 0u64;
@@ -211,7 +245,7 @@ async fn run_wake(db_ops: &DbOperations, stop: &AtomicBool, watermark: &mut Opti
         if !more_due {
             break;
         }
-        tokio::time::sleep(pause_after(batch_started.elapsed())).await;
+        tokio::time::sleep(pause_after(batch_started.elapsed(), duty_pct)).await;
     }
     if let Some(failure) = &error {
         tracing::warn!(

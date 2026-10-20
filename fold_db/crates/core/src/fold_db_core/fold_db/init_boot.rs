@@ -102,12 +102,14 @@ impl FoldDB {
         info!(
             target: "fold_node::database",
             janitor_ms = ?policy.interval.map(|d| d.as_millis() as u64),
+            duty_pct = policy.duty_pct,
             "conflict retention janitor policy"
         );
         match policy.interval {
             Some(interval) => super::super::conflict_janitor::BackgroundConflictJanitorTask::spawn(
                 Arc::clone(db_ops),
                 interval,
+                policy.duty_pct,
             ),
             None => super::super::conflict_janitor::BackgroundConflictJanitorTask::disabled(),
         }

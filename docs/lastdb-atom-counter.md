@@ -130,9 +130,9 @@ A record ends in two ways, and both use the same release:
    queue oldest first, in pages of 32 keys, with no write gate, and runs one
    release batch for each page that has due entries (`background_scope`: one
    gate hold, then durable). The gate is free between pages, and the janitor
-   rests after each batch for three times the batch time (a duty share of 25
-   percent), because the flush of a release batch shares the disk with the
-   writers. The window is
+   rests after each batch for `took * (100 - duty) / duty`
+   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 25), because the flush of a
+   release batch shares the disk with the writers. The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.
 
