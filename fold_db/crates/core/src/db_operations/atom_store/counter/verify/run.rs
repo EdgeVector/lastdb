@@ -166,9 +166,9 @@ impl AtomStore {
                 // narrower key range, in a new read scope.
                 run.report.page_retries += 1;
                 if !run.walk.read_too_big() {
-                    return Err(SchemaError::ReadResourceLimit {
+                    return Err(run.walk.failure(SchemaError::ReadResourceLimit {
                         detail: "a key range is too dense to read in pieces".into(),
-                    });
+                    }));
                 }
             }
             Err(error) => return Err(error),
