@@ -68,9 +68,22 @@ impl FoldDB {
             engine.set_photograph_mutation_router(router).await;
         }
         // A restored home needs no refresh of the atom counters: they travel
-        // with their bodies in the photograph.
-        let restore_barrier: crate::sync::engine::PhotographCutBarrier =
-            Arc::new(move || Box::pin(async move { Ok(()) }));
+        // with their bodies in the photograph. The restore keeps only a photograph
+        // with the current key format marker, and the explicit key settings of
+        // this process must be valid for it.
+        let restore_db_ops = Arc::clone(&self.db_ops);
+        let restore_barrier: crate::sync::engine::PhotographCutBarrier = Arc::new(move || {
+            let restore_db_ops = Arc::clone(&restore_db_ops);
+            Box::pin(async move {
+                crate::db_operations::AtomStore::validate_boot_key_encoding_settings()
+                    .map_err(|error| error.to_string())?;
+                restore_db_ops
+                    .atoms()
+                    .require_current_key_format()
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        });
         engine.set_photograph_restore_barrier(restore_barrier).await;
         if self.preserve_retired_restore_intents {
             engine

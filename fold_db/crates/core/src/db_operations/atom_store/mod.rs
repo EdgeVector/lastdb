@@ -44,6 +44,7 @@ pub(crate) use atoms::SealedAtom;
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{AtomCounterReport, AtomCounterView};
+pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
 pub use molecule_ref_edges::{

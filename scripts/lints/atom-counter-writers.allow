@@ -167,3 +167,4 @@ fold_db/crates/core/src/sync/snapshot/restore_scan/blob_roots.rs|clear_existing|
 fold_db/crates/core/src/sync/snapshot/restore_scan/blob_roots.rs|prepare_incoming|-|photograph restore: installs blob-root target rows before the sources
 fold_db/crates/core/src/sync/snapshot/restore_scan/proofs.rs|begin_reference_restore|-|photograph restore: withdraws the completeness proofs
 fold_db/crates/core/src/sync/snapshot/restore_scan/proofs.rs|finish_reference_restore|-|photograph restore: publishes the completeness proofs after the sources are durable
+fold_db/crates/core/src/sync/snapshot/restore_scan/files.rs|merge_missing|-|photograph restore: adds node-global file rows (cas_blob) that are missing; no tip, record, atom or counter
