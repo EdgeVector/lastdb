@@ -262,6 +262,7 @@ Faults, by name:
 | `blob_stale_queue_entry` | a queue entry names a counter that is absent, has references, is `suspect`, or has another `zero_since` |
 | `blob_suspect` | a blob counter has the `suspect` flag |
 | `unreadable_blob_counter` | a blob counter does not decode, or its blob does not match its key |
+| `blob_counter_without_blob` | a blob counter holds references and the store has no blob row for it |
 | `unconfirmed_count_mismatch` | not a fault: see below |
 
 A kind is a fact about one atom, and an atom can show more than one. For
@@ -399,6 +400,7 @@ listed scopes, and compares the count with the blob counter:
 | blob with a counter and no reference | nothing | starts its dwell (the dwell pass reclaims it) |
 | counter with a `zero_since` and no queue entry | puts the entry | puts the entry |
 | queue entry that no counter at zero backs | deletes it | deletes it |
+| blob with references and no blob row | lists it (`rows_missing`) | lists it |
 
 The blob counters are global, and a recount lists scopes. A scope that is missing
 makes the count too low, and a too low counter loses a blob. So only

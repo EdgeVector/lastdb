@@ -19,14 +19,70 @@ when its count reaches zero, or when it is uploaded at a count of zero. The dwel
 is `LASTDB_BLOB_DWELL_SECS` seconds, one hour by default. A reference that arrives
 during the dwell cancels the deletion.
 
+### The floor of the dwell
+
 The dwell must be longer than the delay between the ack of a `queued` write and the
 batch of that write. A `queued` write is acknowledged from memory (flush interval
 500 ms) and its batch, which raises the blob counters, runs after the ack. A backlog
-on one schema lane can stretch that delay to seconds. The default of one hour is far
-above it. A dwell of a few seconds is for tests: with it, a `queued` write that
-names a blob can run after the dwell of the blob has passed, and the pass has then
-deleted the blob row. A `durable` write has its batch accepted before the ack, so
-the count rises before the client sees the write.
+on one schema lane stretches that delay. A `durable` write has its batch accepted
+before the ack, so the count rises before the client sees the write.
+
+So the node **refuses a dwell below 120 seconds**: the floor applies, and the node
+logs the refusal once. 120 s is the handler budget of a request (90 s) plus 30 s,
+and the persist lane that runs a queued batch has a bulk queue budget of about 60 s.
+The floor is not a proof. A lane that stalls for longer than the floor can still lose
+the race, and the one hour default is the real margin. The race is real: with a dwell
+of 1 s, a queued write was acked after 3.6 s, and the pass had deleted the blob row
+first. `LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV=1` allows a shorter dwell. It is for a
+synthetic home in a short proof, with `durable` writes. Never set it on a home that
+holds user data.
+
+### The clock of the dwell
+
+A writer stamps `zero_since` and the dwell pass reads it back, both on one clock:
+the wall clock, but never more than a tolerance ahead of the time that the monotonic
+clock gives since the store was made. The tolerance is a quarter of the dwell (15
+minutes for the default dwell), at least 30 s and at most one day. A forward
+excursion of the wall clock beyond it (a host that wakes with a wrong clock, a jump
+of 7 hours) cannot end a dwell early: the clock then advances with the monotonic
+clock only. The conflict janitor uses the same rule with a fixed tolerance of one
+day. For a dwell of one hour a tolerance of one day would protect nothing, so here
+the tolerance follows the dwell.
+
+What stays:
+
+- A forward jump below the tolerance moves the clock, and the dwells end early by at
+  most the size of the jump.
+- A backward jump delays every dwell by its size.
+- The monotonic clock of a host may stop while the host sleeps. The clock then lags
+  the wall clock. A restart takes the wall clock again, and the dwells that were
+  stamped during the lag end early by the lag.
+- A wall clock that was wrong when the node started, and was corrected by a large
+  step later, reads as the monotonic time plus the tolerance until the next start.
+
+### A write that names a blob that is gone
+
+An atom can name a blob after the dwell deleted it: the client uploaded, waited
+longer than the dwell, and then wrote. The counter of the blob went with the row, so
+the write finds no counter and makes one with a count of one. **The write succeeds.**
+The reasons:
+
+- The planner is shared with the paths that bring atoms from a peer. A peer's atom
+  can arrive before the bytes of its blob (on-demand file sync), and a refusal there
+  would stop the sync.
+- A refusal needs a policy for every path that makes an atom counter. Only the local
+  write route can tell the client what to do, and that is a decision for the API.
+
+So the write is accepted and the fault is made loud. The write path reads the row of
+a blob that has no counter (one keyed read, only for that case), and for a blob with
+no row it
+- counts a `late_references` event, shown in `lastdb status` and in `recent_faults`,
+  and logs the blob at error level;
+- makes `lastdb liveness explain blob` say `referenced_row_missing`;
+- makes `lastdb db verify-refs` report `blob_counter_without_blob`.
+
+`lastdb db recount` lists such blobs as `blob rows missing`. It cannot restore the
+bytes. The fix is to upload the file again and write the atom again.
 
 ## Records
 
@@ -81,6 +137,10 @@ checks that, function by function (family `R`).
 
 A `suspect` counter never starts a dwell and never authorizes a delete.
 
+A counter record that does not decode has an unknown state. The planner replaces it
+with a `suspect` counter that holds the references of its own batch, and counts an
+`unreadable_counters` event. The blob stays. An upload leaves such a record alone.
+
 ## The dwell pass
 
 `lastdbd` starts at most one pass at a time from the sampler tick
@@ -92,17 +152,25 @@ A `suspect` counter never starts a dwell and never authorizes a delete.
    scan is a bounded range walk: a read that hits the limit is cut in two, and the
    lower half is read first;
 2. takes the entries whose `zero_since` plus the dwell has passed;
-3. for each chunk of 64 of them, takes the local mutation admission and the native
-   write gate, takes the blob gates, reads each counter again, and reads the
-   retired-intent roots of the blobs;
+3. for each chunk of 32 of them (`LASTDB_BLOB_DWELL_CHUNK`, 1 to 64), takes the
+   local mutation admission and the native write gate, takes the blob gates, reads
+   each counter again, and reads the retired-intent roots of the blobs;
 4. in one batch, deletes the blob row (and any resident `cas_blob:` copy), the
    counter and the queue entry of every blob that is still at exactly zero with the
    same `zero_since`. A stale queue entry (the counter is gone, has references, is
-   `suspect`, or has another `zero_since`) is deleted alone;
-5. releases the gate. The next chunk takes it again.
+   `suspect`, or has another `zero_since`) is deleted alone. An entry whose counter
+   does not decode is deleted alone too, and the blob and the counter stay: nothing
+   can say that the count is zero (the verifier reports the counter);
+5. releases the gate, and **rests**. The rest after a chunk is
+   `took * (100 - duty) / duty`, with a duty share of 10 percent by default
+   (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100), at least 25 ms
+   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. A chunk that took 30 ms is
+   followed by a rest of 270 ms. A writer then waits for one small chunk and runs
+   free in the rest. The next chunk takes the gate again.
 
 The gate is never held across chunks, and the read of the queue takes no gate. A
-pass handles at most 16 pages. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off.
+pass handles at most 16 pages. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The
+knobs come from the node environment and are read at the start of each pass.
 
 ## Retired-intent roots
 
@@ -126,7 +194,10 @@ without a write gate. For the page of every atom counter and tip it reads the
 counters of the blobs they name at the same root, and reports `blob_counter_missing`
 and `blob_counter_below_refs`. The personal run then walks the counters
 (`blob_suspect`, `blob_zero_without_dwell`, `blob_dwell_with_refs`, `blob_unqueued`,
-`unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`). Every check has
+`unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`). For each counter
+that holds references it also reads the blob row at the same root and reports
+`blob_counter_without_blob` when the row is missing (a counter at zero is not asked:
+the dwell pass deletes the row and the counter together). Every check has
 no false positive under concurrent writers, because one page is one committed root.
 A counter above its references is not found: the verifier checks one scope and the
 counters are global.
@@ -135,15 +206,18 @@ counters are global.
 counters and the tips of the listed scopes. The default only raises counters, makes
 missing ones, restores a missing queue entry and deletes a queue entry that no
 counter backs. `--blobs-exact --all-scopes` also lowers a counter that is too high,
-clears `suspect`, and starts the dwell of a blob that nothing references.
+clears `suspect`, and starts the dwell of a blob that nothing references. It also
+checks that each blob with references has its row, and lists the ones that do not
+(`rows_missing`, with the first ten). It cannot list a row that has no counter: that
+needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
 
 ## Reads
 
 - `POST /api/storage/liveness/explain` with `{"class":"blob","id":"sha256:.."}` (or
   `"ids": [...]`) returns the counter, `zero_since_unix_ms`, `suspect`, whether the
   queue holds the entry, whether the `cas_blobs` plane holds the row, and a state:
-  `referenced`, `in_dwell`, `suspect`, `absent`, `row_without_counter` or
-  `inconsistent`. `lastdb liveness explain blob <blob_ref>` prints it.
+  `referenced`, `referenced_row_missing`, `in_dwell`, `suspect`, `unreadable`,
+  `absent`, `row_without_counter` or `inconsistent`. `lastdb liveness explain blob <blob_ref>` prints it.
 - `lastdb status` has a `Blob counters` line: process-lifetime totals, the queue
   depth that the last pass read (`N+` when the page was full), and the time to the
   next due entry.
@@ -170,5 +244,11 @@ clears `suspect`, and starts the dwell of a blob that nothing references.
 - A delete leaves a tombstone in the queue hash. `lastdb db compact --collection atoms`
   returns them. The scan stays correct without it and costs one more read call for
   every 10,000 tombstones.
-- The dwell uses the wall clock. A clock that jumps forward by more than the dwell
-  can end a dwell early.
+- The clock of the dwell ignores a forward excursion beyond a quarter of the dwell
+  only (see "The clock of the dwell"). A smaller forward jump ends dwells early by its
+  size.
+- A blob row with no counter is invisible to the verifier and to the recount, and
+  nothing deletes it (see the cloud rows above).
+- With on-demand cloud file sync, a blob that has not downloaded yet has references
+  and no row. The verifier cannot tell it from a late write and reports
+  `blob_counter_without_blob`. Cloud sync is off in this build.
