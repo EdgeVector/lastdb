@@ -181,9 +181,11 @@ conflict, and it records no conflict row to hold a loser atom. A review of the
 atom counter change could not make the recorder fire on a synthetic home, on
 this build or on main. If `GET /api/history/<molecule>` and `POST
 /api/conflicts/keys` show no conflict after the exchange, the recorder did not
-fire, and the steps above do not prove conflict handling. Steps S3 and S6 of the
-counter design (`docs/design-lastdb-counter-lifecycle.md`) add the release of
-conflict references and the verifier.
+fire, and the steps above do not prove conflict handling. A recorded conflict
+holds counted references to its loser atoms until its key is purged, deleted or
+swept, or its retention window ends (`LASTDB_CONFLICT_RETENTION_SECS`, 30 days);
+`lastdb status` shows the queue of expiring records, and `lastdb db verify-refs`
+checks the references (`docs/lastdb-atom-counter.md`).
 
 ## Stop and clean up
 

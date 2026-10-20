@@ -150,7 +150,7 @@ pub(crate) fn admit(
     scope: Option<&str>,
     molecule: Option<&str>,
     key: &KeyValue,
-    value: &FieldValue,
+    atom: crate::atom::Atom,
 ) -> StorageResult<()> {
     let Some((runtime, binding, molecule)) = active(runtime, molecule) else {
         return Ok(());
@@ -161,8 +161,8 @@ pub(crate) fn admit(
     let Some(context) = ReadContext::captured(&runtime) else {
         return Ok(());
     };
-    let path = binding.path(scope, &molecule, key, &value.atom_uuid);
-    if let Some(facts) = source::atom_facts(Some(Arc::clone(&runtime)), scope, &value.atom_uuid)? {
+    let path = binding.path(scope, &molecule, key, atom.uuid());
+    if let Some(facts) = source::atom_facts(Some(Arc::clone(&runtime)), scope, atom)? {
         runtime.admit_field_path(&context, &path, facts, key)?;
     }
     Ok(())

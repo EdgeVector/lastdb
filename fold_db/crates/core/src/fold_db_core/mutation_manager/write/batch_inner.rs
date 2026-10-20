@@ -1,4 +1,4 @@
-//! Moved verbatim out of the parent module; see the parent for context.
+//! One validated batch owns its receipt identities across every write verb.
 
 use super::*;
 
@@ -14,6 +14,27 @@ impl MutationManager {
             return Ok(ResidentCommitReceipt::empty());
         }
         self.validate_mutation_batch(&mutations)?;
+        let mutation_ids = mutations
+            .iter()
+            .map(|mutation| mutation.uuid.clone())
+            .collect();
+        let mut receipt = self
+            .write_validated_batch(mutations, storage_prefix, origin, author_clock_barrier)
+            .await?;
+        // Identities describe the accepted caller inputs, including idempotent
+        // repeats. Internal grouping, filtering, and erasure order cannot change
+        // the positional association between an input and its receipt identity.
+        receipt.mutation_ids = mutation_ids;
+        Ok(receipt)
+    }
+
+    async fn write_validated_batch(
+        &self,
+        mutations: Vec<Mutation>,
+        storage_prefix: Option<&str>,
+        origin: WriteOrigin,
+        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
         // Delete peers are resolved by the durable worker under its complete
         // native write boundary, after any updates in this mixed request.
         self.prepare_batch_molecule_keys(&mutations).await?;
@@ -34,64 +55,19 @@ impl MutationManager {
         // later envelope on the same schema lane. All erasures wait for disk
         // completion before success. Purge and must-exist Delete preserve
         // loud missing-target errors for requests; replay uses Skip.
-        let mixed = !mutations.is_empty()
-            && (!purges.is_empty() || !deletes.is_empty() || !must_exist_deletes.is_empty());
-        if mixed {
-            return self
-                .write_mixed_batch_with_erasures(
-                    mutations,
-                    HardErasurePeels {
-                        purges,
-                        must_exist_deletes,
-                        deletes,
-                    },
-                    storage_prefix,
-                    origin,
-                    author_clock_barrier,
-                )
-                .await;
-        }
-        let hard_ids = self
-            .enqueue_peeled_erasures(
-                HardErasurePeels {
-                    purges,
-                    must_exist_deletes,
-                    deletes,
-                },
-                storage_prefix,
-                origin,
-                author_clock_barrier.clone(),
-            )
-            .await?;
-
-        self.commit_remaining_after_erasures(
-            mutations,
-            hard_ids,
-            storage_prefix,
-            origin,
-            author_clock_barrier,
-        )
-        .await
-    }
-
-    /// Account the erased ids, then run any remaining create/update mutations
-    /// through the standard pipeline with the hard-erasure ids first.
-    async fn commit_remaining_after_erasures(
-        &self,
-        mutations: Vec<Mutation>,
-        mut hard_ids: Vec<String>,
-        storage_prefix: Option<&str>,
-        origin: WriteOrigin,
-        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        let erased = hard_ids.len() as u64;
-        let hard_operations = ResidentCommitOperations {
-            deleted: erased,
-            ..Default::default()
+        let has_erasures =
+            !purges.is_empty() || !deletes.is_empty() || !must_exist_deletes.is_empty();
+        let peels = HardErasurePeels {
+            purges,
+            must_exist_deletes,
+            deletes,
         };
-        // A pure-erasure batch never reaches the create/update pipeline, so
-        // this is the only site that can count it as resident work.
         if mutations.is_empty() {
+            let erased = self
+                .enqueue_peeled_erasures(peels, storage_prefix, origin, author_clock_barrier)
+                .await?;
+            // Pure erasure never reaches the create/update pipeline, so this
+            // is its only resident-commit and operation accounting site.
             crate::request_phases::add_counter(
                 crate::request_phases::RequestCounter::ResidentCommits,
                 u64::from(erased > 0),
@@ -100,29 +76,30 @@ impl MutationManager {
                 crate::request_phases::RequestCounter::ResidentOperations,
                 erased,
             );
-            let mut receipt = ResidentCommitReceipt::from_ids(hard_ids, hard_operations);
+            let mut receipt = ResidentCommitReceipt::empty();
+            receipt.operations.deleted = erased;
             receipt.durability = ResidentDurability::Durable;
+            receipt.touched_group_ids = crate::durable_flush::current_touched_groups();
             return Ok(receipt);
         }
-        // Process the remaining mutations through the standard pipeline,
-        // then append so hard-erasure IDs come first (the order we peeled
-        // them in).
-        let mut receipt = self
-            .write_create_update_batch_async(
-                mutations,
-                storage_prefix,
-                matches!(origin, WriteOrigin::Replay),
-                author_clock_barrier,
-            )
-            .await?;
-        hard_ids.extend(receipt.mutation_ids);
-        receipt.mutation_ids = hard_ids;
-        receipt.operations.merge(hard_operations);
-        crate::request_phases::add_counter(
-            crate::request_phases::RequestCounter::ResidentOperations,
-            erased,
-        );
-        Ok(receipt)
+        if has_erasures {
+            return self
+                .write_mixed_batch_with_erasures(
+                    mutations,
+                    peels,
+                    storage_prefix,
+                    origin,
+                    author_clock_barrier,
+                )
+                .await;
+        }
+        self.write_create_update_batch_async(
+            mutations,
+            storage_prefix,
+            matches!(origin, WriteOrigin::Replay),
+            author_clock_barrier,
+        )
+        .await
     }
 
     /// Reject mutations that target aggregate-owned schemas or ask for
@@ -181,15 +158,10 @@ impl MutationManager {
         origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        let HardErasurePeels {
-            purges,
-            must_exist_deletes,
-            deletes,
-        } = peels;
         tracing::warn!(
             writes = mutations.len(),
-            purges = purges.len(),
-            deletes = deletes.len() + must_exist_deletes.len(),
+            purges = peels.purges.len(),
+            deletes = peels.deletes.len() + peels.must_exist_deletes.len(),
             "mixed create/update+Purge batch: placing erasures after writes on the persist lane"
         );
         let mut receipt = self
@@ -200,40 +172,9 @@ impl MutationManager {
                 author_clock_barrier.clone(),
             )
             .await?;
-        // The erasure ids are deliberately NOT appended to the mixed
-        // batch's id list — that was already true before the receipt
-        // existed and callers depend on it. Their COUNTS still belong to
-        // this logical commit, or a mixed batch would report deleting
-        // nothing.
-        let mut erased = 0u64;
-        for (peel, verb) in [
-            (purges, super::super::super::purge::HardEraseVerb::Purge),
-            (
-                must_exist_deletes,
-                super::super::super::purge::HardEraseVerb::DeleteMustExist,
-            ),
-            (deletes, super::super::super::purge::HardEraseVerb::Delete),
-        ] {
-            let missing = match verb {
-                super::super::super::purge::HardEraseVerb::Delete => {
-                    super::super::super::purge::PurgeMissingPolicy::Skip
-                }
-                super::super::super::purge::HardEraseVerb::Purge
-                | super::super::super::purge::HardEraseVerb::DeleteMustExist => {
-                    origin.missing_policy_for_loud_erasure()
-                }
-            };
-            let ids = self
-                .enqueue_hard_erasures_on_lanes(
-                    peel,
-                    storage_prefix,
-                    missing,
-                    verb,
-                    author_clock_barrier.clone(),
-                )
-                .await?;
-            erased = erased.saturating_add(ids.len() as u64);
-        }
+        let erased = self
+            .enqueue_peeled_erasures(peels, storage_prefix, origin, author_clock_barrier)
+            .await?;
         receipt.operations.merge(ResidentCommitOperations {
             deleted: erased,
             ..Default::default()
@@ -256,58 +197,53 @@ impl MutationManager {
         Ok(receipt)
     }
 
-    /// Enqueue each peeled erasure group on its persist lanes and return the
-    /// erased ids in Purge, DeleteMustExist, Delete order.
+    /// Enqueue every erasure in Purge, DeleteMustExist, Delete order. Return the
+    /// accepted input count, including absent or spared keys, after completion.
     async fn enqueue_peeled_erasures(
         &self,
         peels: HardErasurePeels,
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    ) -> Result<Vec<String>, SchemaError> {
+    ) -> Result<u64, SchemaError> {
         let HardErasurePeels {
             purges,
             must_exist_deletes,
             deletes,
         } = peels;
-        let mut hard_ids = Vec::new();
-        if !purges.is_empty() {
-            hard_ids.extend(
-                self.enqueue_hard_erasures_on_lanes(
-                    purges,
+        let mut accepted = 0u64;
+        for (peel, verb) in [
+            (purges, super::super::super::purge::HardEraseVerb::Purge),
+            (
+                must_exist_deletes,
+                super::super::super::purge::HardEraseVerb::DeleteMustExist,
+            ),
+            (deletes, super::super::super::purge::HardEraseVerb::Delete),
+        ] {
+            if peel.is_empty() {
+                continue;
+            }
+            let missing = match verb {
+                super::super::super::purge::HardEraseVerb::Delete => {
+                    super::super::super::purge::PurgeMissingPolicy::Skip
+                }
+                super::super::super::purge::HardEraseVerb::Purge
+                | super::super::super::purge::HardEraseVerb::DeleteMustExist => {
+                    origin.missing_policy_for_loud_erasure()
+                }
+            };
+            let ids = self
+                .enqueue_hard_erasures_on_lanes(
+                    peel,
                     storage_prefix,
-                    origin.missing_policy_for_loud_erasure(),
-                    super::super::super::purge::HardEraseVerb::Purge,
+                    missing,
+                    verb,
                     author_clock_barrier.clone(),
                 )
-                .await?,
-            );
+                .await?;
+            accepted = accepted.saturating_add(ids.len() as u64);
         }
-        if !must_exist_deletes.is_empty() {
-            hard_ids.extend(
-                self.enqueue_hard_erasures_on_lanes(
-                    must_exist_deletes,
-                    storage_prefix,
-                    origin.missing_policy_for_loud_erasure(),
-                    super::super::super::purge::HardEraseVerb::DeleteMustExist,
-                    author_clock_barrier.clone(),
-                )
-                .await?,
-            );
-        }
-        if !deletes.is_empty() {
-            hard_ids.extend(
-                self.enqueue_hard_erasures_on_lanes(
-                    deletes,
-                    storage_prefix,
-                    super::super::super::purge::PurgeMissingPolicy::Skip,
-                    super::super::super::purge::HardEraseVerb::Delete,
-                    author_clock_barrier,
-                )
-                .await?,
-            );
-        }
-        Ok(hard_ids)
+        Ok(accepted)
     }
 }
 

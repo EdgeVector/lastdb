@@ -34,9 +34,10 @@ pub use admin_db::{
     SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
 pub use atom_store::{
-    AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView, DwellChunk,
-    DwellEntry, DwellGuard, DwellScan, MoleculeData, RecountOptions, RecountReport, VerifyReport,
-    VerifyRequest, VerifySummary, WalkStats, DWELL_CHUNK,
+    AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
+    ConflictRetentionReport, DwellChunk, DwellEntry, DwellGuard, DwellScan, MoleculeData,
+    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    DWELL_CHUNK,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{

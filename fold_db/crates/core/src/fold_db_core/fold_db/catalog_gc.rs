@@ -1,9 +1,10 @@
 use crate::db_operations::search_index::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::db_operations::{
-    drop_prefixed_rows_for_instance, referenced_instance_ids, UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, referenced_instance_ids, SchemaRecordKeysRequest,
+    UNPREFIXED_INSTANCE_ID,
 };
 use crate::error::FoldDbResult;
-use crate::schema::types::{KeyValue, Schema};
+use crate::schema::types::{KeyValue, Schema, SchemaError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -15,6 +16,7 @@ pub struct CatalogDeleteReclaimResult {
     pub deleted: bool,
     pub instance_id: Option<String>,
     pub reclaimed_rows: usize,
+    /// Instance cleanup retains node-global molecule domain wraps.
     pub reclaimed_wraps: usize,
     pub search_tombstones: usize,
 }
@@ -23,18 +25,30 @@ pub struct CatalogDeleteReclaimResult {
 #[derive(Default)]
 struct InstanceReclaim {
     rows: usize,
-    wraps: usize,
     search_tombstones: usize,
 }
 
 impl FoldDB {
-    /// Delete one catalog membership. When that was the last reference to a
-    /// prefixed instance, drop `{instance_id}:` rows in main.
+    /// Delete one catalog membership and any now-unreferenced instance in one
+    /// native batch. Complete-request limits refuse oversized cleanup before
+    /// the catalog row, bindings, or data change.
     pub async fn delete_catalog_membership(
         &self,
         db_locator: &str,
         schema_name: &str,
     ) -> FoldDbResult<CatalogDeleteReclaimResult> {
+        Ok(self
+            .db_ops()
+            .atoms()
+            .in_write_scope(self.delete_catalog_membership_in_scope(db_locator, schema_name))
+            .await?)
+    }
+
+    async fn delete_catalog_membership_in_scope(
+        &self,
+        db_locator: &str,
+        schema_name: &str,
+    ) -> Result<CatalogDeleteReclaimResult, SchemaError> {
         let catalog = self.db_ops().db_catalog();
         let existing = catalog.get(db_locator, schema_name).await?;
         let schema = self.schema_manager().get_schema_metadata(schema_name)?;
@@ -44,26 +58,20 @@ impl FoldDB {
         let _molecule_guards = self
             .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
             .await;
-        // The row and its binding records leave in one batch, so a crash cannot
-        // keep bindings for a row that is gone.
+        // The native gate precedes molecule locks, as it does for normal writes.
+        // It also protects the last-reference decision from a concurrent bind.
         let atoms = self.db_ops().atoms();
-        let deleted = atoms
-            .in_write_scope(async {
-                let deleted = catalog.delete(db_locator, schema_name).await?;
-                if let (true, Some(_), Some(schema)) = (deleted, existing.as_ref(), schema.as_ref())
-                {
-                    atoms
-                        .unbind_catalog_molecules(
-                            db_locator,
-                            schema_name,
-                            schema,
-                            storage_prefix.as_deref(),
-                        )
-                        .await?;
-                }
-                Ok(deleted)
-            })
-            .await?;
+        let deleted = catalog.delete(db_locator, schema_name).await?;
+        if let (true, Some(_), Some(schema)) = (deleted, existing.as_ref(), schema.as_ref()) {
+            atoms
+                .unbind_catalog_molecules(
+                    db_locator,
+                    schema_name,
+                    schema,
+                    storage_prefix.as_deref(),
+                )
+                .await?;
+        }
         let instance_id = existing.and_then(|entry| entry.instance_id);
         let reclaim = match instance_id.as_deref() {
             Some(instance) if instance != UNPREFIXED_INSTANCE_ID => {
@@ -76,7 +84,7 @@ impl FoldDB {
             deleted,
             instance_id,
             reclaimed_rows: reclaim.rows,
-            reclaimed_wraps: reclaim.wraps,
+            reclaimed_wraps: 0,
             search_tombstones: reclaim.search_tombstones,
         })
     }
@@ -108,36 +116,29 @@ impl FoldDB {
     }
 
     /// When no catalog entry references `instance` any more, drop its search
-    /// entries, domain key wraps, and `{instance}:` rows in main.
+    /// entries and `{instance}:` rows in main. Molecule domain wraps are global;
+    /// this instance-only proof cannot authorize their removal.
     async fn reclaim_unreferenced_instance(
         &self,
         schema_name: &str,
         schema: Option<&Schema>,
         instance: &str,
-    ) -> FoldDbResult<InstanceReclaim> {
+    ) -> Result<InstanceReclaim, SchemaError> {
         let catalog = self.db_ops().db_catalog();
         let live = referenced_instance_ids(&catalog.list_entries().await?);
         let mut reclaim = InstanceReclaim::default();
         if live.contains(instance) {
             return Ok(reclaim);
         }
-        if let Some(schema) = schema {
+        let search_changes = if let Some(schema) = schema {
             let batch = self
                 .build_catalog_unshare_tombstones(schema_name, schema, instance)
                 .await?;
             reclaim.search_tombstones = batch.changes.len();
-            if !batch.changes.is_empty() {
-                self.mutation_manager
-                    .deliver_index_change_batch(&batch)
-                    .await
-                    .map_err(crate::error::FoldDbError::from)?;
-            }
-            reclaim.wraps = self
-                .db_ops()
-                .molecule_keys()
-                .drop_schema_domain_wraps(schema)
-                .await?;
-        }
+            Some(batch)
+        } else {
+            None
+        };
         let main = self
             .db_ops()
             .namespaced_store()
@@ -145,7 +146,31 @@ impl FoldDB {
             .await?;
         reclaim.rows =
             drop_prefixed_rows_for_instance(self.db_ops().atoms(), main.as_ref(), instance).await?;
+        if let Some(batch) = search_changes.filter(|batch| !batch.changes.is_empty()) {
+            self.publish_catalog_unshare_search(batch).await?;
+        }
         Ok(reclaim)
+    }
+
+    /// Search sees removal only after the complete catalog cleanup is durable.
+    async fn publish_catalog_unshare_search(
+        &self,
+        batch: IndexChangeBatch,
+    ) -> Result<(), SchemaError> {
+        let Some(runtime) = self.db_ops().namespaced_store().disk_pack_runtime() else {
+            return self
+                .mutation_manager
+                .deliver_index_change_batch(&batch)
+                .await;
+        };
+        let manager = std::sync::Arc::clone(&self.mutation_manager);
+        crate::storage::disk_pack::transaction::after_commit(&runtime, async move {
+            manager
+                .deliver_index_change_batch(&batch)
+                .await
+                .map_err(|error| crate::storage::StorageError::BackendError(error.to_string()))
+        })?;
+        Ok(())
     }
 
     async fn build_catalog_unshare_tombstones(
@@ -153,11 +178,8 @@ impl FoldDB {
         schema_name: &str,
         schema: &Schema,
         instance: &str,
-    ) -> FoldDbResult<IndexChangeBatch> {
-        let key_field = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.clone().or_else(|| key.range_field.clone()));
+    ) -> Result<IndexChangeBatch, SchemaError> {
+        let key_field = schema.key.as_ref().and_then(|key| key.hash_field.clone());
         let Some(key_field) = key_field else {
             return Ok(IndexChangeBatch {
                 schema_name: schema_name.to_string(),
@@ -176,29 +198,54 @@ impl FoldDB {
                     .and_then(|field| field.inner.molecule_uuid().cloned())
             })
             .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(schema_name, &key_field));
-        let report = self
-            .db_ops()
-            .atoms()
-            .list_molecule_keys(&molecule, None, Some(instance))
-            .await?;
+        let mut schema = schema.clone();
+        for field in schema.runtime_fields.values_mut() {
+            field
+                .common_mut()
+                .set_storage_prefix(Some(instance.to_owned()));
+        }
+        let has_range = matches!(
+            schema.schema_type,
+            crate::schema::types::schema::DeclarativeSchemaType::HashRange
+        );
         let mut seen = HashSet::new();
-        let changes = report
-            .rows
-            .into_iter()
-            .filter_map(|row| {
-                let key = KeyValue::new(row.hash, row.range.filter(|range| !range.is_empty()));
-                (key.hash.is_some() || key.range.is_some())
-                    .then_some(key)
-                    .filter(|key| seen.insert(key.clone()))
-            })
-            .enumerate()
-            .map(|(index, key_value)| IndexChange {
-                mutation_id: format!("catalog-unshare-{schema_name}-{instance}-{index}"),
-                kind: IndexChangeKind::Tombstone,
-                key_value,
-                fields_and_values: HashMap::default(),
-            })
-            .collect();
+        let mut changes = Vec::new();
+        let mut cursor = None;
+        loop {
+            let request = SchemaRecordKeysRequest {
+                requested: schema_name,
+                schema_id: &schema.name,
+                limit: 128,
+                cursor: cursor.as_deref(),
+                hash_filter: None,
+            };
+            let (keys, next_cursor, has_more) = self
+                .list_schema_key_page(&schema, &key_field, &molecule, &request, Some(instance))
+                .await?;
+            for (hash, range) in keys {
+                let key_value = KeyValue::new(Some(hash), has_range.then_some(range));
+                if seen.insert(key_value.clone()) {
+                    changes.push(IndexChange {
+                        mutation_id: format!(
+                            "catalog-unshare-{schema_name}-{instance}-{}",
+                            changes.len()
+                        ),
+                        kind: IndexChangeKind::Tombstone,
+                        key_value,
+                        fields_and_values: HashMap::default(),
+                    });
+                }
+            }
+            if !has_more {
+                break;
+            }
+            if next_cursor.is_none() || next_cursor == cursor {
+                return Err(SchemaError::StorageRead {
+                    detail: "catalog removal key page did not advance".into(),
+                });
+            }
+            cursor = next_cursor;
+        }
         Ok(IndexChangeBatch {
             schema_name: schema_name.to_string(),
             searchable_fields: None,

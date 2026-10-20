@@ -1,0 +1,203 @@
+{
+  "binary_sha256": "a27051ad056539361d9255247d41fa0309511ca1d54bcbcecd72368a8c9abd19",
+  "complete": true,
+  "error": null,
+  "observations": [
+    {
+      "elapsed_nanos": 729812209,
+      "http_status": 200,
+      "label": "declare-A",
+      "phase": "current",
+      "raw_body": "raw-http/current-003.body.json",
+      "raw_sha256": "8d5d49748e0df9d297c3e2e53e3135016504e6eccd7024175b44e0fa12ef6dcb"
+    },
+    {
+      "elapsed_nanos": 1990910250,
+      "http_status": 200,
+      "label": "declare-B",
+      "phase": "current",
+      "raw_body": "raw-http/current-004.body.json",
+      "raw_sha256": "c0a7ed4c6791de4566d06ddc14742ee2e6fc68b4f270c676698c8b9f34738a9e"
+    },
+    {
+      "elapsed_nanos": 384504959,
+      "http_status": 200,
+      "label": "seed-two-A-records",
+      "phase": "current",
+      "raw_body": "raw-http/current-005.body.json",
+      "raw_sha256": "f536e6491e4795219463791cbe81e378361d9385418f5a82076b21e3f4ed4ca3"
+    },
+    {
+      "elapsed_nanos": 10686583,
+      "http_status": 200,
+      "label": "initial-B-list-first-page",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-009.body.json",
+      "raw_sha256": "d04e7d7686a35e507e3992001730edd9cad33a4575a2d128e44f7c37594f908b"
+    },
+    {
+      "elapsed_nanos": 1433459,
+      "http_status": 200,
+      "label": "initial-B-list-cursor-continuation",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-010.body.json",
+      "raw_sha256": "b2bad680e0c23349dbf7cfd58307f91271946e2ef4c297d88b0e6e07f59e597a"
+    },
+    {
+      "elapsed_nanos": 1881375,
+      "http_status": 200,
+      "label": "initial-B-list-all",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-011.body.json",
+      "raw_sha256": "a7faa9f948623d7875459057be54468746e290a807800735920f9456768be150"
+    },
+    {
+      "elapsed_nanos": 7541833,
+      "http_status": 200,
+      "label": "initial-query-and-count-equivalence",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-012.body.json",
+      "raw_sha256": "61516847b0e81946edfff8c9b88e354216de4557119df660f420bf50428ee18d"
+    },
+    {
+      "elapsed_nanos": 8212084,
+      "http_status": 200,
+      "label": "initial-B-list-first-page",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-013.body.json",
+      "raw_sha256": "d04e7d7686a35e507e3992001730edd9cad33a4575a2d128e44f7c37594f908b"
+    },
+    {
+      "elapsed_nanos": 2478208,
+      "http_status": 200,
+      "label": "initial-B-list-cursor-continuation",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-014.body.json",
+      "raw_sha256": "b2bad680e0c23349dbf7cfd58307f91271946e2ef4c297d88b0e6e07f59e597a"
+    },
+    {
+      "elapsed_nanos": 7252250,
+      "http_status": 200,
+      "label": "initial-B-list-all",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-015.body.json",
+      "raw_sha256": "a7faa9f948623d7875459057be54468746e290a807800735920f9456768be150"
+    },
+    {
+      "elapsed_nanos": 14536250,
+      "http_status": 200,
+      "label": "initial-query-and-count-equivalence",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-016.body.json",
+      "raw_sha256": "6c07b39732d9905dc8b6ab48c31b2b6604f7c2aeb7da15dc961ae6fc2282b1f2"
+    },
+    {
+      "elapsed_nanos": 889177500,
+      "http_status": 200,
+      "label": "move-first-B-range",
+      "phase": "current",
+      "raw_body": "raw-http/current-017.body.json",
+      "raw_sha256": "bf7b824c7cc8b543765ffe22bb17ec879d326b033e582d5171332e2519b1ce3a"
+    },
+    {
+      "elapsed_nanos": 16370667,
+      "http_status": 200,
+      "label": "moved-B-list-all",
+      "phase": "after-update-ack",
+      "raw_body": "raw-http/after-update-ack-018.body.json",
+      "raw_sha256": "e8313cdf8a816fe188644cf9889b5363d71f89f62432ab1ca684cb6667d89a27"
+    },
+    {
+      "elapsed_nanos": 20558333,
+      "http_status": 200,
+      "label": "moved-query-and-count-equivalence",
+      "phase": "after-update-ack",
+      "raw_body": "raw-http/after-update-ack-019.body.json",
+      "raw_sha256": "b05c617505cdb9a91f907ab049cd6842c8ee8a7bd3fef7a90efa7e46ce46a2c9"
+    },
+    {
+      "elapsed_nanos": 23861166,
+      "http_status": 200,
+      "label": "moved-B-list-all",
+      "phase": "after-update-flush",
+      "raw_body": "raw-http/after-update-flush-021.body.json",
+      "raw_sha256": "e8313cdf8a816fe188644cf9889b5363d71f89f62432ab1ca684cb6667d89a27"
+    },
+    {
+      "elapsed_nanos": 33850917,
+      "http_status": 200,
+      "label": "moved-query-and-count-equivalence",
+      "phase": "after-update-flush",
+      "raw_body": "raw-http/after-update-flush-022.body.json",
+      "raw_sha256": "60f53b6cca82f24c3a4b7f16554a5dc5e7c8281099715140b58ee21527cde864"
+    },
+    {
+      "elapsed_nanos": 962433292,
+      "http_status": 200,
+      "label": "delete-second-A-record",
+      "phase": "current",
+      "raw_body": "raw-http/current-023.body.json",
+      "raw_sha256": "73bdc94e8b53d63692d6d062209909a26cb91361ed18db399d39d955e3b66357"
+    },
+    {
+      "elapsed_nanos": 19714917,
+      "http_status": 200,
+      "label": "deleted-B-list-all",
+      "phase": "current",
+      "raw_body": "raw-http/current-024.body.json",
+      "raw_sha256": "24d46828bad36db1f44aeb32b420b1b4325ad7b64dcbd8e32e69045c5b50842f"
+    },
+    {
+      "elapsed_nanos": 19632000,
+      "http_status": 200,
+      "label": "deleted-B-list-one",
+      "phase": "current",
+      "raw_body": "raw-http/current-025.body.json",
+      "raw_sha256": "24d46828bad36db1f44aeb32b420b1b4325ad7b64dcbd8e32e69045c5b50842f"
+    },
+    {
+      "elapsed_nanos": 31018375,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "current",
+      "raw_body": "raw-http/current-026.body.json",
+      "raw_sha256": "a701d7569d54db293af69b45a69a63db91be65e61c3918aa38868b65c43a4459"
+    },
+    {
+      "elapsed_nanos": 11946958,
+      "http_status": 200,
+      "label": "deleted-B-list-all",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-030.body.json",
+      "raw_sha256": "24d46828bad36db1f44aeb32b420b1b4325ad7b64dcbd8e32e69045c5b50842f"
+    },
+    {
+      "elapsed_nanos": 20748834,
+      "http_status": 200,
+      "label": "deleted-B-list-one",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-031.body.json",
+      "raw_sha256": "24d46828bad36db1f44aeb32b420b1b4325ad7b64dcbd8e32e69045c5b50842f"
+    },
+    {
+      "elapsed_nanos": 24817959,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-032.body.json",
+      "raw_sha256": "f2e34187fc487b1345af48d7bd8ea70b05e5aca5290ae698203597dcf65ab15d"
+    }
+  ],
+  "policy": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_CORE_WARM_BYTES": "268435456",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RANGE_KEY_ENCODING": "plain",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "Round13KeyListA,Round13KeyListB,Round13LargeValues,CoreOwnedWritesHashRange"
+  },
+  "scope": "Fresh synthetic data. Normal release. No engine selection flags. No comparative speed claim.",
+  "semantic_review": "Pending independent raw-result review.",
+  "source_commit": "fdb13f0667f92226048a51884ac038753fe21b63"
+}

@@ -107,29 +107,41 @@ pub(super) async fn execute_mutations_batch_route(
         Err(message) => return error_response(503, message, ctx),
     };
 
-    let result = handlers::execute_mutations_batch(host, components, ctx).await;
-    if let Ok(value) = &result {
-        let mut durable_events = Vec::with_capacity(watch_hints.len());
-        let mut change_record_elapsed = std::time::Duration::ZERO;
-        for (index, (schema, mt, hash, range)) in watch_hints.into_iter().enumerate() {
-            durable_events.push(durable_change_event(
-                schema.clone(),
-                mt.clone(),
-                hash.clone(),
-                range.clone(),
-                mutation_id_at(value, index),
-                value,
-            ));
-            let change_record_started = std::time::Instant::now();
-            host.local_outbox.append(schema, mt, hash, range);
-            change_record_elapsed += change_record_started.elapsed();
-        }
-        change_feed_reservation.submit(durable_events);
-        fold_db::request_phases::add_phase(
-            fold_db::request_phases::RequestPhase::ChangeRecord,
-            change_record_elapsed,
-        );
-    }
+    let result = handlers::execute_mutations_batch(host, components, ctx)
+        .await
+        .and_then(|value| {
+            let mutation_ids = value
+                .get("mutation_ids")
+                .and_then(Value::as_array)
+                .filter(|ids| ids.len() == watch_hints.len())
+                .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+                .ok_or_else(|| {
+                    HostError::new(500, "Batch receipt does not match its input identities")
+                })?;
+            let mut durable_events = Vec::with_capacity(watch_hints.len());
+            let mut change_record_elapsed = std::time::Duration::ZERO;
+            for ((schema, mt, hash, range), mutation_id) in
+                watch_hints.into_iter().zip(mutation_ids)
+            {
+                durable_events.push(durable_change_event(
+                    schema.clone(),
+                    mt.clone(),
+                    hash.clone(),
+                    range.clone(),
+                    mutation_id.to_string(),
+                    &value,
+                ));
+                let change_record_started = std::time::Instant::now();
+                host.local_outbox.append(schema, mt, hash, range);
+                change_record_elapsed += change_record_started.elapsed();
+            }
+            change_feed_reservation.submit(durable_events);
+            fold_db::request_phases::add_phase(
+                fold_db::request_phases::RequestPhase::ChangeRecord,
+                change_record_elapsed,
+            );
+            Ok(value)
+        });
     let response_started = std::time::Instant::now();
     let response = render(result, ctx);
     fold_db::request_phases::add_phase(
@@ -155,21 +167,6 @@ pub(super) fn mutation_watch_hints(components: &[MutationComponents]) -> Vec<Mut
             )
         })
         .collect()
-}
-
-pub(super) fn mutation_id_at(value: &Value, index: usize) -> String {
-    value
-        .get("mutation_ids")
-        .and_then(Value::as_array)
-        .and_then(|ids| ids.get(index).or_else(|| ids.first()))
-        .and_then(Value::as_str)
-        .or_else(|| {
-            (index == 0)
-                .then(|| value.get("mutation_id").and_then(Value::as_str))
-                .flatten()
-        })
-        .unwrap_or("")
-        .to_string()
 }
 
 pub(super) fn durable_change_event(

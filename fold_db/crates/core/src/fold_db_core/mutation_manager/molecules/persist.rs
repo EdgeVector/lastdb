@@ -92,15 +92,15 @@ impl MutationManager {
 
         drop(molecules_to_store);
 
-        // Clear effects after the successful store so the next write does not
-        // repeat the same reverse-reference or conflict changes.
+        // Clear recorded decisions after the successful store so the next
+        // write does not repeat the same conflicts.
         for field_name in field_names {
             if let Some(mol) = schema
                 .runtime_fields
                 .get_mut(&field_name)
                 .and_then(|f| f.molecule_data_mut())
             {
-                mol.clear_pending_tip_effects();
+                mol.clear_pending_tip_conflicts();
             }
         }
 

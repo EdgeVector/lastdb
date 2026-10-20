@@ -44,7 +44,10 @@ impl BlobDeltas {
     /// not decode lowers nothing: the blob counters stay too high (a leak, which
     /// `lastdb db recount` repairs), and the drop is not blocked. Returns the
     /// number of rows that did not decode.
-    pub(crate) fn scope_rows_dropped(&mut self, rows: &[(Vec<u8>, Vec<u8>)]) -> usize {
+    pub(crate) fn scope_rows_dropped<'a>(
+        &mut self,
+        rows: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
+    ) -> usize {
         let mut unreadable = 0;
         for (key, value) in rows {
             let Ok(key) = std::str::from_utf8(key) else {

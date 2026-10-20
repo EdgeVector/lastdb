@@ -1,26 +1,31 @@
-//! Key format marker and completeness proof for a constructor-proven empty home.
+//! Key format marker of a constructor-proven empty home.
 //!
 //! The atom counter makes atom bodies the only authority for atom references,
 //! and the molecule counters and the blob counters do the same for molecules and
 //! for local file blobs. A new home holds no reference of any kind, so no
 //! completeness proof is stored and the format marker is the only key written.
-//! An older home has no feature bit for atom records and the storage layer
-//! refuses it before this code runs. A home from a build that kept blob
-//! reference edges has the key format `2`: it has no blob counters, so this
-//! build refuses it and asks for a new empty home.
+//! The storage layer refuses earlier physical layouts. A native home also needs
+//! the current logical identity marker before it can serve. A home from a build
+//! that kept blob reference edges has the key format `3`: it has no blob
+//! counters, so this build (key format `4`) refuses it and asks for a new empty
+//! home.
 
 use super::AtomStore;
 use crate::storage::{KvMutation, StorageError};
 
-const KEY_FORMAT_KEY: &str = "layout:v2:keys";
-/// `3`: local file blobs have counters (`bref:v3:`). Format `2` kept blob edges.
-const KEY_FORMAT: &[u8] = b"3";
+/// `4`: local file blobs have counters and a time-bucketed dwell queue
+/// (`bref:v3:`). Format `3` kept blob reference edges.
+const KEY_FORMAT: &[u8] = b"4";
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.
-pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[KEY_FORMAT_KEY];
+pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[AtomStore::CURRENT_KEY_FORMAT_KEY];
 
 impl AtomStore {
+    /// This logical format includes framed molecule identities and exact
+    /// tuple-based binding sources. Snapshots require the same marker key.
+    pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:v3:keys";
+
     /// Validate the explicit key settings before the native store creates files.
     pub(crate) fn validate_boot_key_encoding_settings() -> Result<(), StorageError> {
         for (name, choices) in [
@@ -85,7 +90,7 @@ impl AtomStore {
         if self
             .main_store
             .inner()
-            .get(KEY_FORMAT_KEY.as_bytes())
+            .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await?
             .as_deref()
             != Some(KEY_FORMAT)
@@ -100,5 +105,8 @@ impl AtomStore {
 
 /// The proof rows in the order of [`CURRENT_NATIVE_INITIALIZATION_KEYS`].
 fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
-    Ok(vec![KvMutation::put(KEY_FORMAT_KEY.as_bytes(), KEY_FORMAT)])
+    Ok(vec![KvMutation::put(
+        AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(),
+        KEY_FORMAT,
+    )])
 }

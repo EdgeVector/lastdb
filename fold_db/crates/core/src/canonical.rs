@@ -48,6 +48,9 @@
 
 use sha2::Sha256;
 
+mod value;
+pub(crate) use value::CanonicalValue;
+
 /// A sink that canonical framing can be written into.
 ///
 /// Implemented for `Vec<u8>` (build-then-hash/sign) and [`Sha256`]

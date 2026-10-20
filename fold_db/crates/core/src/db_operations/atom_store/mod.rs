@@ -10,6 +10,8 @@
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
 //! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
+//! - [`retention`] — queue, slot directory and release of kept conflict records
+//! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
@@ -41,8 +43,10 @@ mod molecule_bindings;
 mod molecule_counters;
 mod molecule_ref_edges;
 mod molecules;
+mod retention;
 mod retired_intent_retention;
 mod schema_keys;
+mod time_queue;
 mod types;
 
 pub(crate) use atoms::SealedAtom;
@@ -57,6 +61,7 @@ pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
     RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
+pub(crate) use filter::SchemaKeyMembership;
 pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
@@ -64,6 +69,8 @@ pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
+pub use retention::ConflictRetentionReport;
+pub(crate) use retention::{Lane, RecordSlot, RetentionCursor};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };
@@ -215,6 +222,8 @@ pub struct AtomStore {
     counter_events: Arc<counter::CounterEvents>,
     /// Totals, the last queue reading and recent faults of the blob counters.
     blob_events: Arc<blob_counter::BlobEvents>,
+    /// The retention window of kept conflict records and the janitor report.
+    retention: Arc<retention::RetentionState>,
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,
@@ -251,6 +260,11 @@ impl AtomStore {
     #[must_use]
     pub fn blob_counter_report(&self) -> BlobCounterReport {
         self.blob_events.snapshot()
+    }
+
+    /// The retention window and the report of kept conflict records.
+    pub(crate) fn retention_state(&self) -> &retention::RetentionState {
+        &self.retention
     }
 
     /// The verifier state: the run in progress, the last result, the watch.

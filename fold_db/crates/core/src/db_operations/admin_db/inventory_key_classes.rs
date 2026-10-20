@@ -36,6 +36,21 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "conflict\0",
         "conflict:… — merge conflict records",
     ),
+    (
+        "retention_queue",
+        "crq:v1:",
+        "crq:v1:{bucket}\0{expires}:{record} — time-bucketed queue of kept conflict records (the janitor reads it)",
+    ),
+    (
+        "retention_bucket_directory",
+        "crb:v1\0",
+        "crb:v1\0{bucket} — one row for each bucket of the retention queue (the janitor lists it)",
+    ),
+    (
+        "retention_directory",
+        "crs:v1:",
+        "crs:v1:{M}\0{slot}\0{record} — slot directory of kept conflict records (a purge reads it)",
+    ),
     // Protein membership. Absent from this table until 2026-07-30, which
     // is why an orphan-protein leak grew unnoticed: each prefix is
     // scanned independently and there is no catch-all bucket, so an

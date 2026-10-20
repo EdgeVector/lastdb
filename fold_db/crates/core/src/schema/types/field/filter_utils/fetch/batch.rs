@@ -54,7 +54,7 @@ pub(crate) async fn fetch_field_atom_batches(
                     prefix,
                     batch.molecule.as_deref(),
                     &entry.0,
-                    &value,
+                    atom,
                 )
             })
             .await?;

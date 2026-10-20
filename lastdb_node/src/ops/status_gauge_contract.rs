@@ -629,6 +629,7 @@ fn default_status_snapshot(
         local_retention: crate::self_metrics::LocalRetentionHealth::default(),
         atom_counters: None,
         blob_counters: None,
+        conflict_retention: None,
         at_rest_compression: None,
         codec_policy: None,
     }

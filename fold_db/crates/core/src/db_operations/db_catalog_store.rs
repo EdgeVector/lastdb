@@ -160,7 +160,7 @@ pub async fn drop_prefixed_rows_for_instance(
             continue;
         };
         if crate::storage::current_keys::exact_scope(text)? == Some(instance_id) {
-            selected.push((key, value));
+            selected.push((instance_id.to_string(), key, value));
         }
     }
     drop_scoped_source_rows(atoms, main, selected).await
@@ -172,12 +172,23 @@ async fn current_scope_rows(
     end: &[u8],
 ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
     let mut rows = Vec::new();
+    let mut bytes = 0usize;
     let mut cursor: Option<crate::storage::traits::PhysicalScanCursor> = None;
     loop {
         let page = main
             .scan_range_physical_paged(start, end, cursor.as_ref(), 128, 1)
             .await?;
-        rows.extend(page.rows);
+        for (key, value) in page.rows {
+            // Planning must fit the complete native write budget before it
+            // retains another row body. Refusal leaves the entire scope intact.
+            bytes = bytes
+                .checked_add(160 + 2 * key.len() + value.len())
+                .filter(|bytes| *bytes <= 128 * 1024 * 1024 - 256)
+                .ok_or_else(|| StorageError::MutationLimit {
+                    detail: "complete database cleanup plan exceeds 128 MiB".into(),
+                })?;
+            rows.push((key, value));
+        }
         let Some(next) = page.next_cursor else { break };
         if cursor.as_ref() == Some(&next) {
             return Err(StorageError::BackendError(
@@ -189,54 +200,40 @@ async fn current_scope_rows(
     Ok(rows)
 }
 
-/// Rows of one scope that one native batch deletes with the blob counter changes
-/// of the same rows. A chunk stays far below the batch limit of an older home.
-const DROP_CHUNK: usize = 512;
-
-/// Delete the rows of a dropped scope, chunk by chunk. The caller read the rows
-/// without a gate, so a writer can change them before a chunk runs. A chunk reads
-/// its rows again inside the write gate and acts on what it finds: a row that is
-/// gone (a writer deleted it, and lowered its blob counters in that batch) lowers
-/// nothing again, and a row that changed lowers what it holds now. A row that a
-/// writer added after the walk is not in the chunk and stays, as before.
+/// Delete the rows of a dropped scope, and lower the blob counters that the
+/// rows held. The caller runs in the one native write scope of the catalog
+/// delete (`FoldDB::delete_catalog_membership`), and it read the rows inside that
+/// scope, so a writer cannot change a row between the read and the delete: the
+/// blob counters go down once for each row that goes. The blob counter changes
+/// join the same batch as the deletes. A scope too large for one native batch is
+/// refused before anything changes.
 async fn drop_scoped_source_rows(
     atoms: &super::AtomStore,
     main: &dyn crate::storage::traits::KvStore,
-    rows: Vec<(Vec<u8>, Vec<u8>)>,
+    rows: Vec<(String, Vec<u8>, Vec<u8>)>,
 ) -> StorageResult<usize> {
     let removed = rows.len();
-    let backend = |error: crate::schema::SchemaError| StorageError::BackendError(error.to_string());
-    for chunk in rows.chunks(DROP_CHUNK) {
-        atoms
-            .in_write_scope(async {
-                let store_error = |error: StorageError| {
-                    crate::schema::SchemaError::InvalidData(format!("drop scope rows: {error}"))
-                };
-                let keys: Vec<Vec<u8>> = chunk.iter().map(|(key, _)| key.clone()).collect();
-                let values = main.get_many(keys.clone()).await.map_err(store_error)?;
-                let current: Vec<(Vec<u8>, Vec<u8>)> = keys
-                    .into_iter()
-                    .zip(values)
-                    .filter_map(|(key, value)| value.map(|value| (key, value)))
-                    .collect();
-                let mut deltas = super::atom_store::blob_counter::BlobDeltas::default();
-                let unreadable = deltas.scope_rows_dropped(&current);
-                if unreadable > 0 {
-                    tracing::warn!(
-                        unreadable,
-                        "rows of a dropped scope do not decode; their blob counters stay too high until a recount"
-                    );
-                }
-                let blob_writes = atoms.blob_counter_mutations(deltas).await?;
-                let keys = current.into_iter().map(|(key, _)| key).collect();
-                main.batch_delete(keys).await.map_err(store_error)?;
-                if !blob_writes.is_empty() {
-                    main.batch_mutate(blob_writes).await.map_err(store_error)?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(backend)?;
+    let mut deltas = super::atom_store::blob_counter::BlobDeltas::default();
+    let unreadable =
+        deltas.scope_rows_dropped(rows.iter().map(|(_, key, value)| (&key[..], &value[..])));
+    if unreadable > 0 {
+        tracing::warn!(
+            unreadable,
+            "rows of a dropped scope do not decode; their blob counters stay too high until a recount"
+        );
+    }
+    let blob_writes = atoms
+        .blob_counter_mutations(deltas)
+        .await
+        .map_err(|error| StorageError::BackendError(error.to_string()))?;
+    // The catalog's outer native scope stages the deletes. A refusal or process
+    // stop before publication retains the rows, the counters and the catalog row.
+    for chunk in rows.chunks(2_048) {
+        main.batch_delete(chunk.iter().map(|(_, key, _)| key.clone()).collect())
+            .await?;
+    }
+    for chunk in blob_writes.chunks(1_024) {
+        main.batch_mutate(chunk.to_vec()).await?;
     }
     Ok(removed)
 }

@@ -234,7 +234,8 @@ fn now_nanos() -> u64 {
 
 /// Generates a deterministic molecule UUID from schema name and field name.
 ///
-/// Identity is SHA-256(`{schema}:{field}`), encoded as unpadded base64url.
+/// Identity is SHA-256 of the framed domain, schema and field tuple from
+/// [`molecule_uuid::molecule_uuid_digest`], encoded as unpadded base64url.
 /// Logical reads and writes use that exact string, without alternate spellings.
 pub fn deterministic_molecule_uuid(schema_name: &str, field_name: &str) -> String {
     molecule_uuid::encode_molecule_uuid_bytes(&molecule_uuid::molecule_uuid_digest(

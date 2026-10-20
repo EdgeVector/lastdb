@@ -69,6 +69,7 @@ impl AtomStore {
             keep_small_hard_erase_orphaned: Arc::default(),
             counter_events: Arc::default(),
             blob_events: Arc::default(),
+            retention: Arc::default(),
             counter_verify: Arc::default(),
             range_walks: Arc::default(),
             local_origin_device: Arc::default(),

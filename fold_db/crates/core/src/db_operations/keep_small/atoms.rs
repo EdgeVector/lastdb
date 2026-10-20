@@ -188,6 +188,22 @@ impl KeepSmallMeters {
         let _ = self.take_pending(atom_uuid);
     }
 
+    /// Drop the pending entries of one commit once its tip accounting ran.
+    ///
+    /// A commit's bodies include every atom its tips point at, written or
+    /// reused, so tip accounting reads them from this commit's entries. After
+    /// that, `last_tip_atom` holds what later readers need. Without this, the
+    /// map kept one entry per atom ever stored: measured 2026-10-20, about
+    /// two allocations per update that never left, and each burst of writes
+    /// held more allocator pages.
+    pub(crate) fn settle_pending_atoms<'a>(&self, atom_uuids: impl IntoIterator<Item = &'a str>) {
+        if let Ok(mut pending) = self.pending_atoms.lock() {
+            for atom_uuid in atom_uuids {
+                pending.remove(atom_uuid);
+            }
+        }
+    }
+
     /// Logical size of a live-head atom still in the in-process maps.
     ///
     /// Empty after hydrate: the durable snapshot is totals, not per-uuid.

@@ -99,8 +99,10 @@ impl AtomStore {
                 bodies,
                 body_source: Some(None),
                 records: Vec::new(),
+                releases: Vec::new(),
                 rows,
                 deletes: Vec::new(),
+                guarded_deletes: Vec::new(),
             })
             .await
             .map_err(|error| {
@@ -108,6 +110,8 @@ impl AtomStore {
             })?;
         self.account_stored_bodies(bodies, &commit);
         self.account_keep_small_items(&accounted);
+        self.keep_small
+            .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
         drop(publication_guards);
         drop(tip_guards);
 

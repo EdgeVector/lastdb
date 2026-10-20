@@ -35,17 +35,21 @@
 
 mod build;
 mod commit;
+mod guarded;
 mod molecule;
 mod molecule_plan;
 mod plan;
 mod read;
+mod records;
 mod recount;
 mod refs;
 mod report;
 mod scan;
 mod verify;
 
-pub(crate) use commit::{RecordRefs, TipChange, TipChangeSet, TipCommit};
+pub(crate) use commit::{
+    GuardedDelete, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
+};
 pub use molecule::counts_of_header;
 pub use molecule_plan::{MoleculeCounts, MoleculeFault};
 pub use read::AtomCounterView;
