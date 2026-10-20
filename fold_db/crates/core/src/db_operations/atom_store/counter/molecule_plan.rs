@@ -96,13 +96,11 @@ pub(super) fn plan_molecule(before: &Before, change: &Change) -> After {
 fn apply(stored: &mut u64, delta: i64) -> Result<(), MoleculeFault> {
     let magnitude = delta.unsigned_abs();
     if delta >= 0 {
-        match stored.checked_add(magnitude) {
-            Some(sum) => *stored = sum,
-            None => {
-                *stored = u64::MAX;
-                return Err(MoleculeFault::Overflow);
-            }
-        }
+        let Some(sum) = stored.checked_add(magnitude) else {
+            *stored = u64::MAX;
+            return Err(MoleculeFault::Overflow);
+        };
+        *stored = sum;
     } else if *stored >= magnitude {
         *stored -= magnitude;
     } else {
