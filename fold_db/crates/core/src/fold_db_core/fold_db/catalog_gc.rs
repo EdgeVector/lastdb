@@ -1,6 +1,7 @@
 use crate::db_operations::search_index::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::db_operations::{
-    drop_prefixed_rows_for_instance, referenced_instance_ids, UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, referenced_instance_ids, SchemaRecordKeysRequest,
+    UNPREFIXED_INSTANCE_ID,
 };
 use crate::error::FoldDbResult;
 use crate::schema::types::{KeyValue, Schema, SchemaError};
@@ -177,10 +178,7 @@ impl FoldDB {
         schema: &Schema,
         instance: &str,
     ) -> Result<IndexChangeBatch, SchemaError> {
-        let key_field = schema
-            .key
-            .as_ref()
-            .and_then(|key| key.hash_field.clone().or_else(|| key.range_field.clone()));
+        let key_field = schema.key.as_ref().and_then(|key| key.hash_field.clone());
         let Some(key_field) = key_field else {
             return Ok(IndexChangeBatch {
                 schema_name: schema_name.to_string(),
@@ -199,29 +197,54 @@ impl FoldDB {
                     .and_then(|field| field.inner.molecule_uuid().cloned())
             })
             .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(schema_name, &key_field));
-        let report = self
-            .db_ops()
-            .atoms()
-            .list_molecule_keys(&molecule, None, Some(instance))
-            .await?;
+        let mut schema = schema.clone();
+        for field in schema.runtime_fields.values_mut() {
+            field
+                .common_mut()
+                .set_storage_prefix(Some(instance.to_owned()));
+        }
+        let has_range = matches!(
+            schema.schema_type,
+            crate::schema::types::schema::DeclarativeSchemaType::HashRange
+        );
         let mut seen = HashSet::new();
-        let changes = report
-            .rows
-            .into_iter()
-            .filter_map(|row| {
-                let key = KeyValue::new(row.hash, row.range.filter(|range| !range.is_empty()));
-                (key.hash.is_some() || key.range.is_some())
-                    .then_some(key)
-                    .filter(|key| seen.insert(key.clone()))
-            })
-            .enumerate()
-            .map(|(index, key_value)| IndexChange {
-                mutation_id: format!("catalog-unshare-{schema_name}-{instance}-{index}"),
-                kind: IndexChangeKind::Tombstone,
-                key_value,
-                fields_and_values: HashMap::default(),
-            })
-            .collect();
+        let mut changes = Vec::new();
+        let mut cursor = None;
+        loop {
+            let request = SchemaRecordKeysRequest {
+                requested: schema_name,
+                schema_id: &schema.name,
+                limit: 128,
+                cursor: cursor.as_deref(),
+                hash_filter: None,
+            };
+            let (keys, next_cursor, has_more) = self
+                .list_schema_key_page(&schema, &key_field, &molecule, &request, Some(instance))
+                .await?;
+            for (hash, range) in keys {
+                let key_value = KeyValue::new(Some(hash), has_range.then_some(range));
+                if seen.insert(key_value.clone()) {
+                    changes.push(IndexChange {
+                        mutation_id: format!(
+                            "catalog-unshare-{schema_name}-{instance}-{}",
+                            changes.len()
+                        ),
+                        kind: IndexChangeKind::Tombstone,
+                        key_value,
+                        fields_and_values: HashMap::default(),
+                    });
+                }
+            }
+            if !has_more {
+                break;
+            }
+            if next_cursor.is_none() || next_cursor == cursor {
+                return Err(SchemaError::StorageRead {
+                    detail: "catalog removal key page did not advance".into(),
+                });
+            }
+            cursor = next_cursor;
+        }
         Ok(IndexChangeBatch {
             schema_name: schema_name.to_string(),
             searchable_fields: None,

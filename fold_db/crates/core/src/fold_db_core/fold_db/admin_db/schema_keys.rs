@@ -149,7 +149,7 @@ impl FoldDB {
     }
 
     /// Keep the field binding, membership proof, and physical refill in one read.
-    async fn list_schema_key_page(
+    pub(in crate::fold_db_core::fold_db) async fn list_schema_key_page(
         &self,
         schema: &Schema,
         key_field: &str,
