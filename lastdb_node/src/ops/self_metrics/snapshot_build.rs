@@ -93,7 +93,7 @@ pub(super) async fn build_snapshot(
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
         atom_counters: Some(host.db.atom_counter_report()),
-        conflict_retention: Some(host.db.conflict_retention_report()),
+        conflict_retention: Some(host.db.conflict_retention_report().await),
         at_rest_compression: Some(AtRestCompressionHealth::current()),
         codec_policy: Some(CodecPolicyHealth::current(&host.home)),
     }

@@ -38,8 +38,6 @@ const PAGE: usize = 64;
 const PAGES_PER_WAKE: usize = 256;
 /// The pause between two pages, so that a writer finds the gate free.
 const PAUSE_BETWEEN_PAGES: Duration = Duration::from_millis(20);
-/// The queue depth that the status counts up to.
-const DEPTH_CAP: usize = 1_000;
 /// A wake that reads the queue from its start, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
 
@@ -157,7 +155,7 @@ fn now_nanos() -> u64 {
     u64::try_from(now).unwrap_or(0)
 }
 
-/// One wake: release the due records page by page, then count the queue.
+/// One wake: release the due records page by page.
 async fn run_wake(db_ops: &DbOperations, stop: &AtomicBool, watermark: &mut Option<String>) {
     let atoms = db_ops.atoms();
     let mut released = 0u64;
@@ -211,6 +209,5 @@ async fn run_wake(db_ops: &DbOperations, stop: &AtomicBool, watermark: &mut Opti
             "conflict janitor released kept conflict records"
         );
     }
-    let depth = atoms.queue_depth(DEPTH_CAP).await.ok();
-    atoms.retention_state().note_run(released, depth, error);
+    atoms.retention_state().note_run(released, error);
 }

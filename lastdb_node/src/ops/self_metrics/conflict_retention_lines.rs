@@ -4,7 +4,7 @@ use super::*;
 ///
 /// The janitor releases a kept conflict record at the end of its retention
 /// window. The line shows the window, the janitor's last run, the queue depth
-/// at that run, and what the janitor and the purge released. Always emits one
+/// when the status was sampled, and what the janitor and the purge released. Always emits one
 /// line, so a daemon that predates the field reads differently from one with
 /// an empty queue.
 pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
@@ -31,12 +31,10 @@ pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String>
             report.last_run_released, report.runs
         )
     };
-    let depth = if report.runs == 0 {
-        "unknown until the first run".to_string()
-    } else if report.queue_depth_capped {
-        format!("{}+", report.queue_depth)
-    } else {
-        report.queue_depth.to_string()
+    let depth = match report.queue_depth {
+        None => "unknown".to_string(),
+        Some(depth) if report.queue_depth_capped => format!("{depth}+"),
+        Some(depth) => depth.to_string(),
     };
     let mut line = format!(
         "Conflict retention: window {} s; {janitor}; {last}; queue depth {depth}; released by janitor {}, by purge {}",

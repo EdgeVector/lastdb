@@ -57,9 +57,17 @@ impl FoldDB {
     }
 
     /// The retention window of kept conflict records, the janitor's last run,
-    /// and the queue depth at that run. A read of in-memory counters.
-    #[must_use]
-    pub fn conflict_retention_report(&self) -> crate::db_operations::ConflictRetentionReport {
-        self.db_ops().atoms().retention_state().snapshot()
+    /// and the queue depth (one bounded range read, counted up to 1,000).
+    pub async fn conflict_retention_report(&self) -> crate::db_operations::ConflictRetentionReport {
+        let atoms = self.db_ops().atoms();
+        let mut report = atoms.retention_state().snapshot();
+        if let Ok((depth, capped)) = atoms.queue_depth(CONFLICT_QUEUE_DEPTH_CAP).await {
+            report.queue_depth = Some(u64::try_from(depth).unwrap_or(u64::MAX));
+            report.queue_depth_capped = capped;
+        }
+        report
     }
 }
+
+/// The queue depth that the status counts up to.
+const CONFLICT_QUEUE_DEPTH_CAP: usize = 1_000;

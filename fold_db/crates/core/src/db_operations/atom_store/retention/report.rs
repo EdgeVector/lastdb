@@ -1,7 +1,7 @@
 //! The retention window, and what the janitor and the purge report.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// Env: how long a kept conflict record stays, in seconds.
@@ -40,8 +40,6 @@ pub(crate) struct RetentionState {
     released_by_purge: AtomicU64,
     undecodable: AtomicU64,
     purge_leftover: AtomicU64,
-    queue_depth: AtomicU64,
-    queue_depth_capped: AtomicBool,
     last_error: Mutex<Option<String>>,
 }
 
@@ -65,8 +63,6 @@ impl RetentionState {
             released_by_purge: AtomicU64::new(0),
             undecodable: AtomicU64::new(0),
             purge_leftover: AtomicU64::new(0),
-            queue_depth: AtomicU64::new(0),
-            queue_depth_capped: AtomicBool::new(false),
             last_error: Mutex::new(None),
         }
     }
@@ -96,13 +92,8 @@ impl RetentionState {
         self.purge_leftover.fetch_add(leftover, Ordering::Relaxed);
     }
 
-    /// One janitor wake: how many records it released and the queue depth.
-    pub(crate) fn note_run(
-        &self,
-        released: u64,
-        depth: Option<(usize, bool)>,
-        error: Option<String>,
-    ) {
+    /// One janitor wake: how many records it released, and why it stopped early.
+    pub(crate) fn note_run(&self, released: u64, error: Option<String>) {
         self.runs.fetch_add(1, Ordering::Relaxed);
         self.released_by_janitor
             .fetch_add(released, Ordering::Relaxed);
@@ -110,11 +101,6 @@ impl RetentionState {
         let now = chrono::Utc::now().timestamp_millis();
         self.last_run_unix_ms
             .store(u64::try_from(now).unwrap_or(0), Ordering::Relaxed);
-        if let Some((depth, capped)) = depth {
-            self.queue_depth
-                .store(u64::try_from(depth).unwrap_or(u64::MAX), Ordering::Relaxed);
-            self.queue_depth_capped.store(capped, Ordering::Relaxed);
-        }
         *self
             .last_error
             .lock()
@@ -132,8 +118,8 @@ impl RetentionState {
             released_by_purge: self.released_by_purge.load(Ordering::Relaxed),
             undecodable_rows: self.undecodable.load(Ordering::Relaxed),
             purge_leftover: self.purge_leftover.load(Ordering::Relaxed),
-            queue_depth: self.queue_depth.load(Ordering::Relaxed),
-            queue_depth_capped: self.queue_depth_capped.load(Ordering::Relaxed),
+            queue_depth: None,
+            queue_depth_capped: false,
             last_error: self
                 .last_error
                 .lock()
@@ -164,8 +150,9 @@ pub struct ConflictRetentionReport {
     /// Records a purge left for the janitor, because the key held more than
     /// the limit of one request.
     pub purge_leftover: u64,
-    /// Entries in the queue at the last wake, counted up to a limit.
-    pub queue_depth: u64,
+    /// Entries in the queue when the report was built, counted up to a limit.
+    /// `None` means the count failed.
+    pub queue_depth: Option<u64>,
     /// True when the queue holds at least `queue_depth` entries (the count
     /// stopped at its limit).
     pub queue_depth_capped: bool,
