@@ -1,0 +1,131 @@
+{
+  "reviewer": "mutation_contract_round9",
+  "scope": "Independent read-only audit of the saved ordinary OPE-final core cohort requests, responses, file receipts, and normal sessions.",
+  "candidate_source": "42b5102165e649f5348d1d055d2f91a598b29f8c",
+  "candidate_binary_sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e",
+  "receipt_sha256": "feb969d9702ff3162d6cde7ffc4cc52105ca7e494182ce331155917e46064d7a",
+  "core_cohort_status": "pass",
+  "overall_release_status": "not_accepted_diagnostic_proof_blocked",
+  "diagnostic_blocker": "The saved atom-liveness replies report empty edges and candidate status while data still references the atom. This diagnostic does not prove reference counts or cleanup. The parent assigned its native/scoped diagnostic repair.",
+  "diagnostic_evidence": [
+    "ordinary-ope-final/raw-http/current-010.json",
+    "ordinary-ope-final/raw-http/current-015.json",
+    "ordinary-ope-final/raw-http/current-019.json",
+    "ordinary-ope-final/raw-http/reopened-044.json"
+  ],
+  "counts": {
+    "read_operations": 74,
+    "actual_query_responses": 386,
+    "complete_records": 3363,
+    "field_values_atom_and_molecule_ids": 13452,
+    "required_zero_file_reads": 29,
+    "complete_concurrent_responses": 36,
+    "write_receipts": 12,
+    "flush_receipts": 12,
+    "empty_queue_receipts": 6,
+    "native_status_receipts": 22,
+    "normal_clean_sessions": 5
+  },
+  "method": "Actual request keys, exact membership, all four generated values, atom UUIDs, molecule UUIDs, range order, response completeness, write counts and ack modes are checked from saved bytes. The review computes values and identities directly and does not trust the helper match flag.",
+  "concurrent_results": {
+    "20": 12,
+    "21": 12,
+    "22": 12
+  },
+  "concurrent_limit": "Each response contains one complete permitted old or new state. Ordinary scheduling does not force a captured-view instruction boundary.",
+  "writes": [
+    {
+      "phase": "new-complete-queued-batch",
+      "count": 128,
+      "revision": 1038,
+      "durability": "queued"
+    },
+    {
+      "phase": "warm-partial-update",
+      "count": 128,
+      "revision": 1039,
+      "durability": "queued"
+    },
+    {
+      "phase": "mixed-independent-delete-update-create",
+      "count": 8,
+      "revision": 1040,
+      "durability": "durable"
+    },
+    {
+      "phase": "separately-acknowledged-delete",
+      "count": 2,
+      "revision": 1041,
+      "durability": "durable"
+    },
+    {
+      "phase": "reinsert-after-delete-ack",
+      "count": 2,
+      "revision": 1042,
+      "durability": "queued"
+    },
+    {
+      "phase": "new-complete-durable-batch",
+      "count": 32,
+      "revision": 2067,
+      "durability": "durable"
+    },
+    {
+      "phase": "no-prior-value-complete-replacement",
+      "count": 32,
+      "revision": 3092,
+      "durability": "queued"
+    },
+    {
+      "phase": "complete-delete-before-explicit-flush",
+      "count": 32,
+      "revision": 3093,
+      "durability": "durable"
+    },
+    {
+      "phase": "concurrent-initial-create",
+      "count": 64,
+      "revision": 4117,
+      "durability": "queued"
+    },
+    {
+      "phase": "concurrent-complete-update",
+      "count": 64,
+      "revision": 4118,
+      "durability": "queued"
+    },
+    {
+      "phase": "concurrent-complete-update",
+      "count": 64,
+      "revision": 4119,
+      "durability": "queued"
+    },
+    {
+      "phase": "concurrent-complete-update",
+      "count": 64,
+      "revision": 4120,
+      "durability": "queued"
+    }
+  ],
+  "clock_recreation_results": {
+    "final-clock-values": {
+      "file": "ordinary-ope-final/raw-http/current-038.json",
+      "c1": {
+        "id": "c1",
+        "payload": "after-delete"
+      }
+    },
+    "reopen-batch": {
+      "file": "ordinary-ope-final/raw-http/reopened-043.json",
+      "c1": {
+        "id": "c1",
+        "payload": "after-delete"
+      }
+    }
+  },
+  "clock_observability_limit": "Query metadata exposes no per-field author time or logical counter. This audit cannot compare those fields with receipt revision numbers.",
+  "session_file_sha256": "e7830fe461e7cc3d68a18e3a24f1b8f70f37ad5531ea6ae02f9620532f1a225d",
+  "session_evidence": "The retained synthetic home contains five clean completed sessions for g42b510216. Each later session records its prior clean exit. Receipts also show default native starts, cloud off, exit code zero, and no forced stop.",
+  "errors": [],
+  "boundary": "This report accepts only the stated saved core cohort evidence. It does not accept the overall release or the unresolved diagnostic proof."
+}

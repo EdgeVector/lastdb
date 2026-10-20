@@ -355,17 +355,4 @@ impl AtomStore {
         }
         Ok(out)
     }
-
-    /// Read active reverse edges for one candidate atom.
-    pub async fn atom_ref_edges_for_atom(
-        &self,
-        atom_uuid: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<AtomRefEdgeLookup, SchemaError> {
-        let edges = self
-            .active_atom_ref_edges_for_atom(atom_uuid, storage_prefix)
-            .await?;
-        let complete = self.atom_ref_v2_reads_ready().await?;
-        Ok(AtomRefEdgeLookup { complete, edges })
-    }
 }

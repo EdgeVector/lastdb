@@ -221,14 +221,14 @@ impl FieldVariant {
         .await
     }
 
-    /// Stamp molecule identity; keyed fields retain each selected tip's writer.
+    /// Stamp stable molecule identity; keyed fields retain the selected writer.
+    /// Partial molecule counters describe the read's materialization, not the
+    /// selected logical record, so query metadata does not expose them.
     pub(crate) fn stamp_molecule_meta(&self, resolved: &mut HashMap<KeyValue, FieldValue>) {
         let mol_uuid = self.common().molecule_uuid().cloned();
-        let mol_version = self.molecule_version();
         let mol_writer_pubkey = self.molecule_writer_pubkey();
         for fv in resolved.values_mut() {
             fv.molecule_uuid = mol_uuid.clone();
-            fv.molecule_version = mol_version;
             if let Some(pk) = mol_writer_pubkey.clone() {
                 fv.writer_pubkey = Some(pk);
             }

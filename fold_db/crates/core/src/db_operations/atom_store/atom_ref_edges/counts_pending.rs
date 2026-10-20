@@ -12,9 +12,7 @@ impl AtomStore {
         atom_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> Result<u64, SchemaError> {
-        let key = atom_live_ref_count_key(atom_uuid, storage_prefix);
-        self.main_store
-            .get_item::<AtomLiveRefCount>(&key)
+        self.atom_live_ref_count_record(atom_uuid, storage_prefix)
             .await
             // An old atom can have live tips without a complete counter.
             // Treat it as retained until an exact count is rebuilt.
@@ -26,9 +24,24 @@ impl AtomStore {
                     u64::MAX
                 }
             })
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("load atom live reference count: {error}"))
-            })
+    }
+
+    /// Return the stored exactness flag without mapping unknown counts to a
+    /// numeric sentinel. A missing record is not an observed zero count.
+    pub async fn atom_live_ref_count_record(
+        &self,
+        atom_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<Option<AtomLiveRefCount>, SchemaError> {
+        let mut rows = self
+            .atom_live_ref_count_rows(&[atom_uuid.to_owned()], storage_prefix)
+            .await?;
+        if rows.len() != 1 {
+            return Err(SchemaError::InvalidData(
+                "atom count lookup returned misaligned slots".into(),
+            ));
+        }
+        Ok(rows.pop().expect("validated one count slot"))
     }
 
     /// Read the count records of many atoms in one batch. `None` means the

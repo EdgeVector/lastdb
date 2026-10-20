@@ -1,0 +1,497 @@
+{
+  "base_manifest": {
+    "path": "docs/proofs/native-boundary-review-20261019/before-identity.json",
+    "sha256": "c4bd1e51c7bfe4382c0daea4692b1d74964bff02447d837914a71f34d6c26f6b"
+  },
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "binary_sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e",
+  "branch_at_capture": "fix/native-contract-round10",
+  "build": {
+    "command": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "--timeout",
+      "600",
+      "--",
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "feature_arguments": [],
+    "host_settings": {
+      "environment": {
+        "AR": null,
+        "CARGO_BUILD_JOBS": null,
+        "CARGO_BUILD_TARGET": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_INCREMENTAL": null,
+        "CARGO_TARGET_DIR": null,
+        "CC": null,
+        "CFLAGS": null,
+        "CXX": null,
+        "CXXFLAGS": null,
+        "LDFLAGS": null,
+        "MACOSX_DEPLOYMENT_TARGET": null,
+        "RUSTC": null,
+        "RUSTC_WORKSPACE_WRAPPER": null,
+        "RUSTC_WRAPPER": null,
+        "RUSTFLAGS": null,
+        "RUSTUP_TOOLCHAIN": null,
+        "RUST_MIN_STACK": null,
+        "SCCACHE_DISABLE": null,
+        "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+      },
+      "external_config_inputs": {
+        "/Users/tomtang/.cargo/config.toml": {
+          "bytes": 1804,
+          "sha256": "7d77c98e55bcb03544522c0538660d8dae49682d0cd625416b78fe26427ff751"
+        },
+        "/Users/tomtang/.rustup/settings.toml": {
+          "bytes": 638,
+          "sha256": "c6eadecb58fb52813b4875a490207964f9096a507d35d195e3de2f85ade7a61c"
+        }
+      },
+      "machine": "arm64",
+      "memory_bytes": 38654705664,
+      "processor": "Apple M4 Max",
+      "system": "macOS-26.5.2-arm64-arm-64bit",
+      "tools": {
+        "cargo": {
+          "path": "/Users/tomtang/.cargo/bin/cargo",
+          "realpath": "/Users/tomtang/.cargo/bin/rustup",
+          "version": "cargo 1.96.1 (356927216 2026-06-26)\nrelease: 1.96.1\ncommit-hash: 356927216a2d746168cf76e5e88cc3f4b58e029d\ncommit-date: 2026-06-26\nhost: aarch64-apple-darwin\nlibgit2: 1.9.2 (sys:0.20.4 vendored)\nlibcurl: 8.7.1 (sys:0.4.87+curl-8.19.0 system ssl:(SecureTransport) LibreSSL/3.3.6)\nssl: OpenSSL 3.5.4 30 Sep 2025\nos: Mac OS 26.5.2 [64-bit]"
+        },
+        "rustc": {
+          "path": "/Users/tomtang/.cargo/bin/rustc",
+          "realpath": "/Users/tomtang/.cargo/bin/rustup",
+          "version": "rustc 1.96.1 (31fca3adb 2026-06-26)\nbinary: rustc\ncommit-hash: 31fca3adb283cc9dfd56b49cdee9a96eb9c96ffd\ncommit-date: 2026-06-26\nhost: aarch64-apple-darwin\nrelease: 1.96.1\nLLVM version: 22.1.2"
+        }
+      }
+    },
+    "locked": true,
+    "profile": "release"
+  },
+  "captured_utc": "2026-10-20T01:07:32.202372+00:00",
+  "changed_inputs_since_prior": [
+    "fold_db/crates/core/src/atom/molecule_hash_range/import.rs",
+    "fold_db/crates/core/src/atom/molecule_hash_range/merge.rs",
+    "fold_db/crates/core/src/atom/molecule_hash_range/ops.rs",
+    "fold_db/crates/core/src/atom/molecule_hash_range/overlay.rs",
+    "fold_db/crates/core/src/db_operations/atom_store/molecules/store.rs",
+    "fold_db/crates/core/src/db_operations/atom_store/molecules/store/items.rs",
+    "fold_db/crates/core/src/db_operations/mod.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/aggregate/apply_source/reads.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas_current_state.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas_idempotency.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/dedupe.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/field_atom.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/protein_delete.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/cloud_entry.rs",
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/layout.rs",
+    "fold_db/crates/core/src/fold_db_core/purge/absent.rs",
+    "fold_db/crates/core/src/fold_db_core/query/formatter.rs",
+    "fold_db/crates/core/src/fold_db_core/query/query_executor.rs",
+    "fold_db/crates/core/src/json_order.rs",
+    "fold_db/crates/core/src/resident/core_keys.rs",
+    "fold_db/crates/core/src/resident/core_keys/domain.rs",
+    "fold_db/crates/core/src/schema/types/author_clock.rs",
+    "fold_db/crates/core/src/schema/types/field/filter_utils/fetch.rs",
+    "fold_db/crates/core/src/schema/types/field/variant/access.rs",
+    "fold_db/crates/core/src/schema/types/field/variant/read/resolve.rs",
+    "fold_db/crates/core/src/schema/types/field/variant/value.rs",
+    "fold_db/crates/core/src/schema/types/operations/mod.rs",
+    "fold_db/crates/core/src/sharing/delivery_wire/types.rs",
+    "fold_db/crates/core/src/sharing/query_slice/builder.rs",
+    "fold_db/crates/core/src/storage/disk_pack/rows.rs",
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys.rs",
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys/load.rs",
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys/publication.rs",
+    "lastdb_host/src/handlers/mutation.rs",
+    "lastdb_host/src/handlers/mutation/batch.rs",
+    "lastdb_host/src/handlers/query/paging.rs",
+    "lastdb_node/src/exec/batch_mutation_routes.rs",
+    "lastdb_node/src/exec/query_mutation_routes.rs",
+    "lastdb_uds/src/worker_pool.rs",
+    "vendor/laststore/src/disk_pack/tree.rs"
+  ],
+  "discovery": {
+    "build_helpers": [
+      "scripts/ci/with-fold-host-cargo-lock.sh",
+      "scripts/ci/lib/host-cargo-lock.py"
+    ],
+    "explicit_root_files": [
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain",
+      "rust-toolchain.toml",
+      "build.rs",
+      "rustfmt.toml",
+      ".rustfmt.toml",
+      "clippy.toml",
+      ".clippy.toml"
+    ],
+    "explicit_roots": [
+      ".cargo",
+      "app_identity_crypto",
+      "env_flag",
+      "fold_db",
+      "folddb_profile",
+      "lastdb_host",
+      "lastdb_identity",
+      "lastdb_node",
+      "lastdb_uds",
+      "schema_service",
+      "vendor"
+    ],
+    "git_inventory": "cached + untracked; ignored excluded",
+    "scope_limit": "Conservative repository superset. Cargo.lock identifies registry dependencies; installed registry source bytes are not copied.",
+    "selection": "Prior inputs plus Rust/Cargo/build and source/assets/resources in explicit roots."
+  },
+  "final_verification": {
+    "binary_sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e",
+    "binary_sha256_matches": true,
+    "checked_utc": "2026-10-20T01:11:25.833391+00:00",
+    "host_settings_match": true,
+    "passed": true,
+    "previous_attempt_identities_match": true,
+    "prior_identity_matches": true,
+    "removed_prior_inputs_match": true,
+    "source_input_count": 1892,
+    "source_mismatches": []
+  },
+  "finalized_utc": "2026-10-20T01:11:25.833391+00:00",
+  "full_local_manifest_sha256": "17639812a9370ae5ed2d10c524f208700d0cb40f039724dfabdfcaa1bea49e65",
+  "head_at_capture": "42b5102165e649f5348d1d055d2f91a598b29f8c",
+  "identity_helpers": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/source_identity.py": {
+      "bytes": 4725,
+      "sha256": "d326e5582fb933b3e4607b4bd985b8be691a4efc6b67bb0a5f1f985f5874e928"
+    },
+    "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-memory-completion-20261018/source_identity.py": {
+      "bytes": 10259,
+      "sha256": "29aa86f75e416408ea32d10b19b55f706e0239cffdb367ec5fa5dd167d7fe361"
+    }
+  },
+  "new_inputs_since_prior": [
+    "fold_db/crates/core/src/db_operations/logical_membership.rs",
+    "lastdb_uds/src/worker_pool/dispatch.rs"
+  ],
+  "origin_main_at_capture": "b585e66a6189a41330b4b229034d758e2ac3c2ed",
+  "previous_attempt": {
+    "binary_sha256": null,
+    "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/final/source-identity.json",
+    "manifest_sha256": "df9e991a9aa59eefb25e1ef6c0cab464691a0543ca5d041b480bbf06d336f52e",
+    "role": "Retained earlier native cutover attempt; its operational result remains separate.",
+    "source_inventory_sha256": "5f35e7afa08f6fb8c851fd0e64a33a6d07685062aee894d7dc7f305bd87c57b4"
+  },
+  "prior_binary_sha256": "cdbabbee5b79238469d805226c60b9092e4fdebf9b9d98ebc92d86aae50f2a4c",
+  "prior_identity_role": "Historical PR232 input inventory only; earlier round10 attempts remain separate. No old home is used.",
+  "prior_source_identity": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-boundary-review-20261019/built-source-inputs/release-source.json",
+  "prior_source_identity_sha256": "47bbeb8a1a5eb856c7db5ee632a465fe00d8b102a3bf6811540e04b39c8d6dbc",
+  "prior_source_input_count": 1890,
+  "removed_base_inputs": [],
+  "removed_prior_inputs": [],
+  "source_delta": {
+    "fold_db/crates/core/src/atom/molecule_hash_range/import.rs": {
+      "bytes": 6200,
+      "sha256": "a0051ccaebee64b2cbf9bd59925cf5f6103ff962a38b6d46c4bdc05229643acf"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/merge.rs": {
+      "bytes": 3811,
+      "sha256": "5657daf14d0a333c1b42a485b425e0ea9669b77f608b79fef2b4bd2562f4d9f3"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/ops.rs": {
+      "bytes": 7798,
+      "sha256": "3af2d876eadbc1b9dda2ab642b9f4fa27d38b13d3ad8d06da48fd5d81bc497e2"
+    },
+    "fold_db/crates/core/src/atom/molecule_hash_range/overlay.rs": {
+      "bytes": 1146,
+      "sha256": "88f024c23304c4b8c5291f8e3a5d1a990ce987cc6d6e08004af84db9265db0fa"
+    },
+    "fold_db/crates/core/src/db_operations/atom_store/molecules/store.rs": {
+      "bytes": 3122,
+      "sha256": "b78d01cda07736d1a33399b1fc39fc161c6e384ca7d050133c133698bb59d8b2"
+    },
+    "fold_db/crates/core/src/db_operations/atom_store/molecules/store/items.rs": {
+      "bytes": 9530,
+      "sha256": "8f0786932e155944f968fec88c68673eba5b0526566b01adb00a4a9e900484f9"
+    },
+    "fold_db/crates/core/src/db_operations/core/row_drops.rs": {
+      "bytes": 7080,
+      "sha256": "6c1ef957bacd8c5e88db14f1d4287376affc9a9e0dd2250fcf6479cb0de25510"
+    },
+    "fold_db/crates/core/src/db_operations/logical_membership.rs": {
+      "bytes": 4410,
+      "sha256": "d2dd7d60f7d6ee85d87cd6a2209be2d4824635f7af2ccf5a1022683cb4521ced"
+    },
+    "fold_db/crates/core/src/db_operations/mod.rs": {
+      "bytes": 6511,
+      "sha256": "b979d445a242dd74cb23c45b09c7129b155ca235c43c5eeb61b54814a23a38aa"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/aggregate/apply_source/reads.rs": {
+      "bytes": 11406,
+      "sha256": "8cc8d8ff132d620efb12508198b1893409dbfed59e830dc45e9a331ae8722701"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs": {
+      "bytes": 13040,
+      "sha256": "227063c882bf888ed3005989690b3232956b2f602fa3e7265eb02a93526fbc26"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas.rs": {
+      "bytes": 11766,
+      "sha256": "79056fab987a9ee2bbc99da8169b31502d8ff4e62a98770ec7bd6e7d6e1a698c"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas/association.rs": {
+      "bytes": 8104,
+      "sha256": "6371f2dd5766c74ba640fae0e9d1d368c7021b711cae7902b6557519d54395fd"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas/coordinates.rs": {
+      "bytes": 3928,
+      "sha256": "d478f7f049c234260318597e54a661dd79bfe8821dbe9041dadcffea813f8c71"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas_current_state.rs": {
+      "bytes": 10504,
+      "sha256": "4295e8cf49aab0f86186f4edb24023d7293124c0b11c2c2297f3d196ad609d6b"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/cas_idempotency.rs": {
+      "bytes": 5466,
+      "sha256": "dff42ce6942c8a8350934096f147dda8f5f1a05601ec8147fe0c4c40026b3f97"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/dedupe.rs": {
+      "bytes": 5412,
+      "sha256": "121a70b8fe3018178f42c4328af7ebd922837daa564a26b2da6fe1213c371446"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/field_atom.rs": {
+      "bytes": 1628,
+      "sha256": "7c2617e7bba0f630e56afc089517c3f4d596b4751e2bee06dea2bdff3250cd63"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/key_moves.rs": {
+      "bytes": 4757,
+      "sha256": "21319034517ad486ee8cd1c2e6c5581fd88bf92c67341fe82585d0ed071b30fc"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/protein_delete.rs": {
+      "bytes": 6773,
+      "sha256": "7334cdf85239bc9ae192a3f142772c74220c9ce17ae49c7571a0dd0b13f13288"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/purge_job.rs": {
+      "bytes": 9210,
+      "sha256": "75161c2c849880f34f210432516b696ff34d18e7ff2c8f5f92ca197327f84be6"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/prepared.rs": {
+      "bytes": 1222,
+      "sha256": "72503a9c968c9b47bf9b5880b769c5d557ecd02e31e8b1b08d13aed078424453"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/protein_key_fields.rs": {
+      "bytes": 6885,
+      "sha256": "5a7ba8713fa69e4d90918f96a114d4cde71f59c9f1a44716b9a83732a9365eb5"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/protein_moves.rs": {
+      "bytes": 10337,
+      "sha256": "5190ad628c85d2ddd65bd3430df147adeca487f2a5d9327ed83fca8460c60b7c"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/protein_moves/requests.rs": {
+      "bytes": 8109,
+      "sha256": "0b9a9ff408e77c9ceec73c3ee757089e9764a17825a2e8376517c3c55e79c658"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/cloud_entry.rs": {
+      "bytes": 6996,
+      "sha256": "6a2bb1d037d94c49ac12b2f146891b07530586569bfcbe850bc608c9d072b179"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/create_update_batch/prepare.rs": {
+      "bytes": 8751,
+      "sha256": "3cae1b28407387bcdf211a943c5ca43680f24c4cfe1bc9f23d51fb9abb1f53a4"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/erasure.rs": {
+      "bytes": 15772,
+      "sha256": "0bec85818e3f2c94e67dfc7b03acc8aa8883ca61f120952a89b1b63ded9f4f15"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/hard_erasure.rs": {
+      "bytes": 11739,
+      "sha256": "42511012cf3bf3ad22171553af1031d1e18b0c37dcdd1c94e8a190dc949054d1"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/layout.rs": {
+      "bytes": 2968,
+      "sha256": "1adceff71a9fabbf9ad80513223a198c23aac0fd864fe377fafe89d0f264e48a"
+    },
+    "fold_db/crates/core/src/fold_db_core/mutation_manager/write/native.rs": {
+      "bytes": 7485,
+      "sha256": "322478aab0ffe080991d0576d9b951f0a3a4ad7276dde86d58a9d312ed7694b1"
+    },
+    "fold_db/crates/core/src/fold_db_core/purge/absent.rs": {
+      "bytes": 1612,
+      "sha256": "0ab1d68efd53f13eea4bb910d9422431fd43cc44697a6965bd8e13265be8bb75"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/formatter.rs": {
+      "bytes": 2733,
+      "sha256": "f7e58356d1dcc160042b791c7990b8ac377cd7dab2f17e7836efb5dd64a09f0f"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query.rs": {
+      "bytes": 6856,
+      "sha256": "f6d1da1a0ca817fa8030bbc3096983158c1c7c12a7439719bf742de169087d92"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/cokey_primary.rs": {
+      "bytes": 3936,
+      "sha256": "acc9e9cb6cb6e5d33cf21d9d0f5ecbe2ec129a4d03e5fbbb99e6f6a35a48b28d"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/count.rs": {
+      "bytes": 9002,
+      "sha256": "450c1264c9945059117784d6d8ef19cc1b518df7412e46dc2ad6343d26a3d983"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/inspection.rs": {
+      "bytes": 12250,
+      "sha256": "27d636c3bf5b547454334d202f1393ad85e1eddfeae64c57167a096872a3cd80"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/layout.rs": {
+      "bytes": 1709,
+      "sha256": "26cd5877db6d34126bbf7b744423b55364ab4af9cd1d74468ff53dfb91fc69e4"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/paging.rs": {
+      "bytes": 3286,
+      "sha256": "215835e74dc06a253c2eebc1104688f4157b1a940b28ffbe9fcfeb6ff02c9b79"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/primary_selection.rs": {
+      "bytes": 1700,
+      "sha256": "246c36f1326d4843369ce1cbe1c5b25c2ebad1df60f47618beef0e665e3bd4e4"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/resolve.rs": {
+      "bytes": 7546,
+      "sha256": "f104f0d1b0ff205b833a3f2880b4da62dde4542630e80980c9383cbb81858a60"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/hash_range_query/shares.rs": {
+      "bytes": 3547,
+      "sha256": "782ed78435c29e003d91b32d177b5d61656494a4f766bcf959e679990c8b671a"
+    },
+    "fold_db/crates/core/src/fold_db_core/query/query_executor.rs": {
+      "bytes": 11612,
+      "sha256": "1794a4bd1e4202c62e74c05b93b1de3c0668dd3a901f7a860dd1eb7b02e40974"
+    },
+    "fold_db/crates/core/src/json_order.rs": {
+      "bytes": 4384,
+      "sha256": "2ae40960b0b62fc9209f73eecb7d1353dfe623ea9ff2360e374e5bb6a3b30942"
+    },
+    "fold_db/crates/core/src/resident/core_keys.rs": {
+      "bytes": 2875,
+      "sha256": "8ad11cdf7add9225ca00837ca30fc2484b55ce2c09555236aea70f7e0b6dae81"
+    },
+    "fold_db/crates/core/src/resident/core_keys/domain.rs": {
+      "bytes": 7871,
+      "sha256": "8bbad517488539b0b999009f4894e8c384ec797667d0cfdd503cb6ca8286f030"
+    },
+    "fold_db/crates/core/src/schema/types/author_clock.rs": {
+      "bytes": 4312,
+      "sha256": "00e7d80beadb7e19c298f07214997a392e478b8f5bddb34b06902f6b6a44c538"
+    },
+    "fold_db/crates/core/src/schema/types/field/filter_utils/fetch.rs": {
+      "bytes": 5218,
+      "sha256": "a6fac842da9584111c57356643b64d5ef981ca46d1cf4c0bcd9f516fbbc69c8d"
+    },
+    "fold_db/crates/core/src/schema/types/field/hash_range_filter.rs": {
+      "bytes": 11153,
+      "sha256": "a307c089ff8f12333a6c21979d042792dc74eadfde5d8903c233e6ca4862664f"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/access.rs": {
+      "bytes": 3169,
+      "sha256": "ffc0ad1b37b0dba52ae29a976f13e9c97783a71001a9fc45b370cc95f161ddc6"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/read/named_window.rs": {
+      "bytes": 8226,
+      "sha256": "8f645001fe83421bb298b8426a6c8b43c7b564da2e58c73f348cfd554295c175"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/read/resolve.rs": {
+      "bytes": 9358,
+      "sha256": "97eae6901415778e5ce6fd5807a999d1ab953e7755e1498eb15e2dc3011c7054"
+    },
+    "fold_db/crates/core/src/schema/types/field/variant/value.rs": {
+      "bytes": 1108,
+      "sha256": "37c1833acfa218242b58c256f166ae5b853419bbc16c9099d36e353f44d0c3f1"
+    },
+    "fold_db/crates/core/src/schema/types/operations/mod.rs": {
+      "bytes": 15350,
+      "sha256": "35083c506b91ef46e42b03aa72890fb68e971bd6d9ab645954885bd10c3cb1a6"
+    },
+    "fold_db/crates/core/src/sharing/delivery_wire/types.rs": {
+      "bytes": 6260,
+      "sha256": "3502a59077f16f058d284ef0249134f5bde9a56eadf4e209056e60ca2da2cb0c"
+    },
+    "fold_db/crates/core/src/sharing/query_slice/builder.rs": {
+      "bytes": 3302,
+      "sha256": "8ecc5fa62ef839e4b6dcdaff78e2ec4b335511da0657c2ecea3f04bacc72f0bd"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/rows.rs": {
+      "bytes": 11103,
+      "sha256": "aa99ac2596c5bc023f741b83c3e83869f947b5184d897d742b3e75cc0c205dc6"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys.rs": {
+      "bytes": 8101,
+      "sha256": "c017f8dcfa696ee06634e3420481719f5b14b526ac6bd570e8620a911ecf1813"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys/load.rs": {
+      "bytes": 14822,
+      "sha256": "a05ed4832dd9dd8926ccac75c7a6299dfa23bf2be6162a676ccca9014ebbbebc"
+    },
+    "fold_db/crates/core/src/storage/disk_pack/schema_keys/publication.rs": {
+      "bytes": 9682,
+      "sha256": "8c3c54d576215a906b078a60e16355c966f7594d6a1365c6b7165050205c19c8"
+    },
+    "lastdb_host/src/handlers/mutation.rs": {
+      "bytes": 13256,
+      "sha256": "4a28190424712b3411d4c5012e0a9a48d3309ab093803c4753fa5d33f6c11f2d"
+    },
+    "lastdb_host/src/handlers/mutation/batch.rs": {
+      "bytes": 8808,
+      "sha256": "0d027052d5ade2ed599eba372bd4470ac1f88df86a337e85bfd9e1d3ccfe32c5"
+    },
+    "lastdb_host/src/handlers/query.rs": {
+      "bytes": 8592,
+      "sha256": "d6d2b2ea3556425fcae67a9c24712af9ba58c50000831381e7a28857905e7e0d"
+    },
+    "lastdb_host/src/handlers/query/paging.rs": {
+      "bytes": 9911,
+      "sha256": "ed2179db1b073884518b439f2ac8de85be1311460293dc54d80895d52686f89a"
+    },
+    "lastdb_host/src/handlers/query/plan.rs": {
+      "bytes": 13499,
+      "sha256": "cc8fc19022154bf79f0fba26d9bfa5d361e39c40cbc25e6fd5f55bdabc7afb1f"
+    },
+    "lastdb_node/src/exec/batch_mutation_routes.rs": {
+      "bytes": 6899,
+      "sha256": "6619074e22a4c0f964bd819f7149a15f01f302c95203768e7829d1d6bb130f3c"
+    },
+    "lastdb_node/src/exec/query_mutation_routes.rs": {
+      "bytes": 11943,
+      "sha256": "a5c49de81d4a0ffae0f7155215e35cc134bf54ba7f1d2b462a0d78908d650bd3"
+    },
+    "lastdb_node/src/ops/self_metrics/snapshot_build.rs": {
+      "bytes": 13692,
+      "sha256": "15966552a4fdf71ad4e1ff316b0fb1f2ded7260c5b8e831ce577ba7366bced8a"
+    },
+    "lastdb_node/src/ops/self_metrics/snapshot_memory.rs": {
+      "bytes": 6099,
+      "sha256": "30d65ebc2bbeed75c2cbfa81668bfee4fc8c8c010498618533a12d46bd97187f"
+    },
+    "lastdb_uds/src/worker_pool.rs": {
+      "bytes": 14970,
+      "sha256": "fa309721bc77b8cf9d4c3873d1e4155c4271f4e39fb7918dea71e658fbe304b4"
+    },
+    "lastdb_uds/src/worker_pool/dispatch.rs": {
+      "bytes": 4047,
+      "sha256": "1a31abc6d6ac498500d6dcaa1a08a7de3a0d96c26e77c82251b97e2d09604c08"
+    },
+    "vendor/laststore/src/disk_pack/tree.rs": {
+      "bytes": 7567,
+      "sha256": "80e97a1b1070e01a5e6ccf562f6efbad4999d18e7c3d15a39ad2d290cd4e53df"
+    }
+  },
+  "source_input_count": 1892,
+  "source_inputs_verified_after_build": 1892,
+  "source_inventory_sha256": "4a66f0aaa79899a7e952c478ddfbb87ad8b4d0836553de0c4f1ef20c92003060",
+  "source_mismatches_after_build": [],
+  "source_root": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016",
+  "state": "release_verified",
+  "tree_at_capture": "2e0f8d4c42623d74634ebde42787c941b988ad43",
+  "version": 1
+}

@@ -34,21 +34,16 @@ impl AtomStore {
             let incoming = tips.remove(&key).expect("eligible tip must exist");
             let mut incoming_loses = false;
             if let Some(current) = durable.as_ref() {
-                let legacy_last_write =
-                    is_legacy_zero_clock(&incoming.entry) && is_legacy_zero_clock(&current.entry);
-                incoming_loses = !legacy_last_write
-                    && !crate::atom::incoming_wins_lww(
-                        incoming.entry.lww_key(),
-                        current.entry.lww_key(),
-                    );
-                if !legacy_last_write {
-                    decisions.extend(self.durable_tip_decision(
-                        &key,
-                        &incoming.entry,
-                        &current.entry,
-                        !incoming_loses,
-                    ));
-                }
+                incoming_loses = !crate::atom::incoming_wins_lww(
+                    incoming.entry.lww_key(),
+                    current.entry.lww_key(),
+                );
+                decisions.extend(self.durable_tip_decision(
+                    &key,
+                    &incoming.entry,
+                    &current.entry,
+                    !incoming_loses,
+                ));
             }
             if incoming_loses {
                 continue;
@@ -102,14 +97,10 @@ impl AtomStore {
                     slot.insert(incoming);
                 }
                 std::collections::hash_map::Entry::Occupied(mut slot) => {
-                    let legacy_last_write = is_legacy_zero_clock(&incoming.entry)
-                        && is_legacy_zero_clock(&slot.get().entry);
-                    if legacy_last_write
-                        || crate::atom::incoming_wins_lww(
-                            incoming.entry.lww_key(),
-                            slot.get().entry.lww_key(),
-                        )
-                    {
+                    if crate::atom::incoming_wins_lww(
+                        incoming.entry.lww_key(),
+                        slot.get().entry.lww_key(),
+                    ) {
                         slot.insert(incoming);
                     }
                 }

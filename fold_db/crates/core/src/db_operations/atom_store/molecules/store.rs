@@ -21,10 +21,6 @@ fn tip_item_keys(items: &[(String, Value)]) -> Vec<String> {
         .collect()
 }
 
-fn is_legacy_zero_clock(entry: &crate::atom::AtomEntry) -> bool {
-    entry.written_at == 0 && entry.logical_counter == 0 && entry.mutation_uuid.is_empty()
-}
-
 /// Product molecule store must never emit `ref:{M}` whole-molecule blobs.
 ///
 /// Those keys map to the cold `legacy_blob_refs` collection. Create/update

@@ -181,7 +181,6 @@ impl CoreKeyDomain {
             CoreKeyPhase::Loading => "loading",
             CoreKeyPhase::Ready => "ready",
             CoreKeyPhase::DiskOnly => "disk_only",
-            CoreKeyPhase::Failed => "failed",
             CoreKeyPhase::Retired => "retired",
         };
         Ok(CoreKeyDomainStats {

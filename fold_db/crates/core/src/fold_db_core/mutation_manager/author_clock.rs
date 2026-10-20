@@ -232,7 +232,7 @@ async fn run_author_clock_persist_queue(
 }
 
 impl MutationManager {
-    /// Stamp one local operation clock and observe imported author clocks.
+    /// Stamp local mutations in caller order and observe imported author clocks.
     ///
     /// The resident state and a bounded persist slot are reserved before
     /// mutation apply. The caller submits the state before resident apply and
@@ -267,10 +267,11 @@ impl MutationManager {
         let mut state = *resident_state;
         let mut changed = false;
 
-        // One caller batch is one logical operation. Observe every imported
-        // clock first, then allocate one local clock value for all local
-        // mutations in the operation. The mutation id remains the stable
-        // per-item tie-break and stays covered by each signature.
+        // Observe imported clocks before reserving consecutive local write
+        // times in caller order. Local mutations keep one batch counter, so
+        // the receipt remains their common revision. Their distinct times
+        // prevent a repeated key from choosing its winner by random UUID.
+        // Imported signatures and clocks remain unchanged.
         for mutation in mutations.iter() {
             if let Some(written_at) = mutation.imported_written_at {
                 if !verify_mutation_author_clock(mutation) {
@@ -285,24 +286,29 @@ impl MutationManager {
             }
         }
 
-        let has_local = mutations
+        let local_count = mutations
             .iter()
-            .any(|mutation| mutation.imported_written_at.is_none());
-        let local_clock = if has_local {
-            Some(state.advance_local(unix_nanos()).ok_or_else(|| {
-                SchemaError::InvalidData("mutation author-clock counter exhausted".into())
-            })?)
-        } else {
+            .filter(|mutation| mutation.imported_written_at.is_none())
+            .count();
+        let mut local_clock = if local_count == 0 {
             None
+        } else {
+            Some(
+                state
+                    .advance_local_batch(unix_nanos(), local_count)
+                    .ok_or_else(|| {
+                        SchemaError::InvalidData("mutation author-clock range exhausted".into())
+                    })?,
+            )
         };
         for mutation in mutations {
             if mutation.imported_written_at.is_some() {
                 continue;
             }
-            let (written_at, logical_counter) =
-                local_clock.expect("local clock exists when a local mutation exists");
+            let (times, logical_counter) = local_clock.as_mut().expect("reserved local clocks");
+            let written_at = times.next().expect("one reserved time per local mutation");
             mutation.imported_written_at = Some(written_at);
-            mutation.logical_counter = logical_counter;
+            mutation.logical_counter = *logical_counter;
             mutation.author_clock_writer_id = local_writer_id.clone();
             mutation.origin_device = local_origin_device.clone();
             mutation.author_clock_signature_version =

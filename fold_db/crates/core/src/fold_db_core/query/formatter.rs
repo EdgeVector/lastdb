@@ -14,8 +14,6 @@ pub struct FieldMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub molecule_uuid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub molecule_version: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writer_pubkey: Option<String>,
 }
 
@@ -59,7 +57,6 @@ pub fn records_from_field_map(
                     source_file_name: field_val.source_file_name.clone(),
                     metadata: field_val.metadata.clone(),
                     molecule_uuid: field_val.molecule_uuid.clone(),
-                    molecule_version: field_val.molecule_version,
                     writer_pubkey: field_val.writer_pubkey.clone(),
                 },
             );

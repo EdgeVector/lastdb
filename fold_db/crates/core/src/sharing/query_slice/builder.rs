@@ -81,7 +81,6 @@ impl SliceBuilder {
                     field_name: field_name.clone(),
                     atom_ref: atom.atom_ref.clone(),
                     molecule_uuid: fv.molecule_uuid.clone(),
-                    molecule_version: fv.molecule_version,
                     writer_pubkey: fv.writer_pubkey.clone(),
                     signature: None,
                 });

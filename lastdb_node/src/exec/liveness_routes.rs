@@ -26,74 +26,103 @@ pub(super) async fn execute_liveness_explain_route(
     let class = request.class.trim().to_ascii_lowercase();
     let id = request.id.trim();
     let atoms = host.db.db_ops().atoms();
-    let result: Result<(bool, serde_json::Value), fold_db::error::FoldDbError> =
-        match class.as_str() {
-            "atom" => atoms
-                .atom_ref_edges_for_atom(id, None)
-                .await
-                .and_then(|lookup| {
-                    serde_json::to_value(lookup.edges)
-                        .map(|edges| (lookup.complete, edges))
-                        .map_err(|error| {
-                            fold_db::schema::SchemaError::InvalidData(format!(
-                                "serialize atom liveness edges: {error}"
-                            ))
-                        })
-                })
-                .map_err(fold_db::error::FoldDbError::Schema),
-            "molecule" => atoms
-                .molecule_ref_edges_for_molecule(id, None)
-                .await
-                .and_then(|lookup| {
-                    serde_json::to_value(lookup.edges)
-                        .map(|edges| (lookup.complete, edges))
-                        .map_err(|error| {
-                            fold_db::schema::SchemaError::InvalidData(format!(
-                                "serialize molecule liveness edges: {error}"
-                            ))
-                        })
-                })
-                .map_err(fold_db::error::FoldDbError::Schema),
-            "blob" => atoms
-                .blob_ref_edges_for_blob(id, None)
-                .await
-                .and_then(|lookup| {
-                    serde_json::to_value(lookup.edges)
-                        .map(|edges| (lookup.complete, edges))
-                        .map_err(|error| {
-                            fold_db::schema::SchemaError::InvalidData(format!(
-                                "serialize blob liveness edges: {error}"
-                            ))
-                        })
-                })
-                .map_err(fold_db::error::FoldDbError::Schema),
-            _ => return error_response(400, "class must be atom, molecule, or blob", ctx),
-        };
+    if !matches!(class.as_str(), "atom" | "molecule" | "blob") {
+        return error_response(400, "class must be atom, molecule, or blob", ctx);
+    }
+    // A named handle can map each schema to a different storage instance.
+    // This target-only diagnostic has no schema with which to resolve it.
+    if ctx.db_locator.is_some() {
+        return error_response(
+            400,
+            "liveness explain requires the default owner scope; named database schema mappings are unsupported",
+            ctx,
+        );
+    }
+    let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
 
     match result {
-        Ok((complete, edges)) => {
-            let active_edges = edges.as_array().map_or(0, Vec::len);
-            let reclaim_state = if !complete {
+        Ok(references) => {
+            let reclaim_state = if !references.complete {
                 "blocked_index_incomplete"
-            } else if active_edges > 0 {
+            } else if references.active_references.is_some_and(|count| count > 0) {
                 "blocked_active_edges"
             } else {
                 "candidate"
             };
+            let mut report = serde_json::json!({
+                "class": class,
+                "id": id,
+                "complete": references.complete,
+                "active_references": references.active_references,
+                "reclaim_state": reclaim_state,
+            });
+            if let Some(edges) = references.edges {
+                report["edges"] = edges;
+            }
             json_ok(&envelope(
-                &serde_json::json!({
-                    "liveness": {
-                        "class": class,
-                        "id": id,
-                        "complete": complete,
-                        "reclaim_state": reclaim_state,
-                        "edges": edges,
-                    }
-                }),
+                &serde_json::json!({ "liveness": report }),
                 ctx.user_id.as_str(),
             ))
         }
-        Err(error) => mapped_error_response("liveness explain failed", error, ctx),
+        Err(error) => mapped_error_response("liveness explain failed", error.into(), ctx),
+    }
+}
+
+struct LivenessReferences {
+    complete: bool,
+    active_references: Option<u64>,
+    edges: Option<serde_json::Value>,
+}
+
+impl LivenessReferences {
+    fn with_edges<T: serde::Serialize>(
+        complete: bool,
+        edges: Vec<T>,
+    ) -> Result<Self, fold_db::schema::SchemaError> {
+        let active_references = Some(edges.len() as u64);
+        let edges = serde_json::to_value(edges).map_err(|error| {
+            fold_db::schema::SchemaError::InvalidData(format!("serialize liveness edges: {error}"))
+        })?;
+        Ok(Self {
+            complete,
+            active_references,
+            edges: Some(edges),
+        })
+    }
+}
+
+async fn read_liveness_references(
+    class: &str,
+    id: &str,
+    storage_prefix: Option<&str>,
+    atoms: &fold_db::db_operations::AtomStore,
+) -> Result<LivenessReferences, fold_db::schema::SchemaError> {
+    match class {
+        "atom" => {
+            let count = atoms.atom_live_ref_count_record(id, storage_prefix).await?;
+            let active_references = count
+                .filter(|count| count.exact)
+                .map(|count| count.live_refs);
+            Ok(LivenessReferences {
+                complete: atoms.atom_ref_v2_reads_ready().await? && active_references.is_some(),
+                active_references,
+                // Compact markers do not retain reconstructable edge details.
+                edges: None,
+            })
+        }
+        "molecule" => {
+            let lookup = atoms
+                .molecule_ref_edges_for_molecule(id, storage_prefix)
+                .await?;
+            LivenessReferences::with_edges(lookup.complete, lookup.edges)
+        }
+        "blob" => {
+            let lookup = atoms.blob_ref_edges_for_blob(id, storage_prefix).await?;
+            LivenessReferences::with_edges(lookup.complete, lookup.edges)
+        }
+        _ => Err(fold_db::schema::SchemaError::InvalidData(
+            "class must be atom, molecule, or blob".into(),
+        )),
     }
 }
 

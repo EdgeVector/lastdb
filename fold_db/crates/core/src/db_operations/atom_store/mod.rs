@@ -46,9 +46,9 @@ mod tip_version_backrefs;
 mod types;
 
 pub use atom_ref_edges::{
-    AtomLiveRefCount, AtomRefEdge, AtomRefEdgeLookup, AtomRefEdgeType, AtomRefHistoryUpgrade,
-    AtomRefMoleculeManifest, PendingAtomRef, ATOM_REF_MANIFEST_VERSION_HISTORY,
-    ATOM_REF_MANIFEST_VERSION_TIPS, ATOM_REF_V2_ACTIVE_MARKER,
+    AtomLiveRefCount, AtomRefEdge, AtomRefEdgeType, AtomRefHistoryUpgrade, AtomRefMoleculeManifest,
+    PendingAtomRef, ATOM_REF_MANIFEST_VERSION_HISTORY, ATOM_REF_MANIFEST_VERSION_TIPS,
+    ATOM_REF_V2_ACTIVE_MARKER,
 };
 pub(crate) use atom_ref_gc::automatic_gc_audit_id;
 pub use atom_ref_gc::{

@@ -2,7 +2,7 @@
 use super::super::read::ReadContext;
 use super::*;
 use crate::atom::molecule_key_codec::{decode_hash_range_any, molecule_record_prefix};
-use crate::resident::core_keys::{CoreKeyPhase, KeyVisibility};
+use crate::resident::core_keys::KeyVisibility;
 
 impl PackRuntime {
     pub(super) fn check_key_encoding(
@@ -53,17 +53,6 @@ impl PackRuntime {
             let phase = *receiver.borrow_and_update();
             match phase {
                 Phase::Ready | Phase::DiskOnly => return Ok(()),
-                Phase::Failed => {
-                    return Err(SchemaError::InvalidData(
-                        entry
-                            .state
-                            .lock()
-                            .expect("key failure")
-                            .reason
-                            .clone()
-                            .unwrap_or_else(|| "schema key load failed".into()),
-                    ))
-                }
                 Phase::Unloaded => {
                     self.start_key_load(Arc::clone(&db_ops), Arc::clone(&entry))
                         .await?;
@@ -361,29 +350,18 @@ impl PackRuntime {
         {
             return;
         }
-        let resource = matches!(
-            error,
-            SchemaError::ReadResourceLimit { .. } | SchemaError::WriteResourceLimit { .. }
-        );
-        let phase = if resource {
-            Phase::DiskOnly
-        } else {
-            Phase::Failed
-        };
-        let domain_phase = if resource {
-            CoreKeyPhase::DiskOnly
-        } else {
-            CoreKeyPhase::Failed
-        };
-        let _ = domain.set_unavailable(domain_phase, "load_refused");
+        // Preload is optional. Discard incomplete membership and let the
+        // required disk read report its own I/O or decoding errors.
+        let _ = domain.retire("load_refused");
         self.core
             .lock()
             .expect("key load detach")
             .detach_keys(entry.id.0.as_deref(), &entry.id.1);
         state.domain = None;
         state.changes.clear();
+        state.has_generation = None;
         state.reason = Some(error.to_string());
-        entry.phase.send_replace(phase);
+        entry.phase.send_replace(Phase::DiskOnly);
     }
 }
 

@@ -92,13 +92,12 @@ pub(crate) fn field_value_from_atom(
     key_meta: Option<crate::atom::KeyMetadata>,
     writer_pubkey: Option<String>,
 ) -> FieldValue {
-    // Prefer molecule per-key metadata, fall back to atom metadata
+    // A selected tip owns its complete optional metadata. An explicit None
+    // clears that field; it must not inherit an older atom body's metadata.
+    // Without a key-metadata record, the atom's own metadata is the only
+    // available source (including direct molecule and physical atom reads).
     let (source_file_name, metadata) = match key_meta {
-        Some(km) => (
-            km.source_file_name
-                .or_else(|| atom.source_file_name().cloned()),
-            km.metadata.or_else(|| atom.metadata().cloned()),
-        ),
+        Some(km) => (km.source_file_name, km.metadata),
         None => (atom.source_file_name().cloned(), atom.metadata().cloned()),
     };
     // Populate `written_at` from the atom's creation timestamp
@@ -119,7 +118,6 @@ pub(crate) fn field_value_from_atom(
         source_file_name,
         metadata,
         molecule_uuid: None,
-        molecule_version: None,
         // Per-key writer_pubkey looked up from the molecule's
         // AtomEntry. For Hash/Range/HashRange variants this is
         // the only place writer_pubkey gets surfaced (the

@@ -1,0 +1,182 @@
+{
+  "accepted_runtime_semantics": false,
+  "actual_reclaim_executed": false,
+  "all_roots_retained_after_preview": true,
+  "candidate_binary_sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174",
+  "candidate_commit": "fb5e65dbd49ed73ee964c2bdcb08033f6eb588dc",
+  "candidate_outcome": "Not accepted. Initial OPE/plain requests contain request errors. OPE-v2 observer aborts on a supported text refusal. OPE-v3/plain-v3 expose a missing c1.id after Delete then same-value-key Update. Normal stop and copy identity do not establish semantic correctness.",
+  "limits": [
+    "No node interaction, source edit, build, or test ran.",
+    "This review establishes copy identity and cleanup preflight only; it does not claim the failed candidate passes runtime semantics."
+  ],
+  "operation_helper_identity_manifest": {
+    "bytes": 2069,
+    "sha256": "bb5663d2542105647ec5b9e2fa3b1dc534ca0dc6518e5a2fa39773fa0c90ae00"
+  },
+  "private_copy_checks": [
+    {
+      "creator_pid": 6516,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "inputs_identity": {
+        "bytes": 1664,
+        "sha256": "3f6a546ea800dd1c337f760fdec511fe093591d5f0ee3d52bb770e557dee177a"
+      },
+      "marker_identity": {
+        "bytes": 122,
+        "sha256": "f131103401fede1ce8a691984c62a119a2a3c71f9cbcbfadcfadb1c11e2ed841"
+      },
+      "normal_unforced_session_count": 5,
+      "private_binary": {
+        "bytes": 67949680,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2rf10qiv/program-lastdbd",
+        "sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-ope",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2rf10qiv",
+      "sealed_receipt_count": 28
+    },
+    {
+      "creator_pid": 8797,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "exit_codes": [
+        0,
+        0
+      ],
+      "inputs_identity": {
+        "bytes": 1669,
+        "sha256": "62abba56a716bcd74d69c9e7cd9d498481546f6c3bd448a2d04fdd9f01d3be2c"
+      },
+      "marker_identity": {
+        "bytes": 122,
+        "sha256": "5041ddd272e6114e3b218714ecdea1345fd8c35b9ef8a5936f18087a4e973dec"
+      },
+      "normal_unforced_session_count": 2,
+      "private_binary": {
+        "bytes": 67949680,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xtkctp4k/program-lastdbd",
+        "sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-plain",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xtkctp4k",
+      "sealed_receipt_count": 28
+    },
+    {
+      "creator_pid": 9436,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "exit_codes": [
+        0
+      ],
+      "inputs_identity": {
+        "bytes": 1671,
+        "sha256": "f13c8790425d8339806493632d93ff81fc2a25324542e638f51528aa1b790d72"
+      },
+      "marker_identity": {
+        "bytes": 122,
+        "sha256": "8bbaa884e411c40abc5ec803e378ea016ff99bd4eb128f82e650fcd6e6278bd2"
+      },
+      "normal_unforced_session_count": 1,
+      "private_binary": {
+        "bytes": 67949680,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eyal9b3n/program-lastdbd",
+        "sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-ope-v2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eyal9b3n",
+      "sealed_receipt_count": 18
+    },
+    {
+      "creator_pid": 15470,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "inputs_identity": {
+        "bytes": 1675,
+        "sha256": "d4fe628eb171f2652d6910abae8abbfa58d3330117209423e6c3b2286be5e95b"
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "1b20aa58e09760561a36af08916ff9d98cbe98db6a492549681fc4845f7e95ad"
+      },
+      "normal_unforced_session_count": 5,
+      "private_binary": {
+        "bytes": 67949680,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gbd5lgyg/program-lastdbd",
+        "sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-ope-v3",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gbd5lgyg",
+      "sealed_receipt_count": 49
+    },
+    {
+      "creator_pid": 24059,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "exit_codes": [
+        0,
+        0
+      ],
+      "inputs_identity": {
+        "bytes": 1662,
+        "sha256": "a6d779ebdc462f95427b39f99fc7db9053871d517edb81ae397182c180397778"
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "ebf8fd71f8183a32c14bbf5308b98b9c5de86c5890e3601e820c0de79b4b741b"
+      },
+      "normal_unforced_session_count": 2,
+      "private_binary": {
+        "bytes": 67949680,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.v8ymqsmo/program-lastdbd",
+        "sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-plain-v3",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.v8ymqsmo",
+      "sealed_receipt_count": 49
+    }
+  ],
+  "ready_for_root_cleanup_review": true,
+  "reviewed_utc": "2026-10-20T00:59:09.023206+00:00",
+  "seal_identity": {
+    "bytes": 59105,
+    "sha256": "b4fef42711426ccfb5f83260dafc9a1e394637e2df00305d1e4e2700162497a1"
+  },
+  "sealed_original_receipt_files_verified": 172,
+  "supported_cleanup_preview_file": "docs/proofs/native-contract-review-20261019/old-candidate-cleanup-previews.json",
+  "supported_cleanup_preview_identity": {
+    "bytes": 4248,
+    "sha256": "dcc8062cbd96e2c05dbba9badee24de751a153bfeb0a8572f2c6aeaf68286bf9"
+  },
+  "unchanged_helper_count_verified": 11,
+  "version": 1
+}

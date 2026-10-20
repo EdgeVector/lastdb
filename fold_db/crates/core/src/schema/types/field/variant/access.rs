@@ -63,12 +63,6 @@ impl FieldVariant {
         Ok(())
     }
 
-    /// Returns the current molecule version, if a molecule is present.
-    #[must_use]
-    pub fn molecule_version(&self) -> Option<u64> {
-        self.molecule.as_ref().map(MoleculeData::version)
-    }
-
     /// Returns the writer public key from a Single molecule, if present and non-empty.
     #[must_use]
     pub fn molecule_writer_pubkey(&self) -> Option<String> {

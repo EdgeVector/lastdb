@@ -78,17 +78,16 @@ impl MutationManager {
         })
     }
 
-    /// A content-hash idempotency hit is only safe to skip when the
-    /// targeted molecule heads already match the mutation's expected atoms.
+    /// A prior mutation-content hash also requires matching current values.
+    /// Atom UUID equality below checks only the source schema and value;
+    /// it does not compare the tip's author clock or per-key metadata.
     ///
     /// Without this state check, Create(A) → Delete → Create(A) is misread as
     /// a duplicate of the first Create and the live heads stay dead. The atom
     /// UUIDs are content-addressed, so reapplying the second Create still
-    /// reuses the original atom; it just advances the molecule heads back to
-    /// it. After Delete the overlay is serving truth while the catalog still
-    /// names atom A, so the helper must consult that overlay the same way
-    /// [`Self::read_current_head`] does — otherwise a catalog-only comparison
-    /// skips the retry.
+    /// reuses the original atom and advances its tip with the new author clock.
+    /// The helper reads current logical tips, including accepted changes that
+    /// still await flush. A disk-only comparison could skip the retry.
     ///
     /// Only Create/Update reach here: `write_mutations_batch_async` peels both
     /// hard-erasure verbs off before the idempotency filter runs.

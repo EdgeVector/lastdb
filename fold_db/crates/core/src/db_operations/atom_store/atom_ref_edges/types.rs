@@ -2,14 +2,6 @@
 
 use super::*;
 
-/// Candidate-atom lookup. Absence is authoritative only when `complete` is
-/// true and every referenced molecule manifest is also complete.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AtomRefEdgeLookup {
-    pub complete: bool,
-    pub edges: Vec<AtomRefEdge>,
-}
-
 /// Per-molecule cutover gate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AtomRefMoleculeManifest {

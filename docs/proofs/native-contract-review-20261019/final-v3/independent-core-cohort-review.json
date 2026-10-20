@@ -1,0 +1,143 @@
+{
+  "reviewer": "mutation_contract_round9",
+  "scope": "Independent read-only audit of ordinary OPE-accepted core cohort request and response bytes, read receipts, source identity, and retained session records.",
+  "source_commit": "6aa67e6ceb30a4e854eca3779601d12d828d78f8",
+  "source_git_tree": "28f1fc2d5944c7b94ddff612274320fd26d1c774",
+  "candidate_binary_sha256": "3f1e0fdac6b55c776ad02a19f562cc5b60b30b936cba4d5712459171e2e0f9c2",
+  "source_identity": "Run input, release identity, current Git head/tree, actual release binary bytes, and private executable receipt agree.",
+  "receipt_sha256": "edea5b75a67af2e8c17b03308089a7d0b8e114de4a292241f6a404a6ccdd3cd9",
+  "core_cohort_status": "pass",
+  "overall_release_status": "not_assessed_focused_review_pending",
+  "counts": {
+    "read_operations": 74,
+    "actual_query_responses": 386,
+    "complete_records": 3363,
+    "field_values_atom_and_molecule_ids": 13452,
+    "required_zero_file_reads": 29,
+    "complete_concurrent_responses": 36,
+    "write_receipts": 12,
+    "explicit_flush_receipts": 12,
+    "empty_queue_receipts": 6,
+    "native_status_receipts": 22,
+    "normal_clean_sessions": 5
+  },
+  "method": "The review computes all four generated field values, atom identities, and molecule identities directly. It checks actual requested keys, exact membership, range order, response completeness, write counts and acknowledgement modes. It does not trust the helper match flag.",
+  "concurrent_revisions": {
+    "20": 12,
+    "21": 12,
+    "22": 12
+  },
+  "concurrent_limit": "Each concurrent response contains one complete permitted old or new state. Ordinary scheduling does not force a captured-view instruction boundary.",
+  "write_receipts": [
+    {
+      "phase": "new-complete-queued-batch",
+      "count": 128,
+      "revision": 1039,
+      "durability": "queued"
+    },
+    {
+      "phase": "warm-partial-update",
+      "count": 128,
+      "revision": 1040,
+      "durability": "queued"
+    },
+    {
+      "phase": "mixed-independent-delete-update-create",
+      "count": 8,
+      "revision": 1041,
+      "durability": "durable"
+    },
+    {
+      "phase": "separately-acknowledged-delete",
+      "count": 2,
+      "revision": 1042,
+      "durability": "durable"
+    },
+    {
+      "phase": "reinsert-after-delete-ack",
+      "count": 2,
+      "revision": 1043,
+      "durability": "queued"
+    },
+    {
+      "phase": "new-complete-durable-batch",
+      "count": 32,
+      "revision": 2068,
+      "durability": "durable"
+    },
+    {
+      "phase": "no-prior-value-complete-replacement",
+      "count": 32,
+      "revision": 3093,
+      "durability": "queued"
+    },
+    {
+      "phase": "complete-delete-before-explicit-flush",
+      "count": 32,
+      "revision": 3094,
+      "durability": "durable"
+    },
+    {
+      "phase": "concurrent-initial-create",
+      "count": 64,
+      "revision": 4118,
+      "durability": "queued"
+    },
+    {
+      "phase": "concurrent-complete-update",
+      "count": 64,
+      "revision": 4119,
+      "durability": "queued"
+    },
+    {
+      "phase": "concurrent-complete-update",
+      "count": 64,
+      "revision": 4120,
+      "durability": "queued"
+    },
+    {
+      "phase": "concurrent-complete-update",
+      "count": 64,
+      "revision": 4121,
+      "durability": "queued"
+    }
+  ],
+  "recreated_key": {
+    "final-clock-values": {
+      "id": "c1",
+      "payload": "after-delete"
+    },
+    "reopen-batch": {
+      "id": "c1",
+      "payload": "after-delete"
+    }
+  },
+  "reference_diagnostic_observations": [
+    {
+      "label": "reference-initial",
+      "active_references": 1
+    },
+    {
+      "label": "reference-after-update",
+      "active_references": 1
+    },
+    {
+      "label": "reference-after-clear",
+      "active_references": 1
+    },
+    {
+      "label": "reference-after-delete",
+      "active_references": 0
+    },
+    {
+      "label": "reference-reopened",
+      "active_references": 0
+    }
+  ],
+  "reference_diagnostic_scope": "The five exact atom observations return 1,1,1,0,0 with complete counts and the corresponding reclaim class. This review does not claim a physical cleanup or inspect another active run.",
+  "session_sha256": "3ad82c8e8f78abbb8a4269f744f329b04c311678a07824851f452e76ef065c59",
+  "session_evidence": "The retained synthetic home contains five clean completed sessions for g6aa67e6ce. Every later session records the prior clean exit. Start and stop receipts agree and retain default native selection with cloud off.",
+  "clock_observability_limit": "Query field metadata exposes no author time or logical counter, so this audit cannot compare those fields with receipt revisions.",
+  "errors": [],
+  "boundary": "Only this OPE core cohort and the stated saved diagnostic observations pass here. The separate focused review remains the other agent responsibility."
+}

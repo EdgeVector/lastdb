@@ -1,0 +1,1 @@
+{"error":"a required key is missing from the request body","key":"type","kind":"missing_required_key","ok":false,"try":["{\"type\":\"mutation\",\"schema\":\"<Schema>\",\"fields_and_values\":{\"<field>\":\"<value>\"},\"key_value\":{\"hash\":\"<key>\",\"range\":null},\"mutation_type\":\"create\"}   # mutation_type: create, update, delete  (purge = legacy must-exist alias)"]}
