@@ -109,10 +109,30 @@ impl KeepSmallMeters {
         self.mark_schema_dirty(self.molecule_schema(molecule_uuid).as_deref());
     }
 
+    /// Bytes of the molecule's header row as last counted. A molecule has one
+    /// header row, so this is the old size when the write path replaces it.
+    #[must_use]
+    pub fn molecule_header_bytes(&self, molecule_uuid: &str) -> u64 {
+        self.molecules
+            .lock()
+            .ok()
+            .and_then(|counters| {
+                counters
+                    .get(molecule_uuid)
+                    .map(|counter| counter.molecule_metadata_bytes)
+            })
+            .unwrap_or(0)
+    }
+
     /// Remove one current tip contribution after its source row is durably
-    /// absent. Missing source state fails closed.
-    pub fn record_molecule_tip_delete(&self, molecule_uuid: &str, tip_key: &str, tip_bytes: u64) {
-        let source = self.last_tip_atom(tip_key);
+    /// absent. `source` is the removed tip's atom size, from the commit that
+    /// removed it. Missing source state fails closed.
+    pub fn record_molecule_tip_delete(
+        &self,
+        molecule_uuid: &str,
+        source: Option<&MoleculeTipCounterSource>,
+        tip_bytes: u64,
+    ) {
         let Ok(mut counters) = self.molecules.lock() else {
             self.mark_molecule_counters_incomplete();
             return;

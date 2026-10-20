@@ -124,17 +124,13 @@ impl KeepSmallMeters {
         })
     }
 
-    /// Known logical contribution for an atom that is already a current tip.
+    /// Logical contribution of an atom that the current commit wrote or
+    /// reused. A commit lists every atom its tips name, so tip accounting
+    /// finds each one here.
     #[must_use]
     pub fn known_atom_contribution(&self, atom_uuid: &str) -> Option<(u64, u64)> {
-        if let Some((atom, blob, complete)) = self.pending_atom_contribution(atom_uuid) {
-            return complete.then_some((atom, blob));
-        }
-        self.last_tip_atom.lock().ok().and_then(|map| {
-            map.values()
-                .find(|source| source.atom_uuid == atom_uuid)
-                .map(|source| (source.atom_value_bytes, source.blob_reference_bytes))
-        })
+        let (atom, blob, complete) = self.pending_atom_contribution(atom_uuid)?;
+        complete.then_some((atom, blob))
     }
 
     /// Decrement live atom bytes when a **live-head** atom is deleted.
@@ -191,8 +187,8 @@ impl KeepSmallMeters {
     /// Drop the pending entries of one commit once its tip accounting ran.
     ///
     /// A commit's bodies include every atom its tips point at, written or
-    /// reused, so tip accounting reads them from this commit's entries. After
-    /// that, `last_tip_atom` holds what later readers need. Without this, the
+    /// reused, so tip accounting reads them from this commit's entries. Later
+    /// commits learn old atom sizes from the atom counters. Without this, the
     /// map kept one entry per atom ever stored: measured 2026-10-20, about
     /// two allocations per update that never left, and each burst of writes
     /// held more allocator pages.
@@ -202,20 +198,5 @@ impl KeepSmallMeters {
                 pending.remove(atom_uuid);
             }
         }
-    }
-
-    /// Logical size of a live-head atom still in the in-process maps.
-    ///
-    /// Empty after hydrate: the durable snapshot is totals, not per-uuid.
-    #[must_use]
-    pub fn live_atom_bytes(&self, atom_uuid: &str) -> Option<u64> {
-        if let Some(bytes) = self.pending_atom_bytes(atom_uuid) {
-            return Some(bytes);
-        }
-        self.last_tip_atom.lock().ok().and_then(|map| {
-            map.values()
-                .find(|source| source.atom_uuid == atom_uuid)
-                .map(|source| source.atom_value_bytes)
-        })
     }
 }

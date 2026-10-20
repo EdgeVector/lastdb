@@ -47,11 +47,12 @@ pub(super) async fn build_mutations(
                 commit.created.push(offer.atom);
                 Some(CounterEvent::Created)
             }
-            AtomPlan::Delete { blobs } => {
+            AtomPlan::Delete { blobs, size } => {
                 removals.extend(delete_removals(scope, &atom, &blobs));
                 commit.deleted.push(DeletedAtom {
                     uuid: atom.clone(),
                     blobs,
+                    size,
                 });
                 Some(CounterEvent::Deleted)
             }

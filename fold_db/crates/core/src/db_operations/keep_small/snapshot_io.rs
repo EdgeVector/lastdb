@@ -18,29 +18,15 @@ impl KeepSmallMeters {
     #[must_use]
     pub fn export(&self) -> KeepSmallSnapshot {
         let molecules = self.molecules.lock().map(|m| m.clone()).unwrap_or_default();
-        let molecule_tip_sources = self
-            .last_tip_atom
-            .lock()
-            .map(|m| m.clone())
-            .unwrap_or_default();
-        let expected_sources = molecules
-            .values()
-            .map(|counter| counter.active_slot_count)
-            .sum::<u64>();
-        let source_state_complete = self.molecule_counters_complete()
-            && expected_sources == molecule_tip_sources.len() as u64;
+        // The source state of a tip is its durable row and its atom counter,
+        // which the write path reads; the snapshot holds no per-key copy.
+        let source_state_complete = self.molecule_counters_complete();
         KeepSmallSnapshot {
             totals: self.snapshot(),
             schemas: self.schemas.lock().map(|m| m.clone()).unwrap_or_default(),
             molecules,
             molecule_counters_complete: source_state_complete,
             molecule_counter_sources_complete: source_state_complete,
-            molecule_tip_sources,
-            molecule_key_bytes: self
-                .last_key_bytes
-                .lock()
-                .map(|m| m.clone())
-                .unwrap_or_default(),
             molecule_schema: self
                 .molecule_schema
                 .lock()
@@ -101,22 +87,6 @@ impl KeepSmallMeters {
         })?;
         *molecules = snap.molecules;
         drop(molecules);
-
-        let mut last_tip_atom = self.last_tip_atom.lock().map_err(|e| {
-            let err = format!("last_tip_atom lock: {e}");
-            self.mark_incomplete(&err);
-            err
-        })?;
-        *last_tip_atom = snap.molecule_tip_sources;
-        drop(last_tip_atom);
-
-        let mut last_key_bytes = self.last_key_bytes.lock().map_err(|e| {
-            let err = format!("last_key_bytes lock: {e}");
-            self.mark_incomplete(&err);
-            err
-        })?;
-        *last_key_bytes = snap.molecule_key_bytes;
-        drop(last_key_bytes);
 
         let mut molecule_schema = self.molecule_schema.lock().map_err(|e| {
             let err = format!("molecule_schema lock: {e}");

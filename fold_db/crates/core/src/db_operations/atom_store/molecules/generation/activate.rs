@@ -107,9 +107,14 @@ impl AtomStore {
                 SchemaError::InvalidData(format!("activate molecule generation batch: {error}"))
             })?;
         self.account_stored_bodies(bodies, &commit);
-        self.account_keep_small_items(&accounted);
+        self.account_keep_small_items(&accounted, &commit);
         self.keep_small
             .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
+        // Debounced persist only — never `flush_keep_small` on a write path.
+        // The 2026-09-21 primary restart loop came from a per-write flush on
+        // activation: every one re-appended the whole per-molecule counter map
+        // (~7 MB) into one `metadata` hash group, ~16 GB/hour.
+        let _ = self.persist_keep_small().await;
         drop(publication_guards);
         drop(tip_guards);
 

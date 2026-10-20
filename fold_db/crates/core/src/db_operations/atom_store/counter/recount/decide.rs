@@ -1,7 +1,7 @@
 //! The pure part of the recount: what one atom needs, given its holders.
 
 use crate::db_operations::atom_store::counter::scan::{CounterRead, PairRead};
-use crate::db_operations::atom_store::counter::AtomCounter;
+use crate::db_operations::atom_store::counter::{AtomCounter, AtomSize};
 
 /// Why a counter is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +35,9 @@ pub(super) enum Decision {
     Write {
         refs: u64,
         blobs: Option<Vec<String>>,
+        /// The size the counter held. A counter rebuilt from the body measures
+        /// the body instead.
+        size: Option<AtomSize>,
         why: Why,
         before: Option<u64>,
     },
@@ -94,6 +97,7 @@ fn decide_exact(
     Decision::Write {
         refs: holders,
         blobs: existing.map(|counter| counter.blobs.clone()),
+        size: existing.and_then(|counter| counter.size),
         why,
         before,
     }

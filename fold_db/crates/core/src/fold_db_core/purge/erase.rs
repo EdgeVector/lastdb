@@ -12,7 +12,7 @@ use super::removals::build_candidate_removals;
 use super::targets::{plan_targets, LoadedTargets, Target, TargetPlan};
 use super::*;
 use crate::atom::delete_barrier::DeleteBarrier;
-use crate::db_operations::atom_store::counter::TipCommit;
+use crate::db_operations::atom_store::counter::{TipCommit, TipDebit};
 use crate::schema::types::Mutation;
 
 /// What one erase needs besides the keys.
@@ -244,10 +244,6 @@ async fn apply_plan(
         .iter()
         .map(|target| target.candidate.mk_key.clone())
         .collect();
-    let tip_debits = db_ops
-        .atoms()
-        .keep_small_measure_tip_keys(&removed_tip_keys)
-        .await;
     let removals = build_candidate_removals(db_ops, removed).await?;
     let refs: Vec<_> = removals
         .iter()
@@ -261,6 +257,7 @@ async fn apply_plan(
         .remove_molecules_keys_with_rows(&refs, barrier_rows)
         .await?;
     let batch_elapsed = started.elapsed();
+    let tip_debits = removed_tip_debits(&removed_tip_keys, &commit);
     let report = BulkPurgeReport {
         records_purged: erased_keys.len(),
         atom_rows_deleted: commit.deleted.len(),
@@ -298,7 +295,7 @@ async fn record_erase(
     keys: &[KeyValue],
     erased_keys: &HashSet<usize>,
     commit: &TipCommit,
-    tip_debits: &[(String, u64)],
+    tip_debits: &[TipDebit],
     options: EraseOptions<'_>,
 ) -> Result<(), SchemaError> {
     let descriptor = if erased_keys.len() == 1 {
@@ -336,8 +333,9 @@ async fn record_erase(
     Ok(())
 }
 
-/// The meter debit of each deleted atom whose size the meters know. An atom of
-/// unknown size makes the meters incomplete, and a later repair measures them.
+/// The meter debit of each deleted atom, from the size its counter held. An
+/// atom of unknown size makes the meters incomplete, and a later repair
+/// measures them.
 fn live_head_debits(
     db_ops: &Arc<DbOperations>,
     schema_name: &str,
@@ -346,12 +344,35 @@ fn live_head_debits(
     let meters = db_ops.atoms().keep_small();
     let mut debits = Vec::new();
     for atom in &commit.deleted {
-        match meters.live_atom_bytes(&atom.uuid) {
-            Some(bytes) => debits.push((schema_name.to_string(), atom.uuid.clone(), bytes)),
+        match atom.size {
+            Some(size) => debits.push((
+                schema_name.to_string(),
+                atom.uuid.clone(),
+                size.atom_bytes(),
+            )),
             None => meters.mark_incomplete("erase_deleted_atom_size_unknown"),
         }
     }
     debits
+}
+
+/// The meter debit of each removed tip: its stored row length and its atom's
+/// size, both from the commit that removed it.
+fn removed_tip_debits(removed_tip_keys: &[String], commit: &TipCommit) -> Vec<TipDebit> {
+    removed_tip_keys
+        .iter()
+        .filter_map(|key| {
+            let old = commit.previous.get(key)?;
+            let source = commit.atom_sizes.get(&old.atom_uuid).map(|size| {
+                crate::db_operations::MoleculeTipCounterSource {
+                    atom_uuid: old.atom_uuid.clone(),
+                    atom_value_bytes: size.atom_bytes(),
+                    blob_reference_bytes: size.blob_bytes(),
+                }
+            });
+            Some((key.clone(), old.row_bytes, source))
+        })
+        .collect()
 }
 
 /// Store the schema when it changed, then refresh the schema cache with the

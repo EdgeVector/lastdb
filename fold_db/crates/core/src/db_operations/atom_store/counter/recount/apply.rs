@@ -8,7 +8,7 @@ use super::decide::Decision;
 use super::report::{Change, RecountReport};
 use crate::atom::atom_key_codec;
 use crate::db_operations::atom_store::counter::scan::PairRead;
-use crate::db_operations::atom_store::counter::AtomCounter;
+use crate::db_operations::atom_store::counter::{AtomCounter, AtomSize};
 use crate::db_operations::atom_store::{AtomStore, BlobRefEdge};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -44,12 +44,13 @@ fn to_bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, SchemaError> {
 }
 
 impl AtomStore {
-    /// The blob references of the body of an atom, read from the body.
+    /// The blob references and the meter size of the body of an atom, read
+    /// from the body.
     async fn blobs_of_body(
         &self,
         scope: Option<&str>,
         atom: &str,
-    ) -> Result<Vec<String>, SchemaError> {
+    ) -> Result<(Vec<String>, Option<AtomSize>), SchemaError> {
         let key = build_storage_key(scope, &atom_key_codec::body_key(atom));
         let body = self
             .get_atoms_by_storage_keys(&[key])
@@ -61,9 +62,9 @@ impl AtomStore {
                 "atom {atom} has a body record that does not decode"
             ))
         })?;
-        Ok(crate::atom::file_pointer::blob_refs_of_atom(
-            body.content(),
-            body.metadata(),
+        Ok((
+            crate::atom::file_pointer::blob_refs_of_atom(body.content(), body.metadata()),
+            AtomSize::of(&body),
         ))
     }
 
@@ -95,12 +96,13 @@ impl AtomStore {
             Decision::Write {
                 refs,
                 blobs,
+                size,
                 why,
                 before,
             } => {
                 let from_body = blobs.is_none();
-                let blobs = match blobs {
-                    Some(blobs) => blobs,
+                let (blobs, size) = match blobs {
+                    Some(blobs) => (blobs, size),
                     None => self.blobs_of_body(scope, &pair.atom).await?,
                 };
                 if from_body {
@@ -110,7 +112,8 @@ impl AtomStore {
                         }
                     }
                 }
-                let counter = AtomCounter::new(refs, blobs);
+                let mut counter = AtomCounter::new(refs, blobs);
+                counter.size = size;
                 pending.mutations.push(KvMutation::put(
                     counter_key.into_bytes(),
                     to_bytes(&counter)?,
@@ -128,7 +131,7 @@ impl AtomStore {
             Decision::DeleteAtom { blobs, before } => {
                 let blobs = match blobs {
                     Some(blobs) => blobs,
-                    None => self.blobs_of_body(scope, &pair.atom).await?,
+                    None => self.blobs_of_body(scope, &pair.atom).await?.0,
                 };
                 let body_key = build_storage_key(scope, &atom_key_codec::body_key(&pair.atom));
                 pending

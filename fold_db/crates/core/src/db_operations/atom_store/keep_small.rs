@@ -510,27 +510,4 @@ impl AtomStore {
             );
         }
     }
-
-    /// Measure JSON sizes of tip rows that are about to be deleted.
-    ///
-    /// Prefers the in-process last-accounted size so the debit matches the
-    /// credit. After hydrate that map is empty, so this falls back to a
-    /// point-get of the still-live row (scan-free).
-    pub(crate) async fn keep_small_measure_tip_keys(&self, keys: &[String]) -> Vec<(String, u64)> {
-        let mut out = Vec::with_capacity(keys.len());
-        for key in keys {
-            let accounted = self.keep_small.last_key_bytes(key);
-            if accounted > 0 {
-                out.push((key.clone(), accounted));
-                continue;
-            }
-            if let Ok(Some(value)) = self.main_store.get_item::<serde_json::Value>(key).await {
-                let bytes = serde_json::to_vec(&value).map_or(0, |v| v.len() as u64);
-                if bytes > 0 {
-                    out.push((key.clone(), bytes));
-                }
-            }
-        }
-        out
-    }
 }

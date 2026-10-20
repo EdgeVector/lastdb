@@ -3,50 +3,6 @@
 use super::*;
 
 impl KeepSmallMeters {
-    /// Last accounted value length for this store key (0 if unseen).
-    #[must_use]
-    pub fn last_key_bytes(&self, key: &str) -> u64 {
-        self.last_key_bytes
-            .lock()
-            .ok()
-            .and_then(|m| m.get(key).copied())
-            .unwrap_or(0)
-    }
-
-    pub fn remember_key_bytes(&self, key: &str, bytes: u64) {
-        if let Ok(mut map) = self.last_key_bytes.lock() {
-            map.insert(key.to_string(), bytes);
-        }
-    }
-
-    /// Last accounted atom on this tip key, if any.
-    #[must_use]
-    pub fn last_tip_atom(&self, tip_key: &str) -> Option<MoleculeTipCounterSource> {
-        self.last_tip_atom
-            .lock()
-            .ok()
-            .and_then(|m| m.get(tip_key).cloned())
-    }
-
-    pub fn remember_tip_atom(
-        &self,
-        tip_key: &str,
-        atom_uuid: &str,
-        logical_bytes: u64,
-        blob_reference_bytes: u64,
-    ) {
-        if let Ok(mut map) = self.last_tip_atom.lock() {
-            map.insert(
-                tip_key.to_string(),
-                MoleculeTipCounterSource {
-                    atom_uuid: atom_uuid.to_string(),
-                    atom_value_bytes: logical_bytes,
-                    blob_reference_bytes,
-                },
-            );
-        }
-    }
-
     pub(super) fn take_pending(&self, atom_uuid: &str) -> Option<PendingAtomContribution> {
         self.pending_atoms
             .lock()
@@ -112,19 +68,13 @@ impl KeepSmallMeters {
         }
     }
 
-    /// Drop in-flight maps for a storage key that no longer exists.
+    /// Mark the owning schema dirty after a storage key left the store.
     pub fn forget_key(&self, key: &str) {
         let owner = self
             .molecule_schema
             .lock()
             .ok()
             .map(|map| schema_owner_for_store_key(key, &map));
-        if let Ok(mut map) = self.last_key_bytes.lock() {
-            map.remove(key);
-        }
-        if let Ok(mut map) = self.last_tip_atom.lock() {
-            map.remove(key);
-        }
         self.mark_schema_dirty(owner.as_deref());
     }
 }
