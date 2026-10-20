@@ -208,6 +208,42 @@ pub(super) fn archive_path(root: &Path, stream: Uuid, checkpoint: u64) -> std::p
         .join(format!("tail-{checkpoint:016x}"))
 }
 
+/// What a rotation finds at the archive name of the TAIL it is about to archive.
+pub(super) enum Archived {
+    /// No file at the archive name.
+    Absent,
+    /// The exact 4,096 bytes of this TAIL.
+    Exact,
+    /// A complete, checksum-valid TAIL that is not this one.
+    Different,
+    /// Short or undecodable bytes. An in-place write or a failed write leaves
+    /// them, and no TAIL can reference them before the new TAIL exists.
+    Torn,
+}
+
+/// Classify the file at the archive name. This reads at most 4,097 bytes.
+pub(super) fn inspect_archive(path: &Path, bytes: &[u8; 4096]) -> Result<Archived> {
+    let mut file = match measured::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Archived::Absent),
+        Err(error) => return Err(error.into()),
+    };
+    let mut found = Vec::with_capacity(4097);
+    let _class = ReadClass::FormatProbe.enter();
+    file.by_ref().take(4097).read_to_end(&mut found)?;
+    if found == bytes.as_slice() {
+        return Ok(Archived::Exact);
+    }
+    let complete = <[u8; 4096]>::try_from(found.as_slice())
+        .ok()
+        .is_some_and(|complete| JournalTail::decode(&complete).is_ok());
+    Ok(if complete {
+        Archived::Different
+    } else {
+        Archived::Torn
+    })
+}
+
 pub(super) fn read_archived(root: &Path, stream: Uuid, checkpoint: u64) -> Result<[u8; 4096]> {
     let mut file = measured::open(archive_path(root, stream, checkpoint))?;
     if file.metadata()?.len() != 4096 {
