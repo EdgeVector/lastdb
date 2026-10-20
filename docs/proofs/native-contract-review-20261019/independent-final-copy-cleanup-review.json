@@ -1,0 +1,301 @@
+{
+  "actual_cleanup_executed": false,
+  "all_four_roots_retained": true,
+  "final_candidate_sessions": 9,
+  "kind": "independent executable identity and exact cleanup preflight",
+  "limits": [
+    "No source edits, builds, tests, or node interactions ran.",
+    "Only the unchanged supported cleanup helper created exact-path previews; no reclaim ran."
+  ],
+  "normal_unforced_sessions": 14,
+  "old_172_files_and_seal_unchanged": true,
+  "old_five_roots_remain_absent": true,
+  "operation_helper_manifest_identity": {
+    "bytes": 2069,
+    "sha256": "bb5663d2542105647ec5b9e2fa3b1dc534ca0dc6518e5a2fa39773fa0c90ae00"
+  },
+  "private_copy_checks": [
+    {
+      "creator_pid": 53333,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "inputs_identity": {
+        "bytes": 1676,
+        "sha256": "a15ff0b39598ed3583a262879edf6697fc84aed494f7fede3c5e4faf00b571a6"
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "b316fd36d05848e0fa9112dbdf35bae01b64bcab4d2763d47d9a6782df72fe1c"
+      },
+      "normal_unforced_session_count": 5,
+      "private_binary": {
+        "bytes": 67960160,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6vui6_vw/program-lastdbd",
+        "sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-ope-final",
+      "release_identity": {
+        "bytes": 22831,
+        "path": "docs/proofs/native-contract-review-20261019/final-v2/release-identity.json",
+        "sha256": "99e75808d08691c7f04d3e68a0815480a0010487cbebc9797942d09b52d9c0a7"
+      },
+      "role": "superseded diagnostic candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6vui6_vw",
+      "sealed_file_count": 75,
+      "source_commit": "42b5102165e649f5348d1d055d2f91a598b29f8c"
+    },
+    {
+      "creator_pid": 75434,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "inputs_identity": {
+        "bytes": 1681,
+        "sha256": "85bba1a0490d764f5e54f4da757db823156514839d71f8a53d1e906e7a7af5ec"
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "cede11b2d7e03b590c72b491fa5b6a57603371c9046a62f584d58dd6a9883eac"
+      },
+      "normal_unforced_session_count": 5,
+      "private_binary": {
+        "bytes": 68022048,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7we9s067/program-lastdbd",
+        "sha256": "3f1e0fdac6b55c776ad02a19f562cc5b60b30b936cba4d5712459171e2e0f9c2"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-ope-accepted",
+      "release_identity": {
+        "bytes": 24410,
+        "path": "docs/proofs/native-contract-review-20261019/final-v3/release-identity.json",
+        "sha256": "53159dcf5f50ff21f9f0f4bd6cf48d76b491910f80c36d9dfcf7e5d841c5fe8f"
+      },
+      "role": "final operation candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7we9s067",
+      "sealed_file_count": 75,
+      "source_commit": "6aa67e6ceb30a4e854eca3779601d12d828d78f8"
+    },
+    {
+      "creator_pid": 76494,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "inputs_identity": {
+        "bytes": 1669,
+        "sha256": "f298ac965b5e8e6ad902b31ee9c0a8e38017912bb72ce15bafea934dbfe54e6b"
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "5018d0c536232fa86adaa3ded9429c80be43173daf9fc0c10296a83857769ad9"
+      },
+      "normal_unforced_session_count": 2,
+      "private_binary": {
+        "bytes": 68022048,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.640yr_g9/program-lastdbd",
+        "sha256": "3f1e0fdac6b55c776ad02a19f562cc5b60b30b936cba4d5712459171e2e0f9c2"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-plain-accepted",
+      "release_identity": {
+        "bytes": 24410,
+        "path": "docs/proofs/native-contract-review-20261019/final-v3/release-identity.json",
+        "sha256": "53159dcf5f50ff21f9f0f4bd6cf48d76b491910f80c36d9dfcf7e5d841c5fe8f"
+      },
+      "role": "final operation candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.640yr_g9",
+      "sealed_file_count": 75,
+      "source_commit": "6aa67e6ceb30a4e854eca3779601d12d828d78f8"
+    },
+    {
+      "creator_pid": 79424,
+      "creator_process_check": {
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "inputs_identity": {
+        "bytes": 1667,
+        "sha256": "004fc2c9d29cb46439a7a355b4fb685c0dedf8a4e2912ccf8a08f890064510df"
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "6f280dc748fd37dfd809cea8858fe21bff2c68c640ec3f503c5dfa923d46931e"
+      },
+      "normal_unforced_session_count": 2,
+      "private_binary": {
+        "bytes": 68022048,
+        "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ovnlha5p/program-lastdbd",
+        "sha256": "3f1e0fdac6b55c776ad02a19f562cc5b60b30b936cba4d5712459171e2e0f9c2"
+      },
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-contract-review-20261019/ordinary-quota-accepted",
+      "release_identity": {
+        "bytes": 24410,
+        "path": "docs/proofs/native-contract-review-20261019/final-v3/release-identity.json",
+        "sha256": "53159dcf5f50ff21f9f0f4bd6cf48d76b491910f80c36d9dfcf7e5d841c5fe8f"
+      },
+      "role": "final operation candidate",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ovnlha5p",
+      "sealed_file_count": 75,
+      "source_commit": "6aa67e6ceb30a4e854eca3779601d12d828d78f8"
+    }
+  ],
+  "ready_for_root_cleanup_review": true,
+  "reviewed_utc": "2026-10-20T01:25:54.839805+00:00",
+  "runtime_semantic_scope": "This report does not infer semantic acceptance from normal exits or copy hashes. Final raw API review is separate. The superseded a126 candidate uses obsolete diagnostics; its zero edge counts are not a reference correctness pass.",
+  "seal_identity": {
+    "bytes": 91451,
+    "sha256": "0f7f6f21e02808c9fa7047e99c6905c9994425259eed7dfe7325f459edfb9a47"
+  },
+  "sealed_original_files_verified": 300,
+  "superseded_candidate_sessions": 5,
+  "supported_preflights": [
+    {
+      "device": 16777231,
+      "inode": 1471604429,
+      "node_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "53338,53441,53542,53596,53704",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6vui6_vw"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preflight_identity": {
+        "bytes": 1875,
+        "sha256": "d0a5ca48ec78ba4a5f07bfddf8f018228736dad160704e3a6cef3d80fd1185f5"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6vui6_vw",
+      "socket_paths_remaining": []
+    },
+    {
+      "device": 16777231,
+      "inode": 1471694717,
+      "node_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "75437,75908,75939,75991,76125",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7we9s067"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preflight_identity": {
+        "bytes": 1890,
+        "sha256": "6d7b0bb174128b8b611d3d732f9262a06546f04e1123a76238d0d4a707c2330c"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7we9s067",
+      "socket_paths_remaining": []
+    },
+    {
+      "device": 16777231,
+      "inode": 1471710345,
+      "node_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "76499,78492",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.640yr_g9"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preflight_identity": {
+        "bytes": 1315,
+        "sha256": "eb24f0c4d6c1a0f69b003191ff9d195e862faf8ba0c948c1c59556567864b399"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.640yr_g9",
+      "socket_paths_remaining": []
+    },
+    {
+      "device": 16777231,
+      "inode": 1471715941,
+      "node_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "79429,79617",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ovnlha5p"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preflight_identity": {
+        "bytes": 1315,
+        "sha256": "172222a9bccfc197f7e7d42e63aca46e0bc2f20dab5f865b827f641e58cd58ca"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ovnlha5p",
+      "socket_paths_remaining": []
+    }
+  ],
+  "supported_preview_file": "docs/proofs/native-contract-review-20261019/final-cleanup-previews.json",
+  "supported_preview_identity": {
+    "bytes": 3454,
+    "sha256": "104f99be46d60865003097b9894a9c5cc87ff582e17bb96f82ffd74bfc06ef3a"
+  },
+  "unchanged_helper_count": 11,
+  "version": 1
+}

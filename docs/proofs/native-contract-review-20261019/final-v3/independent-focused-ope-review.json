@@ -1,0 +1,279 @@
+{
+  "binary_sha256": "3f1e0fdac6b55c776ad02a19f562cc5b60b30b936cba4d5712459171e2e0f9c2",
+  "empty_conditions": "four identical pages; total 2",
+  "intended_refusals": {
+    "foreign-cas": 409,
+    "foreign-loud": 400,
+    "foreign-must": 400,
+    "foreign-purge": 400,
+    "invalid-normal-type": 400,
+    "reserved-tombstone": 400
+  },
+  "issues": [],
+  "limits": [
+    "Fresh synthetic data; no primary or old home.",
+    "No throughput or latency conclusion.",
+    "Cohort result is outside this focused review.",
+    "Earlier refused request data and failed semantic attempts remain separate."
+  ],
+  "logical_absent_cas": "claimed with right=L",
+  "mapped_membership": "A/L and B/R retain original payload and right=R; B/L absent",
+  "mixed_order": "c0 absent; c1 has id=c1 and payload=after-delete; c2..c9 complete and last",
+  "molecule_version": "absent in all 94 query responses",
+  "normal_reopen": "all 39 complete responses match exactly, including metadata",
+  "numeric_values_order_conditions": "exact values and types match; equal-value ties retain ascending key order",
+  "plan_sha256": "485af0ab65f9e7c24910d0087eabe7ad40fb692dc833359c7e0322ece9fbd666",
+  "query_responses_reviewed": 94,
+  "raw_http_bodies_reviewed": 34,
+  "raw_manifest": [
+    {
+      "label": "declare-Round10MapA",
+      "path": "raw-http/current-005.json",
+      "sha256": "e0659f478623a3c01ab46640d78a9e6703620488ebbd84766e0536d895344a98",
+      "status": 200
+    },
+    {
+      "label": "declare-Round10Clock",
+      "path": "raw-http/current-004.json",
+      "sha256": "bc4b42e1984cdb44224ca8c2f87aa5331929df808f91c09672396fada68d5360",
+      "status": 200
+    },
+    {
+      "label": "declare-Round10Numeric",
+      "path": "raw-http/current-003.json",
+      "sha256": "ff9f6596a1af5692857fe79666bd3ef8b9cb6e5651d987d19872922afc908ea4",
+      "status": 200
+    },
+    {
+      "label": "declare-Round10MapB",
+      "path": "raw-http/current-006.json",
+      "sha256": "10149345c764b98ee998dfb36c05f57a433e7c1318e47aadd6cf3064f95f375d",
+      "status": 200
+    },
+    {
+      "label": "seed",
+      "path": "raw-http/current-007.json",
+      "sha256": "4369fbba6931f0da5fc78860169031c478a41b06c7e9fa356276264f4ca38fe7",
+      "status": 200
+    },
+    {
+      "label": "reference-initial",
+      "path": "raw-http/current-010.json",
+      "sha256": "8db9c1cc58f97a784c6d0e426b668340e23c83ec87d5ef64dabdc10b739c2949",
+      "status": 200
+    },
+    {
+      "label": "metadata-initial",
+      "path": "raw-http/current-009.json",
+      "sha256": "bb04fb2366d50354cd9e6a4d89b9cdb9c7009ded1b8e937aae3b5d0dbada865f",
+      "status": 200
+    },
+    {
+      "label": "metadata-replace-single",
+      "path": "raw-http/current-011.json",
+      "sha256": "9c72ebb1acea299f039d81eba3e4d5602ce25155d9989af2fbab1e008ea8d900",
+      "status": 200
+    },
+    {
+      "label": "metadata-replace-batch",
+      "path": "raw-http/current-012.json",
+      "sha256": "60d656d8b66d19a29582c7f927970a6a858687f7de11e0c78423d317ae629cec",
+      "status": 200
+    },
+    {
+      "label": "reference-after-update",
+      "path": "raw-http/current-015.json",
+      "sha256": "8db9c1cc58f97a784c6d0e426b668340e23c83ec87d5ef64dabdc10b739c2949",
+      "status": 200
+    },
+    {
+      "label": "metadata-replaced",
+      "path": "raw-http/current-014.json",
+      "sha256": "b6d2bb5f11ffc284fb8619a577a5026a85dc34f169aa44f0beddfbdaa945bfc3",
+      "status": 200
+    },
+    {
+      "label": "metadata-clear",
+      "path": "raw-http/current-016.json",
+      "sha256": "aca0b9b677d6c59fbb47c688ea1ed7fff90a672be25e6b1b10626b99ef51d80d",
+      "status": 200
+    },
+    {
+      "label": "metadata-cleared",
+      "path": "raw-http/current-018.json",
+      "sha256": "6dac18f2ac6938c519803c65fe456ab6a203778fe99ad1ac26c585685354b4d0",
+      "status": 200
+    },
+    {
+      "label": "reference-after-clear",
+      "path": "raw-http/current-019.json",
+      "sha256": "8db9c1cc58f97a784c6d0e426b668340e23c83ec87d5ef64dabdc10b739c2949",
+      "status": 200
+    },
+    {
+      "label": "reference-delete",
+      "path": "raw-http/current-020.json",
+      "sha256": "287b1ee95399cf404e011919ec85f7eb1c92cf7217683703a91e283b2f51ea7f",
+      "status": 200
+    },
+    {
+      "label": "metadata-final",
+      "path": "raw-http/current-022.json",
+      "sha256": "f70f5114cee354a804dcfffb127da4e69adefd066303e3d605315f0c98d08a2c",
+      "status": 200
+    },
+    {
+      "label": "reference-after-delete",
+      "path": "raw-http/current-023.json",
+      "sha256": "bc218bba402f1e3e1139145e4b38d7ee90216fb36fc13efcb34cabf8d7443994",
+      "status": 200
+    },
+    {
+      "label": "numeric-and-empty-lists",
+      "path": "raw-http/current-024.json",
+      "sha256": "92636d9ac63e3887e03d41cb960b08363e417f80d460afca010fc54181d59124",
+      "status": 200
+    },
+    {
+      "label": "foreign-cas",
+      "path": "raw-http/current-026.json",
+      "sha256": "f65d4e08c0d51f64c5de962bd351d2fe752810c1f8bb44ed937d6d479cc48bdb",
+      "status": 409
+    },
+    {
+      "label": "foreign-delete",
+      "path": "raw-http/current-027.json",
+      "sha256": "d47c1273f1765324dfa6db7fdc8b51041b1ff3c7ee1c5daa94a0b9d64dd9f180",
+      "status": 200
+    },
+    {
+      "label": "foreign-must",
+      "path": "raw-http/current-025.json",
+      "sha256": "b27975814bf8529fc41c0a51604e22e74bc9575ff4049ab603165821ecfc46b8",
+      "status": 400
+    },
+    {
+      "label": "foreign-loud",
+      "path": "raw-http/current-028.json",
+      "sha256": "940dd8f8cf9839fc4efe44ee023c656a809af407dee063e805759045eb28ddb0",
+      "status": 400
+    },
+    {
+      "label": "foreign-purge",
+      "path": "raw-http/current-029.json",
+      "sha256": "40922050675d2c38aec7d1e5265452fe2a0744da98b444fc1a7b517e51d45c66",
+      "status": 400
+    },
+    {
+      "label": "foreign-targets-after",
+      "path": "raw-http/current-030.json",
+      "sha256": "05bb7c532a7fdf42761eb3266d789cd3fd64de3b76301cabb5805578ea91a059",
+      "status": 200
+    },
+    {
+      "label": "logical-absent-cas",
+      "path": "raw-http/current-031.json",
+      "sha256": "8fb6ecde091731b9d274d5fdaeac8582fe978328be0df598d0533b342a6640b0",
+      "status": 200
+    },
+    {
+      "label": "logical-absent-result",
+      "path": "raw-http/current-032.json",
+      "sha256": "112d2982299f2b050035c627d9d36a01df6e47dfe1c0c53b03ca96bcf4ec5f9a",
+      "status": 200
+    },
+    {
+      "label": "repeated-local-writes",
+      "path": "raw-http/current-033.json",
+      "sha256": "b8e432ab4fd3e0523777afff382765b44c25d13231bde880ed69cbc40fb8bbaf",
+      "status": 200
+    },
+    {
+      "label": "after-repeated-writes",
+      "path": "raw-http/current-034.json",
+      "sha256": "1295470e6c033e856eb6d20baa5636305e10ab300f1eea7bd49bc8e669106e92",
+      "status": 200
+    },
+    {
+      "label": "mixed-local-order",
+      "path": "raw-http/current-035.json",
+      "sha256": "b135397fe07f39eb4347d7c3101ac221b45b2ce4eaefa63e66cc5fbcae4bd3e4",
+      "status": 200
+    },
+    {
+      "label": "reserved-tombstone",
+      "path": "raw-http/current-036.json",
+      "sha256": "7001e3d78ef3ec6b9bdeed394f5a885ad2fa368ecf8087fc9a97262426a318d7",
+      "status": 400
+    },
+    {
+      "label": "invalid-normal-type",
+      "path": "raw-http/current-037.json",
+      "sha256": "740899b0dce2ac66ac9ed9fd5215371c8f12c974a210cdb5e68495c4683776be",
+      "status": 400
+    },
+    {
+      "label": "final-clock-values",
+      "path": "raw-http/current-038.json",
+      "sha256": "c41c305bc2dc5ae662d0cc7d2f94f52b644b4a91c7af7016eb33072c750530e8",
+      "status": 200
+    },
+    {
+      "label": "reopen-batch",
+      "path": "raw-http/reopened-043.json",
+      "sha256": "80da050bba3d4b8f921e7df3fc92803b34f1d28a2a09f3b87e332d44d20c9ee4",
+      "status": 200
+    },
+    {
+      "label": "reference-reopened",
+      "path": "raw-http/reopened-044.json",
+      "sha256": "bc218bba402f1e3e1139145e4b38d7ee90216fb36fc13efcb34cabf8d7443994",
+      "status": 200
+    }
+  ],
+  "raw_meta_plan_observation_receipt_bindings": "match",
+  "recorded_normal_unforced_sessions": 5,
+  "reference_diagnostics": [
+    {
+      "active_references": 1,
+      "complete": true,
+      "edges_present": false,
+      "id": "76adaf6a2ab63156e426b3854195a9bf6af8352583fdfaa77224b3e0ef899951",
+      "label": "reference-initial"
+    },
+    {
+      "active_references": 1,
+      "complete": true,
+      "edges_present": false,
+      "id": "76adaf6a2ab63156e426b3854195a9bf6af8352583fdfaa77224b3e0ef899951",
+      "label": "reference-after-update"
+    },
+    {
+      "active_references": 1,
+      "complete": true,
+      "edges_present": false,
+      "id": "76adaf6a2ab63156e426b3854195a9bf6af8352583fdfaa77224b3e0ef899951",
+      "label": "reference-after-clear"
+    },
+    {
+      "active_references": 0,
+      "complete": true,
+      "edges_present": false,
+      "id": "76adaf6a2ab63156e426b3854195a9bf6af8352583fdfaa77224b3e0ef899951",
+      "label": "reference-after-delete"
+    },
+    {
+      "active_references": 0,
+      "complete": true,
+      "edges_present": false,
+      "id": "76adaf6a2ab63156e426b3854195a9bf6af8352583fdfaa77224b3e0ef899951",
+      "label": "reference-reopened"
+    }
+  ],
+  "reference_payload_uuid": "76adaf6a2ab63156e426b3854195a9bf6af8352583fdfaa77224b3e0ef899951",
+  "repeated_writes": "all ten complete records have payload last",
+  "run": "ordinary-ope-accepted",
+  "source_commit": "6aa67e6ceb30a4e854eca3779601d12d828d78f8",
+  "source_file_metadata": "id/payload old.txt then new.txt then null; atom identities unchanged",
+  "state": "pass"
+}

@@ -1,0 +1,121 @@
+{
+  "binary_bytes": 68022048,
+  "binary_sha256": "3f1e0fdac6b55c776ad02a19f562cc5b60b30b936cba4d5712459171e2e0f9c2",
+  "checks": {
+    "app_registry_shelf": "pass",
+    "changed_file_size": "pass",
+    "changed_function_size": "pass",
+    "fastembed_unification": "pass",
+    "format": "pass",
+    "heavy_clippy_coverage": "pass",
+    "new_allows": "pass",
+    "no_write_path_syncing_store": "pass",
+    "normal_release_build": "pass",
+    "offlane_clippy_warnings_denied": "pass",
+    "workspace_clippy_warnings_denied": "pass"
+  },
+  "cleanup": {
+    "all_nodes_stopped_unforced": true,
+    "earlier_roots_reclaimed": 5,
+    "final_batch_roots_reclaimed": 4,
+    "final_candidate_sessions": 9,
+    "owned_roots_remaining": 0,
+    "sealed_originals_preserved": 472,
+    "superseded_candidate_sessions_in_final_batch": 5
+  },
+  "core_operations": {
+    "complete_concurrent_responses": 36,
+    "complete_records": 3363,
+    "field_value_and_identity_checks": 13452,
+    "query_responses": 386,
+    "reads": 74,
+    "required_zero_file_reads": 29
+  },
+  "evidence": [
+    {
+      "bytes": 24410,
+      "path": "final-v3/release-identity.json",
+      "sha256": "53159dcf5f50ff21f9f0f4bd6cf48d76b491910f80c36d9dfcf7e5d841c5fe8f"
+    },
+    {
+      "bytes": 5534,
+      "path": "final-v3/independent-source-review.json",
+      "sha256": "5d58ec1b7515449c78d28dc71692511aa9cb80fe453ad9b96c01fb92bbf6cdfc"
+    },
+    {
+      "bytes": 3574,
+      "path": "final-v3/independent-release-review.json",
+      "sha256": "0d9d341cffecea65dea1b25b542726595b52400eeccda31b32dbe739a6197442"
+    },
+    {
+      "bytes": 38627,
+      "path": "final-v3/independent-focused-all-review.json",
+      "sha256": "a815d98a3f10be581b00a64112dc5af010a24be0d966ee72e2c5f3ff7638bc7e"
+    },
+    {
+      "bytes": 4846,
+      "path": "final-v3/independent-core-cohort-review.json",
+      "sha256": "76b4ccd3d83dd9b104d364234c31ecdbd3f112f3fad916915f870843979d3a0d"
+    },
+    {
+      "bytes": 10515,
+      "path": "independent-final-copy-cleanup-review.json",
+      "sha256": "ec1e06f1469f347bc9ab6a83a7a03435f6523aa1be9803bcb13e79b16e4250f3"
+    },
+    {
+      "bytes": 4331,
+      "path": "independent-final-cleanup-review.json",
+      "sha256": "a60c9b3de3d3af9f94aee0b99e9eff7eb1e2f3dafc4df374f4402fe4b66d3ec2"
+    },
+    {
+      "bytes": 91451,
+      "path": "receipt-seal-final.json",
+      "sha256": "0f7f6f21e02808c9fa7047e99c6905c9994425259eed7dfe7325f459edfb9a47"
+    },
+    {
+      "bytes": 3674,
+      "path": "final-cleanup.json",
+      "sha256": "fe732e72908ec6846a989f072a3da33a06304cc6dce2df6829ef431b5fa1d368"
+    },
+    {
+      "bytes": 2069,
+      "path": "operation-helper-identity.json",
+      "sha256": "bb5663d2542105647ec5b9e2fa3b1dc534ca0dc6518e5a2fa39773fa0c90ae00"
+    }
+  ],
+  "focused": {
+    "focused_http_bodies": 102,
+    "intended_non200_replies": 18,
+    "normal_unforced_sessions": 9,
+    "query_responses": 282
+  },
+  "limits": [
+    "No tests or new executable check suite. Existing operation helpers remain unchanged.",
+    "Fresh synthetic homes only. No primary or archive data; no migration or cloud activation.",
+    "No latency or throughput comparison in this round.",
+    "Optional worker preload I/O errors and oversized metadata unions receive source review only.",
+    "Native liveness count supports default owner scope; named handles receive an explicit refusal.",
+    "Earlier malformed request, observer, missing-key, and obsolete diagnostic candidates remain separate and unaccepted.",
+    "GitHub CI and merge outcome are recorded by the PR, not inferred from local validation."
+  ],
+  "normal_release": true,
+  "quota_fallback": {
+    "disk_only_domains": 2,
+    "key_limit_bytes": 65536,
+    "retained_key_bytes": 2134,
+    "scope": "Preload work reservation refusal; not injected I/O failure.",
+    "writer_failed": false
+  },
+  "reference_counts_per_final_run": [
+    1,
+    1,
+    1,
+    0,
+    0
+  ],
+  "source_commit": "6aa67e6ceb30a4e854eca3779601d12d828d78f8",
+  "source_drift_after_operations": false,
+  "source_inputs": 1892,
+  "source_inventory_sha256": "058cead17be5d0d72738c3b27a3347fb4c88c68fa58a789d16bd8e3983150ca0",
+  "state": "accepted_for_pr"
+}
