@@ -1,0 +1,35 @@
+{
+  "remaining_limits": "See RESULTS.md; source-only cases remain source-only. No unresolved blocker in reviewed scopes.",
+  "reviewed_utc": "2026-10-20T19:10:42.368588+00:00",
+  "reviewers": {
+    "memory_contract_round9": {
+      "cleanup": "9roots absent;553sealed originals identical;33normal stops;38creator/node PIDs absent",
+      "result": "pass",
+      "scope": "Full-atom certificate/memory ownership, large values,9exact-home cleanup"
+    },
+    "mutation_contract_round9": {
+      "final_release": {
+        "field_metadata_maps": 13456,
+        "focused_feed_events": 7,
+        "focused_feed_pages": 5,
+        "http_calls": 129,
+        "mutations": 627,
+        "normal_sessions": 4,
+        "query_responses": 390,
+        "records": 3365,
+        "required_zero_file_checks": 29
+      },
+      "result": "pass",
+      "scope": "Final caller-order receipts and change-feed raw identity/source proof"
+    },
+    "query_contract_round9": {
+      "focused_query_cases": "134HTTP calls across5query/catalog runs;173logical responses;138records;84counts;56pages;6actual cursor continuations",
+      "result": "pass",
+      "scope": "Logical key membership/cursors/catalog/rebind; final receipt source and function/file size"
+    }
+  },
+  "source_commits": {
+    "final": "9f2bb284a6a47a69a58e16eb9ac4d468a44f4d77",
+    "initial": "912a74e847ff32ff2e4d585ed10ef2f7e39338a4"
+  }
+}
