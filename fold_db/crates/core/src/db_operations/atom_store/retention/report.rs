@@ -134,8 +134,9 @@ impl RetentionState {
             .fetch_add(released, Ordering::Relaxed);
     }
 
-    /// An erase left records of some slots to the window, because the slots
-    /// held more than one request releases.
+    /// An erase passed some slots to the janitor with a drain marker: the slots
+    /// held more records than one request releases, or the erase did not read
+    /// them (it reads the directory of at most 256 slots).
     pub(crate) fn note_capped_slots(&self, slots: u64) {
         self.purge_capped_slots.fetch_add(slots, Ordering::Relaxed);
     }
@@ -223,8 +224,9 @@ pub struct ConflictRetentionReport {
     pub released_by_purge: u64,
     /// History rows that did not decode. They keep their references.
     pub undecodable_rows: u64,
-    /// Slots (of an erase) that held more kept records than one request
-    /// releases. The window ends the records that the erase left.
+    /// Slots (of an erase) that got a drain marker: they held more kept records
+    /// than one request releases, or the erase did not read them. The janitor
+    /// releases the records of these slots.
     pub purge_capped_slots: u64,
     /// Entries in the queue when the report was built, counted up to a limit.
     /// `None` means that the directory of the queue could not be read.

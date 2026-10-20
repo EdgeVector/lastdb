@@ -66,7 +66,7 @@ pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String>
     }
     if report.purge_capped_slots > 0 {
         line.push_str(&format!(
-            "; slots whose records a purge left to the window {}",
+            "; slots that an erase passed to the janitor {}",
             report.purge_capped_slots
         ));
     }
