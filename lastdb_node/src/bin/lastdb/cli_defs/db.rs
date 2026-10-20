@@ -9,6 +9,8 @@ use super::*;
 mod blob;
 #[path = "db_inspect.rs"]
 mod inspect;
+#[path = "db_offline.rs"]
+mod offline;
 #[path = "db_proof.rs"]
 mod proof;
 #[path = "db_reclaim.rs"]
@@ -22,6 +24,7 @@ mod tips;
 
 pub(crate) use blob::*;
 pub(crate) use inspect::*;
+pub(crate) use offline::*;
 pub(crate) use proof::*;
 pub(crate) use reclaim::*;
 pub(crate) use repair::*;
@@ -44,4 +47,6 @@ pub(crate) enum DbCommand {
     Blob(DbBlobCommand),
     #[command(flatten)]
     Proof(DbProofCommand),
+    #[command(flatten)]
+    Offline(DbOfflineCommand),
 }

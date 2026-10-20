@@ -4,24 +4,8 @@
 //! against the invariants of the parent module without the store code.
 
 use super::report::Kind;
+use crate::db_operations::atom_store::counter::scan::CounterRead;
 use crate::db_operations::atom_store::counter::AtomCounter;
-
-/// What a read found for the counter record of an atom.
-pub(super) enum CounterRead {
-    Absent,
-    /// The record exists and does not decode.
-    Unreadable,
-    Present(AtomCounter),
-}
-
-impl CounterRead {
-    pub(super) fn parse(bytes: Option<&[u8]>) -> Self {
-        match bytes {
-            None => Self::Absent,
-            Some(bytes) => serde_json::from_slice(bytes).map_or(Self::Unreadable, Self::Present),
-        }
-    }
-}
 
 /// One fault, with a line for the sample list.
 pub(super) struct Finding {

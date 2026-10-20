@@ -40,8 +40,8 @@ pub use admin_db::{
     TombstoneFlagBackfillReport,
 };
 pub use atom_store::{
-    AtomCounterReport, AtomCounterView, AtomStore, MoleculeData, VerifyReport, VerifyRequest,
-    VerifySummary, WalkStats,
+    AtomCounterReport, AtomCounterView, AtomStore, MoleculeData, RecountOptions, RecountReport,
+    VerifyReport, VerifyRequest, VerifySummary, WalkStats,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{

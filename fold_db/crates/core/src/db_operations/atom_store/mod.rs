@@ -46,7 +46,10 @@ pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_R
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{successor, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
-pub use counter::{AtomCounterReport, AtomCounterView, VerifyReport, VerifyRequest, VerifySummary};
+pub use counter::{
+    AtomCounterReport, AtomCounterView, Change, RecountOptions, RecountReport, VerifyReport,
+    VerifyRequest, VerifySummary,
+};
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
 pub use molecule_ref_edges::{

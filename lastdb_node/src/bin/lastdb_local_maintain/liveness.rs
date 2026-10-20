@@ -18,14 +18,11 @@
 //!    not take it, so steps 1 and 2 are what exclude the daemon.
 
 use std::collections::BTreeMap;
-use std::fs::OpenOptions;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use fold_db::storage::config::{DatabaseConfig, StorageEngine};
-use lastdb_node::offline_home::{load_e2e_keys, refuse_primary};
-use lastdb_node::session_ledger::{read_last_record, read_shutdown_flush_receipt};
+use lastdb_node::offline_home::{load_e2e_keys, preflight_stopped_home, refuse_primary, Preflight};
 use serde::Serialize;
 
 /// Environment the primary daemon runs with that changes how a home is read or
@@ -45,15 +42,6 @@ pub(crate) struct LivenessBootstrapArgs<'a> {
     pub(crate) execute: bool,
     pub(crate) i_know_this_is_primary: bool,
     pub(crate) json: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct Preflight {
-    daemon_alive: bool,
-    sockets_closed: bool,
-    last_session_clean: bool,
-    shutdown_flush_receipt: bool,
-    maintenance_lock: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -148,64 +136,6 @@ pub(crate) fn bootstrap_liveness(args: &LivenessBootstrapArgs<'_>) -> Result<(),
     } else {
         Err("a completeness marker is still missing after the bootstrap".to_string())
     }
-}
-
-/// Refuse unless the home is stopped, flushed and locked. Returns the held
-/// lock; dropping it releases the lock.
-fn preflight_stopped_home(
-    home: &Path,
-    store_root: &Path,
-) -> Result<(Preflight, std::fs::File), String> {
-    if lastdb_node::crash_attribution::live_daemon_pid_alive(home) {
-        return Err("refusing: a daemon is alive for this home; stop it first".to_string());
-    }
-    for name in ["folddb.sock", "folddb-full.sock"] {
-        let socket = store_root.join(name);
-        if UnixStream::connect(&socket).is_ok() {
-            return Err(format!(
-                "refusing: the database socket is open at {}",
-                socket.display()
-            ));
-        }
-    }
-    let last_session_clean = read_last_record(home).is_some_and(|record| record.ended_clean());
-    if !last_session_clean {
-        return Err(
-            "refusing: the last session did not end cleanly. Start the daemon and stop it \
-             gracefully, then retry."
-                .to_string(),
-        );
-    }
-    if let Err(error) = read_shutdown_flush_receipt(home) {
-        return Err(format!(
-            "refusing: no valid shutdown flush receipt ({error}). Start the daemon and stop it \
-             gracefully, then retry."
-        ));
-    }
-    let lock = take_maintenance_lock(store_root)?;
-    Ok((
-        Preflight {
-            daemon_alive: false,
-            sockets_closed: true,
-            last_session_clean: true,
-            shutdown_flush_receipt: true,
-            maintenance_lock: "held",
-        },
-        lock,
-    ))
-}
-
-fn take_maintenance_lock(store_root: &Path) -> Result<std::fs::File, String> {
-    let lock_path = store_root.join("maintenance.lock");
-    let lock = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&lock_path)
-        .map_err(|error| format!("maintenance lock {}: {error}", lock_path.display()))?;
-    rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
-        .map_err(|error| format!("maintenance lock is held: {error}"))?;
-    Ok(lock)
 }
 
 fn reported_env() -> BTreeMap<&'static str, String> {

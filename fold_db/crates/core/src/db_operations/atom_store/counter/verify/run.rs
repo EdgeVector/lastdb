@@ -4,6 +4,7 @@ use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
 use super::pages::{phase_range, AtomsPage, ReferencedPage};
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{digest, Run, StepGuard, Watch};
+use crate::db_operations::atom_store::counter::scan::CounterRead;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use std::time::{Duration, Instant};
@@ -204,8 +205,7 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
         run.report.mismatches.add(unreadable_kind);
     }
     for read in page.atoms {
-        run.report.counters_read +=
-            u64::from(!matches!(read.counter, super::check::CounterRead::Absent));
+        run.report.counters_read += u64::from(!matches!(read.counter, CounterRead::Absent));
         run.report.bodies_read += u64::from(read.body);
         let key = digest(&read.atom);
         run.tally.add(key, read.holders);
@@ -228,13 +228,12 @@ fn apply_atoms(run: &mut Run, watch: &Watch, page: AtomsPage) {
         ));
     }
     for pair in page.pairs {
-        run.report.counters_read +=
-            u64::from(!matches!(pair.counter, super::check::CounterRead::Absent));
+        run.report.counters_read += u64::from(!matches!(pair.counter, CounterRead::Absent));
         run.report.bodies_read += u64::from(pair.body);
         for finding in judge_pair(pair.body, &pair.counter) {
             run.note_fault(finding.kind, &pair.atom, finding.detail);
         }
-        let super::check::CounterRead::Present(counter) = &pair.counter else {
+        let CounterRead::Present(counter) = &pair.counter else {
             continue;
         };
         if !run.tally.complete {

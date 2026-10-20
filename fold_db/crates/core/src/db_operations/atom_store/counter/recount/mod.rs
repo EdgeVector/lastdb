@@ -1,0 +1,181 @@
+//! The recount: rebuild every counter from the tips and the conflict records.
+//!
+//! `recount_counters` is the one scan the counter design keeps. It reads every
+//! tip record and every counted conflict record of a scope, counts the
+//! references of each atom, and compares the count with the counter record of
+//! the atom. It writes the exact count where the counter differs, creates a
+//! missing counter, deletes a counter that has no body, and deletes a body that
+//! no tip and no record names. After it, I1 and I2 hold.
+//!
+//! **Offline only.** It takes no write gate and has no atomic scope with the
+//! planner. The caller opens a stopped home (`lastdb db recount` refuses a home
+//! that a daemon serves). No gate or write path calls it. It is safe to run
+//! again: a run that stopped leaves every batch whole, and the next run changes
+//! only what is still wrong.
+//!
+//! Memory: one pass holds a count for each referenced atom of its shard. A
+//! second shard count (`shards`) makes several passes over the tips and records
+//! and holds `1/shards` of the atoms in each.
+//!
+//! The recount refuses to write while any tip or conflict row does not decode:
+//! it could not count the references of such a row, and a count that is too low
+//! loses data.
+
+mod apply;
+mod decide;
+mod report;
+
+pub use report::{Change, RecountOptions, RecountReport};
+
+use super::scan::{family_range, record_holders, tip_holders, Family};
+use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::schema::SchemaError;
+use apply::Pending;
+use decide::decide;
+use std::collections::HashMap;
+use std::time::Instant;
+
+/// Rows asked for in each read of the tips and records.
+const TALLY_PAGE_ROWS: usize = 2_000;
+/// Rows asked for in each read of the atoms.
+const ATOM_PAGE_ROWS: usize = 1_000;
+
+/// One pass: a scope and a shard of the atom ids.
+struct Pass<'a> {
+    scope: Option<&'a str>,
+    index: u32,
+    count: u32,
+}
+
+impl Pass<'_> {
+    fn owns(&self, atom: &str) -> bool {
+        let hash = atom.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+        hash % u64::from(self.count) == u64::from(self.index)
+    }
+}
+
+impl AtomStore {
+    /// Rebuild the counters of the given scopes from the tips and records.
+    /// Offline only. See the module documentation.
+    pub async fn recount_counters(
+        &self,
+        options: &RecountOptions,
+    ) -> Result<RecountReport, SchemaError> {
+        let started = Instant::now();
+        let shards = options.shards.max(1);
+        let mut report = RecountReport {
+            executed: options.execute,
+            scopes: options.scopes.clone(),
+            shards,
+            ..RecountReport::default()
+        };
+        let before = self.range_walks().snapshot();
+        for scope in &options.scopes {
+            for index in 0..shards {
+                let pass = Pass {
+                    scope: scope.as_deref(),
+                    index,
+                    count: shards,
+                };
+                self.recount_pass(&pass, options.execute, &mut report)
+                    .await?;
+            }
+        }
+        report.range_reads = self.range_walks().snapshot().since(before);
+        report.elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Ok(report)
+    }
+
+    async fn recount_pass(
+        &self,
+        pass: &Pass<'_>,
+        execute: bool,
+        report: &mut RecountReport,
+    ) -> Result<(), SchemaError> {
+        let mut tally: HashMap<String, u32> = HashMap::new();
+        self.tally_family(Family::Tips, pass, &mut tally, report)
+            .await?;
+        self.tally_family(Family::Records, pass, &mut tally, report)
+            .await?;
+        if report.unreadable_rows > 0 && execute {
+            return Err(SchemaError::InvalidData(format!(
+                "{} tip or conflict rows do not decode; the recount cannot count their references and writes nothing",
+                report.unreadable_rows
+            )));
+        }
+        report.referenced_atoms += tally.len() as u64;
+        self.recount_atoms(pass, &mut tally, execute, report)
+            .await?;
+        // An atom that tips or records name and that has neither a body nor a
+        // counter never came up in the walk of the atoms.
+        report.lost_bodies += tally.len() as u64;
+        Ok(())
+    }
+
+    /// Count the holders of each atom of the pass from the tips or the records.
+    async fn tally_family(
+        &self,
+        family: Family,
+        pass: &Pass<'_>,
+        tally: &mut HashMap<String, u32>,
+        report: &mut RecountReport,
+    ) -> Result<(), SchemaError> {
+        let (start, end) = family_range(family, pass.scope);
+        let mut walk = RangeWalk::new(&start, &end, TALLY_PAGE_ROWS);
+        let first_pass = pass.index == 0;
+        while !walk.done() {
+            let rows = self.walk_step(&mut walk).await?;
+            let (holders, bad) = match family {
+                Family::Records => record_holders(&rows),
+                _ => tip_holders(&rows),
+            };
+            if first_pass {
+                match family {
+                    Family::Records => report.records_read += rows.len() as u64,
+                    _ => report.tips_read += rows.len() as u64,
+                }
+                report.unreadable_rows += bad.total;
+            }
+            for (atom, count) in holders {
+                if pass.owns(&atom) {
+                    *tally.entry(atom).or_insert(0) += count;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Walk the bodies and counters of the scope, decide for each atom of the
+    /// pass, and write in batches.
+    async fn recount_atoms(
+        &self,
+        pass: &Pass<'_>,
+        tally: &mut HashMap<String, u32>,
+        execute: bool,
+        report: &mut RecountReport,
+    ) -> Result<(), SchemaError> {
+        let (start, end) = family_range(Family::Atoms, pass.scope);
+        let mut walk = RangeWalk::new(&start, &end, ATOM_PAGE_ROWS);
+        let mut pending = Pending::new(pass.scope);
+        let may_delete = report.unreadable_rows == 0;
+        while let Some((read_start, _, _)) = walk.request() {
+            let rows = self.walk_step(&mut walk).await?;
+            let (pairs, _foreign) = self.pair_rows(&rows, &read_start, pass.scope).await?;
+            for pair in pairs.into_iter().filter(|pair| pass.owns(&pair.atom)) {
+                let holders = tally.remove(&pair.atom).map_or(0, u64::from);
+                report.counters_read +=
+                    u64::from(!matches!(pair.counter, super::scan::CounterRead::Absent));
+                report.bodies_read += u64::from(pair.body);
+                let decision = decide(&pair, holders, may_delete);
+                self.plan_decision(&mut pending, &pair, decision, report)
+                    .await?;
+                if pending.is_full() {
+                    self.flush_pending(&mut pending, execute, report).await?;
+                }
+            }
+        }
+        self.flush_pending(&mut pending, execute, report).await
+    }
+}
