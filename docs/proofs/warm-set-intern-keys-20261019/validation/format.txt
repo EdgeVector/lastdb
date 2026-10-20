@@ -1,0 +1,1 @@
+(empty: cargo fmt --check printed nothing and exited 0)

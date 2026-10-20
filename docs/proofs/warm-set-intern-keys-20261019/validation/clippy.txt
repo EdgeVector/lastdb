@@ -1,0 +1,6 @@
+    Checking fold_db v0.3.0 (<worktree>/fold_db/crates/core)
+   Compiling lastdb_node v0.1.0 (<worktree>/lastdb_node)
+    Checking lastdb_uds v0.1.0 (<worktree>/lastdb_uds)
+    Checking lastdb_identity v0.1.0 (<worktree>/lastdb_identity)
+    Checking lastdb_host v0.1.0 (<worktree>/lastdb_host)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.83s
