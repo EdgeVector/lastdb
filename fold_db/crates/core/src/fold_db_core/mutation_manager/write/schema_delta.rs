@@ -5,7 +5,6 @@ use super::*;
 struct PreparedAtomPhase {
     mutation_key_values: Vec<crate::schema::types::KeyValue>,
     atom_results: Vec<(usize, String, crate::atom::Atom)>,
-    original_atom_results: Vec<(usize, String, crate::atom::Atom)>,
     deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
     changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
 }
@@ -59,7 +58,7 @@ impl MutationManager {
         (tracks_age, tracks_hash_partitions)
     }
 
-    /// Create atoms and key values, restore missing molecules, and dedupe.
+    /// Create atoms and key values, then restore the current selected tips.
     async fn prepare_atom_phase(
         &self,
         schema_name: &str,
@@ -88,19 +87,9 @@ impl MutationManager {
             restore_start.elapsed(),
         );
 
-        let original_atom_results = atom_results.clone();
-        let atom_results = self.dedupe_atom_results(
-            schema_name,
-            schema,
-            schema_mutations,
-            &mutation_key_values,
-            atom_results,
-            timing_breakdown,
-        );
         Ok(PreparedAtomPhase {
             mutation_key_values,
             atom_results,
-            original_atom_results,
             deferred_atoms,
             changed_keys,
         })
@@ -162,7 +151,6 @@ impl MutationManager {
         let PreparedAtomPhase {
             mutation_key_values,
             atom_results,
-            original_atom_results,
             deferred_atoms,
             changed_keys,
         } = self
@@ -179,7 +167,7 @@ impl MutationManager {
                 &schema,
                 &schema_mutations,
                 &mutation_key_values,
-                &original_atom_results,
+                &atom_results,
                 timing_breakdown,
             )
             .await?;
@@ -198,7 +186,6 @@ impl MutationManager {
             schema_mutations,
             mutation_key_values,
             atom_results,
-            original_atom_results,
             deferred_atoms,
             search_batch,
             share_prefixes,

@@ -135,37 +135,13 @@ impl HashRangeQueryProcessor {
                 .common_mut()
                 .set_storage_prefix(Some(ns.to_string()));
         }
-        let matches = working
+        working
             .collect_matches(
                 &self.db_ops,
                 Some(filter.cloned().unwrap_or_else(full_span_page)),
-                false, // ask storage to drop KeyMetadata.tombstoned
+                false,
             )
-            .await?;
-        // Re-apply the tombstone gate on the returned metadata rather than
-        // trusting the `include_tombstones = false` we just passed down.
-        //
-        // That argument reaches `refresh_for_read`, which uses it only on the
-        // NARROWED path; a molecule with no per-key header falls back to
-        // `refresh_from_db`, a full materialize that takes no tombstone
-        // argument at all. So on the fallback the gate is silently skipped and
-        // every deleted key is counted live, while the page path drops them on
-        // `rec.meta.tombstoned` — the count and the rows then disagree by
-        // exactly the deleted set, with no signal that they did.
-        //
-        // Measured on the live primary before this fix, fkanban `Milestone`
-        // projecting its own hash field: `total_count` 14,008, `returned_count`
-        // 0, `unresolved_rows` 0. Every one of those keys is tombstoned;
-        // `include_tombstones: true` returns them. A caller sees a table with
-        // fourteen thousand rows that serves none of them.
-        //
-        // `collect_matches` already carries `KeyMetadata` per match (the third
-        // tuple slot) and the page path already gates on it, so filtering here
-        // costs nothing extra and uses the same signal the read does.
-        Ok(matches
-            .into_iter()
-            .filter(|(_, _, key_meta, _)| !key_meta.as_ref().is_some_and(|meta| meta.tombstoned))
-            .collect())
+            .await
     }
 
     /// Pick the field set whose live keys ARE the query's row set.

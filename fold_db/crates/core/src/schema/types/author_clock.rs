@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use super::Mutation;
 
 /// Mutation author signature scheme that binds content, clock, and identity.
-pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 2;
+pub const MUTATION_AUTHOR_SIGNATURE_VERSION: u8 = 3;
 
 /// Durable high-water state for one device's mutation author clock.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -63,14 +63,12 @@ pub fn mutation_author_clock_key(device_id: &str) -> String {
 
 fn canonical_bytes(mutation: &Mutation) -> Vec<u8> {
     let written_at = mutation.imported_written_at.unwrap_or(0);
+    let content_hash = mutation.content_hash();
     crate::canonical::CanonicalWriter::with_capacity(
-        mutation.content_hash().len()
-            + mutation.uuid.len()
-            + mutation.author_clock_writer_id.len()
-            + 32,
+        content_hash.len() + mutation.uuid.len() + mutation.author_clock_writer_id.len() + 32,
     )
-    .field(b"lastdb-mutation-author-v2")
-    .field(mutation.content_hash().as_bytes())
+    .field(b"lastdb-mutation-author-v3")
+    .field(content_hash.as_bytes())
     .field(mutation.uuid.as_bytes())
     .field(mutation.author_clock_writer_id.as_bytes())
     .u64(written_at)
@@ -90,9 +88,10 @@ pub fn sign_mutation_author_clock(
 
 /// Verify the mutation author signature.
 ///
-/// Version zero is the legacy envelope contract. It is valid only when the
-/// additive clock fields are also zero or empty. Existing molecule signature
-/// version one remains independent and unchanged.
+/// Version zero is the independent unsigned-input contract: it carries no
+/// logical counter or author signature. Signed input uses only the current
+/// domain and framed content hash; older signature versions receive a refusal.
+/// Molecule signature version one remains independent and unchanged.
 #[must_use]
 pub fn verify_mutation_author_clock(mutation: &Mutation) -> bool {
     match mutation.author_clock_signature_version {

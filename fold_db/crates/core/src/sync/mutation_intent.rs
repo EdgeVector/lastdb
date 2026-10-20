@@ -1,9 +1,8 @@
 //! Encode / decode the live mutation-log envelope: LastDB mutation intent,
 //! not physical KV fanout.
 //!
-//! Tests in this module drive the same encoder the serving write path uses
-//! (`encode_mutations` → `LogOp::MutationIntent`) so payload size is a
-//! property of schema + key + fields.
+//! The serving write path uses `encode_mutations` and `LogOp::MutationIntent`.
+//! Its payload contains the schema, key, fields, and signed write metadata.
 
 use crate::atom::Atom;
 use crate::schema::types::operations::MutationType;
@@ -140,8 +139,8 @@ pub fn decode_mutations(envelopes: &[MutationEnvelope]) -> (Vec<Mutation>, Optio
                 envelope.pub_key.clone(),
                 mutation_type,
             );
-            // Keep Some(0) for pre-clock #1556 rows so apply can last-write
-            // among zeros and still LWW-skip against a real origin tip.
+            // Preserve the source time, including zero on unsigned input.
+            // Every tip uses the same strict last-writer-wins comparison.
             mutation.imported_written_at = Some(envelope.written_at);
             // Keep original UUID absence for source history. The replay UUID
             // below remains unchanged for the existing legacy LWW rules.

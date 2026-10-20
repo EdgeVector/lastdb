@@ -1,7 +1,7 @@
 use super::*;
 
 /// Number of phases in [`PhaseTimings`] — see [`PhaseTimings::PHASE_NAMES`].
-pub(super) const PHASE_COUNT: usize = 50;
+pub(super) const PHASE_COUNT: usize = 49;
 
 /// Per-phase timing breakdown for one request, in microseconds.
 ///
@@ -183,11 +183,6 @@ pub struct PhaseTimings {
     /// `schema_reload` (the write-back afterwards).
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub schema_load_us: u64,
-    /// Mutation: the optional write-dedupe pass (`LASTDB_WRITE_DEDUPE`, off
-    /// by default) that drops field writes already equal to the stored tip.
-    /// Zero means the feature is off and its downstream savings are not taken.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub dedupe_scan_us: u64,
     /// Mutation: the idempotency-duplicate filter pass at the top of the
     /// batch pipeline. Previously folded into `apply_us` unreported outside
     /// debug logging.
@@ -296,16 +291,11 @@ pub struct PhaseTimings {
 }
 
 impl PhaseTimings {
-    /// Stable phase names in pipeline order. This is the wire vocabulary:
-    /// serde fields are `<name>_us` and durable rollup fields derive from
-    /// these names — never rename or remove one.
-    ///
-    /// A NEW name may be inserted in pipeline order rather than appended:
-    /// every consumer keys off the name, not the position (serde renders
-    /// named fields, `SELF_METRIC_FIELDS` lists `sum_<name>_us` and migrates
-    /// additively, and `named_us` zips this array with `as_array`). Keeping
-    /// the order meaningful is what makes a rendered `phases[…]` line read as
-    /// the pipeline it describes.
+    /// Measured phase names in pipeline order. Serde fields are `<name>_us`
+    /// and durable rollup fields are `sum_<name>_us`.
+    /// Keep each active name stable. Retiring a phase removes its field,
+    /// array slots, metric name, and rollup consumer together. `named_us`
+    /// zips this list with `as_array`, so their order must stay aligned.
     pub const PHASE_NAMES: [&'static str; PHASE_COUNT] = [
         "queue_wait",
         "admission_wait",
@@ -333,7 +323,6 @@ impl PhaseTimings {
         "apply",
         "apply_memory",
         "schema_load",
-        "dedupe_scan",
         "idempotency_check",
         "grouping",
         "restore_molecules",
@@ -387,7 +376,6 @@ impl PhaseTimings {
             self.apply_us,
             self.apply_memory_us,
             self.schema_load_us,
-            self.dedupe_scan_us,
             self.idempotency_check_us,
             self.grouping_us,
             self.restore_molecules_us,
@@ -442,30 +430,29 @@ impl PhaseTimings {
             apply_us: values[23],
             apply_memory_us: values[24],
             schema_load_us: values[25],
-            dedupe_scan_us: values[26],
-            idempotency_check_us: values[27],
-            grouping_us: values[28],
-            restore_molecules_us: values[29],
-            protein_sibling_fold_us: values[30],
-            spawn_indexing_us: values[31],
-            sync_uuids_us: values[32],
-            schema_reload_us: values[33],
-            persist_us: values[34],
-            persist_molecules_us: values[35],
-            persist_schema_us: values[36],
-            persist_idempotency_us: values[37],
-            flush_us: values[38],
-            sync_capture_us: values[39],
-            index_wait_us: values[40],
-            change_record_us: values[41],
-            change_record_lock_wait_us: values[42],
-            change_record_write_us: values[43],
-            response_envelope_us: values[44],
-            status_sync_us: values[45],
-            status_backup_us: values[46],
-            status_durability_us: values[47],
-            status_data_dir_us: values[48],
-            status_request_ops_us: values[49],
+            idempotency_check_us: values[26],
+            grouping_us: values[27],
+            restore_molecules_us: values[28],
+            protein_sibling_fold_us: values[29],
+            spawn_indexing_us: values[30],
+            sync_uuids_us: values[31],
+            schema_reload_us: values[32],
+            persist_us: values[33],
+            persist_molecules_us: values[34],
+            persist_schema_us: values[35],
+            persist_idempotency_us: values[36],
+            flush_us: values[37],
+            sync_capture_us: values[38],
+            index_wait_us: values[39],
+            change_record_us: values[40],
+            change_record_lock_wait_us: values[41],
+            change_record_write_us: values[42],
+            response_envelope_us: values[43],
+            status_sync_us: values[44],
+            status_backup_us: values[45],
+            status_durability_us: values[46],
+            status_data_dir_us: values[47],
+            status_request_ops_us: values[48],
         }
     }
 
