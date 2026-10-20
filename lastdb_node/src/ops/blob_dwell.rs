@@ -100,7 +100,16 @@ pub async fn run_pass(host: &Host, shutdown: &AtomicBool) {
                 // Local writes are paused for a retained cloud source.
                 None => return,
             }
-            rest(pace.pause_after(started.elapsed()), shutdown).await;
+            let took = started.elapsed();
+            let pause = pace.pause_after(took);
+            tracing::debug!(
+                target: "lastdbd::blob_dwell",
+                chunk = chunk.len(),
+                took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+                rest_ms = u64::try_from(pause.as_millis()).unwrap_or(u64::MAX),
+                "blob dwell chunk done; resting"
+            );
+            rest(pause, shutdown).await;
         }
         if !scan.capped {
             return;

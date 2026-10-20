@@ -59,6 +59,7 @@ What stays:
   stamped during the lag end early by the lag.
 - A wall clock that was wrong when the node started, and was corrected by a large
   step later, reads as the monotonic time plus the tolerance until the next start.
+  The dwells that were stamped during that time end early at the next start.
 
 ### A write that names a blob that is gone
 
@@ -166,7 +167,14 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100), at least 25 ms
    (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. A chunk that took 30 ms is
    followed by a rest of 270 ms. A writer then waits for one small chunk and runs
-   free in the rest. The next chunk takes the gate again.
+   free in the rest. The next chunk takes the gate again. The time of a chunk is the
+   time of the whole call, which includes the wait for the local mutation admission
+   and for the batch to be accepted. On a busy host a chunk takes 0.3 s to 2 s, so the
+   pass then deletes about 30 to 100 blobs a minute (three to ten seconds for a chunk
+   of 32 with its rest). That is the price of leaving the writers alone. Set
+   `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a large backlog faster. The node logs
+   the time and the rest of each chunk at debug level
+   (`lastdbd::blob_dwell`).
 
 The gate is never held across chunks, and the read of the queue takes no gate. A
 pass handles at most 16 pages. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The
