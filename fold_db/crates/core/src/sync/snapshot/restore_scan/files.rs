@@ -8,6 +8,35 @@ pub(super) fn is_main_file_key(key: &[u8]) -> bool {
     key.starts_with(b"cas_blob:")
 }
 
+/// Refuse global file objects before a scoped restore changes proofs or sources.
+pub(in crate::sync::snapshot) fn validate_scoped_files(
+    namespaces: &[NamespaceData],
+) -> SyncResult<()> {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
+    for namespace in namespaces {
+        if namespace.name == "cas_blobs" && !namespace.entries.is_empty() {
+            return Err(scoped_file_error());
+        }
+        if namespace.name != "main" {
+            continue;
+        }
+        for entry in &namespace.entries {
+            let key = BASE64.decode(&entry.key).map_err(|error| {
+                SyncError::Serialization(format!("invalid key base64: {error}"))
+            })?;
+            if is_main_file_key(&key) {
+                return Err(scoped_file_error());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn scoped_file_error() -> SyncError {
+    SyncError::Serialization("scoped snapshot cannot contain node-global file objects".into())
+}
+
 /// Keep the existing object for each identity, including its encryption bytes
 /// and metadata. A restore never replaces a shared file with an older copy.
 pub(super) async fn merge_missing(
@@ -18,9 +47,7 @@ pub(super) async fn merge_missing(
     mode: RestoreMode<'_>,
 ) -> SyncResult<NamespaceRestoreResult> {
     if matches!(mode, RestoreMode::Scoped(_)) && !entries.is_empty() {
-        return Err(SyncError::Serialization(
-            "scoped snapshot cannot contain node-global file objects".into(),
-        ));
+        return Err(scoped_file_error());
     }
     for (key, _) in &entries {
         validate_identity(key, key_prefix)?;
