@@ -14,7 +14,7 @@ use super::*;
 /// The wait after the third failed pass in a row.
 const TTL_BACKOFF_BASE: Duration = Duration::from_secs(300);
 /// The longest wait between two passes after repeated failure.
-const TTL_BACKOFF_CAP: Duration = Duration::from_secs(3600);
+pub(super) const TTL_BACKOFF_CAP: Duration = Duration::from_secs(3600);
 
 /// The wait that follows `failures` failed passes in a row. `None` for the
 /// first failures, which wait for the next sampler tick only.

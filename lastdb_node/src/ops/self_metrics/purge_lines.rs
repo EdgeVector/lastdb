@@ -109,8 +109,9 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     ));
     if let Some(next) = health.next_attempt_unix_secs {
         lines.push(format!(
-            "  sweep_waits: failed_passes_in_a_row={} next_attempt_unix_secs={next} (the wait doubles with each failed pass, up to 1 hour; a pass that succeeds ends it)",
+            "  sweep_waits: failed_passes_in_a_row={} next_attempt_unix_secs={next} (the wait doubles with each failed pass, up to {} s; a pass that succeeds ends it)",
             health.failures,
+            super::ttl_backoff::TTL_BACKOFF_CAP.as_secs(),
         ));
     }
     if let Some(error) = health.policy_error.as_deref() {

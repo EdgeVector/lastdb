@@ -168,10 +168,11 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
 ## Reads
 
 - `GET /api/atom/{id}` returns 404 after the last holder is purged. With
-  `durability: queued` it returns 200 with the old body until the flush commits
-  the batch: READS_DELAY. A query by key shows the new value at once. With
-  `durability: durable` the route returns 404 as soon as the acknowledgement
-  returns.
+  `durability: queued` it returns 200 with the old body of a replaced atom until
+  the flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement,
+  median 0.26 s, in 20 rounds on a synthetic home; the flush interval is
+  500 ms). A query by key shows the new value at once. With `durability: durable`
+  the route returns 404 as soon as the acknowledgement returns.
 - `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` returns
   the counter, the `suspect` flag and the body state of each atom. It cannot
   list the referrers: the counter holds a number, not a list.

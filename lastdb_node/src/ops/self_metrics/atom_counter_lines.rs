@@ -15,7 +15,7 @@ pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         return vec!["Atom counters: unsupported by daemon (no planner report)".to_string()];
     };
     let mut head = format!(
-        "Atom counters: since this process started (a restart sets them to zero): bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={}; for the counters that are suspect now, run lastdb db verify-refs or lastdb db inventory",
+        "Atom counters: since this process started (a restart sets them to zero): bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={}",
         report.bodies_created,
         report.bodies_deleted,
         report.underflows,
@@ -29,6 +29,9 @@ pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
             report.recent_faults.join(", ")
         ));
     }
+    head.push_str(
+        " (the counters that are suspect now: lastdb db verify-refs or lastdb db inventory)",
+    );
     vec![head, verify_refs_line(report)]
 }
 
