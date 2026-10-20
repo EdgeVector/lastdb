@@ -1,0 +1,107 @@
+{
+  "binary_sha256": "c3db0790219b0a3a029610ee99d7bdb24b44a6894f208735675ab917183f4f5a",
+  "complete": true,
+  "error": null,
+  "observations": [
+    {
+      "elapsed_nanos": 626648708,
+      "http_status": 200,
+      "label": "receipt-declare",
+      "phase": "current",
+      "raw_body": "raw-http/current-117.body.json",
+      "raw_sha256": "dae333afc2a6b1e1dcab42162f661959f27185b6fc5e0711293057123008b968"
+    },
+    {
+      "elapsed_nanos": 280746334,
+      "http_status": 200,
+      "label": "receipt-seed",
+      "phase": "current",
+      "raw_body": "raw-http/current-118.body.json",
+      "raw_sha256": "6c5a6902776548dd03b5dfb6c3391791909c18b23bceb7f0c8d680708fccb785"
+    },
+    {
+      "elapsed_nanos": 264888458,
+      "http_status": 200,
+      "label": "receipt-seed-feed",
+      "phase": "receipt-seed-feed",
+      "raw_body": "raw-http/receipt-seed-feed-119.body.json",
+      "raw_sha256": "ace77a8d5c49e8f815aa989e5725c95d2c1c0773ff4c2ef0d74c2cd251988a17"
+    },
+    {
+      "elapsed_nanos": 27833792,
+      "http_status": 200,
+      "label": "receipt-seed-feed",
+      "phase": "receipt-seed-feed",
+      "raw_body": "raw-http/receipt-seed-feed-120.body.json",
+      "raw_sha256": "084d57079a1f847ede79561bd4be24aca708eb50d1dd34a500b27308fac3d679"
+    },
+    {
+      "elapsed_nanos": 356761042,
+      "http_status": 200,
+      "label": "receipt-mixed-delete-update-create",
+      "phase": "current",
+      "raw_body": "raw-http/current-121.body.json",
+      "raw_sha256": "0d20fbba73cb8f12c10b37ae0cbffa789a77661c91b16786a8105d2a42b1d3dc"
+    },
+    {
+      "elapsed_nanos": 295907000,
+      "http_status": 200,
+      "label": "receipt-mixed-feed",
+      "phase": "receipt-mixed-feed",
+      "raw_body": "raw-http/receipt-mixed-feed-122.body.json",
+      "raw_sha256": "4557d0c3614c05a90323dd68e10c4c00f1afcd94337defb1ccfb258dd483f7db"
+    },
+    {
+      "elapsed_nanos": 223869709,
+      "http_status": 200,
+      "label": "receipt-single-update",
+      "phase": "current",
+      "raw_body": "raw-http/current-123.body.json",
+      "raw_sha256": "1571083e06675ae3e7dcb24143a9f442ce5c80fd18bb7e72be5860cb9b85a9f8"
+    },
+    {
+      "elapsed_nanos": 421993791,
+      "http_status": 200,
+      "label": "receipt-single-feed",
+      "phase": "receipt-single-feed",
+      "raw_body": "raw-http/receipt-single-feed-124.body.json",
+      "raw_sha256": "20d7c0f7103afc765b252ec817757c763d053b2eeed6966ad220dec6eee6de3f"
+    },
+    {
+      "elapsed_nanos": 300060917,
+      "http_status": 200,
+      "label": "receipt-absent-delete",
+      "phase": "current",
+      "raw_body": "raw-http/current-125.body.json",
+      "raw_sha256": "94963e0af0984970294e1944130e72611059414315e793164a31cd05616a0518"
+    },
+    {
+      "elapsed_nanos": 252561167,
+      "http_status": 200,
+      "label": "receipt-absent-delete-feed",
+      "phase": "receipt-absent-delete-feed",
+      "raw_body": "raw-http/receipt-absent-delete-feed-126.body.json",
+      "raw_sha256": "a236f296e9712dc0e43a93e6299ee5ec3a65fca085c34005e9f09863cc341f4b"
+    },
+    {
+      "elapsed_nanos": 8709959,
+      "http_status": 200,
+      "label": "receipt-final-values",
+      "phase": "current",
+      "raw_body": "raw-http/current-127.body.json",
+      "raw_sha256": "f155a5b3d17929363294df4aabc7d02a1033467e3498487f709f029d51119799"
+    }
+  ],
+  "policy": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_CORE_WARM_BYTES": "268435456",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RANGE_KEY_ENCODING": "ope_v1",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "Round13KeyListA,Round13KeyListB,Round13LargeValues,CoreOwnedWritesHashRange"
+  },
+  "scope": "Fresh synthetic data. Normal release. No engine selection flags. No comparative speed claim.",
+  "semantic_review": "Pending independent raw-result review.",
+  "source_commit": "9f2bb284a6a47a69a58e16eb9ac4d468a44f4d77"
+}

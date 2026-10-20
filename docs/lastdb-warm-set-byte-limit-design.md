@@ -1,7 +1,10 @@
 # Warm set byte limit design
 
-Status (2026-10-19): approved by Tom (D1–D5 decided). Stage 1 is in progress. Nothing else is implemented.
-The design was written from a read of the code at main `fadd60ab`. Nothing was run or measured.
+Status (2026-10-20): stages 1–3 are implemented. Tom approved D1–D5.
+The current implementation uses a byte limit and admits each read.
+See [the current memory and disk contract](lastdb-rehydrate.md) for the implemented rules.
+
+The original design below describes main `fadd60ab` before those changes. No measurement informed that original design.
 Numbers marked "guess" have no measurement.
 
 This design replaces the record-count limit of the warm set.
@@ -24,7 +27,7 @@ Limit the warm set by bytes, not by a record count.
 The charge is an estimate with a small, bounded error. It is rounded up, so the error is on the safe side.
 A record count has no bound on its error: 10,000 records can use 10 MB or 2.5 GiB.
 
-## Current state
+## State at design creation
 
 | Part | Code | Limit today |
 |---|---|---|

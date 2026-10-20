@@ -31,19 +31,24 @@ pub struct MoleculeRefEdge {
 }
 
 impl MoleculeRefEdge {
-    /// A schema field source. The binding name and field make this identity
-    /// stable across retries and distinct from another copied catalog.
+    /// A schema field source. The JSON tuple preserves both names exactly,
+    /// including separator text inside a schema or field name.
     #[must_use]
     pub fn schema_field(schema: &str, field: &str, molecule_uuid: &str) -> Self {
         Self {
             molecule_uuid: molecule_uuid.to_string(),
-            source: format!("schema:{schema}:field:{field}"),
+            source: format!(
+                "schema:{}",
+                serde_json::to_string(&(schema, field))
+                    .expect("schema field identity is serializable")
+            ),
             edge_type: "schema-field".to_string(),
         }
     }
 
-    /// A protein member source. The key layout is part of the source identity
-    /// because one molecule can have several conformations in one protein.
+    /// A protein member source. A JSON tuple preserves field-name boundaries
+    /// and distinguishes no range field from an explicitly empty field name.
+    /// One molecule can have several key layouts in one protein.
     #[must_use]
     pub fn protein_member(
         protein_uuid: &str,
@@ -54,14 +59,16 @@ impl MoleculeRefEdge {
         Self {
             molecule_uuid: molecule_uuid.to_string(),
             source: format!(
-                "protein:{protein_uuid}:member:{molecule_uuid}:layout:{hash_field}:{}",
-                range_field.unwrap_or("")
+                "protein:{}",
+                serde_json::to_string(&(protein_uuid, molecule_uuid, hash_field, range_field))
+                    .expect("protein member identity is serializable")
             ),
             edge_type: "protein-member".to_string(),
         }
     }
 
-    /// One named database catalog's field path to an existing molecule.
+    /// One named database catalog's field path to an existing molecule. The
+    /// JSON tuple preserves the database, schema, and field boundaries.
     #[must_use]
     pub fn database_catalog_field(
         db_locator: &str,
@@ -71,7 +78,11 @@ impl MoleculeRefEdge {
     ) -> Self {
         Self {
             molecule_uuid: molecule_uuid.to_string(),
-            source: format!("database:{db_locator}:schema:{schema}:field:{field}"),
+            source: format!(
+                "database:{}",
+                serde_json::to_string(&(db_locator, schema, field))
+                    .expect("database catalog field identity is serializable")
+            ),
             edge_type: "database-catalog-field".to_string(),
         }
     }
@@ -123,6 +134,17 @@ impl AtomStore {
     /// Read one molecule's binding records (one range read under one hash) and
     /// compare their number with the `bindings` counter.
     pub async fn molecule_ref_edges_for_molecule(
+        &self,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<MoleculeRefLookup, SchemaError> {
+        self.atom_read_scope(
+            self.molecule_ref_edges_for_molecule_captured(molecule_uuid, storage_prefix),
+        )
+        .await
+    }
+
+    async fn molecule_ref_edges_for_molecule_captured(
         &self,
         molecule_uuid: &str,
         storage_prefix: Option<&str>,

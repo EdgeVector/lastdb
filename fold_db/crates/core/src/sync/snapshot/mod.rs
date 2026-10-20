@@ -276,6 +276,7 @@ impl Snapshot {
             self.validate_unique_restore_keys()?;
             self.namespaces.as_slice()
         };
+        validate_scoped_files(namespaces)?;
         let reference_proofs =
             begin_reference_restore(store, namespaces, RestoreMode::Scoped(target_prefixes))
                 .await?;

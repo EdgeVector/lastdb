@@ -1,0 +1,230 @@
+{
+  "archives": [
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 2996747,
+      "gzip_sha256": "8d89e9fbd5227316e0e45cefcc4a6cea5a39e048b382f0a810b104cbbe8ba763",
+      "parts_in_order": [
+        {
+          "bytes": 1048576,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/core-cohorts.jsonl.gz.part-000",
+          "sha256": "782027cb40f6fde2aac61552aafd6db3c68e021abea73bf2131df65e37081028"
+        },
+        {
+          "bytes": 1048576,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/core-cohorts.jsonl.gz.part-001",
+          "sha256": "fc38a2d780c3a2a60b6daa70b02fc84fd557c97c5e51cd68c9f7f58a2c568790"
+        },
+        {
+          "bytes": 899595,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/core-cohorts.jsonl.gz.part-002",
+          "sha256": "795c872398a0d18d886ef8edde7c7e6d42bd41efba90fe9612ee246a4e2f1b54"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/core-cohorts/receipts.jsonl",
+      "source_bytes": 9112300,
+      "source_sha256": "f76bec6ac4ff34ce8c9cc1d7601cd922cbe298c1a79d8f661269bab0a37ba06b"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 9808,
+      "gzip_sha256": "02fc56e5f267a2463b1d32074c8448277079ad696de5529775b796e445442fc2",
+      "parts_in_order": [
+        {
+          "bytes": 9808,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/key-list-ope.jsonl.gz.part-000",
+          "sha256": "02fc56e5f267a2463b1d32074c8448277079ad696de5529775b796e445442fc2"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/key-list-ope/receipts.jsonl",
+      "source_bytes": 118211,
+      "source_sha256": "69f51b25815369f8087325b79fdbfb8470da7dbc0cccbc6605f70db200ce2de6"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 8157,
+      "gzip_sha256": "139586a0ef98808173f26f8c595d27055bdb12ea77ec094b6abc0745f4e366b9",
+      "parts_in_order": [
+        {
+          "bytes": 8157,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/key-list-plain.jsonl.gz.part-000",
+          "sha256": "139586a0ef98808173f26f8c595d27055bdb12ea77ec094b6abc0745f4e366b9"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/key-list-plain/receipts.jsonl",
+      "source_bytes": 96681,
+      "source_sha256": "01876989e29f9d0ddf913be89c47d57e52fe9876fe8d79a52e4ade29b0d296d4"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 459892,
+      "gzip_sha256": "eff89703b94478bfa49b76dfc43903be2a50e3a019b5404d317bb802783fcad2",
+      "parts_in_order": [
+        {
+          "bytes": 459892,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/large-values.jsonl.gz.part-000",
+          "sha256": "eff89703b94478bfa49b76dfc43903be2a50e3a019b5404d317bb802783fcad2"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/large-values/receipts.jsonl",
+      "source_bytes": 39603517,
+      "source_sha256": "4c100e1d60eee9ecf2b2f31fa44100d6a573ca59228827fc0a41570dd7ff5865"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 611350,
+      "gzip_sha256": "beddd1b719ec1f0f612c60489a13291b6820ea10f1b316b455bdbd0cd54a92eb",
+      "parts_in_order": [
+        {
+          "bytes": 611350,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/large-values-pack-reopen.jsonl.gz.part-000",
+          "sha256": "beddd1b719ec1f0f612c60489a13291b6820ea10f1b316b455bdbd0cd54a92eb"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/large-values-pack-reopen/receipts.jsonl",
+      "source_bytes": 52797549,
+      "source_sha256": "3d5324aa1b0598e069f0ef13d3494df8ae9928eeaf29c967a1fbc41963742e19"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 8463,
+      "gzip_sha256": "04c8b6feef825d674e34ec697f259ce8e58e6b92172e39797227bf948b175bb0",
+      "parts_in_order": [
+        {
+          "bytes": 8463,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/key-list-ope-cursor.jsonl.gz.part-000",
+          "sha256": "04c8b6feef825d674e34ec697f259ce8e58e6b92172e39797227bf948b175bb0"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/key-list-ope-cursor/receipts.jsonl",
+      "source_bytes": 98870,
+      "source_sha256": "f25280eea190a234983b0c7dbe44aa9779b4f85d7543835e1c38712426ab62e0"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 8380,
+      "gzip_sha256": "b3818eaf4319d65898c731dc1c7166eaceb4899839f0a0db8ae311a2919fa5bc",
+      "parts_in_order": [
+        {
+          "bytes": 8380,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/key-list-plain-cursor.jsonl.gz.part-000",
+          "sha256": "b3818eaf4319d65898c731dc1c7166eaceb4899839f0a0db8ae311a2919fa5bc"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/key-list-plain-cursor/receipts.jsonl",
+      "source_bytes": 98958,
+      "source_sha256": "c78b3596290eae4aae963e7984380f7b86fc570171fd031c4a3ddf93502dd053"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 10487,
+      "gzip_sha256": "474116f41fbe0aa1ffc27e696679512fbb053d6759b53ae13afca6636231e1f9",
+      "parts_in_order": [
+        {
+          "bytes": 10487,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/key-list-catalog-rebind.jsonl.gz.part-000",
+          "sha256": "474116f41fbe0aa1ffc27e696679512fbb053d6759b53ae13afca6636231e1f9"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/key-list-catalog-rebind/receipts.jsonl",
+      "source_bytes": 129232,
+      "source_sha256": "4fc7f7884f47a2c093a195b0b4244c8b474f649ce789eae1f2bb18d75953b188"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 2999814,
+      "gzip_sha256": "13f5dd7ea13cb8e73dd449c693ed1d22a4f37798bce1551441e7853485014b75",
+      "parts_in_order": [
+        {
+          "bytes": 1048576,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/final-receipt-order--core-cohorts.jsonl.gz.part-000",
+          "sha256": "8eee8b0608c7dfee4b19e48e9ca7507056988bb75edf6ea613d07a261366d732"
+        },
+        {
+          "bytes": 1048576,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/final-receipt-order--core-cohorts.jsonl.gz.part-001",
+          "sha256": "59b00c495d736c99574a1ffc8c75ea5f3fc5194acebfc39275cce38007e5ba7e"
+        },
+        {
+          "bytes": 902662,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/final-receipt-order--core-cohorts.jsonl.gz.part-002",
+          "sha256": "2b42ef3dc9b2491730793b88cb12aa0a6dc631de15247e811e61a4748e41a11e"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/final-receipt-order/core-cohorts/receipts.jsonl",
+      "source_bytes": 9128489,
+      "source_sha256": "28d4c42834f3f6ed788bd5a0816e35ddfb91aedbd61b09449f819c91638b73e6"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 2997981,
+      "gzip_sha256": "3681b036694409d4a163eaad049916d389b1149b763537987fa441ad30de4a73",
+      "parts_in_order": [
+        {
+          "bytes": 1048576,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/format-fenced-release--core-cohorts.jsonl.gz.part-000",
+          "sha256": "1961a84afb1a19e66b7366331b3c504b73d38f5cbf28d071367b619f9b858251"
+        },
+        {
+          "bytes": 1048576,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/format-fenced-release--core-cohorts.jsonl.gz.part-001",
+          "sha256": "ca413bdc5490a89100b7c8ca9b96b9bea021490da6c01fcd478b0cb9ad1d0789"
+        },
+        {
+          "bytes": 900829,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/format-fenced-release--core-cohorts.jsonl.gz.part-002",
+          "sha256": "89984014208cd223fb76516173f1e418e769943eeafebdecd50eb53601d601cd"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/format-fenced-release/core-cohorts/receipts.jsonl",
+      "source_bytes": 9128777,
+      "source_sha256": "e7344bbebe89f146d31ec50f8c9d37447d7d9c727df0a77a98d382122a4510a1"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 10528,
+      "gzip_sha256": "a1b3c1b9988a31117ce9eb2aa5ba5c0469c13771eaa2f61c47a8fb4e317245ea",
+      "parts_in_order": [
+        {
+          "bytes": 10528,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/format-fenced-release--key-list-catalog-rebind.jsonl.gz.part-000",
+          "sha256": "a1b3c1b9988a31117ce9eb2aa5ba5c0469c13771eaa2f61c47a8fb4e317245ea"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/format-fenced-release/key-list-catalog-rebind/receipts.jsonl",
+      "source_bytes": 129244,
+      "source_sha256": "e5eee56460223e56d0ad458530b5135b25501e95a831a045fa9906937dd03d23"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 8340,
+      "gzip_sha256": "fabb78e56d8d7b8f37f1b2c0f5ba5868d7b55c94ad4dba6bd7bc389957037200",
+      "parts_in_order": [
+        {
+          "bytes": 8340,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/format-fenced-release--key-list-plain-cursor.jsonl.gz.part-000",
+          "sha256": "fabb78e56d8d7b8f37f1b2c0f5ba5868d7b55c94ad4dba6bd7bc389957037200"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/format-fenced-release/key-list-plain-cursor/receipts.jsonl",
+      "source_bytes": 98928,
+      "source_sha256": "188eab5d656fba2d1524bfeed691ece4892f2e35c55ae58bdb247ca037da4579"
+    },
+    {
+      "exact_decompression": true,
+      "gzip_bytes": 611356,
+      "gzip_sha256": "2581a5471f59f6e5709e0b0dbe412e31e3600114c1aa079a71f09e005f8e0a75",
+      "parts_in_order": [
+        {
+          "bytes": 611356,
+          "path": "docs/proofs/native-review-20261020-round13/receipt-archives/format-fenced-release--large-values-pack-reopen.jsonl.gz.part-000",
+          "sha256": "2581a5471f59f6e5709e0b0dbe412e31e3600114c1aa079a71f09e005f8e0a75"
+        }
+      ],
+      "source": "docs/proofs/native-review-20261020-round13/format-fenced-release/large-values-pack-reopen/receipts.jsonl",
+      "source_bytes": 52797548,
+      "source_sha256": "01cea874e4026ec4bf61197dc5bc1fd87f72f787572f179acc82060a5e02931f"
+    }
+  ],
+  "method": "Concatenate each archive parts_in_order as bytes, then gzip-decompress. Byte boundaries need not follow JSON lines."
+}

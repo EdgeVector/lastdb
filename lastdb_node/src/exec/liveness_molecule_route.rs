@@ -18,16 +18,24 @@ pub(super) async fn explain_molecules(
     ids.truncate(10_000);
     let atoms = host.db.db_ops().atoms();
     let result = async {
-        let views = atoms.molecule_counter_views(&ids, storage_prefix).await?;
-        let edges = match ids.as_slice() {
-            [only] => Some(
-                atoms
-                    .molecule_ref_edges_for_molecule(only, storage_prefix)
-                    .await?,
-            ),
-            _ => None,
+        let read = async {
+            let views = atoms.molecule_counter_views(&ids, storage_prefix).await?;
+            let edges = match ids.as_slice() {
+                [only] => Some(
+                    atoms
+                        .molecule_ref_edges_for_molecule(only, storage_prefix)
+                        .await?,
+                ),
+                _ => None,
+            };
+            Ok::<_, fold_db::schema::SchemaError>((views, edges))
         };
-        Ok::<_, fold_db::schema::SchemaError>((views, edges))
+        let store = host.db.db_ops().namespaced_store();
+        let Some(scope) = fold_db::storage::disk_pack::PackReadScope::for_store(&store).await?
+        else {
+            return read.await;
+        };
+        scope.run_result(read).await
     }
     .await;
     match result {

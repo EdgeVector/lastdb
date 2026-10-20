@@ -1,0 +1,1 @@
+{"http_status": 400, "label": "blob-ids-only-refusal", "path": "/api/storage/liveness/explain", "phase": "current", "raw_sha256": "38652af82e78236a799da76e72baf86d1b7a18a62688fb7ebf3ae1f3e6dededa", "request": {"class": "blob", "ids": ["round12-never-uploaded-blob"]}, "response_headers": [["Content-Length", "37"], ["Connection", "close"]]}

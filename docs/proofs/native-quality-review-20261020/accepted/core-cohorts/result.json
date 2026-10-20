@@ -1,0 +1,18 @@
+{
+  "binary_sha256": "d453d7c6ee978ed41bf57cedb09584e11ea3844c4ade41a1b49e5a5742d76bd8",
+  "complete": true,
+  "error": null,
+  "observations": [],
+  "policy": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_CORE_WARM_BYTES": "268435456",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RANGE_KEY_ENCODING": "ope_v1",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "Round12PurgeIdentity,CoreOwnedWritesHashRange"
+  },
+  "scope": "Fresh synthetic data. Normal release. No engine-selection flags. No comparative speed claim.",
+  "semantic_review": "Pending independent raw-result review.",
+  "source_commit": "a0ccb6b505e42ce39c85f4bb27a1b90fed7f59ba"
+}

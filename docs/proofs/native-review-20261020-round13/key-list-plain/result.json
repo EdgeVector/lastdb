@@ -1,0 +1,187 @@
+{
+  "binary_sha256": "ff0df66caa3c2ef504b083a159b7aedeb011ac58d58a160822abd673ecec9f1e",
+  "complete": true,
+  "error": null,
+  "observations": [
+    {
+      "elapsed_nanos": 580896959,
+      "http_status": 200,
+      "label": "declare-A",
+      "phase": "current",
+      "raw_body": "raw-http/current-003.body.json",
+      "raw_sha256": "576ec117a61061124b276708b742d3c7af99a914855915f8890925193bb575c3"
+    },
+    {
+      "elapsed_nanos": 2033268541,
+      "http_status": 200,
+      "label": "declare-B",
+      "phase": "current",
+      "raw_body": "raw-http/current-004.body.json",
+      "raw_sha256": "8d0d84a5838939540c0a6350c89601b7b4331a01f1c1491513b71468dd9235f3"
+    },
+    {
+      "elapsed_nanos": 347615583,
+      "http_status": 200,
+      "label": "seed-two-A-records",
+      "phase": "current",
+      "raw_body": "raw-http/current-005.body.json",
+      "raw_sha256": "86793feef1748c1640f307a3f0f398a99386a3f93187298ef56ddc3e338a3c54"
+    },
+    {
+      "elapsed_nanos": 5916917,
+      "http_status": 200,
+      "label": "initial-B-list-first-page",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-009.body.json",
+      "raw_sha256": "a8c0bcbfdc9c82be4498db622ccec194b511187e7ba0ab9e2361c42618eeb7e5"
+    },
+    {
+      "elapsed_nanos": 1193208,
+      "http_status": 200,
+      "label": "initial-B-list-all",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-010.body.json",
+      "raw_sha256": "f92edf5d88691256816beb096fe3a1e9a7e9ef5c5efded8331de8c238c43bb9b"
+    },
+    {
+      "elapsed_nanos": 6293458,
+      "http_status": 200,
+      "label": "initial-query-and-count-equivalence",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-011.body.json",
+      "raw_sha256": "53c5f19e7b41dfed88df27cf8e6d17c33aa13f2d9857b43ac6da5abfb73074c8"
+    },
+    {
+      "elapsed_nanos": 1170167,
+      "http_status": 200,
+      "label": "initial-B-list-first-page",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-012.body.json",
+      "raw_sha256": "a8c0bcbfdc9c82be4498db622ccec194b511187e7ba0ab9e2361c42618eeb7e5"
+    },
+    {
+      "elapsed_nanos": 1081292,
+      "http_status": 200,
+      "label": "initial-B-list-all",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-013.body.json",
+      "raw_sha256": "f92edf5d88691256816beb096fe3a1e9a7e9ef5c5efded8331de8c238c43bb9b"
+    },
+    {
+      "elapsed_nanos": 3580500,
+      "http_status": 200,
+      "label": "initial-query-and-count-equivalence",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-014.body.json",
+      "raw_sha256": "768e3b191711ec82dbb6b9e0e484c4358c309a6eb3b0b7e82be2025499380383"
+    },
+    {
+      "elapsed_nanos": 646727375,
+      "http_status": 200,
+      "label": "move-first-B-range",
+      "phase": "current",
+      "raw_body": "raw-http/current-015.body.json",
+      "raw_sha256": "1b102cb11450606cdffe2034325e4c93638cca785082d3178bf3a50a2395fcae"
+    },
+    {
+      "elapsed_nanos": 4615291,
+      "http_status": 200,
+      "label": "moved-B-list-all",
+      "phase": "after-update-ack",
+      "raw_body": "raw-http/after-update-ack-016.body.json",
+      "raw_sha256": "9a8eab9120598ae09f701a4f1d105dd195a0889a8f51e3219ad6b7179a8f2817"
+    },
+    {
+      "elapsed_nanos": 9994500,
+      "http_status": 200,
+      "label": "moved-query-and-count-equivalence",
+      "phase": "after-update-ack",
+      "raw_body": "raw-http/after-update-ack-017.body.json",
+      "raw_sha256": "58f602ff3bcf594aa4770e555fb4f6ecb1ae7e57294cb8400e5c1d6a0c3c55a2"
+    },
+    {
+      "elapsed_nanos": 2233333,
+      "http_status": 200,
+      "label": "moved-B-list-all",
+      "phase": "after-update-flush",
+      "raw_body": "raw-http/after-update-flush-019.body.json",
+      "raw_sha256": "9a8eab9120598ae09f701a4f1d105dd195a0889a8f51e3219ad6b7179a8f2817"
+    },
+    {
+      "elapsed_nanos": 4082333,
+      "http_status": 200,
+      "label": "moved-query-and-count-equivalence",
+      "phase": "after-update-flush",
+      "raw_body": "raw-http/after-update-flush-020.body.json",
+      "raw_sha256": "001ec121c1af62c02f4876cfcbcd0af5a168d189fbbd710f8f667f99d406954b"
+    },
+    {
+      "elapsed_nanos": 377989125,
+      "http_status": 200,
+      "label": "delete-second-A-record",
+      "phase": "current",
+      "raw_body": "raw-http/current-021.body.json",
+      "raw_sha256": "0b70bd4ad946621fb722fc476055e5dfe8cbc720ac259b6a3a0ca6264dfa01e8"
+    },
+    {
+      "elapsed_nanos": 21989334,
+      "http_status": 200,
+      "label": "deleted-B-list-all",
+      "phase": "current",
+      "raw_body": "raw-http/current-022.body.json",
+      "raw_sha256": "3685d82fdad0f0c150a4daad92ab85ae05ebd2fb37bac054860cb5822b7eff82"
+    },
+    {
+      "elapsed_nanos": 26781792,
+      "http_status": 200,
+      "label": "deleted-B-list-one",
+      "phase": "current",
+      "raw_body": "raw-http/current-023.body.json",
+      "raw_sha256": "3685d82fdad0f0c150a4daad92ab85ae05ebd2fb37bac054860cb5822b7eff82"
+    },
+    {
+      "elapsed_nanos": 51525375,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "current",
+      "raw_body": "raw-http/current-024.body.json",
+      "raw_sha256": "5f91cbf58e8e7f5bb7288f554659d6a5ff1a86034e723470cdc32b1f6ed5bcbc"
+    },
+    {
+      "elapsed_nanos": 5641584,
+      "http_status": 200,
+      "label": "deleted-B-list-one",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-029.body.json",
+      "raw_sha256": "3685d82fdad0f0c150a4daad92ab85ae05ebd2fb37bac054860cb5822b7eff82"
+    },
+    {
+      "elapsed_nanos": 6034917,
+      "http_status": 200,
+      "label": "deleted-B-list-all",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-028.body.json",
+      "raw_sha256": "3685d82fdad0f0c150a4daad92ab85ae05ebd2fb37bac054860cb5822b7eff82"
+    },
+    {
+      "elapsed_nanos": 8962459,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-030.body.json",
+      "raw_sha256": "7392c4417b2732830bdd35b4f06b4f5e1a8f6a8d02d30f633e03775a40b93f8d"
+    }
+  ],
+  "policy": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_CORE_WARM_BYTES": "268435456",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RANGE_KEY_ENCODING": "plain",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "Round13KeyListA,Round13KeyListB,Round13LargeValues,CoreOwnedWritesHashRange"
+  },
+  "scope": "Fresh synthetic data. Normal release. No engine selection flags. No comparative speed claim.",
+  "semantic_review": "Pending independent raw-result review.",
+  "source_commit": "912a74e847ff32ff2e4d585ed10ef2f7e39338a4"
+}

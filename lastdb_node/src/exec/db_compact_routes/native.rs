@@ -1,7 +1,7 @@
 use super::*;
 use fold_db::storage::disk_pack::{NativeMaintenanceOptions, PackRuntime};
 
-/// The existing owner compact route also serves an explicitly selected native home.
+/// The owner compact route maintains the native home.
 /// Native parts share one root; a named collection must not imply narrower work.
 pub(super) async fn execute(
     req: &UdsRequest,

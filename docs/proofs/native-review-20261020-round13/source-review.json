@@ -1,0 +1,22 @@
+{
+  "independent_reviews": {
+    "catalog": "Native gate precedes molecule locks; decisions, binding changes and cleanup share one atomic publication; Search uses logical coordinates after commit.",
+    "maintenance": "Generation inventory uses the existing file budget. Retained closure, read exclusion and exact deletion checks remain.",
+    "memory": "Full-atom certificates include all fields, exact source and scope; callers move owned atoms after verification. No second receipt body.",
+    "query": "Schema key pages prove both key coordinates before selection and retain physical refill/cursor."
+  },
+  "limits": [
+    "The 128MiB cleanup plan limit bounds retained plan rows; total call memory also includes a bounded page and private staged operations.",
+    "Full catalog cleanup can refuse the native operation or byte limit. No streaming retirement subsystem was added.",
+    "No runtime proof yet for separator-bearing public-library schema names or more than4096 generations.",
+    "Cloud remains disabled. Domain-aware key revocation needs a separate design before cloud activation."
+  ],
+  "removed_paths": [
+    "write-only pending_replaced_tips vector and clear helper",
+    "ambiguous delimiter parsing for schema binding identities",
+    "raw physical key list as catalog Search key authority",
+    "instance-only revocation of global molecule-domain wraps"
+  ],
+  "runtime_status": "Pending normal release operations. Source checks alone do not establish runtime behavior.",
+  "source_commit": "1e306f5d16e32d47191483d29b091f21a7644719"
+}

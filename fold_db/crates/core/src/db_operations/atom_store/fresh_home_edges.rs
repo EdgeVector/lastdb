@@ -3,21 +3,24 @@
 //! The atom counter makes atom bodies the only authority for atom references,
 //! and the molecule counters do the same for molecules. A new home holds no blob
 //! reference, so the proof that the blob reference plane is complete is true by
-//! construction. An older home has no feature bit for atom records and the
-//! storage layer refuses it before this code runs.
+//! construction. The storage layer refuses earlier physical layouts. A native
+//! home also needs the current logical identity marker before it can serve.
 
 use super::{AtomStore, BlobRefCompleteness, BLOB_REF_COMPLETE_KEY};
 use crate::storage::{KvMutation, StorageError};
 
-const KEY_FORMAT_KEY: &str = "layout:v2:keys";
-const KEY_FORMAT: &[u8] = b"2";
+const KEY_FORMAT: &[u8] = b"3";
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.
 pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] =
-    &[KEY_FORMAT_KEY, BLOB_REF_COMPLETE_KEY];
+    &[AtomStore::CURRENT_KEY_FORMAT_KEY, BLOB_REF_COMPLETE_KEY];
 
 impl AtomStore {
+    /// This logical format includes framed molecule identities and exact
+    /// tuple-based binding sources. Snapshots require the same marker key.
+    pub(crate) const CURRENT_KEY_FORMAT_KEY: &str = "layout:v3:keys";
+
     /// Validate the explicit key settings before the native store creates files.
     pub(crate) fn validate_boot_key_encoding_settings() -> Result<(), StorageError> {
         for (name, choices) in [
@@ -82,7 +85,7 @@ impl AtomStore {
         if self
             .main_store
             .inner()
-            .get(KEY_FORMAT_KEY.as_bytes())
+            .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await?
             .as_deref()
             != Some(KEY_FORMAT)
@@ -100,7 +103,7 @@ fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
     let blob = serde_json::to_vec(&BlobRefCompleteness { version: 2 })
         .map_err(|error| StorageError::SerializationError(error.to_string()))?;
     Ok(vec![
-        KvMutation::put(KEY_FORMAT_KEY.as_bytes(), KEY_FORMAT),
+        KvMutation::put(AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(), KEY_FORMAT),
         KvMutation::put(BLOB_REF_COMPLETE_KEY.as_bytes(), blob),
     ])
 }

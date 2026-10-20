@@ -127,14 +127,7 @@ impl MutationManager {
     }
 
     /// [`Self::write_mutations_with_access_receipt`] returning only the
-    /// mutation ids.
-    ///
-    /// This keeps the name and the exact result every existing caller already
-    /// has; the receipt form is the sibling, mirroring
-    /// [`Self::write_mutations_batch_async`] and
-    /// [`Self::write_mutations_batch_with_receipt`] one layer down. Widening
-    /// the established name instead would have made every unrelated call site
-    /// unwrap a field it has no reader for.
+    /// accepted input mutation ids, in caller order.
     ///
     /// The future is boxed here. A caller that spawns a task on it would
     /// otherwise make the compiler prove `Send` through the whole write graph

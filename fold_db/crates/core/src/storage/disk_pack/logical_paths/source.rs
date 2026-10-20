@@ -1,11 +1,14 @@
-//! Full decoded atoms and source coordinates belong to one read or write call.
+//! Compact source certificates belong to one read or write call, never bodies.
 use super::*;
 use crate::atom::Atom;
 use std::collections::BTreeMap;
 
 const MAX_SOURCE_ENTRIES: usize = 10_000;
+// One read can need a source, atom certificate, and scope binding for each key.
+// Each typed map has its own count bound; all three share this metadata cap.
 const MAX_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 mod certified;
+mod proof;
 pub(crate) use certified::{certified_atoms, CertifiedAtom};
 static SOURCE_CACHE: u8 = 0;
 
@@ -62,11 +65,9 @@ fn primary_coordinate(requested: &str) -> Option<(&'static str, String)> {
     ))
 }
 
-#[derive(Clone)]
 pub(super) struct AtomFacts {
     source: SourceKey,
     pub(super) atom: Arc<Atom>,
-    bytes: usize,
 }
 
 impl AtomFacts {
@@ -81,6 +82,12 @@ struct SourceKey {
     key: String,
 }
 
+struct AtomProof {
+    source: SourceKey,
+    fingerprint: [u8; 32],
+    bytes: usize,
+}
+
 impl SourceKey {
     fn primary(&self, requested: &str) -> bool {
         let Some((collection, key)) = primary_coordinate(requested) else {
@@ -93,26 +100,26 @@ impl SourceKey {
 #[derive(Default)]
 pub(in crate::storage::disk_pack) struct Sources {
     reads: BTreeMap<String, SourceKey>,
-    atoms: BTreeMap<String, AtomFacts>,
+    atoms: BTreeMap<String, AtomProof>,
     scoped: BTreeMap<String, String>,
     bytes: usize,
 }
 
 impl Sources {
-    /// Optional receipts copy a body only after its source and allowance pass.
+    /// Optional receipts retain only a complete fingerprint and source keys.
     fn retain_atom(
         &mut self,
         requested: &str,
         source: SourceKey,
         bytes: usize,
-        create: impl FnOnce() -> Arc<Atom>,
+        fingerprint: [u8; 32],
     ) {
-        if source.primary(requested) && self.room(bytes) {
+        if source.primary(requested) && self.atoms.len() < MAX_SOURCE_ENTRIES && self.room(bytes) {
             self.atoms.insert(
                 requested.to_owned(),
-                AtomFacts {
+                AtomProof {
                     source,
-                    atom: create(),
+                    fingerprint,
                     bytes,
                 },
             );
@@ -120,7 +127,6 @@ impl Sources {
     }
 
     fn room(&mut self, bytes: usize) -> bool {
-        let entries = self.reads.len() + self.atoms.len() + self.scoped.len();
         let Some(total) = self
             .bytes
             .checked_add(bytes)
@@ -128,9 +134,6 @@ impl Sources {
         else {
             return false;
         };
-        if entries >= MAX_SOURCE_ENTRIES {
-            return false;
-        }
         self.bytes = total;
         true
     }
@@ -147,7 +150,7 @@ fn sources(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<
         return Ok(None);
     }
     let cache = std::ptr::from_ref(&SOURCE_CACHE) as usize;
-    let name = "native_typed_source_receipts_v2";
+    let name = "native_typed_source_receipts_v3";
     if let Some(sources) = read_snapshot_get(runtime.clone(), cache, name)? {
         return Ok(Some(sources));
     }
@@ -179,7 +182,9 @@ pub(crate) fn note_read_source(
     let Some((collection, actual)) = source else {
         return Ok(());
     };
-    if sources.room(192 + requested.len() + collection.len() + actual.len()) {
+    if sources.reads.len() < MAX_SOURCE_ENTRIES
+        && sources.room(192 + requested.len() + collection.len() + actual.len())
+    {
         sources.reads.insert(
             requested.to_owned(),
             SourceKey {
@@ -213,12 +218,8 @@ pub(crate) fn note_atom(
     if crate::atom::atom_key_codec::body_uuid_of(decoded) != Some(atom.uuid()) {
         return Ok(());
     }
-    let bytes = 192
-        + requested.len()
-        + source.collection.len()
-        + source.key.len()
-        + super::body::encoded_len(atom)?;
-    sources.retain_atom(requested, source, bytes, || Arc::new(atom.clone()));
+    let bytes = 192 + requested.len() + source.collection.len() + source.key.len();
+    sources.retain_atom(requested, source, bytes, proof::fingerprint(atom)?);
     Ok(())
 }
 
@@ -248,7 +249,7 @@ fn bind(sources: &mut Sources, scope: Option<&str>, key: &str, atom: &Atom) {
     if !sources.atoms.contains_key(key) {
         return;
     }
-    if sources.room(192 + identity.len() + key.len()) {
+    if sources.scoped.len() < MAX_SOURCE_ENTRIES && sources.room(192 + identity.len() + key.len()) {
         sources.scoped.insert(identity, key.to_owned());
     }
 }
@@ -256,17 +257,19 @@ fn bind(sources: &mut Sources, scope: Option<&str>, key: &str, atom: &Atom) {
 pub(super) fn atom_facts(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
-    atom: &str,
+    atom: Atom,
 ) -> StorageResult<Option<AtomFacts>> {
     let Some(sources) = sources(runtime)? else {
         return Ok(None);
     };
-    let sources = sources.lock().expect("native selected full atom");
-    Ok(sources
-        .scoped
-        .get(&scoped(scope, atom))
-        .and_then(|key| sources.atoms.get(key))
-        .cloned())
+    let sources = sources.lock().expect("native selected atom certificate");
+    let Some((source, _)) = certified::certified_source(&sources, scope, &atom)? else {
+        return Ok(None);
+    };
+    Ok(Some(AtomFacts {
+        source,
+        atom: Arc::new(atom),
+    }))
 }
 
 fn scoped(scope: Option<&str>, atom: &str) -> String {

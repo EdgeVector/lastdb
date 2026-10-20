@@ -6,18 +6,25 @@ use crate::schema::types::field::{field_value_from_atom, FieldValue, KeyedAtomMa
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::logical_paths::field;
 
+pub(super) struct ListedValue {
+    pub(super) field: FieldValue,
+    // A cold decode remains owned here until schema membership selects its key.
+    // A warm hit already belongs to the core and needs no second body owner.
+    atom: Option<crate::atom::Atom>,
+}
+
 impl AtomStore {
     pub(super) async fn list_field_values(
         &self,
         request: &KeyList<'_>,
         codec: &MoleculeKeyCodec,
         rows: &[(String, PerKeyRecord)],
-    ) -> Result<Vec<Option<FieldValue>>, SchemaError> {
-        let schema = matches!(request.membership, Membership::Schema { .. });
+    ) -> Result<Vec<Option<ListedValue>>, SchemaError> {
+        let schema = matches!(request.membership, Membership::Schema(_));
         let needs_bodies = schema
             || (request.hash.is_none()
                 && codec.encoding() == crate::atom::HashKeyEncoding::BlindV1);
-        let mut values = vec![None; rows.len()];
+        let mut values: Vec<_> = (0..rows.len()).map(|_| None).collect();
         if !needs_bodies {
             return Ok(values);
         }
@@ -53,7 +60,8 @@ impl AtomStore {
                             primary: self.body_storage_key(&entry.1, request.scope),
                             entry: &entry,
                         },
-                    )?;
+                    )?
+                    .map(|field| ListedValue { field, atom: None });
                 }
             }
             if values[index].is_none() {
@@ -81,12 +89,15 @@ impl AtomStore {
                 continue;
             };
             let record = &rows[index].1;
-            values[index] = Some(field_value_from_atom(
-                &atom,
-                record.entry.atom_uuid.clone(),
-                record.meta.clone(),
-                Some(record.entry.writer_pubkey.clone()),
-            ));
+            values[index] = Some(ListedValue {
+                field: field_value_from_atom(
+                    &atom,
+                    record.entry.atom_uuid.clone(),
+                    record.meta.clone(),
+                    Some(record.entry.writer_pubkey.clone()),
+                ),
+                atom: schema.then_some(atom),
+            });
         }
         Ok(values)
     }
@@ -118,24 +129,24 @@ impl AtomStore {
     pub(super) fn admit_listed_values(
         &self,
         request: &KeyList<'_>,
-        rows: &[(String, PerKeyRecord)],
         keys: &[Option<KeyValue>],
-        values: &[Option<FieldValue>],
+        values: Vec<Option<ListedValue>>,
     ) -> Result<(), SchemaError> {
         let runtime = self
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        for ((_, key), value) in rows.iter().zip(keys).zip(values) {
+        for (key, value) in keys.iter().zip(values) {
             let (Some(key), Some(value)) = (key, value) else {
                 continue;
             };
+            let Some(atom) = value.atom else { continue };
             field::admit(
                 runtime.clone(),
                 request.scope,
                 Some(request.molecule),
                 key,
-                value,
+                atom,
             )?;
         }
         Ok(())

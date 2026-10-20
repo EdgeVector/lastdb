@@ -18,7 +18,8 @@ impl From<crate::storage::StorageError> for SchemaError {
             crate::storage::StorageError::ReadResourceLimit { detail } => {
                 Self::ReadResourceLimit { detail }
             }
-            crate::storage::StorageError::WriteResourceLimit { detail } => {
+            crate::storage::StorageError::WriteResourceLimit { detail }
+            | crate::storage::StorageError::MutationLimit { detail } => {
                 Self::WriteResourceLimit { detail }
             }
             crate::storage::StorageError::CatalogMembershipDenied {

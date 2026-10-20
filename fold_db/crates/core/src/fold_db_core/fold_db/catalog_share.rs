@@ -1,7 +1,7 @@
 use crate::access::{parse_db_locator, DbLocator};
 use crate::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use crate::error::{FoldDbError, FoldDbResult};
-use crate::schema::types::{Schema, SchemaError};
+use crate::schema::types::SchemaError;
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +27,29 @@ impl FoldDB {
     /// A personal source (`lastdb://personal` / empty) uses the implicit legacy
     /// instance (`instance_id = None`). A named source must already be a member.
     pub async fn share_schema(
+        &self,
+        source_db_locator: &str,
+        target_db_locator: &str,
+        schema_name: &str,
+        target_access_domain: &str,
+        target_domain_wrap_key: &[u8; 32],
+    ) -> FoldDbResult<DbSchemaShareResult> {
+        crate::storage::disk_pack::transaction::scope(
+            self.db_ops().namespaced_store().disk_pack_runtime(),
+            self.share_schema_in_scope(
+                source_db_locator,
+                target_db_locator,
+                schema_name,
+                target_access_domain,
+                target_domain_wrap_key,
+            ),
+        )
+        .await
+    }
+
+    /// Select the current source and target while the native gate is held,
+    /// before any molecule lock. Catalog deletion uses the same lock order.
+    async fn share_schema_in_scope(
         &self,
         source_db_locator: &str,
         target_db_locator: &str,
@@ -83,14 +106,16 @@ impl FoldDB {
         } else {
             0
         };
-        self.commit_catalog_share(
-            &target_entry,
-            &target_canonical,
-            schema_name,
-            &schema,
-            storage_prefix.as_deref(),
-        )
-        .await?;
+        self.db_ops()
+            .atoms()
+            .bind_catalog_molecules(
+                &target_canonical,
+                schema_name,
+                &schema,
+                storage_prefix.as_deref(),
+            )
+            .await?;
+        self.db_ops().db_catalog().put(&target_entry).await?;
         Ok(DbSchemaShareResult {
             source_db_locator: source_canonical,
             target_entry,
@@ -166,28 +191,5 @@ impl FoldDB {
             target_canonical,
             target_entry,
         })
-    }
-
-    /// Bind the molecules of the schema, then write the catalog entry. The
-    /// binding comes first, so a catalog row never names an unbound molecule.
-    async fn commit_catalog_share(
-        &self,
-        target_entry: &DbCatalogEntry,
-        target_canonical: &str,
-        schema_name: &str,
-        schema: &Schema,
-        storage_prefix: Option<&str>,
-    ) -> FoldDbResult<()> {
-        let atoms = self.db_ops().atoms();
-        atoms
-            .in_write_scope(async {
-                atoms
-                    .bind_catalog_molecules(target_canonical, schema_name, schema, storage_prefix)
-                    .await?;
-                self.db_ops().db_catalog().put(target_entry).await?;
-                Ok(())
-            })
-            .await?;
-        Ok(())
     }
 }

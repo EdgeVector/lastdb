@@ -57,12 +57,6 @@ pub struct MoleculeHashRange {
     /// Structure: HashMap<hash_value, BTreeMap<range_value, KeyMetadata>>
     #[serde(default)]
     key_metadata: HashMap<String, BTreeMap<String, KeyMetadata>>,
-    /// Prior tips replaced or removed in this in-memory session.
-    ///
-    /// Current reverse references use this transient delta to retire the old
-    /// tip. Each tuple is `(hash, range, old_tip)`; no stored history is created.
-    #[serde(skip)]
-    pending_replaced_tips: Vec<(String, String, AtomEntry)>,
     /// Tip decisions in this in-memory session between writes of different
     /// atoms from different sync devices. The persist step records them
     /// before it writes the tips. Not serialized.

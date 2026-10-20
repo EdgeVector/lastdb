@@ -1,0 +1,8 @@
+{
+  "cause": "The key-page callback needs one explicit lifetime for its borrowed request coordinates.",
+  "complete": false,
+  "exit_code": 101,
+  "gate": "broad workspace Clippy",
+  "runtime_operations": 0,
+  "source_commit": "1e306f5d16e32d47191483d29b091f21a7644719"
+}

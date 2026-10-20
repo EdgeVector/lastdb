@@ -150,7 +150,7 @@ reads cannot use that queue. Explicit durability and resource limits can
 require disk completion before the ack.
 
 - `fold_db/crates/core/src/resident/` holds the core model, memory charges,
-  logical-record limit, and shared counters. Read its module doc and
+  the warm-set byte limit, and shared counters. Read its module doc and
   `docs/lastdb-rehydrate.md` before a change.
 - `ResidentGraph`, `LogicalResidentSet`, and `NativeWriteGraph` are removed.
   No storage opt-in or `LASTDB_RESIDENT_MODE` choice selects the serving path.

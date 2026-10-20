@@ -1,0 +1,307 @@
+{
+  "binary_sha256": "a27051ad056539361d9255247d41fa0309511ca1d54bcbcecd72368a8c9abd19",
+  "complete": true,
+  "error": null,
+  "observations": [
+    {
+      "elapsed_nanos": 662739500,
+      "http_status": 200,
+      "label": "declare-A",
+      "phase": "current",
+      "raw_body": "raw-http/current-003.body.json",
+      "raw_sha256": "493cc67d57ed2529e9f78693d1eefa620c9b34ccedc9609a9bd1cf1bbf30a704"
+    },
+    {
+      "elapsed_nanos": 2036620542,
+      "http_status": 200,
+      "label": "declare-B",
+      "phase": "current",
+      "raw_body": "raw-http/current-004.body.json",
+      "raw_sha256": "352ac6ba33cc4050c29db19343355a48bde9f90d23f676c6ad154b0418dfa41f"
+    },
+    {
+      "elapsed_nanos": 281573541,
+      "http_status": 200,
+      "label": "seed-two-A-records",
+      "phase": "current",
+      "raw_body": "raw-http/current-005.body.json",
+      "raw_sha256": "4f0d41e4bf4b74daafcf3e17a03ae531892a4552dfb6cb1fe725f8deb347f442"
+    },
+    {
+      "elapsed_nanos": 9914792,
+      "http_status": 200,
+      "label": "initial-B-list-first-page",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-009.body.json",
+      "raw_sha256": "285eccf4e96e006169fde2f11695ae4c1c5c34377462983e3894dc42a184a1fd"
+    },
+    {
+      "elapsed_nanos": 4705958,
+      "http_status": 200,
+      "label": "initial-B-list-cursor-continuation",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-010.body.json",
+      "raw_sha256": "926f4fc3459c717312df5405d58f1324f773280377ef4d56da8430e3d79cf34a"
+    },
+    {
+      "elapsed_nanos": 8076459,
+      "http_status": 200,
+      "label": "initial-B-list-all",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-011.body.json",
+      "raw_sha256": "2d243ab2b7771a5988b313ec31b208767149192bbcf044b2e104ee258defb22e"
+    },
+    {
+      "elapsed_nanos": 9251917,
+      "http_status": 200,
+      "label": "initial-query-and-count-equivalence",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-012.body.json",
+      "raw_sha256": "a6f88d23d1e39fd2b6567b9556a7983f1ef3e32f0261717ce0e6188bfb1a7e94"
+    },
+    {
+      "elapsed_nanos": 16516542,
+      "http_status": 200,
+      "label": "initial-B-list-first-page",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-013.body.json",
+      "raw_sha256": "285eccf4e96e006169fde2f11695ae4c1c5c34377462983e3894dc42a184a1fd"
+    },
+    {
+      "elapsed_nanos": 7361375,
+      "http_status": 200,
+      "label": "initial-B-list-cursor-continuation",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-014.body.json",
+      "raw_sha256": "926f4fc3459c717312df5405d58f1324f773280377ef4d56da8430e3d79cf34a"
+    },
+    {
+      "elapsed_nanos": 11645750,
+      "http_status": 200,
+      "label": "initial-B-list-all",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-015.body.json",
+      "raw_sha256": "2d243ab2b7771a5988b313ec31b208767149192bbcf044b2e104ee258defb22e"
+    },
+    {
+      "elapsed_nanos": 15212666,
+      "http_status": 200,
+      "label": "initial-query-and-count-equivalence",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-016.body.json",
+      "raw_sha256": "8858c63912f9096abc6c6aba5d815acc58a6ac79359ea29f440ce0c6c5b93a04"
+    },
+    {
+      "elapsed_nanos": 710136125,
+      "http_status": 200,
+      "label": "move-first-B-range",
+      "phase": "current",
+      "raw_body": "raw-http/current-017.body.json",
+      "raw_sha256": "b7f724332143d8bafc4b990125fc6e252f63c8d16e276b5a4a0132d14d80ed52"
+    },
+    {
+      "elapsed_nanos": 15187458,
+      "http_status": 200,
+      "label": "moved-B-list-all",
+      "phase": "after-update-ack",
+      "raw_body": "raw-http/after-update-ack-018.body.json",
+      "raw_sha256": "70038ad7becb68ee67e66dbc39004c75a0e34de018baa77b6ebcfd35c5df8ec4"
+    },
+    {
+      "elapsed_nanos": 24758583,
+      "http_status": 200,
+      "label": "moved-query-and-count-equivalence",
+      "phase": "after-update-ack",
+      "raw_body": "raw-http/after-update-ack-019.body.json",
+      "raw_sha256": "2b101a9a1934eabbe7629bd3b854ca583700552298fdac7741bbb450a20acae8"
+    },
+    {
+      "elapsed_nanos": 11485292,
+      "http_status": 200,
+      "label": "moved-B-list-all",
+      "phase": "after-update-flush",
+      "raw_body": "raw-http/after-update-flush-021.body.json",
+      "raw_sha256": "70038ad7becb68ee67e66dbc39004c75a0e34de018baa77b6ebcfd35c5df8ec4"
+    },
+    {
+      "elapsed_nanos": 12290375,
+      "http_status": 200,
+      "label": "moved-query-and-count-equivalence",
+      "phase": "after-update-flush",
+      "raw_body": "raw-http/after-update-flush-022.body.json",
+      "raw_sha256": "6e55801b1e47e15bd30bd0980eea6e457636bdac45686d00778d30ae9b852272"
+    },
+    {
+      "elapsed_nanos": 656479542,
+      "http_status": 200,
+      "label": "delete-second-A-record",
+      "phase": "current",
+      "raw_body": "raw-http/current-023.body.json",
+      "raw_sha256": "09e0065165e962676bcb32a54deed0aaaaff1b17bea4023095c662bd6f392b5e"
+    },
+    {
+      "elapsed_nanos": 25554375,
+      "http_status": 200,
+      "label": "deleted-B-list-all",
+      "phase": "current",
+      "raw_body": "raw-http/current-024.body.json",
+      "raw_sha256": "1ad0d6c4c63f380785bdcf795480b85a3e03b2619042d3dca7b044a6f7c96b54"
+    },
+    {
+      "elapsed_nanos": 26057917,
+      "http_status": 200,
+      "label": "deleted-B-list-one",
+      "phase": "current",
+      "raw_body": "raw-http/current-025.body.json",
+      "raw_sha256": "1ad0d6c4c63f380785bdcf795480b85a3e03b2619042d3dca7b044a6f7c96b54"
+    },
+    {
+      "elapsed_nanos": 30390833,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "current",
+      "raw_body": "raw-http/current-026.body.json",
+      "raw_sha256": "3c84ec2542566f4be33ee44ad34091dff87e29e07fd2a2ff985df79150d29eb9"
+    },
+    {
+      "elapsed_nanos": 15107208,
+      "http_status": 200,
+      "label": "deleted-B-list-all",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-030.body.json",
+      "raw_sha256": "1ad0d6c4c63f380785bdcf795480b85a3e03b2619042d3dca7b044a6f7c96b54"
+    },
+    {
+      "elapsed_nanos": 15342708,
+      "http_status": 200,
+      "label": "deleted-B-list-one",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-031.body.json",
+      "raw_sha256": "1ad0d6c4c63f380785bdcf795480b85a3e03b2619042d3dca7b044a6f7c96b54"
+    },
+    {
+      "elapsed_nanos": 19874375,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-032.body.json",
+      "raw_sha256": "464e47ef1c59453ff2b912ac03f76dbb88eaf5045a571c1424275b7554595911"
+    },
+    {
+      "elapsed_nanos": 274993417,
+      "http_status": 200,
+      "label": "catalog-bind-b",
+      "phase": "current",
+      "raw_body": "raw-http/current-034.body.json",
+      "raw_sha256": "9a67e6f5e3f4ff6903512bc953dc500b30ec5ed6c86790ff8b5f3cd26a4c6b26"
+    },
+    {
+      "elapsed_nanos": 617070042,
+      "http_status": 200,
+      "label": "catalog-bind-a",
+      "phase": "current",
+      "raw_body": "raw-http/current-033.body.json",
+      "raw_sha256": "f72852f18c93d33166f01523b602cdca0a1b135968ba022afddb74e3d7a8f6ae"
+    },
+    {
+      "elapsed_nanos": 353660542,
+      "http_status": 200,
+      "label": "catalog-named-create",
+      "phase": "current",
+      "raw_body": "raw-http/current-035.body.json",
+      "raw_sha256": "2918005c26421f6ccabaf8df83eaf624de332b00d6b3e55c7a0f144f24e3ee56"
+    },
+    {
+      "elapsed_nanos": 27002750,
+      "http_status": 200,
+      "label": "catalog-shared-read-before",
+      "phase": "current",
+      "raw_body": "raw-http/current-036.body.json",
+      "raw_sha256": "aee1f7cc2439f43039ed1c4793cb88fbd521365eb2a8805b03ee99b445367bd1"
+    },
+    {
+      "elapsed_nanos": 744529833,
+      "http_status": 200,
+      "label": "catalog-remove-a",
+      "phase": "current",
+      "raw_body": "raw-http/current-037.body.json",
+      "raw_sha256": "f1929a89cfcf5222235f81a056aec4f8b651c8619479e8fa077cc191ed3f3f1b"
+    },
+    {
+      "elapsed_nanos": 32508333,
+      "http_status": 200,
+      "label": "catalog-shared-read-after-first-delete",
+      "phase": "current",
+      "raw_body": "raw-http/current-038.body.json",
+      "raw_sha256": "aee1f7cc2439f43039ed1c4793cb88fbd521365eb2a8805b03ee99b445367bd1"
+    },
+    {
+      "elapsed_nanos": 541219375,
+      "http_status": 200,
+      "label": "catalog-remove-b",
+      "phase": "current",
+      "raw_body": "raw-http/current-039.body.json",
+      "raw_sha256": "c282bdc012d3e4ac3b507a24ad06158796b2ecb142d16b06aa80c53103f67dc5"
+    },
+    {
+      "elapsed_nanos": 316649792,
+      "http_status": 200,
+      "label": "catalog-rebind-reclaimed-instance",
+      "phase": "current",
+      "raw_body": "raw-http/current-043.body.json",
+      "raw_sha256": "f72852f18c93d33166f01523b602cdca0a1b135968ba022afddb74e3d7a8f6ae"
+    },
+    {
+      "elapsed_nanos": 27051791,
+      "http_status": 200,
+      "label": "catalog-old-key-absent-after-rebind",
+      "phase": "current",
+      "raw_body": "raw-http/current-044.body.json",
+      "raw_sha256": "a452f81ee3f2169b991d62afa7dcfc01a8b2b404fbe8280a567059646e001c45"
+    },
+    {
+      "elapsed_nanos": 402797375,
+      "http_status": 200,
+      "label": "catalog-rebound-empty-scope-remove",
+      "phase": "current",
+      "raw_body": "raw-http/current-045.body.json",
+      "raw_sha256": "f1929a89cfcf5222235f81a056aec4f8b651c8619479e8fa077cc191ed3f3f1b"
+    },
+    {
+      "elapsed_nanos": 18345875,
+      "http_status": 200,
+      "label": "deleted-query-and-count-equivalence",
+      "phase": "personal-after-catalog-cleanup",
+      "raw_body": "raw-http/personal-after-catalog-cleanup-046.body.json",
+      "raw_sha256": "6a814c83ecf091d55914bf0fbaeeaa86489ec7af13d6706de0431bfc374dfe87"
+    },
+    {
+      "elapsed_nanos": 9805625,
+      "http_status": 404,
+      "label": "catalog-absent-after-reopen-b",
+      "phase": "current",
+      "raw_body": "raw-http/current-051.body.json",
+      "raw_sha256": "5bd4edc55172ba2d6e194e4269fcd368bf3c62ee68d22e4a38a81b0b2b315ae6"
+    },
+    {
+      "elapsed_nanos": 10114291,
+      "http_status": 404,
+      "label": "catalog-absent-after-reopen-a",
+      "phase": "current",
+      "raw_body": "raw-http/current-050.body.json",
+      "raw_sha256": "5bd4edc55172ba2d6e194e4269fcd368bf3c62ee68d22e4a38a81b0b2b315ae6"
+    }
+  ],
+  "policy": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_CORE_WARM_BYTES": "268435456",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RANGE_KEY_ENCODING": "ope_v1",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "Round13KeyListA,Round13KeyListB,Round13LargeValues,CoreOwnedWritesHashRange"
+  },
+  "scope": "Fresh synthetic data. Normal release. No engine selection flags. No comparative speed claim.",
+  "semantic_review": "Pending independent raw-result review.",
+  "source_commit": "fdb13f0667f92226048a51884ac038753fe21b63"
+}

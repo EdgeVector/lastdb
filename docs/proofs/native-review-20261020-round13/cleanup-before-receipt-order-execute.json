@@ -1,0 +1,158 @@
+{
+  "complete": true,
+  "outcomes": [
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/core-cohorts",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.urmxyw5a",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.urmxyw5a",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.urmxyw5a (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.urmxyw5a",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/key-list-ope",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.1_4hq427",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.1_4hq427",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.1_4hq427 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.1_4hq427",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/key-list-plain",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vqcoci2n",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vqcoci2n",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vqcoci2n (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.vqcoci2n",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/large-values",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7htxfsah",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7htxfsah",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7htxfsah (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7htxfsah",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/large-values-pack-reopen",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.347c8smn",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.347c8smn",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.347c8smn (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.347c8smn",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/key-list-ope-cursor",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.b7849nso",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.b7849nso",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.b7849nso (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.b7849nso",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/key-list-plain-cursor",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9o8tdnyz",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9o8tdnyz",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9o8tdnyz (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.9o8tdnyz",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-review-20261020-round13/key-list-catalog-rebind",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.invviwg2",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.invviwg2",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.invviwg2 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.invviwg2",
+      "startup_gate_refusal": false
+    }
+  ],
+  "scope": "Exact supported reclaim only. The startup refusal is not described as a normal session."
+}

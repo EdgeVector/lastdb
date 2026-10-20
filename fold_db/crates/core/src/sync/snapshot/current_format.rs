@@ -40,7 +40,7 @@ impl Snapshot {
             .ok_or_else(|| {
                 SyncError::Serialization("backup lacks the current main namespace".to_string())
             })?;
-        let required = "layout:v2:keys";
+        let required = crate::db_operations::AtomStore::CURRENT_KEY_FORMAT_KEY;
         let mut found = false;
         for entry in &namespace.entries {
             let key = BASE64.decode(&entry.key).map_err(|error| {
