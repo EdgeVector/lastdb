@@ -13,7 +13,9 @@
 //! for at most the reads and the staging of a chunk.
 
 use super::commit::{counter_put, queue_put};
-use super::{blob_counter_key_of_id, blob_dwell_millis, parse_blob_queue_key, BlobCounter};
+use super::{
+    blob_counter_key_of_id, blob_dwell_millis, blob_id, parse_blob_queue_key, BlobCounter,
+};
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -151,8 +153,7 @@ impl AtomStore {
                 self.dwell_chunk_in_gate(entries, now).await
             })
             .await?;
-        self.blob_events
-            .note_deleted(chunk.deleted, chunk.stale + chunk.renewed);
+        self.blob_events.note_deleted(chunk.deleted, chunk.stale);
         tracing::info!(
             target: "fold_db::blob_dwell",
             deleted = chunk.deleted,
@@ -238,7 +239,13 @@ fn fate(entry: &DwellEntry, counter: Option<&BlobCounter>, retired: &HashSet<Str
     let Some(counter) = counter else {
         return Fate::Stale;
     };
-    if counter.refs != 0 || counter.suspect || counter.zero_since != Some(entry.zero_since) {
+    // A counter that names another blob than its key does would make the pass
+    // delete the wrong row. Treat it as stale and leave the verifier to report it.
+    if counter.refs != 0
+        || counter.suspect
+        || counter.zero_since != Some(entry.zero_since)
+        || blob_id(&counter.blob) != entry.id
+    {
         return Fate::Stale;
     }
     if retired.contains(&counter.blob) {
