@@ -121,15 +121,25 @@ pub(crate) struct CoreModelStats {
 
 impl CoreWarmSet {
     /// A path hold protects membership; these owners protect overwritten bytes.
+    /// A clean value has no owned copy, so its holder keeps the atom itself.
     pub(crate) fn retained_values(
         &self,
         paths: &[CorePath],
     ) -> Vec<Arc<dyn std::any::Any + Send + Sync>> {
         paths
             .iter()
-            .filter_map(|path| self.owned_slots.get(&path.slot()))
-            .cloned()
-            .map(|slot| slot as Arc<dyn std::any::Any + Send + Sync>)
+            .filter_map(|path| {
+                let slot = self.slots.get(self.slot_of(path)?)?;
+                match (&slot.owned, &slot.atom) {
+                    (Some(owned), _) => {
+                        Some(Arc::clone(owned) as Arc<dyn std::any::Any + Send + Sync>)
+                    }
+                    (None, Some(atom)) => {
+                        Some(Arc::clone(&atom.value) as Arc<dyn std::any::Any + Send + Sync>)
+                    }
+                    (None, None) => None,
+                }
+            })
             .collect()
     }
 
@@ -177,7 +187,9 @@ impl CoreWarmSet {
             None => self.admit_absent(path, sequence),
         };
         debug_assert!(result.is_ok(), "prepared and held core path");
-        self.owned_slots.insert(path.slot(), value);
+        if let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get_mut(id)) {
+            slot.owned = Some(value);
+        }
     }
 
     pub(crate) fn model_stats(&self) -> CoreModelStats {
@@ -190,13 +202,15 @@ impl CoreWarmSet {
                 .map(|value| value.charged_bytes)
                 .sum::<usize>()
             + self
-                .owned_slots
-                .values()
+                .slots
+                .iter()
+                .filter_map(|(_, slot)| slot.owned.as_ref())
                 .map(|slot| slot.charged_bytes)
                 .sum::<usize>();
         let current_owners: HashMap<_, _> = self
-            .owned_slots
-            .values()
+            .slots
+            .iter()
+            .filter_map(|(_, slot)| slot.owned.as_ref())
             .filter_map(|slot| {
                 slot.owner
                     .as_ref()
@@ -254,7 +268,7 @@ impl CoreWarmSet {
     }
 }
 
-fn capacity() -> CoreCapacity {
+pub(super) fn capacity() -> CoreCapacity {
     CoreCapacity {
         detail: "immutable core model metadata allowance refused the publication",
     }

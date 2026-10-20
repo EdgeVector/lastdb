@@ -1,0 +1,2 @@
+allow check passed: 0 added, 0 removed
+exit=0
