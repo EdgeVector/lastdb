@@ -17,7 +17,7 @@ Stored coordinates no longer consume the logical path budget.
 The memory path reserves exact schema, canonical field, molecule, hash, range, and selected atom identities.
 Each path owns that field's content in the existing warm set.
 Metadata and absences do not count as logical paths.
-Protein sibling paths use target-addressed schema-field reverse edges and exact catalog checks.
+Protein sibling paths use the target-addressed binding records of each molecule (`docs/lastdb-molecule-counters.md`). The `bindings` counter must equal the number of records, or the write takes the disk path.
 Document-envelope paths reserve each selected declared field under the actual record molecule and atom.
 Partial path reservations return their capacity on refusal.
 

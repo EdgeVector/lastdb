@@ -16,7 +16,21 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "mk:",
         "mk:{M}:… — current tip pointer per record key",
     ),
-    ("molecule_header", "mh:", "mh:{M} — molecule header"),
+    (
+        "molecule_header",
+        "mh:",
+        "mh:{M} — molecule header with the slots and records counters",
+    ),
+    (
+        "molecule_binding_record",
+        "mref:v1:e:",
+        "mref:v1:e:{M}\\0{source} — one record for each schema field, protein member or catalog that binds a molecule",
+    ),
+    (
+        "molecule_binding_counter",
+        "mref:v1:n:",
+        "mref:v1:n:{M} — bindings counter of a molecule",
+    ),
     (
         "conflict",
         "conflict\0",

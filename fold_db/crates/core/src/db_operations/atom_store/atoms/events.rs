@@ -46,6 +46,7 @@ impl AtomStore {
                 key: key.clone(),
                 atoms: event_atoms(&event),
                 new_rows,
+                molecule: event.molecule_uuid.clone(),
             });
             rows.push((
                 key.clone(),

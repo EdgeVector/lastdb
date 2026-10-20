@@ -178,11 +178,16 @@ impl FoldDB {
         schema: &Schema,
         storage_prefix: Option<&str>,
     ) -> FoldDbResult<()> {
-        self.db_ops()
-            .atoms()
-            .bind_catalog_molecules(target_canonical, schema_name, schema, storage_prefix)
+        let atoms = self.db_ops().atoms();
+        atoms
+            .in_write_scope(async {
+                atoms
+                    .bind_catalog_molecules(target_canonical, schema_name, schema, storage_prefix)
+                    .await?;
+                self.db_ops().db_catalog().put(target_entry).await?;
+                Ok(())
+            })
             .await?;
-        self.db_ops().db_catalog().put(target_entry).await?;
         Ok(())
     }
 }

@@ -128,10 +128,12 @@ A record ends in two ways, and both use the same release:
 
 1. **The key goes.** A delete, a purge and a TTL sweep read the directory of the
    slots they remove (inside `remove_molecules_keys_with_rows`) and release the
-   records in the same batch as the tip deletes. A molecule with no entry costs
-   one read of limit one. For a molecule with entries, each removed slot costs
-   one range read, and an entry counts only when its `mk:` key matches the slot
-   exactly. One erase request releases at most 100 records in its own batch
+   records in the same batch as the tip deletes. The erase first reads the
+   header of each molecule it touches, in one batch read, and skips a molecule
+   whose `records` is zero (a molecule that is `suspect` or has no counters is
+   read as if it held records). For a molecule that holds records, each removed
+   slot costs one range read, and an entry counts only when its `mk:` key
+   matches the slot exactly. One erase request releases at most 100 records in its own batch
    (the cap is for the whole request, not for each slot). For each slot that
    still holds records, the same batch writes one **drain marker**, a queue
    entry that is due at once (`crq:v1\0{now}:{hash of the slot prefix}`). It
@@ -171,8 +173,9 @@ A record ends in two ways, and both use the same release:
 
 A release names the history row to the planner (`counter::ReleaseRequest`). The
 planner reads the row inside the same gate hold, lowers one reference for each
-distinct atom the row names, and deletes the row, the conflict row, the
-directory entry and the queue entry in one batch. A caller never names an atom,
+distinct atom the row names, lowers `records` in the header of the molecule that
+the row names (a record raises it when it is new), and deletes the row, the
+conflict row, the directory entry and the queue entry in one batch. A caller never names an atom,
 and the janitor never deletes an atom: an atom whose count reaches zero goes by
 the delete-on-zero rule above. A release of a row that is gone lowers nothing,
 and a row that does not decode is kept with its references and counted
@@ -183,9 +186,7 @@ released.
 1,000) and the records released by the janitor and by purges. `lastdb db
 inventory` has the classes `retention_queue` and `retention_directory`.
 
-Not done in this step: the `records` counter of the molecule header (step S4:
-it lets a purge skip the probe of a molecule that has no record), and the
-conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
+Not done in this step: the conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
 when it finds a conflict row gone. The keep-small meters are not debited when a
 release deletes rows or atoms (the old reaper did not debit them either).
 
@@ -264,6 +265,8 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
 - `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` returns
   the counter, the `suspect` flag and the body state of each atom. It cannot
   list the referrers: the counter holds a number, not a list.
+- Molecule counters (`slots`, `records`, `bindings`) are in
+  `docs/lastdb-molecule-counters.md`. The verifier checks them in three more phases.
 - `lastdb status` has an `Atom counters` line and a `Verify refs` line.
   `lastdb db inventory` has an `Atom counters` block.
   - `Atom counters` counts the planner events since this process started:
@@ -488,7 +491,6 @@ refuses the home. This build refuses a home without the bit.
 
 Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
-- S4: molecule counters replace the molecule edges and the catalog binding records.
 - S5: blob counters replace the blob edges and the file blob sweep.
 - S7: a resumable drain of a dead molecule.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.

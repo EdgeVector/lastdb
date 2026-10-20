@@ -6,7 +6,8 @@
 use super::report::Phase;
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::counter::scan::{
-    family_range, record_holders, tip_holders, CounterRead, Family, PairRead,
+    family_range, record_holders, record_molecules, tip_holders, tip_molecules, CounterRead,
+    Family, PairRead,
 };
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -37,6 +38,8 @@ pub(super) struct ReferencedPage {
     pub unreadable: u64,
     pub unreadable_keys: Vec<String>,
     pub atoms: Vec<AtomRead>,
+    /// Rows of the page for each molecule (tips, or counted conflict records).
+    pub molecules: BTreeMap<String, u32>,
 }
 
 /// A page of the atoms phase.
@@ -56,6 +59,9 @@ pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>,
         Phase::Tips => Family::Tips,
         Phase::Records => Family::Records,
         Phase::Atoms => Family::Atoms,
+        Phase::Headers => Family::Headers,
+        Phase::Bindings => Family::BindingCounters,
+        Phase::BindingRecords => Family::BindingRecords,
         Phase::Done => return None,
     };
     Some(family_range(family, scope))
@@ -80,6 +86,10 @@ impl AtomStore {
                 Phase::Records => record_holders(&rows),
                 _ => tip_holders(&rows),
             };
+            let molecules = match phase {
+                Phase::Records => record_molecules(&rows),
+                _ => tip_molecules(&rows),
+            };
             let (atoms, point_unsealed) =
                 count_unsealed_discards(self.read_atoms_of(holders, scope)).await;
             Ok(ReferencedPage {
@@ -90,6 +100,7 @@ impl AtomStore {
                 unreadable: bad.total,
                 unreadable_keys: bad.keys,
                 atoms: atoms?,
+                molecules,
             })
         })
         .await

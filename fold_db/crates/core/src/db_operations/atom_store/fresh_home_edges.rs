@@ -1,15 +1,12 @@
 //! Key format marker and completeness proofs for a constructor-proven empty home.
 //!
-//! The atom counter makes atom bodies the only authority for atom references.
-//! A new home holds no blob or molecule reference, so the proofs that both
-//! reference planes are complete are true by construction. An older home has no
-//! feature bit for atom records and the storage layer refuses it before this
-//! code runs.
+//! The atom counter makes atom bodies the only authority for atom references,
+//! and the molecule counters do the same for molecules. A new home holds no blob
+//! reference, so the proof that the blob reference plane is complete is true by
+//! construction. An older home has no feature bit for atom records and the
+//! storage layer refuses it before this code runs.
 
-use super::{
-    AtomStore, BlobRefCompleteness, MoleculeRefCompleteness, BLOB_REF_COMPLETE_KEY,
-    MOLECULE_REF_COMPLETE_KEY,
-};
+use super::{AtomStore, BlobRefCompleteness, BLOB_REF_COMPLETE_KEY};
 use crate::storage::{KvMutation, StorageError};
 
 const KEY_FORMAT_KEY: &str = "layout:v2:keys";
@@ -17,11 +14,8 @@ const KEY_FORMAT: &[u8] = b"2";
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.
-pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[
-    KEY_FORMAT_KEY,
-    MOLECULE_REF_COMPLETE_KEY,
-    BLOB_REF_COMPLETE_KEY,
-];
+pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] =
+    &[KEY_FORMAT_KEY, BLOB_REF_COMPLETE_KEY];
 
 impl AtomStore {
     /// Validate the explicit key settings before the native store creates files.
@@ -105,15 +99,8 @@ impl AtomStore {
 fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
     let blob = serde_json::to_vec(&BlobRefCompleteness { version: 2 })
         .map_err(|error| StorageError::SerializationError(error.to_string()))?;
-    let molecule = serde_json::to_vec(&MoleculeRefCompleteness {
-        version: 2,
-        schema_fields: 0,
-        protein_members: 0,
-    })
-    .map_err(|error| StorageError::SerializationError(error.to_string()))?;
     Ok(vec![
         KvMutation::put(KEY_FORMAT_KEY.as_bytes(), KEY_FORMAT),
-        KvMutation::put(MOLECULE_REF_COMPLETE_KEY.as_bytes(), molecule),
         KvMutation::put(BLOB_REF_COMPLETE_KEY.as_bytes(), blob),
     ])
 }

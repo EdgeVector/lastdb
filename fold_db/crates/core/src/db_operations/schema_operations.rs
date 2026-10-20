@@ -62,24 +62,10 @@ impl DbOperations {
             schema_molecule_ref_edges(schema_name, existing)
         });
         let new_edges = schema_molecule_ref_edges(schema_name, schema);
-        let molecule_targets: Vec<String> = old_edges
-            .iter()
-            .chain(&new_edges)
-            .map(|edge| edge.molecule_uuid.clone())
-            .collect();
-        let _target_gates = self
-            .atoms()
-            .lock_liveness_molecules(&molecule_targets)
-            .await;
-
-        // Retain first. Schema rows and liveness edges live in separate
-        // namespaces, so an interrupted write may leave an extra edge but can
-        // never publish a catalog binding without its retaining edge.
-        let retained = self
-            .atoms()
-            .put_molecule_ref_edges_if_changed(&new_edges, None)
-            .await?;
-        if retained != 0 {
+        // Bind first. Each new binding record and the counter of its molecule
+        // are one batch, and a binding that already exists changes nothing.
+        let bound = self.atoms().add_molecule_bindings(&new_edges, None).await?;
+        if bound != 0 {
             self.atoms().flush().await?;
         }
         self.schemas().store_schema(schema_name, schema).await?;
@@ -91,9 +77,11 @@ impl DbOperations {
         // Debounced persist only. `store_schema` runs on every schema put and
         // a per-write flush here was one of the 2026-09-21 flush-storm sites.
         let _ = self.atoms().persist_keep_small().await;
-        for edge in old_edges.into_iter().filter(|old| !new_edges.contains(old)) {
-            self.atoms().delete_molecule_ref_edge(&edge, None).await?;
-        }
+        let stale: Vec<_> = old_edges
+            .into_iter()
+            .filter(|old| !new_edges.contains(old))
+            .collect();
+        self.atoms().remove_molecule_bindings(&stale, None).await?;
         Ok(())
     }
 
@@ -196,20 +184,12 @@ impl DbOperations {
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
             schema_molecule_ref_edges(schema_name, existing)
         });
-        let molecule_targets: Vec<String> = old_edges
-            .iter()
-            .map(|edge| edge.molecule_uuid.clone())
-            .collect();
-        let _target_gates = self
-            .atoms()
-            .lock_liveness_molecules(&molecule_targets)
-            .await;
         let existed = self.schemas().drop_schema(schema_name).await?;
-        // Source removal is durable before an edge leaves the active set.
-        // A failed delete retains the molecule for the later bootstrap/audit.
-        for edge in old_edges {
-            self.atoms().delete_molecule_ref_edge(&edge, None).await?;
-        }
+        // The schema record goes first. Each binding record and the counter of
+        // its molecule leave in one batch.
+        self.atoms()
+            .remove_molecule_bindings(&old_edges, None)
+            .await?;
         Ok(existed)
     }
 

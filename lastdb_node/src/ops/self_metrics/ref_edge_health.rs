@@ -1,13 +1,13 @@
 use super::*;
 
-/// Molecule and blob reverse-edge gauges. A later step replaces each plane
-/// with its own counter. The atom plane has no edges: an atom has one counter
-/// (`lastdb status` shows the planner report on its own line).
+/// Molecule and blob reverse-edge gauges. A later step replaces the blob plane
+/// with its own counter. The molecule plane keeps its binding records, which a
+/// counter in the same batch decides; the bytes gauge sizes them. The atom plane
+/// has no edges: an atom has one counter (`lastdb status` shows the planner
+/// report on its own line).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AtomRefEdgeHealth {
     pub molecule_bytes: Gauge,
-    pub molecule_complete: Option<bool>,
-    pub molecule_phase: String,
     pub blob_bytes: Gauge,
     pub blob_complete: Option<bool>,
     pub blob_phase: String,
@@ -17,8 +17,6 @@ impl Default for AtomRefEdgeHealth {
     fn default() -> Self {
         Self {
             molecule_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            molecule_complete: None,
-            molecule_phase: "unsupported".to_string(),
             blob_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
             blob_complete: None,
             blob_phase: "unsupported".to_string(),
@@ -53,8 +51,6 @@ pub(crate) async fn refresh_atom_ref_edge_health(host: &Host) {
     let namespaced_store = host.db.db_ops().namespaced_store();
     let atoms = host.db.db_ops().atoms();
     let mut health = configured_atom_ref_edge_health(host);
-    health.molecule_complete = atoms.molecule_ref_edges_complete(None).await.ok();
-    health.molecule_phase = phase_of(health.molecule_complete);
     health.blob_bytes = gauge_from_wire(
         namespaced_store.collection_disk_bytes("blob_ref_edges"),
         Unit::Bytes,
@@ -77,10 +73,8 @@ fn phase_of(complete: Option<bool>) -> String {
 impl Serialize for AtomRefEdgeHealth {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("AtomRefEdgeHealth", 6)?;
+        let mut s = serializer.serialize_struct("AtomRefEdgeHealth", 4)?;
         s.serialize_field("molecule_bytes", &wire_u64(&self.molecule_bytes))?;
-        s.serialize_field("molecule_complete", &self.molecule_complete)?;
-        s.serialize_field("molecule_phase", &self.molecule_phase)?;
         s.serialize_field("blob_bytes", &wire_u64(&self.blob_bytes))?;
         s.serialize_field("blob_complete", &self.blob_complete)?;
         s.serialize_field("blob_phase", &self.blob_phase)?;
@@ -95,10 +89,6 @@ impl<'de> Deserialize<'de> for AtomRefEdgeHealth {
             #[serde(default)]
             molecule_bytes: Option<u64>,
             #[serde(default)]
-            molecule_complete: Option<bool>,
-            #[serde(default = "default_derived_edge_phase")]
-            molecule_phase: String,
-            #[serde(default)]
             blob_bytes: Option<u64>,
             #[serde(default)]
             blob_complete: Option<bool>,
@@ -108,8 +98,6 @@ impl<'de> Deserialize<'de> for AtomRefEdgeHealth {
         let raw = Raw::deserialize(deserializer)?;
         Ok(Self {
             molecule_bytes: gauge_from_wire(raw.molecule_bytes, Unit::Bytes, GAUGE_INSTANT),
-            molecule_complete: raw.molecule_complete,
-            molecule_phase: raw.molecule_phase,
             blob_bytes: gauge_from_wire(raw.blob_bytes, Unit::Bytes, GAUGE_INSTANT),
             blob_complete: raw.blob_complete,
             blob_phase: raw.blob_phase,

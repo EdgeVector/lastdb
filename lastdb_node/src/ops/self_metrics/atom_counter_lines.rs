@@ -15,13 +15,14 @@ pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         return vec!["Atom counters: unsupported by daemon (no planner report)".to_string()];
     };
     let mut head = format!(
-        "Atom counters: since this process started (a restart sets them to zero): bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={}",
+        "Atom counters: since this process started (a restart sets them to zero): bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={} molecule_faults={}",
         report.bodies_created,
         report.bodies_deleted,
         report.underflows,
         report.counters_absent,
         report.dangling_removals,
         report.suspect_marked,
+        report.molecule_faults,
     );
     if !report.recent_faults.is_empty() {
         head.push_str(&format!(

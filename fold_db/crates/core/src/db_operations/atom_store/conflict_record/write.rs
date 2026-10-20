@@ -105,6 +105,7 @@ impl AtomStore {
                 key: history_key.clone(),
                 atoms: event_atoms(&event),
                 new_rows,
+                molecule: event.molecule_uuid.clone(),
             });
             recorded.rows.push((history_key, to_value(&event)?));
             recorded.rows.push((

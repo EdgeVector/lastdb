@@ -9,8 +9,10 @@
 
 use super::entry::{DrainMarker, RetentionEntry, ENTRY_VERSION};
 use super::keys;
-use crate::db_operations::atom_store::counter::ReleaseRequest;
+use crate::atom::molecule_key_codec::header_key;
+use crate::db_operations::atom_store::counter::{counts_of_header, ReleaseRequest};
 use crate::db_operations::atom_store::AtomStore;
+use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,6 +21,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// request shares the cap, not each slot.
 pub(crate) const RELEASE_RECORD_CAP: usize = 100;
 
+/// Headers one batch read asks for, at most.
+const HEADER_READ_CHUNK: usize = 10_000;
 /// Rows one range read asks for while it looks for matching entries.
 const SCAN_ROWS: usize = 64;
 /// Rows a search may look at before it gives up and says "more may follow".
@@ -43,9 +47,10 @@ impl AtomStore {
     /// one erase removes. The caller holds the write gate, so the reads see
     /// every accepted batch.
     ///
-    /// A molecule with no directory entry costs one read that finds nothing.
-    /// For a molecule with entries, each removed slot costs one range read
-    /// under the hash of the molecule.
+    /// The headers of the molecules say which of them hold records (`records`
+    /// above zero). A molecule with none costs nothing more. For a molecule
+    /// that holds records, each removed slot costs one range read under the
+    /// hash of the molecule.
     pub(crate) async fn slot_release_requests(
         &self,
         scope: Option<&str>,
@@ -59,10 +64,12 @@ impl AtomStore {
                 .extend(slots.iter());
         }
         let now = self.retention_state().clock_nanos();
+        let names: Vec<&str> = by_molecule.keys().copied().collect();
+        let with_records = self.molecules_with_records(scope, &names).await?;
         let mut entries: Vec<RetentionEntry> = Vec::new();
         let mut rows = Vec::new();
         for (molecule, slots) in by_molecule {
-            if !self.molecule_has_directory(scope, molecule).await? {
+            if !with_records.contains(molecule) {
                 continue;
             }
             for (hash, range) in slots {
@@ -92,20 +99,42 @@ impl AtomStore {
         })
     }
 
-    /// Whether the molecule has any directory entry. One range read, limit one.
-    async fn molecule_has_directory(
+    /// The molecules of `molecules` that may hold kept records: the header
+    /// says `records` above zero, or says nothing that can be trusted (the
+    /// counters are unset or the molecule is `suspect`). One batch read of the
+    /// headers, by key, before the planner runs. A molecule whose header says
+    /// `records` is zero costs nothing more.
+    async fn molecules_with_records(
         &self,
         scope: Option<&str>,
-        molecule: &str,
-    ) -> Result<bool, SchemaError> {
-        let (start, end) = keys::prefix_range(&keys::molecule_dir_prefix(scope, molecule));
-        let rows = self
-            .main_store
-            .inner()
-            .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("probe slot directory: {error}")))?;
-        Ok(!rows.is_empty())
+        molecules: &[&str],
+    ) -> Result<BTreeSet<String>, SchemaError> {
+        let keys: Vec<String> = molecules
+            .iter()
+            .map(|molecule| build_storage_key(scope, &header_key(molecule)))
+            .collect();
+        let mut stored: Vec<Option<Value>> = Vec::with_capacity(keys.len());
+        for chunk in keys.chunks(HEADER_READ_CHUNK) {
+            stored.extend(
+                self.main_store
+                    .get_items::<Value>(chunk)
+                    .await
+                    .map_err(|error| {
+                        SchemaError::InvalidData(format!("read molecule headers: {error}"))
+                    })?,
+            );
+        }
+        Ok(molecules
+            .iter()
+            .zip(stored)
+            .filter(|(_, header)| {
+                !header
+                    .as_ref()
+                    .and_then(counts_of_header)
+                    .is_some_and(|counts| counts.records == 0 && !counts.suspect)
+            })
+            .map(|(molecule, _)| (*molecule).to_string())
+            .collect())
     }
 
     /// The entries of one slot, at most `room`, that were written at or before

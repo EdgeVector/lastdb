@@ -7,15 +7,19 @@
 //!
 //! - A record that is new adds its references. The planner also writes the
 //!   rows that only a new record writes (its retention queue entry and its slot
-//!   directory entry), so a repeat of one decision adds nothing.
+//!   directory entry), so a repeat of one decision adds nothing. It also
+//!   raises `records` in the header of the molecule (`molecule.rs`).
 //! - A record that is released lowers its references. The planner reads the
-//!   history row in the same write gate hold, takes the atoms from that row, and
-//!   deletes the row in the same batch (invariant I3). A caller names the row,
-//!   never the atoms. A release of a row that is already gone lowers nothing.
+//!   history row in the same write gate hold, takes the atoms and the molecule
+//!   from that row, lowers `records` in the header of the molecule, and deletes
+//!   the row in the same batch (invariant I3). A caller names the row, never
+//!   the atoms or the molecule. A release of a row that is already gone lowers
+//!   nothing.
 //!   A row that does not decode is kept, with its references, and the fault is
 //!   reported: a leak is safe, a wrong decrement is not.
 
 use super::commit::{RecordRefs, ReleaseRequest};
+use super::molecule_plan::Change;
 use super::refs::event_atoms;
 use crate::atom::MutationEvent;
 use crate::db_operations::atom_store::conflict_record::is_counted_record_key;
@@ -54,6 +58,9 @@ pub(super) fn with_new_record_rows(
 pub(super) struct Released {
     /// The atoms of each released history row, as the row names them.
     atoms: Vec<Vec<String>>,
+    /// The molecule of each released history row, as the row names it. A
+    /// record counts once in `records` of its molecule while its row exists.
+    molecules: Vec<String>,
     /// The history rows and the rows that go with them, to delete.
     deletes: Vec<Vec<u8>>,
     /// Releases whose history row was already gone. Their other rows still go.
@@ -66,6 +73,15 @@ impl Released {
     /// keeps (a row that does not decode) is not counted.
     pub(super) fn count(&self) -> u64 {
         self.atoms.len() as u64 + self.gone
+    }
+
+    /// One record less for the molecule of each released row. The planner
+    /// writes the new count in the header of the molecule, in the same batch.
+    pub(super) fn lower_molecules(&self, changes: &mut BTreeMap<String, Change>) {
+        for molecule in &self.molecules {
+            changes.entry(molecule.clone()).or_default().records -= 1;
+        }
+        changes.retain(|_, change| !change.is_zero());
     }
 
     /// One reference less for each atom of each released row.
@@ -136,6 +152,7 @@ impl AtomStore {
                 match serde_json::from_slice::<MutationEvent>(&bytes) {
                     Ok(event) => {
                         out.atoms.push(event_atoms(&event));
+                        out.molecules.push(event.molecule_uuid.clone());
                         out.deletes.push(release.history.as_bytes().to_vec());
                         out.deletes.extend(release.deletes.iter().cloned());
                     }

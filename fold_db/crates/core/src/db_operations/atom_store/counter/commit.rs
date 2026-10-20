@@ -7,11 +7,12 @@
 //! `batch_mutate` at the end joins the pending batch of the request.
 
 use super::build::build_mutations;
+use super::molecule::molecule_changes;
 use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
-use crate::atom::Atom;
+use crate::atom::{molecule_key_codec, Atom};
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -33,11 +34,16 @@ pub(crate) struct RecordRefs {
     /// Rows that only a new record writes: its retention queue entry and its
     /// slot directory entry. A repeat of a decision writes none of them.
     pub new_rows: Vec<(String, Value)>,
+    /// The molecule the record belongs to. When the record is new, the planner
+    /// raises `records` in the header of this molecule, in the same batch. A
+    /// release of the record lowers it in the batch of the release.
+    pub molecule: String,
 }
 
 /// One kept record to release. The planner reads the history row at `history`
 /// in the write gate, lowers one reference for each distinct atom the row
-/// names, and deletes the row and `deletes` in the same batch.
+/// names, lowers `records` of the molecule that the row names, and deletes the
+/// row and `deletes` in the same batch.
 pub(crate) struct ReleaseRequest {
     /// The full storage key of the history row that holds the references.
     pub history: String,
@@ -135,6 +141,8 @@ impl AtomStore {
         self.note_released_atoms(&released);
         let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
         released.lower(&mut deltas);
+        let mut changes = molecule_changes(&tips, &old, &records, &new_records);
+        released.lower_molecules(&mut changes);
         let rows = with_new_record_rows(rows, &records, &new_records);
         let records_released = released.count();
         let mut deletes = deletes;
@@ -148,9 +156,14 @@ impl AtomStore {
             .offer_bodies(&deltas, &before, &tips, &sources, scope)
             .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
+        let (rows, molecule_run) = self.apply_molecule_counters(scope, &changes, rows).await?;
         let (mutations, mut commit) =
             build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
         commit.records_released = records_released;
+        for (molecule, fault) in molecule_run.faults {
+            self.counter_report().note_molecule(&molecule, fault);
+            commit.counter_events += 1;
+        }
         if !mutations.is_empty() {
             self.main_store
                 .inner()
@@ -190,6 +203,19 @@ impl AtomStore {
                     .flat_map(|(record, _)| record.atoms.iter().map(String::as_str)),
             );
         watch.note(atoms);
+        // A molecule changes with its tips and its records. The header checks
+        // treat a difference for such a molecule as a candidate.
+        let molecules = tips
+            .keys()
+            .filter_map(|key| molecule_key_codec::molecule_uuid_from_storage_key(key))
+            .chain(
+                records
+                    .iter()
+                    .zip(new_records)
+                    .filter(|(_, is_new)| **is_new)
+                    .map(|(record, _)| record.molecule.as_str()),
+            );
+        watch.note(molecules);
     }
 
     /// A native store commits one batch only inside a request scope.

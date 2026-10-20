@@ -156,6 +156,9 @@ pub struct DbInventory {
     /// Atom counter totals and pairing faults from the same walk as `per_schema_atoms`.
     #[serde(default)]
     pub atom_counters: super::super::storage_breakdown::AtomCounterTotals,
+    /// Molecule counter totals: slots, records and bindings, joined per molecule.
+    #[serde(default)]
+    pub molecule_counters: super::MoleculeCounterTotals,
     /// The range reads this inventory made. A read that hit the read budget of
     /// one call was retried with fewer rows or a narrower key range; `shrinks`
     /// and `splits` count those cases (many deleted keys in a range).

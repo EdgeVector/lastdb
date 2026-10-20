@@ -112,13 +112,10 @@ fn validate_references(key: &str, family: &str) -> StorageResult<()> {
                     .is_some_and(hex_pair)
         }
         "mref" => {
-            matches!(
-                key,
-                "mref:v1:complete" | "mref:v1:m:database-catalog-present"
-            ) || key.strip_prefix("mref:v1:e:").is_some_and(hex_pair)
+            key.strip_prefix("mref:v1:e:").is_some_and(hex_pair)
                 || key
-                    .strip_prefix("mref:v1:c:database-catalog:")
-                    .is_some_and(|token| validate_molecule(token).is_ok())
+                    .strip_prefix("mref:v1:n:")
+                    .is_some_and(|target| hex_identity(target, 64))
         }
         _ => true,
     };

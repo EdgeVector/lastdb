@@ -380,15 +380,14 @@ pub(super) fn print_schema_storage_report_human(report: &serde_json::Value) {
 
 pub(super) fn liveness_explain_command(
     data_dir: Option<PathBuf>,
-    class: &str,
-    id: &str,
+    (class, id, scope): (&str, &str, Option<&str>),
     json_only: bool,
 ) -> Result<(), String> {
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let response = post_json(
         &socket,
         "/api/storage/liveness/explain",
-        &serde_json::json!({ "class": class, "id": id }),
+        &serde_json::json!({ "class": class, "id": id, "scope": scope }),
     )?;
     let value = parse_json_response(&response, "liveness explain")?;
     let report = value
@@ -405,6 +404,13 @@ pub(super) fn liveness_explain_command(
 
     if let Some(atoms) = report.get("atoms").and_then(serde_json::Value::as_array) {
         crate::liveness_atom_print::print_atom_liveness(atoms);
+        return Ok(());
+    }
+    if let Some(molecules) = report
+        .get("molecules")
+        .and_then(serde_json::Value::as_array)
+    {
+        crate::liveness_molecule_print::print_molecule_liveness(molecules);
         return Ok(());
     }
     let returned_class = report

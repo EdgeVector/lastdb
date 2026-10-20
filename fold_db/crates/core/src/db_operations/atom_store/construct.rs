@@ -73,11 +73,6 @@ impl AtomStore {
             range_walks: Arc::default(),
             local_origin_device: Arc::default(),
             conflict_record_epoch: Arc::default(),
-            molecule_liveness_locks: Arc::new(
-                (0..256)
-                    .map(|_| Arc::new(tokio::sync::Mutex::new(())))
-                    .collect(),
-            ),
             blob_liveness_locks: Arc::new(
                 (0..256)
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))

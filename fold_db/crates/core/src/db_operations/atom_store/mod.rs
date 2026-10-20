@@ -17,7 +17,8 @@
 //! - [`atoms`] — atom CRUD, history, schema listing
 //! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
-//! - [`blob_ref_edges`], [`molecule_ref_edges`] — blob and molecule roots
+//! - [`blob_ref_edges`] — blob roots; [`molecule_ref_edges`], [`molecule_bindings`],
+//!   [`molecule_counters`] — molecule binding records and the molecule counters
 //! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
 //! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
@@ -36,6 +37,8 @@ mod hard_erase_journal;
 mod helpers;
 mod keep_small;
 mod locks;
+mod molecule_bindings;
+mod molecule_counters;
 mod molecule_ref_edges;
 mod molecules;
 mod retention;
@@ -49,15 +52,15 @@ pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
-    AtomCounterReport, AtomCounterView, Change, RecountOptions, RecountReport, VerifyReport,
-    VerifyRequest, VerifySummary,
+    counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
+    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
 pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
-pub use molecule_ref_edges::{
-    MoleculeRefCompleteness, MoleculeRefEdge, MoleculeRefLookup, MOLECULE_REF_COMPLETE_KEY,
-};
+pub use molecule_bindings::MoleculeBindings;
+pub use molecule_counters::{molecule_view, MoleculeCountersView};
+pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{RecordSlot, RELEASE_BATCH_RECORDS};
@@ -226,8 +229,6 @@ pub struct AtomStore {
     /// this number did not change since before the scan. The stamp runs in a
     /// write scope, which orders it against every recorder.
     conflict_record_epoch: Arc<AtomicU64>,
-    /// Fixed target gates for molecule source transitions and reclaim.
-    molecule_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
     /// Fixed target gates for blob source transitions and reclaim.
     blob_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
     /// Scopes this store's entries in the process-wide legacy-history memo.

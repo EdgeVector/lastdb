@@ -90,6 +90,9 @@ impl AtomStore {
 
     /// Read and judge one page, or move to the next phase.
     async fn verify_page(&self, guard: &mut StepGuard<'_>) -> Result<(), SchemaError> {
+        if guard.run().phase.reads_molecules() && !guard.run().walk.done() {
+            return self.verify_molecule_page(guard).await;
+        }
         let (run, watch) = guard.split();
         if run.walk.done() {
             next_phase(run);
@@ -109,7 +112,7 @@ impl AtomStore {
                 .read_referenced_page(run.phase, scope.as_deref(), request)
                 .await
                 .map(Page::Referenced),
-            Phase::Done => return Ok(()),
+            Phase::Headers | Phase::Bindings | Phase::BindingRecords | Phase::Done => return Ok(()),
         };
         match page {
             Ok(Page::Referenced(page)) => {
@@ -171,8 +174,14 @@ fn next_phase(run: &mut Run) {
     run.phase = match run.phase {
         Phase::Tips => Phase::Records,
         Phase::Records => Phase::Atoms,
-        Phase::Atoms | Phase::Done => Phase::Done,
+        Phase::Atoms => Phase::Headers,
+        Phase::Headers => Phase::Bindings,
+        Phase::Bindings => Phase::BindingRecords,
+        Phase::BindingRecords | Phase::Done => Phase::Done,
     };
+    if run.phase == Phase::Bindings {
+        super::molecule_run::finish_headers(run);
+    }
     let range = phase_range(run.phase, run.report.scope.as_deref());
     if let Some((start, end)) = range {
         run.walk = RangeWalk::new(&start, &end, run.page_rows);
@@ -214,6 +223,13 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
         Phase::Records => (Holder::Record, Kind::UnreadableRecord),
         _ => (Holder::Tip, Kind::UnreadableTip),
     };
+    for (molecule, rows) in &page.molecules {
+        let tally = match holder {
+            Holder::Tip => &mut run.molecule_tips,
+            Holder::Record => &mut run.molecule_records,
+        };
+        tally.add(digest(molecule), *rows);
+    }
     run.report.pages += 1;
     match holder {
         Holder::Tip => run.report.tips_read += page.rows as u64,

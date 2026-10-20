@@ -419,12 +419,8 @@ pub(super) fn atom_ref_edge_status_line(health: &AtomRefEdgeHealth) -> String {
         Availability::Unavailable(_) => "unavailable".to_string(),
     };
     format!(
-        "Liveness edges: molecule_phase={} molecule_bytes={} molecule_complete={} blob_phase={} blob_bytes={} blob_complete={}",
-        health.molecule_phase,
+        "Liveness edges: molecule_bytes={} blob_phase={} blob_bytes={} blob_complete={}",
         bytes(&health.molecule_bytes),
-        health
-            .molecule_complete
-            .map_or_else(|| "unknown".to_string(), |value| value.to_string()),
         health.blob_phase,
         bytes(&health.blob_bytes),
         health

@@ -66,11 +66,6 @@ fn slot_suffix(molecule: &str, hash: &str, range: &str) -> String {
     record[molecule_record_prefix(molecule).len()..].to_string()
 }
 
-/// `{scope:}crs:v1:{M}\0`: every directory entry of one molecule.
-pub(super) fn molecule_dir_prefix(scope: Option<&str>, molecule: &str) -> String {
-    build_storage_key(scope, &format!("{DIR_FAMILY}{molecule}\0"))
-}
-
 /// The prefix of the directory entries of one slot.
 pub(super) fn slot_dir_prefix(
     scope: Option<&str>,

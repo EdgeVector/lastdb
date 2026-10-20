@@ -235,14 +235,6 @@ impl AtomStore {
             .remove(mk_key))
     }
 
-    /// Serialize source changes and reclaim checks for molecule targets.
-    pub(crate) async fn lock_liveness_molecules(
-        &self,
-        molecule_uuids: &[String],
-    ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
-        lock_target_stripes(&self.molecule_liveness_locks, molecule_uuids).await
-    }
-
     /// Serialize source changes and reclaim checks for blob targets.
     pub(crate) async fn lock_liveness_blobs(
         &self,
