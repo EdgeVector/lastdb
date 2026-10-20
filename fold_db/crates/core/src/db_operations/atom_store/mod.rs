@@ -60,7 +60,7 @@ pub use molecule_ref_edges::{
 };
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::RecordSlot;
+pub(crate) use retention::{RecordSlot, RELEASE_BATCH_RECORDS};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };

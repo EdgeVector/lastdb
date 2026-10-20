@@ -25,6 +25,51 @@ pub(crate) struct RetentionEntry {
     /// purge compares it with the slot it removes, so a range that merely
     /// begins with the same bytes cannot release the record of another slot.
     pub(crate) slot: String,
+    /// When the record was written, in nanoseconds of the retention clock. A
+    /// drain of an erased slot releases only the records written before the
+    /// erase. Zero (a row without the field) counts as old.
+    #[serde(default)]
+    pub(crate) created: u64,
+}
+
+/// A queue entry that makes the janitor release every record of one erased
+/// slot. An erase releases a bounded number of records in its own batch. For
+/// each slot that still holds records it writes one marker, due at once, in
+/// that batch. The marker costs one operation for each slot, however many
+/// records the slot holds. The janitor reads the directory of the slot in
+/// bounded pages and releases the records until none is left.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct DrainMarker {
+    #[serde(rename = "v")]
+    pub(crate) version: u8,
+    /// Always true. It tells a marker from a record entry.
+    pub(crate) drain: bool,
+    /// The full storage prefix of the directory entries of the slot.
+    pub(crate) dir_prefix: String,
+    /// The full storage key of the `mk:` slot. An entry counts only when its
+    /// own slot key is equal.
+    pub(crate) slot: String,
+    /// The full storage key of this queue entry.
+    pub(crate) queue: String,
+    /// When the erase ran, in nanoseconds of the retention clock.
+    pub(crate) erased_at: u64,
+}
+
+/// The value of a queue entry.
+pub(crate) enum QueueValue {
+    Record(RetentionEntry),
+    Drain(DrainMarker),
+}
+
+impl QueueValue {
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        let value: serde_json::Value = serde_json::from_slice(bytes)?;
+        if value.get("drain").is_some() {
+            serde_json::from_value(value).map(Self::Drain)
+        } else {
+            serde_json::from_value(value).map(Self::Record)
+        }
+    }
 }
 
 impl RetentionEntry {

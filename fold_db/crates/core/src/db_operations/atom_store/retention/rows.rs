@@ -20,7 +20,9 @@ impl AtomStore {
     /// them to the planner as the `new_rows` of the record, so they are written
     /// in the batch of the history row, and only when the record is new.
     ///
-    /// The queue entry expires at the node clock plus the retention window.
+    /// The queue entry expires at the retention clock plus the retention
+    /// window (`RetentionState::clock_nanos`, which ignores a forward
+    /// excursion of the wall clock of more than a day).
     pub(crate) fn retention_rows(
         &self,
         scope: Option<&str>,
@@ -29,10 +31,8 @@ impl AtomStore {
         conflict: Option<String>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
         let id = keys::record_id(history_key);
-        let now = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(i64::MAX);
-        let expires = u64::try_from(now)
-            .unwrap_or(0)
-            .saturating_add(self.retention_state().window_nanos());
+        let created = self.retention_state().clock_nanos();
+        let expires = created.saturating_add(self.retention_state().window_nanos());
         let entry = RetentionEntry {
             version: ENTRY_VERSION,
             history: history_key.to_string(),
@@ -40,6 +40,7 @@ impl AtomStore {
             dir: keys::dir_key(scope, slot.molecule, slot.hash, slot.range, &id),
             queue: keys::queue_key(expires, &id),
             slot: keys::slot_key(scope, slot.molecule, slot.hash, slot.range),
+            created,
         };
         let value = serde_json::to_value(&entry).map_err(|error| {
             SchemaError::InvalidData(format!("serialize retention entry: {error}"))

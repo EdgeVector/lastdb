@@ -6,7 +6,8 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
-use super::super::counter::{ReleaseRequest, TipChange, TipChangeSet, TipCommit};
+use super::super::counter::{TipChange, TipChangeSet, TipCommit};
+use super::super::retention::SlotReleases;
 use super::super::types::{MoleculeData, MoleculeHeader};
 use super::super::{AtomStore, PerKeyRecord};
 
@@ -77,11 +78,12 @@ impl AtomStore {
         for (scope, plan) in plans {
             let mut rows = plan.rows;
             rows.extend(extra_rows.take().unwrap_or_default());
-            let releases = if release_records {
+            let slot_releases = if release_records {
                 self.erase_release_requests(scope, removals).await?
             } else {
-                Vec::new()
+                Default::default()
             };
+            rows.extend(slot_releases.rows);
             let commit = self
                 .commit_tip_changes(TipChangeSet {
                     scope,
@@ -93,7 +95,7 @@ impl AtomStore {
                     bodies: &[],
                     body_source: None,
                     records: Vec::new(),
-                    releases,
+                    releases: slot_releases.releases,
                     rows,
                     deletes: Vec::new(),
                 })
@@ -129,7 +131,7 @@ impl AtomStore {
         &self,
         scope: Option<&str>,
         removals: &[MoleculeKeyRemoval<'_>],
-    ) -> Result<Vec<ReleaseRequest>, SchemaError> {
+    ) -> Result<SlotReleases, SchemaError> {
         let slots: Vec<_> = removals
             .iter()
             .filter(|removal| removal.3 == scope)

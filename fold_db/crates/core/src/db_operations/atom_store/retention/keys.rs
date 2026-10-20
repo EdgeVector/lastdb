@@ -30,6 +30,11 @@ pub(super) fn record_id(history_key: &str) -> String {
     )
 }
 
+/// The identity of the drain marker of one slot.
+pub(super) fn drain_id(dir_prefix: &str) -> String {
+    record_id(&format!("drain:{dir_prefix}"))
+}
+
 pub(super) fn queue_key(expires_at_nanos: u64, record_id: &str) -> String {
     format!("{QUEUE_HASH}{expires_at_nanos:020}:{record_id}")
 }

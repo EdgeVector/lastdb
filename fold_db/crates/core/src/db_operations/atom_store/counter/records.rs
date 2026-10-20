@@ -56,12 +56,16 @@ pub(super) struct Released {
     atoms: Vec<Vec<String>>,
     /// The history rows and the rows that go with them, to delete.
     deletes: Vec<Vec<u8>>,
+    /// Releases whose history row was already gone. Their other rows still go.
+    gone: u64,
 }
 
 impl Released {
-    /// The number of history rows this run releases.
+    /// The number of records this run ends: history rows released, and
+    /// releases whose history row was already gone. A release that the run
+    /// keeps (a row that does not decode) is not counted.
     pub(super) fn count(&self) -> u64 {
-        self.atoms.len() as u64
+        self.atoms.len() as u64 + self.gone
     }
 
     /// One reference less for each atom of each released row.
@@ -125,6 +129,7 @@ impl AtomStore {
                 }
                 let Some(bytes) = bytes else {
                     // The row is gone already. Its dependent rows still go.
+                    out.gone += 1;
                     out.deletes.extend(release.deletes.iter().cloned());
                     continue;
                 };

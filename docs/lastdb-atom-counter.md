@@ -131,9 +131,21 @@ A record ends in two ways, and both use the same release:
    records in the same batch as the tip deletes. A molecule with no entry costs
    one read of limit one. For a molecule with entries, each removed slot costs
    one range read, and an entry counts only when its `mk:` key matches the slot
-   exactly. One erase request releases at most 100 records. A key that holds
-   more keeps the rest until its window ends (`purge_capped_slots` in the status).
-   A protein key move is not an erase and releases nothing.
+   exactly. One erase request releases at most 100 records in its own batch
+   (the cap is for the whole request, not for each slot). For each slot that
+   still holds records, the same batch writes one **drain marker**, a queue
+   entry that is due at once (`crq:v1\0{now}:{hash of the slot prefix}`). It
+   costs one operation for each slot, however many records the slot holds, and
+   it needs no read of the records. The janitor reads the directory of the slot
+   in bounded pages and releases its records, 32 for each batch, and deletes the
+   marker with the last of them. So no record of a removed slot waits for its
+   window: the janitor ends it in the wake that follows the erase. The drain
+   releases only the records written before the erase (`created` in the entry).
+   A drain that cannot make progress (a history row that does not decode, or
+   512 directory rows of other slots in the way) drops its marker and logs it, so
+   it cannot hold back the queue; the records then wait for their own windows.
+   A protein key move is not an erase and releases nothing. `purge_capped_slots`
+   in the status counts the slots that got a marker.
 2. **The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes
    every `LASTDB_CONFLICT_JANITOR_MS` (60,000; zero turns it off). It reads the
    queue oldest first, in pages of 32 keys, with no write gate, and runs one
@@ -144,6 +156,18 @@ A record ends in two ways, and both use the same release:
    release batch shares the disk with the writers. The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.
+
+   The queue reads one clock (`RetentionState::clock_nanos`) both when it writes
+   an expiry and when the janitor tests it: the wall clock, but never more than
+   a day ahead of the time that the monotonic clock gives since the store was
+   made. A forward excursion of the wall clock longer than a day therefore gives
+   no record a far-future expiry and makes the janitor release nothing early. A
+   smaller forward jump moves the clock, and the janitor then releases records
+   early by at most the size of the jump (acceptable for a conflict record). A
+   backward jump delays the release by its size. A wall clock that was wrong
+   when the node started and was corrected by more than a day later is read as
+   the monotonic time; at the next start the records written in the wrong period
+   are released early.
 
 A release names the history row to the planner (`counter::ReleaseRequest`). The
 planner reads the row inside the same gate hold, lowers one reference for each

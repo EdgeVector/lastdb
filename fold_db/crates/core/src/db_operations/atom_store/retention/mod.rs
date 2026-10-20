@@ -37,6 +37,8 @@ mod report;
 mod rows;
 mod slots;
 
+pub(crate) use page::RELEASE_BATCH_RECORDS;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
 pub(crate) use rows::RecordSlot;
+pub(crate) use slots::SlotReleases;

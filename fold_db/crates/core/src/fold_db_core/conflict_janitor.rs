@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::db_operations::atom_store::RELEASE_BATCH_RECORDS;
 use crate::db_operations::DbOperations;
 
 /// Env: interval between janitor wakes in milliseconds (`0` = off).
@@ -37,7 +38,7 @@ pub const CONFLICT_JANITOR_MS_ENV: &str = "LASTDB_CONFLICT_JANITOR_MS";
 /// Default interval between wakes: one minute.
 pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
 /// Queue keys that one page reads, and so the most records of one release batch.
-const PAGE: usize = 32;
+const PAGE: usize = RELEASE_BATCH_RECORDS;
 /// Pages of one wake, at most. A larger backlog continues at the next wake.
 const PAGES_PER_WAKE: usize = 256;
 /// Env: the share of wall time, in percent, that the janitor may spend inside
@@ -198,11 +199,6 @@ fn pause_after(took: Duration, duty_pct: u64) -> Duration {
         .clamp(MIN_PAUSE, MAX_PAUSE)
 }
 
-fn now_nanos() -> u64 {
-    let now = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(i64::MAX);
-    u64::try_from(now).unwrap_or(0)
-}
-
 /// One wake: release the due records page by page.
 async fn run_wake(
     db_ops: &DbOperations,
@@ -218,7 +214,7 @@ async fn run_wake(
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let now = now_nanos();
+        let now = atoms.retention_state().clock_nanos();
         let page = match atoms.read_queue_page(watermark.as_deref(), PAGE).await {
             Ok(page) => page,
             Err(failure) => {
@@ -230,21 +226,39 @@ async fn run_wake(
         if due.is_empty() {
             break;
         }
-        let last_due = due.last().cloned();
-        let more_due = due.len() == page.keys.len() && page.full;
+        let due_keys = due.len();
+        let page_full = due_keys == page.keys.len() && page.full;
         let batch_started = std::time::Instant::now();
-        match atoms.release_due_entries(due, now).await {
+        let more_due = match atoms.release_due_entries(due.clone(), now).await {
             Ok(outcome) => {
                 atoms.retention_state().note_released(outcome.released);
                 released += outcome.released;
                 skipped += outcome.skipped;
-                *watermark = last_due;
+                tracing::debug!(
+                    target: "fold_node::database",
+                    released = outcome.released,
+                    skipped = outcome.skipped,
+                    completed = outcome.completed,
+                    took_ms = u64::try_from(batch_started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "conflict janitor release batch"
+                );
+                // The watermark passes the keys that the batch finished. A drain
+                // marker that still holds records stays after it, and the next
+                // page read starts at that marker.
+                if let Some(last) = outcome.completed.checked_sub(1).and_then(|at| due.get(at)) {
+                    *watermark = Some(last.clone());
+                }
+                if outcome.completed == 0 && outcome.released == 0 {
+                    // No progress. Do not spin on the same page.
+                    break;
+                }
+                outcome.completed < due_keys || page_full
             }
             Err(failure) => {
                 error = Some(failure.to_string());
                 break;
             }
-        }
+        };
         if !more_due {
             break;
         }

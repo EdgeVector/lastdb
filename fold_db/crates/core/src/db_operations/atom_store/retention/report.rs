@@ -28,10 +28,21 @@ pub(crate) fn parse_retention_secs(raw: Option<&str>) -> u64 {
     }
 }
 
+/// A forward excursion of the wall clock beyond this is ignored.
+const CLOCK_TOLERANCE_NANOS: u64 = 24 * 60 * 60 * 1_000_000_000;
+
+fn wall_clock_nanos() -> u64 {
+    u64::try_from(chrono::Utc::now().timestamp_nanos_opt().unwrap_or(i64::MAX)).unwrap_or(0)
+}
+
 /// The window and the totals of one store, since the node started.
 #[derive(Debug)]
 pub(crate) struct RetentionState {
     window_secs: u64,
+    /// The wall clock when the store was made, and the monotonic clock then.
+    /// They give an estimate of the time that a clock excursion cannot move.
+    anchor_wall_nanos: u64,
+    anchor: std::time::Instant,
     janitor_interval_ms: AtomicU64,
     runs: AtomicU64,
     last_run_unix_ms: AtomicU64,
@@ -55,6 +66,8 @@ impl RetentionState {
     pub(crate) fn with_window(window_secs: u64) -> Self {
         Self {
             window_secs,
+            anchor_wall_nanos: wall_clock_nanos(),
+            anchor: std::time::Instant::now(),
             janitor_interval_ms: AtomicU64::new(0),
             runs: AtomicU64::new(0),
             last_run_unix_ms: AtomicU64::new(0),
@@ -69,6 +82,19 @@ impl RetentionState {
 
     pub(crate) fn window_nanos(&self) -> u64 {
         self.window_secs.saturating_mul(1_000_000_000)
+    }
+
+    /// The clock of the queue: the wall clock, but never more than a day ahead
+    /// of the time that the monotonic clock gives since the store was made.
+    /// The written expiry and the due test of the janitor both read it. A
+    /// forward excursion of the wall clock longer than a day cannot give a
+    /// record a far-future expiry, and cannot make the janitor release a
+    /// record at once. A smaller forward jump moves the clock, and the
+    /// janitor then releases records early by at most the size of the jump.
+    pub(crate) fn clock_nanos(&self) -> u64 {
+        let elapsed = u64::try_from(self.anchor.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let estimate = self.anchor_wall_nanos.saturating_add(elapsed);
+        wall_clock_nanos().min(estimate.saturating_add(CLOCK_TOLERANCE_NANOS))
     }
 
     /// The janitor says how often it runs (zero: it is off).
