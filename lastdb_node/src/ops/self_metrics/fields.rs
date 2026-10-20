@@ -125,7 +125,6 @@ pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     // requests in the interval reported a phase set at all (the denominator
     // for per-request phase averages). Rows written before these fields read
     // back as 0 — genuinely "no phases reported", not measured-as-zero.
-    // `rollup_fields_cover_every_phase_name` pins this list to PHASE_NAMES.
     "sum_queue_wait_us",
     "sum_admission_wait_us",
     "sum_parse_us",
@@ -152,7 +151,6 @@ pub(super) const REQUEST_OPS_ROLLUP_FIELDS: &[&str] = &[
     "sum_apply_us",
     "sum_apply_memory_us",
     "sum_schema_load_us",
-    "sum_dedupe_scan_us",
     "sum_idempotency_check_us",
     "sum_grouping_us",
     "sum_restore_molecules_us",

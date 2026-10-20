@@ -1,4 +1,4 @@
-//! Helpers that prepare a native schema delta: schema load, share prefixes, and dedupe.
+//! Current schema definitions and share prefixes for native write preparation.
 
 use super::*;
 
@@ -43,40 +43,5 @@ impl MutationManager {
             .filter(|rule| rule.active && rule.scope_matches(schema_name))
             .map(|rule| rule.share_prefix)
             .collect())
-    }
-
-    /// Drop unchanged field writes when write dedupe is enabled.
-    pub(super) fn dedupe_atom_results(
-        &self,
-        schema_name: &str,
-        schema: &crate::schema::types::Schema,
-        schema_mutations: &[Mutation],
-        mutation_key_values: &[crate::schema::types::KeyValue],
-        atom_results: Vec<(usize, String, crate::atom::Atom)>,
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-    ) -> Vec<(usize, String, crate::atom::Atom)> {
-        if !self.write_dedupe_enabled() {
-            return atom_results;
-        }
-        let dedupe_start = std::time::Instant::now();
-        let sent = atom_results.len();
-        let kept = Self::drop_unchanged_field_writes(
-            schema,
-            schema_mutations,
-            mutation_key_values,
-            atom_results,
-        );
-        Self::add_timing(timing_breakdown, "  - dedupe_scan", dedupe_start.elapsed());
-        if kept.len() != sent {
-            tracing::debug!(
-                target: "write_dedupe",
-                schema = %schema_name,
-                sent,
-                written = kept.len(),
-                skipped = sent - kept.len(),
-                "dropped unchanged field writes"
-            );
-        }
-        kept
     }
 }

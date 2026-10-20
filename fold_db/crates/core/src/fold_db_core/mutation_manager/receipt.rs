@@ -25,8 +25,8 @@
 //! `PhaseTimings::within_wall_us` sums the set to derive the `unattributed=`
 //! remainder every operator surface prints. These four stages overlap phases
 //! that already exist — gate wait IS `molecule_gate_us`, publish IS
-//! `apply_memory_us`, and preparation spans `restore_molecules_us`,
-//! `schema_load_us` and `dedupe_scan_us`. Adding them as phase buckets would
+//! `apply_memory_us`, and preparation spans `restore_molecules_us`
+//! and `schema_load_us`. Adding them as phase buckets would
 //! double-count those microseconds, drive the residual to zero and then
 //! underflow it, and corrupt `unattributed` on every request the node serves —
 //! not just resident commits.

@@ -4,9 +4,10 @@ use super::{key_value::KeyValue, operations::MutationType};
 use crate::atom::provenance::Provenance;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use uuid::Uuid;
+
+mod content_hash;
 
 pub(crate) fn is_zero_u8(value: &u8) -> bool {
     *value == 0
@@ -27,8 +28,7 @@ pub struct Mutation {
     pub synchronous: Option<bool>,
     /// Optional source filename for atoms created from file uploads
     pub source_file_name: Option<String>,
-    /// General-purpose metadata (e.g., file_hash, provenance info).
-    /// Excluded from content_hash — metadata doesn't affect deduplication.
+    /// Per-key metadata is part of the signed mutation, not the atom UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
     /// Writer identity and verifiability info. Additive during the
@@ -68,7 +68,7 @@ pub struct Mutation {
     /// Ed25519 signature over the mutation content, id, and author clock.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author_clock_signature: String,
-    /// Zero for legacy envelopes; two for the author-clock signature scheme.
+    /// Zero for unsigned input; see `MUTATION_AUTHOR_SIGNATURE_VERSION` for signed input.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub author_clock_signature_version: u8,
     /// The `version` the original author SIGNED — consumed only by single
@@ -82,12 +82,9 @@ pub struct Mutation {
     /// nothing and returns
     /// [`SchemaError::CasConflict`](super::errors::SchemaError::CasConflict).
     ///
-    /// Additive, like `provenance` above: `None` on every mutation constructed
-    /// before CAS existed, and excluded from [`Self::content_hash`] so the
-    /// idempotency cache and sync log keep their pre-existing hashes. A CAS
-    /// precondition is a decision about *when* to apply, not part of the
-    /// written content, so two mutations that differ only in `expected` share
-    /// a content hash by design.
+    /// A CAS precondition is local acceptance policy, not written content.
+    /// Mutations that differ only in `expected` share a content hash so a
+    /// successful signed retry can return its prior acknowledgement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected: Option<CasExpectation>,
     /// Local request policy for [`MutationType::Delete`] and
@@ -240,74 +237,5 @@ impl Mutation {
             )),
             _ => Ok(()),
         }
-    }
-
-    /// Compute a deterministic content hash of this mutation's semantic fields.
-    /// Excludes uuid (random), synchronous (execution mode), source_file_name, metadata.
-    ///
-    /// `provenance` contributes to the hash only when `Some`. When `None`, the
-    /// output bytes are identical to pre-PR-4 mutations (`molecule-provenance-dag`
-    /// PR 4 additive field). This is a non-negotiable backward-compatibility
-    /// guarantee — the idempotency cache and sync log hold pre-PR-4 hashes, and
-    /// breaking them breaks deduplication and replay.
-    #[must_use]
-    pub fn content_hash(&self) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(self.schema_name.as_bytes());
-        hasher.update(
-            serde_json::to_string(&self.mutation_type)
-                .expect("MutationType is always serializable")
-                .as_bytes(),
-        );
-        hasher.update(
-            serde_json::to_string(&self.key_value)
-                .expect("KeyValue is always serializable")
-                .as_bytes(),
-        );
-        // Sort keys for deterministic ordering of HashMap
-        let mut sorted_fields: Vec<_> = self.fields_and_values.iter().collect();
-        sorted_fields.sort_by_key(|(k, _)| (*k).clone());
-        for (k, v) in sorted_fields {
-            hasher.update(k.as_bytes());
-            hasher.update(
-                serde_json::to_string(v)
-                    .expect("serde_json::Value is always serializable")
-                    .as_bytes(),
-            );
-        }
-        hasher.update(self.pub_key.as_bytes());
-        if let Some(p) = &self.provenance {
-            hasher.update(
-                serde_json::to_string(p)
-                    .expect("Provenance is always serializable")
-                    .as_bytes(),
-            );
-        }
-        // Same additive contract as `provenance`: contribute only when Some,
-        // so every pre-existing mutation's hash bytes are unchanged.
-        if let Some(w) = self.imported_written_at {
-            hasher.update(w.to_be_bytes());
-        }
-        if self.logical_counter != 0 {
-            hasher.update(self.logical_counter.to_be_bytes());
-        }
-        if !self.author_clock_writer_id.is_empty() {
-            hasher.update(self.author_clock_writer_id.as_bytes());
-        }
-        if let Some(v) = self.imported_version {
-            hasher.update(v.to_be_bytes());
-        }
-        // The contribution is part of the source mutation's signed semantic
-        // content. Without this, a peer could retain the source winner while
-        // changing the member value that derives its local summary.
-        if let Some(aggregate_set) = &self.aggregate_set {
-            hasher.update(
-                serde_json::to_string(aggregate_set)
-                    .expect("AggregateSet is always serializable")
-                    .as_bytes(),
-            );
-        }
-        let result = hasher.finalize();
-        format!("{result:x}")
     }
 }
