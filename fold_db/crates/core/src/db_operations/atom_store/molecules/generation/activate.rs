@@ -108,6 +108,8 @@ impl AtomStore {
             })?;
         self.account_stored_bodies(bodies, &commit);
         self.account_keep_small_items(&accounted);
+        self.keep_small
+            .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
         drop(publication_guards);
         drop(tip_guards);
 

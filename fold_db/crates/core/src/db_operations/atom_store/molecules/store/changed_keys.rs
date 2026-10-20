@@ -187,6 +187,8 @@ impl AtomStore {
         // after the ordered batch succeeds, so a failed write cannot create a
         // false complete value.
         self.account_keep_small_items(&accounted);
+        self.keep_small
+            .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
         // Debounced persist only. A per-write `flush_keep_small` wrote the
         // whole counter map per molecule store and filled one `metadata` group
         // to 39 GB in a day (2026-09-21 restart loop). In-process readers use
