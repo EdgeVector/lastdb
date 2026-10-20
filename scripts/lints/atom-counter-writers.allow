@@ -12,14 +12,10 @@ fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|flush_
 
 fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 
-fold_db/crates/core/src/db_operations/admin_db/order_log/compact.rs|compact_order_log_live_filter_one|-|molecule order-log rows
-fold_db/crates/core/src/db_operations/admin_db/order_log/compact.rs|compact_order_log_zero_live_one|-|molecule order-log rows
 
 fold_db/crates/core/src/db_operations/admin_db/orphan_proteins.rs|gc_orphan_proteins_in_scope|-|empty protein rows
 
-fold_db/crates/core/src/db_operations/atom_store/atoms/maintenance.rs|purge_legacy_ref_blobs|-|legacy ref: whole-molecule blobs (retired layout)
 
-fold_db/crates/core/src/db_operations/atom_store/blob_ref_edges.rs|bootstrap_blob_ref_edges_on_isolated_copy|-|blob reverse edges (step S5 removes them)
 
 fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|bind_catalog_molecules|-|database-catalog molecule edges (step S4 removes them)
 fold_db/crates/core/src/db_operations/atom_store/catalog_bindings.rs|unbind_catalog_molecules|-|database-catalog molecule edges (step S4 removes them)
@@ -33,8 +29,6 @@ fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|delete_mo
 fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|put_molecule_ref_edge|-|molecule reverse edges (step S4 removes them)
 fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges.rs|put_molecule_ref_edges_if_changed|-|molecule reverse edges (step S4 removes them)
 
-fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges/bootstrap.rs|bootstrap_molecule_ref_edges_on_isolated_copy|-|molecule reverse edges (step S4 removes them)
-fold_db/crates/core/src/db_operations/atom_store/molecule_ref_edges/bootstrap.rs|replace_molecule_ref_bootstrap|-|molecule reverse edges (step S4 removes them)
 
 fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|reclaim_expired_generations|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
 fold_db/crates/core/src/db_operations/atom_store/molecules/generation/activate.rs|write_generation_bodies|T|immutable generation slot rows (mgr, mgp); the live mirror tips go through the planner in the same request; a slot row holds no count
@@ -45,9 +39,8 @@ fold_db/crates/core/src/db_operations/conflict_index_heal.rs|stamp_conflict_inde
 fold_db/crates/core/src/db_operations/conflict_operations.rs|delete_event_keys|C|hcu: home conflict events and stamp; they hold no atom reference
 fold_db/crates/core/src/db_operations/conflict_operations.rs|write_home_conflict_stamp|C|hcu: home conflict events and stamp; they hold no atom reference
 
-fold_db/crates/core/src/db_operations/db_catalog_store.rs|drop_prefixed_rows_for_instance|T C B N|range delete of every row of one scope (or of scopes that no catalog entry names): tips, bodies and counters of a scope go together, so I1 and I2 hold for the scopes that stay
-fold_db/crates/core/src/db_operations/db_catalog_store.rs|drop_unreferenced_prefixed_rows|T C B N|range delete of every row of one scope (or of scopes that no catalog entry names): tips, bodies and counters of a scope go together, so I1 and I2 hold for the scopes that stay
 
+# db_catalog_store.rs::drop_scoped_source_rows deletes every row of one scope through a store argument (tips, bodies and counters go together). The lint cannot see keys that a caller hands to it.
 fold_db/crates/core/src/db_operations/delete_ledger.rs|begin_delete_ledger_row|-|hard-delete audit rows
 fold_db/crates/core/src/db_operations/delete_ledger.rs|commit_delete_ledger_row|-|hard-delete audit rows
 
@@ -145,8 +138,6 @@ fold_db/crates/core/src/sync/engine/replay/entry/ops.rs|replay_delete_op|C B N|c
 
 fold_db/crates/core/src/sync/engine/replay/merge.rs|store_merge_conflicts|C|replay conflict rows when the engine has no atom store (never the serving store)
 
-fold_db/crates/core/src/sync/engine/replay/order.rs|replay_order_count_record|-|replay order log and header rows
-fold_db/crates/core/src/sync/engine/replay/order.rs|replay_order_log_entry|-|replay order log and header rows
 
 fold_db/crates/core/src/sync/engine/replay/records.rs|merge_per_key_lww|T|cloud replay of a peer tip under last-writer-wins; the conflict goes through the planner
 fold_db/crates/core/src/sync/engine/replay/records.rs|replay_header_record|-|replay order log and header rows
@@ -172,3 +163,11 @@ lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_reference
 lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_rollback_after_crash|-|storage recovery proof tool; it writes its own test keys to a store it creates
 
 lastdb_node/src/cloud_purge_adoption_org/queues.rs|copy_peer_subscriptions|-|peer subscription rows
+
+fold_db/crates/core/src/db_operations/atom_store/blob_ref_edges/tips.rs|replace|T|builds the blob-root mutations of a tip record; the planner puts them in the batch of the tip
+fold_db/crates/core/src/db_operations/atom_store/fresh_home_edges.rs|initialize_current_reference_proofs|-|key format marker and the two completeness proofs of a constructor-proven empty home
+fold_db/crates/core/src/sync/snapshot/restore_scan/blob_roots.rs|clear_existing|-|photograph restore: removes the rows of the restore scope before the install; counters travel with their bodies in the photograph
+fold_db/crates/core/src/sync/snapshot/restore_scan/blob_roots.rs|prepare_incoming|-|photograph restore: installs blob-root target rows before the sources
+fold_db/crates/core/src/sync/snapshot/restore_scan/proofs.rs|begin_reference_restore|-|photograph restore: withdraws the completeness proofs
+fold_db/crates/core/src/sync/snapshot/restore_scan/proofs.rs|finish_reference_restore|-|photograph restore: publishes the completeness proofs after the sources are durable
+fold_db/crates/core/src/sync/snapshot/restore_scan/files.rs|merge_missing|-|photograph restore: adds node-global file rows (cas_blob) that are missing; no tip, record, atom or counter

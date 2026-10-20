@@ -131,8 +131,9 @@ impl MutationManager {
         mut delta: PreparedSchemaDelta,
         runtime: &Arc<PackRuntime>,
         heads: &mut super::super::molecules::batch_rebase::BatchSlotHeads,
-    ) -> Result<(), SchemaError> {
-        let modified_fields = self.rebase_delta_for_publish(&mut delta, heads);
+    ) -> Result<std::time::Duration, SchemaError> {
+        let (modified_fields, fold_elapsed) =
+            self.rebase_delta_for_publish(&mut delta, heads).await?;
         heads.record(&delta);
         let pending_persist_task = delta.pending_persist_task.take();
         let mut job = into_native_job(delta, modified_fields);
@@ -154,7 +155,7 @@ impl MutationManager {
             })?;
         }
         transaction::retain(runtime, pending_persist_task)?;
-        Ok(())
+        Ok(fold_elapsed)
     }
 }
 

@@ -31,8 +31,6 @@ impl EncryptingNamespacedStore {
         let meta = self.open_namespace(RESEAL_CHECKPOINT_NAMESPACE).await?;
         let key = checkpoint_key(collection);
         let _ = meta.delete(key.as_bytes()).await?;
-        let legacy_key = legacy_checkpoint_key(collection);
-        let _ = meta.delete(legacy_key.as_bytes()).await?;
         Ok(())
     }
 

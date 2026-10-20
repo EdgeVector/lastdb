@@ -227,8 +227,7 @@ fn print_app_storage_completeness(report: &serde_json::Value, complete: bool) {
         println!(
             "complete: FALSE — the daemon last stopped without its shutdown flush, so the \
              persisted meters predate the home's last writes. The numbers above are the last \
-             gauge, not a measurement. Run the liveness bootstrap (POST \
-             /api/storage/liveness/bootstrap on an isolated copy) to re-measure."
+             gauge, not a measurement."
         );
     } else if not_hydrated {
         // Say this before the byte line: with un-hydrated meters every number

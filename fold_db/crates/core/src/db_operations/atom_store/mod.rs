@@ -9,17 +9,16 @@
 //! - [`types`] — molecule/atom storage types
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
-//! - [`key_encoding`] — atom body key-encoding resolution at boot and restore
+//! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
 //! - [`atoms`] — atom CRUD, history, schema listing
-//! - [`locks`] — molecule, tip, atom-ref and delete-barrier locks
+//! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
-//! - [`atom_ref_edges`], [`blob_ref_edges`], [`molecule_ref_edges`],
-//!   [`tip_version_backrefs`] — durable reverse-reference planes
-//! - [`atom_ref_gc`], [`dropped_schema_reap`],
-//!   [`hard_erase_journal`], [`keep_small`] — GC, reap and maintenance passes
+//! - [`blob_ref_edges`], [`molecule_ref_edges`] — blob and molecule roots
+//! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
+//! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
 mod atoms;
 mod blob_ref_edges;
@@ -31,6 +30,7 @@ mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
 mod filter;
+mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
@@ -44,12 +44,13 @@ mod types;
 pub(crate) use atoms::SealedAtom;
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub use bounded_range::WalkStats;
-pub(crate) use bounded_range::{successor, unsealed_run_error, Progress, RangeWalk, WalkTotals};
+pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
     AtomCounterReport, AtomCounterView, Change, RecountOptions, RecountReport, VerifyReport,
     VerifyRequest, VerifySummary,
 };
+pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
 pub use molecule_ref_edges::{
@@ -229,8 +230,8 @@ pub struct AtomStore {
     /// uuids are `sha256("{schema}:{field}")` — deterministic, so two stores
     /// sharing a schema and field name derive the same prefix. Without this id
     /// one store's observation would answer another's question. See
-    /// [`crate::atom::legacy_history_memo`].
-    store_id: crate::atom::legacy_history_memo::StoreId,
+    /// [`crate::atom::history_event_memo`].
+    store_id: crate::atom::history_event_memo::StoreId,
 }
 
 impl AtomStore {
@@ -251,7 +252,7 @@ impl AtomStore {
 
     /// This store's identity in the legacy-history memo.
     #[must_use]
-    pub(crate) fn store_id(&self) -> crate::atom::legacy_history_memo::StoreId {
+    pub(crate) fn store_id(&self) -> crate::atom::history_event_memo::StoreId {
         self.store_id
     }
 

@@ -59,17 +59,6 @@ impl SchemaStore {
         &self,
         name: &str,
     ) -> crate::storage::error::StorageResult<Option<Vec<u8>>> {
-        let keys: Vec<_> = crate::kind_partition::read_forms(name)
-            .into_iter()
-            .map(String::into_bytes)
-            .collect();
-        Ok(self
-            .schema_states_store
-            .inner()
-            .get_many(keys)
-            .await?
-            .into_iter()
-            .flatten()
-            .next())
+        self.schema_states_store.inner().get(name.as_bytes()).await
     }
 }

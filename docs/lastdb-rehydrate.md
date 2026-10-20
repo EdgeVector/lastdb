@@ -8,7 +8,7 @@ The recency list holds references to logical records. It selects the clean recor
 It does not contain another copy of the values.
 
 A normal logical record follows one schema, field, molecule, and key to one atom.
-The normal warm limit is 10,000 logical records.
+The warm set uses the byte limit defined in the [warm set design](lastdb-warm-set-byte-limit-design.md).
 A call holds its selected records. The purge skips those records and writes that still await flush.
 File contents stay outside this model. An atom can return a file reference and its access metadata.
 Reads and writes reuse an equal complete atom object when one is already available.
@@ -88,6 +88,9 @@ A moved unchanged field can retain its atom and use the key-change author clock.
 Equal field values alone do not establish record ownership.
 Partial shared fields that omit the source identity do not authorize related record removal.
 Conflicts still choose each field's current atom by its author clock.
+A related key uses the field values that the source write accepts.
+A rejected field value cannot change that key, even when another field in the same mutation wins.
+The source decision precedes related key preparation inside the private native write boundary.
 A peer with mixed source identities or conflicting shared-field clocks remains unchanged by related cleanup.
 This rule does not introduce unique peer keys or replacement of an entire record on a field write.
 Each schema change reads the earlier private changes in the same batch before it prepares related keys and values.
@@ -119,7 +122,7 @@ Named database record queries and key lists use their requested database scope.
 Selected HashRange schemas load complete membership keys before their first query continues.
 Concurrent first queries share that load. Later ranges select keys from the complete memory set under one named hash.
 Tips and atom values remain partial. Key preload does not fetch every value.
-The key allowance is separate from the 10,000-record warm limit.
+The complete key allowance is separate from the warm set byte limit.
 Unselected schemas and refused loads use the bounded disk selector.
 A failed optional preload releases its incomplete keys and retains its diagnostic reason.
 It does not prevent a later keyed disk read. A required disk read still reports its own error.
@@ -164,6 +167,24 @@ Equal atoms do not create a different-atom conflict or a replacement-history ent
 The same commit retires the prior tip's reference. A reference that the current tip still uses stays active.
 A present key-metadata record supplies all its optional fields. An omitted member clears that value.
 Only the absence of the entire key-metadata record permits atom creation metadata as a fallback.
+Current key metadata can reference a file blob independently of the immutable atom metadata.
+Each tip owns the protection for its current metadata references.
+Replacement and deletion change that protection with the selected tip.
+All databases on the node share the file blob store.
+The protection uses the exact database scope of each source.
+
+File cleanup requires a completion proof for atom references and current tip metadata references.
+A fresh native home creates that proof with the current key format marker in one private write.
+Each file reference has a node-wide target and an exact source record in its database scope.
+Database deletion removes the target and its source record together.
+Current backups keep these records and proofs.
+A scoped restore uses the exact source records to restore their targets.
+A personal restore keeps existing node-wide file bytes and their encryption metadata.
+It adds only files that are absent from the node.
+This rule covers both local file stores. Normal file cleanup removes unused files after its reference checks.
+
+File cleanup checks current accepted writes and deletes file blobs inside bounded native write scopes.
+The check and deletion share the same scope, including writes that still await flush.
 Single and batch requests carry the declared source file name through the same write pipeline.
 Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
@@ -258,3 +279,22 @@ The native sampler does not maintain their retired graph and loader counters.
 Write gates, record locks, and purge queues still control their respective work.
 The [write result](proofs/core-owned-writes-20261018/RESULTS.md) records the preceding measured source and its limits.
 Later cleanup or cutover checks must identify their own source and product evidence.
+
+## Current key format
+
+A new home records the current key format before it serves requests.
+A new home records its setup state before it creates the physical store.
+An interrupted new setup can resume from that state. It cannot accept user writes before setup completes.
+An existing home without the current format marker or that setup state receives an error.
+Startup does not convert data.
+Flat keys use the current zero-byte separator. A read never tries an older colon spelling.
+Molecule identities use their exact current base64url form. A hex identity is not an alternate key.
+The current atom placement choices remain flat or located by molecule and hash.
+The current hash and range encryption choices remain available.
+A changed atom placement setting receives an error after home creation.
+
+The old key conversion, key fork, tip conversion, and collection copy commands are removed.
+Archived tip files and their repair jobs are removed. Current history events remain.
+Version 2 logical snapshots use the current keys.
+Older logical snapshots receive an error before restore writes data.
+This key format change leaves the current warm set limits unchanged.

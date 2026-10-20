@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use crate::atom::Atom;
 use crate::db_operations::atom_store::AtomStore;
 use crate::protein::Protein;
-use crate::schema::types::{KeyValue, Mutation, Schema};
+use crate::schema::types::{KeyValue, Schema};
 use crate::schema::SchemaError;
 
 pub(super) type ProteinFoldMetadata = (
@@ -37,9 +37,9 @@ fn distinct_in_order<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<Strin
 
 pub(super) fn eligible_protein_atoms<'a>(
     schema: &'a Schema,
-    schema_mutations: &[Mutation],
     mutation_key_values: &[KeyValue],
     atom_results: &'a [(usize, String, Atom)],
+    accepted: &super::prepared::AcceptedSources,
 ) -> Vec<(usize, &'a Atom, &'a str)> {
     let mut eligible = Vec::new();
     for (idx, field_name, atom) in atom_results {
@@ -50,18 +50,17 @@ pub(super) fn eligible_protein_atoms<'a>(
         let Some(mol_uuid) = field.common().molecule_uuid() else {
             continue;
         };
-        let mutation = &schema_mutations[*idx];
-        // Imported apply already LWW-decided the entry tip. A losing atom
-        // neither reads a backref nor changes a sibling tip.
-        if mutation.imported_written_at.is_some() {
-            if let Some(mol) = field.molecule.as_ref() {
-                let Some((hash, range)) = field.slot_coordinates(key_value) else {
-                    continue;
-                };
-                if mol.get_atom_uuid(&hash, &range).map(String::as_str) != Some(atom.uuid()) {
-                    continue;
-                }
-            }
+        let source = (*idx, mol_uuid.clone(), atom.uuid().to_string());
+        let Some(accepted) = accepted.get(&source) else {
+            continue;
+        };
+        // A UUID identifies value bytes, not the authored write. An equal
+        // value can lose its clock, or a later batch write can replace it.
+        if field
+            .atom_entry_at_key(key_value)
+            .is_none_or(|entry| entry.lww_key() != accepted.lww_key())
+        {
+            continue;
         }
         eligible.push((*idx, atom, mol_uuid.as_str()));
     }

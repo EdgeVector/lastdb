@@ -21,7 +21,7 @@ impl SyncEngine {
         Ok(Some(local))
     }
 
-    pub(super) fn legacy_physical_molecule_uuid(key: &str) -> Option<String> {
+    pub(super) fn physical_molecule_uuid(key: &str) -> Option<String> {
         let base_key =
             crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base_key)| base_key);
         // A partition-prefixed atom body carries an embedded `mk:` segment.
@@ -30,19 +30,5 @@ impl SyncEngine {
             return None;
         }
         molecule_uuid_from_record_key(key)
-    }
-
-    pub(super) fn legacy_delete_barrier(entry: &LogEntry, key: &str) -> DeleteBarrier {
-        DeleteBarrier {
-            mk_key: key.to_string(),
-            written_at: entry.timestamp_ms.saturating_mul(1_000_000),
-            logical_counter: 0,
-            device_id: entry.device_id.clone(),
-            mutation_uuid: String::new(),
-            kind: DeleteKind::LegacyPhysical,
-            displaced_atom_uuid: None,
-            cloud_sequence: Some(entry.seq),
-            tip_before_nanos: None,
-        }
     }
 }

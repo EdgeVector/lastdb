@@ -10,25 +10,6 @@ pub(crate) fn molecule_uuid_from_record_key(key: &str) -> Option<String> {
     (!uuid.is_empty()).then(|| uuid.to_string())
 }
 
-pub(crate) fn hash_range_page_index_complete_key_for_record_key(
-    key: &str,
-    mol_uuid: &str,
-) -> Option<String> {
-    let record_prefix = crate::atom::molecule_key_codec::molecule_record_prefix(mol_uuid);
-    let prefix_pos = key.find(&record_prefix)?;
-    let suffix = &key[prefix_pos + record_prefix.len()..];
-    if !suffix.contains('\u{0}') {
-        return None;
-    }
-    crate::atom::molecule_key_codec::decode_hash_range_suffix(suffix)?;
-    let storage_prefix = &key[..prefix_pos];
-    Some(format!(
-        "{}{}",
-        storage_prefix,
-        crate::atom::molecule_key_codec::hash_range_page_index_complete_key(mol_uuid)
-    ))
-}
-
 /// Extract the molecule uuid `M` from a header key `mh:{M}` (optionally
 /// prefixed). `M` is the whole remainder after `mh:`. Returns `None` if the key
 /// is not a header key.
@@ -36,18 +17,6 @@ pub(crate) fn molecule_uuid_from_header_key(key: &str) -> Option<String> {
     let after = position_after_prefix(key, crate::atom::molecule_key_codec::MH_PREFIX)?;
     let uuid = &key[after..];
     (!uuid.is_empty()).then(|| uuid.to_string())
-}
-
-/// Whether `key` is a HashRange append-log order entry `mord:{M}:{seq}`
-/// or `mord\0{M}:{seq}` (optionally `{org}:`-/`from:`-prefixed).
-pub(crate) fn is_order_log_entry_key(key: &str) -> bool {
-    crate::kind_partition::rest_of(key, "mord").is_some_and(|rest| !rest.is_empty())
-}
-
-/// Whether `key` is a HashRange append-log count record `moc:{M}` or
-/// `moc\0{M}` (optionally `{org}:`-/`from:`-prefixed).
-pub(crate) fn is_order_count_key(key: &str) -> bool {
-    crate::kind_partition::rest_of(key, "moc").is_some_and(|rest| !rest.is_empty())
 }
 
 /// Byte index just past the first occurrence of `marker` in `key`, requiring

@@ -62,17 +62,12 @@ pub(super) const BACKUP_EXCLUDED_EXACT: &[&str] = &[
     "sync_file_blob_known",
     "share_delivery_outbox",
     "org_sync_targets",
-    // Rebuildable atom reverse-reference index. Restore reconstructs it from
-    // authoritative tips and tip-version rows.
-    "atom_ref_edges",
-    "atom_ref_edges_v2",
-    "molecule_ref_edges",
-    "blob_ref_edges",
+    // Current reference directories and proofs remain in physical backups.
     // Owner-only copy-migration proof. A restored node rebuilds it against its
     // own catalog snapshot; it has no cross-node meaning.
     "attribution_ledger",
     // The keep-small meter snapshot (its own plane since 2026-09-21). A
-    // node-local gauge that normal writes and the liveness bootstrap rebuild;
+    // node-local gauge that normal writes reconstruct;
     // hydrate treats a missing row as a fresh home. Nothing a restored device
     // gains, and every put is a whole-map rewrite, so keep it out of the
     // photograph like the attribution ledger.

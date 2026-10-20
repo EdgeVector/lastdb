@@ -93,13 +93,6 @@ impl NamespacedStore for MutationLogCaptureNamespacedStore {
         self.inner.evict_warm_set_to_bytes(target)
     }
 
-    async fn drain_plane_residue(
-        &self,
-        options: crate::storage::laststore::PlaneResidueDrainOptions,
-    ) -> StorageResult<crate::storage::laststore::PlaneResidueDrainReport> {
-        self.inner.drain_plane_residue(options).await
-    }
-
     async fn compact_collection(
         &self,
         options: crate::storage::laststore::CollectionCompactOptions,

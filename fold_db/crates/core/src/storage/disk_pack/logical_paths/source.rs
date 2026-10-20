@@ -52,15 +52,13 @@ pub(super) fn body_matches_coordinates(coordinates: &[(String, String)], request
 }
 
 fn primary_coordinate(requested: &str) -> Option<(&'static str, String)> {
-    let first = crate::kind_partition::read_forms(requested)
-        .into_iter()
-        .next()?;
-    let collection = crate::storage::laststore::native_routing::read_candidates(first.as_bytes())
-        .into_iter()
-        .next()?;
+    let collection =
+        crate::storage::laststore::native_routing::read_candidates(requested.as_bytes())
+            .into_iter()
+            .next()?;
     Some((
         collection,
-        crate::storage::laststore::native_routing::encode(first.as_bytes()),
+        crate::storage::laststore::native_routing::encode(requested.as_bytes()),
     ))
 }
 

@@ -105,11 +105,9 @@ impl AtomStore {
                 };
                 if from_body {
                     for blob in &blobs {
-                        let edge = BlobRefEdge::atom(&pair.atom, blob);
-                        pending.mutations.push(KvMutation::put(
-                            edge.storage_key(scope).into_bytes(),
-                            to_bytes(&edge)?,
-                        ));
+                        for (key, value) in BlobRefEdge::atom(&pair.atom, blob, scope).put_rows()? {
+                            pending.mutations.push(KvMutation::put(key, value));
+                        }
                     }
                 }
                 let counter = AtomCounter::new(refs, blobs);
@@ -140,10 +138,9 @@ impl AtomStore {
                     .mutations
                     .push(KvMutation::delete(body_key.into_bytes()));
                 for blob in &blobs {
-                    let edge = BlobRefEdge::atom(&pair.atom, blob);
                     pending
                         .mutations
-                        .push(KvMutation::delete(edge.storage_key(scope).into_bytes()));
+                        .extend(BlobRefEdge::atom(&pair.atom, blob, scope).delete_mutations());
                 }
                 report.bodies_deleted += 1;
                 note_change(report, change("delete_atom", before, None));

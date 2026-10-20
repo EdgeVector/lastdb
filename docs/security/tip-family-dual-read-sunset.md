@@ -1,5 +1,9 @@
 # Tip-family dual-read sunset (`mh:` / `tv:` → tips only)
 
+> Current format notice, 2026-10-19: The code accepts only the current key format.
+> The older conversion commands and fallback reads in this document are removed.
+> Create a fresh home. No migration runs.
+
 Date: 2026-08-07
 
 Process: `brain get sop-migration-code-sunset --type sop`  

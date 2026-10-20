@@ -9,6 +9,7 @@ use crate::sharing::blob_cas;
 use chrono::{DateTime, Utc};
 
 /// One candidate row from either local plane.
+#[derive(Clone)]
 pub(super) struct BlobCandidate {
     blob_ref: String,
     /// Full main-store key for resident-plane rows; `None` for `cas_blobs`
@@ -16,6 +17,21 @@ pub(super) struct BlobCandidate {
     main_store_key: Option<String>,
     approx_bytes: u64,
     stored_at: Option<String>,
+}
+
+/// Bound each native recheck by both record count and estimated row bytes.
+pub(super) fn batch_len(candidates: &[BlobCandidate]) -> usize {
+    let mut bytes = 0u64;
+    let mut count = 0;
+    for candidate in candidates.iter().take(128) {
+        let next = bytes.saturating_add(candidate.approx_bytes);
+        if count > 0 && next > 64 * 1024 * 1024 {
+            break;
+        }
+        bytes = next;
+        count += 1;
+    }
+    count
 }
 
 async fn candidate_still_predates(
@@ -144,7 +160,6 @@ pub(super) async fn classify_candidates(
     reclaim_before: DateTime<Utc>,
     report: &mut FileBlobGcReport,
 ) -> Result<(Vec<BlobCandidate>, Vec<BlobCandidate>), SchemaError> {
-    let _retired_reclaim = db_ops.atoms().retired_intent_reclaim_guard().await;
     let blob_ids: Vec<String> = candidates
         .iter()
         .map(|candidate| candidate.blob_ref.clone())
@@ -222,6 +237,10 @@ pub(super) async fn stamp_candidates(
     scan_started_at: &str,
 ) -> Result<(), SchemaError> {
     for candidate in to_stamp {
+        let _target_gate = db_ops
+            .atoms()
+            .lock_liveness_blobs(std::slice::from_ref(&candidate.blob_ref))
+            .await;
         if candidate.main_store_key.is_some() {
             stamp_resident_row(db_ops, &candidate.blob_ref, scan_started_at).await?;
         } else {
@@ -245,7 +264,6 @@ pub(super) async fn delete_candidates(
     reclaim_before: DateTime<Utc>,
     report: &mut FileBlobGcReport,
 ) -> Result<(), SchemaError> {
-    let _retired_reclaim = db_ops.atoms().retired_intent_reclaim_guard().await;
     let blob_ids: Vec<String> = to_delete
         .iter()
         .map(|candidate| candidate.blob_ref.clone())

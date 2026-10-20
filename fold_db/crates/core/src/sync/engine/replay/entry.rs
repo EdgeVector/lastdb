@@ -3,56 +3,18 @@
 use super::super::helpers::*;
 use super::super::types::*;
 use super::super::SyncEngine;
-use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier, DeleteKind};
+use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
 use crate::crypto::CryptoProvider;
-use crate::storage::traits::{KvMutation, KvStore};
+use crate::storage::traits::KvStore;
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::{LogEntry, LogOp};
 use crate::sync::org_sync::{storage_prefix_for_key, SyncTarget};
 use crate::sync::{ReplayCause, ReplayOperation};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 mod cloud_generation;
 mod ops;
-
-/// The latest physical replay delete for one molecule key. The cloud log keeps
-/// every mutation; this small row keeps the ordering boundary after tip removal.
-#[derive(Debug, Serialize, Deserialize)]
-pub(super) struct ReplayDeleteMarker {
-    pub written_at: u64,
-    pub device_id: String,
-    pub seq: u64,
-    pub displaced_atom_uuid: Option<String>,
-}
-
-impl ReplayDeleteMarker {
-    fn to_barrier(&self, mk_key: &[u8]) -> SyncResult<DeleteBarrier> {
-        Ok(DeleteBarrier {
-            mk_key: std::str::from_utf8(mk_key)
-                .map_err(|error| SyncError::Serialization(error.to_string()))?
-                .to_string(),
-            written_at: self.written_at,
-            logical_counter: 0,
-            device_id: self.device_id.clone(),
-            mutation_uuid: String::new(),
-            kind: DeleteKind::LegacyPhysical,
-            displaced_atom_uuid: self.displaced_atom_uuid.clone(),
-            cloud_sequence: Some(self.seq),
-            tip_before_nanos: None,
-        })
-    }
-}
-
-enum ReplayDeleteDecision {
-    Skip,
-    Apply {
-        marker: Option<(Vec<u8>, Vec<u8>)>,
-        mol_uuid: Option<String>,
-    },
-}
 
 impl SyncEngine {
     pub(super) async fn replay_entry_inner(
@@ -121,14 +83,12 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Read both barrier versions and the pending local Delete. A v1 marker
-    /// has no mutation UUID or logical counter; its origin time still leads.
+    /// Read the current durable barrier and the pending local Delete.
     pub(super) async fn read_replay_delete_barrier(
         &self,
         kv: &Arc<dyn KvStore>,
         namespace: &str,
         key: &[u8],
-        mol_uuid: &str,
         crypto: &dyn CryptoProvider,
     ) -> SyncResult<Option<DeleteBarrier>> {
         let v2_key = delete_barrier_key(key);
@@ -147,27 +107,13 @@ impl SyncEngine {
                 ReplayCause::DeleteBarrierIdentityMismatch,
             ));
         }
-        let v1_key = Self::replay_delete_marker_key(key, mol_uuid);
-        let v1: Option<ReplayDeleteMarker> = Self::decode_local(
-            namespace,
-            crypto,
-            self.enc_key.as_ref(),
-            kv.get(&v1_key).await?,
-        )
-        .await?;
         let pending = self.atom_store.lock().await.as_ref().and_then(|atoms| {
             std::str::from_utf8(key)
                 .ok()
                 .and_then(|key| atoms.pending_delete_barrier(key))
         });
         let mut winner = v2;
-        for candidate in [
-            v1.map(|marker| marker.to_barrier(key)).transpose()?,
-            pending,
-        ]
-        .into_iter()
-        .flatten()
-        {
+        if let Some(candidate) = pending {
             if winner
                 .as_ref()
                 .is_none_or(|current| candidate.is_newer_than(current))
@@ -176,78 +122,6 @@ impl SyncEngine {
             }
         }
         Ok(winner)
-    }
-
-    /// A physical delete must beat both the present tip and the last delete.
-    /// Its barrier survives tip removal and blocks a delayed older Put.
-    async fn prepare_replay_delete(
-        &self,
-        kv: &Arc<dyn KvStore>,
-        namespace: &str,
-        key: &[u8],
-        entry: &LogEntry,
-        crypto: &dyn CryptoProvider,
-    ) -> SyncResult<ReplayDeleteDecision> {
-        use crate::db_operations::atom_store::PerKeyRecord;
-
-        let Some(key_str) = std::str::from_utf8(key).ok() else {
-            return Ok(ReplayDeleteDecision::Apply {
-                marker: None,
-                mol_uuid: None,
-            });
-        };
-        let mol_uuid = Self::legacy_physical_molecule_uuid(key_str);
-        let Some(mol_uuid) = mol_uuid else {
-            return Ok(ReplayDeleteDecision::Apply {
-                marker: None,
-                mol_uuid: None,
-            });
-        };
-        let mut barrier = Self::legacy_delete_barrier(entry, key_str);
-        if self
-            .read_replay_delete_barrier(kv, namespace, key, &mol_uuid, crypto)
-            .await?
-            .is_some_and(|current| !barrier.is_newer_than(&current))
-        {
-            return Ok(ReplayDeleteDecision::Skip);
-        }
-        let local: Option<PerKeyRecord> =
-            Self::decode_local(namespace, crypto, self.enc_key.as_ref(), kv.get(key).await?)
-                .await?;
-        barrier.displaced_atom_uuid = local.as_ref().map(|record| record.entry.atom_uuid.clone());
-        if local
-            .as_ref()
-            .is_some_and(|record| !barrier.blocks_tip(&record.entry))
-        {
-            return Ok(ReplayDeleteDecision::Skip);
-        }
-        let marker_key = delete_barrier_key(key).into_bytes();
-        let marker_plaintext = serde_json::to_vec(&barrier)?;
-        let marker_stored = self
-            .stored_replay_value(namespace, &marker_key, crypto, &marker_plaintext)
-            .await?;
-        Ok(ReplayDeleteDecision::Apply {
-            marker: Some((marker_key, marker_stored)),
-            mol_uuid: Some(mol_uuid),
-        })
-    }
-
-    pub(in crate::sync::engine) fn replay_delete_marker_key(key: &[u8], mol_uuid: &str) -> Vec<u8> {
-        let key_str = std::str::from_utf8(key).expect("molecule key is UTF-8");
-        let scope = storage_scope_for_key_marker(key_str, "mk:");
-        let digest = Sha256::digest(key);
-        let bare = format!("rdel:v1:{mol_uuid}\0{digest:x}");
-        crate::schema::types::field::build_storage_key(scope, &bare).into_bytes()
-    }
-
-    fn append_hash_range_index_delete(mutations: &mut Vec<KvMutation>, key: &[u8], mol_uuid: &str) {
-        if let Ok(key_str) = std::str::from_utf8(key) {
-            if let Some(index_key) =
-                hash_range_page_index_complete_key_for_record_key(key_str, mol_uuid)
-            {
-                mutations.push(KvMutation::delete(index_key.into_bytes()));
-            }
-        }
     }
 
     /// Whether `key` is an org-scoped storage key that must be dropped on

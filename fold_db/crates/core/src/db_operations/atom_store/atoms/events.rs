@@ -53,7 +53,7 @@ impl AtomStore {
             .await?;
         self.account_stored_bodies(bodies, &commit);
         for key in keys {
-            crate::atom::legacy_history_memo::invalidate_for_event_key(&key);
+            crate::atom::history_event_memo::invalidate_for_event_key(&key);
         }
         Ok(())
     }

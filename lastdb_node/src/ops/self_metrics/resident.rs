@@ -86,7 +86,8 @@ pub struct ResidentHealth {
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_instant")]
     pub resident_dirty_keys: Gauge,
-    /// Used-record budget (`RESIDENT_KEY_CAP`, 10000).
+    /// Retired path-count budget; not served. The warm set limit is
+    /// `memory_budget.core_warm.limit_bytes`.
     #[serde(default = "default_keys_instant_gauge")]
     #[serde(serialize_with = "serialize_gauge_wire")]
     #[serde(deserialize_with = "deserialize_keys_instant")]
@@ -221,7 +222,7 @@ impl ResidentHealth {
             resident_key_count: g_instant(core.core_warm_paths as u64, Unit::Keys),
             resident_held_keys: g_instant(core.core_warm_held as u64, Unit::Keys),
             resident_dirty_keys: g_instant(core.core_warm_dirty as u64, Unit::Keys),
-            resident_key_budget: g_instant(core.warm_record_limit as u64, Unit::Keys),
+            resident_key_budget: Gauge::field_not_served(Unit::Keys, GAUGE_INSTANT),
             resident_purged_keys: g_lifetime(core.core_warm_purged, Unit::Keys),
             resident_tip_only_keys: g_instant(core.core_warm_tip_only_paths as u64, Unit::Keys),
             warm_lookup_hits: g_lifetime(core.core_warm_hits, Unit::Events),

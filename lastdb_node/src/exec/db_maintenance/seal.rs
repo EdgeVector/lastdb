@@ -1,4 +1,4 @@
-//! Owner-socket routes that reseal and reap unsealed at-rest rows.
+//! Owner-socket at-rest encryption maintenance routes.
 
 use super::*;
 

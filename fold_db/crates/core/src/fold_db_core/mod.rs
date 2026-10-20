@@ -37,6 +37,5 @@ pub use protein_reaper::{
 pub use sync_coordinator::SyncCoordinator;
 
 pub use fold_db::{
-    CatalogDeleteReclaimResult, CatalogReclaimResult, DbSchemaShareResult, FoldDB,
-    HashRangeKeyFieldRepairReport,
+    CatalogDeleteReclaimResult, DbSchemaShareResult, FoldDB, HashRangeKeyFieldRepairReport,
 };

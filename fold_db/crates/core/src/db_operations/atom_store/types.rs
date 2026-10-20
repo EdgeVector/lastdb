@@ -25,62 +25,7 @@ pub(crate) enum MoleculeRangeForm {
     Storage,
 }
 
-impl MoleculeHashRange {
-    /// Normalize 1-D slot orientation for Hash-only / Range-only fields.
-    ///
-    /// Hash-only slots are `(h, "")`; range-only are `("", r)`. A Range field
-    /// reprojects mis-oriented hash-only slots to range-only (and vice versa
-    /// for Hash). Correct slots and full HashRange entries are left alone.
-    /// `None` leaves the molecule unchanged.
-    pub(crate) fn retyped_to_slot(self, slot: Option<OneDSlot>) -> Self {
-        match slot {
-            Some(OneDSlot::Range) => {
-                // Only reproject hash-only → range-only. Leave `("", r)` intact.
-                let records: Vec<_> = self
-                    .per_key_records()
-                    .into_iter()
-                    .map(|(h, r, e, meta)| {
-                        if r.is_empty() && !h.is_empty() {
-                            (EMPTY_KEY_COMPONENT.to_string(), h, e, meta)
-                        } else {
-                            (h, r, e, meta)
-                        }
-                    })
-                    .collect();
-                Self::from_per_key_records(
-                    self.uuid().to_string(),
-                    self.version(),
-                    self.updated_at(),
-                    records,
-                )
-            }
-            Some(OneDSlot::Hash) => {
-                // Only reproject range-only → hash-only. Leave `(h, "")` intact.
-                let records: Vec<_> = self
-                    .per_key_records()
-                    .into_iter()
-                    .map(|(h, r, e, meta)| {
-                        if h.is_empty() && !r.is_empty() {
-                            (r, EMPTY_KEY_COMPONENT.to_string(), e, meta)
-                        } else {
-                            (h, r, e, meta)
-                        }
-                    })
-                    .collect();
-                Self::from_per_key_records(
-                    self.uuid().to_string(),
-                    self.version(),
-                    self.updated_at(),
-                    records,
-                )
-            }
-            None => self,
-        }
-    }
-}
-
 /// One-dimensional slot layout for narrowed Hash-only / Range-only filter loads
-/// and for retyping 1-D slot orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OneDSlot {
     /// `(hash, "")` records.

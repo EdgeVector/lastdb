@@ -18,27 +18,8 @@ pub(super) fn is_raw_delete_barrier_key(namespace: &str, key: &[u8]) -> bool {
 impl SyncEngine {
     /// Replay a single put with convergent molecule handling.
     ///
-    /// Several key classes get special, order-independent merge treatment so
-    /// every node converges to the same state regardless of replay order:
-    ///
-    /// - **Per-key molecule records** (`mk:{M}:{key}`, the source of truth as of
-    ///   the per-key-storage migration) — per-key last-writer-wins on
-    ///   `AtomEntry.written_at`, recording a `MergeConflict` when the incoming
-    ///   record displaces a different `atom_uuid`. Identical merge *semantics*
-    ///   to the old blob-level merge, now applied one record at a time.
-    /// - **Per-key molecule headers** (`mh:{M}`) — molecule-level metadata
-    ///   merged field-wise: `version = max`, `updated_at = max`.
-    /// - **HashRange order append-log** (`mord:{M}:{seq}` entries + `moc:{M}`
-    ///   count) — the molecule-global `update_order` that drives `SampleN`, now
-    ///   stored append-only. Each `mord:` entry is immutable once written, so it
-    ///   is merged keep-if-absent (first peer to fill a seq slot wins it); the
-    ///   `moc:` count keeps the larger value. Both rules are order-independent.
-    /// - **Legacy `ref:` blobs** — retired by the dead-system deletion train.
-    ///   Whole-molecule `ref:{M}` / `{prefix}:ref:{M}` keys are **dropped** on
-    ///   replay (no migrate-on-receive, no dual-read, no opaque put). Peers must
-    ///   already speak per-key `mk:`/`mh:` layout.
-    ///
-    /// Everything else is written unconditionally.
+    /// Current per-key records use the accepted tip identity. Headers merge
+    /// their counters. Older key layouts receive an error before any write.
     pub(super) async fn replay_put(
         &self,
         namespace: &str,
@@ -50,6 +31,7 @@ impl SyncEngine {
         // (never becomes valid on retry) — map via decode_bytes_for_replay so
         // handle_replay_apply_error can skip-and-advance instead of wedging.
         let key_bytes = LogOp::decode_bytes_for_replay(namespace, "key", key_b64)?;
+        crate::storage::current_keys::validate(namespace, &key_bytes)?;
         if is_raw_delete_barrier_key(namespace, &key_bytes) {
             return Err(SyncError::replay_refused(
                 namespace,
@@ -80,19 +62,6 @@ impl SyncEngine {
             }
         }
 
-        // 3c. Legacy whole-molecule `ref:` blobs are retired — drop, do not store
-        //     or migrate. Product truth is per-key only (`mk:`/`mh:`).
-        let is_ref_key =
-            key_bytes.starts_with(b"ref:") || key_str.is_some_and(|s| s.contains(":ref:"));
-        if is_ref_key {
-            tracing::warn!(
-                namespace,
-                key = %key_str.unwrap_or(""),
-                "dropping legacy ref: whole-molecule blob during replay (product path retired)"
-            );
-            return Ok(());
-        }
-
         // 4. Everything else — unconditional.
         let kv = self.store.open_namespace(namespace).await?;
         let stored = self
@@ -105,7 +74,7 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Route a structured molecule key (`mk:`, `mh:`, `mord:`, `moc:`) to its
+    /// Route a current molecule key (`mk:`, `mh:`) to its
     /// record-specific replay. Returns `None` when `s` is an opaque key.
     async fn replay_structured_put(
         &self,
@@ -142,28 +111,6 @@ impl SyncEngine {
             if molecule_uuid_from_header_key(s).is_some() {
                 return Some(
                     self.replay_header_record(namespace, key_bytes, value_bytes, crypto)
-                        .await,
-                );
-            }
-            // 3a. HashRange append-log order entry: `mord:{M}:{seq}`. Each entry
-            //     is append-only / immutable once written (its `(hash, range)` at
-            //     a fixed seq never changes), so keep-if-absent is order-
-            //     independent: whichever peer fills a seq slot first wins it and
-            //     re-receipt is a no-op. (`mord:` is checked before `mo:`; the two
-            //     prefixes are distinct so the order is just for clarity.)
-            if is_order_log_entry_key(s) {
-                return Some(
-                    self.replay_order_log_entry(namespace, key_bytes, value_bytes, crypto)
-                        .await,
-                );
-            }
-            // 3b. HashRange append-log count: `moc:{M}`. Keep the LARGER count
-            //     (the more complete log). Order-independent and used only as
-            //     the write path's append offset — the read path scans the
-            //     `mord:` entries.
-            if is_order_count_key(s) {
-                return Some(
-                    self.replay_order_count_record(namespace, key_bytes, value_bytes, crypto)
                         .await,
                 );
             }

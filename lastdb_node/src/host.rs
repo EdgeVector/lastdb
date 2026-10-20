@@ -224,7 +224,7 @@ pub fn ensure_node_home(home: &Path) -> io::Result<()> {
 /// fail a boot.
 ///
 /// Deliberately *not* called for `migrate-hash-group --into` /
-/// `restore --into` destinations: `refuse_non_fresh_migration_home` requires a
+/// `restore --into` destinations: `refuse_non_fresh_restore_home` requires a
 /// completely empty destination, and those homes pick the marker up on their
 /// first real boot anyway.
 #[cfg(target_os = "macos")]

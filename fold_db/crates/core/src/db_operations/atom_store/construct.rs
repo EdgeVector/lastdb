@@ -82,7 +82,7 @@ impl AtomStore {
                     .map(|_| Arc::new(tokio::sync::Mutex::new(())))
                     .collect(),
             ),
-            store_id: crate::atom::legacy_history_memo::StoreId::next(),
+            store_id: crate::atom::history_event_memo::StoreId::next(),
         }
     }
 

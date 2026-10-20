@@ -1,5 +1,13 @@
 use super::*;
 
+#[path = "db_reap_unsealed_cmds.rs"]
+mod db_reap_unsealed_cmds;
+pub(crate) use db_reap_unsealed_cmds::*;
+
+#[path = "db_pin_log_cmds.rs"]
+mod db_pin_log_cmds;
+pub(crate) use db_pin_log_cmds::*;
+
 #[path = "db_app_storage_cmds.rs"]
 mod db_app_storage_cmds;
 pub(crate) use db_app_storage_cmds::*;
@@ -9,18 +17,9 @@ pub(crate) use db_blob_cmds::*;
 #[path = "db_inventory_print_cmds.rs"]
 mod db_inventory_print_cmds;
 pub(crate) use db_inventory_print_cmds::*;
-#[path = "db_key_forks_cmds.rs"]
-mod db_key_forks_cmds;
-pub(crate) use db_key_forks_cmds::*;
 #[path = "db_ledger_cmds.rs"]
 mod db_ledger_cmds;
 pub(crate) use db_ledger_cmds::*;
-#[path = "db_order_log_bloat_cmds.rs"]
-mod db_order_log_bloat_cmds;
-pub(crate) use db_order_log_bloat_cmds::*;
-#[path = "db_order_log_repair_cmds.rs"]
-mod db_order_log_repair_cmds;
-pub(crate) use db_order_log_repair_cmds::*;
 #[path = "db_proof_cmds.rs"]
 mod db_proof_cmds;
 use db_proof_cmds::*;
@@ -42,15 +41,6 @@ pub(crate) use db_report_util_cmds::*;
 #[path = "db_reseal_cmds.rs"]
 mod db_reseal_cmds;
 pub(crate) use db_reseal_cmds::*;
-#[path = "db_thin_tips_cmds.rs"]
-mod db_thin_tips_cmds;
-pub(crate) use db_thin_tips_cmds::*;
-#[path = "db_tombstone_audit_cmds.rs"]
-mod db_tombstone_audit_cmds;
-pub(crate) use db_tombstone_audit_cmds::*;
-#[path = "db_tombstone_cmds.rs"]
-mod db_tombstone_cmds;
-pub(crate) use db_tombstone_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
@@ -67,7 +57,6 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&home, &socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
-        DbCommand::Tips(action) => db_tips_command(&socket, &action),
         DbCommand::Repair(action) => db_repair_command(&socket, action),
         DbCommand::Seal(action) => db_seal_command(&socket, action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),

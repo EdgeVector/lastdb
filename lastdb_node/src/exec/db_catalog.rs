@@ -1,4 +1,4 @@
-//! Database catalog routes: get, put, delete, reclaim and share, with the catalog identity and domain wrap-key parsers.
+//! Database catalog routes: get, put, delete and share, with the catalog identity and domain wrap-key parsers.
 
 use super::*;
 
@@ -148,30 +148,6 @@ pub(super) async fn execute_db_catalog_delete_route(
             ctx.user_id.as_str(),
         )),
         Err(e) => mapped_error_response("db catalog delete failed", e, ctx),
-    }
-}
-
-/// `POST /api/db/catalog/reclaim` — drop leftover `{64hex}:` rows not in catalog.
-pub(super) async fn execute_db_catalog_reclaim_route(
-    _req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    if crate::ephemeral::is_ephemeral() {
-        return error_response(
-            403,
-            "catalog reclamation is not permitted on ephemeral nodes; \
-             catalog operations are restricted to primary nodes only",
-            ctx,
-        );
-    }
-
-    match host.db.reclaim_unreferenced_prefixed_rows().await {
-        Ok(result) => json_ok(&envelope(
-            &serde_json::to_value(&result).unwrap_or_else(|_| serde_json::json!({})),
-            ctx.user_id.as_str(),
-        )),
-        Err(e) => mapped_error_response("db catalog reclaim failed", e, ctx),
     }
 }
 

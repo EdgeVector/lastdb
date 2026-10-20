@@ -1,4 +1,4 @@
-//! Stage 1 byte gauge: charged bytes of paths and atom allocations.
+//! Warm set byte charges. Stage 3 enforces the limit through the purge.
 //!
 //! Atoms are tracked by allocation (`Arc` pointer) with a weak reference, so an
 //! atom stays charged while any holder keeps it, including a running call that
@@ -9,6 +9,8 @@ use super::*;
 
 /// Sweep dead atom entries after this many new tracks, to bound the map.
 const SWEEP_EVERY: usize = 1024;
+/// Minimum new atom tracks before a purge decision sweeps again.
+const SWEEP_BEFORE_PURGE: usize = 64;
 
 pub(super) struct TrackedAtom {
     atom: Weak<Atom>,
@@ -24,15 +26,19 @@ pub(super) struct WarmBytes {
     link_bytes: usize,
     peak_bytes: usize,
     tracks_since_sweep: usize,
+    purged_bytes: u64,
+    over_limit_admissions: u64,
 }
 
-/// Charged warm set bytes. Stage 1 reports them; admission still uses the count.
+/// Charged warm set bytes. The purge keeps `used_bytes` at or under the limit
+/// whenever clean, unheld paths remain.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
 pub struct CoreWarmByteStats {
-    /// `LASTDB_CORE_WARM_BYTES`; not enforced in stage 1.
+    /// `LASTDB_CORE_WARM_BYTES`.
     pub limit_bytes: usize,
     pub used_bytes: usize,
-    /// Highest charge since start.
+    /// Highest charge seen at a sweep since start. Sweeps run every 1024 atom
+    /// tracks and on each status read, after dead atoms leave the total.
     pub peak_bytes: usize,
     pub path_bytes: usize,
     pub atom_bytes: usize,
@@ -47,11 +53,24 @@ pub struct CoreWarmByteStats {
     /// The dirty share of the limit; not enforced in stage 1.
     pub dirty_limit_bytes: usize,
     pub tracked_atoms: usize,
+    /// Charged bytes that the purge removed since start.
+    pub purged_bytes: u64,
+    /// Admissions that left the charge over the limit because only held or
+    /// unflushed paths remained.
+    pub over_limit_admissions: u64,
 }
 
 impl WarmBytes {
     pub(super) fn used(&self) -> usize {
         self.atom_bytes + self.path_bytes + self.slot_bytes + self.link_bytes
+    }
+
+    pub(super) fn note_purged(&mut self, bytes: usize) {
+        self.purged_bytes = self.purged_bytes.saturating_add(bytes as u64);
+    }
+
+    pub(super) fn note_over_limit(&mut self) {
+        self.over_limit_admissions = self.over_limit_admissions.saturating_add(1);
     }
 
     fn note_peak(&mut self) {
@@ -69,6 +88,16 @@ impl WarmBytes {
         });
         self.atom_bytes -= freed;
         self.tracks_since_sweep = 0;
+        // Dead atoms leave first, so a freed allocation never inflates the peak.
+        self.note_peak();
+    }
+
+    /// Sweep before a purge decision when enough new atoms arrived since the
+    /// last sweep, so freed allocations do not trigger extra purging.
+    pub(super) fn sweep_if_stale(&mut self) {
+        if self.tracks_since_sweep >= SWEEP_BEFORE_PURGE {
+            self.sweep();
+        }
     }
 
     pub(super) fn release_dead_atom(&mut self, key: usize) {
@@ -89,7 +118,6 @@ impl CoreWarmSet {
     pub(super) fn charge_path(&mut self) -> usize {
         let charge = path_charge();
         self.bytes.path_bytes += charge;
-        self.bytes.note_peak();
         charge
     }
 
@@ -101,7 +129,6 @@ impl CoreWarmSet {
     pub(super) fn charge_slot(&mut self, id: tables::SlotId) {
         if let Some(slot) = self.slots.get(id) {
             self.bytes.slot_bytes += slot_charge(&slot.key);
-            self.bytes.note_peak();
         }
     }
 
@@ -115,7 +142,6 @@ impl CoreWarmSet {
     /// Charge an interned source key when its first link arrives.
     pub(super) fn charge_source(&mut self, packed_len: usize) {
         self.bytes.link_bytes += source_charge(packed_len);
-        self.bytes.note_peak();
     }
 
     /// Release an interned source key when its last link leaves.
@@ -125,7 +151,6 @@ impl CoreWarmSet {
 
     pub(super) fn charge_link(&mut self, charge: usize) {
         self.bytes.link_bytes += charge;
-        self.bytes.note_peak();
     }
 
     pub(super) fn release_links(&mut self, charge: usize) {
@@ -151,7 +176,6 @@ impl CoreWarmSet {
             },
         );
         self.bytes.atom_bytes += bytes;
-        self.bytes.note_peak();
         self.bytes.tracks_since_sweep += 1;
         if self.bytes.tracks_since_sweep >= SWEEP_EVERY {
             self.bytes.sweep();
@@ -191,6 +215,8 @@ impl CoreWarmSet {
             dirty_bytes: self.dirty_bytes(),
             dirty_limit_bytes: crate::resident::core_warm_dirty_bytes(limit_bytes),
             tracked_atoms: self.bytes.atoms.len(),
+            purged_bytes: self.bytes.purged_bytes,
+            over_limit_admissions: self.bytes.over_limit_admissions,
         }
     }
 

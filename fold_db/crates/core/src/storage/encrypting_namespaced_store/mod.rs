@@ -9,8 +9,8 @@ use super::reap_unsealed::{
     REAP_CHECKPOINT_NAMESPACE,
 };
 use super::reseal_at_rest::{
-    checkpoint_key, collection_is_allowed, legacy_checkpoint_key, ResealAtRestCheckpoint,
-    ResealAtRestOptions, ResealAtRestReport, RESEAL_AT_REST_ALLOWLIST, RESEAL_CHECKPOINT_NAMESPACE,
+    checkpoint_key, collection_is_allowed, ResealAtRestCheckpoint, ResealAtRestOptions,
+    ResealAtRestReport, RESEAL_AT_REST_ALLOWLIST, RESEAL_CHECKPOINT_NAMESPACE,
     RESEAL_CHECKPOINT_VERSION, RESEAL_TARGET_FORMAT_VERSION,
 };
 use super::traits::{KvStore, NamespacedStore};

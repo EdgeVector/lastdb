@@ -26,46 +26,6 @@ pub(super) fn db_repair_command(socket: &Path, action: DbRepairCommand) -> Resul
             execute,
             json,
         } => db_repair_hashrange_key_fields(socket, &schema, &hash, execute, json),
-        DbRepairCommand::DrainLegacyKeyForks {
-            execute,
-            max_keys,
-            json,
-        } => db_legacy_key_forks(socket, execute, max_keys, json),
-        DbRepairCommand::CompactOrderLog {
-            execute,
-            max_keys,
-            retention_seconds,
-            json,
-        } => db_compact_order_log(socket, execute, max_keys, retention_seconds, json),
-        DbRepairCommand::RepairOrderLogShortfall {
-            execute,
-            max_keys,
-            json,
-        } => db_repair_order_log_shortfall(socket, execute, max_keys, json),
-        DbRepairCommand::DrainPlaneResidue {
-            family,
-            source,
-            target,
-            execute,
-            after,
-            limit,
-            drop_empty_source,
-            until_complete,
-            json,
-        } => db_drain_plane_residue(
-            socket,
-            &DrainPlaneResidueCliOpts {
-                family,
-                source,
-                target,
-                execute,
-                after,
-                limit,
-                drop_empty_source,
-                until_complete,
-                json_only: json,
-            },
-        ),
     }
 }
 

@@ -1,5 +1,9 @@
 # Design: Minimal tips + sync (LWW clocks)
 
+> Current format notice, 2026-10-19: The code accepts only the current key format.
+> The older conversion commands and fallback reads in this document are removed.
+> Create a fresh home. No migration runs.
+
 | Field | Value |
 |-------|--------|
 | Status | Accepted direction (2026-07-16) — implementation phased |

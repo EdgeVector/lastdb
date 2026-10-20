@@ -124,7 +124,7 @@ impl SchemaStore {
             store.open_namespace("schema_superseded_by"),
         )
         .map_err(|_| "NAMESPACE_OPEN_FAILED")?;
-        let forms = crate::kind_partition::read_forms(name);
+        let forms = [name];
         let mut state_keys: Vec<_> = forms.iter().map(|form| form.as_bytes().to_vec()).collect();
         state_keys.push(name_claim_key(name).into_bytes());
         state_keys.push(schema_drop_receipt_key(name).into_bytes());

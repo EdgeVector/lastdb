@@ -26,8 +26,8 @@
 //! already admitted work retains its owners and drains normally.
 //!
 //! Native core metadata, typed definitions, and complete selected keys have
-//! separate bounded allowances. Logical paths use the record-count cap in
-//! [`crate::resident::RESIDENT_KEY_CAP`]. Their actual counters remain separate
+//! separate bounded allowances. Logical paths use the byte limit in
+//! [`crate::resident::core_warm_bytes`]. Their actual counters remain separate
 //! from this projection. Neither this formula nor a single pool cap guarantees
 //! an upper bound on whole-process memory.
 

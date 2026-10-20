@@ -439,61 +439,6 @@ pub(super) fn liveness_explain_command(
     Ok(())
 }
 
-pub(super) fn liveness_bootstrap_command(
-    data_dir: Option<PathBuf>,
-    isolated_copy: bool,
-    storage_prefix: Option<&str>,
-    json_only: bool,
-) -> Result<(), String> {
-    if !isolated_copy {
-        return Err("liveness bootstrap requires --isolated-copy".to_string());
-    }
-    let home = lastdb_node::host::resolve_home(data_dir)?;
-    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-    let response = post_json_admin(
-        &socket,
-        "/api/storage/liveness/bootstrap",
-        &serde_json::json!({
-            "isolated_copy": true,
-            "storage_prefix": storage_prefix,
-        }),
-    )?;
-    let value = parse_json_response(&response, "liveness bootstrap")?;
-    let report = value
-        .get("liveness_bootstrap")
-        .cloned()
-        .ok_or_else(|| "response missing liveness_bootstrap field".to_string())?;
-    if json_only {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|error| format!("serialize: {error}"))?
-        );
-        return Ok(());
-    }
-    let schema_fields = report
-        .pointer("/molecule_refs/schema_fields")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let protein_members = report
-        .pointer("/molecule_refs/protein_members")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let atoms = report
-        .pointer("/blob_refs/atoms_read")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    let blob_edges = report
-        .pointer("/blob_refs/edges_written")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0);
-    println!("Liveness bootstrap complete");
-    println!("  Schema field sources: {schema_fields}");
-    println!("  Protein member sources: {protein_members}");
-    println!("  Atom sources read: {atoms}");
-    println!("  Blob edges written: {blob_edges}");
-    Ok(())
-}
-
 pub(super) fn fetch_schema(
     data_dir: Option<PathBuf>,
     name: &str,

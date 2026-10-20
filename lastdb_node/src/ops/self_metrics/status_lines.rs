@@ -353,6 +353,9 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     if let Some(line) = memory_budget_status_line(&snapshot.memory_budget) {
         lines.insert(2, line);
     }
+    if let Some(line) = snapshot.memory_budget.core_warm.status_line() {
+        lines.insert(3.min(lines.len()), line);
+    }
     lines
 }
 
@@ -383,9 +386,6 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         lines.push(read_cost_status_line(rc));
     }
     lines.push(resident_status_line(&snapshot.resident));
-    if snapshot.dual_read.gets.as_wire_u64().is_some() {
-        lines.push(dual_read_status_line(&snapshot.dual_read));
-    }
     if let Some(line) = integrity_status_line(&snapshot.integrity) {
         lines.push(line);
     }

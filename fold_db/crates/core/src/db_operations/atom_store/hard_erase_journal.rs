@@ -108,11 +108,6 @@ fn add_debit(
 }
 
 impl AtomStore {
-    pub(crate) fn hard_erase_mutation_epoch(&self) -> u64 {
-        self.keep_small_hard_erase_mutation_epoch
-            .load(std::sync::atomic::Ordering::Relaxed)
-    }
-
     /// Resolve the debit for one hard erase. Call it once per operation and
     /// pass the same plan to the prepare and the commit.
     pub(crate) fn plan_keep_small_hard_erase(
@@ -375,57 +370,6 @@ impl AtomStore {
             pending_keys,
             max_seq,
         })
-    }
-
-    /// A full liveness repair measured the authoritative store. Retire only
-    /// intents inherited from the prior process, after its repaired snapshot
-    /// is durable. Current-process intents may still be in destructive work.
-    pub(super) async fn reconcile_orphaned_hard_erase_intents(&self) -> Result<(), SchemaError> {
-        let Some(store) = self.keep_small_persist.as_ref() else {
-            return Ok(());
-        };
-        let keys: Vec<String> = self
-            .keep_small_hard_erase_orphaned
-            .lock()
-            .map_err(|_| SchemaError::InvalidData("orphaned intent lock poisoned".to_string()))?
-            .iter()
-            .cloned()
-            .collect();
-        if keys.is_empty() {
-            return Ok(());
-        }
-        for key in &keys {
-            let mut row = store
-                .get_item::<HardEraseJournalRow>(key)
-                .await
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!("read orphaned meter intent: {error}"))
-                })?
-                .ok_or_else(|| {
-                    SchemaError::InvalidData("orphaned meter intent disappeared".to_string())
-                })?;
-            if row.committed {
-                // A caller resumed the old ID against policy. The repaired
-                // snapshot may not include its debit, so fail closed.
-                self.keep_small
-                    .mark_incomplete("orphaned_intent_committed_during_repair");
-                return Err(SchemaError::InvalidData(
-                    "orphaned meter intent changed during repair".to_string(),
-                ));
-            }
-            row.reconciled = true;
-            store.put_item(key, &row).await.map_err(|error| {
-                SchemaError::InvalidData(format!("reconcile orphaned meter intent: {error}"))
-            })?;
-        }
-        store.inner().flush().await.map_err(|error| {
-            SchemaError::InvalidData(format!("flush reconciled meter intents: {error}"))
-        })?;
-        self.keep_small_hard_erase_orphaned
-            .lock()
-            .map_err(|_| SchemaError::InvalidData("orphaned intent lock poisoned".to_string()))?
-            .clear();
-        Ok(())
     }
 
     /// The caller holds the persist lock and already flushed a snapshot with

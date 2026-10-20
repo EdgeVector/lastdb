@@ -55,21 +55,18 @@ mod read {
                 return Unknown;
             }
             let prefix = crate::kind_partition::anchored("conflict", &format!("{molecule}:"));
-            let mut forms = vec![prefix.clone()];
-            if let Some(twin) = crate::kind_partition::form_twin(&prefix) {
-                forms.push(twin);
-            }
-            let reads = forms.iter().map(|form| {
-                self.atoms()
-                    .raw()
-                    .inner()
-                    .scan_prefix_paged(form.as_bytes(), MAX_CONFLICT_ROWS + 1)
-            });
-            let Ok(pages) = futures::future::try_join_all(reads).await else {
+            let Ok(rows) = self
+                .atoms()
+                .raw()
+                .inner()
+                .scan_prefix_paged(prefix.as_bytes(), MAX_CONFLICT_ROWS + 1)
+                .await
+            else {
                 return Unknown;
             };
             let mut conflicted = false;
-            for (form, rows) in forms.iter().zip(pages) {
+            {
+                let form = &prefix;
                 if rows.len() > MAX_CONFLICT_ROWS {
                     return Unknown;
                 }
