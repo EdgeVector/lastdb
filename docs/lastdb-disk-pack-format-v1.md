@@ -143,11 +143,10 @@ A complete stream checkpoint sets a nonzero previous generation before the first
 Feature `0x2` requires `0x1`. New artifacts use both bits; older writers refuse them before journal admission.
 
 Native bit `0x10` requires native bit `0x4`.
-Fresh empty LastDB homes publish `0x10` before the version-2 molecule-reference completeness record.
+Fresh empty LastDB homes publish `0x10`.
 Older programs refuse this bit before a schema write.
-The bit alone does not prove completeness.
-A memory ack also requires the decoded version-2 proof and each exact authoritative schema path.
-Generic conversion never grants `0x10`; imported proof bytes can be stale after a legacy writer.
+A memory ack also requires each exact authoritative schema path.
+Generic conversion never grants `0x10`.
 Converted homes use the durable fallback until a separate complete-source bootstrap and writer fence.
 Local backups preserve the original complete root and its feature bits.
 A missing, old, or unreadable proof keeps the durable fallback.

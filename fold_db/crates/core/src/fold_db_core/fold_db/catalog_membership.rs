@@ -12,6 +12,7 @@
 use super::FoldDB;
 use crate::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use crate::error::FoldDbResult;
+use crate::schema::SchemaError;
 
 impl FoldDB {
     /// Write one catalog row, and bind the field molecules of its schema in the
@@ -19,15 +20,23 @@ impl FoldDB {
     /// scope it leaves. A schema that is not installed has no molecules to bind.
     pub async fn put_catalog_membership(&self, entry: &DbCatalogEntry) -> FoldDbResult<()> {
         let catalog = self.db_ops().db_catalog();
-        let old = catalog.get(&entry.db_locator, &entry.schema_name).await?;
-        if let Some(old) = old
-            .as_ref()
-            .filter(|old| old.instance_id != entry.instance_id)
-        {
-            self.unbind_catalog_entry(old).await?;
-        }
-        self.bind_catalog_entry(entry).await?;
-        catalog.put(entry).await?;
+        // The bindings and the row are one batch, so a crash cannot leave a
+        // binding for a row that was never written.
+        self.db_ops()
+            .atoms()
+            .in_write_scope(async {
+                let old = catalog.get(&entry.db_locator, &entry.schema_name).await?;
+                if let Some(old) = old
+                    .as_ref()
+                    .filter(|old| old.instance_id != entry.instance_id)
+                {
+                    self.unbind_catalog_entry(old).await?;
+                }
+                self.bind_catalog_entry(entry).await?;
+                catalog.put(entry).await?;
+                Ok(())
+            })
+            .await?;
         Ok(())
     }
 
@@ -56,7 +65,7 @@ impl FoldDB {
         Ok(entry)
     }
 
-    async fn bind_catalog_entry(&self, entry: &DbCatalogEntry) -> FoldDbResult<()> {
+    async fn bind_catalog_entry(&self, entry: &DbCatalogEntry) -> Result<(), SchemaError> {
         if let Some(schema) = self
             .schema_manager()
             .get_schema_metadata(&entry.schema_name)?
@@ -74,7 +83,7 @@ impl FoldDB {
         Ok(())
     }
 
-    async fn unbind_catalog_entry(&self, entry: &DbCatalogEntry) -> FoldDbResult<()> {
+    async fn unbind_catalog_entry(&self, entry: &DbCatalogEntry) -> Result<(), SchemaError> {
         if let Some(schema) = self
             .schema_manager()
             .get_schema_metadata(&entry.schema_name)?

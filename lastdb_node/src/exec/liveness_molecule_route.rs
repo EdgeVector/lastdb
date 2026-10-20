@@ -8,10 +8,10 @@ use super::*;
 pub(super) async fn explain_molecules(
     host: &Host,
     ctx: &AccessContext,
+    storage_prefix: Option<&str>,
     id: &str,
     mut ids: Vec<String>,
 ) -> UdsResponse {
-    let storage_prefix = ctx.storage_prefix.as_deref();
     if !id.is_empty() {
         ids.insert(0, id.to_string());
     }

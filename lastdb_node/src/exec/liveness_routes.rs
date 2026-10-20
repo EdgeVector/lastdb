@@ -14,6 +14,10 @@ pub(super) async fn execute_liveness_explain_route(
         /// Several ids in one call. The classes `atom` and `molecule` read them.
         #[serde(default)]
         ids: Vec<String>,
+        /// A storage scope prefix (a database instance). Without it the request
+        /// scope applies, which is the personal scope for the default handle.
+        #[serde(default)]
+        scope: Option<String>,
     }
 
     let request = match serde_json::from_slice::<Request>(&req.body) {
@@ -47,11 +51,17 @@ pub(super) async fn execute_liveness_explain_route(
             ctx,
         );
     }
+    let scope = request
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .or(ctx.storage_prefix.as_deref());
     if class == "atom" {
-        return explain_atoms(host, ctx, id, request.ids).await;
+        return explain_atoms(host, ctx, scope, id, request.ids).await;
     }
     if class == "molecule" {
-        return explain_molecules(host, ctx, id, request.ids).await;
+        return explain_molecules(host, ctx, scope, id, request.ids).await;
     }
     let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
 
@@ -128,10 +138,10 @@ async fn read_liveness_references(
 async fn explain_atoms(
     host: &Host,
     ctx: &AccessContext,
+    storage_prefix: Option<&str>,
     id: &str,
     mut ids: Vec<String>,
 ) -> UdsResponse {
-    let storage_prefix = ctx.storage_prefix.as_deref();
     if !id.is_empty() {
         ids.insert(0, id.to_string());
     }

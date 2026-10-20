@@ -97,6 +97,10 @@ pub(crate) enum LivenessCommand {
         class: String,
         /// Target atom UUID, molecule UUID, or blob reference.
         id: String,
+        /// A storage scope prefix (a database instance) for an atom or a
+        /// molecule. Without it the personal scope applies.
+        #[arg(long)]
+        scope: Option<String>,
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,

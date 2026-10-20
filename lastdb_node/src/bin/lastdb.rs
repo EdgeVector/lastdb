@@ -313,9 +313,12 @@ fn schema_inspect_dispatch(
 
 fn liveness_dispatch(data_dir: Option<PathBuf>, action: LivenessCommand) -> Result<(), String> {
     match action {
-        LivenessCommand::Explain { class, id, json } => {
-            liveness_explain_command(data_dir, &class, &id, json)
-        }
+        LivenessCommand::Explain {
+            class,
+            id,
+            scope,
+            json,
+        } => liveness_explain_command(data_dir, (&class, &id, scope.as_deref()), json),
     }
 }
 

@@ -157,6 +157,8 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
 - `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` returns
   the counter, the `suspect` flag and the body state of each atom. It cannot
   list the referrers: the counter holds a number, not a list.
+- Molecule counters (`slots`, `records`, `bindings`) are in
+  `docs/lastdb-molecule-counters.md`. The verifier checks them in three more phases.
 - `lastdb status` has an `Atom counters` line and a `Verify refs` line.
   `lastdb db inventory` has an `Atom counters` block.
   - `Atom counters` counts the planner events since the daemon started:
@@ -370,7 +372,6 @@ refuses the home. This build refuses a home without the bit.
 Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
 - S3: the recorder releases conflict references (a janitor), and a purge reads the slot directory.
-- S4: molecule counters replace the molecule edges and the catalog binding records.
 - S5: blob counters replace the blob edges and the file blob sweep.
 - S7: a resumable drain of a dead molecule.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.

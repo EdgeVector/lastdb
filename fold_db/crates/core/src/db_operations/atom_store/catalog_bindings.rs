@@ -10,8 +10,9 @@
 //! It does not follow the number of keys of a molecule, and it reads and writes
 //! no atom and no tip.
 //!
-//! Both calls are idempotent and write one batch. A caller binds before it
-//! writes the catalog row, and unbinds after it deletes the catalog row.
+//! Both calls are idempotent and write one batch. A caller joins them with the
+//! write of the catalog row in one native write scope (`fold_db_core/fold_db/
+//! catalog_*.rs`), so a crash keeps both or neither.
 
 use super::molecule_ref_edges::MoleculeRefEdge;
 use super::AtomStore;
