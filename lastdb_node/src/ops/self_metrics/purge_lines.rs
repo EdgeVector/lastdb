@@ -107,6 +107,12 @@ pub fn local_retention_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         health.last_pass.missing_dropped,
         health.schema_failures,
     ));
+    if let Some(next) = health.next_attempt_unix_secs {
+        lines.push(format!(
+            "  sweep_waits: failed_passes_in_a_row={} next_attempt_unix_secs={next} (the wait doubles with each failed pass, up to 1 hour; a pass that succeeds ends it)",
+            health.failures,
+        ));
+    }
     if let Some(error) = health.policy_error.as_deref() {
         lines.push(format!("  policy_read_error={error}"));
     }
