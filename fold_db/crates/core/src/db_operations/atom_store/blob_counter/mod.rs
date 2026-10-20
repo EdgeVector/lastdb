@@ -20,11 +20,12 @@
 //!
 //! | Record | Key |
 //! |---|---|
-//! | Counter | `bref:v3:c:{sha256(blob_ref)}` |
+//! | Counter | `bref:v3:c:{sha256(blob_ref)}\0c` |
 //! | Queue entry | `bref:v3:q\0{zero_since_ms:020}\0{sha256(blob_ref)}` |
 //!
-//! The queue key hashes on its first NUL, so the whole queue is one hash and a
-//! page of the oldest entries is one range read. Only the modules here write
+//! A key hashes on its first NUL. The counter of a blob is one hash, as the
+//! counter of an atom is. The queue key hashes with the tag only, so the whole
+//! queue is one hash and a page of the oldest entries is one range read. Only the modules here write
 //! these records. `scripts/lints/lint-atom-counter-writers.py` guards that.
 
 mod commit;
@@ -103,16 +104,16 @@ pub(crate) fn blob_id(blob_ref: &str) -> String {
     hex_lower(Sha256::digest(blob_ref.as_bytes()))
 }
 
-/// Counter key `bref:v3:c:{id}`.
+/// Counter key `bref:v3:c:{id}\0c`.
 #[must_use]
 pub(crate) fn blob_counter_key(blob_ref: &str) -> String {
-    format!("{COUNTER_PREFIX}{}", blob_id(blob_ref))
+    blob_counter_key_of_id(&blob_id(blob_ref))
 }
 
 /// Counter key of a blob identity.
 #[must_use]
 pub(crate) fn blob_counter_key_of_id(id: &str) -> String {
-    format!("{COUNTER_PREFIX}{id}")
+    format!("{COUNTER_PREFIX}{id}\0c")
 }
 
 /// Queue key `bref:v3:q\0{zero_since:020}\0{id}`.
@@ -144,8 +145,10 @@ pub(crate) fn parse_blob_queue_key(key: &[u8]) -> Option<(u64, String)> {
 /// every native write and every import calls this for the `bref` family.
 #[must_use]
 pub(crate) fn is_current_key(key: &str) -> bool {
-    key.strip_prefix(COUNTER_PREFIX)
-        .map_or_else(|| parse_blob_queue_key(key.as_bytes()).is_some(), is_id)
+    match key.strip_prefix(COUNTER_PREFIX) {
+        Some(rest) => rest.strip_suffix("\0c").is_some_and(is_id),
+        None => parse_blob_queue_key(key.as_bytes()).is_some(),
+    }
 }
 
 fn is_id(id: &str) -> bool {

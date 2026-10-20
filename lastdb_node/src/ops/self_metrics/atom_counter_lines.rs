@@ -38,10 +38,16 @@ pub fn blob_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         return vec!["Blob counters: unsupported by daemon (no blob counter report)".to_string()];
     };
     let now_ms = fold_db::clock::unix_millis();
-    let in_secs = |at: Option<u64>| {
+    let until = |at: Option<u64>| {
         at.map_or_else(
             || "none".to_string(),
-            |at| format!("{}s", (at as i64 - now_ms as i64) / 1000),
+            |at| format!("{}s", at.saturating_sub(now_ms) / 1000),
+        )
+    };
+    let since = |at: Option<u64>| {
+        at.map_or_else(
+            || "none".to_string(),
+            |at| format!("{}s", now_ms.saturating_sub(at) / 1000),
         )
     };
     let mut head = format!(
@@ -56,8 +62,8 @@ pub fn blob_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         report.dangling_removals,
         report.queue_depth,
         if report.queue_depth_capped { "+" } else { "" },
-        in_secs(report.next_due_unix_ms),
-        in_secs(report.last_pass_unix_ms).trim_start_matches('-'),
+        until(report.next_due_unix_ms),
+        since(report.last_pass_unix_ms),
         report.dwell_secs,
         report.dwell_passes,
     );

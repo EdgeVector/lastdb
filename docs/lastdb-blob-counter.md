@@ -26,12 +26,13 @@ stays in the `cas_blobs` plane, keyed by its `blob_ref`.
 
 | Record | Key | Value |
 |---|---|---|
-| Counter | `bref:v3:c:{sha256(blob_ref)}` | `{"v":1,"blob":"sha256:..","refs":N,"zero_since":ms,"suspect":false}` |
+| Counter | `bref:v3:c:{sha256(blob_ref)}\0c` | `{"v":1,"blob":"sha256:..","refs":N,"zero_since":ms,"suspect":false}` |
 | Queue entry | `bref:v3:q\0{zero_since_ms:020}\0{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
 
 `zero_since` is in unix milliseconds. It is present only while `refs` is zero.
-`suspect` is present only when true. The queue key hashes on its first NUL, so the
-whole queue is one hash and the oldest entries are one range read.
+`suspect` is present only when true. A key hashes on its first NUL. The counter of
+a blob is one hash, as the counter of an atom is. The queue key hashes with its tag
+only, so the whole queue is one hash and the oldest entries are one range read.
 
 A counter has a queue entry if and only if it has a `zero_since`. The batch that
 sets or clears `zero_since` puts or deletes the entry.

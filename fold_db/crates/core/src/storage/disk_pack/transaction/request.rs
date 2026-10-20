@@ -110,8 +110,9 @@ where
 }
 
 /// The kinds of operation in one accepted batch, for a run that reads the log.
-/// Tips, atom bodies and atom counters of one request share one batch, so a
-/// delete on zero shows its three deletes under one sequence number.
+/// Tips, atom bodies, atom counters and blob counters of one request share one
+/// batch, so a delete on zero shows its deletes, and the blob counter change that
+/// goes with them, under one sequence number.
 #[derive(Default)]
 struct BatchShape {
     tip_puts: u32,
@@ -120,6 +121,10 @@ struct BatchShape {
     body_deletes: u32,
     counter_puts: u32,
     counter_deletes: u32,
+    blob_counter_puts: u32,
+    blob_counter_deletes: u32,
+    blob_queue_puts: u32,
+    blob_queue_deletes: u32,
 }
 
 impl BatchShape {
@@ -148,6 +153,18 @@ impl BatchShape {
                     &mut shape.counter_puts
                 } else {
                     &mut shape.counter_deletes
+                }
+            } else if key.starts_with("bref:v3:c:") {
+                if put {
+                    &mut shape.blob_counter_puts
+                } else {
+                    &mut shape.blob_counter_deletes
+                }
+            } else if key.starts_with("bref:v3:q\0") {
+                if put {
+                    &mut shape.blob_queue_puts
+                } else {
+                    &mut shape.blob_queue_deletes
                 }
             } else {
                 continue;
@@ -178,6 +195,10 @@ fn note_gate_hold(
         body_deletes = shape.body_deletes,
         counter_puts = shape.counter_puts,
         counter_deletes = shape.counter_deletes,
+        blob_counter_puts = shape.blob_counter_puts,
+        blob_counter_deletes = shape.blob_counter_deletes,
+        blob_queue_puts = shape.blob_queue_puts,
+        blob_queue_deletes = shape.blob_queue_deletes,
         "native write gate released"
     );
 }

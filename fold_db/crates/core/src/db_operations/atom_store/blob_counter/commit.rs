@@ -162,7 +162,7 @@ impl AtomStore {
             BlobPlan::Dangling => self.blob_events.note(blob, BlobEvent::Dangling),
             BlobPlan::Write(write) => {
                 let event = write.event;
-                out.extend(write_mutations(blob, write)?);
+                out.extend(write_mutations(blob, &write)?);
                 if let Some(event) = event {
                     self.blob_events.note(blob, event);
                 }
@@ -173,7 +173,7 @@ impl AtomStore {
 }
 
 /// The counter put, with the queue entry that goes or comes.
-fn write_mutations(blob: &str, write: BlobWrite) -> Result<Vec<KvMutation>, SchemaError> {
+fn write_mutations(blob: &str, write: &BlobWrite) -> Result<Vec<KvMutation>, SchemaError> {
     let mut out = Vec::with_capacity(3);
     if let Some(at) = write.unqueue {
         out.push(KvMutation::delete(blob_queue_key(at, blob).into_bytes()));
