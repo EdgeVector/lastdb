@@ -1,7 +1,7 @@
 //! The schema list reuses the same selected-tip and field-value warm contract.
 
 use super::*;
-use crate::atom::{AtomPartition, MoleculeKeyCodec};
+use crate::atom::MoleculeKeyCodec;
 use crate::schema::types::field::{field_value_from_atom, FieldValue, KeyedAtomMatch};
 use crate::schema::types::key_value::KeyValue;
 use crate::storage::disk_pack::logical_paths::field;
@@ -41,20 +41,16 @@ impl AtomStore {
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
         let mut misses = Vec::new();
-        for (index, ((base, record), key)) in rows.iter().zip(&keys).enumerate() {
+        for (index, ((_, record), key)) in rows.iter().zip(&keys).enumerate() {
             if schema {
                 if let Some(key) = key {
-                    let entry = listed_entry(key.clone(), base, record);
+                    let entry = listed_entry(key.clone(), record);
                     values[index] = field::lookup(
                         runtime.clone(),
                         request.scope,
                         Some(request.molecule),
                         &field::AtomSelection {
-                            primary: self.primary_atom_key(
-                                &entry.1,
-                                entry.4.as_ref(),
-                                request.scope,
-                            ),
+                            primary: self.body_storage_key(&entry.1, request.scope),
                             entry: &entry,
                         },
                     )?;
@@ -64,21 +60,16 @@ impl AtomStore {
                 misses.push(index);
             }
         }
-        let slots: Vec<_> = misses
+        let ids: Vec<&str> = misses
             .iter()
-            .map(|&index| {
-                (
-                    rows[index].1.entry.atom_uuid.as_str(),
-                    AtomPartition::from_record_key(&rows[index].0),
-                )
-            })
+            .map(|&index| rows[index].1.entry.atom_uuid.as_str())
             .collect();
         let atoms = self
-            .get_atoms_located(&slots, request.scope)
+            .get_atoms(&ids, request.scope)
             .await
             .map_err(SchemaError::read_failure)?;
         let atoms = if schema {
-            crate::db_operations::tip_atoms::require_tip_atoms(atoms, slots.len())?
+            crate::db_operations::tip_atoms::require_tip_atoms(atoms, ids.len())?
                 .into_iter()
                 .map(Some)
                 .collect()
@@ -135,7 +126,7 @@ impl AtomStore {
             .namespaced_store
             .as_ref()
             .and_then(|store| store.disk_pack_runtime());
-        for (((base, _), key), value) in rows.iter().zip(keys).zip(values) {
+        for ((_, key), value) in rows.iter().zip(keys).zip(values) {
             let (Some(key), Some(value)) = (key, value) else {
                 continue;
             };
@@ -145,20 +136,18 @@ impl AtomStore {
                 Some(request.molecule),
                 key,
                 value,
-                AtomPartition::from_record_key(base).as_ref(),
             )?;
         }
         Ok(())
     }
 }
 
-fn listed_entry(key: KeyValue, base: &str, record: &PerKeyRecord) -> KeyedAtomMatch {
+fn listed_entry(key: KeyValue, record: &PerKeyRecord) -> KeyedAtomMatch {
     (
         key,
         record.entry.atom_uuid.clone(),
         record.meta.clone(),
         Some(record.entry.writer_pubkey.clone()),
-        AtomPartition::from_record_key(base),
     )
 }
 

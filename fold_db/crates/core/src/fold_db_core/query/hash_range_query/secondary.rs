@@ -139,9 +139,6 @@ impl HashRangeQueryProcessor {
                     Some(pk)
                 }
             };
-            // The body location belongs to the actual winning tip spelling,
-            // including a fallback encoding or alternate molecule UUID.
-            let partition = crate::atom::AtomPartition::from_record_key(&tip_key);
             pending.push((
                 context.name.to_string(),
                 kv.clone(),
@@ -149,7 +146,6 @@ impl HashRangeQueryProcessor {
                 rec.meta.clone(),
                 writer,
                 prefix.clone(),
-                partition,
             ));
         }
         Ok(())
@@ -187,7 +183,7 @@ impl HashRangeQueryProcessor {
         };
         let matches: HashMap<_, _> = matches
             .into_iter()
-            .map(|(key, atom, meta, writer, partition)| (key, (atom, meta, writer, partition)))
+            .map(|(key, atom, meta, writer)| (key, (atom, meta, writer)))
             .collect();
         for key in keys {
             let Some((hash, range)) = context.field.slot_coordinates(key) else {
@@ -195,7 +191,7 @@ impl HashRangeQueryProcessor {
             };
             let selected =
                 KeyValue::new(Some(hash), (kind == FieldKind::HashRange).then_some(range));
-            if let Some((atom, meta, writer, partition)) = matches.get(&selected) {
+            if let Some((atom, meta, writer)) = matches.get(&selected) {
                 pending.push((
                     context.name.to_string(),
                     key.clone(),
@@ -203,7 +199,6 @@ impl HashRangeQueryProcessor {
                     meta.clone(),
                     writer.clone(),
                     prefix.clone(),
-                    partition.clone(),
                 ));
             }
         }

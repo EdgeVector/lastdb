@@ -1,4 +1,4 @@
-//! Mutation-history clear, ref-blob purge, and the prefix row scanner.
+//! Mutation-history clear.
 
 use super::*;
 
@@ -144,87 +144,5 @@ impl AtomStore {
             .per_schema
             .sort_by_key(|b| std::cmp::Reverse(b.history_rows_deleted));
         Ok(report)
-    }
-
-    /// Rows fetched per storage page when a GC pass streams a whole plane.
-    ///
-    /// Bounds one pass's transient scan allocation by the page, not by the
-    /// plane. 2048 matches [`Self::TIP_SCAN_PAGE`]; there is nothing special
-    /// about the number beyond "large enough that per-call overhead is noise,
-    /// small enough that a page is not itself the allocation problem".
-    pub(crate) const GC_PLANE_SCAN_PAGE: usize = 2048;
-
-    /// Stream every row under `prefix` in physical handle order, one bounded
-    /// page at a time, handing each `(key, value)` to `on_row`.
-    ///
-    /// **Why this exists.** `scan_prefix` materializes an entire plane —
-    /// every key AND every value — into one `Vec` before the caller decides a
-    /// single row. `gc-atoms` did that five times over in one request: `mk:`
-    /// twice (once to plan the tip-version prune, once to collect referenced
-    /// uuids), then `tv:`, `history:`, `conflict:` and finally `atom:`. On the
-    /// primary this owner measures, `mk:` alone is 3.82 GiB and `atom:` is
-    /// 3.68 GiB, so a single `gc-atoms --execute` asked for something on the
-    /// order of 11 GiB of transient allocation against a 16 GiB memory guard —
-    /// to answer a question whose entire output is a set of uuid strings.
-    ///
-    /// That is the shape behind
-    /// `papercut-lastdb-gc-atoms-is-unbounded-and-has-never-committed-a-delete`:
-    /// the verb has never committed a delete on a real home, and its dry run
-    /// takes ~90 s while its execute does not finish inside the 600 s control
-    /// socket deadline. Paging makes the footprint a function of the answer
-    /// rather than of the store.
-    ///
-    /// The caller keeps whatever it accumulates; this only bounds the raw rows
-    /// held at once. `on_row` is synchronous by design — a scan that needs to
-    /// await per row (the tip-version chain walk, the atom delete drain) pages
-    /// inline instead, so the borrow of `self` stays explicit.
-    pub(super) async fn for_each_row_under_prefix<F>(
-        &self,
-        prefix: &str,
-        what: &str,
-        dry_run: bool,
-        mut on_row: F,
-    ) -> Result<(), SchemaError>
-    where
-        F: FnMut(&[u8], &[u8]),
-    {
-        let (start, end) = crate::kind_partition::colon_plane_bounds(prefix);
-        let mut cursor: Option<PhysicalScanCursor> = None;
-        let mut progress = GcAtomsProgress::start(what, dry_run);
-        // GC needs a complete set, not global key order. A logical page must
-        // merge every physical group again before it can return its next 2048
-        // rows. The same physical cursor as the prune phase avoids that work.
-        // Empty/short pages are not terminal: a handle can contain no keys
-        // under this prefix while later handles still contain live roots.
-        // Kind-as-partition writes (`tv\0`, `history\0`, `conflict\0`) sort
-        // before the colon prefix, so the walk starts at the NUL form.
-        loop {
-            let page = self
-                .raw()
-                .inner()
-                .scan_range_physical_paged(
-                    start.as_bytes(),
-                    end.as_bytes(),
-                    cursor.as_ref(),
-                    Self::GC_PLANE_SCAN_PAGE,
-                    1,
-                )
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("{what}: {e}")))?;
-            if page.next_cursor.is_some() && page.next_cursor == cursor {
-                return Err(SchemaError::InvalidData(format!(
-                    "{what}: physical cursor did not advance"
-                )));
-            }
-            for (k, v) in page.rows {
-                progress.walked(1);
-                on_row(&k, &v);
-            }
-            cursor = page.next_cursor;
-            if cursor.is_none() {
-                progress.finish();
-                return Ok(());
-            }
-        }
     }
 }

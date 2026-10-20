@@ -10,7 +10,6 @@ mod proof_replay;
 mod reclaim;
 mod schema_maps;
 mod seal;
-mod tips;
 
 pub(super) use gc::*;
 use molecule_map_candidates::*;
@@ -20,4 +19,3 @@ pub(super) use proof_replay::*;
 pub(super) use reclaim::*;
 pub(super) use schema_maps::*;
 pub(super) use seal::*;
-pub(super) use tips::*;

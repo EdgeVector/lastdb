@@ -2,17 +2,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::atom::{AtomEntry, AtomPartition};
+use crate::atom::AtomEntry;
 use crate::schema::types::{AggregateWinner, Mutation};
 use crate::schema::SchemaError;
 
 use super::cas::CurrentRowFields;
 use super::MutationManager;
-
-struct CurrentFieldTip {
-    entry: AtomEntry,
-    partition: AtomPartition,
-}
 
 impl MutationManager {
     /// Read the current head at `mutation.key_value` for `field`: its head atom
@@ -48,7 +43,7 @@ impl MutationManager {
             return Ok((None, None));
         }
 
-        let Some(tip) = self
+        let Some(entry) = self
             .point_read_field_entry(
                 &mutation.schema_name,
                 field,
@@ -60,10 +55,10 @@ impl MutationManager {
         else {
             return Ok((None, None));
         };
-        let uuid = tip.entry.atom_uuid;
+        let uuid = entry.atom_uuid;
         let atom = crate::db_operations::tip_atoms::get_atoms_for_tips(
             &self.db_ops,
-            &[(uuid.as_str(), Some(tip.partition))],
+            &[uuid.as_str()],
             storage_prefix,
         )
         .await?
@@ -165,7 +160,7 @@ impl MutationManager {
                 .expect("validated current field");
             let key_value = &key_value;
             async move {
-                let tip = self
+                let entry = self
                     .point_read_field_entry(
                         &mutation.schema_name,
                         field,
@@ -174,24 +169,24 @@ impl MutationManager {
                         storage_prefix,
                     )
                     .await?;
-                Ok::<_, SchemaError>((field, tip))
+                Ok::<_, SchemaError>((field, entry))
             }
         }))
         .await?;
         let selected: Vec<_> = selected
             .into_iter()
-            .filter_map(|(field, tip)| tip.map(|tip| (field, tip)))
+            .filter_map(|(field, entry)| entry.map(|entry| (field, entry)))
             .collect();
         if selected.is_empty() {
             return Ok((CurrentRowFields::Absent, None));
         }
-        let slots: Vec<_> = selected
+        let uuids: Vec<&str> = selected
             .iter()
-            .map(|(_, tip)| (tip.entry.atom_uuid.as_str(), Some(tip.partition.clone())))
+            .map(|(_, entry)| entry.atom_uuid.as_str())
             .collect();
         let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(
             &self.db_ops,
-            &slots,
+            &uuids,
             storage_prefix,
         )
         .await?;
@@ -203,8 +198,7 @@ impl MutationManager {
         let mut values = BTreeMap::new();
         let mut latest_winner: Option<AggregateWinner> = None;
         let mut tombstone = None;
-        for ((field, tip), atom) in selected.into_iter().zip(atoms) {
-            let entry = tip.entry;
+        for ((field, entry), atom) in selected.into_iter().zip(atoms) {
             if crate::atom::is_tombstone_value(atom.content()) {
                 tombstone.get_or_insert_with(|| CurrentRowFields::Corrupt {
                     field: field.clone(),
@@ -244,7 +238,7 @@ impl MutationManager {
         schema_field: &crate::schema::types::field::FieldVariant,
         key_value: &crate::schema::types::KeyValue,
         storage_prefix: Option<&str>,
-    ) -> Result<Option<CurrentFieldTip>, SchemaError> {
+    ) -> Result<Option<AtomEntry>, SchemaError> {
         let changed_key = schema_field.changed_key_for(key_value).ok_or_else(|| {
             SchemaError::InvalidData(format!(
                 "point read cannot resolve field '{field}' key in schema '{schema_name}'"
@@ -260,7 +254,7 @@ impl MutationManager {
                 ))
             })?;
         let key = crate::schema::types::KeyValue::new(changed_key.hash, changed_key.range);
-        let Some((base, record)) = self
+        let Some((_, record)) = self
             .db_ops
             .atoms()
             .load_query_tip_records(storage_prefix, &molecule_uuid, &[key])
@@ -273,13 +267,6 @@ impl MutationManager {
         if record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
             return Ok(None);
         }
-        let partition =
-            AtomPartition::from_record_key(&base).ok_or_else(|| SchemaError::StorageRead {
-                detail: "selected current field tip has no physical location".into(),
-            })?;
-        Ok(Some(CurrentFieldTip {
-            entry: record.entry,
-            partition,
-        }))
+        Ok(Some(record.entry))
     }
 }

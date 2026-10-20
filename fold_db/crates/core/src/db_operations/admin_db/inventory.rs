@@ -45,6 +45,14 @@ impl AtomStore {
                 if cursor.as_deref() == Some(k.as_slice()) {
                     continue;
                 }
+                // The `atom:` prefix also holds the counter record of each atom.
+                // The counters have their own totals (`atom_counters`); they are
+                // not atom content.
+                if what == "atom_content"
+                    && std::str::from_utf8(k).is_ok_and(crate::atom::atom_key_codec::is_counter_key)
+                {
+                    continue;
+                }
                 keys += 1;
                 bytes += row_bytes;
             }
@@ -109,6 +117,7 @@ impl AtomStore {
             main_total_bytes,
             per_schema_atoms: atoms.per_schema,
             per_schema_atoms_total_bytes: atoms.total_logical_bytes,
+            atom_counters: atoms.atom_counters,
             per_schema_history,
             attribution: crate::db_operations::AttributionSummary::default(),
             notes,
@@ -151,6 +160,7 @@ fn inventory_notes(main_classes: &[MainKeyClass]) -> Vec<String> {
     let mut notes = vec![
         "Sizes count live keys and values; physical file sizes can differ.".into(),
         "History contains current mutation events and conflict records.".into(),
+        "atom: holds two records for each atom: the body (atom:{uuid}\\0b) and its counter (atom:{uuid}\\0c). atom_counters reports the counters.".into(),
     ];
     // A protein is reachable only through some molecule's `molprot:` back-ref,
     // and at most one back-ref points at each protein a client created for a

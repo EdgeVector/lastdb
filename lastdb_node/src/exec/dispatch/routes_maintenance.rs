@@ -29,10 +29,6 @@ pub(super) async fn dispatch_maintenance_gc(
             )
             .await
         }
-        DataRoute::DbGcAtoms => heap_route!(execute_db_gc_atoms_route, req, ctx, host).await,
-        DataRoute::DbReapDroppedSchema => {
-            heap_route!(execute_db_reap_dropped_schema_route, req, ctx, host).await
-        }
         DataRoute::DbGcFileBlobs => {
             heap_route!(execute_db_gc_file_blobs_route, req, ctx, host).await
         }
@@ -53,9 +49,6 @@ pub(super) async fn dispatch_maintenance_repair(
     host: &Host,
 ) -> Option<UdsResponse> {
     Some(match route {
-        DataRoute::DbRepairDanglingTips => {
-            heap_route!(execute_db_repair_dangling_tips_route, req, ctx, host).await
-        }
         DataRoute::DbUnresolvedAtoms => match host.db.db_ops().unresolved_atom_identity_report() {
             Ok(report) => json_ok(&envelope(
                 &serde_json::json!({ "unresolved_atoms": report }),
@@ -63,9 +56,6 @@ pub(super) async fn dispatch_maintenance_repair(
             )),
             Err(error) => error_response(500, &error, ctx),
         },
-        DataRoute::DbProbeLocatorOnly => {
-            heap_route!(execute_db_probe_locator_only_route, req, ctx, host).await
-        }
         DataRoute::DbDeleteLedger => {
             heap_route!(execute_db_delete_ledger_route, req, ctx, host).await
         }

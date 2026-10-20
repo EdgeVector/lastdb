@@ -9,54 +9,41 @@
 //! - [`types`] — molecule/atom storage types
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
-//! - [`key_encoding`] — atom body key-encoding resolution at boot and restore
+//! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
 //! - [`atoms`] — atom CRUD, history, schema listing
-//! - [`locks`] — molecule, tip, atom-ref and delete-barrier locks
+//! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
-//! - [`atom_ref_edges`], [`blob_ref_edges`], [`molecule_ref_edges`],
-//! - [`atom_ref_gc`], [`dropped_schema_reap`],
-//!   [`hard_erase_journal`], [`keep_small`] — GC, reap and maintenance passes
+//! - [`blob_ref_edges`], [`molecule_ref_edges`] — blob and molecule roots
+//! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
+//! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
-pub(crate) mod atom_ref_edges;
-mod atom_ref_gc;
 mod atoms;
 mod blob_ref_edges;
+mod catalog_bindings;
 mod codec;
 mod conflict_record;
 mod construct;
+pub(crate) mod counter;
 mod delete_barriers;
-mod dropped_schema_reap;
 mod filter;
 mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
-mod key_encoding;
 mod locks;
 mod molecule_ref_edges;
 mod molecules;
-mod peer_apply;
 mod retired_intent_retention;
 mod schema_keys;
 mod types;
 
-pub use atom_ref_edges::{
-    AtomLiveRefCount, AtomRefEdge, AtomRefEdgeType, PendingAtomRef, ATOM_REF_V2_ACTIVE_MARKER,
-};
-pub(crate) use atom_ref_gc::automatic_gc_audit_id;
-pub use atom_ref_gc::{
-    AtomGcAuditDecision, AtomGcAuditResult, AtomGcCandidate, AtomGcCandidatePage,
-    AtomGcReapOptions, AtomGcReapReport, GraceGateVerdict, DEFAULT_ATOM_GC_GRACE_WINDOW,
-};
+pub(crate) use atoms::SealedAtom;
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
-pub use dropped_schema_reap::{
-    DroppedSchemaReapCursor, DroppedSchemaReapPhase, DroppedSchemaReapReport,
-    DroppedSchemaTipProbe, DroppedSchemaTipProof, MAX_DROPPED_SCHEMA_REAP_OPS,
-};
+pub use counter::{AtomCounterReport, AtomCounterView};
 pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
@@ -64,9 +51,6 @@ pub use molecule_ref_edges::{
     MoleculeRefCompleteness, MoleculeRefEdge, MoleculeRefLookup, MOLECULE_REF_COMPLETE_KEY,
 };
 pub(crate) use molecules::MoleculeKeyDomain;
-pub use peer_apply::{
-    allow_after_peer_apply_from_env, PeerApplyState, ALLOW_AFTER_PEER_APPLY_ENV, PEER_APPLY_KEY,
-};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };
@@ -129,7 +113,6 @@ type ExactTipLocks =
 #[derive(Clone)]
 pub struct AtomStore {
     main_store: Arc<TypedKvStore<dyn KvStore>>,
-    schema_index_store: Arc<TypedKvStore<dyn KvStore>>,
     /// Owner namespace factory for physical-plane maintenance.
     ///
     /// Legacy constructors leave this unset. Production construction and the
@@ -150,12 +133,6 @@ pub struct AtomStore {
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.
     molecule_keys: Option<crate::db_operations::MoleculeKeyStore>,
-    /// Atom body storage-key encoding (default [`crate::atom::AtomKeyEncoding::Flat`];
-    /// see `design-lastdb-atom-key-partition-locality`).
-    atom_keys_partition_prefixed: Arc<AtomicBool>,
-    /// One home-wide completion proof covers every exact data scope. Restore
-    /// revokes the fresh-home proof and clears this successful-read cache.
-    atom_ref_v2_read_ready: Arc<std::sync::Mutex<bool>>,
     /// Per-molecule commit guards: the SHORT critical section that makes
     /// (read `moc:` → build items → commit batch) atomic for one molecule.
     ///
@@ -221,40 +198,16 @@ pub struct AtomStore {
     keep_small_hard_erase_pending: Arc<AtomicU64>,
     /// Pending intents found on boot. Only a full repair may retire them.
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
-    /// Automatic atom-GC generation whose reference markers guard deletes.
-    /// Zero means that no bounded delete sweep is active.
-    automatic_gc_atoms_generation: Arc<AtomicU64>,
-    /// Candidates re-armed by body writes (see `rearm_atom_gc_candidate_mutations`).
-    atom_gc_candidates_rearmed: Arc<AtomicU64>,
-    /// Cache of the peer-apply row once it reads `seen`, durable or not. The
-    /// state never moves back, so every clone shares the answer. It only ever
-    /// makes a delete refuse, so it may run ahead of the disk.
-    peer_apply_seen: Arc<AtomicBool>,
-    /// Set only after this process wrote `seen` AND the flush returned `Ok`.
-    /// A retry after a failed flush must not trust `peer_apply_seen`.
-    peer_apply_durable: Arc<AtomicBool>,
-    /// Serializes the `seen` write and the `never` stamp, so a stamp can never
-    /// overwrite a `seen` that a replay wrote after the stamp probed.
-    peer_apply_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Fixed lock stripes serialize body writes and automatic deletes without
-    /// retaining one process object for every atom UUID in a full sweep.
-    automatic_gc_atom_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
-    /// Fixed stripes serialize read-modify-write updates of durable atom
-    /// reference counts. They are separate from automatic-GC locks because a
-    /// write can hold both sets while a collection sweep is active.
-    atom_ref_count_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
-    /// Serializes the one exact catalog-transition recovery registry row.
-    catalog_atom_ref_transition_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Totals and recent faults of the atom counter planner.
+    counter_events: Arc<counter::CounterEvents>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
     /// tip decision treats a write from any other non-empty device as a write
     /// from a peer. See [`AtomStore::local_origin_device`].
     local_origin_device: Arc<std::sync::RwLock<String>>,
-    /// Serializes the conflict recorder, so two recorders cannot lose an id in
-    /// the `mcc:{molecule}` list that they read, extend, and write.
-    conflict_record_gate: Arc<tokio::sync::Mutex<()>>,
     /// Counts the record calls that wrote a conflict row. A reader that scans
-    /// the conflict rows outside the gate stamps its `mcc:` list only if this
-    /// number did not change since before the scan.
+    /// the conflict rows outside the write gate stamps its `mcc:` list only if
+    /// this number did not change since before the scan. The stamp runs in a
+    /// write scope, which orders it against every recorder.
     conflict_record_epoch: Arc<AtomicU64>,
     /// Fixed target gates for molecule source transitions and reclaim.
     molecule_liveness_locks: Arc<Vec<Arc<tokio::sync::Mutex<()>>>>,
@@ -271,6 +224,11 @@ pub struct AtomStore {
 }
 
 impl AtomStore {
+    /// The planner report: bodies created and deleted, and counter faults.
+    pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
+        &self.counter_events
+    }
+
     /// This store's identity in the legacy-history memo.
     #[must_use]
     pub(crate) fn store_id(&self) -> crate::atom::history_event_memo::StoreId {
@@ -327,7 +285,6 @@ impl AtomStore {
 
     /// Flush all pending writes in the atom namespace to durable storage.
     pub async fn flush(&self) -> Result<(), crate::storage::StorageError> {
-        self.main_store.inner().flush().await?;
-        self.schema_index_store.inner().flush().await
+        self.main_store.inner().flush().await
     }
 }

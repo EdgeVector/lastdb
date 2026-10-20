@@ -68,10 +68,6 @@ impl SyncCoordinator {
                 // but that was only half the fix. `sync()` is cheap on a
                 // no-op cycle (one list request per target with an
                 // already-advanced cursor → typically 0 matches).
-                //
-                // Automatic gc-atoms does **not** run here. A stalled or
-                // failed sync cycle must not starve the local cadence; that
-                // timer starts from [`Self::start_automatic_gc_atoms`].
                 match engine.sync().await {
                     Ok(_) => {
                         // A coalesce hold asks for a short retry so the group

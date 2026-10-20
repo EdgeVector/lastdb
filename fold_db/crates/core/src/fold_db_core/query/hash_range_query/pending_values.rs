@@ -39,7 +39,6 @@ impl HashRangeQueryProcessor {
                             entry.2.clone(),
                             entry.3.clone(),
                             entry.4.clone(),
-                            entry.6.clone(),
                         )
                     })
                     .collect();

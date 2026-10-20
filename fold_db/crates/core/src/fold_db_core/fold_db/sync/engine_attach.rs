@@ -46,9 +46,7 @@ impl FoldDB {
         engine
             .set_mutation_intent_materializer(Arc::clone(&materializer))
             .await;
-        engine
-            .set_automatic_gc_atom_store(self.db_ops.atoms().clone())
-            .await;
+        engine.set_atom_store(self.db_ops.atoms().clone()).await;
         let pending_tasks = Arc::clone(&self.pending_tasks);
         let cut_db_ops = Arc::clone(&self.db_ops);
         let cut_capture_router = self.mutation_log_capture.clone();
@@ -69,17 +67,19 @@ impl FoldDB {
         if let Some(router) = self.mutation_log_capture.clone() {
             engine.set_photograph_mutation_router(router).await;
         }
+        // A restored home needs no refresh of the atom counters: they travel
+        // with their bodies in the photograph. The restore keeps only a photograph
+        // with the current key format marker, and the explicit key settings of
+        // this process must be valid for it.
         let restore_db_ops = Arc::clone(&self.db_ops);
         let restore_barrier: crate::sync::engine::PhotographCutBarrier = Arc::new(move || {
             let restore_db_ops = Arc::clone(&restore_db_ops);
             Box::pin(async move {
-                restore_db_ops
-                    .atoms()
-                    .invalidate_atom_ref_readiness_after_restore()
+                crate::db_operations::AtomStore::validate_boot_key_encoding_settings()
                     .map_err(|error| error.to_string())?;
                 restore_db_ops
                     .atoms()
-                    .validate_restored_atom_layout()
+                    .require_current_key_format()
                     .await
                     .map_err(|error| error.to_string())
             })

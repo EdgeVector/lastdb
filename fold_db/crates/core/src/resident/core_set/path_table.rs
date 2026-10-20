@@ -105,20 +105,6 @@ impl PathTable {
         self.names.release(entry.field);
         Some(entry.state)
     }
-
-    /// The strings of a warm path, rebuilt from its slot key and names.
-    pub(super) fn core_path(&self, slots: &SlotTable, id: PathId) -> Option<CorePath> {
-        let entry = self.entries.get(id as usize)?.as_ref()?;
-        let key = &slots.get(entry.state.slot)?.key;
-        Some(CorePath {
-            scope: key.molecule.scope.as_deref().map(str::to_owned),
-            schema: self.names.get(entry.schema).to_owned(),
-            field: self.names.get(entry.field).to_owned(),
-            molecule: key.molecule.molecule.to_string(),
-            hash: key.hash.to_string(),
-            range: key.range.to_string(),
-        })
-    }
 }
 
 fn entry_hash(hasher: &RandomState, entries: &[Option<PathEntry>], id: PathId) -> u64 {
@@ -137,13 +123,6 @@ struct NameTable {
 impl NameTable {
     fn find(&self, name: &str) -> Option<NameId> {
         self.index.get(name).copied()
-    }
-
-    fn get(&self, id: NameId) -> &str {
-        &self.names[id as usize]
-            .as_ref()
-            .expect("interned core name")
-            .0
     }
 
     fn acquire(&mut self, name: &str) -> NameId {

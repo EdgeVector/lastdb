@@ -14,13 +14,12 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 
 /// Current main-key classes rebuilt by logical mutation replay, or local GC
 /// bookkeeping. These skips do not apply to complete snapshot photographs.
+///
+/// Do **not** add `atom:` or protein prefixes here without their own written
+/// contract. Atoms and proteins are primary values. The one exception is the
+/// atom counter record (`atom:{uuid}\0c`), which `capture_should_skip_key`
+/// skips by its tag, because the planner rebuilds it on every node.
 pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
-    "aloc:",
-    "aref:v2:",
-    "aref:pending:v1:",
-    "aref:catalog-transitions:v1",
-    "aref:gc:v1:c:",
-    "aref:gc:v1:q:",
     "mref:v1:",
     "bref:v2:",
     "mk:",
@@ -56,12 +55,6 @@ pub(crate) fn is_node_local_gc_scratch_key(key: &[u8]) -> bool {
 /// Physical collections whose current keys are omitted from mutation capture.
 /// Full backups retain every current reference directory and completeness key.
 pub(crate) const CAPTURE_SKIP_BY_KEY_PREFIX_PLANES: &[(&str, &str)] = &[
-    ("atom_locators", "aloc:"),
-    ("atom_ref_edges_v2", "aref:v2:"),
-    ("atom_ref_edges", "aref:pending:v1:"),
-    ("atom_ref_edges", "aref:catalog-transitions:v1"),
-    ("atom_ref_edges", "aref:gc:v1:c:"),
-    ("atom_ref_edges", "aref:gc:v1:q:"),
     ("molecule_ref_edges", "mref:v1:"),
     ("blob_ref_edges", "bref:v2:"),
 ];
@@ -127,6 +120,12 @@ pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
     if namespace == "metadata" && key.starts_with("mutation_author_clock:") {
         return true;
     }
+    // An atom counter (`atom:{uuid}\0c`) is node-local state. A peer must never
+    // import another node's count. Replay applies tips and bodies raw, so a
+    // replayed atom has no counter until steps S3 and S6 add the recount.
+    if crate::atom::atom_key_codec::is_counter_key(key) {
+        return namespace == "main" || namespace == "atoms";
+    }
     let base = crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base)| base);
     let Some(prefix) = CAPTURE_SKIP_MAIN_KEY_PREFIXES
         .iter()
@@ -150,11 +149,6 @@ fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -
         | "gcatoms-probe-ref:"
         | "gcatoms-probe-tv-skip:"
         | "peer-apply:" => namespace == "tips",
-        "aloc:" => namespace == "atom_locators",
-        "aref:v2:" => namespace == "atom_ref_edges_v2",
-        "aref:pending:v1:" | "aref:catalog-transitions:v1" | "aref:gc:v1:c:" | "aref:gc:v1:q:" => {
-            namespace == "atom_ref_edges"
-        }
         "mref:v1:" => namespace == "molecule_ref_edges",
         "bref:v2:" => namespace == "blob_ref_edges",
         _ => false,

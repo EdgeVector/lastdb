@@ -13,33 +13,6 @@ use super::MutationManager;
 use super::helpers::searchable_outbox_fields;
 
 impl MutationManager {
-    /// Build Search tombstones for exact storage slots removed by the legacy
-    /// owner drain. The lane retains this exact batch across retries.
-    /// Storage-form keys stay typed; opaque BlindV1/OpeV1 segments never enter
-    /// logs or mutation ids.
-    pub(in crate::fold_db_core::mutation_manager) fn build_storage_slot_tombstones(
-        schema_name: &str,
-        schema: &Schema,
-        evidence: &[super::super::purge::StorageSlotPurgeEvidence],
-    ) -> Option<IndexChangeBatch> {
-        if evidence.is_empty() {
-            return None;
-        }
-        Some(IndexChangeBatch {
-            schema_name: schema_name.to_string(),
-            searchable_fields: searchable_outbox_fields(schema),
-            changes: evidence
-                .iter()
-                .map(|slot| IndexChange {
-                    mutation_id: format!("legacy-tombstone-drain-{}", uuid::Uuid::new_v4()),
-                    kind: IndexChangeKind::Tombstone,
-                    key_value: slot.storage_key_value().clone(),
-                    fields_and_values: HashMap::new(),
-                })
-                .collect(),
-        })
-    }
-
     /// Build one Search change batch without durable side effects.
     pub(super) fn build_index_change_batch(
         schema_name: &str,

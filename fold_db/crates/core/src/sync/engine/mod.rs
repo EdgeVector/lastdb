@@ -317,16 +317,9 @@ pub struct SyncEngine {
         Arc<Mutex<Option<crate::sync::engine::types::RetiredIntentPreserver>>>,
     mutation_intent_materializer:
         Arc<Mutex<Option<crate::sync::engine::types::MutationIntentMaterializer>>>,
-    /// Serving atom store used only to protect legacy reference-only pin rows
-    /// while an automatic GC generation is active.
-    pub(crate) automatic_gc_atom_store: Arc<Mutex<Option<crate::db_operations::AtomStore>>>,
-    /// True once this process has made the peer-apply row durable (`seen`). The
-    /// replay and restore paths check it before they apply peer data.
-    pub(crate) peer_apply_marked: AtomicBool,
-    /// Serializes the short transition from marker clear to an active probe.
-    pub(crate) automatic_gc_pin_log_barrier: Arc<Mutex<()>>,
-    /// True while pin appends must finish before the probe activates markers.
-    pub(crate) automatic_gc_pin_log_activation_pending: AtomicBool,
+    /// Serving atom store. Replay reads delete barriers and takes tip locks
+    /// through it. Empty on an engine that was never attached to a `FoldDB`.
+    pub(crate) atom_store: Arc<Mutex<Option<crate::db_operations::AtomStore>>>,
     /// Flush acknowledged resident writes before the compactor enumerates S.
     photograph_cut_barrier: Arc<Mutex<Option<PhotographCutBarrier>>>,
     photograph_mutation_router:

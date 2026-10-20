@@ -87,7 +87,7 @@ pub(crate) fn lookup(
         return Ok(None);
     }
     let context = ReadContext::captured(&runtime).ok_or_else(missing_context)?;
-    let (key, atom, metadata, writer, _) = selection.entry;
+    let (key, atom, metadata, writer) = selection.entry;
     let path = binding.path(scope, &molecule, key, atom);
     let captured = super::read::captured_lookup(&runtime, &context, &path.core())?;
     if captured.is_absent() {
@@ -151,7 +151,6 @@ pub(crate) fn admit(
     molecule: Option<&str>,
     key: &KeyValue,
     value: &FieldValue,
-    hint: Option<&crate::atom::AtomPartition>,
 ) -> StorageResult<()> {
     let Some((runtime, binding, molecule)) = active(runtime, molecule) else {
         return Ok(());
@@ -163,9 +162,7 @@ pub(crate) fn admit(
         return Ok(());
     };
     let path = binding.path(scope, &molecule, key, &value.atom_uuid);
-    if let Some(facts) =
-        source::atom_facts(Some(Arc::clone(&runtime)), scope, &value.atom_uuid, hint)?
-    {
+    if let Some(facts) = source::atom_facts(Some(Arc::clone(&runtime)), scope, &value.atom_uuid)? {
         runtime.admit_field_path(&context, &path, facts, key)?;
     }
     Ok(())

@@ -1,26 +1,31 @@
 use super::*;
+use crate::db_operations::atom_store::counter::TipChange;
 
 /// Ordinary rows plus the winning pending value for each `mk:` tip key.
 type CollapsedTips = (Vec<(String, Value)>, HashMap<String, PerKeyRecord>);
+
+/// The outcome of the last-writer-wins comparison of one tip store.
+pub(in super::super) struct TipWinners {
+    /// The winning tip records. The planner writes them and counts their atoms.
+    pub(in super::super) tips: Vec<TipChange>,
+    /// Every other row of the store (headers and similar).
+    pub(in super::super) rows: Vec<(String, Value)>,
+    /// Decisions between a pending tip and a durable tip that holds another atom.
+    pub(in super::super) decisions: Vec<crate::db_operations::atom_store::DurableTipDecision>,
+}
 
 impl AtomStore {
     /// Keep one maximum-version value per exact `mk:` key, then compare it
     /// with the durable value while the caller holds that key's tip lock.
     ///
-    /// Returns each decision between the pending tip and a durable tip that
-    /// holds a different atom. The caller records them before it writes the tips.
+    /// Returns the winning tips, the other rows, and each decision between the
+    /// pending tip and a durable tip that holds a different atom. The caller
+    /// records the decisions and then commits the winners through the planner.
     pub(in super::super) async fn retain_durable_tip_winners(
         &self,
-        items: &mut Vec<(String, Value)>,
-        storage_prefix: Option<&str>,
-    ) -> Result<
-        (
-            Vec<crate::db_operations::atom_store::DurableTipDecision>,
-            super::super::super::blob_ref_edges::TipBlobChanges,
-        ),
-        SchemaError,
-    > {
-        let (mut ordinary, mut tips) = Self::collapse_pending_tips(items)?;
+        items: Vec<(String, Value)>,
+    ) -> Result<TipWinners, SchemaError> {
+        let (rows, mut tips) = Self::collapse_pending_tips(items)?;
         let tip_keys: Vec<String> = tips.keys().cloned().collect();
         let barriers = self.winning_delete_barriers(&tip_keys).await?;
         let eligible_keys: Vec<String> = tip_keys
@@ -34,10 +39,8 @@ impl AtomStore {
         // Keep this key order for the batch result. A blocked tip must not
         // read its durable value, even when that value is malformed.
         let durable_tips = self.delete_target_tips(&eligible_keys).await?;
-        let mut accepted_slots = std::collections::HashSet::new();
-        let mut accepted_tip_edges = std::collections::HashSet::new();
+        let mut winners = Vec::new();
         let mut decisions = Vec::new();
-        let mut blob_changes = super::super::super::blob_ref_edges::TipBlobChanges::default();
         for (key, durable) in eligible_keys.into_iter().zip(durable_tips) {
             let incoming = tips.remove(&key).expect("eligible tip must exist");
             let mut incoming_loses = false;
@@ -56,44 +59,23 @@ impl AtomStore {
             if incoming_loses {
                 continue;
             }
-            blob_changes.replace(&key, storage_prefix, durable.as_ref(), Some(&incoming))?;
-            let value = serde_json::to_value(&incoming).map_err(|error| {
-                SchemaError::InvalidData(format!("serialize durable tip winner {key}: {error}"))
-            })?;
-            let base_key = key.find("mk:").map_or(key.as_str(), |at| &key[at..]);
-            if let (Some(molecule), Some((hash, range))) = (
-                molecule_key_codec::molecule_uuid_from_storage_key(base_key),
-                molecule_key_codec::decode_hash_range_any(base_key),
-            ) {
-                let slot = (molecule.to_string(), hash, range);
-                accepted_tip_edges.insert((
-                    slot.0.clone(),
-                    slot.1.clone(),
-                    slot.2.clone(),
-                    incoming.entry.atom_uuid.clone(),
-                    format!(
-                        "{:020}:{}:{}",
-                        incoming.entry.written_at,
-                        incoming.entry.lww_device(),
-                        incoming.entry.atom_uuid
-                    ),
-                ));
-                accepted_slots.insert(slot);
-            }
-            ordinary.push((key, value));
+            winners.push(TipChange {
+                key,
+                new: Some(incoming),
+            });
         }
-        Self::retain_accepted_tip_edges(&mut ordinary, &accepted_slots, &accepted_tip_edges);
-        *items = ordinary;
-        Ok((decisions, blob_changes))
+        Ok(TipWinners {
+            tips: winners,
+            rows,
+            decisions,
+        })
     }
 
     /// Split pending items into ordinary rows and one LWW winner per `mk:` tip key.
-    fn collapse_pending_tips(
-        items: &mut Vec<(String, Value)>,
-    ) -> Result<CollapsedTips, SchemaError> {
+    fn collapse_pending_tips(items: Vec<(String, Value)>) -> Result<CollapsedTips, SchemaError> {
         let mut ordinary = Vec::with_capacity(items.len());
         let mut tips: HashMap<String, PerKeyRecord> = HashMap::new();
-        for (key, value) in items.drain(..) {
+        for (key, value) in items {
             if !is_tip_item_key(&key) {
                 ordinary.push((key, value));
                 continue;
@@ -116,55 +98,6 @@ impl AtomStore {
             }
         }
         Ok((ordinary, tips))
-    }
-
-    /// Tip-edge transitions are part of the same winner decision.
-    /// Keep only edges of accepted slots; an active edge must match an accepted winner.
-    fn retain_accepted_tip_edges(
-        ordinary: &mut Vec<(String, Value)>,
-        accepted_slots: &std::collections::HashSet<(String, String, String)>,
-        accepted_tip_edges: &std::collections::HashSet<(String, String, String, String, String)>,
-    ) {
-        // losing flush must not publish an active loser edge or deactivate the
-        // durable winner's edge. Tip-version edges remain valid history.
-        ordinary.retain(|(_, value)| {
-            if value.get("edge_type").and_then(Value::as_str) != Some("tip") {
-                return true;
-            }
-            let Some(molecule) = value.get("molecule_uuid").and_then(Value::as_str) else {
-                return true;
-            };
-            let Some(hash) = value.get("disk_hash").and_then(Value::as_str) else {
-                return true;
-            };
-            let Some(range) = value.get("disk_range").and_then(Value::as_str) else {
-                return true;
-            };
-            let slot = (molecule.to_string(), hash.to_string(), range.to_string());
-            if !accepted_slots.contains(&slot) {
-                return false;
-            }
-            if !value
-                .get("active")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            {
-                return true;
-            }
-            let Some(atom) = value.get("atom_uuid").and_then(Value::as_str) else {
-                return false;
-            };
-            let Some(version) = value.get("version_id").and_then(Value::as_str) else {
-                return false;
-            };
-            accepted_tip_edges.contains(&(
-                slot.0,
-                slot.1,
-                slot.2,
-                atom.to_string(),
-                version.to_string(),
-            ))
-        });
     }
 
     /// The per-key records for the changed keys that still have an atom entry.
@@ -217,12 +150,6 @@ impl AtomStore {
                 .map_err(|e| SchemaError::InvalidData(format!("serialize per-key record: {e}")))?;
             items.push((build_storage_key(storage_prefix, base_key), value));
         }
-        items.extend(self.pending_atom_ref_edge_items(
-            molecule_uuid,
-            data,
-            &records,
-            storage_prefix,
-        )?);
         let header_value = serde_json::to_value(&header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
         items.push((

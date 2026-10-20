@@ -7,7 +7,7 @@ use super::super::metadata_store::MetadataStore;
 use super::super::molecule_key_store::MoleculeKeyStore;
 use super::super::public_key_store::PublicKeyStore;
 use super::super::schema_store::SchemaStore;
-use super::{DbOperations, MoleculeGateHoldStats};
+use super::DbOperations;
 use crate::storage::traits::*;
 use crate::storage::TypedKvStore;
 use std::sync::Arc;
@@ -23,7 +23,6 @@ struct CoreNamespaces {
     public_keys_kv: Arc<dyn KvStore>,
     idempotency_kv: Arc<dyn KvStore>,
     superseded_by_kv: Arc<dyn KvStore>,
-    schema_index_kv: Arc<dyn KvStore>,
     lineage_forward_kv: Arc<dyn KvStore>,
     lineage_reverse_kv: Arc<dyn KvStore>,
     change_feed_kv: Arc<dyn KvStore>,
@@ -34,19 +33,13 @@ struct CoreNamespaces {
 /// The namespace handles required to construct the atom store.
 struct AtomNamespaces {
     main: Arc<TypedKvStore<dyn KvStore>>,
-    schema_index: Arc<TypedKvStore<dyn KvStore>>,
     keep_small: Arc<TypedKvStore<dyn KvStore>>,
 }
 
 impl AtomNamespaces {
-    fn new(
-        main: Arc<dyn KvStore>,
-        schema_index: Arc<dyn KvStore>,
-        keep_small: Arc<dyn KvStore>,
-    ) -> Self {
+    fn new(main: Arc<dyn KvStore>, keep_small: Arc<dyn KvStore>) -> Self {
         Self {
             main: Arc::new(TypedKvStore::new(main)),
-            schema_index: Arc::new(TypedKvStore::new(schema_index)),
             keep_small: Arc::new(TypedKvStore::new(keep_small)),
         }
     }
@@ -63,7 +56,6 @@ impl CoreNamespaces {
         let public_keys_kv = store.open_namespace("public_keys").await?;
         let idempotency_kv = store.open_namespace("idempotency").await?;
         let superseded_by_kv = store.open_namespace("schema_superseded_by").await?;
-        let schema_index_kv = store.open_namespace("schema_index").await?;
         // `lineage_forward` / `lineage_reverse` back the derived-molecule
         // lineage index. Skipped by store-level capture per
         // `crate::sync::policy::CAPTURE_SKIP_NAMESPACES`; rebuildable from
@@ -95,7 +87,6 @@ impl CoreNamespaces {
             public_keys_kv,
             idempotency_kv,
             superseded_by_kv,
-            schema_index_kv,
             lineage_forward_kv,
             lineage_reverse_kv,
             change_feed_kv,
@@ -179,7 +170,6 @@ impl DbOperations {
             public_keys_kv,
             idempotency_kv,
             superseded_by_kv,
-            schema_index_kv,
             lineage_forward_kv,
             lineage_reverse_kv,
             change_feed_kv,
@@ -218,11 +208,10 @@ impl DbOperations {
         );
         let atom_store = Self::open_atom_store(
             &store,
-            AtomNamespaces::new(main_kv, schema_index_kv, keep_small_kv),
+            AtomNamespaces::new(main_kv, keep_small_kv),
             atom_content_key,
             hash_key_codec,
             &molecule_keys,
-            &db_catalog,
             admit_meter_trust,
         )
         .await?;
@@ -244,7 +233,6 @@ impl DbOperations {
             change_feed,
             lineage_index,
             persist_metrics,
-            molecule_gate_hold: Arc::new(MoleculeGateHoldStats::default()),
         })
     }
 
@@ -254,14 +242,12 @@ impl DbOperations {
         atom_content_key: Option<[u8; 32]>,
         hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_keys: &MoleculeKeyStore,
-        db_catalog: &DbCatalogStore,
         admit_meter_trust: bool,
     ) -> Result<AtomStore, crate::storage::StorageError> {
         // Fresh native construction records the selected current key layout.
         // Reopen requires that exact marker and refuses a different setting.
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
             namespaces.main,
-            namespaces.schema_index,
             atom_content_key,
             hash_key_codec,
         )
@@ -269,15 +255,6 @@ impl DbOperations {
         .with_molecule_keys(molecule_keys.clone())
         .with_keep_small_persist(namespaces.keep_small);
         Self::initialize_fresh_native_refs(store, &atom_store).await?;
-        let atom_store = atom_store.resolve_boot_encoding().await?;
-        atom_store
-            .recover_catalog_atom_ref_transitions(db_catalog)
-            .await
-            .map_err(|error| {
-                crate::storage::StorageError::BackendError(format!(
-                    "recover database-catalog atom references: {error}"
-                ))
-            })?;
         // Fail-closed meter TRUST, not fail-closed availability. #2186 refused
         // boot on any hydrate error; on 2026-09-25 that made every new build
         // refuse the primary home because its keep_small group (1.08 GB of
@@ -314,7 +291,6 @@ impl DbOperations {
             if runtime.fresh_initialization_pending()
                 && atoms.fresh_native_initialization_needed().await?
             {
-                atoms.initialize_fresh_atom_layout().await?;
                 atoms.initialize_current_reference_proofs().await?;
             }
             atoms.require_current_key_format().await

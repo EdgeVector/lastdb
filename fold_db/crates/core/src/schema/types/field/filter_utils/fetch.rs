@@ -11,19 +11,12 @@ mod batch;
 pub(crate) use batch::{fetch_field_atom_batches, FieldAtomBatch};
 
 /// One filtered match, carried from tip scan to body hydrate:
-/// `(key, atom_uuid, key_metadata, writer_pubkey, partition_hint)`.
-///
-/// The partition hint is optional and is derived from the **storage-form**
-/// slot (before any OPE range remapping). When present, body hydrate uses
-/// [`crate::db_operations::atom_store::AtomStore::get_atoms_located`] so a
-/// partition-prefixed body resolves in one bounded batch without a locator
-/// hop. A wrong or absent hint is only a slower read, never a wrong answer.
+/// `(key, atom_uuid, key_metadata, writer_pubkey)`.
 pub type KeyedAtomMatch = (
     KeyValue,
     String,
     Option<crate::atom::KeyMetadata>,
     Option<String>,
-    Option<crate::atom::AtomPartition>,
 );
 
 /// Resolve atom UUID matches into concrete FieldValue map under an optional
@@ -48,11 +41,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             molecule_uuid,
             &crate::storage::disk_pack::logical_paths::field::AtomSelection {
                 entry: &entry,
-                primary: db_ops.atoms().primary_atom_key(
-                    &entry.1,
-                    entry.4.as_ref(),
-                    storage_prefix,
-                ),
+                primary: db_ops.atoms().body_storage_key(&entry.1, storage_prefix),
             },
         )? {
             resolved_values.insert(entry.0, value);
@@ -60,16 +49,14 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             misses.push(entry);
         }
     }
-    let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = misses
+    let uuids: Vec<&str> = misses
         .iter()
-        .map(|(_, atom_uuid, _, _, partition)| (atom_uuid.as_str(), partition.clone()))
+        .map(|(_, atom_uuid, _, _)| atom_uuid.as_str())
         .collect();
     let atoms =
-        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, storage_prefix).await?;
+        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &uuids, storage_prefix).await?;
 
-    for ((key, atom_uuid, key_meta, writer_pubkey, partition), atom) in
-        misses.into_iter().zip(atoms)
-    {
+    for ((key, atom_uuid, key_meta, writer_pubkey), atom) in misses.into_iter().zip(atoms) {
         let value = field_value_from_atom(&atom, atom_uuid, key_meta, writer_pubkey);
         crate::storage::disk_pack::logical_paths::field::admit(
             runtime.clone(),
@@ -77,7 +64,6 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             molecule_uuid,
             &key,
             &value,
-            partition.as_ref(),
         )?;
         resolved_values.insert(key, value);
     }

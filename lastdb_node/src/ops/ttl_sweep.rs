@@ -273,6 +273,7 @@ async fn list_expired(
         Backlog::new(
             schema_name.to_string(),
             schema.schema_type.clone(),
+            schema.runtime_fields.len(),
             cutoff,
             expired,
         )

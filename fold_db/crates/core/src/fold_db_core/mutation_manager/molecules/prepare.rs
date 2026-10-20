@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::super::MutationManager;
 use crate::atom::Atom;
-use crate::db_operations::{AtomStore, ChangedKey};
+use crate::db_operations::ChangedKey;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -15,7 +15,7 @@ mod key_fields;
 type PreparedAtomsAndKeys = (
     Vec<KeyValue>,
     Vec<(usize, String, Atom)>,
-    Option<Vec<(Atom, Option<crate::atom::AtomPartition>)>>,
+    Option<Vec<(Atom, Option<String>)>>,
 );
 
 impl MutationManager {
@@ -114,30 +114,22 @@ impl MutationManager {
             }
         }
 
-        // Batch store all atoms at once, each with the partition of the slot
-        // that owns it. Under `AtomKeyEncoding::PartitionPrefix` that co-locates
-        // the body with its tips; under `Flat` the partitions are ignored.
-        //
-        // Pair each created atom with the mutation key + field it came from
-        // (`atom_results` is parallel to the order atoms were pushed).
-        let located: Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)> = atom_results
+        // Batch store all atoms at once. Each atom names the molecule of the
+        // field that it came from. An org scope seals the body with the key
+        // bundle of that molecule.
+        let sealed: Vec<(Atom, Option<String>)> = atom_results
             .iter()
             .zip(atoms_to_store)
-            .map(|((mut_idx, field_name, _), atom)| {
-                let key_value = &mutation_key_values[*mut_idx];
-                let partition = partition_for_atom_write(
-                    schema_name,
-                    field_name,
-                    key_value,
-                    schema,
-                    self.db_ops.atoms(),
-                );
-                (atom, partition)
+            .map(|((_, field_name, _), atom)| {
+                (
+                    atom,
+                    Some(seal_molecule_for_atom(schema_name, field_name, schema)),
+                )
             })
             .collect();
 
         let _ = storage_prefix;
-        Ok((mutation_key_values, atom_results, Some(located)))
+        Ok((mutation_key_values, atom_results, Some(sealed)))
     }
 
     /// Build, per field this batch writes, the set of keys it will touch — the
@@ -174,55 +166,15 @@ impl MutationManager {
     }
 }
 
-/// Partition for a field write: same bytes the tip walk will scan.
+/// The molecule of the field that an atom came from. It names the key bundle
+/// that seals the body in an org scope.
 ///
 /// Uses `deterministic_molecule_uuid(schema, field)` so a first write (no
-/// molecule uuid on the field yet) still names the correct slot. Hash segment
-/// is storage-form via the atom store's key codec (blinded when enabled).
-fn partition_for_atom_write(
-    schema_name: &str,
-    field_name: &str,
-    key_value: &KeyValue,
-    schema: &Schema,
-    atoms: &AtomStore,
-) -> Option<crate::atom::AtomPartition> {
-    use crate::atom::{deterministic_molecule_uuid, AtomPartition};
-    use crate::schema::types::field::FieldKind;
-
-    let mol_uuid = schema
+/// molecule uuid on the field yet) still names the right molecule.
+fn seal_molecule_for_atom(schema_name: &str, field_name: &str, schema: &Schema) -> String {
+    schema
         .runtime_fields
         .get(field_name)
-        .and_then(|f| f.common().molecule_uuid().cloned())
-        .unwrap_or_else(|| deterministic_molecule_uuid(schema_name, field_name));
-
-    let kind = schema
-        .runtime_fields
-        .get(field_name)
-        .map_or(FieldKind::Single, |f| f.kind);
-
-    let api_hash = match kind {
-        FieldKind::Hash | FieldKind::HashRange => key_value.hash.as_deref().unwrap_or(""),
-        FieldKind::Range | FieldKind::Single => "",
-    };
-
-    let storage_hash = if api_hash.is_empty() {
-        String::new()
-    } else {
-        match atoms.storage_hash(&mol_uuid, api_hash) {
-            Ok(h) => h,
-            Err(e) => {
-                // Degrade to flat placement rather than fail the whole write:
-                // a bad hash encoding is a locality miss, not data loss.
-                warn!(
-                    schema = %schema_name,
-                    field = %field_name,
-                    error = %e,
-                    "partition_for_atom_write: storage_hash failed; body will be flat"
-                );
-                return None;
-            }
-        }
-    };
-
-    Some(AtomPartition::for_slot(&mol_uuid, &storage_hash))
+        .and_then(|field| field.common().molecule_uuid().cloned())
+        .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(schema_name, field_name))
 }

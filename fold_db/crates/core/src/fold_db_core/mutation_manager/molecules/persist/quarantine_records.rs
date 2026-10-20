@@ -28,7 +28,6 @@ pub(super) fn lane_job_schema(job: &LanePersistJob) -> &str {
             .erasures
             .first()
             .map_or("", |mutation| mutation.schema_name.as_str()),
-        LanePersistJob::StorageSlotPurge { job, .. } => job.schema_name.as_str(),
     }
 }
 
@@ -59,11 +58,6 @@ pub(super) fn describe_lane_job(
                 keys.join(", ")
             )
         }
-        LanePersistJob::StorageSlotPurge { job, .. } => format!(
-            "storage-slot purge job schema={} targets={}",
-            job.schema_name,
-            job.targets.len()
-        ),
     }
 }
 
@@ -81,12 +75,6 @@ pub(super) fn quarantine_record(
             "verb": format!("{:?}", job.verb),
             "storage_prefix": job.storage_prefix,
             "erasures": job.erasures,
-        }),
-        LanePersistJob::StorageSlotPurge { job, .. } => serde_json::json!({
-            "kind": "storage_slot_purge",
-            "schema": job.schema_name,
-            "targets": job.targets.len(),
-            "durable_complete": job.durable_complete,
         }),
     };
     serde_json::json!({

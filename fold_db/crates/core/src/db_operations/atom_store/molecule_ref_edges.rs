@@ -109,20 +109,6 @@ impl AtomStore {
         build_storage_key(storage_prefix, DATABASE_CATALOG_REF_PRESENT_KEY)
     }
 
-    pub(crate) async fn database_catalog_refs_present(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<bool, SchemaError> {
-        self.main_store
-            .exists_item(&Self::database_catalog_ref_present_key(storage_prefix))
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!(
-                    "probe database-catalog reference marker: {error}"
-                ))
-            })
-    }
-
     pub async fn molecule_ref_edges_complete(
         &self,
         storage_prefix: Option<&str>,

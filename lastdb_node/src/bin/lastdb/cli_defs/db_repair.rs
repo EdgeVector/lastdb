@@ -1,4 +1,4 @@
-//! Clap subcommands for `lastdb db`: repair and legacy-drain verbs.
+//! Clap subcommands for `lastdb db`: repair verbs.
 
 use super::*;
 

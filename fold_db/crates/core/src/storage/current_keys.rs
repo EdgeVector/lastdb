@@ -22,6 +22,8 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
             | "amigr"
             | "schema_atoms"
             | "idx"
+            | "aloc"
+            | "aref"
     ) {
         return Err(unsupported("retired key family"));
     }
@@ -29,24 +31,18 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         && bare.as_bytes().get(family.len()) == Some(&b':')
     {
         let current_compound = match family {
-            "atom" => crate::atom::atom_key_codec::partition_of(bare).is_some(),
+            "atom" => crate::atom::atom_key_codec::uuid_of(bare).is_some(),
             _ => false,
         };
         if !current_compound {
             return Err(unsupported("retired flat key spelling"));
         }
     }
-    if bare.starts_with("aref:v1:")
-        || bare.starts_with("aref\0")
-        || bare.starts_with("bref:v1:")
-        || bare.starts_with("rdel:v1:")
-    {
+    if bare.starts_with("bref:v1:") || bare.starts_with("rdel:v1:") {
         return Err(unsupported("retired reference or delete key format"));
     }
     validate_references(bare, family)?;
-    if let Some(rest) = bare.strip_prefix("atom:mk:") {
-        validate_record(rest)?;
-    } else if let Some(rest) = bare.strip_prefix("mk:") {
+    if let Some(rest) = bare.strip_prefix("mk:") {
         validate_record(rest)?;
     } else if let Some(molecule) = bare
         .strip_prefix("mh:")
@@ -92,28 +88,6 @@ fn validate_suffix(suffix: &str) -> StorageResult<()> {
 
 fn validate_references(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        "aref" => {
-            matches!(
-                key,
-                "aref:v2:m:complete" | "aref:v2:m:history-complete" | "aref:catalog-transitions:v1"
-            ) || key.strip_prefix("aref:v2:e:").is_some_and(|rest| {
-                token_pair(rest, |token| {
-                    token == "!live-count" || validate_molecule(token).is_ok()
-                })
-            }) || key
-                .strip_prefix("aref:pending:v1:")
-                .is_some_and(|rest| token_pair(rest, |token| validate_molecule(token).is_ok()))
-                || key
-                    .strip_prefix("aref:gc:v1:c:")
-                    .is_some_and(|token| validate_molecule(token).is_ok())
-                || key.strip_prefix("aref:gc:v1:q:").is_some_and(|rest| {
-                    rest.split_once(':').is_some_and(|(timestamp, token)| {
-                        timestamp.len() == 20
-                            && timestamp.bytes().all(|byte| byte.is_ascii_digit())
-                            && validate_molecule(token).is_ok()
-                    })
-                })
-        }
         "bref" => {
             key == "bref:v2:complete"
                 || key
@@ -135,11 +109,6 @@ fn validate_references(key: &str, family: &str) -> StorageResult<()> {
     current
         .then_some(())
         .ok_or_else(|| unsupported("invalid reference key format"))
-}
-
-fn token_pair(rest: &str, source: impl FnOnce(&str) -> bool) -> bool {
-    rest.split_once('\0')
-        .is_some_and(|(target, owner)| validate_molecule(target).is_ok() && source(owner))
 }
 
 fn hex_pair(rest: &str) -> bool {

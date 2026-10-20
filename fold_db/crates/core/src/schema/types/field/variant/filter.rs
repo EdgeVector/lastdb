@@ -107,34 +107,6 @@ impl FieldVariant {
         }
     }
 
-    /// The LastStore partition the atom body at `kv` was written under, when it
-    /// can be named from what this field already holds.
-    ///
-    /// A **hint**, not an authority: callers pass it to
-    /// `AtomStore::get_atom_by_uuid_in_partition`, which falls back to the flat
-    /// key and then the locator, so a hint that is wrong (or for a body written
-    /// before the partition prefix existed) costs one point read and nothing
-    /// else.
-    ///
-    /// The hash comes from the molecule, not from the API-form key: a molecule
-    /// is reassembled by unescaping the `mk:{M}:{esc(hash)}\0{range}` keys it
-    /// was stored under, so its hash is the same **storage-form** segment the
-    /// tip key carries — which is exactly what the body's partition prefix must
-    /// be built from. `None` when the field has no molecule uuid yet (never
-    /// written), which is a slot with no body to find.
-    #[must_use]
-    pub fn partition_hint(&self, kv: &KeyValue) -> Option<crate::atom::AtomPartition> {
-        let molecule_uuid = self.common().molecule_uuid()?;
-        // Range and Single fields have no hash segment; their tips all share
-        // the one `mk:{M}:\0` partition, which is the locality their tip walk
-        // already has.
-        let hash = match self.kind {
-            FieldKind::Hash | FieldKind::HashRange => kv.hash.as_deref().unwrap_or(""),
-            FieldKind::Range | FieldKind::Single => "",
-        };
-        Some(crate::atom::AtomPartition::for_slot(molecule_uuid, hash))
-    }
-
     /// Remove the entry for `kv` from the molecule. Returns true if something dropped.
     pub fn remove_key(&mut self, kv: &KeyValue) -> bool {
         match (&self.kind, &mut self.molecule) {

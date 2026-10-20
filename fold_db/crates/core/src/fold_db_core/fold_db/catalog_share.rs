@@ -168,8 +168,8 @@ impl FoldDB {
         })
     }
 
-    /// Prepare the atom references, write the catalog entry, and commit the
-    /// references. A failed catalog write aborts the prepared references.
+    /// Bind the molecules of the schema, then write the catalog entry. The
+    /// binding comes first, so a catalog row never names an unbound molecule.
     async fn commit_catalog_share(
         &self,
         target_entry: &DbCatalogEntry,
@@ -178,36 +178,11 @@ impl FoldDB {
         schema: &Schema,
         storage_prefix: Option<&str>,
     ) -> FoldDbResult<()> {
-        let catalog = self.db_ops().db_catalog();
-        let atom_ref_plan = self
-            .db_ops()
-            .atoms()
-            .prepare_catalog_atom_refs(target_canonical, schema_name, schema, storage_prefix)
-            .await?;
-        if let Err(catalog_error) = catalog.put(target_entry).await {
-            let abort_result = self
-                .db_ops()
-                .atoms()
-                .abort_catalog_atom_refs(&atom_ref_plan)
-                .await;
-            return Err(catalog_put_failure(catalog_error, abort_result));
-        }
         self.db_ops()
             .atoms()
-            .commit_catalog_atom_refs(atom_ref_plan)
+            .bind_catalog_molecules(target_canonical, schema_name, schema, storage_prefix)
             .await?;
+        self.db_ops().db_catalog().put(target_entry).await?;
         Ok(())
-    }
-}
-
-fn catalog_put_failure(
-    catalog_error: StorageError,
-    abort_result: Result<(), SchemaError>,
-) -> FoldDbError {
-    match abort_result {
-        Ok(()) => catalog_error.into(),
-        Err(abort_error) => FoldDbError::Database(format!(
-            "database catalog write failed: {catalog_error}; abort database-catalog atom reference transition also failed: {abort_error}"
-        )),
     }
 }

@@ -17,7 +17,6 @@ pub(crate) struct SelectedTip {
     pub(crate) tip_source: Option<(String, String)>,
     /// Complete possible winners and structural controls for this exact key.
     pub(crate) sources: Option<Vec<(String, String)>>,
-    pub(super) partition: Option<String>,
 }
 
 #[derive(Default)]
@@ -43,16 +42,12 @@ pub(crate) fn note_tip(
         .map(|key| super::source::source_for_request(runtime, key))
         .transpose()?
         .flatten();
-    let partition = storage_key
-        .filter(|_| tip_source.is_some())
-        .and_then(|key| partition_of(scope, key));
     let identity = identity(scope, molecule, key, &entry.atom_uuid)?;
     let mut receipts = receipts.lock().map_err(|_| poisoned())?;
     if let Some((previous, _)) = receipts.entries.get(&identity) {
         if previous.entry == *entry
             && previous.metadata.as_ref() == metadata
             && (tip_source.is_none() || previous.tip_source == tip_source)
-            && (partition.is_none() || previous.partition == partition)
         {
             return Ok(());
         }
@@ -60,14 +55,7 @@ pub(crate) fn note_tip(
     if let Some((_, bytes)) = receipts.entries.remove(&identity) {
         receipts.bytes = receipts.bytes.saturating_sub(bytes);
     }
-    let bytes = receipt_bytes(
-        &identity,
-        entry,
-        metadata,
-        tip_source.as_ref(),
-        partition.as_deref(),
-        None,
-    )?;
+    let bytes = receipt_bytes(&identity, entry, metadata, tip_source.as_ref(), None)?;
     let Some(total) = receipts
         .bytes
         .checked_add(bytes)
@@ -87,7 +75,6 @@ pub(crate) fn note_tip(
                 metadata: metadata.cloned(),
                 tip_source,
                 sources: None,
-                partition,
             },
             bytes,
         ),
@@ -104,7 +91,6 @@ pub(crate) fn note_candidates(
     key: &KeyValue,
     atom_uuid: &str,
     candidates: &[String],
-    encoding: crate::atom::AtomKeyEncoding,
 ) -> StorageResult<()> {
     let Some(receipts) = receipts(runtime.clone())? else {
         return Ok(());
@@ -126,7 +112,6 @@ pub(crate) fn note_candidates(
         &selected.entry,
         selected.metadata.as_ref(),
         selected.tip_source.as_ref(),
-        selected.partition.as_deref(),
         sources.as_deref(),
     )?;
     let retained = receipts.bytes.saturating_sub(*previous_bytes);
@@ -137,7 +122,6 @@ pub(crate) fn note_candidates(
             &selected.entry,
             selected.metadata.as_ref(),
             selected.tip_source.as_ref(),
-            selected.partition.as_deref(),
             None,
         )?;
     }
@@ -159,7 +143,7 @@ pub(crate) fn note_candidates(
     receipts.bytes = total;
     drop(receipts);
     if let Some(selected) = selected {
-        super::tips::admit(runtime, scope, molecule, key, encoding, &selected)?;
+        super::tips::admit(runtime, scope, molecule, key, &selected)?;
     }
     Ok(())
 }
@@ -187,29 +171,8 @@ pub(crate) fn selected_tip(
     Ok(selected)
 }
 
-pub(crate) fn selected_partition(
-    runtime: Option<Arc<PackRuntime>>,
-    scope: Option<&str>,
-    molecule: &str,
-    key: &KeyValue,
-    atom: &str,
-) -> StorageResult<Option<crate::atom::AtomPartition>> {
-    let cache = std::ptr::from_ref(&SELECTED_TIPS) as usize;
-    let Some(receipts) = read_snapshot_get::<Mutex<SelectedTips>>(runtime, cache, SNAPSHOT_NAME)?
-    else {
-        return Ok(None);
-    };
-    let identity = identity(scope, molecule, key, atom)?;
-    let receipts = receipts.lock().map_err(|_| poisoned())?;
-    Ok(receipts
-        .entries
-        .get(&identity)
-        .and_then(|(selected, _)| selected.partition.as_deref())
-        .and_then(crate::atom::AtomPartition::from_prefix))
-}
-
 /// The reader supplies its winning physical key before API-key projection.
-/// Location retention does not depend on the optional source-authority ledger.
+/// Returns true when the receipt holds this exact tip.
 pub(crate) fn note_winning_tip(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
@@ -228,79 +191,43 @@ pub(crate) fn note_winning_tip(
         metadata,
         Some(storage_key),
     )?;
-    let Some(partition) = partition_of(scope, storage_key)
-        .as_deref()
-        .and_then(crate::atom::AtomPartition::from_prefix)
-    else {
-        return Ok(false);
-    };
-    note_partition(
-        runtime,
-        scope,
-        molecule,
-        key,
-        entry,
-        metadata,
-        Some(&partition),
-    )
+    holds_tip(runtime, scope, molecule, key, entry, metadata)
 }
 
-/// A core-authorized selection can retain its certified body location without
-/// inventing a physical read receipt or another current-value owner.
-pub(crate) fn note_partition(
+/// A core-authorized selection can retain its receipt without inventing a
+/// physical read receipt or another current-value owner. Returns true when the
+/// receipt holds this exact tip.
+pub(crate) fn note_core_tip(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
     molecule: &str,
     key: &KeyValue,
     entry: &AtomEntry,
     metadata: Option<&KeyMetadata>,
-    partition: Option<&crate::atom::AtomPartition>,
 ) -> StorageResult<bool> {
     note_tip(runtime.clone(), scope, molecule, key, entry, metadata, None)?;
+    holds_tip(runtime, scope, molecule, key, entry, metadata)
+}
+
+fn holds_tip(
+    runtime: Option<Arc<PackRuntime>>,
+    scope: Option<&str>,
+    molecule: &str,
+    key: &KeyValue,
+    entry: &AtomEntry,
+    metadata: Option<&KeyMetadata>,
+) -> StorageResult<bool> {
     let Some(receipts) = receipts(runtime)? else {
         return Ok(false);
     };
     let identity = identity(scope, molecule, key, &entry.atom_uuid)?;
-    let mut receipts = receipts.lock().map_err(|_| poisoned())?;
-    let Some((selected, previous_bytes)) = receipts.entries.get(&identity) else {
-        return Ok(false);
-    };
-    if selected.entry != *entry || selected.metadata.as_ref() != metadata {
-        return Ok(false);
-    }
-    if selected.partition.as_deref() == partition.map(crate::atom::AtomPartition::as_str) {
-        return Ok(true);
-    }
-    let bytes = receipt_bytes(
-        &identity,
-        entry,
-        metadata,
-        selected.tip_source.as_ref(),
-        partition.map(crate::atom::AtomPartition::as_str),
-        selected.sources.as_deref(),
-    )?;
-    let Some(total) = receipts
-        .bytes
-        .saturating_sub(*previous_bytes)
-        .checked_add(bytes)
-        .filter(|bytes| *bytes <= MAX_BYTES)
-    else {
-        return Ok(false);
-    };
-    if let Some((selected, previous_bytes)) = receipts.entries.get_mut(&identity) {
-        selected.partition = partition.map(|partition| partition.as_str().to_owned());
-        *previous_bytes = bytes;
-    }
-    receipts.bytes = total;
-    Ok(true)
-}
-
-fn partition_of(scope: Option<&str>, key: &str) -> Option<String> {
-    let base = match scope {
-        Some(scope) => key.strip_prefix(scope)?.strip_prefix(':')?,
-        None => key,
-    };
-    crate::atom::AtomPartition::from_record_key(base).map(|partition| partition.as_str().to_owned())
+    let receipts = receipts.lock().map_err(|_| poisoned())?;
+    Ok(receipts
+        .entries
+        .get(&identity)
+        .is_some_and(|(selected, _)| {
+            selected.entry == *entry && selected.metadata.as_ref() == metadata
+        }))
 }
 
 fn receipts(runtime: Option<Arc<PackRuntime>>) -> StorageResult<Option<Arc<Mutex<SelectedTips>>>> {
@@ -344,10 +271,9 @@ fn receipt_bytes(
     entry: &AtomEntry,
     metadata: Option<&KeyMetadata>,
     source: Option<&(String, String)>,
-    partition: Option<&str>,
     sources: Option<&[(String, String)]>,
 ) -> StorageResult<usize> {
-    let size = super::body::encoded_len(&(entry, metadata, source, partition, sources))?;
+    let size = super::body::encoded_len(&(entry, metadata, source, sources))?;
     Ok(identity
         .len()
         .saturating_add(size)

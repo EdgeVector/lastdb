@@ -1,6 +1,5 @@
 //! Ordered durable erasure envelopes and completion ownership.
 
-use super::erase_guards::PurgeEnqueue;
 use super::*;
 
 impl MutationManager {
@@ -28,7 +27,7 @@ impl MutationManager {
                 .remove(&schema_name)
                 .expect("schema order came from grouped erasures");
             let receiver = self
-                .enqueue_schema_purge_checked(
+                .enqueue_schema_purge_envelope(
                     schema_name,
                     schema_erasures,
                     storage_prefix,
@@ -36,9 +35,7 @@ impl MutationManager {
                     author_clock_barrier.clone(),
                 )
                 .await?;
-            if let Some(receiver) = receiver {
-                completions.push(receiver);
-            }
+            completions.push(receiver);
         }
 
         for completion in completions {
@@ -52,7 +49,11 @@ impl MutationManager {
     }
 
     /// Validate one schema's erasures and reserve its ordered durable purge.
-    /// Every queued envelope returns its durable completion receiver.
+    /// The envelope returns its durable completion receiver.
+    ///
+    /// The lane runs the erase inside the native write gate. The gate orders it
+    /// against every writer, so the envelope takes no molecule lock and no
+    /// schema barrier.
     pub(super) async fn enqueue_schema_purge_envelope(
         &self,
         schema_name: String,
@@ -63,7 +64,8 @@ impl MutationManager {
             super::super::super::purge::HardEraseVerb,
         ),
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    ) -> Result<PurgeEnqueue, SchemaError> {
+    ) -> Result<tokio::sync::oneshot::Receiver<super::super::molecules::PurgeCompletion>, SchemaError>
+    {
         let (schema, mut job, purge_bytes) = self.prepare_schema_purge_job(
             &schema_name,
             schema_erasures,
@@ -84,18 +86,6 @@ impl MutationManager {
                     crate::resident::PersistLaneFull::Unhealthy => "unhealthy".into(),
                 },
             })?;
-
-        let guards = self
-            .acquire_purge_apply_guards(&schema, &schema_name, &job.erasures)
-            .await?;
-
-        if let Some(spared) = self
-            .spared_erasures(&schema, &job.erasures, (storage_prefix, verb))
-            .await?
-        {
-            return Ok(PurgeEnqueue::Spared(spared, job.erasures));
-        }
-
         let delete_publication = if verb.is_delete() {
             Some(
                 self.prepare_delete_publication(&schema, &job.erasures)
@@ -117,11 +107,9 @@ impl MutationManager {
             },
             purge_bytes,
         );
-        // Enqueue under the slot gates so successors cannot precede this revision.
         reservation.fill(envelope);
         drop(delete_publication);
-        drop(guards);
-        Ok(PurgeEnqueue::Queued(receiver))
+        Ok(receiver)
     }
 
     /// Prepare one schema's cleanup facts without an enqueue or a lane wait.
@@ -140,31 +128,6 @@ impl MutationManager {
         ),
         SchemaError,
     > {
-        let (schema, plan) = self.plan_schema_purge(schema_name, &erasures, storage_prefix)?;
-        let job = super::super::molecules::PurgeEnvelope {
-            author_clock_barrier: None,
-            erasures,
-            storage_prefix: storage_prefix.map(str::to_string),
-            missing,
-            validated_present: false,
-            retry_requires_finalize: false,
-            search_batch: plan.search_batch,
-            retention_keys: plan.retention_keys,
-            verb,
-            completion: None,
-            pending_completion: None,
-        };
-        Ok((schema, job, plan.purge_bytes))
-    }
-
-    /// Load and validate the schema, then compute everything the purge
-    /// envelope needs before it occupies a persist slot.
-    fn plan_schema_purge(
-        &self,
-        schema_name: &str,
-        schema_erasures: &[Mutation],
-        storage_prefix: Option<&str>,
-    ) -> Result<(crate::schema::Schema, SchemaPurgePlan), SchemaError> {
         let mut schema = self
             .schema_manager
             .get_schema_metadata(schema_name)?
@@ -174,19 +137,28 @@ impl MutationManager {
                 ))
             })?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
-        for mutation in schema_erasures {
+        for mutation in &erasures {
             super::super::super::purge::validate_purge_key_shape(
                 &schema,
                 schema_name,
                 &mutation.key_value,
             )?;
         }
-        let key_values: Vec<_> = schema_erasures
+        // Count the operations before the lane takes the write gate. A request
+        // that cannot fit in one batch is refused here, with the key count that
+        // fits, and not after it staged part of its rows.
+        if let Some(limit) = self.db_ops.batch_operation_limit() {
+            super::super::super::purge::budget::check_erase_size(
+                verb.is_delete(),
+                erasures.len(),
+                schema.runtime_fields.len(),
+                limit,
+            )?;
+        }
+        let key_values: Vec<_> = erasures
             .iter()
             .map(|mutation| mutation.key_value.clone())
             .collect();
-        let search_batch =
-            Self::build_index_change_batch(schema_name, &schema, schema_erasures, &key_values);
         let retention_keys = (storage_prefix.is_none()
             && matches!(
                 &schema.schema_type,
@@ -195,53 +167,23 @@ impl MutationManager {
                     | crate::schema::types::schema::DeclarativeSchemaType::HashRange
             ))
         .then_some(key_values);
-        let serialized_purge_bytes = serde_json::to_vec(schema_erasures)
+        let purge_bytes = serde_json::to_vec(&erasures)
             .map_or(1, |body| body.len() as u64)
-            .saturating_add(
-                search_batch
-                    .as_ref()
-                    .and_then(|batch| serde_json::to_vec(batch).ok())
-                    .map_or(0, |body| body.len() as u64),
-            );
-        let purge_bytes = serialized_purge_bytes.max(1);
-        Ok((
-            schema,
-            SchemaPurgePlan {
-                search_batch,
-                retention_keys,
-                purge_bytes,
-            },
-        ))
+            .max(1);
+        let job = super::super::molecules::PurgeEnvelope {
+            author_clock_barrier: None,
+            erasures,
+            storage_prefix: storage_prefix.map(str::to_string),
+            missing,
+            validated_present: false,
+            retry_requires_finalize: false,
+            retention_keys,
+            verb,
+            completion: None,
+            pending_completion: None,
+        };
+        Ok((schema, job, purge_bytes))
     }
-
-    /// Take the molecule write locks for every slot the purge touches, and
-    /// retry until the prepared slot revisions still match under the locks.
-    async fn acquire_purge_apply_guards(
-        &self,
-        schema: &crate::schema::Schema,
-        _schema_name: &str,
-        schema_erasures: &[Mutation],
-    ) -> Result<Vec<super::super::molecules::MoleculeGateGuard>, SchemaError> {
-        let mut changed: HashMap<String, HashSet<crate::db_operations::ChangedKey>> =
-            HashMap::new();
-        for (field_name, field) in &schema.runtime_fields {
-            let entry = changed.entry(field_name.clone()).or_default();
-            for mutation in schema_erasures {
-                if let Some(key) = field.changed_key_for(&mutation.key_value) {
-                    entry.insert(key);
-                }
-            }
-        }
-
-        Ok(self.acquire_molecule_write_locks(schema, &changed).await)
-    }
-}
-
-/// Everything a purge envelope needs that is computed before the lane slot.
-struct SchemaPurgePlan {
-    search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
-    retention_keys: Option<Vec<crate::schema::types::KeyValue>>,
-    purge_bytes: u64,
 }
 
 /// Group mutations by schema name, keeping first-seen schema order.

@@ -61,6 +61,7 @@ where
         Reply::Durable => None,
     };
     let gate = runtime.enter_prepare().await;
+    let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
@@ -79,12 +80,15 @@ where
         let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);
         let target = durable.then(|| runtime.seal_queue());
         drop(gate);
+        note_gate_hold(held_from, 0, 0, &BatchShape::default());
         if let Some(target) = target {
             runtime.wait_for_queue(target).await?;
         }
         return Ok(result);
     }
     let operations = pending.freeze_operations();
+    let operations_len = operations.len();
+    let shape = BatchShape::of(&operations);
     let delay = delay.filter(|_| {
         !pending.durable_only.load(Ordering::Acquire) && pending.has_reserved_raw_memory()
     });
@@ -98,10 +102,84 @@ where
     // Publication, ownership transfer and worker creation contain no await.
     let sequence = runtime.accept_queued(pending, prepared, delay)?;
     drop(gate);
+    note_gate_hold(held_from, operations_len, sequence, &shape);
     if wait {
         runtime.wait_for_queue(sequence).await?;
     }
     Ok(result)
+}
+
+/// The kinds of operation in one accepted batch, for a run that reads the log.
+/// Tips, atom bodies and atom counters of one request share one batch, so a
+/// delete on zero shows its three deletes under one sequence number.
+#[derive(Default)]
+struct BatchShape {
+    tip_puts: u32,
+    tip_deletes: u32,
+    body_puts: u32,
+    body_deletes: u32,
+    counter_puts: u32,
+    counter_deletes: u32,
+}
+
+impl BatchShape {
+    fn of(operations: &[HomeMutation]) -> Self {
+        let mut shape = Self::default();
+        if !tracing::enabled!(target: "fold_db::write_gate", tracing::Level::DEBUG) {
+            return shape;
+        }
+        for operation in operations {
+            let key = operation.key.as_str();
+            let put = operation.body.is_some();
+            let slot = if key.starts_with("mk:") {
+                if put {
+                    &mut shape.tip_puts
+                } else {
+                    &mut shape.tip_deletes
+                }
+            } else if key.starts_with("atom:") && key.ends_with("\0b") {
+                if put {
+                    &mut shape.body_puts
+                } else {
+                    &mut shape.body_deletes
+                }
+            } else if key.starts_with("atom:") && key.ends_with("\0c") {
+                if put {
+                    &mut shape.counter_puts
+                } else {
+                    &mut shape.counter_deletes
+                }
+            } else {
+                continue;
+            };
+            *slot += 1;
+        }
+        shape
+    }
+}
+
+/// Say how long a request held the write gate, for a run that reads the log.
+/// The hold covers preparation, staging and acceptance. The durable wait comes
+/// after the gate is free and is not counted.
+fn note_gate_hold(
+    held_from: std::time::Instant,
+    operations: usize,
+    sequence: u64,
+    shape: &BatchShape,
+) {
+    tracing::debug!(
+        target: "fold_db::write_gate",
+        hold_us = u64::try_from(held_from.elapsed().as_micros()).unwrap_or(u64::MAX),
+        operations,
+        sequence,
+        tip_puts = shape.tip_puts,
+        tip_deletes = shape.tip_deletes,
+        body_puts = shape.body_puts,
+        body_deletes = shape.body_deletes,
+        counter_puts = shape.counter_puts,
+        counter_deletes = shape.counter_deletes,
+        "native write gate released"
+    );
 }
 
 fn protect_paths(

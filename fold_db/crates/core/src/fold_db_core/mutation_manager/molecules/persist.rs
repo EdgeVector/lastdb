@@ -3,7 +3,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::db_operations::{ChangedKey, MoleculeData, MoleculeGateHoldStats};
+use crate::db_operations::atom_store::SealedAtom;
+use crate::db_operations::{ChangedKey, MoleculeData};
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
@@ -12,7 +13,7 @@ use super::super::MutationManager;
 
 /// Prepared molecule effects staged within one complete native transaction.
 pub(crate) struct DeferredPersistJob {
-    pub deferred_atoms: Option<Vec<(crate::atom::Atom, Option<crate::atom::AtomPartition>)>>,
+    pub deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
     pub storage_prefix: Option<String>,
     pub search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     pub share_prefixes: Vec<String>,
@@ -29,56 +30,13 @@ pub(crate) struct DeferredPersistJob {
     pub(in crate::fold_db_core::mutation_manager) sibling_moves: Vec<super::prepared::SiblingMove>,
 }
 
-/// One held molecule write gate, which books how long it was held when it
-/// drops.
-///
-/// The gate's *wait* side is already reported as the `molecule_gate` request
-/// phase. This is the other side, and the two are only useful together: deep
-/// queue + short holds is a hot key (caller's fix), shallow queue + long holds
-/// is a stall inside the guarded region (write path's fix). See
-/// [`MoleculeGateHoldStats`].
-///
-/// Timing starts at construction — i.e. after `lock_owned()` returned — so the
-/// acquisition wait is not double-counted into the hold.
-pub(crate) struct MoleculeGateGuard {
-    /// Released after this struct's own `Drop` runs — Rust calls `Drop::drop`
-    /// before dropping fields — so the booked duration covers the guarded
-    /// region and not the mutex release. The three relaxed atomic ops that
-    /// booking costs happen while the gate is still held, which is the right
-    /// way round: it cannot under-report a hold, only over-report by the
-    /// nanoseconds it takes to record one.
-    _guard: tokio::sync::OwnedMutexGuard<()>,
-    acquired_at: std::time::Instant,
-    stats: Arc<MoleculeGateHoldStats>,
-}
-
-impl MoleculeGateGuard {
-    fn new(guard: tokio::sync::OwnedMutexGuard<()>, stats: Arc<MoleculeGateHoldStats>) -> Self {
-        Self {
-            _guard: guard,
-            acquired_at: std::time::Instant::now(),
-            stats,
-        }
-    }
-}
-
-impl Drop for MoleculeGateGuard {
-    fn drop(&mut self) {
-        self.stats.record(self.acquired_at.elapsed());
-    }
-}
-
-/// Sweep `molecule_persist_locks` for unreferenced gates once it holds this
-/// many entries. Well above the in-flight write ceiling (QoS admits 64), so a
-/// sweep reclaims nearly the whole map and the next one is far away.
-const MOLECULE_PERSIST_LOCK_REAP_AT: usize = 4096;
-
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn persist_modified_molecules(
         &self,
         schema: &mut Schema,
         modified_fields: &ModifiedFieldKeys,
         share_prefixes: &[String],
+        bodies: &[SealedAtom],
     ) -> Result<(), SchemaError> {
         let mut molecules_to_store: Vec<(String, &MoleculeData, HashSet<ChangedKey>)> = Vec::new();
         let field_names: Vec<String> = modified_fields.keys().cloned().collect();
@@ -114,6 +72,7 @@ impl MutationManager {
             );
             self.store_molecules_changed_unlocked(
                 &molecules_to_store,
+                bodies,
                 request_storage_prefix.as_deref(),
             )
             .await?;
@@ -125,7 +84,7 @@ impl MutationManager {
             // a personal-namespace product and must not dual-write org data.
             if request_storage_prefix.is_none() && had_molecules {
                 for share_prefix in share_prefixes {
-                    self.store_molecules_split(&molecules_to_store, Some(share_prefix))
+                    self.store_molecules_split(&molecules_to_store, bodies, Some(share_prefix))
                         .await?;
                 }
             }
@@ -171,6 +130,7 @@ impl MutationManager {
     async fn store_molecules_changed_unlocked(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         if molecules.is_empty() {
@@ -200,7 +160,7 @@ impl MutationManager {
         );
         self.db_ops
             .atoms()
-            .store_molecules_changed_keys_batch_ref(&batch, storage_prefix)
+            .store_molecules_changed_keys_batch_ref(&batch, bodies, storage_prefix)
             .await?;
         Ok(())
     }
@@ -215,6 +175,7 @@ impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn store_molecules_split(
         &self,
         molecules: &[(String, &MoleculeData, HashSet<ChangedKey>)],
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
     ) -> Result<(), SchemaError> {
         // Per-key molecules use immutable generations. The selected generation
@@ -268,6 +229,7 @@ impl MutationManager {
             .atoms()
             .store_molecule_generations_batch(
                 generations,
+                bodies,
                 storage_prefix,
                 crate::db_operations::atom_store::MoleculeKeyDomain::Storage,
             )
@@ -279,14 +241,12 @@ impl MutationManager {
 mod deferred_job;
 mod key_moves;
 mod lane_writer;
-mod locks;
 mod protein_delete;
 mod purge_job;
 mod purge_resident;
 mod purge_types;
 mod quarantine_records;
 mod sibling;
-mod storage_slot_job;
 pub(in crate::fold_db_core::mutation_manager) use lane_writer::*;
 pub(crate) use purge_types::*;
 pub(crate) use quarantine_records::*;

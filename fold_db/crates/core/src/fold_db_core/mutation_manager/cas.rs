@@ -140,6 +140,14 @@ fn overlay_caller_key(
     }
 }
 
+/// A Delete or a Purge removes tips, so both reach the protein siblings.
+fn is_erasure(mutation: &Mutation) -> bool {
+    matches!(
+        mutation.mutation_type,
+        MutationType::Delete | MutationType::Purge
+    )
+}
+
 /// Push one delete mutation per peer whose key values the source row supplies.
 fn push_peer_deletes(
     expanded: &mut Vec<Mutation>,
@@ -215,7 +223,10 @@ impl MutationManager {
     async fn expand_one_protein_delete(
         &self,
         mutation: Mutation,
-        schemas: &HashMap<String, Schema>,
+        (schemas, siblings): (
+            &HashMap<String, Schema>,
+            &mut HashMap<String, HashSet<String>>,
+        ),
         storage_prefix: Option<&str>,
         expanded: &mut Vec<Mutation>,
     ) -> Result<(), SchemaError> {
@@ -225,14 +236,18 @@ impl MutationManager {
             .ok_or_else(|| {
                 SchemaError::InvalidData(format!("Schema '{}' not found", mutation.schema_name))
             })?;
-        let sibling_molecules = self.protein_sibling_molecules(&source).await?;
+        if !siblings.contains_key(&mutation.schema_name) {
+            let found = self.protein_sibling_molecules(&source).await?;
+            siblings.insert(mutation.schema_name.clone(), found);
+        }
+        let sibling_molecules = &siblings[&mutation.schema_name];
         if sibling_molecules.is_empty() {
             expanded.push(mutation);
             return Ok(());
         }
 
         let peers =
-            protein_delete_peers(schemas, &mutation.schema_name, &source, &sibling_molecules);
+            protein_delete_peers(schemas, &mutation.schema_name, &source, sibling_molecules);
         if peers.is_empty() {
             expanded.push(mutation);
             return Ok(());
@@ -267,8 +282,8 @@ impl MutationManager {
         Ok(())
     }
 
-    /// Add one idempotent delete target for each sibling schema that shares a
-    /// protein member with the source schema.
+    /// Add one idempotent delete or purge target for each sibling schema that
+    /// shares a protein member with the source schema.
     ///
     /// The app submits one delete through the key it addressed. The core reads
     /// the source row by that exact key, obtains the app-declared peer key
@@ -282,23 +297,27 @@ impl MutationManager {
     ) -> Result<Vec<Mutation>, SchemaError> {
         // Global protein definitions select peers. Their row reads and derived
         // deletes stay in this batch's data scope; no catalog entry is added.
-        if !mutations
-            .iter()
-            .any(|mutation| matches!(mutation.mutation_type, MutationType::Delete))
-        {
+        if !mutations.iter().any(is_erasure) {
             return Ok(mutations);
         }
 
         let schemas = self.schema_manager.get_schemas()?;
         let mut expanded = Vec::with_capacity(mutations.len());
+        // The sibling molecules of a schema do not change inside one request.
+        let mut siblings: HashMap<String, HashSet<String>> = HashMap::new();
 
         for mutation in mutations {
-            if !matches!(mutation.mutation_type, MutationType::Delete) {
+            if !is_erasure(&mutation) {
                 expanded.push(mutation);
                 continue;
             }
-            self.expand_one_protein_delete(mutation, &schemas, storage_prefix, &mut expanded)
-                .await?;
+            self.expand_one_protein_delete(
+                mutation,
+                (&schemas, &mut siblings),
+                storage_prefix,
+                &mut expanded,
+            )
+            .await?;
         }
         Ok(expanded)
     }

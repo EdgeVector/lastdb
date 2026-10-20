@@ -68,8 +68,6 @@ impl SyncEngine {
             .stored_replay_value(namespace, &key_bytes, crypto, &value_bytes)
             .await?;
         kv.put(&key_bytes, stored).await?;
-        self.rebuild_atom_locator_if_needed(namespace, &key_bytes, crypto)
-            .await?;
         // Opaque put always applies — absorb into capture watermark (C4).
         self.absorb_put_or_warn(namespace, &key_bytes, &value_bytes, true, "opaque put")
             .await;
@@ -118,60 +116,5 @@ impl SyncEngine {
             }
         }
         None
-    }
-
-    /// Rebuild the local `aloc:{uuid}` row from a partition-prefixed atom key.
-    ///
-    /// Capture deliberately omits locator rows: the `atom:` key carries the
-    /// exact partition prefix and UUID, so shipping the locator duplicates
-    /// information. Rebuilding here preserves uuid-only reads on the receiver
-    /// while flat atom keys remain unchanged (they need no locator).
-    async fn rebuild_atom_locator_if_needed(
-        &self,
-        namespace: &str,
-        key_bytes: &[u8],
-        crypto: &dyn CryptoProvider,
-    ) -> SyncResult<()> {
-        if namespace != "main" {
-            return Ok(());
-        }
-        let Ok(key) = std::str::from_utf8(key_bytes) else {
-            return Ok(());
-        };
-        let (storage_prefix, base_key) = crate::sync::org_sync::strip_storage_prefix(key)
-            .map_or((None, key), |(prefix, base_key)| (Some(prefix), base_key));
-        let Some(partition) = crate::atom::atom_key_codec::partition_of(base_key) else {
-            return Ok(());
-        };
-        let Some(atom_uuid) = crate::atom::atom_key_codec::uuid_of(base_key) else {
-            return Ok(());
-        };
-
-        let locator_key = crate::schema::types::field::build_storage_key(
-            storage_prefix,
-            &crate::atom::atom_locator_codec::locator_key(atom_uuid),
-        );
-        let locator_plaintext =
-            serde_json::to_vec(&crate::atom::atom_locator_codec::encode_value(&partition))
-                .map_err(|error| crate::sync::SyncError::Serialization(error.to_string()))?;
-        let locator_stored = self
-            .stored_replay_value(
-                namespace,
-                locator_key.as_bytes(),
-                crypto,
-                &locator_plaintext,
-            )
-            .await?;
-        let kv = self.store.open_namespace(namespace).await?;
-        kv.put(locator_key.as_bytes(), locator_stored).await?;
-        self.absorb_put_or_warn(
-            namespace,
-            locator_key.as_bytes(),
-            &locator_plaintext,
-            true,
-            "derived atom locator",
-        )
-        .await;
-        Ok(())
     }
 }

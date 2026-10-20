@@ -99,26 +99,16 @@ fn log_runtime_recovered(
 }
 
 /// The persist-lane row for the status snapshot: the heaviest schema's lane
-/// pressure plus its exclusive hold time, or nothing when the lane is idle.
+/// pressure, or nothing when the lane is idle.
 pub(super) fn persist_lane_rows(
-    host: &Host,
     persist_lanes: &fold_db::resident::PersistLanePressure,
 ) -> Vec<crate::request_telemetry::PersistLaneOpRow> {
-    let exclusive_hold_us = if persist_lanes.heaviest_schema.is_empty() {
-        0
-    } else {
-        host.db
-            .mutation_manager()
-            .purge_stats_for_schema(&persist_lanes.heaviest_schema)
-            .exclusive_hold_us
-    };
     vec![crate::request_telemetry::PersistLaneOpRow {
         schema: persist_lanes.heaviest_schema.clone(),
         reserved_bytes: persist_lanes.heaviest_bytes,
         queued_entries: persist_lanes.queued_entries,
         reserved_entries: persist_lanes.reserved_entries,
         oldest_age_ms: persist_lanes.oldest_age_ms,
-        exclusive_hold_us,
         refuse_bytes: persist_lanes.refuse_bytes,
         refuse_entries: persist_lanes.refuse_entries,
         refuse_unhealthy: persist_lanes.refuse_unhealthy,

@@ -69,20 +69,8 @@ impl MutationManager {
         siblings: bool,
     ) -> Result<(), SchemaError> {
         self.stage_native_headers(job, runtime, scope, siblings)?;
-        let mut atom_ids: Vec<_> = job
-            .deferred_atoms
-            .iter()
-            .flatten()
-            .map(|(atom, _)| atom.uuid().to_owned())
-            .collect();
-        atom_ids.sort();
-        atom_ids.dedup();
-        self.db_ops
-            .atoms()
-            .stage_atom_locators(runtime, scope, &atom_ids)
-            .await?;
-        // Schema-field/protein definitions are global. The data locations
-        // above and logical records below still use this request's scope.
+        // Schema-field/protein definitions are global. The logical records
+        // below use this request's scope.
         if !self
             .db_ops
             .atoms()
@@ -134,18 +122,6 @@ impl MutationManager {
         Ok(sources)
     }
 
-    fn path_atom_target(
-        &self,
-        tip: &ChangedTip,
-        scope: Option<&str>,
-    ) -> Result<(String, crate::atom::AtomPartition), SchemaError> {
-        let atoms = self.db_ops.atoms();
-        let hash = atoms.storage_hash(&tip.molecule, &tip.hash)?;
-        let partition = crate::atom::AtomPartition::for_slot(&tip.molecule, &hash);
-        let key = atoms.primary_atom_key(&tip.entry.atom_uuid, Some(&partition), scope);
-        Ok((key, partition))
-    }
-
     /// Fetch preferred targets, retaining each body's certified actual copy.
     async fn path_atoms(
         &self,
@@ -154,31 +130,22 @@ impl MutationManager {
     ) -> Result<Option<BTreeMap<String, CertifiedAtom>>, SchemaError> {
         let mut targets = BTreeMap::new();
         for tip in tips {
-            let (key, partition) = self.path_atom_target(tip, storage_prefix)?;
-            targets
-                .entry(key)
-                .or_insert((tip.entry.atom_uuid.as_str(), partition));
+            let key = self
+                .db_ops
+                .atoms()
+                .body_storage_key(&tip.entry.atom_uuid, storage_prefix);
+            targets.entry(key).or_insert(tip.entry.atom_uuid.as_str());
         }
         if targets.len() > 10_000 {
             return Ok(None);
         }
-        let slots: Vec<_> = targets
-            .values()
-            .map(|(id, partition)| (*id, Some(partition.clone())))
-            .collect();
-        let fetched = self
-            .db_ops
-            .atoms()
-            .get_atoms_located(&slots, storage_prefix)
-            .await?;
-        let expected: Vec<_> = fetched
-            .into_iter()
-            .map(|atom| {
-                atom.ok_or_else(|| SchemaError::StorageRead {
-                    detail: "native write path has no staged or stored atom content".into(),
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        let ids: Vec<&str> = targets.values().copied().collect();
+        let fetched = self.db_ops.atoms().get_atoms(&ids, storage_prefix).await?;
+        // A body that this scope does not hold makes the write fall back to
+        // the durable path. Memory keeps no path for a tip without a body.
+        let Some(expected) = fetched.into_iter().collect::<Option<Vec<_>>>() else {
+            return Ok(None);
+        };
         let runtime = self.db_ops.namespaced_store().disk_pack_runtime();
         let certified = crate::storage::disk_pack::logical_paths::source::certified_atoms(
             runtime,

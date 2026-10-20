@@ -46,7 +46,6 @@ impl SyncEngine {
         // outside this method, so its marker-only call skips these probes.
         if probe_compaction {
             self.maybe_compact_capture_reexport_plane().await;
-            self.maybe_compact_locator_plane().await;
             self.maybe_compact_tips_plane().await;
             self.maybe_compact_large_captured_planes().await;
             self.maybe_compact_residual_capture_free_planes().await;

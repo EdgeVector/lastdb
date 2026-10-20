@@ -307,7 +307,5 @@ mod generation_keys;
 pub use generation_keys::*;
 mod history_keys;
 pub use history_keys::*;
-mod atom_ref_keys;
-pub use atom_ref_keys::*;
 mod record_keys;
 pub use record_keys::*;

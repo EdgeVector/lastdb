@@ -22,14 +22,6 @@ impl SyncEngine {
         // it is draining, so this sits above `backup_blocked` too.
         self.maybe_compact_capture_reexport_plane().await;
 
-        // Same placement, same reason, for the `atom_locators` plane: an atom
-        // that is re-addressed overwrites its locator row, the overwrite is an
-        // append, and nothing prunes the superseded record. It reached 1.45 GiB
-        // on the primary with no byte-return path at all — the collection was
-        // not even on `COMPACT_ALLOWLIST`. Its rows are capture-skipped by the
-        // `aloc:` prefix, so the rewrite emits no mutation-log records.
-        self.maybe_compact_locator_plane().await;
-
         // `tips` is captured user state, but its physical LastStore rewrite is
         // capture-neutral under the outer wrapper. Trigger only on proportional
         // filesystem overhang and never while a backup cut is held.

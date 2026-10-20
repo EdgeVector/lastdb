@@ -14,7 +14,6 @@ mod restore;
 
 pub(in crate::fold_db_core::mutation_manager) use delta::PreparedSchemaDelta;
 pub(in crate::fold_db_core::mutation_manager) use persist::{
-    DeferredLaneWriter, DeferredPersistJob, LanePersistJob, MoleculeGateGuard, PurgeCompletion,
-    PurgeEnvelope, StorageSlotPurgeEnvelope,
+    DeferredLaneWriter, DeferredPersistJob, LanePersistJob, PurgeCompletion, PurgeEnvelope,
 };
 pub(in crate::fold_db_core::mutation_manager) use prepared::{PreparedSiblingUpdates, SiblingMove};

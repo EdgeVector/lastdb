@@ -92,43 +92,4 @@ pub(crate) enum DbInspectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Point-read one exact tip of a dropped receipt molecule.
-    /// Returns a key fingerprint and presence booleans, without subject data.
-    ProbeDroppedTip {
-        #[arg(long)]
-        schema: String,
-        #[arg(long)]
-        molecule: String,
-        #[arg(long)]
-        key_hash: String,
-        #[arg(long, default_value = "")]
-        key_range: String,
-        /// Select one storage form by the prior probe fingerprint.
-        #[arg(long)]
-        expected_key_fingerprint: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Sample the locator-only tip population (always read-only).
-    ///
-    /// Tips whose body is reachable only through the `aloc:` locator — not via
-    /// the tip-derived partition prefix or flat key. Default sample is 4096 tips
-    /// so this is safe on a live primary; raise `--max-tips` for a fuller walk.
-    /// Result is cached for `lastdb status` / `/api/status`.
-    ///
-    /// The budget is spread across 17 windows partitioning the `mk:` keyspace,
-    /// not spent on the first `--max-tips` keys: this class clusters by molecule
-    /// id, so a consecutive read of the head reports 0‰ on a store whose true
-    /// rate is 250‰.
-    ProbeLocatorOnly {
-        /// Cap how many tips this call classifies, across all windows
-        /// (default 4096).
-        #[arg(long)]
-        max_tips: Option<usize>,
-        /// Raw `mk:` rows per range page.
-        #[arg(long)]
-        tip_page: Option<usize>,
-        #[arg(long)]
-        json: bool,
-    },
 }

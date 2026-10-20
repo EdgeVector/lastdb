@@ -12,8 +12,7 @@ pub(crate) enum DbReclaimCommand {
     ///
     /// Current collections: schemas, schema_states, schema_index, tips,
     /// metadata, idempotency, change_feed, sync_pin_log, sync_capture_reexport,
-    /// keep_small, atoms, atom_locators, atom_ref_edges_v2, blob_ref_edges,
-    /// proteins and cas_blobs.
+    /// keep_small, atoms, blob_ref_edges, proteins and cas_blobs.
     Compact {
         /// One collection (e.g. `schemas`). Omit with `--all` (or omit both)
         /// to compact every allowlisted plane except `cas_blobs`.
@@ -51,25 +50,7 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Delete orphan atom bodies with no current tip, history event or conflict reference.
-    ///
-    /// Without `--execute`, report the candidate counts only.
-    /// `--allow-after-peer-apply` permits deletion after this node receives peer writes.
-    GcAtoms {
-        /// Limit deletion candidates to one installed source schema.
-        #[arg(long)]
-        schema: Option<String>,
-        #[arg(long)]
-        execute: bool,
-        /// Accept that the atoms of a LOST multi-device write can be deleted.
-        /// Needed with `--execute` on a node that has applied a peer mutation
-        /// or whose peer history is unknown.
-        #[arg(long)]
-        allow_after_peer_apply: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// GC: delete local file blobs with no current atom or tip metadata reference.
+    /// GC: delete local file-blob rows no live atom references.
     ///
     /// The reclaim path for the sealed bytes a purge orphans: purge destroys
     /// the `$lastdb_file` pointer but blobs are shared across records, so
@@ -120,35 +101,7 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Reap tips of a dropped schema identity.
-    ///
-    /// Inspects bounded `schemaidx:` and `mk:` pages for one dropped identity.
-    /// Never scans `atom:`. Execute is closed until the delete and meter debit
-    /// use a replayable journal. Use `--cursor` to resume a dry run.
-    ///
-    /// `--field` computes `deterministic_molecule_uuid(schema, field)` and
-    /// ranges those `mk:` prefixes. Use this when reverse edges name no
-    /// molecules (LastGit after a pre-receipt catalog cut).
-    ReapDroppedSchema {
-        /// Canonical name or identity hash of the dropped schema.
-        #[arg(long)]
-        schema: String,
-        /// Field name on the dropped schema. Repeatable. Computes the
-        /// molecule UUID from `{schema}:{field}`.
-        #[arg(long = "field")]
-        fields: Vec<String>,
-        #[arg(long)]
-        execute: bool,
-        /// Max work units this pass (1..=4096; tip proof needs at least 2).
-        #[arg(long, default_value_t = 4096)]
-        max_ops: u64,
-        /// Opaque resume token from the previous page (invalid after restart).
-        #[arg(long)]
-        cursor: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Read the durable atom hard-delete audit trail (purge + gc-atoms), oldest first.
+    /// Read the durable atom hard-delete audit trail (purge and delete), oldest first.
     ///
     /// Answers "was this atom body deleted on purpose, or lost?" from the store's
     /// own evidence rather than a ~15h log window. The negative answer is the

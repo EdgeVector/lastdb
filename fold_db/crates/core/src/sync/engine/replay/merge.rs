@@ -3,7 +3,7 @@
 use super::super::SyncEngine;
 use crate::atom::{MergeConflict, MutationEvent};
 use crate::db_operations::{
-    home_conflict_event_key, next_home_conflict_event_seq, AtomStore, HomeConflictEvent,
+    home_conflict_event_key, next_home_conflict_event_seq, HomeConflictEvent,
 };
 use crate::schema::types::field::build_storage_key;
 use crate::sync::error::SyncResult;
@@ -31,15 +31,11 @@ impl SyncEngine {
     /// was never attached to a `FoldDB`, and no recorder (which lives in the
     /// atom store of a `FoldDB`) writes the same store in that process.
     ///
-    /// The `history:` row names both atoms, and a conflict loser can have no
-    /// other reference. Its reverse edges go through the compact v2 path
-    /// (`batch_put_items_with_atom_ref_v2`) when the atom store is attached,
-    /// so the delete gate (`has_active_atom_refs`) sees them. They are
-    /// written first: an edge without its row only over-retains, a row without
-    /// its edge would leave the loser unprotected after a crash.
+    /// This path writes no atom counter. Cloud sync replay is off in this
+    /// build, and the writer-boundary lint lists this file as a known writer
+    /// that a later step moves through the planner.
     pub(super) async fn store_merge_conflicts(
         kv: &Arc<dyn crate::storage::traits::KvStore>,
-        atoms: Option<&AtomStore>,
         mol_uuid: &str,
         storage_prefix: Option<&str>,
         conflicts: &[MergeConflict],
@@ -55,7 +51,6 @@ impl SyncEngine {
         };
         let mut mcc_dirty = false;
         let mut writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(conflicts.len() * 4 + 1);
-        let mut edge_items: Vec<(String, serde_json::Value)> = Vec::new();
         let mut event_keys = Vec::with_capacity(conflicts.len());
         for (i, conflict) in conflicts.iter().enumerate() {
             let ts_nanos = now.timestamp_nanos_opt().unwrap_or(0) + i as i64;
@@ -65,7 +60,6 @@ impl SyncEngine {
                 ConflictStamp { now, ts_nanos },
                 conflict,
                 &mut writes,
-                &mut edge_items,
                 &mut event_keys,
             )?;
 
@@ -83,24 +77,6 @@ impl SyncEngine {
         if !conflicts.is_empty() {
             writes.push(Self::home_conflict_event_write(mol_uuid, storage_prefix)?);
         }
-        if !edge_items.is_empty() {
-            if let Some(atoms) = atoms {
-                // Boxed: the replay future is already deep in the node's
-                // async graph, and this call adds a second deep subtree.
-                Box::pin(atoms.batch_put_items_with_atom_ref_v2(edge_items, storage_prefix))
-                    .await
-                    .map_err(|error| crate::sync::SyncError::Storage(error.to_string()))?;
-            } else {
-                // No atom store attached: keep the v1 rows in the ordered
-                // batch, ahead of the row they describe.
-                let mut ordered = Vec::with_capacity(edge_items.len() + writes.len());
-                for (key, edge) in edge_items {
-                    ordered.push((key.into_bytes(), serde_json::to_vec(&edge)?));
-                }
-                ordered.append(&mut writes);
-                writes = ordered;
-            }
-        }
         if !writes.is_empty() {
             // The authoritative history row and the other rows use one ordered
             // durable batch. A successful return exposes the complete set.
@@ -113,7 +89,7 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Append the history row, its edges and the conflict-index record for one
+    /// Append the history row and the conflict-index record for one
     /// conflict. Returns the conflict record id for the `mcc:{M}` cache.
     fn push_conflict_writes(
         mol_uuid: &str,
@@ -121,7 +97,6 @@ impl SyncEngine {
         stamp: ConflictStamp,
         conflict: &MergeConflict,
         writes: &mut Vec<(Vec<u8>, Vec<u8>)>,
-        edge_items: &mut Vec<(String, serde_json::Value)>,
         event_keys: &mut Vec<String>,
     ) -> SyncResult<String> {
         let ConflictStamp { now, ts_nanos } = stamp;
@@ -162,14 +137,6 @@ impl SyncEngine {
         let event_key = build_storage_key(storage_prefix, &event_base_key);
         let event_bytes = serde_json::to_vec(&event)?;
         writes.push((event_key.as_bytes().to_vec(), event_bytes));
-        edge_items.extend(
-            crate::db_operations::atom_store::atom_ref_edges::mutation_history_edge_items(
-                &event_key,
-                &event,
-                storage_prefix,
-            )
-            .map_err(|error| crate::sync::SyncError::Serialization(error.to_string()))?,
-        );
         event_keys.push(event_key);
 
         // Also store in dedicated conflict index for efficient scanning

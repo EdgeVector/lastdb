@@ -65,9 +65,6 @@ impl SyncEngine {
                         }
                     }
                 }
-                // Durable before the first peer data lands, after every early
-                // return above (a refused or preserved entry applies nothing).
-                self.mark_peer_apply_before_replay(entry).await?;
                 self.replay_entry_inner(entry, target).await?;
                 Ok(ReplayEntryOutcome::Applied)
             }),

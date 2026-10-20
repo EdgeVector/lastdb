@@ -82,14 +82,6 @@ impl AtomStore {
             .map_err(|_| refused("retired intent root store is unavailable"))
     }
 
-    pub(crate) async fn retired_intent_atom_roots(
-        &self,
-        ids: &[String],
-        prefix: Option<&str>,
-    ) -> Result<HashSet<String>, SchemaError> {
-        self.retired_target_roots("atom", ids, prefix).await
-    }
-
     pub(crate) async fn retired_intent_blob_roots(
         &self,
         ids: &[String],

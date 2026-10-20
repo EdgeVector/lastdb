@@ -21,16 +21,6 @@ pub(super) fn purge_release_hook(job: &mut PurgeEnvelope) -> Option<Box<dyn FnOn
     }))
 }
 
-pub(super) fn storage_slot_release_hook(
-    job: &mut StorageSlotPurgeEnvelope,
-) -> Option<Box<dyn FnOnce() + Send>> {
-    let message = job.pending_completion.take()?;
-    let tx = job.completion.take()?;
-    Some(Box::new(move || {
-        let _ = tx.send(message);
-    }))
-}
-
 #[async_trait::async_trait]
 impl crate::resident::PersistLaneWriter<LanePersistJob> for DeferredLaneWriter {
     async fn write_batch(
@@ -146,7 +136,6 @@ impl DeferredLaneWriter {
     ) -> Result<(), String> {
         let author_clock_barrier = match &envelope.payload {
             LanePersistJob::Purge { job, .. } => job.author_clock_barrier.as_ref(),
-            LanePersistJob::StorageSlotPurge { .. } => None,
         };
         if let Some(barrier) = author_clock_barrier {
             barrier
@@ -170,12 +159,6 @@ impl DeferredLaneWriter {
                 Ok(()) => LaneStep::Done(purge_release_hook(job)),
                 Err(error) => LaneStep::Failed(error),
             },
-            LanePersistJob::StorageSlotPurge { job, .. } => {
-                match self.mm.run_storage_slot_purge_job(job).await {
-                    Ok(()) => LaneStep::Done(storage_slot_release_hook(job)),
-                    Err(error) => LaneStep::Failed(error),
-                }
-            }
         }
     }
 }

@@ -16,8 +16,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Extend the list in a later card if another sealed plane needs the same
 /// pass. Unknown names return a skipped report, they do not scan.
-pub const RESEAL_AT_REST_ALLOWLIST: &[&str] =
-    &["atoms", "tips", "metadata", "change_feed", "atom_locators"];
+pub const RESEAL_AT_REST_ALLOWLIST: &[&str] = &["atoms", "tips", "metadata", "change_feed"];
 
 /// Metadata key prefix for the durable per-plane resume checkpoint.
 pub const RESEAL_CHECKPOINT_KEY_PREFIX: &str = "amigr:reseal_at_rest_v2:";

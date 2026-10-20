@@ -1,8 +1,7 @@
 //! The `main` key-prefix classes the live byte inventory reports.
 
 pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
-    ("atom_content", "atom\0", "atom\0{uuid} — field values"),
-    ("located_atom_content", "atom:mk:", "atom:mk:{molecule}:{hash}\0{uuid} — field values"),
+    ("atom_content", "atom:", "atom:{uuid}\\0b — field values"),
     (
         "mutation_history",
         "history\0",

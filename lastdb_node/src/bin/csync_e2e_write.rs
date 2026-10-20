@@ -48,7 +48,7 @@ async fn main() {
     let ts = fold_db::clock::unix_secs();
 
     for i in 0..n {
-        let atom_key = format!("atom:csync-e2e-{i:04}");
+        let atom_key = format!("atom:csync-e2e-{i:04}\0b");
         let tip_key = format!("mk:csync-e2e:{i:04}\0");
         let val = format!("payload-{i}-ts-{ts}");
         atoms

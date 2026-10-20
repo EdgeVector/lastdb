@@ -30,7 +30,6 @@ fn data_namespace(namespace: &str) -> bool {
         "main"
             | "atoms"
             | "tips"
-            | "atom_locators"
             | "indexes"
             | "proteins"
             | "mutation_history"

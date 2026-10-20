@@ -1,8 +1,7 @@
-//! Owner-facing DB inventory, history, GC and logical repair.
+//! Owner-facing DB inventory, history and logical repair.
 
 use crate::db_operations::{
-    AtomDeleteLedgerEntry, AtomGcReport, DanglingTipRepairOptions, DanglingTipRepairReport,
-    DbInventory, DroppedSchemaReapCursor, HistoryClearReport, ProteinGcReport,
+    AtomDeleteLedgerEntry, DbInventory, HistoryClearReport, ProteinGcReport,
     SchemaCurrentStorageReport, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
     SchemaRecordKey, SchemaRecordKeysReport, SchemaStorageReport, LIVE_ATTRIBUTION_EPOCH_ID,
 };
@@ -16,9 +15,10 @@ use crate::access::AccessContext;
 
 use super::FoldDB;
 
-mod atom_gc;
+mod counters;
 mod error;
 mod maintenance;
+mod orphan_gc;
 mod repair;
 mod retention;
 mod schema_keys;

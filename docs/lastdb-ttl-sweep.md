@@ -41,25 +41,22 @@ selected, the two verbs, what each verb leaves on disk, and the four knobs.
 
 | `LASTDB_TTL_SWEEP_VERB` | Meaning |
 |---|---|
-| `purge` (default) | The hard-erasure verb. It deletes the tips, the tip-version (`tv:`) chain, the legacy history rows of the key and the atom bodies that no other key references. It writes no delete barrier. A molecule made on a current build has no reverse-reference manifest, so each batch loads every row of every field of the schema. A batch holds the schema purge barrier while it runs, and writes to that schema wait for it. It frees atom bytes at once, also on a node that has applied a peer mutation. The delete ledger row has the caller `ttl-sweep-purge`. |
-| `delete` | The ordinary delete a client uses. It removes the tips and the `tv:` chain, needs only the keys of the batch, and holds no schema barrier. It leaves the atom bodies and the legacy history rows to garbage collection, and it writes two delete barrier records for each field of each key (see Why `purge` is the default). The delete ledger row has the caller `ttl-sweep-delete`. A client erase has the caller `mutation-pipeline`. |
+| `purge` (default) | The hard-erasure verb. It deletes the tips of the key. The atom counter deletes each body whose last tip goes, in the same batch. It writes no delete barrier. |
+| `delete` | The ordinary delete a client uses. It removes the tips and writes the delete barrier. The atom counter deletes each body whose last tip goes, in the same batch. |
 
 Both verbs leave the conflict records, and both leave one `mgd:v1:` record for each field of
 each key (see Records that stay).
 
 Any other value logs one warning at the first sampler tick and uses `purge`.
 
-CAUTION: With `delete` the atom bodies stay until `gc-atoms` deletes them. Automatic `gc-atoms`
-waits for the grace window (24 hours by default), and it is off on a node that has applied a peer
-mutation (see `docs/lastdb-atom-refcount-grace-window-gc.md`, the peer-apply interlock). On such a
-node a `delete` sweep frees the tips and no atom bytes.
+Both verbs free the atom bodies at once. The counter record of each atom decides
+(`docs/lastdb-atom-counter.md`). No audit, no grace window and no `gc-atoms` verb exists.
 
 ## Why `purge` is the default
 
 `delete` leaves two `rdel:v2:` barrier rows for each field of each key, and nothing prunes them.
 On a 3-field schema that is about 3,170 B for each key and field, and about 28.6 GB for a log that
-expires 100,000 records per day for 30 days. `purge` writes no barrier. The measured numbers
-are in the next section.
+expires 100,000 records per day for 30 days. `purge` writes no barrier.
 
 What `delete` buys: the barrier stops an older write from bringing the key back. A write that
 a peer made before the sweep and did not yet sync, and the replay of an older log, are the cases.
@@ -71,46 +68,59 @@ is not verified.
 Condition to switch the default to `delete`: a prune horizon for the barriers that is safe for
 every peer. Today no code knows a maximum offline time for a device and no code prunes a barrier.
 
-## Measured cost of each verb
+## Measured cost
 
-Synthetic fresh home, release build, EXEMEM_ENV=dev. One HashRange schema with 3 fields. 2,000
-expired keys (6,000 key and field pairs), all swept in one pass with the knobs set to
-batch 64, duty 100 and no minimum rest. Then two `gc-atoms --execute` laps and
-`lastdb db compact --collection <name> --execute` on every plane. Row classes of the `tips`
-collection were counted on the stopped home.
+Synthetic fresh home, development-release build, `EXEMEM_ENV=dev`, default knobs (batch 16,
+duty 25, minimum rest 25 ms), verb `purge`. One HashRange schema with 6 fields and 2,400 rows
+(2,100 expired) and 150-byte bodies. Two writers: one on the swept schema and one on a second
+schema (one small durable write every 100 ms each). The host load of the final run was 3 to 4. The `main` column is
+the build before the counter (`main` at `8ed44f56`); it ran in the same hour as an earlier run of the
+branch (host load 4 to 5). The `with the counter` column is the final run of the branch after the merge of #239 (`a9eb17526`).
 
-| | `purge` | `delete` |
+| | `main` before the counter | with the counter |
 |---|---|---|
-| Records per second | 22.1 (90.5 s) | 21.0 (95.2 s) |
-| Host load during the run (1 minute average) | 4.9 to 6.8 (mean 5.4) | 8.0 to 11.0 (mean 9.3) |
-| `rdel:v2:` barrier rows | 0 | 12,000 (about 3,006 B per key and field) |
-| `mgd:v1:` rows | 6,000 (654 B per key and field) | 6,000 (654 B per key and field) |
-| Other rows that stay in `tips` | 32 ledger rows, 7 small rows | 32 ledger rows, 4 small rows |
-| `tips` on disk after compaction | 4.25 MB (708 B per key and field) | 23.29 MB (3,881 B per key and field) |
-| `atoms` on disk after compaction | 34 KB | 1.14 MB (190 B per key and field) |
-| After 2 `gc-atoms` laps and compaction | no class shrinks | no class shrinks |
+| Keys erased | 0 in 782 s | 2,100 in 497 s (4.22 keys per second, 132 batches) |
+| Sweep result | each pass fails: `read resource limit exceeded`, because the old purge read the whole schema | every pass succeeds |
+| Time of one batch of 16 keys | no batch finished | median 0.67 s, shortest 0.24 s, longest 3.13 s (131 full batches) |
+| Hold of the native write gate for one erase request | not measured | median 45 ms, longest 123 ms |
+| Hold of the schema purge barrier | the barrier exists | the barrier is gone |
+| Writes to the swept schema during the sweep | p50 470 ms, p95 1,124 ms, longest 16.6 s | p50 423 ms, p95 994 ms, longest 2.4 s |
+| Writes to the second schema during the sweep | p50 446 ms, p95 1,146 ms, longest 2.9 s | p50 404 ms, p95 1,019 ms, longest 2.1 s |
+| A client `purge` of 16 keys of the swept schema | HTTP 503 after 73.9 s | HTTP 200 after 0.61 s |
 
-The `gc-atoms` laps scanned 0 atoms and reported `prune_more_remaining`, so they did not reach
-the atom scan. Compaction found every `tips` row live. A run with 400 keys gave 3,170 B per key
-and field of barrier rows, so the cost is linear.
+The write latencies are mostly the durable wait of each writer (the flush interval is 500 ms).
+The erase takes the write gate for 45 ms, so a writer never waits for a sweep batch.
 
-Throughput at the default knobs (batch 16, duty 25, minimum rest 25 ms) for `purge` on a larger
-schema: one HashRange schema with 6 fields and 2,400 rows (2,100 expired) and 150-byte bodies,
-one writer on the swept schema and one on a second schema (one small write every 100 ms each),
-host load 6 to 13. The run stopped at 780 s.
+A `purge` batch reads about 2 records for each tip it removes, so its cost follows the number of
+keys and fields of the batch. It never follows the size of the schema. A purge of 64 keys of a
+24-field schema (1,536 tips, 6,046 operations) held the gate for 215 to 255 ms and took 0.66 to
+1.6 s.
 
-| | `purge`, default knobs |
-|---|---|
-| Keys erased | 96 in 13 minutes (6 batches), so 0.10 records per second |
-| Time of one batch of 16 keys | 16 to 76 s (median 31 s) |
-| Hold of the schema purge barrier per batch | 4.4 to 36.1 s (median 11.9 s) |
-| Writes to the swept schema during the sweep | p50 519 ms, p95 912 ms, longest 36.8 s |
-| Writes to the second schema during the sweep | p50 239 ms, p95 474 ms, longest 1.7 s |
+## Batch size and the request limit
 
-A `purge` batch loads every row of every field of the schema, so its cost follows the size of the
-schema and not the size of the batch. The 3-field run above took 2.9 s for 64 keys. This 6-field
-run took 31 s for 16 keys. A larger batch lowers the cost for each key and does not lengthen the
-stall for each batch. The default batch is 16 for both verbs.
+One erase request stages all its chunks of 64 keys in one native batch. A batch holds at most
+16,384 operations (4,096 on a home from an older build), and the reads of the request share a
+budget of 40,000 examined keys. A tip costs at most 4 operations in a `purge` (the tip delete, the
+`mgd` marker, and the body and counter deletes) and 5 in a `delete` (one barrier row more). It costs
+at most 12 and 13 examined keys. A chunk adds `F + 8` of each for F fields. The node counts the
+request before it takes the write gate (`fold_db_core/purge/budget.rs`). A client request that is
+too big returns HTTP 400 at once, with the key count that fits, for example: "this purge of 200 keys
+of 24 fields needs up to 19328 storage operations and 57728 reads; one request holds at most 16384
+operations and 40000 reads; send at most 138 keys of 24 fields in one request".
+
+| Schema | `purge`, fresh home | `delete`, fresh home | `purge`, older home | `delete`, older home |
+|---|---|---|---|---|
+| 6 fields | 553 keys | 511 keys | 168 keys | 135 keys |
+| 24 fields | 138 keys | 128 keys | 42 keys | 33 keys |
+| 48 fields | 69 keys | 64 keys | 21 keys | 16 keys |
+| 300 fields | 11 keys | 10 keys | 3 keys | 2 keys |
+
+The sweep cuts its batch to the smaller of the pace (`LASTDB_TTL_SWEEP_BATCH`, default 16) and the
+key count that fits its schema. The bound is an estimate, so a batch that still hits a size limit
+changed nothing: the sweep halves it for that schema and retries, and it does not skip the schema.
+The default of 16 fits a schema of up to about 200 fields on a fresh home and about 60 on an older
+home. A schema of 300 fields gets batches of 11 keys on a fresh home (measured: 13,487 operations in
+the largest batch, no failure).
 
 ## The write-time guard (Hash and Single schemas)
 
@@ -121,10 +131,9 @@ reads as old, so without a guard the erase would remove it.
 The sweep sends the cutoff of the batch with each erase of a Hash or Single key. Each verb
 compares the write time of the tip itself with the cutoff:
 
-- `purge`: the enqueue of the erase holds the molecule write locks of the slots. No writer can
-  acknowledge a write to them while it holds the locks. It reads the resident tip and the tip on
-  disk of every field of each key. A key with a tip at or after the cutoff is dropped from the
-  batch, and the batch is planned again without it.
+- `purge`: the erase runs inside the native write gate. It reads the tip on disk of every field
+  of each key. A key with a tip at or after the cutoff keeps all its tips, and the other keys of
+  the batch go on. No writer can acknowledge a write between the read and the batch.
 - `delete`: the cutoff is a field of the local delete barrier. The barrier test that runs under
   the tip lock spares a tip written at or after the cutoff. It works for each field, so a rewrite
   of one field spares only that field.
@@ -184,11 +193,8 @@ The rest after a batch is `took * (100 - duty) / duty`, at least the minimum res
 10 minutes. The duty share is exact for a batch of up to 200 seconds at the default duty. After a
 slower batch the rest is 10 minutes, and the real share is `took / (took + 600 s)`.
 
-A stop waits for the batch in flight. It cannot cancel it. A `delete` batch of 16 keys takes
-seconds. A `purge` batch takes as long as the proof over the schema, which grows with the schema.
-Measured stop times: 13.3 s with a `purge` batch in flight (2,400 rows, batch 16), 1.0 s while the
-pass rested between batches, and 0.8 to 0.9 s with a `delete` batch. A `purge` batch of 16 keys
-took up to 76 s on the 6-field schema above, and a stop can wait that long.
+A stop waits for the batch in flight. It cannot cancel it. A batch of 16 keys takes about one
+second.
 
 `RUST_LOG=lastdbd::ttl_sweep=debug` prints one line per batch with the phase times.
 

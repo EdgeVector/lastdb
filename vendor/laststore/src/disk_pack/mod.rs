@@ -84,13 +84,20 @@ pub const FEATURE_LARGE_BATCHES: u64 = 32;
 /// Older readers reject this feature before they can open a packed-key tree.
 pub const FEATURE_PACKED_KEYS: u64 = 64;
 
+/// Every atom body is one record at `atom:{uuid}\0b` in the `atoms` collection.
+/// A home without this bit used the older flat, partition-prefix, or locator
+/// layouts, and a build that holds this bit refuses it. An older build refuses
+/// a home with this bit.
+pub const FEATURE_ATOM_RECORDS: u64 = 128;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_JOURNAL_LIFECYCLE
     | FEATURE_NATIVE_HOME
     | FEATURE_FILE_LIFETIME
     | FEATURE_SCHEMA_RECORD_REFS
     | FEATURE_LARGE_BATCHES
-    | FEATURE_PACKED_KEYS;
+    | FEATURE_PACKED_KEYS
+    | FEATURE_ATOM_RECORDS;
 
 const LEGACY_BATCH_OPERATIONS: usize = 4096;
 const LARGE_BATCH_OPERATIONS: usize = 16_384;

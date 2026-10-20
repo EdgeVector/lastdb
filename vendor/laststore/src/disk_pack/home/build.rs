@@ -21,19 +21,34 @@ pub struct HomeGroupWriter<'a> {
 
 impl HomeBuilder {
     /// Create an empty LastDB home fenced against writers that omit record-R
-    /// reverse edges. Generic conversion never grants this derived authority:
-    /// opaque imported completeness bytes can originate from an older writer.
+    /// reverse edges, and against writers that use another atom record layout.
+    /// Generic conversion never grants this derived authority: opaque imported
+    /// completeness bytes and atoms can originate from an older writer, and
+    /// they sit at older atom keys.
     pub fn create_empty_with_schema_record_refs(
         root: &Path,
         descriptor: HomeDescriptor,
     ) -> Result<Current> {
-        let mut builder = Self::create(root, descriptor, 0)?;
-        builder.inner.required_features |= crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS;
+        let mut builder = Self::create_fenced(root, descriptor, 0)?;
+        builder.inner.required_features |=
+            crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS | crate::disk_pack::FEATURE_ATOM_RECORDS;
         builder.finish()
     }
 
+    /// A generic builder makes a home with no atom-record feature, and this
+    /// build refuses to open such a home. Refuse at the start, before the
+    /// builder creates anything, with the message of the fence.
+    pub fn create(_root: &Path, _descriptor: HomeDescriptor, _frontier: u64) -> Result<Self> {
+        Err(crate::Error::Config(
+            "unsupported atom record layout: a generic home builder or conversion makes a home \
+             with no atom-record feature, and this build refuses such a home; nothing was created"
+                .into(),
+        ))
+    }
+
     /// Create only at a nonexistent destination. Never modify the source home.
-    pub fn create(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {
+    /// The caller sets the atom-record feature before it finishes.
+    fn create_fenced(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {
         descriptor.validate()?;
         let inner = ArtifactBuilder::create_native(root, &descriptor, frontier)?;
         Ok(Self { descriptor, inner })

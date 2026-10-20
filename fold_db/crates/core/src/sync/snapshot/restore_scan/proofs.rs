@@ -3,12 +3,7 @@
 use super::*;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
-const REFERENCE_PROOFS: [&str; 4] = [
-    "aref:v2:m:complete",
-    "aref:v2:m:history-complete",
-    "mref:v1:complete",
-    "bref:v2:complete",
-];
+const REFERENCE_PROOFS: [&str; 2] = ["mref:v1:complete", "bref:v2:complete"];
 
 pub(in crate::sync::snapshot) struct ReferenceRestoreProofs {
     rows: Vec<(Vec<u8>, Vec<u8>)>,

@@ -108,14 +108,7 @@ async fn collect_schema_records(
             let Some(atom_uuid) = field.current_atom_uuid(&key) else {
                 continue;
             };
-            // Slot in scope — name the partition instead of paying the
-            // locator hop on every row of a full index rebuild.
-            let hint = field.partition_hint(&key);
-            let Some(atom) = ops
-                .atoms()
-                .get_atom_by_uuid_in_partition(&atom_uuid, hint.as_ref(), None)
-                .await?
-            else {
+            let Some(atom) = ops.atoms().get_atom_by_uuid(&atom_uuid, None).await? else {
                 continue;
             };
             if is_tombstone_value(atom.content()) {

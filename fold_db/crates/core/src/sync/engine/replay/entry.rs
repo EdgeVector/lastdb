@@ -107,16 +107,11 @@ impl SyncEngine {
                 ReplayCause::DeleteBarrierIdentityMismatch,
             ));
         }
-        let pending = self
-            .automatic_gc_atom_store
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|atoms| {
-                std::str::from_utf8(key)
-                    .ok()
-                    .and_then(|key| atoms.pending_delete_barrier(key))
-            });
+        let pending = self.atom_store.lock().await.as_ref().and_then(|atoms| {
+            std::str::from_utf8(key)
+                .ok()
+                .and_then(|key| atoms.pending_delete_barrier(key))
+        });
         let mut winner = v2;
         if let Some(candidate) = pending {
             if winner

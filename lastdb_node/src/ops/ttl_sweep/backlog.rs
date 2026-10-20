@@ -7,6 +7,12 @@ use fold_db::schema::types::KeyValue;
 pub(super) struct Backlog {
     pub(super) schema_name: String,
     pub(super) schema_type: DeclarativeSchemaType,
+    /// Fields of the schema. A batch of keys must fit in one native batch, and
+    /// its size follows from this count.
+    pub(super) fields: usize,
+    /// A cap on the batch size after a batch hit a size limit. `usize::MAX`
+    /// means no cap.
+    batch_cap: usize,
     /// The cutoff of the listing: a key older than this was expired then.
     pub(super) cutoff: u64,
     keys: Vec<KeyValue>,
@@ -18,12 +24,15 @@ impl Backlog {
     pub(super) fn new(
         schema_name: String,
         schema_type: DeclarativeSchemaType,
+        fields: usize,
         cutoff: u64,
         keys: Vec<KeyValue>,
     ) -> Self {
         Self {
             schema_name,
             schema_type,
+            fields,
+            batch_cap: usize::MAX,
             cutoff,
             keys,
             next: 0,
@@ -53,6 +62,18 @@ impl Backlog {
         let chunk = self.keys[self.next..end].to_vec();
         self.next = end;
         chunk
+    }
+
+    /// The batch size cap that earlier size limit refusals set.
+    pub(super) fn batch_cap(&self) -> usize {
+        self.batch_cap
+    }
+
+    /// A batch of `taken` keys hit a size limit. Put its keys back and cap the
+    /// next batch at half of it, at least one key.
+    pub(super) fn shrink_after_limit(&mut self, taken: usize) {
+        self.next = self.next.saturating_sub(taken);
+        self.batch_cap = (taken / 2).max(1);
     }
 
     /// Give up the keys that are left, for example when the policy is gone.

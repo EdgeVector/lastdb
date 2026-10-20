@@ -111,7 +111,7 @@ pub(super) async fn export_main_rows(
             output.push((
                 format!(
                     "{fresh}:{}",
-                    crate::kind_partition::anchored("atom", atom.uuid())
+                    crate::atom::atom_key_codec::body_key(atom.uuid())
                 )
                 .into_bytes(),
                 crate::crypto::seal_at_rest_utf8(target_key, &bytes).map_err(error)?,
@@ -286,7 +286,7 @@ fn reachable_atom_keys(
     for key in physical.keys() {
         let (scope, bare) = org_rows::bare(key);
         if scope == instance {
-            if let Some(id) = crate::atom::atom_key_codec::uuid_of(bare) {
+            if let Some(id) = crate::atom::atom_key_codec::body_uuid_of(bare) {
                 if owners.contains_key(id) {
                     keys.entry(id.to_string()).or_insert_with(|| key.clone());
                 }

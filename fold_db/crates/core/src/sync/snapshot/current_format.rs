@@ -40,24 +40,20 @@ impl Snapshot {
             .ok_or_else(|| {
                 SyncError::Serialization("backup lacks the current main namespace".to_string())
             })?;
-        let required = [
-            "layout:v2:keys",
-            crate::atom::atom_key_codec::ATOM_KEY_ENCODING_MARKER_KEY,
-        ];
-        let mut found = [false; 2];
+        let required = "layout:v2:keys";
+        let mut found = false;
         for entry in &namespace.entries {
             let key = BASE64.decode(&entry.key).map_err(|error| {
                 SyncError::Serialization(format!("invalid key base64: {error}"))
             })?;
-            for (i, required) in required.iter().enumerate() {
-                if key == required.as_bytes() {
-                    found[i] = true;
-                }
+            if key == required.as_bytes() {
+                found = true;
+                break;
             }
         }
-        if found.iter().any(|found| !found) {
+        if !found {
             return Err(SyncError::Serialization(
-                "backup lacks the current key format markers".to_string(),
+                "backup lacks the current key format marker".to_string(),
             ));
         }
         Ok(())

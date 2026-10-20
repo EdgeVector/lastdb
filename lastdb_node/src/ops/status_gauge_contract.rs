@@ -17,10 +17,9 @@ use std::collections::HashMap;
 use super::gauge::Gauge;
 use super::self_metrics::{
     AtomRefEdgeHealth, BackupProgressHealth, BackupStorageHealth, BuildHealth, CodecPolicyHealth,
-    DurabilityHealth, FileBlobHealth, IntegrityHealth, LimitsHealth, LocatorOnlyHealth,
-    LogStreamHealth, MemoryBudgetHealth, MemoryGuardMetric, MoleculeGateHealth, QosHealth,
-    ReadCostHealth, ResidentHealth, SamplerStatus, StatusSnapshot, SyncHealth, UdsPoolHealth,
-    WatchersHealth,
+    DurabilityHealth, FileBlobHealth, IntegrityHealth, LimitsHealth, LogStreamHealth,
+    MemoryBudgetHealth, MemoryGuardMetric, QosHealth, ReadCostHealth, ResidentHealth,
+    SamplerStatus, StatusSnapshot, SyncHealth, UdsPoolHealth, WatchersHealth,
 };
 use crate::request_telemetry::RequestTelemetrySnapshot;
 
@@ -167,12 +166,6 @@ fn collect_sampler(out: &mut Vec<GaugeContractEntry>, s: &SamplerStatus) {
     );
 }
 
-fn collect_molecule_gate(out: &mut Vec<GaugeContractEntry>, m: &MoleculeGateHealth) {
-    push_gauge(out, "molecule_gate.hold_total_us", &m.hold_total_us);
-    push_gauge(out, "molecule_gate.hold_count", &m.hold_count);
-    push_gauge(out, "molecule_gate.hold_max_us", &m.hold_max_us);
-}
-
 fn collect_resident(out: &mut Vec<GaugeContractEntry>, r: &ResidentHealth) {
     push_gauge(
         out,
@@ -242,16 +235,8 @@ fn collect_integrity(out: &mut Vec<GaugeContractEntry>, i: &IntegrityHealth) {
 }
 
 fn collect_atom_ref_edges(out: &mut Vec<GaugeContractEntry>, a: &AtomRefEdgeHealth) {
-    push_gauge(out, "atom_ref_edges.v1_bytes", &a.v1_bytes);
-    push_gauge(out, "atom_ref_edges.v2_bytes", &a.v2_bytes);
-    push_gauge(out, "atom_ref_edges.active_edges", &a.active_edges);
-    push_gauge(out, "atom_ref_edges.inactive_keys", &a.inactive_keys);
-    push_gauge(out, "atom_ref_edges.bytes_per_edge", &a.bytes_per_edge);
-    push_gauge(
-        out,
-        "atom_ref_edges.projected_final_bytes",
-        &a.projected_final_bytes,
-    );
+    push_gauge(out, "atom_ref_edges.molecule_bytes", &a.molecule_bytes);
+    push_gauge(out, "atom_ref_edges.blob_bytes", &a.blob_bytes);
 }
 
 fn collect_file_blob(out: &mut Vec<GaugeContractEntry>, f: &FileBlobHealth) {
@@ -262,37 +247,6 @@ fn collect_file_blob(out: &mut Vec<GaugeContractEntry>, f: &FileBlobHealth) {
         &f.absent_with_memo_distinct,
     );
     push_gauge(out, "file_blob.absent_without_memo", &f.absent_without_memo);
-}
-
-fn collect_locator_only(out: &mut Vec<GaugeContractEntry>, l: &LocatorOnlyHealth) {
-    push_gauge(out, "locator_only.tips_sampled", &l.tips_sampled);
-    push_gauge(out, "locator_only.max_tips", &l.max_tips);
-    push_gauge(out, "locator_only.strata", &l.strata);
-    push_gauge(out, "locator_only.strata_exhausted", &l.strata_exhausted);
-    push_gauge(out, "locator_only.locator_only", &l.locator_only);
-    push_gauge(
-        out,
-        "locator_only.body_at_derived_or_flat",
-        &l.body_at_derived_or_flat,
-    );
-    push_gauge(out, "locator_only.dangling", &l.dangling);
-    push_gauge(out, "locator_only.other_unresolved", &l.other_unresolved);
-    push_gauge(
-        out,
-        "locator_only.locator_only_per_mille",
-        &l.locator_only_per_mille,
-    );
-    push_gauge(
-        out,
-        "locator_only.dangling_per_mille",
-        &l.dangling_per_mille,
-    );
-    push_gauge(out, "locator_only.prev_dangling", &l.prev_dangling);
-    push_gauge(
-        out,
-        "locator_only.dangling_recurrence_per_hour",
-        &l.dangling_recurrence_per_hour,
-    );
 }
 
 fn collect_read_cost(out: &mut Vec<GaugeContractEntry>, r: &ReadCostHealth) {
@@ -523,10 +477,6 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     collect_integrity(&mut gauges, &snapshot.integrity);
     collect_atom_ref_edges(&mut gauges, &snapshot.atom_ref_edges);
     collect_file_blob(&mut gauges, &snapshot.file_blob);
-    if let Some(ref lo) = snapshot.locator_only {
-        collect_locator_only(&mut gauges, lo);
-    }
-    collect_molecule_gate(&mut gauges, &snapshot.molecule_gate);
     if snapshot.at_rest_compression.is_some() {
         collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
     }
@@ -676,11 +626,9 @@ fn default_status_snapshot(
         integrity: IntegrityHealth::default(),
         atom_ref_edges: AtomRefEdgeHealth::default(),
         file_blob: FileBlobHealth::default(),
-        locator_only: None,
         purge_stats: HashMap::new(),
         local_retention: crate::self_metrics::LocalRetentionHealth::default(),
-        gc_atoms: None,
-        molecule_gate: MoleculeGateHealth::default(),
+        atom_counters: None,
         at_rest_compression: None,
         codec_policy: None,
     }

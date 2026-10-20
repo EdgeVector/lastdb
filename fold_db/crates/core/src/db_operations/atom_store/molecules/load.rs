@@ -200,60 +200,6 @@ impl AtomStore {
         )))
     }
 
-    /// Load only exact storage-form slots for a purge plan.
-    ///
-    /// Unlike [`Self::load_molecule_for_write`], this method does not encode
-    /// its inputs. A purge planner already resolved the durable hash/range
-    /// segments and must keep them in storage form through deletion.
-    pub(crate) async fn load_molecule_for_storage_slot_purge(
-        &self,
-        molecule_uuid: &str,
-        storage_prefix: Option<&str>,
-        slots: &[(String, String)],
-    ) -> Result<Option<MoleculeData>, SchemaError> {
-        let header_key = build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::header_key(molecule_uuid),
-        );
-        let Some(header): Option<MoleculeHeader> =
-            self.main_store.get_item(&header_key).await.map_err(|e| {
-                SchemaError::InvalidData(format!(
-                    "read molecule header {molecule_uuid} for purge: {e}"
-                ))
-            })?
-        else {
-            return Ok(None);
-        };
-
-        let keys: Vec<String> = slots
-            .iter()
-            .map(|(hash, range)| {
-                molecule_key_codec::hash_range_record_key(molecule_uuid, hash, range)
-            })
-            .collect();
-        let selected = self
-            .load_exact_per_key_records(storage_prefix, &keys)
-            .await?;
-        let mut records = Vec::with_capacity(slots.len());
-        for ((storage_hash, storage_range), rec) in slots.iter().zip(selected) {
-            if let Some(rec) = rec {
-                records.push((
-                    storage_hash.clone(),
-                    storage_range.clone(),
-                    rec.entry,
-                    rec.meta,
-                ));
-            }
-        }
-
-        Ok(Some(MoleculeHashRange::from_write_records(
-            molecule_uuid.to_string(),
-            header.version,
-            header.updated_at,
-            records,
-        )))
-    }
-
     /// Read `mh:{M}` at the exact storage prefix. `None` means the molecule
     /// is absent at that prefix.
     pub(crate) async fn read_header_exact_prefix<'a>(

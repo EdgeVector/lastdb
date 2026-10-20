@@ -1,6 +1,6 @@
 //! Exact logical membership for schemas that share physical field molecules.
 
-use crate::atom::{Atom, AtomPartition};
+use crate::atom::Atom;
 use crate::db_operations::DbOperations;
 use crate::schema::types::field::FieldVariant;
 use crate::schema::types::key_value::scalar_key_coordinate;
@@ -72,8 +72,8 @@ pub(crate) async fn logical_key_membership(
     Ok(matches)
 }
 
-/// Select each tip once and preserve its physical location through the shared
-/// required-body reader. Missing tips remain absent; missing bodies refuse.
+/// Select each tip once and read its body through the shared required-body
+/// reader. Missing tips remain absent; missing bodies refuse.
 async fn field_atoms(
     db_ops: &Arc<DbOperations>,
     field: &FieldVariant,
@@ -95,25 +95,18 @@ async fn field_atoms(
     }
     let mut selected = Vec::new();
     for (index, record) in records.into_iter().enumerate() {
-        let Some((base, record)) = record else {
+        let Some((_, record)) = record else {
             continue;
         };
         if record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
             continue;
         }
-        let partition =
-            AtomPartition::from_record_key(&base).ok_or_else(|| SchemaError::StorageRead {
-                detail: "logical membership tip has no physical atom location".into(),
-            })?;
-        selected.push((index, record.entry.atom_uuid, partition));
+        selected.push((index, record.entry.atom_uuid));
     }
-    let tips: Vec<_> = selected
-        .iter()
-        .map(|(_, uuid, partition)| (uuid.as_str(), Some(partition.clone())))
-        .collect();
+    let uuids: Vec<&str> = selected.iter().map(|(_, uuid)| uuid.as_str()).collect();
     let fetched =
-        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &tips, storage_prefix).await?;
-    for ((index, _, _), atom) in selected.into_iter().zip(fetched) {
+        crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &uuids, storage_prefix).await?;
+    for ((index, _), atom) in selected.into_iter().zip(fetched) {
         atoms[index] = Some(atom);
     }
     Ok(atoms)

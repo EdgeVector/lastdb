@@ -1,7 +1,6 @@
 //! Certify the source's declared key fields at their selected atom locations.
 
 use super::*;
-use crate::atom::AtomPartition;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn source_coordinates_match(
@@ -65,18 +64,8 @@ impl MutationManager {
             .into_iter()
             .zip(selected)
             .map(|((index, coordinate), record)| {
-                if let Some((base, record)) = record {
-                    Ok(Some((
-                        index,
-                        coordinate,
-                        record.entry.atom_uuid,
-                        Some(AtomPartition::from_record_key(&base).ok_or_else(|| {
-                            SchemaError::StorageRead {
-                                detail: "protein source-coordinate tip has no physical location"
-                                    .into(),
-                            }
-                        })?),
-                    )))
+                if let Some((_, record)) = record {
+                    Ok(Some((index, coordinate, record.entry.atom_uuid)))
                 } else {
                     valid[index] = false;
                     Ok(None)
@@ -86,17 +75,14 @@ impl MutationManager {
             .into_iter()
             .flatten()
             .collect();
-        let tips: Vec<_> = selected
-            .iter()
-            .map(|(_, _, uuid, partition)| (uuid.as_str(), partition.clone()))
-            .collect();
+        let tips: Vec<_> = selected.iter().map(|(_, _, uuid)| uuid.as_str()).collect();
         let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(
             &self.db_ops,
             &tips,
             storage_prefix,
         )
         .await?;
-        for ((index, coordinate, _, _), atom) in selected.into_iter().zip(atoms) {
+        for ((index, coordinate, _), atom) in selected.into_iter().zip(atoms) {
             valid[index] &=
                 scalar_key_coordinate(atom.content()).as_deref() == Some(coordinate.as_str());
         }

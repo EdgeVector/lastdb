@@ -58,9 +58,15 @@ is built on; there is no other read path.
 
 ### Atom
 
-An **immutable, content-addressed value** (`atom:{uuid}`) holding one field's
+An **immutable, content-addressed value** (`atom:{uuid}\0b`) holding one field's
 data at one key. A write never mutates an atom — it writes a new atom and
 repoints the molecule's tip (last-write-wins).
+
+Every atom has one **counter** record (`atom:{uuid}\0c`) in the same hash group.
+The counter holds the number of tip records and conflict records that name the
+atom. The batch that lowers it to zero deletes the body and the counter. The
+counter is the only authority for the life of a body
+(`docs/lastdb-atom-counter.md`).
 
 Atoms are size-fenced (default 256 KiB serialized; hard max 1 MiB). An atom may
 pack many small fields up to the fence, but it is not a blob store.
@@ -292,5 +298,5 @@ fold #1278/#1323). North Star: brain
 | Protein write/fold | brain `concepts-lastdb-protein-write-fold` |
 | Storage depth (HTML) | `docs/lastdb-storage-schema-to-atoms.html` |
 | Storage v2 (segments + CAS) | brain `spike-lastdb-storage-v2-sharded-segments` |
-| Atom-key partition locality | brain `design-lastdb-atom-key-partition-locality` |
+| Atom counter and body key | `docs/lastdb-atom-counter.md` |
 | DB catalog reference model (§6) | brain `design-lastdb-db-catalog-reference-model` · `north-star-lastdb-db-catalog-reference-model` |

@@ -118,7 +118,7 @@ impl HashRangeQueryProcessor {
             .live_field_matches_flag_only(field, namespace, filter)
             .await?
             .into_iter()
-            .map(|(kv, _, _, _, _)| kv)
+            .map(|(kv, _, _, _)| kv)
             .collect())
     }
 

@@ -14,12 +14,6 @@ pub(crate) use db_app_storage_cmds::*;
 #[path = "db_blob_cmds.rs"]
 mod db_blob_cmds;
 pub(crate) use db_blob_cmds::*;
-#[path = "db_dangling_tips_cmds.rs"]
-mod db_dangling_tips_cmds;
-pub(crate) use db_dangling_tips_cmds::*;
-#[path = "db_gc_atoms_cmds.rs"]
-mod db_gc_atoms_cmds;
-pub(crate) use db_gc_atoms_cmds::*;
 #[path = "db_inventory_print_cmds.rs"]
 mod db_inventory_print_cmds;
 pub(crate) use db_inventory_print_cmds::*;
@@ -32,12 +26,15 @@ use db_proof_cmds::*;
 #[path = "db_put_blob_local_cmds.rs"]
 mod db_put_blob_local_cmds;
 pub(crate) use db_put_blob_local_cmds::*;
-#[path = "db_reap_cmds.rs"]
-mod db_reap_cmds;
-pub(crate) use db_reap_cmds::*;
 #[path = "db_reclaim_cmds.rs"]
 mod db_reclaim_cmds;
 pub(crate) use db_reclaim_cmds::*;
+#[path = "db_unresolved_cmds.rs"]
+mod db_unresolved_cmds;
+pub(crate) use db_unresolved_cmds::*;
+#[path = "db_report_util_cmds.rs"]
+mod db_report_util_cmds;
+pub(crate) use db_report_util_cmds::*;
 #[path = "db_reseal_cmds.rs"]
 mod db_reseal_cmds;
 pub(crate) use db_reseal_cmds::*;
@@ -53,7 +50,6 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
     match action {
         DbCommand::Inspect(action) => db_inspect_command(&home, &socket, action),
         DbCommand::Reclaim(action) => db_reclaim_command(&socket, action),
-        DbCommand::Tips(action) => db_tips_command(&socket, action),
         DbCommand::Repair(action) => db_repair_command(&socket, action),
         DbCommand::Seal(action) => db_seal_command(&socket, action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),

@@ -6,5 +6,4 @@ mod entry;
 mod fence;
 mod foreign_intent;
 mod merge;
-mod peer_apply;
 mod records;

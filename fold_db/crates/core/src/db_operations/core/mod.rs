@@ -11,12 +11,10 @@ use crate::schema::SchemaError;
 use crate::storage::traits::*;
 use std::sync::Arc;
 
-mod gate_hold;
 mod open;
 mod row_drops;
 mod unresolved;
 
-pub use gate_hold::{MoleculeGateHold, MoleculeGateHoldStats};
 pub use row_drops::{
     note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally, KeyForm, QueryRowDrops,
 };
@@ -64,9 +62,6 @@ pub struct DbOperations {
 
     /// Background purge counters shared with the native runtime.
     persist_metrics: Arc<crate::resident::PersistLaneMetrics>,
-    /// How long molecule write gates are held — the other end of the
-    /// `molecule_gate` wait phase. See [`MoleculeGateHoldStats`].
-    molecule_gate_hold: Arc<MoleculeGateHoldStats>,
 }
 
 impl DbOperations {
@@ -138,6 +133,15 @@ impl DbOperations {
     /// Borrow the primary namespaced store handle.
     pub fn namespaced_store(&self) -> Arc<dyn NamespacedStore> {
         Arc::clone(&self.store)
+    }
+
+    /// Most operations that one complete batch holds on a native home. `None`
+    /// when no native home backs this store.
+    #[must_use]
+    pub fn batch_operation_limit(&self) -> Option<usize> {
+        self.store
+            .disk_pack_runtime()
+            .map(|runtime| runtime.batch_operation_limit())
     }
 
     /// Cold shard loads since open — one relaxed atomic load, safe to call on

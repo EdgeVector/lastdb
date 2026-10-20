@@ -37,19 +37,6 @@ impl SyncEngine {
             .pin_log
             .capture_marker_receipt_presence(&marker_keys)
             .await?;
-        let activation_guard = self.automatic_gc_pin_log_barrier.lock().await;
-        let activation_pending = self
-            .automatic_gc_pin_log_activation_pending
-            .load(std::sync::atomic::Ordering::Acquire);
-        let atom_store = self.automatic_gc_atom_store.lock().await.clone();
-        let atom_generation = atom_store.as_ref().map_or(
-            0,
-            crate::db_operations::AtomStore::automatic_gc_atoms_generation,
-        );
-        let hold_for_activation = activation_pending && atom_generation == 0;
-        if !hold_for_activation {
-            drop(activation_guard);
-        }
         let mut entries = Vec::with_capacity(markers.len());
         for ((marker_key, envelopes), already_recorded) in markers.iter().zip(existing_receipts) {
             let op = crate::sync::mutation_intent::mutation_intent_op(envelopes.clone());
@@ -68,17 +55,6 @@ impl SyncEngine {
                     .await?
             };
             entry.op.strip_sot_field_values();
-
-            // Reference-only historical rows still need GC roots until their
-            // pin-log append is durable. New self-contained rows have none.
-            Self::protect_intent_gc_roots(
-                &entry.op,
-                atom_store.as_ref(),
-                atom_generation,
-                activation_pending,
-                "marker pin-log atom references",
-            )
-            .await?;
             entries.push((marker_key.clone(), entry));
         }
         let cleared = self
@@ -117,36 +93,6 @@ impl SyncEngine {
                 ));
             }
         }
-        Ok(())
-    }
-
-    /// Protect the atoms a reference-only MutationIntent still needs before
-    /// its pin-log append is durable. `context` names the caller in errors.
-    pub(super) async fn protect_intent_gc_roots(
-        op: &LogOp,
-        atom_store: Option<&crate::db_operations::AtomStore>,
-        atom_generation: u64,
-        activation_pending: bool,
-        context: &str,
-    ) -> Result<(), String> {
-        let roots = Self::mutation_intent_gc_roots(op);
-        if roots.is_empty() {
-            return Ok(());
-        }
-        if let Some(atoms) = atom_store {
-            for (prefix, atom_uuids) in roots {
-                atoms
-                    .protect_automatic_gc_atom_references(&atom_uuids, prefix.as_deref())
-                    .await
-                    .map_err(|error| format!("protect {context}: {error}"))?;
-            }
-        } else if atom_generation > 0 || activation_pending {
-            return Err(
-                "automatic gc-atoms pin protection has no registered atom store".to_string(),
-            );
-        }
-        // Engines without a serving AtomStore keep their pre-existing
-        // behavior while no GC lap is active.
         Ok(())
     }
 

@@ -91,7 +91,9 @@ async fn erase_rounds(
             if shutdown.load(Ordering::Acquire) || backup_cut_is_held(host).await {
                 return true;
             }
-            let chunk = backlogs[index].take(pace.batch);
+            let size = batch_size(host, &backlogs[index], pace.batch, verb);
+            let chunk = backlogs[index].take(size);
+            let taken = chunk.len();
             let started = Instant::now();
             let admitted = crate::maintenance_write_gate::run(
                 host,
@@ -103,6 +105,20 @@ async fn erase_rounds(
             };
             let done = match outcome {
                 Ok(done) => done,
+                Err(error) if taken > 1 && is_size_limit_error(&error) => {
+                    // The bound in `batch_size` is an estimate. A batch that hit
+                    // a size limit changed nothing, so the sweep halves it and
+                    // retries instead of skipping the schema.
+                    tracing::warn!(
+                        target: "lastdbd::ttl_sweep",
+                        schema = %backlogs[index].schema_name,
+                        keys = taken,
+                        error = %error,
+                        "ttl sweep batch hit a size limit; the next batch of this schema is half as big"
+                    );
+                    backlogs[index].shrink_after_limit(taken);
+                    continue;
+                }
                 Err(error) => {
                     tracing::warn!(
                         target: "lastdbd::ttl_sweep",
@@ -126,6 +142,28 @@ async fn erase_rounds(
         }
     }
     false
+}
+
+/// Keys in the next batch of a schema. The pace sets the size. A schema with
+/// many fields gets fewer keys, so the batch always fits in one native batch
+/// (16,384 operations; 4,096 on a home from an older build). One key at least.
+fn batch_size(host: &Host, backlog: &Backlog, pace_batch: usize, verb: SweepVerb) -> usize {
+    use fold_db::fold_db_core::purge::budget::{max_erase_keys, LEGACY_BATCH_OPERATIONS};
+    let limit = host
+        .db
+        .db_ops()
+        .batch_operation_limit()
+        .unwrap_or(LEGACY_BATCH_OPERATIONS);
+    let fits = max_erase_keys(verb == SweepVerb::Delete, backlog.fields, limit);
+    pace_batch.min(fits).min(backlog.batch_cap()).max(1)
+}
+
+/// True when the error says that the request was over a size limit (the
+/// operation limit of a batch or the read budget of a request).
+fn is_size_limit_error(error: &str) -> bool {
+    error.contains("read resource limit exceeded")
+        || error.contains("complete mutation limit exceeded")
+        || error.contains("write resource limit")
 }
 
 /// What one batch did.

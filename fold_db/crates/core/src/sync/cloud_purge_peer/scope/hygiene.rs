@@ -30,22 +30,17 @@ pub async fn remove_inherited_orgs_from_inactive_store(ops: &DbOperations) -> Sy
             .await
             .map_err(storage)?
             .ok_or_else(|| fail("inherited org membership lacks a canonical schema"))?;
-        let removal = ops
-            .atoms()
-            .prepare_catalog_atom_ref_removal(
-                &entry.db_locator,
-                &entry.schema_name,
-                &schema,
-                entry.instance_id.as_deref(),
-            )
-            .await
-            .map_err(storage)?;
         ops.db_catalog()
             .delete(&entry.db_locator, &entry.schema_name)
             .await
             .map_err(storage)?;
         ops.atoms()
-            .commit_catalog_atom_refs(removal)
+            .unbind_catalog_molecules(
+                &entry.db_locator,
+                &entry.schema_name,
+                &schema,
+                entry.instance_id.as_deref(),
+            )
             .await
             .map_err(storage)?;
         removed += 1;

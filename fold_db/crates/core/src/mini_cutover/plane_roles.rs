@@ -18,8 +18,6 @@ pub enum CollectionPlaneRole {
     Sot,
     /// Rebuildable derived helpers (page index, schema index, single `indexes`).
     Indexes,
-    /// Locality helper (`atom_locators`).
-    Locality,
     /// Sync/meta cold (Phase-1 same root; warm-priority exclude candidate).
     ColdSync,
     /// Node-local ops / identity / markers.
@@ -37,7 +35,6 @@ impl CollectionPlaneRole {
         match self {
             Self::Sot => "SOT",
             Self::Indexes => "indexes",
-            Self::Locality => "locality",
             Self::ColdSync => "cold/sync",
             Self::Ops => "ops",
             Self::Aside => "aside",
@@ -51,11 +48,10 @@ impl CollectionPlaneRole {
         match self {
             Self::Sot => 0,
             Self::Indexes => 1,
-            Self::Locality => 4,
-            Self::ColdSync => 5,
-            Self::Ops => 6,
-            Self::Aside => 7,
-            Self::Unknown => 8,
+            Self::ColdSync => 2,
+            Self::Ops => 3,
+            Self::Aside => 4,
+            Self::Unknown => 5,
         }
     }
 }
@@ -109,11 +105,9 @@ pub fn classify_collection_plane(name: &str) -> CollectionPlaneRole {
 
     match bare {
         // Current local reference, schema and storage-meter helpers.
-        "schema_index" | "atom_ref_edges_v2" | "blob_ref_edges" | "attribution_ledger"
-        | "keep_small" => CollectionPlaneRole::Indexes,
-
-        // ── Locality ─────────────────────────────────────────────────────
-        "atom_locators" => CollectionPlaneRole::Locality,
+        "schema_index" | "blob_ref_edges" | "attribution_ledger" | "keep_small" => {
+            CollectionPlaneRole::Indexes
+        }
 
         // ── Cold / sync (K13 Phase-1 same root) ──────────────────────────
         "sync_capture"

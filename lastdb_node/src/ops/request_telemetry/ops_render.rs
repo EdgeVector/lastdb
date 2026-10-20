@@ -16,7 +16,7 @@ pub fn persist_lane_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
             };
             format!(
                 "Persist lane: schema={schema} reserved_bytes={} fair_share_bytes={} \
-                 queued_entries={} reserved_entries={} oldest_age_ms={} exclusive_hold_us={} \
+                 queued_entries={} reserved_entries={} oldest_age_ms={} \
                  refuse_bytes={} refuse_entries={} refuse_unhealthy={} \
                  unhealthy_lanes={} quarantined={} breaker_trips={}",
                 row.reserved_bytes,
@@ -24,7 +24,6 @@ pub fn persist_lane_lines(snap: &RequestTelemetrySnapshot) -> Vec<String> {
                 row.queued_entries,
                 row.reserved_entries,
                 row.oldest_age_ms,
-                row.exclusive_hold_us,
                 row.refuse_bytes,
                 row.refuse_entries,
                 row.refuse_unhealthy,

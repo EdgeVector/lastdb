@@ -92,16 +92,14 @@ impl FieldVariant {
                 } else {
                     storage_key.clone()
                 };
-                let partition = self
-                    .note_loaded_tip(db_ops, &storage_key, &kv)?
-                    .or_else(|| self.partition_hint(&storage_key));
-                Ok((kv, atom_uuid, key_meta, writer_pubkey, partition))
+                self.note_loaded_tip(db_ops, &storage_key, &kv)?;
+                Ok((kv, atom_uuid, key_meta, writer_pubkey))
             })
             .collect::<Result<_, SchemaError>>()?;
 
         if !include_tombstones {
             matches_with_meta
-                .retain(|(_, _, key_meta, _, _)| !key_meta.as_ref().is_some_and(|m| m.tombstoned));
+                .retain(|(_, _, key_meta, _)| !key_meta.as_ref().is_some_and(|m| m.tombstoned));
         }
 
         Ok(matches_with_meta)
@@ -138,22 +136,15 @@ impl FieldVariant {
         Self::hydrate_authoritative_matches(db_ops, pending, storage_prefix.as_deref()).await
     }
 
-    /// Walk the refreshed hash partition into `(api key, tip entry, partition)`
-    /// records, with the full winner metadata from the selected molecule.
+    /// Walk the refreshed hash partition into `(api key, tip entry)` records,
+    /// with the full winner metadata from the selected molecule.
     fn authoritative_hash_partition_pending(
         &mut self,
         db_ops: &Arc<DbOperations>,
         hash: &str,
         molecule_uuid: &str,
         filter: &HashRangeFilter,
-    ) -> Result<
-        Vec<(
-            KeyValue,
-            crate::atom::AtomEntry,
-            Option<crate::atom::AtomPartition>,
-        )>,
-        SchemaError,
-    > {
+    ) -> Result<Vec<(KeyValue, crate::atom::AtomEntry)>, SchemaError> {
         let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid)?;
         let expanded =
             crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
@@ -207,7 +198,7 @@ impl FieldVariant {
                     "authoritative field walk found a changed tip".into(),
                 ));
             }
-            pending.push((api_key, entry, self.partition_hint(&storage_key)));
+            pending.push((api_key, entry));
         }
         Ok(pending)
     }
@@ -216,22 +207,18 @@ impl FieldVariant {
     /// or a tombstone at a live tip.
     async fn hydrate_authoritative_matches(
         db_ops: &Arc<DbOperations>,
-        pending: Vec<(
-            KeyValue,
-            crate::atom::AtomEntry,
-            Option<crate::atom::AtomPartition>,
-        )>,
+        pending: Vec<(KeyValue, crate::atom::AtomEntry)>,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<AuthoritativeFieldMatch>, SchemaError> {
-        let slots: Vec<(&str, Option<crate::atom::AtomPartition>)> = pending
+        let uuids: Vec<&str> = pending
             .iter()
-            .map(|(_, entry, partition)| (entry.atom_uuid.as_str(), partition.clone()))
+            .map(|(_, entry)| entry.atom_uuid.as_str())
             .collect();
         let atoms =
-            crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, storage_prefix)
+            crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &uuids, storage_prefix)
                 .await?;
         let mut authoritative = Vec::with_capacity(pending.len());
-        for ((key, entry, _), atom) in pending.into_iter().zip(atoms) {
+        for ((key, entry), atom) in pending.into_iter().zip(atoms) {
             if crate::atom::is_tombstone_value(atom.content()) {
                 return Err(SchemaError::InvalidData(
                     "authoritative field walk found a tombstone body at a live tip".into(),

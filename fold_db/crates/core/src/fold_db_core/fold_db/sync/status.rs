@@ -3,9 +3,6 @@ use std::sync::Arc;
 
 impl FoldDB {
     /// Start the background sync timer. Delegates to the coordinator.
-    ///
-    /// Automatic gc-atoms is not started here. FoldDB init starts that
-    /// local cadence even when no sync engine is configured.
     pub fn start_sync(&self, interval_ms: u64) -> Result<(), String> {
         self.require_cloud_sync_supported()?;
         self.sync_coordinator.start_background_sync(interval_ms);
@@ -157,24 +154,6 @@ impl FoldDB {
     /// Used by callers to configure scoped sync targets after startup.
     pub fn sync_engine(&self) -> Option<Arc<crate::sync::SyncEngine>> {
         self.sync_coordinator.engine()
-    }
-
-    /// Record that this home holds data from a peer or a restore. Called at
-    /// boot for a home that a restore finished. Durable before it returns.
-    pub async fn mark_peer_apply_seen(&self) -> Result<(), crate::schema::SchemaError> {
-        self.db_ops.atoms().mark_peer_apply_seen().await
-    }
-
-    /// What this node knows about peer data: `never`, `seen` or `unknown`.
-    pub async fn peer_apply_state(
-        &self,
-    ) -> Result<crate::db_operations::PeerApplyState, crate::schema::SchemaError> {
-        self.db_ops.atoms().peer_apply_state().await
-    }
-
-    /// What the automatic `gc-atoms` cadence has done, for `lastdb status`.
-    pub fn automatic_gc_atoms_status(&self) -> crate::fold_db_core::AutomaticGcAtomsStatus {
-        self.sync_coordinator.automatic_gc_atoms_status()
     }
 
     /// True while a backup cut is held in-process and must not be deleted out

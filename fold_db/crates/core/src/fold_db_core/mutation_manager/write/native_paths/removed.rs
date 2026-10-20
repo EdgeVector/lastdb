@@ -5,45 +5,6 @@ use crate::schema::types::Schema;
 use crate::storage::disk_pack::logical_paths::LogicalPathAbsence;
 
 impl MutationManager {
-    pub(in crate::fold_db_core::mutation_manager) async fn stage_storage_slot_core_paths(
-        &self,
-        job: &super::super::super::molecules::StorageSlotPurgeEnvelope,
-        runtime: &PackRuntime,
-    ) -> Result<(), SchemaError> {
-        let Some(schema) = self.schema_manager.get_schema_metadata(&job.schema_name)? else {
-            return Ok(transaction::require_durable(runtime)?);
-        };
-        let candidates: Vec<_> = job
-            .evidence_checkpoint
-            .iter()
-            .map(|entry| {
-                let key = entry.storage_key_value();
-                crate::atom::molecule_key_codec::hash_range_record_key(
-                    entry.molecule_uuid(),
-                    key.hash.as_deref().unwrap_or_default(),
-                    key.range.as_deref().unwrap_or_default(),
-                )
-            })
-            .collect();
-        let slots = crate::storage::disk_pack::logical_paths::retained_slots_for_candidates(
-            runtime,
-            None,
-            &candidates,
-        );
-        let molecules: Vec<_> = job
-            .evidence_checkpoint
-            .iter()
-            .map(|entry| entry.molecule_uuid().to_owned())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        self.stage_removed_controls(runtime, None, &molecules)
-            .boxed()
-            .await?;
-        self.stage_removed_core_paths(&schema, runtime, None, slots)
-            .await
-    }
-
     pub(in crate::fold_db_core::mutation_manager) async fn stage_purge_core_paths(
         &self,
         job: &super::super::super::molecules::PurgeEnvelope,

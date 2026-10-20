@@ -36,51 +36,34 @@ impl AtomStore {
             .collect()
     }
 
-    /// Current atom-ref edges and the molecule header for one activation batch.
+    /// The molecule header for one activation batch.
     fn activation_structural_items(
-        &self,
         molecule_uuid: &str,
-        data: &MoleculeData,
-        records: &[(String, PerKeyRecord)],
         header: &MoleculeHeader,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
-        let mut items: Vec<(String, Value)> = Vec::with_capacity(records.len() + 2);
         // The complete tips land in an immutable generation. Ordinary writers
         // keep appending live `mk:` changes while that body is built; the final
         // pointer and the structural rows below share one small activation
         // batch.
-        // Current atom-reference edges share the activation boundary.
-        items.extend(self.pending_atom_ref_edge_items(
-            molecule_uuid,
-            data,
-            records,
-            storage_prefix,
-        )?);
         let header_value = serde_json::to_value(header)
             .map_err(|e| SchemaError::InvalidData(format!("serialize molecule header: {e}")))?;
-        items.push((
+        Ok(vec![(
             build_storage_key(
                 storage_prefix,
                 &molecule_key_codec::header_key(molecule_uuid),
             ),
             header_value,
-        ));
-        Ok(items)
+        )])
     }
 
-    /// Append tip records, automatic-GC reference markers and the transition
-    /// mirror to `items`; returns the tip record items.
+    /// Append the tip records to `items`; returns the tip record items.
     fn append_activation_tip_items(
-        &self,
         items: &mut Vec<(String, Value)>,
         records: &[(String, PerKeyRecord)],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, Value)>, SchemaError> {
         let tip_items = Self::tip_record_items(records, storage_prefix)?;
-        let automatic_gc_uuids = self.automatic_gc_tip_reference_uuids(&tip_items, storage_prefix);
-        items
-            .extend(self.automatic_gc_reference_marker_items(&automatic_gc_uuids, storage_prefix)?);
         // Transition mirror for existing bounded maintenance readers.
         // LEGACY-SUNSET: class=residue remove after every `mk:` maintenance
         // reader resolves the selected generation and one release dwell shows
@@ -104,14 +87,8 @@ impl AtomStore {
             updated_at: data.updated_at(),
         };
 
-        let mut items = self.activation_structural_items(
-            molecule_uuid,
-            data,
-            &records,
-            &header,
-            storage_prefix,
-        )?;
-        let tip_items = self.append_activation_tip_items(&mut items, &records, storage_prefix)?;
+        let mut items = Self::activation_structural_items(molecule_uuid, &header, storage_prefix)?;
+        let tip_items = Self::append_activation_tip_items(&mut items, &records, storage_prefix)?;
 
         refuse_legacy_ref_blob_store_items(&items)?;
         self.account_keep_small_items(&tip_items);
@@ -137,6 +114,7 @@ impl AtomStore {
             MoleculeData,
             super::super::PreparedMoleculeGeneration,
         )>,
+        bodies: &[SealedAtom],
         storage_prefix: Option<&str>,
         domain: MoleculeKeyDomain,
     ) -> Result<(), SchemaError> {
@@ -153,7 +131,7 @@ impl AtomStore {
                 .await?,
             );
         }
-        self.activate_prepared_molecule_generations(activations, storage_prefix)
+        self.activate_prepared_molecule_generations(activations, bodies, storage_prefix)
             .await
             .map(|_| ())
     }

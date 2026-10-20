@@ -33,14 +33,10 @@
     "machine": "shared (relative guard only)",
     "metric": "median",
     "unit": "ns",
-    "_schema_scan_note": "schema_scan + schema_scan_indexed re-captured 2026-07-17 after schemaidx markers moved out of the main atom namespace and into the local-only schema_index namespace. schema_scan remains result-sized and schema_scan_indexed remains flat across corpus size. The fixed-result schema_scan_indexed cases were rechecked on the loaded scheduled-routine host on 2026-07-18: medians were ~4.36ms/6.66ms/5.09ms/4.10ms for 1K/10K/50K/100K, so the flat baseline is rounded to 7ms with the same 1.6x guard. A real fallback to the old full scan remains far above this ceiling.",
     "_write_scan_refresh_note": "query_path_bench read paths plus db_operations_bench keyed_update_write/schema_scan/schema_scan_indexed/point_read re-captured 2026-06-29 on Apple M4 Max after post-baseline perf PRs (#981, #983, #984, #987, #1026, #1028). Values are rounded up conservatively from Criterion medians; regression factors unchanged.",
     "_hashrange_page_list_note": "hashrange_page_list_vs_N captured 2026-06-30 on Apple M4 Max after adding the mhr range-major HashRange Page index. Criterion medians were ~950us/951us/967us/978us for 1K/10K/50K/100K; baseline rounded to 1.0ms for all cases with the flat 1.6x guard.",
     "_api_query_latency_note_removed": "api_query_latency_bench deleted with the fold_db_node crate (Mini-only cutover, 2026-07-12); cases removed so bench-compare does not error on missing data.",
-    "_batch_store_note": "batch_store cases captured 2026-07-15 on a loaded shared host after the bench switched to fresh DBs per measured iteration so corpus growth cannot distort later samples. The one-atom case was rechecked on the loaded scheduled-routine host on 2026-07-19 at ~25.7ms median and rounded to 30ms; larger cases remain from the 2026-07-15 capture (~11.86ms/3.22ms/82.01ms for 10/100/1000 atoms). Baselines are relative ceilings only.",
-    "_storage_breakdown_note": "storage_breakdown cases added 2026-07-25 to make per-schema logical storage metering attribution visible in the db-perf guard. The current implementation scans canonical atom rows and filters to the requested schema, so the curve is expected to be linear in total corpus with a fixed 500-atom target result. Initial baselines are conservative shared-runner ceilings; if storage_breakdown moves to schema-index enumeration, re-capture and flatten these cases.",
-    "_hash_key_lookup_note": "query_path_bench HashKey lookup cases re-captured 2026-07-18 from origin/main @ 7aa2c8589 on the scheduled routine host after confirming the current-head mhk fast path already bypasses transient molecule hydration. The remaining cardinality growth is the sled atom-body point-get curve: indexed_point_lookup medians were ~27.6us/69.9us/132.7us/214.1us for 1k/10k/50k/100k. Baselines keep the 1.6x guard to catch a return to field materialization while acknowledging that one marker get plus one atom-body get is not perfectly flat on this store.",
-    "_atom_refcount_tip_write_note": "atom_refcount_tip_write_vs_catalog_refs captured 2026-09-28 on the shared Apple Silicon host after the tip path moved from a catalog-edge partition scan to one exact durable counter read per molecule. Fast-guard medians were ~103ms/144ms/190ms for 0/16/64 catalog aliases. Baselines round upward because full mutation durability dominates and shared-host noise is large; the curve now records this added cost and guards against a return to an edge scan."
+    "_hash_key_lookup_note": "query_path_bench HashKey lookup cases re-captured 2026-07-18 from origin/main @ 7aa2c8589 on the scheduled routine host after confirming the current-head mhk fast path already bypasses transient molecule hydration. The remaining cardinality growth is the sled atom-body point-get curve: indexed_point_lookup medians were ~27.6us/69.9us/132.7us/214.1us for 1k/10k/50k/100k. Baselines keep the 1.6x guard to catch a return to field materialization while acknowledging that one marker get plus one atom-body get is not perfectly flat on this store."
   },
   "default_regression_factor": 2.0,
   "cases": [
@@ -360,131 +356,6 @@
       "id": "256",
       "baseline_ns": 150000000,
       "note": "Batched mutation write (~8 KB content/atom) through the full MutationManager write funnel; surfaces the canonical-prefix atom-batch clone dropped in this PR. Re-captured 2026-06-25 on Apple M4 Max with load averages 4.20/2.44/2.32; two targeted Criterion runs measured medians ~118-122 ms, so this rounded 150 ms baseline stays conservative for the relative guard."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "batch_store",
-      "id": "1",
-      "baseline_ns": 30000000,
-      "note": "Raw DbOperations::batch_store_atoms write throughput, one atom per fresh DB iteration. Re-captured on the loaded scheduled-routine host on 2026-07-19; Criterion median ~25.7 ms, rounded to 30 ms for shared-host noise. Relative 2.0x guard still catches gross write-throughput regressions."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "batch_store",
-      "id": "10",
-      "baseline_ns": 15000000,
-      "note": "Raw batch_store_atoms write throughput, ten atoms per fresh DB iteration. Captured 2026-07-15; Criterion median ~11.86 ms, rounded up for shared-host noise."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "batch_store",
-      "id": "100",
-      "baseline_ns": 4000000,
-      "note": "Raw batch_store_atoms write throughput, 100 atoms per fresh DB iteration. Captured 2026-07-15; Criterion median ~3.22 ms, rounded up. The mean was higher due to fresh-DB outliers, but bench-compare guards Criterion medians."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "batch_store",
-      "id": "1000",
-      "baseline_ns": 85000000,
-      "note": "Raw batch_store_atoms write throughput, 1000 atoms per fresh DB iteration. Captured 2026-07-15; Criterion median ~82.01 ms, rounded up. Kept guarded because the weekly/on-demand bench job already runs this case."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "schema_scan",
-      "id": "1000",
-      "baseline_ns": 7000000,
-      "note": "Degenerate result==corpus listing (the schema owns the whole store). Index-backed through the local-only schema_index namespace, but the result IS every atom, so linear by design; upper-bound companion to schema_scan_indexed."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "schema_scan",
-      "id": "10000",
-      "baseline_ns": 75000000,
-      "note": "Result==corpus listing of 10K atoms (one schema_index scan plus atom-body fetches returning every atom). Linear in result by design; relative guard against a return-path blowup."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "schema_scan_indexed",
-      "id": "1000",
-      "baseline_ns": 7000000,
-      "regression_factor": 1.6,
-      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result in a growing corpus; MUST stay flat across cardinality. Re-captured on the loaded scheduled-routine host at ~4-7ms medians, rounded to a shared flat 7ms baseline. A curve that climbs with corpus = a regression back to the full scan."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "schema_scan_indexed",
-      "id": "10000",
-      "baseline_ns": 7000000,
-      "regression_factor": 1.6,
-      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result; MUST stay flat across cardinality. Same 7ms shared-host baseline as the other schema_scan_indexed cardinalities."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "schema_scan_indexed",
-      "id": "50000",
-      "baseline_ns": 7000000,
-      "regression_factor": 1.6,
-      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result; MUST stay flat across cardinality. Same 7ms shared-host baseline as the other schema_scan_indexed cardinalities."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "schema_scan_indexed",
-      "id": "100000",
-      "baseline_ns": 7000000,
-      "regression_factor": 1.6,
-      "note": "Secondary-index scan through the local-only schema_index namespace, FIXED 500-atom result; MUST stay flat across cardinality. Same 7ms shared-host baseline as the other schema_scan_indexed cardinalities; the 100K case was ~130ms on the old full scan."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "storage_breakdown",
-      "id": "1000",
-      "baseline_ns": 15000000,
-      "note": "Per-schema logical storage metering attribution with a fixed 500 target atoms and 1K total corpus. Current implementation scans canonical atom rows and filters, so this is linear in total corpus; relative ceiling only."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "storage_breakdown",
-      "id": "10000",
-      "baseline_ns": 150000000,
-      "note": "Per-schema logical storage metering attribution with a fixed 500 target atoms and 10K total corpus. Expected linear curve for the current canonical atom scan implementation; relative ceiling only."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "storage_breakdown",
-      "id": "50000",
-      "baseline_ns": 800000000,
-      "fast_guard_optional": true,
-      "note": "Per-schema logical storage metering attribution with a fixed 500 target atoms and 50K total corpus. Optional in fast guard to keep scheduled bench time bounded; re-capture if storage_breakdown moves to index-backed enumeration."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "atom_refcount_tip_write_vs_catalog_refs",
-      "id": "0",
-      "baseline_ns": 125000000,
-      "note": "Full tip-changing mutation with no catalog aliases. Control for the exact per-molecule catalog counter lookup sweep; shared-host fast-guard median was ~103ms."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "atom_refcount_tip_write_vs_catalog_refs",
-      "id": "16",
-      "baseline_ns": 175000000,
-      "note": "Full tip-changing mutation with 16 catalog aliases. The hot path reads one exact durable per-molecule counter, not 16 molecule-edge rows; shared-host fast-guard median was ~144ms."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "atom_refcount_tip_write_vs_catalog_refs",
-      "id": "64",
-      "baseline_ns": 225000000,
-      "note": "Full tip-changing mutation with 64 catalog aliases. Guards the bounded counter lookup against a return to a per-alias edge scan; shared-host fast-guard median was ~190ms."
-    },
-    {
-      "bench": "db_operations_bench",
-      "group": "point_read",
-      "id": "get_atom_by_uuid",
-      "baseline_ns": 9000,
-      "regression_factor": 1.6,
-      "note": "O(1) storage-core point read; MUST stay flat."
     },
     {
       "bench": "encrypt_scan_bench",

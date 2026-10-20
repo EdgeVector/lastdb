@@ -8,7 +8,6 @@ use crate::db_operations::DbOperations;
 use crate::storage::StorageError;
 
 use super::FoldDB;
-use crate::fold_db_core::mutation_manager::MutationManager;
 use crate::fold_db_core::sync_coordinator::SyncCoordinator;
 
 impl FoldDB {
@@ -94,42 +93,10 @@ impl FoldDB {
         }
     }
 
-    /// Opt-in bounded janitor that frees `atom:` bodies live Delete
-    /// converge leaves unreferenced. See `super::super::atom_reclaim_janitor`
-    /// — local-only, no exclusive barrier, does not gate ACK. Distinct from
-    /// the cloud-sync `sync_coordinator.start_automatic_gc_atoms` cadence
-    /// started at boot, which is coupled to the backup publish lock and
-    /// byte-budget gated (cloud keep-set shrink, out of scope here).
-    pub(super) fn start_atom_reclaim_janitor(
-        db_ops: &Arc<DbOperations>,
-        mutation_manager: &Arc<MutationManager>,
-    ) -> super::super::atom_reclaim_janitor::BackgroundAtomReclaimJanitorTask {
-        let atom_reclaim_janitor_policy =
-            super::super::atom_reclaim_janitor::AtomReclaimJanitorPolicy::from_env();
-        info!(
-            target: "fold_node::database",
-            reclaim_ms = ?atom_reclaim_janitor_policy.interval.map(|d| d.as_millis() as u64),
-            "atom reclaim janitor policy (opt-in bounded background gc-atoms cadence after tip converge)"
-        );
-        match atom_reclaim_janitor_policy.interval {
-            Some(interval) => {
-                super::super::atom_reclaim_janitor::BackgroundAtomReclaimJanitorTask::spawn(
-                    Arc::clone(db_ops),
-                    Arc::clone(mutation_manager),
-                    interval,
-                )
-            }
-            None => {
-                super::super::atom_reclaim_janitor::BackgroundAtomReclaimJanitorTask::disabled()
-            }
-        }
-    }
-
     pub(super) fn start_sync_coordinator(db_ops: &Arc<DbOperations>) -> SyncCoordinator {
         let coordinator = SyncCoordinator::new();
-        coordinator.start_automatic_gc_atoms(Arc::clone(db_ops));
         // Plane self-compaction is not a cloud feature. Start it here,
-        // beside gc-atoms, so a node booted without `cloud_sync.json`
+        // so a node booted without `cloud_sync.json`
         // reclaims `tips` / `atoms` / the capture-free planes on the same
         // expected trigger a cloud-synced node does. When an engine is set
         // later the cadence steps that engine's compactor instead, on the

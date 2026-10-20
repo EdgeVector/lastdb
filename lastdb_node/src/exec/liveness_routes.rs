@@ -9,11 +9,20 @@ pub(super) async fn execute_liveness_explain_route(
     #[derive(Deserialize)]
     struct Request {
         class: String,
+        #[serde(default)]
         id: String,
+        /// Several atom ids in one call. Only the class `atom` reads them.
+        #[serde(default)]
+        ids: Vec<String>,
     }
 
     let request = match serde_json::from_slice::<Request>(&req.body) {
-        Ok(request) if !request.class.trim().is_empty() && !request.id.trim().is_empty() => request,
+        Ok(request)
+            if !request.class.trim().is_empty()
+                && (!request.id.trim().is_empty() || !request.ids.is_empty()) =>
+        {
+            request
+        }
         Ok(_) => return error_response(400, "liveness explain requires class and id", ctx),
         Err(error) => {
             return error_response(
@@ -37,6 +46,9 @@ pub(super) async fn execute_liveness_explain_route(
             "liveness explain requires the default owner scope; named database schema mappings are unsupported",
             ctx,
         );
+    }
+    if class == "atom" {
+        return explain_atoms(host, ctx, id, request.ids).await;
     }
     let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
 
@@ -98,18 +110,6 @@ async fn read_liveness_references(
     atoms: &fold_db::db_operations::AtomStore,
 ) -> Result<LivenessReferences, fold_db::schema::SchemaError> {
     match class {
-        "atom" => {
-            let count = atoms.atom_live_ref_count_record(id, storage_prefix).await?;
-            let active_references = count
-                .filter(|count| count.exact)
-                .map(|count| count.live_refs);
-            Ok(LivenessReferences {
-                complete: atoms.atom_ref_v2_reads_ready().await? && active_references.is_some(),
-                active_references,
-                // Compact markers do not retain reconstructable edge details.
-                edges: None,
-            })
-        }
         "molecule" => {
             let lookup = atoms
                 .molecule_ref_edges_for_molecule(id, storage_prefix)
@@ -123,5 +123,58 @@ async fn read_liveness_references(
         _ => Err(fold_db::schema::SchemaError::InvalidData(
             "class must be atom, molecule, or blob".into(),
         )),
+    }
+}
+
+/// The counter of each named atom. An atom has no list of referrers: the
+/// counter holds the number of tip records and conflict records that name it.
+async fn explain_atoms(
+    host: &Host,
+    ctx: &AccessContext,
+    id: &str,
+    mut ids: Vec<String>,
+) -> UdsResponse {
+    let storage_prefix = ctx.storage_prefix.as_deref();
+    if !id.is_empty() {
+        ids.insert(0, id.to_string());
+    }
+    ids.truncate(10_000);
+    match host
+        .db
+        .db_ops()
+        .atoms()
+        .atom_counter_views(&ids, storage_prefix)
+        .await
+    {
+        Ok(views) => {
+            let rows: Vec<serde_json::Value> = views
+                .iter()
+                .map(|view| {
+                    let state = match (view.refs, view.body_present, view.suspect) {
+                        (Some(_), _, true) => "suspect",
+                        (Some(_), true, false) => "live",
+                        (Some(_), false, false) | (None, true, _) => "inconsistent",
+                        (None, false, _) => "absent",
+                    };
+                    serde_json::json!({
+                        "atom": view.atom,
+                        "refs": view.refs,
+                        "suspect": view.suspect,
+                        "blobs": view.blobs,
+                        "body_present": view.body_present,
+                        "state": state,
+                    })
+                })
+                .collect();
+            json_ok(&envelope(
+                &serde_json::json!({ "liveness": { "class": "atom", "atoms": rows } }),
+                ctx.user_id.as_str(),
+            ))
+        }
+        Err(error) => mapped_error_response(
+            "liveness explain failed",
+            fold_db::error::FoldDbError::Schema(error),
+            ctx,
+        ),
     }
 }

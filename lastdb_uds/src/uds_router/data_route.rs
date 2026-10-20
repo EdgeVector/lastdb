@@ -326,14 +326,6 @@ pub enum DataRoute {
     /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).
     /// Execute skips while a backup cut is held. Never stamps missing groups.
     DbStampPurgedAtomRetirements,
-    /// `POST /api/db/gc-atoms` — prune tombstoned tip-version chains, then
-    /// delete unreferenced `atom:` rows. Body:
-    /// `{ dry_run?: bool }` (default true).
-    DbGcAtoms,
-    /// `POST /api/db/reap-dropped-schema` — reap live tips of one dropped
-    /// schema identity via schema_index / drop-receipt molecules. Never scans
-    /// `atom:`. OWNER only. Body: `{ schema, dry_run?: bool, max_ops?: u64 }`.
-    DbReapDroppedSchema,
     /// `POST /api/db/gc-file-blobs` — delete local file-blob rows
     /// (`cas_blobs` + resident `cas_blob:`) no live atom references; the
     /// reclaim path for sealed bytes a purge orphans. OWNER socket only.
@@ -347,17 +339,9 @@ pub enum DataRoute {
     /// `keep_small:meters` row, without loading it. OWNER socket only.
     /// Body: `{ dry_run?: bool }` (default true).
     DbReclaimKeepSmallSnapshot,
-    /// `POST /api/db/repair-dangling-tips` — remove live `mk:` tips whose atom
-    /// body is unreachable by every reader route. OWNER only. Body:
-    /// `{ dry_run?: bool, max_ops?: u64, tip_page?: u64, audit_unresolved?: u64 }`.
-    DbRepairDanglingTips,
     /// `GET /api/db/unresolved-atoms` — the bounded atom identities behind
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
-    /// `POST /api/db/probe-locator-only` — bounded sample of tips reachable only
-    /// via `aloc:` locator (not tip-derived/flat). OWNER only. Body:
-    /// `{ max_tips?: u64, tip_page?: u64 }` (default max_tips=512). Always read-only.
-    DbProbeLocatorOnly,
     /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
     /// trail (purge + gc-atoms), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had

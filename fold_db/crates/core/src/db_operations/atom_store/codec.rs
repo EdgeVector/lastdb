@@ -238,41 +238,4 @@ impl AtomStore {
         }
         Ok(raw)
     }
-
-    pub(crate) fn primary_atom_key(
-        &self,
-        atom: &str,
-        hint: Option<&crate::atom::AtomPartition>,
-        scope: Option<&str>,
-    ) -> String {
-        crate::schema::types::field::build_storage_key(
-            scope,
-            &crate::atom::atom_key_codec::storage_key(self.atom_key_encoding(), hint, atom),
-        )
-    }
-
-    pub(super) async fn load_atom_at_source(
-        &self,
-        key: &str,
-        scope: Option<&str>,
-        hint: Option<&crate::atom::AtomPartition>,
-        primary: &str,
-    ) -> Result<Option<crate::atom::Atom>, crate::schema::SchemaError> {
-        let atom = self
-            .get_atoms_by_storage_keys(&[key.to_owned()])
-            .await?
-            .into_iter()
-            .next()
-            .flatten();
-        if let Some(atom) = &atom {
-            let runtime = self
-                .namespaced_store
-                .as_ref()
-                .and_then(|store| store.disk_pack_runtime());
-            crate::storage::disk_pack::logical_paths::source::bind_atom(
-                runtime, scope, key, atom, hint, primary,
-            )?;
-        }
-        Ok(atom)
-    }
 }

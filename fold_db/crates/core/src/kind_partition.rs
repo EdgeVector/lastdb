@@ -10,7 +10,6 @@ pub const KIND_PARTITION_KINDS: &[&str] = &[
     "conflict",
     "history",
     "dellog",
-    "aloc",
     "atom",
 ];
 
@@ -30,21 +29,13 @@ pub fn starts_with_kind(bare: &str, kind: &str) -> bool {
         return false;
     }
     let rest = &bare[kind.len()..];
-    if kind == "aref" {
-        return matches!(
-            rest,
-            ":v2:m:complete" | ":v2:m:history-complete" | ":catalog-transitions:v1"
-        ) || (rest.starts_with(":v2:e:") || rest.starts_with(":pending:v1:"))
-            && rest.contains(KIND_PARTITION_SEP)
-            || rest.starts_with(":gc:v1:c:")
-            || rest.starts_with(":gc:v1:q:");
-    }
     if !KIND_PARTITION_KINDS.contains(&kind) {
         return rest.starts_with(':');
     }
     rest.starts_with(KIND_PARTITION_SEP)
         || match kind {
-            "atom" => rest.starts_with(":mk:") && rest.contains(KIND_PARTITION_SEP),
+            // `atom:{uuid}\0b` and `atom:{uuid}\0c`: one NUL after the uuid.
+            "atom" => rest.starts_with(':') && rest.contains(KIND_PARTITION_SEP),
             _ => false,
         }
 }

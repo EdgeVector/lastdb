@@ -44,6 +44,10 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
     println!();
     print_per_schema_atoms(inventory);
     println!();
+    if let Some(counters) = inventory.get("atom_counters") {
+        print_atom_counters(counters);
+        println!();
+    }
     print_per_schema_history(inventory);
     if let Some(notes) = array_of(inventory, "notes") {
         println!();
@@ -153,6 +157,29 @@ fn print_per_schema_history(inventory: &Value) {
             str_of(row, "schema_name", "?")
         );
     }
+}
+
+fn print_atom_counters(counters: &Value) {
+    println!("Atom counters (atom:{{uuid}}\\0c):");
+    println!("  counters:               {}", u64_of(counters, "counters"));
+    println!(
+        "  refs total:             {}",
+        u64_of(counters, "refs_total")
+    );
+    println!("  largest count:          {}", u64_of(counters, "max_refs"));
+    println!("  suspect:                {}", u64_of(counters, "suspect"));
+    println!(
+        "  zero, not suspect:      {}",
+        u64_of(counters, "zero_counters")
+    );
+    println!(
+        "  bodies without counter: {}",
+        u64_of(counters, "bodies_without_counter")
+    );
+    println!(
+        "  counters without body:  {}",
+        u64_of(counters, "counters_without_body")
+    );
 }
 
 fn print_history_tips() {

@@ -4,15 +4,7 @@ use super::*;
 
 /// Current physical prefixes and their exact destination collections.
 const ROUTED_PREFIXES: &[(&str, &str)] = &[
-    ("atom\0", "atoms"),
-    ("atom:mk:", "atoms"),
-    ("aloc\0", "atom_locators"),
-    ("aref:v2:e:", "atom_ref_edges_v2"),
-    ("aref:v2:m:", "atom_ref_edges_v2"),
-    ("aref:pending:v1:", "atom_ref_edges"),
-    ("aref:catalog-transitions:v1", "atom_ref_edges"),
-    ("aref:gc:v1:c:", "atom_ref_edges"),
-    ("aref:gc:v1:q:", "atom_ref_edges"),
+    ("atom:", "atoms"),
     ("mref:v1:", "molecule_ref_edges"),
     ("bref:v2:", "blob_ref_edges"),
     ("protein:", "proteins"),

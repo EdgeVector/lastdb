@@ -17,8 +17,6 @@ mod reclaim;
 mod repair;
 #[path = "db_seal.rs"]
 mod seal;
-#[path = "db_tips.rs"]
-mod tips;
 
 pub(crate) use blob::*;
 pub(crate) use inspect::*;
@@ -26,7 +24,6 @@ pub(crate) use proof::*;
 pub(crate) use reclaim::*;
 pub(crate) use repair::*;
 pub(crate) use seal::*;
-pub(crate) use tips::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbCommand {
@@ -34,8 +31,6 @@ pub(crate) enum DbCommand {
     Inspect(DbInspectCommand),
     #[command(flatten)]
     Reclaim(DbReclaimCommand),
-    #[command(flatten)]
-    Tips(DbTipsCommand),
     #[command(flatten)]
     Repair(DbRepairCommand),
     #[command(flatten)]

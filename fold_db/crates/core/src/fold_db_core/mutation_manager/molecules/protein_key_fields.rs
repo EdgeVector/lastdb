@@ -2,7 +2,7 @@
 
 use super::super::MutationManager;
 use super::protein_batch::{schema_storage_prefix, ProteinFoldMetadata};
-use crate::atom::{Atom, AtomPartition};
+use crate::atom::Atom;
 use crate::schema::types::key_value::scalar_key_coordinate;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::SchemaError;
@@ -86,26 +86,17 @@ impl MutationManager {
             .into_iter()
             .zip(records)
             .filter_map(|(request, record)| {
-                record.map(|(base, record)| {
-                    (
-                        request,
-                        record.entry.atom_uuid,
-                        AtomPartition::from_record_key(&base),
-                    )
-                })
+                record.map(|(_, record)| (request, record.entry.atom_uuid))
             })
             .collect();
-        let slots: Vec<_> = selected
-            .iter()
-            .map(|(_, uuid, partition)| (uuid.as_str(), partition.clone()))
-            .collect();
-        let atoms = self.db_ops.atoms().get_atoms_located(&slots, scope).await?;
+        let uuids: Vec<&str> = selected.iter().map(|(_, uuid)| uuid.as_str()).collect();
+        let atoms = self.db_ops.atoms().get_atoms(&uuids, scope).await?;
         if atoms.len() != selected.len() {
             return Err(SchemaError::StorageRead {
                 detail: "protein key-field atom count differs".into(),
             });
         }
-        for (((idx, name), _, _), atom) in selected.into_iter().zip(atoms) {
+        for (((idx, name), _), atom) in selected.into_iter().zip(atoms) {
             let atom = atom.ok_or_else(|| SchemaError::StorageRead {
                 detail: "protein key-field tip has no atom".into(),
             })?;

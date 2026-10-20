@@ -88,13 +88,11 @@ pub(super) async fn build_snapshot(
             .atom_ref_edge_health()
             .unwrap_or_else(|| configured_atom_ref_edge_health(host)),
         file_blob: file_blob_health(host).await,
-        locator_only: fold_db::db_operations::last_locator_only_probe().map(Into::into),
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
-        gc_atoms: Some(host.db.automatic_gc_atoms_status()),
-        molecule_gate: molecule_gate_health(host),
+        atom_counters: Some(host.db.atom_counter_report()),
         at_rest_compression: Some(AtRestCompressionHealth::current()),
         codec_policy: Some(CodecPolicyHealth::current(&host.home)),
     }
@@ -238,11 +236,6 @@ async fn file_blob_health(host: &Host) -> FileBlobHealth {
     }
 }
 
-fn molecule_gate_health(host: &Host) -> MoleculeGateHealth {
-    let hold = host.db.db_ops().molecule_gate_hold();
-    MoleculeGateHealth::measured(hold.total_us, hold.count, hold.max_us)
-}
-
 /// Memory budget plus the read-cost row it reads. Also stamps the persist-lane
 /// rows onto `request_ops`.
 fn memory_budget_health(
@@ -259,7 +252,7 @@ fn memory_budget_health(
     let (_, _, deferred_persist_bytes, deferred_persist_cap_bytes) =
         host.db.mutation_manager().defer_window_in_flight();
     let persist_lanes = host.db.mutation_manager().persist_lane_pressure();
-    request_ops.persist_lanes = persist_lane_rows(host, &persist_lanes);
+    request_ops.persist_lanes = persist_lane_rows(&persist_lanes);
     let admission = namespaced_store.warm_set_admission_stats();
     let allocator = crate::allocator::metrics();
     let (slowest_request_ms, peak_request_bytes) = peak_request_bytes_from_ops(request_ops);

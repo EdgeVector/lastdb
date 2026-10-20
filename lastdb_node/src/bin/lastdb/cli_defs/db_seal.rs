@@ -6,8 +6,8 @@ use super::*;
 pub(crate) enum DbSealCommand {
     /// Rewrite sealed values to an explicit binary `ENB:` target.
     ///
-    /// One allowlisted plane per call: atoms, tips, metadata,
-    /// change_feed, atom_locators. Default is dry-run.
+    /// One allowlisted plane per call: atoms, tips, metadata, change_feed.
+    /// Default is dry-run.
     /// Pass `--execute` to rewrite in place under the same key (no dual-key
     /// copies). Bounded (`--max-rows` / `--max-secs`) and resumable; a killed
     /// run continues from the durable checkpoint. `--progress` reports the
@@ -60,8 +60,8 @@ pub(crate) enum DbSealCommand {
     /// encrypts already reads as absent (drop-dual-read, 2026-09-14); reads
     /// never delete it, so it stays on disk and rides into every backup and
     /// restore. This verb is the bounded reaper. One sealed plane per call:
-    /// atoms, tips, metadata, change_feed, atom_locators,
-    /// field_update_order_log. Default is dry-run. Pass `--execute` to delete.
+    /// atoms, tips, metadata, change_feed.
+    /// Default is dry-run. Pass `--execute` to delete.
     /// Bounded (`--max-rows` / `--max-secs`) and resumable from a durable
     /// checkpoint; `--progress` reports it without scanning.
     ///

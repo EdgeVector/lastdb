@@ -9,34 +9,29 @@ mod certified;
 pub(crate) use certified::{certified_atoms, CertifiedAtom};
 static SOURCE_CACHE: u8 = 0;
 
-pub(in crate::storage::disk_pack) struct BodyLocation {
-    pub(in crate::storage::disk_pack) partition: Option<crate::atom::AtomPartition>,
-}
-
-pub(in crate::storage::disk_pack) fn body_location(
+/// True when one of the path's source coordinates is the body of `atom`.
+pub(in crate::storage::disk_pack) fn body_present(
     core: &crate::resident::CoreWarmSet,
     path: &crate::resident::CorePath,
     atom: &str,
-) -> StorageResult<Option<BodyLocation>> {
-    body_location_from_coordinates(&core.source_coordinates(path), atom)
+) -> StorageResult<bool> {
+    body_present_in_coordinates(&core.source_coordinates(path), atom)
 }
 
-pub(in crate::storage::disk_pack) fn body_location_from_coordinates(
+pub(in crate::storage::disk_pack) fn body_present_in_coordinates(
     coordinates: &[(String, String)],
     atom: &str,
-) -> StorageResult<Option<BodyLocation>> {
+) -> StorageResult<bool> {
     for (_, key) in coordinates {
         let raw = crate::storage::laststore::native_routing::decode(key)?;
         let Ok(raw) = std::str::from_utf8(&raw) else {
             continue;
         };
-        if crate::atom::atom_key_codec::uuid_of(raw) == Some(atom) {
-            return Ok(Some(BodyLocation {
-                partition: crate::atom::atom_key_codec::partition_of(raw),
-            }));
+        if crate::atom::atom_key_codec::body_uuid_of(raw) == Some(atom) {
+            return Ok(true);
         }
     }
-    Ok(None)
+    Ok(false)
 }
 
 pub(super) fn body_matches(
@@ -212,11 +207,10 @@ pub(crate) fn note_atom(
         return Ok(());
     };
     let decoded = crate::storage::laststore::native_routing::decode(&source.key)?;
-    if std::str::from_utf8(&decoded)
-        .ok()
-        .and_then(crate::atom::atom_key_codec::uuid_of)
-        != Some(atom.uuid())
-    {
+    let Ok(decoded) = std::str::from_utf8(&decoded) else {
+        return Ok(());
+    };
+    if crate::atom::atom_key_codec::body_uuid_of(decoded) != Some(atom.uuid()) {
         return Ok(());
     }
     let bytes = 192
@@ -231,55 +225,23 @@ pub(crate) fn note_atom(
 pub(crate) fn bind_atoms(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
-    slots: &[(&str, Option<crate::atom::AtomPartition>)],
     keys: &[String],
     atoms: &[Option<Atom>],
-    primary: &[String],
 ) -> StorageResult<()> {
     let Some(sources) = sources(runtime)? else {
         return Ok(());
     };
     let mut sources = sources.lock().expect("native scoped atom sources");
-    for (((key, atom), (_, hint)), first) in keys.iter().zip(atoms).zip(slots).zip(primary) {
-        let Some(atom) = atom else { continue };
-        if key == first {
-            bind(&mut sources, scope, key, atom, hint.as_ref());
+    for (key, atom) in keys.iter().zip(atoms) {
+        if let Some(atom) = atom {
+            bind(&mut sources, scope, key, atom);
         }
     }
     Ok(())
 }
 
-pub(crate) fn bind_atom(
-    runtime: Option<Arc<PackRuntime>>,
-    scope: Option<&str>,
-    key: &str,
-    atom: &Atom,
-    hint: Option<&crate::atom::AtomPartition>,
-    primary: &str,
-) -> StorageResult<()> {
-    if key != primary {
-        return Ok(());
-    }
-    if let Some(sources) = sources(runtime)? {
-        bind(
-            &mut sources.lock().expect("native scoped atom source"),
-            scope,
-            key,
-            atom,
-            hint,
-        );
-    }
-    Ok(())
-}
-
-fn bind(
-    sources: &mut Sources,
-    scope: Option<&str>,
-    key: &str,
-    atom: &Atom,
-    hint: Option<&crate::atom::AtomPartition>,
-) {
-    let identity = scoped(scope, atom.uuid(), hint);
+fn bind(sources: &mut Sources, scope: Option<&str>, key: &str, atom: &Atom) {
+    let identity = scoped(scope, atom.uuid());
     if let Some(previous) = sources.scoped.remove(&identity) {
         sources.bytes -= 192 + identity.len() + previous.len();
     }
@@ -295,7 +257,6 @@ pub(super) fn atom_facts(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
     atom: &str,
-    hint: Option<&crate::atom::AtomPartition>,
 ) -> StorageResult<Option<AtomFacts>> {
     let Some(sources) = sources(runtime)? else {
         return Ok(None);
@@ -303,14 +264,13 @@ pub(super) fn atom_facts(
     let sources = sources.lock().expect("native selected full atom");
     Ok(sources
         .scoped
-        .get(&scoped(scope, atom, hint))
+        .get(&scoped(scope, atom))
         .and_then(|key| sources.atoms.get(key))
         .cloned())
 }
 
-fn scoped(scope: Option<&str>, atom: &str, hint: Option<&crate::atom::AtomPartition>) -> String {
-    serde_json::to_string(&(scope, atom, hint.map(crate::atom::AtomPartition::as_str)))
-        .expect("atom scope tuple")
+fn scoped(scope: Option<&str>, atom: &str) -> String {
+    serde_json::to_string(&(scope, atom)).expect("atom scope tuple")
 }
 
 pub(super) fn source_for_request(

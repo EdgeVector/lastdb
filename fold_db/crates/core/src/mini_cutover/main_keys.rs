@@ -9,12 +9,6 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
     let bare = split_org_storage_prefix(s).map_or(s, |(_, rest)| rest);
     if colon_prefix_matches(bare, "atom:") {
         Some("atoms")
-    } else if colon_prefix_matches(bare, "aloc:") {
-        Some("atom_locators")
-    } else if bare.starts_with("aref:v2:") {
-        Some("atom_ref_edges_v2")
-    } else if colon_prefix_matches(bare, "aref:") {
-        Some("atom_ref_edges")
     } else if bare.starts_with("mref:v1:") {
         Some("molecule_ref_edges")
     } else if bare.starts_with("bref:v2:") {

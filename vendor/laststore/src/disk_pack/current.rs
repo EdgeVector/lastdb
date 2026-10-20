@@ -111,6 +111,15 @@ impl Current {
                 "unsupported locator format: packed-key feature required".into(),
             ));
         }
+        if self.required_features & super::FEATURE_NATIVE_HOME != 0
+            && self.required_features & super::FEATURE_ATOM_RECORDS == 0
+        {
+            return Err(crate::Error::Config(
+                "unsupported atom record layout: this home has no atom-record feature \
+                 and was made by another build"
+                    .into(),
+            ));
+        }
         self.directory.validate()?;
         nonnil(self.journal_stream)?;
         if self.generation == 0
@@ -119,7 +128,9 @@ impl Current {
             || self.directory.kind != TreeKind::Directory
             || self.required_features & !super::SUPPORTED_FEATURES != 0
             || (self.required_features
-                & (super::FEATURE_SCHEMA_RECORD_REFS | super::FEATURE_LARGE_BATCHES)
+                & (super::FEATURE_SCHEMA_RECORD_REFS
+                    | super::FEATURE_LARGE_BATCHES
+                    | super::FEATURE_ATOM_RECORDS)
                 != 0
                 && self.required_features & super::FEATURE_NATIVE_HOME == 0)
             || ((self.required_features & super::FEATURE_NATIVE_HOME != 0)

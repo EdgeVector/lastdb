@@ -29,11 +29,7 @@ pub(crate) async fn fetch_field_atom_batches(
                         batch.molecule.as_deref(),
                         &field::AtomSelection {
                             entry,
-                            primary: db_ops.atoms().primary_atom_key(
-                                &entry.1,
-                                entry.4.as_ref(),
-                                prefix,
-                            ),
+                            primary: db_ops.atoms().body_storage_key(&entry.1, prefix),
                         },
                     )? {
                         values[index].insert(entry.0.clone(), value);
@@ -45,11 +41,8 @@ pub(crate) async fn fetch_field_atom_batches(
             })
             .await?;
     }
-    let slots: Vec<_> = misses
-        .iter()
-        .map(|(_, entry)| (entry.1.as_str(), entry.4.clone()))
-        .collect();
-    let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &slots, prefix).await?;
+    let uuids: Vec<&str> = misses.iter().map(|(_, entry)| entry.1.as_str()).collect();
+    let atoms = crate::db_operations::tip_atoms::get_atoms_for_tips(db_ops, &uuids, prefix).await?;
     for ((index, entry), atom) in misses.into_iter().zip(atoms) {
         let batch = &batches[index];
         let value = field_value_from_atom(&atom, entry.1.clone(), entry.2.clone(), entry.3.clone());
@@ -62,7 +55,6 @@ pub(crate) async fn fetch_field_atom_batches(
                     batch.molecule.as_deref(),
                     &entry.0,
                     &value,
-                    entry.4.as_ref(),
                 )
             })
             .await?;

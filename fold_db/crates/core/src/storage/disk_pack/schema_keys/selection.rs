@@ -79,21 +79,19 @@ impl PackRuntime {
             }
             context.core_model.source_coordinates(&path)
         };
-        let Some(body) = super::super::logical_paths::source::body_location_from_coordinates(
+        if !super::super::logical_paths::source::body_present_in_coordinates(
             &sources,
             &expected.entry.atom_uuid,
-        )?
-        else {
+        )? {
             return Ok(false);
-        };
-        super::super::logical_paths::core_read::note_partition(
+        }
+        super::super::logical_paths::core_read::note_core_tip(
             Some(Arc::clone(self)),
             scope,
             molecule,
             key,
             &expected.entry,
             expected.meta.as_ref(),
-            body.partition.as_ref(),
         )
     }
 
@@ -184,27 +182,25 @@ impl PackRuntime {
         let Some(selection) = selection.into_tip() else {
             return Ok(None);
         };
-        let Some(body) = super::super::logical_paths::source::body_location(
+        if !super::super::logical_paths::source::body_present(
             &core,
             &path,
             &selection.entry.atom_uuid,
-        )?
-        else {
+        )? {
             return Ok(None);
-        };
+        }
         context.account_memory_record(
             &mut call,
             path.hash.len() + path.range.len(),
             tip_metadata_bytes(&selection.entry, selection.metadata.as_ref())?,
         )?;
-        if !super::super::logical_paths::core_read::note_partition(
+        if !super::super::logical_paths::core_read::note_core_tip(
             Some(Arc::clone(self)),
             scope,
             molecule,
             api_key,
             &selection.entry,
             selection.metadata.as_ref(),
-            body.partition.as_ref(),
         )? {
             return Ok(None);
         }
@@ -243,24 +239,24 @@ impl PackRuntime {
             return Ok(Some(None));
         }
         let selected = selected.into_tip().expect("known positive typed tip");
-        let location = super::super::logical_paths::source::body_location_from_coordinates(
+        if !super::super::logical_paths::source::body_present_in_coordinates(
             &context.core_model.source_coordinates(&path),
             &selected.entry.atom_uuid,
-        )?
-        .ok_or_else(selection_lock_error)?;
+        )? {
+            return Err(selection_lock_error());
+        }
         context.account_memory_record(
             &mut crate::read_receipts::lock(&context.call),
             path.hash.len() + path.range.len(),
             tip_metadata_bytes(&selected.entry, selected.metadata.as_ref())?,
         )?;
-        if !super::super::logical_paths::core_read::note_partition(
+        if !super::super::logical_paths::core_read::note_core_tip(
             Some(Arc::clone(self)),
             scope,
             molecule,
             key,
             &selected.entry,
             selected.metadata.as_ref(),
-            location.partition.as_ref(),
         )? {
             return Err(StorageError::ReadResourceLimit {
                 detail: "captured core tip cannot retain its atom location".into(),

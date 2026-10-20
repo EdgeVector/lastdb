@@ -1,21 +1,6 @@
 use super::*;
 
 impl Host {
-    /// Record a restored home's peer-derived state before serving it.
-    /// The storage constructor initializes fresh-home reference proofs.
-    pub(super) async fn record_boot_peer_state(
-        db: &fold_db::FoldDB,
-        home: &Path,
-        _brand_new: bool,
-    ) -> Result<(), String> {
-        if crate::cloud::peer_derived_marker_path(home).exists() {
-            db.mark_peer_apply_seen()
-                .await
-                .map_err(|error| format!("record the restored home's peer-apply state: {error}"))?;
-        }
-        Ok(())
-    }
-
     /// Create the node home and data dir, refuse a stopped backup copy, and
     /// clear the prior shutdown proof. Returns the data dir.
     pub(super) fn prepare_boot_home(home: &Path) -> Result<PathBuf, String> {
