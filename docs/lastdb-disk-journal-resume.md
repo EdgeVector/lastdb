@@ -36,9 +36,15 @@ An open with an existing TAIL follows this order:
 The archive path is `journal/<old-stream-uuid>/tail-<checkpoint-as-16-hex-digits>`.
 The archive contains the exact 4,096 published old TAIL bytes.
 The predecessor digest covers all those bytes, including their stored checksum.
-The archive file and stream-directory barriers precede the new TAIL.
-An existing archive must match exactly and receives fresh file and directory barriers.
-The writer never overwrites a different archive.
+The writer writes the bytes to `tail-<checkpoint-as-16-hex-digits>.pending`, makes them durable, and renames that file to the archive name.
+It then makes the stream directory durable.
+These barriers precede the new TAIL.
+A crash leaves no archive, an unused pending file, or a complete archive.
+The next open reuses the same pending name, so a leftover pending file does not accumulate.
+An existing archive that matches exactly receives fresh file and directory barriers.
+A file at the archive name that is short or does not decode as a TAIL is a leftover of an older in-place write or of a failed write.
+No TAIL can reference it before the new TAIL exists, so the exact bytes replace it by rename.
+The writer never overwrites a complete archive that decodes to a different TAIL; it refuses that checkpoint.
 
 The new TAIL contains no batch before CURRENT selects its stream.
 Its predecessor names the old stream and the exact committed frontier.

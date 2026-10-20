@@ -193,6 +193,7 @@ A stream change requires CURRENT to reach the old stream's complete `J` first.
 The writer then publishes an empty new TAIL with `last_complete_batch = F` and `first_batch = F + 1`.
 The previous stream fields verify the exact change boundary.
 The exact old TAIL is durable at `journal/<old-stream-uuid>/tail-<checkpoint-as-16-hex-digits>` before the new TAIL.
+It reaches that name by the rename of a complete, durable pending file, so a crash never leaves a short archive.
 The predecessor digest covers all 4,096 old published bytes, including their stored checksum.
 It next publishes CURRENT with the new checkpoint stream, then permits new admissions.
 A crash between these publications is valid only when CURRENT's `F` equals that named change boundary.
