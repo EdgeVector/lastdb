@@ -143,11 +143,10 @@ A complete stream checkpoint sets a nonzero previous generation before the first
 Feature `0x2` requires `0x1`. New artifacts use both bits; older writers refuse them before journal admission.
 
 Native bit `0x10` requires native bit `0x4`.
-Fresh empty LastDB homes publish `0x10` before the version-2 molecule-reference completeness record.
+Fresh empty LastDB homes publish `0x10`.
 Older programs refuse this bit before a schema write.
-The bit alone does not prove completeness.
-A memory ack also requires the decoded version-2 proof and each exact authoritative schema path.
-Generic conversion never grants `0x10`; imported proof bytes can be stale after a legacy writer.
+A memory ack also requires each exact authoritative schema path.
+Generic conversion never grants `0x10`.
 Converted homes use the durable fallback until a separate complete-source bootstrap and writer fence.
 Local backups preserve the original complete root and its feature bits.
 A missing, old, or unreadable proof keeps the durable fallback.
@@ -194,6 +193,7 @@ A stream change requires CURRENT to reach the old stream's complete `J` first.
 The writer then publishes an empty new TAIL with `last_complete_batch = F` and `first_batch = F + 1`.
 The previous stream fields verify the exact change boundary.
 The exact old TAIL is durable at `journal/<old-stream-uuid>/tail-<checkpoint-as-16-hex-digits>` before the new TAIL.
+It reaches that name by the rename of a complete, durable pending file, so a crash never leaves a short archive.
 The predecessor digest covers all 4,096 old published bytes, including their stored checksum.
 It next publishes CURRENT with the new checkpoint stream, then permits new admissions.
 A crash between these publications is valid only when CURRENT's `F` equals that named change boundary.

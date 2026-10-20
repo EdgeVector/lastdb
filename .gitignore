@@ -59,6 +59,9 @@
 !/docs/proofs/graph-first-20261017/drivers/*.py
 /docs/proofs/**/source-identity.json
 /docs/proofs/**/receipt-manifest.json
+# Large metadata replies stay intact locally; their gzip copies are tracked.
+/docs/proofs/native-quality-review-20261020/**/raw-http/cold-???.json
+/docs/proofs/native-quality-review-20261020/**/raw-http/repeat-???.json
 /docs/proofs/**/current-source-pending*.json
 /docs/proofs/schema-range-preload-20261017/keys-*.json
 /docs/proofs/**/*-source.json

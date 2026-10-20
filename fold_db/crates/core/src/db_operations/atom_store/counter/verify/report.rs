@@ -1,5 +1,7 @@
 //! The request and the result of a verify step.
 
+use super::blob_report::BlobMismatches;
+use super::molecule_report::MoleculeMismatches;
 use crate::db_operations::atom_store::WalkStats;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,6 +18,13 @@ pub enum Phase {
     /// Body and counter records of atoms: pairing, zero, suspect, and the
     /// counter against the totals of the first two phases.
     Atoms,
+    /// Molecule headers: the `slots` and `records` counters against the tips and
+    /// the conflict records the first two phases counted for each molecule.
+    Headers,
+    /// `bindings` counters: each against the binding records of its molecule.
+    Bindings,
+    /// Binding records: each has a `bindings` counter.
+    BindingRecords,
     /// Blob counters (personal run only): each counter alone. See `blobs.rs`.
     Blobs,
     /// The queue of blobs at zero (personal run only): each entry against its
@@ -23,6 +32,13 @@ pub enum Phase {
     BlobQueue,
     /// The run is complete.
     Done,
+}
+
+impl Phase {
+    /// The phases that check the molecule counters.
+    pub(super) fn reads_molecules(self) -> bool {
+        matches!(self, Self::Headers | Self::Bindings | Self::BindingRecords)
+    }
 }
 
 /// The kinds of fault the verifier reports. A kind is a fact about one atom. An
@@ -42,6 +58,19 @@ pub(crate) enum Kind {
     UnreadableRecord,
     UnreadableCounter,
     UnsealedRows,
+    SlotsAboveTips,
+    SlotsBelowTips,
+    RecordsAboveRecords,
+    RecordsBelowRecords,
+    TipsWithoutHeader,
+    MoleculeCountersUnset,
+    SuspectMolecule,
+    UnreadableHeader,
+    BindingsMismatch,
+    BindingRecordWithoutCounter,
+    ZeroBindingsCounter,
+    SuspectBindings,
+    UnreadableBindings,
     BlobCounterMissing,
     BlobCounterBelowRefs,
     BlobZeroWithoutDwell,
@@ -53,6 +82,21 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
+    /// The kinds of the blob counter phases.
+    pub(super) fn is_blob(self) -> bool {
+        matches!(
+            self,
+            Self::BlobCounterMissing
+                | Self::BlobCounterBelowRefs
+                | Self::BlobZeroWithoutDwell
+                | Self::BlobDwellWithRefs
+                | Self::BlobUnqueued
+                | Self::BlobStaleQueueEntry
+                | Self::BlobSuspect
+                | Self::UnreadableBlobCounter
+        )
+    }
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::CounterBelowTips => "counter_below_tips",
@@ -68,6 +112,19 @@ impl Kind {
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
             Self::UnsealedRows => "unsealed_rows",
+            Self::SlotsAboveTips => "molecule_slots_above_tips",
+            Self::SlotsBelowTips => "molecule_slots_below_tips",
+            Self::RecordsAboveRecords => "molecule_records_above_records",
+            Self::RecordsBelowRecords => "molecule_records_below_records",
+            Self::TipsWithoutHeader => "tips_without_header",
+            Self::MoleculeCountersUnset => "molecule_counters_unset",
+            Self::SuspectMolecule => "suspect_molecule",
+            Self::UnreadableHeader => "unreadable_header",
+            Self::BindingsMismatch => "bindings_counter_mismatch",
+            Self::BindingRecordWithoutCounter => "binding_record_without_counter",
+            Self::ZeroBindingsCounter => "zero_bindings_counter",
+            Self::SuspectBindings => "suspect_bindings",
+            Self::UnreadableBindings => "unreadable_bindings",
             Self::BlobCounterMissing => "blob_counter_missing",
             Self::BlobCounterBelowRefs => "blob_counter_below_refs",
             Self::BlobZeroWithoutDwell => "blob_zero_without_dwell",
@@ -111,31 +168,12 @@ pub struct Mismatches {
     /// removes these rows.
     #[serde(default)]
     pub unsealed_rows: u64,
-    /// An atom counter or a tip names a blob that has no counter.
-    #[serde(default)]
-    pub blob_counter_missing: u64,
-    /// A blob counter holds fewer references than the atom counters or tips of
-    /// one page that name the blob.
-    #[serde(default)]
-    pub blob_counter_below_refs: u64,
-    /// A blob counter holds zero, is not `suspect`, and has no `zero_since`.
-    #[serde(default)]
-    pub blob_zero_without_dwell: u64,
-    /// A blob counter holds references and has a `zero_since`.
-    #[serde(default)]
-    pub blob_dwell_with_refs: u64,
-    /// A blob counter has a `zero_since` and the queue has no entry for it.
-    #[serde(default)]
-    pub blob_unqueued: u64,
-    /// A queue entry names a counter that is absent, has references, is
-    /// `suspect`, or has another `zero_since`.
-    #[serde(default)]
-    pub blob_stale_queue_entry: u64,
-    /// A blob counter has the `suspect` flag.
-    #[serde(default)]
-    pub blob_suspect: u64,
-    #[serde(default)]
-    pub unreadable_blob_counter: u64,
+    /// The molecule counter faults (headers, `bindings` counters, binding records).
+    #[serde(flatten)]
+    pub molecule: MoleculeMismatches,
+    /// The blob counter faults (counters, queue). See `blob_report.rs`.
+    #[serde(flatten)]
+    pub blob: BlobMismatches,
 }
 
 impl Mismatches {
@@ -162,14 +200,8 @@ impl Mismatches {
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
             Kind::UnsealedRows => &mut self.unsealed_rows,
-            Kind::BlobCounterMissing => &mut self.blob_counter_missing,
-            Kind::BlobCounterBelowRefs => &mut self.blob_counter_below_refs,
-            Kind::BlobZeroWithoutDwell => &mut self.blob_zero_without_dwell,
-            Kind::BlobDwellWithRefs => &mut self.blob_dwell_with_refs,
-            Kind::BlobUnqueued => &mut self.blob_unqueued,
-            Kind::BlobStaleQueueEntry => &mut self.blob_stale_queue_entry,
-            Kind::BlobSuspect => &mut self.blob_suspect,
-            Kind::UnreadableBlobCounter => &mut self.unreadable_blob_counter,
+            kind if kind.is_blob() => self.blob.slot(kind),
+            _ => self.molecule.slot(kind),
         }
     }
 
@@ -188,14 +220,8 @@ impl Mismatches {
             + self.unreadable_record
             + self.unreadable_counter
             + self.unsealed_rows
-            + self.blob_counter_missing
-            + self.blob_counter_below_refs
-            + self.blob_zero_without_dwell
-            + self.blob_dwell_with_refs
-            + self.blob_unqueued
-            + self.blob_stale_queue_entry
-            + self.blob_suspect
-            + self.unreadable_blob_counter
+            + self.molecule.total()
+            + self.blob.total()
     }
 }
 
@@ -254,6 +280,15 @@ pub struct VerifyReport {
     pub records_read: u64,
     pub counters_read: u64,
     pub bodies_read: u64,
+    /// Molecule headers the run read.
+    #[serde(default)]
+    pub headers_read: u64,
+    /// `bindings` counters the run read.
+    #[serde(default)]
+    pub binding_counters_read: u64,
+    /// Binding records the run read.
+    #[serde(default)]
+    pub binding_records_read: u64,
     /// Blob counters the blobs phase read.
     #[serde(default)]
     pub blob_counters_read: u64,
@@ -304,6 +339,23 @@ pub struct VerifyLast {
     /// Tips the run read. Zero in a scope that holds data means a wrong scope.
     #[serde(default)]
     pub tips_read: u64,
+    /// The rest of what the run read and counted. `lastdb db verify-refs --last`
+    /// prints the same lines as the run did, so it needs the same numbers.
+    #[serde(default)]
+    pub records_read: u64,
+    #[serde(default)]
+    pub counters_read: u64,
+    #[serde(default)]
+    pub bodies_read: u64,
+    /// Pages read again because a read hit the read limit of one call.
+    #[serde(default)]
+    pub page_retries: u64,
+    /// Atoms the totals of the first two phases hold.
+    #[serde(default)]
+    pub tally_atoms: u64,
+    /// Atoms that writers changed while the run read.
+    #[serde(default)]
+    pub touched_atoms: u64,
 }
 
 /// A run in progress.
@@ -329,6 +381,12 @@ impl VerifyReport {
             suspect_atoms: self.suspect_atoms,
             tally_complete: self.tally_complete,
             tips_read: self.tips_read,
+            records_read: self.records_read,
+            counters_read: self.counters_read,
+            bodies_read: self.bodies_read,
+            page_retries: self.page_retries,
+            tally_atoms: self.tally_atoms,
+            touched_atoms: self.touched_atoms,
         })
     }
 }

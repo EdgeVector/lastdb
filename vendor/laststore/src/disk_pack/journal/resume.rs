@@ -1,4 +1,4 @@
-use super::tail::{archive_path, read_archived};
+use super::tail::{archive_path, inspect_archive, Archived};
 use super::{JournalTail, TailPredecessor};
 use crate::disk_pack::bytes::digest;
 use crate::disk_pack::page_write::directory;
@@ -7,7 +7,7 @@ use crate::disk_pack::{
     artifact, corrupt, publish, stream_checkpoint, Current, PublishedGeneration,
 };
 use crate::{durability, Result};
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use uuid::Uuid;
@@ -70,23 +70,38 @@ fn rotate(lock: &WriteLock, current: &Current) -> Result<(PublishedGeneration, J
     Ok((publication, tail))
 }
 
+/// Make the exact old TAIL durable at its archive name, whole or not at all.
+///
+/// The bytes reach the archive name only by rename, after a file barrier, so a
+/// crash leaves no archive, an unused pending file, or a complete archive.
+/// A short or undecodable file at the archive name comes from an older
+/// in-place write or from a failed write. Nothing references it before the new
+/// TAIL exists, so the exact bytes replace it by rename. A complete archive
+/// that decodes to a different TAIL is still refused.
 fn archive(root: &Path, tail: &JournalTail, bytes: &[u8; 4096]) -> Result<()> {
     let path = archive_path(root, tail.stream, tail.last_batch);
-    let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(mut file) => {
+    match inspect_archive(&path, bytes)? {
+        Archived::Exact => {
+            let file = OpenOptions::new().read(true).write(true).open(&path)?;
+            durability::sync_dirty_file(&file)?;
+        }
+        Archived::Different => {
+            return Err(corrupt(
+                "an existing archived TAIL differs from its checkpoint",
+            ));
+        }
+        Archived::Absent | Archived::Torn => {
+            // The exclusive writer lock makes one fixed pending name safe to reuse.
+            let pending = path.with_extension("pending");
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&pending)?;
             file.write_all(bytes)?;
-            file
+            durability::sync_dirty_file(&file)?;
+            fs::rename(&pending, &path)?;
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            if read_archived(root, tail.stream, tail.last_batch)? != *bytes {
-                return Err(corrupt(
-                    "an existing archived TAIL differs from its checkpoint",
-                ));
-            }
-            OpenOptions::new().read(true).write(true).open(&path)?
-        }
-        Err(error) => return Err(error.into()),
-    };
-    durability::sync_dirty_file(&file)?;
+    }
     durability::sync_directory(&File::open(path.parent().expect("stream directory"))?)
 }

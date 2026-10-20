@@ -116,12 +116,11 @@ impl AtomStore {
             &member.hash_field,
             member.range_field.as_deref(),
         );
-        let _target_gate = self
-            .lock_liveness_molecules(std::slice::from_ref(&member.molecule_uuid))
-            .await;
-        // Retain first. An interrupted bind can leave an extra edge, but it
-        // cannot publish a protein member that the molecule reclaimer misses.
-        self.put_molecule_ref_edge(&molecule_ref, None).await?;
+        // The binding record, its counter, the protein record and the back-ref
+        // are one batch: the caller holds `with_protein_membership`, which is
+        // one native write scope.
+        self.add_molecule_bindings(std::slice::from_ref(&molecule_ref), None)
+            .await?;
         protein.members.push(member.clone());
         self.put_protein(&protein).await?;
         self.raw()

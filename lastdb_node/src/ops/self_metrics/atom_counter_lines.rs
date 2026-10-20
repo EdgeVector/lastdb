@@ -2,22 +2,27 @@ use super::*;
 
 /// `lastdb status` line for the atom counter planner.
 ///
-/// The totals are process-lifetime. A counter fault (underflow, counter
-/// absent, dangling removal) keeps the body and raises `suspect`; the recent
-/// faults name the atoms. Always emits one line, so a node that has written
-/// nothing and a daemon that predates the field read differently.
+/// The totals count the events since this process started, and a restart
+/// resets them: a home with `suspect` counters shows zeros after a restart. The
+/// line says so. The durable count of `suspect` counters comes from
+/// `lastdb db verify-refs` (one run) or `lastdb db inventory`; the status does
+/// not scan for it. A counter fault (underflow, counter absent, dangling
+/// removal) keeps the body and raises `suspect`; the recent faults name the
+/// atoms. Always emits one line, so a node that has written nothing and a
+/// daemon that predates the field read differently.
 pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     let Some(report) = snapshot.atom_counters.as_ref() else {
         return vec!["Atom counters: unsupported by daemon (no planner report)".to_string()];
     };
     let mut head = format!(
-        "Atom counters: bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={}; process-lifetime totals (reset on daemon restart)",
+        "Atom counters: since this process started (a restart sets them to zero): bodies_created={} bodies_deleted={} underflows={} counters_absent={} dangling_removals={} suspect_marked={} molecule_faults={}",
         report.bodies_created,
         report.bodies_deleted,
         report.underflows,
         report.counters_absent,
         report.dangling_removals,
         report.suspect_marked,
+        report.molecule_faults,
     );
     if !report.recent_faults.is_empty() {
         head.push_str(&format!(
@@ -25,6 +30,9 @@ pub fn atom_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
             report.recent_faults.join(", ")
         ));
     }
+    head.push_str(
+        " (the counters that are suspect now: lastdb db verify-refs or lastdb db inventory)",
+    );
     vec![head, verify_refs_line(report)]
 }
 

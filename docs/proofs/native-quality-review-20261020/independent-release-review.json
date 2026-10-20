@@ -1,0 +1,183 @@
+{
+  "build_logs": [
+    {
+      "bytes": 2288,
+      "check": "clippy-workspace",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--lib",
+        "--bins",
+        "--locked",
+        "--exclude",
+        "generate_validated_schema_org_seeds",
+        "--exclude",
+        "schema_service_worker",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "elapsed_seconds": 41.330659166000004,
+      "exit_code": 0,
+      "normal_completion": true,
+      "path": "docs/proofs/native-quality-review-20261020/clippy-workspace.log",
+      "sha256": "3622f57f8f2100ebe10938defaa1beddd400c80c4960bad2720827db3025e463"
+    },
+    {
+      "bytes": 1015,
+      "check": "clippy-offlane",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "generate_validated_schema_org_seeds",
+        "-p",
+        "schema_service_worker",
+        "--bins",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "elapsed_seconds": 6.357432500000002,
+      "exit_code": 0,
+      "normal_completion": true,
+      "path": "docs/proofs/native-quality-review-20261020/clippy-offlane.log",
+      "sha256": "908b17c0bd0b5a8fb525426d45a8918d6db2dd499fbbb4ec3229b8e926b89713"
+    },
+    {
+      "bytes": 1118,
+      "check": "release",
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd"
+      ],
+      "elapsed_seconds": 219.836908375,
+      "exit_code": 0,
+      "normal_completion": true,
+      "path": "docs/proofs/native-quality-review-20261020/release.log",
+      "sha256": "4e64209bdcb1ba6ac6e78ea039df61b7b0831c2cb8e3670afdf36ce4bd387261"
+    }
+  ],
+  "build_results": {
+    "bytes": 963,
+    "path": "docs/proofs/native-quality-review-20261020/build-results.json",
+    "sha256": "2a17d268dedf46e7d928792ecd2082d026c62b1f1258ba94e3ede8911f1d9aaa"
+  },
+  "cargo_fingerprint": {
+    "bytes": 2975,
+    "compile_kind": 0,
+    "features": [
+      "default",
+      "purging-allocator",
+      "sentry-telemetry"
+    ],
+    "path": "target/release/.fingerprint/lastdb_node-8f666e6da3036684/bin-lastdbd.json",
+    "profile": 17633828320530640230,
+    "rustflags": [],
+    "sha256": "b56ac67ef5dceee80d6d4fa43b8d8f0a3d505e174b3c79abd583b969563b618a"
+  },
+  "checks": {
+    "all_11_operation_helpers_unchanged": true,
+    "all_1812_current_source_bytes": true,
+    "all_1812_immutable_git_blobs": true,
+    "both_clippy_lanes_and_release_normal": true,
+    "dependency_repository_inputs_all_captured_prebuild": true,
+    "environment_registry_dependency_in_prebuild_capture": true,
+    "exactly_one_matching_deps_binary": true,
+    "external_configs_match": true,
+    "finalized_source_manifest": true,
+    "frozen_head": true,
+    "frozen_tree": true,
+    "identity_helpers_unchanged": true,
+    "independent_source_audit_passed": true,
+    "no_rustflags_or_cross_target": true,
+    "normal_binary": true,
+    "normal_default_features": true,
+    "normal_locked_release_command": true,
+    "same_source_inventory_as_prebuild_review": true,
+    "tracked_product_tree_clean": true
+  },
+  "current_source_mismatches": [],
+  "dependency_file": {
+    "bytes": 209209,
+    "external_git_metadata": [
+      {
+        "bytes": 24112,
+        "path": "/Users/tomtang/.cache/edgevector-git/lastdb.git/packed-refs",
+        "sha256": "6447105e584f07d3991fb7c5d9f56a06579f3bfd9dcf60d0f8559169c9963f93"
+      },
+      {
+        "bytes": 41,
+        "path": "/Users/tomtang/.cache/edgevector-git/lastdb.git/refs/heads/fix/native-contract-round12",
+        "sha256": "19015b0c13ed79228c25ac5ca2e292839b91d46ac90abe0bd70cacfd69e64842"
+      },
+      {
+        "bytes": 44,
+        "path": "/Users/tomtang/.cache/edgevector-git/lastdb.git/worktrees/lastdb-kanban-layer2-batch-storage-20261016/HEAD",
+        "sha256": "66f276021d1139e70a4fa186f9e6163569fd002b15dd13ec4c836e19992a1879"
+      }
+    ],
+    "generated_target_inputs": [
+      "target/release/build/folddb_profile-ae9122eefce02cff/out/environments_generated.rs"
+    ],
+    "path": "target/release/lastdbd.d",
+    "repository_input_count": 1573,
+    "sha256": "7d332097a92a57ab00a20897038dd52eaa9868d4e0f135180bf740cf29d7b8e9",
+    "uncovered_repository_inputs": []
+  },
+  "external_config_mismatches": [],
+  "head": "37a36d037aa6c440dd7cbfb1f6d98a16163acaa5",
+  "helper_git_blob_mismatches": [],
+  "helper_mismatches": [],
+  "identity_helper_mismatches": [],
+  "immutable_git_blob_mismatches": [],
+  "independent_source_audit": {
+    "bytes": 3449,
+    "path": "docs/proofs/native-quality-review-20261020/independent-source-review.json",
+    "sha256": "d5a7e26cf98401e2f3c85d74921e13ce3d3163965b42c5dd0dcd3a34875ecfae"
+  },
+  "limits": [
+    "No product program, node, build, test, operation helper, or socket call executes in this audit.",
+    "The recorded commands and normal completion logs agree with the Cargo fingerprint. This audit does not reconstruct the historical shell process.",
+    "The dependency file repository inputs all belong to the pre-build manifest. Git build-stamp metadata lies outside the repository inventory and is recorded separately here.",
+    "Installed registry package source bytes are outside this conservative repository inventory. Cargo.lock supplies their package identities.",
+    "Runtime semantics, private program copies, and final cleanup remain separate reviews."
+  ],
+  "matching_deps_binaries": [
+    {
+      "bytes": 65244688,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/deps/lastdbd-8f666e6da3036684",
+      "sha256": "6d8896a47dbbab4897097e5e71f74c64216eecb298f38de3f5aa8f53e8501b7e"
+    }
+  ],
+  "normal_binary": {
+    "bytes": 65244688,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "sha256": "6d8896a47dbbab4897097e5e71f74c64216eecb298f38de3f5aa8f53e8501b7e"
+  },
+  "operation_helper_count": 11,
+  "operation_helper_manifest": {
+    "bytes": 2083,
+    "path": "docs/proofs/native-quality-review-20261020/operation-helper-identity.json",
+    "sha256": "b4afd6b982d055f5c0559602226f660ca4904853bc0009054a9a91e1bf6a1e13"
+  },
+  "passed": true,
+  "reviewed_utc": "2026-10-20T17:01:46.145518+00:00",
+  "source_input_count": 1812,
+  "source_inventory_sha256": "96db7cc370a5ad077aee00691ff2d8bde08fb4fc215c7b32d76128bf67f7a138",
+  "source_manifest": {
+    "bytes": 357325,
+    "path": "docs/proofs/native-quality-review-20261020/source-identity.json",
+    "sha256": "81113f7b0dbb8c8bc39d02c8eb1c454b9c206f5b77ae204df4c7feeef1962155"
+  },
+  "tree": "d1e89c9d60831d1898735943db39930c306f9bd9",
+  "version": 1
+}

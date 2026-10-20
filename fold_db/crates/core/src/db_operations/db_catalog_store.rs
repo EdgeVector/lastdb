@@ -74,27 +74,6 @@ impl DbCatalogStore {
             .await
     }
 
-    /// Insert membership for a named locator if absent. An existing row wins
-    /// so re-declare does not mint a second instance.
-    pub async fn ensure_named_membership(
-        &self,
-        db_locator: &str,
-        schema_name: &str,
-        instance_id: Option<String>,
-    ) -> StorageResult<DbCatalogEntry> {
-        if let Some(existing) = self.get(db_locator, schema_name).await? {
-            return Ok(existing);
-        }
-        let entry = DbCatalogEntry {
-            db_locator: db_locator.to_string(),
-            schema_name: schema_name.to_string(),
-            instance_id,
-            key_selection: DbCatalogKeySelection::WholeSchema,
-        };
-        self.put(&entry).await?;
-        Ok(entry)
-    }
-
     /// Delete one exact catalog reference.
     pub async fn delete(&self, db_locator: &str, schema_name: &str) -> StorageResult<bool> {
         validate_identity(db_locator, schema_name)?;

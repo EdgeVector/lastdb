@@ -8,7 +8,8 @@ use super::report::Phase;
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{counter_range, queue_range};
 use crate::db_operations::atom_store::counter::scan::{
-    family_range, record_holders, tip_holders, CounterRead, Family, PairRead,
+    family_range, record_holders, record_molecules, tip_holders, tip_molecules, CounterRead,
+    Family, PairRead,
 };
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -41,6 +42,8 @@ pub(super) struct ReferencedPage {
     pub atoms: Vec<AtomRead>,
     /// The blobs that the tips of the page name in their metadata (tips phase).
     pub blobs: Vec<BlobListed>,
+    /// Rows of the page for each molecule (tips, or counted conflict records).
+    pub molecules: BTreeMap<String, u32>,
 }
 
 /// A page of the atoms phase.
@@ -62,6 +65,9 @@ pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>,
         Phase::Tips => Family::Tips,
         Phase::Records => Family::Records,
         Phase::Atoms => Family::Atoms,
+        Phase::Headers => Family::Headers,
+        Phase::Bindings => Family::BindingCounters,
+        Phase::BindingRecords => Family::BindingRecords,
         Phase::Blobs => return Some(counter_range()),
         Phase::BlobQueue => return Some(queue_range()),
         Phase::Done => return None,
@@ -93,6 +99,10 @@ impl AtomStore {
             } else {
                 BTreeMap::new()
             };
+            let molecules = match phase {
+                Phase::Records => record_molecules(&rows),
+                _ => tip_molecules(&rows),
+            };
             let (atoms, point_unsealed) =
                 count_unsealed_discards(self.read_atoms_of(holders, scope)).await;
             let blobs = self.read_blob_listed(blob_lists).await?;
@@ -105,6 +115,7 @@ impl AtomStore {
                 unreadable_keys: bad.keys,
                 atoms: atoms?,
                 blobs,
+                molecules,
             })
         })
         .await

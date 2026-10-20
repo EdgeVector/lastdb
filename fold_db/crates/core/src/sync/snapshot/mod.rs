@@ -212,8 +212,6 @@ impl Snapshot {
             self.validate_unique_restore_keys()?;
             self.namespaces.as_slice()
         };
-        let reference_proofs =
-            begin_reference_restore(store, namespaces, RestoreMode::Personal).await?;
         let materialize_started = Instant::now();
         let mut org_skipped = 0usize;
         let mut entries = 0usize;
@@ -236,7 +234,6 @@ impl Snapshot {
         let materialize_ms = elapsed_ms(materialize_started);
         let flush_started = Instant::now();
         store.restore_durability_barrier().await?;
-        finish_reference_restore(store, reference_proofs).await?;
         let final_flush_ms = elapsed_ms(flush_started);
 
         if org_skipped > 0 {
@@ -276,9 +273,7 @@ impl Snapshot {
             self.validate_unique_restore_keys()?;
             self.namespaces.as_slice()
         };
-        let reference_proofs =
-            begin_reference_restore(store, namespaces, RestoreMode::Scoped(target_prefixes))
-                .await?;
+        validate_scoped_files(namespaces)?;
         let materialize_started = Instant::now();
         let mut entries = 0usize;
         let mut batches = 0usize;
@@ -297,7 +292,6 @@ impl Snapshot {
         let materialize_ms = elapsed_ms(materialize_started);
         let flush_started = Instant::now();
         store.restore_durability_barrier().await?;
-        finish_reference_restore(store, reference_proofs).await?;
         let final_flush_ms = elapsed_ms(flush_started);
 
         Ok(SnapshotRestoreReport {

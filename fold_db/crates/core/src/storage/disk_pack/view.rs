@@ -24,7 +24,7 @@ pub struct NativeDiskStatus {
     pub core_warm_hits: u64,
     pub core_warm_misses: u64,
     pub core_warm_purged: u64,
-    /// Warm set byte gauge (stage 1 of the byte limit design; not enforced).
+    /// Warm set byte charge and the enforced clean-record retention limit.
     pub core_warm_bytes: crate::resident::CoreWarmByteStats,
     pub core_memory: crate::resident::CoreMemoryStats,
     pub(crate) core_model: crate::resident::CoreModelStats,

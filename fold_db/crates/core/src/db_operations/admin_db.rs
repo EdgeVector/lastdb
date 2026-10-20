@@ -23,4 +23,6 @@ mod history_prune;
 mod inventory;
 mod inventory_key_classes;
 mod inventory_molecule_keys;
+mod inventory_molecules;
+pub use inventory_molecules::MoleculeCounterTotals;
 mod orphan_proteins;

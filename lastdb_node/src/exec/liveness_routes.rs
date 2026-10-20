@@ -11,10 +11,13 @@ pub(super) async fn execute_liveness_explain_route(
         class: String,
         #[serde(default)]
         id: String,
-        /// Several atom ids or blob references in one call. Only the classes
-        /// `atom` and `blob` read them.
+        /// Several ids in one call. The classes `atom`, `molecule` and `blob` read them.
         #[serde(default)]
         ids: Vec<String>,
+        /// Atom and molecule storage scope. Without it the request scope
+        /// applies. Blob references span the whole node.
+        #[serde(default)]
+        scope: Option<String>,
     }
 
     let request = match serde_json::from_slice::<Request>(&req.body) {
@@ -35,7 +38,6 @@ pub(super) async fn execute_liveness_explain_route(
     };
     let class = request.class.trim().to_ascii_lowercase();
     let id = request.id.trim();
-    let atoms = host.db.db_ops().atoms();
     if !matches!(class.as_str(), "atom" | "molecule" | "blob") {
         return error_response(400, "class must be atom, molecule, or blob", ctx);
     }
@@ -48,82 +50,19 @@ pub(super) async fn execute_liveness_explain_route(
             ctx,
         );
     }
+    let scope = request
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .or(ctx.storage_prefix.as_deref());
     if class == "atom" {
-        return explain_atoms(host, ctx, id, request.ids).await;
+        return explain_atoms(host, ctx, scope, id, request.ids).await;
     }
-    if class == "blob" {
-        return explain_blobs(host, ctx, id, request.ids).await;
+    if class == "molecule" {
+        return explain_molecules(host, ctx, scope, id, request.ids).await;
     }
-    let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
-
-    match result {
-        Ok(references) => {
-            let reclaim_state = if !references.complete {
-                "blocked_index_incomplete"
-            } else if references.active_references.is_some_and(|count| count > 0) {
-                "blocked_active_edges"
-            } else {
-                "candidate"
-            };
-            let mut report = serde_json::json!({
-                "class": class,
-                "id": id,
-                "complete": references.complete,
-                "active_references": references.active_references,
-                "reclaim_state": reclaim_state,
-            });
-            if let Some(edges) = references.edges {
-                report["edges"] = edges;
-            }
-            json_ok(&envelope(
-                &serde_json::json!({ "liveness": report }),
-                ctx.user_id.as_str(),
-            ))
-        }
-        Err(error) => mapped_error_response("liveness explain failed", error.into(), ctx),
-    }
-}
-
-struct LivenessReferences {
-    complete: bool,
-    active_references: Option<u64>,
-    edges: Option<serde_json::Value>,
-}
-
-impl LivenessReferences {
-    fn with_edges<T: serde::Serialize>(
-        complete: bool,
-        edges: Vec<T>,
-    ) -> Result<Self, fold_db::schema::SchemaError> {
-        let active_references = Some(edges.len() as u64);
-        let edges = serde_json::to_value(edges).map_err(|error| {
-            fold_db::schema::SchemaError::InvalidData(format!("serialize liveness edges: {error}"))
-        })?;
-        Ok(Self {
-            complete,
-            active_references,
-            edges: Some(edges),
-        })
-    }
-}
-
-async fn read_liveness_references(
-    class: &str,
-    id: &str,
-    storage_prefix: Option<&str>,
-    atoms: &fold_db::db_operations::AtomStore,
-) -> Result<LivenessReferences, fold_db::schema::SchemaError> {
-    match class {
-        "molecule" => {
-            let lookup = atoms
-                .molecule_ref_edges_for_molecule(id, storage_prefix)
-                .await?;
-            LivenessReferences::with_edges(lookup.complete, lookup.edges)
-        }
-        _ => Err(fold_db::schema::SchemaError::InvalidData(
-            "class must be atom, molecule, or blob".into(),
-        )),
-    }
+    explain_blobs(host, ctx, id, request.ids).await
 }
 
 /// The counter of each named atom. An atom has no list of referrers: the
@@ -131,10 +70,10 @@ async fn read_liveness_references(
 async fn explain_atoms(
     host: &Host,
     ctx: &AccessContext,
+    storage_prefix: Option<&str>,
     id: &str,
     mut ids: Vec<String>,
 ) -> UdsResponse {
-    let storage_prefix = ctx.storage_prefix.as_deref();
     if !id.is_empty() {
         ids.insert(0, id.to_string());
     }

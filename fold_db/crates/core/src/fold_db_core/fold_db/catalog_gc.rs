@@ -44,18 +44,26 @@ impl FoldDB {
         let _molecule_guards = self
             .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
             .await;
-        let deleted = catalog.delete(db_locator, schema_name).await?;
-        if let (true, Some(_), Some(schema)) = (deleted, existing.as_ref(), schema.as_ref()) {
-            self.db_ops()
-                .atoms()
-                .unbind_catalog_molecules(
-                    db_locator,
-                    schema_name,
-                    schema,
-                    storage_prefix.as_deref(),
-                )
-                .await?;
-        }
+        // The row and its binding records leave in one batch, so a crash cannot
+        // keep bindings for a row that is gone.
+        let atoms = self.db_ops().atoms();
+        let deleted = atoms
+            .in_write_scope(async {
+                let deleted = catalog.delete(db_locator, schema_name).await?;
+                if let (true, Some(_), Some(schema)) = (deleted, existing.as_ref(), schema.as_ref())
+                {
+                    atoms
+                        .unbind_catalog_molecules(
+                            db_locator,
+                            schema_name,
+                            schema,
+                            storage_prefix.as_deref(),
+                        )
+                        .await?;
+                }
+                Ok(deleted)
+            })
+            .await?;
         let instance_id = existing.and_then(|entry| entry.instance_id);
         let reclaim = match instance_id.as_deref() {
             Some(instance) if instance != UNPREFIXED_INSTANCE_ID => {

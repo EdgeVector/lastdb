@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::sampler_state::{SamplerRuntimeState, MAX_DRAIN_ATTEMPTS};
+use super::sampler_state::SamplerRuntimeState;
 
 /// The backlog signal of the last TTL sweep pass.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ pub struct TtlPassReport {
 
 impl SamplerRuntimeState {
     /// Keep the report of a finished pass and add its skipped schemas to the
-    /// count for the process. An unfinished pass is not settled, unless the sweep gave up.
+    /// count for the process. An unfinished pass is not settled.
     pub(crate) fn record_ttl_pass(&self, report: TtlPassReport) {
         let mut ttl = self
             .ttl
@@ -34,9 +34,7 @@ impl SamplerRuntimeState {
         ttl.schema_failures = ttl
             .schema_failures
             .saturating_add(u64::from(report.schemas_failed));
-        // A sweep that gave up for this process stays settled.
-        ttl.settled =
-            (ttl.settled && report.finished_backlog) || ttl.failures >= MAX_DRAIN_ATTEMPTS;
+        ttl.settled = ttl.settled && report.finished_backlog;
         ttl.last_pass = report;
     }
 }

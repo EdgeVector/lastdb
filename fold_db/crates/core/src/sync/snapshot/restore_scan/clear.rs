@@ -13,8 +13,8 @@ fn selected(key: &[u8], mode: RestoreMode<'_>, is_main: bool) -> bool {
     }
 }
 
-/// Delete the rows of the restore scope. The reference proofs and the node-global
-/// file rows stay: a restore never replaces them with an older copy.
+/// Delete the rows of the restore scope. The node-global file rows stay: a
+/// restore never replaces them with an older copy.
 pub(super) async fn clear_existing(
     kv: &Arc<dyn KvStore>,
     rows: Vec<(Vec<u8>, Vec<u8>)>,
@@ -24,10 +24,7 @@ pub(super) async fn clear_existing(
     let sources: Vec<Vec<u8>> = rows
         .into_iter()
         .map(|(key, _)| key)
-        .filter(|key| {
-            selected(key, mode, is_main)
-                && !(is_main && (proofs::is_reference_proof(key) || files::is_main_file_key(key)))
-        })
+        .filter(|key| selected(key, mode, is_main) && !(is_main && files::is_main_file_key(key)))
         .collect();
     for chunk in sources.chunks(128) {
         kv.batch_delete(chunk.to_vec()).await?;

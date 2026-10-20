@@ -28,6 +28,7 @@ impl AtomStore {
             records.push(RecordRefs {
                 key: key.clone(),
                 atoms: event_atoms(&event),
+                molecule: event.molecule_uuid.clone(),
             });
             rows.push((
                 key.clone(),

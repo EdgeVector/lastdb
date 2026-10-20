@@ -102,12 +102,12 @@ pub(super) async fn execute_db_catalog_put_route(
         instance_id,
         key_selection: body.key_selection.unwrap_or_default(),
     };
-    match host.db.db_ops().db_catalog().put(&entry).await {
+    match host.db.put_catalog_membership(&entry).await {
         Ok(()) => json_ok(&envelope(
             &serde_json::to_value(&entry).unwrap_or_else(|_| serde_json::json!({})),
             ctx.user_id.as_str(),
         )),
-        Err(e) => mapped_error_response("db catalog put failed", e.into(), ctx),
+        Err(e) => mapped_error_response("db catalog put failed", e, ctx),
     }
 }
 

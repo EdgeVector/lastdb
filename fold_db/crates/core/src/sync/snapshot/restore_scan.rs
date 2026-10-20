@@ -3,8 +3,7 @@
 use super::*;
 mod clear;
 mod files;
-mod proofs;
-pub(super) use proofs::{begin_reference_restore, finish_reference_restore};
+pub(super) use files::validate_scoped_files;
 
 #[derive(Clone, Copy)]
 pub(super) enum RestoreMode<'a> {
@@ -59,9 +58,6 @@ pub(super) async fn restore_namespace(
         let mut items = Vec::with_capacity(chunk.len());
         for (key, value) in chunk {
             let key = key.clone();
-            if is_main && proofs::is_reference_proof(&key) {
-                continue;
-            }
             // Node-local rows never travel in a snapshot: the peer-apply row
             // (the restoring node writes its own `seen` after the install) and
             // the `gcatoms-*` probe checkpoints and markers, which describe the
@@ -129,7 +125,9 @@ pub(super) async fn collect_snapshot_namespaces(
     let mut namespaces = Vec::with_capacity(ns_names.len());
 
     for ns_name in &ns_names {
-        if snapshot_should_skip_namespace(ns_name) {
+        if snapshot_should_skip_namespace(ns_name)
+            || (matches!(mode, SnapshotNamespaceMode::Scoped(_)) && ns_name == "cas_blobs")
+        {
             continue;
         }
 
@@ -148,7 +146,12 @@ pub(super) async fn collect_snapshot_namespaces(
                 .await?
                 .into_iter()
                 .filter(|(k, _)| {
-                    namespace_key_belongs_to_any_target(k, target_prefixes, ns_name == "main")
+                    !(ns_name == "main" && files::is_main_file_key(k))
+                        && namespace_key_belongs_to_any_target(
+                            k,
+                            target_prefixes,
+                            ns_name == "main",
+                        )
                 })
                 .map(|(k, v)| SnapshotEntry {
                     key: BASE64.encode(&k),

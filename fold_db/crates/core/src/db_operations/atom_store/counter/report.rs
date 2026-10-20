@@ -4,6 +4,7 @@
 //! counter `suspect`, and records the event here. `lastdb status` shows these
 //! totals, and an operator repairs the counter offline.
 
+use super::molecule_plan::MoleculeFault;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,7 +44,8 @@ impl CounterEvent {
     }
 }
 
-/// Totals since the node started, and the recent faults.
+/// Totals since this process started, and the recent faults. Memory only: a
+/// restart sets them to zero.
 #[derive(Debug, Default)]
 pub(crate) struct CounterEvents {
     created: AtomicU64,
@@ -51,6 +53,7 @@ pub(crate) struct CounterEvents {
     underflows: AtomicU64,
     counters_absent: AtomicU64,
     dangling_removals: AtomicU64,
+    molecule_faults: AtomicU64,
     recent_faults: Mutex<VecDeque<String>>,
 }
 
@@ -78,6 +81,26 @@ impl CounterEvents {
         recent.push_back(format!("{}:{atom}", event.name()));
     }
 
+    /// A molecule counter fault: an underflow, a header without counters, or an
+    /// overflow. The molecule is marked `suspect` and never counts as droppable.
+    pub(crate) fn note_molecule(&self, molecule: &str, fault: MoleculeFault) {
+        self.molecule_faults.fetch_add(1, Ordering::Relaxed);
+        let name = match fault {
+            MoleculeFault::Underflow => "molecule_underflow",
+            MoleculeFault::CountersUnset => "molecule_counters_unset",
+            MoleculeFault::Overflow => "molecule_overflow",
+        };
+        tracing::error!(molecule = %molecule, event = name, "molecule counter fault; the molecule is suspect");
+        let mut recent = self
+            .recent_faults
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if recent.len() == RECENT_EVENTS {
+            recent.pop_front();
+        }
+        recent.push_back(format!("{name}:{molecule}"));
+    }
+
     /// A copy of the totals for status output.
     pub(crate) fn snapshot(&self) -> AtomCounterReport {
         AtomCounterReport {
@@ -86,6 +109,7 @@ impl CounterEvents {
             underflows: self.underflows.load(Ordering::Relaxed),
             counters_absent: self.counters_absent.load(Ordering::Relaxed),
             dangling_removals: self.dangling_removals.load(Ordering::Relaxed),
+            molecule_faults: self.molecule_faults.load(Ordering::Relaxed),
             suspect_marked: self.underflows.load(Ordering::Relaxed)
                 + self.counters_absent.load(Ordering::Relaxed),
             recent_faults: self
@@ -108,6 +132,9 @@ pub struct AtomCounterReport {
     pub underflows: u64,
     pub counters_absent: u64,
     pub dangling_removals: u64,
+    /// Molecule counter faults since the node started (see `note_molecule`).
+    #[serde(default)]
+    pub molecule_faults: u64,
     /// Counters this process marked `suspect`: `underflows` plus `counters_absent`.
     /// It counts events since the daemon started, not the atoms that are
     /// `suspect` now; the last verify run (`verify_refs.last.suspect_atoms`) and

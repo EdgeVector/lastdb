@@ -77,7 +77,7 @@ pub(super) fn plan_targets(
     let mut deduped = Vec::with_capacity(keys.len());
     for key in keys {
         validate_purge_key_shape(&schema, schema_name, key)?;
-        if seen.insert(describe_key(key)) {
+        if seen.insert(key.clone()) {
             deduped.push(key.clone());
         }
     }

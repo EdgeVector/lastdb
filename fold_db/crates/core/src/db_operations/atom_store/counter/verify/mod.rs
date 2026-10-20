@@ -34,15 +34,36 @@
 //! verifier again when the writers are quiet, or repair with `recount` on a
 //! stopped node.
 //!
+//! # The molecule counters
+//!
+//! Three more phases follow the atoms. They check the counters of molecules
+//! (`docs/lastdb-molecule-counters.md`) and write nothing.
+//!
+//! - Headers: each header (`mh:{M}`) carries `slots` and `records`. The first two
+//!   phases counted the tips and the conflict records of every molecule, so a
+//!   header that differs is a fault, or a candidate when a writer changed the
+//!   molecule during the pass (the planner notes the molecule in the [`Watch`]).
+//!   A header with no counters, a `suspect` header, and a molecule that has tips
+//!   and no header are faults.
+//! - Bindings: each `bindings` counter is compared with the binding records of
+//!   its molecule. One page reads both at one root, and a bind or an unbind
+//!   writes both in one batch, so a difference is always a fault.
+//! - Binding records: each molecule that has a binding record has a counter.
+//!
 //! # Memory
 //!
-//! The totals hold 16 bytes of digest and 4 bytes of count per referenced atom,
-//! at most `max_atoms` (1,000,000 by default). Beyond that the verifier does not
+//! The totals hold 16 bytes of digest and 4 bytes of count per referenced atom
+//! and per molecule, at most `max_atoms` (1,000,000 by default). Beyond that the verifier does not
 //! compare counters with totals, and it says so in the report. A run that no
 //! step touched for ten minutes is dropped.
 
+mod blob_report;
 mod blobs;
 mod check;
+mod molecule_judge;
+mod molecule_pages;
+mod molecule_report;
+mod molecule_run;
 mod pages;
 mod report;
 mod run;
