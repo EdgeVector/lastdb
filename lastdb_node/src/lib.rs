@@ -29,6 +29,7 @@ pub mod local_outbox;
 pub mod log_rotation;
 pub mod maintenance_write_gate;
 pub mod offline_home;
+pub mod offline_recount;
 pub mod ops;
 mod primary_resume_job;
 pub mod proof_replay;

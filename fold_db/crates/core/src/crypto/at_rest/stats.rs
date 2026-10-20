@@ -86,6 +86,9 @@ static UNSEALED_WARNED: std::sync::Mutex<Option<std::collections::BTreeSet<Strin
 /// something this store wrote, so its bytes are untrusted.
 pub fn record_unsealed_discard(namespace: &str) {
     UNSEALED_DISCARDED.fetch_add(1, Ordering::Relaxed);
+    // A caller that counts the discards of its own reads (see
+    // [`count_unsealed_discards`]) sees this one. No other task does.
+    let _ = SCOPED_DISCARDS.try_with(|count| count.fetch_add(1, Ordering::Relaxed));
     let first = match UNSEALED_WARNED.lock() {
         Ok(mut guard) => guard
             .get_or_insert_with(std::collections::BTreeSet::new)
@@ -102,6 +105,25 @@ pub fn record_unsealed_discard(namespace: &str) {
              sealed its mutation-log replay."
         );
     }
+}
+
+tokio::task_local! {
+    /// Discards in the reads of one [`count_unsealed_discards`] scope.
+    static SCOPED_DISCARDS: std::sync::Arc<AtomicU64>;
+}
+
+/// Run `read` and count the rows it discarded for carrying no at-rest envelope.
+///
+/// A scan that drops such a row returns fewer rows than it read, so a short
+/// page does not mean the end of the range. A walk adds the count to the rows
+/// it got to know whether the page was full. The count belongs to this read
+/// alone: a concurrent read of another task does not change it.
+pub async fn count_unsealed_discards<T>(read: impl std::future::Future<Output = T>) -> (T, u64) {
+    let count = std::sync::Arc::new(AtomicU64::new(0));
+    let out = SCOPED_DISCARDS
+        .scope(std::sync::Arc::clone(&count), read)
+        .await;
+    (out, count.load(Ordering::Relaxed))
 }
 
 /// Rows discarded for carrying no at-rest envelope, since process start.

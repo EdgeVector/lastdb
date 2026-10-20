@@ -32,6 +32,9 @@ pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;
+#[path = "db_verify_refs_cmds.rs"]
+mod db_verify_refs_cmds;
+pub(crate) use db_verify_refs_cmds::*;
 #[path = "db_report_util_cmds.rs"]
 mod db_report_util_cmds;
 pub(crate) use db_report_util_cmds::*;
@@ -41,6 +44,10 @@ pub(crate) use db_reseal_cmds::*;
 
 pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result<(), String> {
     let (home, socket) = resolve_client_home_and_socket(data_dir)?;
+    // The offline verbs work on a stopped home. They never reach the daemon.
+    if let DbCommand::Offline(action) = action {
+        return db_offline_command(&home, action);
+    }
     if lastdb_node::health_alert::probe_health(&socket).is_err() {
         return Err(format!(
             "lastdbd not reachable at {} — start the daemon first",
@@ -54,6 +61,7 @@ pub(super) fn db_command(data_dir: Option<PathBuf>, action: DbCommand) -> Result
         DbCommand::Seal(action) => db_seal_command(&socket, action),
         DbCommand::Blob(action) => db_blob_command(&socket, action),
         DbCommand::Proof(action) => db_proof_command(&socket, action),
+        DbCommand::Offline(_) => unreachable!("handled before the daemon probe"),
     }
 }
 
@@ -79,3 +87,27 @@ pub(crate) use db_response_cmds::*;
 #[path = "db_schema_policy_cmds.rs"]
 mod db_schema_policy_cmds;
 pub(crate) use db_schema_policy_cmds::*;
+
+/// Dispatch the verbs that work on a stopped home.
+fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
+    match action {
+        DbOfflineCommand::Recount {
+            execute,
+            scopes,
+            all_scopes,
+            shards,
+            i_know_this_is_primary,
+            json,
+        } => lastdb_node::offline_recount::recount_offline(
+            &lastdb_node::offline_recount::RecountArgs {
+                home,
+                execute,
+                scopes,
+                all_scopes,
+                shards,
+                i_know_this_is_primary,
+                json,
+            },
+        ),
+    }
+}
