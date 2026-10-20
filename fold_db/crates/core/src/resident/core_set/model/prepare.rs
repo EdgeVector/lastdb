@@ -50,16 +50,18 @@ impl CoreWarmSet {
         for change in changes {
             let mut value = change.slot;
             if let Some(value) = &mut value {
-                self.share_model_atom(&change.path.slot().molecule, value);
+                let molecule =
+                    MoleculeKey::new(change.path.scope.as_deref(), &change.path.molecule);
+                self.share_model_atom(&molecule, value);
             }
             let slot = self.prepare_slot(value, change.sources, owner.cloned())?;
-            slots.insert(change.path.slot(), slot);
+            slots.insert(change.path.slot_key(), slot);
             paths.push(change.path);
         }
         let changes = paths
             .into_iter()
             .map(|path| {
-                let value = Arc::clone(&slots[&path.slot()]);
+                let value = Arc::clone(&slots[&path.slot_key()]);
                 (path, value)
             })
             .collect();
@@ -93,7 +95,10 @@ impl CoreWarmSet {
         let mut grouped: HashMap<MoleculeKey, Vec<CoreModelChange>> = HashMap::new();
         for change in changes {
             grouped
-                .entry(change.path.slot().molecule)
+                .entry(MoleculeKey::new(
+                    change.path.scope.as_deref(),
+                    &change.path.molecule,
+                ))
                 .or_default()
                 .push(change);
         }
@@ -149,7 +154,7 @@ impl CoreWarmSet {
             slots.insert(at, slot);
             paths.push(change.path);
         }
-        let mut model = MoleculeHashRange::with_partial_uuid(key.molecule.clone());
+        let mut model = MoleculeHashRange::with_partial_uuid(key.molecule.to_string());
         for ((hash, range), value) in &slots {
             if let Some(value) = &value.value {
                 model.insert_loaded_slot_verbatim(
@@ -236,16 +241,8 @@ impl CoreWarmSet {
         definitions: usize,
     ) -> Result<(), CoreCapacity> {
         self.molecules.try_reserve(slots).map_err(|_| capacity())?;
-        self.slot_atoms.try_reserve(slots).map_err(|_| capacity())?;
-        self.owned_slots
-            .try_reserve(slots)
-            .map_err(|_| capacity())?;
-        self.slot_sources
-            .try_reserve(slots)
-            .map_err(|_| capacity())?;
-        self.source_slots
-            .try_reserve(sources)
-            .map_err(|_| capacity())?;
+        self.slots.try_reserve(slots)?;
+        self.sources.try_reserve(sources)?;
         self.memory.reserve_install(definitions)
     }
 }
@@ -253,8 +250,7 @@ impl CoreWarmSet {
 fn validate(core: &CoreWarmSet, changes: &[CoreModelChange]) -> Result<(), CoreCapacity> {
     for change in changes {
         if core
-            .paths
-            .get(&change.path)
+            .path_state(&change.path)
             .is_none_or(|state| state.holds == 0)
             || change.sources.is_empty()
             || change.sources.len() > 64
@@ -277,7 +273,7 @@ fn root_quote(
     let molecules = root
         .molecules
         .keys()
-        .map(|key| key.molecule.len() + key.scope.as_ref().map_or(0, String::len));
+        .map(|key| key.molecule.len() + key.scope.as_ref().map_or(0, |scope| scope.len()));
     let additions = changes.iter().map(|change| {
         change.path.molecule.len() + change.path.scope.as_ref().map_or(0, String::len)
     });

@@ -5,10 +5,7 @@ use crate::resident::core_keys::{CoreKeyDomain, CoreKeyLease};
 impl CoreWarmSet {
     pub(crate) fn attach_keys(&mut self, domain: Arc<CoreKeyDomain>) {
         let identity = domain.identity();
-        let key = MoleculeKey {
-            scope: identity.scope.clone(),
-            molecule: identity.molecule.clone(),
-        };
+        let key = MoleculeKey::new(identity.scope.as_deref(), &identity.molecule);
         let model = self
             .molecules
             .entry(key)
@@ -18,10 +15,7 @@ impl CoreWarmSet {
 
     pub(crate) fn key_lease(&self, scope: Option<&str>, molecule: &str) -> Option<CoreKeyLease> {
         self.molecules
-            .get(&MoleculeKey {
-                scope: scope.map(str::to_owned),
-                molecule: molecule.to_owned(),
-            })?
+            .get(&MoleculeKey::new(scope, molecule))?
             .core_keys()?
             .lease()
             .ok()
@@ -29,10 +23,7 @@ impl CoreWarmSet {
     }
 
     pub(crate) fn detach_keys(&mut self, scope: Option<&str>, molecule: &str) {
-        let key = MoleculeKey {
-            scope: scope.map(str::to_owned),
-            molecule: molecule.to_owned(),
-        };
+        let key = MoleculeKey::new(scope, molecule);
         let empty = self.molecules.get_mut(&key).is_some_and(|model| {
             model.detach_core_keys();
             model.is_empty() && model.core_keys().is_none()

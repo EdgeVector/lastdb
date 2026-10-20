@@ -128,10 +128,7 @@ impl CoreModelSnapshot {
     fn molecule(&self, scope: Option<&str>, molecule: &str) -> Option<&ModelMolecule> {
         self.root
             .molecules
-            .get(&MoleculeKey {
-                scope: scope.map(str::to_owned),
-                molecule: molecule.to_owned(),
-            })
+            .get(&MoleculeKey::new(scope, molecule))
             .map(Arc::as_ref)
     }
 }

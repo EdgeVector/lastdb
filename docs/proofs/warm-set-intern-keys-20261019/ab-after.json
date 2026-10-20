@@ -1,0 +1,286 @@
+[
+ {
+  "summary": {
+   "label": "after",
+   "shape": "small",
+   "extra_paths": 8200,
+   "alloc_diff": 34244448,
+   "gauge_diff": 35624544,
+   "alloc_per_path": 4176.152195121951,
+   "gauge_per_path": 4344.456585365853,
+   "ratio": 1.0403013066526872
+  },
+  "runs": {
+   "normal": {
+    "cap": "normal",
+    "records": 3000,
+    "size": 200,
+    "values_checked": 6000,
+    "before": {
+     "malloc": 7428884,
+     "gauge": 0,
+     "gauge_parts": {
+      "atom_bytes": 0,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 0,
+      "path_bytes": 0,
+      "peak_bytes": 0,
+      "slot_bytes": 0,
+      "tracked_atoms": 0,
+      "used_bytes": 0
+     },
+     "warm_stats": {
+      "atoms": 0,
+      "dirty": 0,
+      "held": 0,
+      "hits": 0,
+      "misses": 0,
+      "molecules": 0,
+      "paths": 0,
+      "purged": 0,
+      "tip_only_paths": 0
+     }
+    },
+    "after": {
+     "malloc": 45605712,
+     "gauge": 39124816,
+     "gauge_parts": {
+      "atom_bytes": 2451648,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 14065168,
+      "path_bytes": 5760000,
+      "peak_bytes": 39124816,
+      "slot_bytes": 16848000,
+      "tracked_atoms": 6012,
+      "used_bytes": 39124816
+     },
+     "warm_stats": {
+      "atoms": 6001,
+      "dirty": 0,
+      "held": 0,
+      "hits": 33000,
+      "misses": 0,
+      "molecules": 3,
+      "paths": 9000,
+      "purged": 0,
+      "tip_only_paths": 0
+     }
+    },
+    "malloc_growth": 38176828,
+    "gauge_growth": 39124816
+   },
+   "800": {
+    "cap": 800,
+    "records": 3000,
+    "size": 200,
+    "values_checked": 6000,
+    "before": {
+     "malloc": 7428709,
+     "gauge": 0,
+     "gauge_parts": {
+      "atom_bytes": 0,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 0,
+      "path_bytes": 0,
+      "peak_bytes": 0,
+      "slot_bytes": 0,
+      "tracked_atoms": 0,
+      "used_bytes": 0
+     },
+     "warm_stats": {
+      "atoms": 0,
+      "dirty": 0,
+      "held": 0,
+      "hits": 0,
+      "misses": 0,
+      "molecules": 0,
+      "paths": 0,
+      "purged": 0,
+      "tip_only_paths": 0
+     }
+    },
+    "after": {
+     "malloc": 11361089,
+     "gauge": 3500272,
+     "gauge_parts": {
+      "atom_bytes": 226144,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 1264528,
+      "path_bytes": 512000,
+      "peak_bytes": 3913984,
+      "slot_bytes": 1497600,
+      "tracked_atoms": 618,
+      "used_bytes": 3500272
+     },
+     "warm_stats": {
+      "atoms": 617,
+      "dirty": 0,
+      "held": 0,
+      "hits": 30000,
+      "misses": 0,
+      "molecules": 3,
+      "paths": 800,
+      "purged": 17200,
+      "tip_only_paths": 0
+     }
+    },
+    "malloc_growth": 3932380,
+    "gauge_growth": 3500272
+   }
+  }
+ },
+ {
+  "summary": {
+   "label": "after",
+   "shape": "medium",
+   "extra_paths": 8200,
+   "alloc_diff": 56778682,
+   "gauge_diff": 60405344,
+   "alloc_per_path": 6924.229512195122,
+   "gauge_per_path": 7366.505365853659,
+   "ratio": 1.0638736559612285
+  },
+  "runs": {
+   "normal": {
+    "cap": "normal",
+    "records": 3000,
+    "size": 8192,
+    "values_checked": 6000,
+    "before": {
+     "malloc": 7428764,
+     "gauge": 0,
+     "gauge_parts": {
+      "atom_bytes": 0,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 0,
+      "path_bytes": 0,
+      "peak_bytes": 0,
+      "slot_bytes": 0,
+      "tracked_atoms": 0,
+      "used_bytes": 0
+     },
+     "warm_stats": {
+      "atoms": 0,
+      "dirty": 0,
+      "held": 0,
+      "hits": 0,
+      "misses": 0,
+      "molecules": 0,
+      "paths": 0,
+      "purged": 0,
+      "tip_only_paths": 0
+     }
+    },
+    "after": {
+     "malloc": 69592790,
+     "gauge": 65524816,
+     "gauge_parts": {
+      "atom_bytes": 28851648,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 14065168,
+      "path_bytes": 5760000,
+      "peak_bytes": 65524816,
+      "slot_bytes": 16848000,
+      "tracked_atoms": 6012,
+      "used_bytes": 65524816
+     },
+     "warm_stats": {
+      "atoms": 6001,
+      "dirty": 0,
+      "held": 0,
+      "hits": 33000,
+      "misses": 0,
+      "molecules": 3,
+      "paths": 9000,
+      "purged": 0,
+      "tip_only_paths": 0
+     }
+    },
+    "malloc_growth": 62164026,
+    "gauge_growth": 65524816
+   },
+   "800": {
+    "cap": 800,
+    "records": 3000,
+    "size": 8192,
+    "values_checked": 6000,
+    "before": {
+     "malloc": 7428197,
+     "gauge": 0,
+     "gauge_parts": {
+      "atom_bytes": 0,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 0,
+      "path_bytes": 0,
+      "peak_bytes": 0,
+      "slot_bytes": 0,
+      "tracked_atoms": 0,
+      "used_bytes": 0
+     },
+     "warm_stats": {
+      "atoms": 0,
+      "dirty": 0,
+      "held": 0,
+      "hits": 0,
+      "misses": 0,
+      "molecules": 0,
+      "paths": 0,
+      "purged": 0,
+      "tip_only_paths": 0
+     }
+    },
+    "after": {
+     "malloc": 12813541,
+     "gauge": 5119472,
+     "gauge_parts": {
+      "atom_bytes": 1845344,
+      "dirty_bytes": 0,
+      "dirty_limit_bytes": 67108850,
+      "held_bytes": 0,
+      "limit_bytes": 268435456,
+      "link_bytes": 1264528,
+      "path_bytes": 512000,
+      "peak_bytes": 10928272,
+      "slot_bytes": 1497600,
+      "tracked_atoms": 618,
+      "used_bytes": 5119472
+     },
+     "warm_stats": {
+      "atoms": 617,
+      "dirty": 0,
+      "held": 0,
+      "hits": 30000,
+      "misses": 0,
+      "molecules": 3,
+      "paths": 800,
+      "purged": 17200,
+      "tip_only_paths": 0
+     }
+    },
+    "malloc_growth": 5385344,
+    "gauge_growth": 5119472
+   }
+  }
+ }
+]
