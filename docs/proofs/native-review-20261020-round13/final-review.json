@@ -1,6 +1,53 @@
 {
+  "final_cleanup": {
+    "absent_creator_and_node_pids": 55,
+    "exact_roots_removed": 13,
+    "independent_postcheck": "pass",
+    "normal_unforced_sessions": 49,
+    "portable_archives": 13,
+    "portable_parts": 19,
+    "portable_raw_receipt_bytes": 173338304,
+    "portable_source_inventories": 4,
+    "sealed_files_unchanged": 827,
+    "supported_cleanup_exit_codes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "format_fenced_release": {
+    "accepted_core_inputs": 627,
+    "binary_sha256": "a27051ad056539361d9255247d41fa0309511ca1d54bcbcecd72368a8c9abd19",
+    "catalog_http_calls": 36,
+    "core_http_calls": 129,
+    "core_metadata_maps": 13456,
+    "core_query_responses": 390,
+    "core_records": 3365,
+    "independent_reviews": {
+      "memory": "All32largevalues/fullmetadata correct through pack/reclaim/reopen; zero-file repeats; all26gzip pairs exact.",
+      "query": "59HTTPcalls;71query responses;34counts;24pages;4actualcursor continuations;catalogrebind andpersonal isolationpass.",
+      "writes": "627inputs/390queryresponses/3365records/13456fieldmetadata maps; exactmixed/single/absent-delete IDs;29zero-file gates;4normalstops."
+    },
+    "large_http_calls": 13,
+    "normal_sessions": 16,
+    "operational_review": "Independent core/query/large-value reviews pass. Cleanup proof follows separately.",
+    "plain_http_calls": 23,
+    "required_zero_file_checks": 29,
+    "source_inputs": 1814,
+    "source_review": "All DbOperations opens check the shared v3 marker before service. Earlier initialized v2 and completed v2 proof batches refuse; constructor-proven empty intent can resume fresh. Snapshot marker uses the same constant. No physical format change or migration."
+  },
   "remaining_limits": "See RESULTS.md; source-only cases remain source-only. No unresolved blocker in reviewed scopes.",
-  "reviewed_utc": "2026-10-20T19:10:42.368588+00:00",
+  "reviewed_utc": "2026-10-20T19:33:23.820275+00:00",
   "reviewers": {
     "memory_contract_round9": {
       "cleanup": "9roots absent;553sealed originals identical;33normal stops;38creator/node PIDs absent",
@@ -8,7 +55,7 @@
       "scope": "Full-atom certificate/memory ownership, large values,9exact-home cleanup"
     },
     "mutation_contract_round9": {
-      "final_release": {
+      "receipt_order_release": {
         "field_metadata_maps": 13456,
         "focused_feed_events": 7,
         "focused_feed_pages": 5,
@@ -29,7 +76,8 @@
     }
   },
   "source_commits": {
-    "final": "9f2bb284a6a47a69a58e16eb9ac4d468a44f4d77",
-    "initial": "912a74e847ff32ff2e4d585ed10ef2f7e39338a4"
+    "format_fenced": "fdb13f0667f92226048a51884ac038753fe21b63",
+    "initial": "912a74e847ff32ff2e4d585ed10ef2f7e39338a4",
+    "receipt_order": "9f2bb284a6a47a69a58e16eb9ac4d468a44f4d77"
   }
 }
