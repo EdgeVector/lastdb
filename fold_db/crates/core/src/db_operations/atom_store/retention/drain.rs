@@ -70,7 +70,9 @@ impl AtomStore {
     ///
     /// The cursors move after the batch is written. A read or write that fails
     /// leaves them where they were, and the next batch tries the same keys
-    /// again.
+    /// again. A drain whose read fails goes to the back of the line, and so does
+    /// the first drain when the write fails, so one bad slot cannot hold back
+    /// the others.
     pub(crate) async fn drain_batch(
         &self,
         pending: &mut VecDeque<PendingDrain>,
@@ -79,7 +81,8 @@ impl AtomStore {
         let mut markers = Vec::new();
         let mut moved: Vec<(usize, RangeWalk)> = Vec::new();
         let mut finished: Vec<usize> = Vec::new();
-        for (index, drain) in pending.iter().enumerate().take(MAX_DRAINS_PER_BATCH) {
+        let mut failed: Option<(usize, SchemaError)> = None;
+        'drains: for (index, drain) in pending.iter().enumerate().take(MAX_DRAINS_PER_BATCH) {
             if found.len() >= RELEASE_BATCH_RECORDS {
                 break;
             }
@@ -87,7 +90,13 @@ impl AtomStore {
             let mut walk = drain.walk.clone();
             while found.len() < RELEASE_BATCH_RECORDS && !walk.done() {
                 walk.set_limit(RELEASE_BATCH_RECORDS - found.len());
-                let step = self.walk_step(&mut walk).await?;
+                let step = match self.walk_step(&mut walk).await {
+                    Ok(step) => step,
+                    Err(error) => {
+                        failed = Some((index, error));
+                        break 'drains;
+                    }
+                };
                 for (key, value) in &step.rows {
                     if let Some(entry) = self.slot_entry(key, value, &marker.slot, marker.erased_at)
                     {
@@ -101,13 +110,26 @@ impl AtomStore {
             }
             moved.push((index, walk));
         }
-        let (released, skipped) = self
+        if let Some((index, error)) = failed {
+            if let Some(drain) = pending.remove(index) {
+                pending.push_back(drain);
+            }
+            return Err(error);
+        }
+        let written = self
             .in_background_scope(async {
                 let mut released = 0;
                 let skipped = self.commit_releases(found, markers, &mut released).await?;
                 Ok((released, skipped))
             })
-            .await?;
+            .await;
+        let (released, skipped) = match written {
+            Ok(done) => done,
+            Err(error) => {
+                pending.rotate_left(1);
+                return Err(error);
+            }
+        };
         for (index, walk) in moved {
             pending[index].walk = walk;
         }

@@ -6,9 +6,9 @@
 //! ends the records that reach the end of their window.
 //!
 //! The queue is time-bucketed (`db_operations::atom_store::time_queue`). One
-//! wake reads the directory of the buckets that have started, and then walks
-//! them oldest first in bounded pages. The read of a page holds no write gate.
-//! Each page that has due records runs one release batch
+//! wake reads the directory of the buckets that have started (again at the start
+//! of each turn), and walks them oldest first in bounded pages. The read of a
+//! page holds no write gate. Each page that has due records runs one release batch
 //! (`AtomStore::release_step`): one native write scope, one batch, and the gate
 //! is free again before the next page. The janitor rests after each batch for
 //! `took * (100 - duty) / duty` (a duty share of 10 percent by default), so the
@@ -263,8 +263,9 @@ impl Wake {
     }
 }
 
-/// One wake: read the directory, then alternate slot drains and due records,
-/// batch by batch. A lane that fails ends for this wake. The other lane goes on.
+/// One wake: alternate slot drains and due records, batch by batch, and read the
+/// directory of the queue at the start of each turn. A lane that fails ends for
+/// this wake. The other lane goes on.
 async fn run_wake(
     db_ops: &DbOperations,
     stop: &AtomicBool,
@@ -275,16 +276,18 @@ async fn run_wake(
     let mut wake = Wake::default();
     let mut ordinary_ok = true;
     let mut drain_ok = true;
-    if let Err(failure) = atoms
-        .refresh_queue(cursor, atoms.retention_state().clock_nanos())
-        .await
-    {
-        wake.fail(&failure);
-        ordinary_ok = false;
-    }
     let mut batches = 0usize;
     'wake: while batches < PAGES_PER_WAKE && (ordinary_ok || drain_ok) {
         let mut progressed = false;
+        // Read the directory at the start of each turn, not only of the wake: a
+        // bucket that starts while a long drain runs must get its turn too.
+        if ordinary_ok {
+            let now = atoms.retention_state().clock_nanos();
+            if let Err(failure) = atoms.refresh_queue(cursor, now).await {
+                wake.fail(&failure);
+                ordinary_ok = false;
+            }
+        }
         for lane in [Lane::Drain, Lane::Ordinary] {
             let (turn, lane_ok) = match lane {
                 Lane::Drain => (DRAIN_BATCHES_PER_TURN, &mut drain_ok),

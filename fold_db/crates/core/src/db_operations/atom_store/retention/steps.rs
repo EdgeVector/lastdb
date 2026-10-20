@@ -191,8 +191,8 @@ impl AtomStore {
     }
 
     /// One batch of slot drains. `None` means the janitor holds no drain. A
-    /// batch that fails sends the first drain to the back, so one bad slot cannot
-    /// hold back the others.
+    /// batch that fails sends the drain at fault to the back of the line
+    /// (`drain_batch`).
     pub(crate) async fn drain_step(
         &self,
         cursor: &mut RetentionCursor,
@@ -200,22 +200,17 @@ impl AtomStore {
         if cursor.pending.is_empty() {
             return Ok(None);
         }
-        match self.drain_batch(&mut cursor.pending).await {
-            Ok(DrainOutcome {
-                released,
-                skipped,
-                finished,
-            }) => Ok(Some(StepOutcome {
-                lane: Lane::Drain,
-                released,
-                skipped,
-                finished,
-                ..StepOutcome::default()
-            })),
-            Err(error) => {
-                cursor.pending.rotate_left(1);
-                Err(error)
-            }
-        }
+        let DrainOutcome {
+            released,
+            skipped,
+            finished,
+        } = self.drain_batch(&mut cursor.pending).await?;
+        Ok(Some(StepOutcome {
+            lane: Lane::Drain,
+            released,
+            skipped,
+            finished,
+            ..StepOutcome::default()
+        }))
     }
 }
