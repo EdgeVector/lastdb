@@ -109,6 +109,8 @@ impl CounterEvents {
             counters_absent: self.counters_absent.load(Ordering::Relaxed),
             dangling_removals: self.dangling_removals.load(Ordering::Relaxed),
             molecule_faults: self.molecule_faults.load(Ordering::Relaxed),
+            suspect_marked: self.underflows.load(Ordering::Relaxed)
+                + self.counters_absent.load(Ordering::Relaxed),
             recent_faults: self
                 .recent_faults
                 .lock()
@@ -116,6 +118,7 @@ impl CounterEvents {
                 .iter()
                 .cloned()
                 .collect(),
+            verify_refs: None,
         }
     }
 }
@@ -131,5 +134,15 @@ pub struct AtomCounterReport {
     /// Molecule counter faults since the node started (see `note_molecule`).
     #[serde(default)]
     pub molecule_faults: u64,
+    /// Counters this process marked `suspect`: `underflows` plus `counters_absent`.
+    /// It counts events since the daemon started, not the atoms that are
+    /// `suspect` now; the last verify run (`verify_refs.last.suspect_atoms`) and
+    /// `lastdb db inventory` count those.
+    #[serde(default)]
+    pub suspect_marked: u64,
     pub recent_faults: Vec<String>,
+    /// The verifier: the last complete run and a run in progress. Memory only;
+    /// it is empty after a restart. `None` when the daemon predates the field.
+    #[serde(default)]
+    pub verify_refs: Option<super::VerifySummary>,
 }

@@ -1,68 +1,81 @@
 //! Live byte inventory and key-class accounting.
 
-use super::inventory_key_classes::MAIN_KEY_CLASSES;
+use super::inventory_key_classes::{ATOM_COUNTER_CLASS_LABEL, MAIN_KEY_CLASSES};
 use super::*;
+use crate::db_operations::atom_store::RangeWalk;
 
 impl AtomStore {
     /// Fold every row under `prefix` into `(keys, live key+value bytes)` while
     /// holding at most one bounded page.
     ///
     /// The totals are exactly what a whole-prefix scan produced; this changes
-    /// only how they are reached, not what they say.
+    /// only how they are reached, not what they say. Every read is bounded by
+    /// the read budget of one call (see [`RangeWalk`]), also in a range that
+    /// holds many deleted keys.
     pub(super) async fn inventory_accumulate_prefix(
         &self,
         prefix: &str,
         what: &str,
     ) -> Result<(u64, u64), SchemaError> {
         let end = FilterUtils::create_prefix_end(prefix)?;
+        let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), INVENTORY_PAGE_ROWS_MIN);
         let mut keys = 0u64;
         let mut bytes = 0u64;
-        // `scan_range_paged`'s start bound is inclusive, so every page after the
-        // first re-reads the previous page's last row. It is skipped by key
-        // rather than by position: if that row is deleted between pages, the row
-        // that takes its place must still be counted.
-        let mut cursor: Option<Vec<u8>> = None;
-        let mut page_rows = INVENTORY_PAGE_ROWS_MIN;
-        loop {
-            let start = cursor.as_deref().unwrap_or(prefix.as_bytes());
+        while !walk.done() {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(start, end.as_bytes(), page_rows)
+                .walk_step(&mut walk)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan {what}: {e}")))?;
-            if rows.is_empty() {
-                break;
-            }
-            // A short page means the range is drained. A full page always holds
-            // at least `INVENTORY_PAGE_ROWS_MIN` distinct ascending keys, so the
-            // cursor strictly advances and the loop terminates.
-            let exhausted = rows.len() < page_rows;
+                .map_err(|e| SchemaError::InvalidData(format!("scan {what}: {e}")))?
+                .rows;
             let mut page_bytes = 0u64;
             for (k, v) in &rows {
                 let row_bytes = k.len() as u64 + v.len() as u64;
                 page_bytes += row_bytes;
-                if cursor.as_deref() == Some(k.as_slice()) {
-                    continue;
-                }
-                // The `atom:` prefix also holds the counter record of each atom.
-                // The counters have their own totals (`atom_counters`); they are
-                // not atom content.
-                if what == "atom_content"
-                    && std::str::from_utf8(k).is_ok_and(crate::atom::atom_key_codec::is_counter_key)
-                {
-                    continue;
-                }
                 keys += 1;
                 bytes += row_bytes;
             }
-            if exhausted {
-                break;
+            if !rows.is_empty() {
+                walk.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
             }
-            page_rows = inventory_next_page_rows(page_bytes, rows.len());
-            cursor = rows.last().map(|(k, _)| k.clone());
         }
         Ok((keys, bytes))
+    }
+
+    /// Like [`Self::inventory_accumulate_prefix`] for the `atom:` prefix, which
+    /// holds two kinds of record: bodies and counters. Returns the totals of
+    /// the bodies first and the totals of the counters second, from one walk.
+    async fn inventory_accumulate_atoms(
+        &self,
+        prefix: &str,
+    ) -> Result<((u64, u64), (u64, u64)), SchemaError> {
+        let end = FilterUtils::create_prefix_end(prefix)?;
+        let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), INVENTORY_PAGE_ROWS_MIN);
+        let (mut bodies, mut counters) = ((0u64, 0u64), (0u64, 0u64));
+        while !walk.done() {
+            let rows = self
+                .walk_step(&mut walk)
+                .await
+                .map_err(|e| SchemaError::InvalidData(format!("scan atom_content: {e}")))?
+                .rows;
+            let mut page_bytes = 0u64;
+            for (k, v) in &rows {
+                let row_bytes = k.len() as u64 + v.len() as u64;
+                page_bytes += row_bytes;
+                let is_counter =
+                    std::str::from_utf8(k).is_ok_and(crate::atom::atom_key_codec::is_counter_key);
+                let total = if is_counter {
+                    &mut counters
+                } else {
+                    &mut bodies
+                };
+                total.0 += 1;
+                total.1 += row_bytes;
+            }
+            if !rows.is_empty() {
+                walk.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
+            }
+        }
+        Ok((bodies, counters))
     }
 
     /// Scan `main` by known key prefixes and sum live key+value sizes.
@@ -74,17 +87,30 @@ impl AtomStore {
         // each prefix independently (they don't nest).
         let classes = MAIN_KEY_CLASSES;
 
-        let mut out = Vec::with_capacity(classes.len());
+        let mut out = Vec::with_capacity(classes.len() + 1);
         for (class, bare_prefix, label) in classes {
             let prefix = build_storage_key(storage_prefix, bare_prefix);
-            let (keys, bytes) = self.inventory_accumulate_prefix(&prefix, class).await?;
-            if keys > 0 {
-                out.push(MainKeyClass {
-                    class: (*class).to_string(),
-                    prefix: (*label).to_string(),
-                    keys,
-                    bytes,
-                });
+            // The `atom:` prefix holds the bodies and the counters of atoms.
+            // The counters are not atom content, so they get their own class.
+            let rows = if *class == "atom_content" {
+                let (bodies, counters) = self.inventory_accumulate_atoms(&prefix).await?;
+                vec![
+                    (*class, *label, bodies),
+                    ("atom_counter", ATOM_COUNTER_CLASS_LABEL, counters),
+                ]
+            } else {
+                let totals = self.inventory_accumulate_prefix(&prefix, class).await?;
+                vec![(*class, *label, totals)]
+            };
+            for (class, label, (keys, bytes)) in rows {
+                if keys > 0 {
+                    out.push(MainKeyClass {
+                        class: class.to_string(),
+                        prefix: label.to_string(),
+                        keys,
+                        bytes,
+                    });
+                }
             }
         }
         out.sort_by_key(|b| std::cmp::Reverse(b.bytes));
@@ -99,6 +125,7 @@ impl AtomStore {
         // field molecule uuids per schema: (schema, Vec<field_mol_uuid>)
         schema_field_molecules: &[(String, Vec<String>)],
     ) -> Result<DbInventory, SchemaError> {
+        let walks_before = self.range_walks().snapshot();
         let main_classes = self.inventory_main_key_classes(storage_prefix).await?;
         let main_total_keys = main_classes.iter().map(|c| c.keys).sum();
         let main_total_bytes = main_classes.iter().map(|c| c.bytes).sum();
@@ -109,7 +136,15 @@ impl AtomStore {
             .inventory_schema_history(schema_field_molecules, storage_prefix)
             .await?;
 
-        let notes = inventory_notes(&main_classes);
+        let scan = self.range_walks().snapshot().since(walks_before);
+        let mut notes = inventory_notes(&main_classes);
+        if scan.unsealed_rows > 0 {
+            notes.push(format!(
+                "{} read(s) dropped a row with no at-rest envelope. Such a row reads as absent and is not in these totals. \
+                 Run `lastdb db reap-unsealed --collection <name>` (dry run first) to remove them.",
+                scan.unsealed_rows
+            ));
+        }
         let molecule_counters = self.inventory_molecule_counters(storage_prefix).await?;
 
         Ok(DbInventory {
@@ -121,6 +156,7 @@ impl AtomStore {
             atom_counters: atoms.atom_counters,
             molecule_counters,
             per_schema_history,
+            scan,
             attribution: crate::db_operations::AttributionSummary::default(),
             notes,
         })

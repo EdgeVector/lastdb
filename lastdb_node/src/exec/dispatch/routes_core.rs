@@ -43,6 +43,11 @@ pub(super) async fn dispatch_core(
         DataRoute::LogFilterSet => execute_log_filter_set_route(req, ctx),
         DataRoute::DbInventory => heap_route_ctx_host!(execute_db_inventory_route, ctx, host).await,
         DataRoute::DbSchemas => heap_route_ctx_host!(execute_db_schemas_route, ctx, host).await,
+        DataRoute::DbVerifyRefs => heap_route!(execute_db_verify_refs_route, req, ctx, host).await,
+        DataRoute::DbVerifyRefsLast => execute_db_verify_refs_last_route(ctx, host),
+        DataRoute::DbVerifyRefsScopes => {
+            heap_route_ctx_host!(execute_db_verify_refs_scopes_route, ctx, host).await
+        }
         DataRoute::SchemaStorage => execute_schema_storage_route(req, ctx, host),
         DataRoute::SchemaStorageReport => execute_schema_storage_report_route(ctx, host),
         DataRoute::LivenessExplain => {

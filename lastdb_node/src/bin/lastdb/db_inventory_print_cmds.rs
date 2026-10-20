@@ -53,6 +53,15 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
         println!();
     }
     print_per_schema_history(inventory);
+    if let Some(scan) = inventory.get("scan") {
+        println!();
+        println!(
+            "Range reads: {} calls, {} retried with fewer rows, {} narrowed (many deleted keys in a range)",
+            u64_of(scan, "calls"),
+            u64_of(scan, "shrinks"),
+            u64_of(scan, "splits")
+        );
+    }
     if let Some(notes) = array_of(inventory, "notes") {
         println!();
         println!("Notes:");
@@ -184,6 +193,26 @@ fn print_atom_counters(counters: &Value) {
         "  counters without body:  {}",
         u64_of(counters, "counters_without_body")
     );
+    if let Some(histogram) = counters.get("refs_histogram") {
+        println!(
+            "  counters by count:      1: {}  2: {}  3-9: {}  10-99: {}  100+: {}",
+            u64_of(histogram, "one"),
+            u64_of(histogram, "two"),
+            u64_of(histogram, "three_to_nine"),
+            u64_of(histogram, "ten_to_ninety_nine"),
+            u64_of(histogram, "hundred_or_more")
+        );
+    }
+    if let Some(hottest) = array_of(counters, "hottest").filter(|rows| !rows.is_empty()) {
+        println!("  most referenced atoms:");
+        for hot in hottest {
+            println!(
+                "    {:>8} refs  {}",
+                u64_of(hot, "refs"),
+                str_of(hot, "atom", "?")
+            );
+        }
+    }
 }
 
 fn print_molecule_counters(counters: &Value) {

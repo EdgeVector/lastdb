@@ -23,6 +23,7 @@
 
 mod atoms;
 mod blob_ref_edges;
+mod bounded_range;
 mod catalog_bindings;
 mod codec;
 mod conflict_record;
@@ -45,9 +46,12 @@ mod types;
 
 pub(crate) use atoms::SealedAtom;
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
+pub use bounded_range::WalkStats;
+pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
-    counts_of_header, AtomCounterReport, AtomCounterView, MoleculeCounts, MoleculeFault,
+    counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
+    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
 pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
@@ -205,6 +209,11 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// The verifier: the run in progress, the last result and the watch of
+    /// atoms that writers touch while a run reads. Memory only.
+    counter_verify: Arc<counter::VerifyState>,
+    /// Bounded range reads made by the admin walks since this process started.
+    range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
     /// tip decision treats a write from any other non-empty device as a write
     /// from a peer. See [`AtomStore::local_origin_device`].
@@ -230,6 +239,16 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The verifier state: the run in progress, the last result, the watch.
+    pub(crate) fn counter_verify(&self) -> &counter::VerifyState {
+        &self.counter_verify
+    }
+
+    /// Totals of the bounded range reads of the admin walks.
+    pub(crate) fn range_walks(&self) -> &WalkTotals {
+        &self.range_walks
     }
 
     /// This store's identity in the legacy-history memo.

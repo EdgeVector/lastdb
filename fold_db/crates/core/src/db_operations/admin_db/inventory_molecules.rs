@@ -8,7 +8,7 @@
 
 use super::*;
 use crate::atom::molecule_key_codec::{molecule_uuid_from_storage_key, MH_PREFIX};
-use crate::db_operations::atom_store::{counts_of_header, MoleculeBindings};
+use crate::db_operations::atom_store::{counts_of_header, MoleculeBindings, RangeWalk};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -125,7 +125,9 @@ fn fold_header(
 }
 
 impl AtomStore {
-    /// Call `fold` for every row under `prefix`, one bounded page at a time.
+    /// Call `fold` for every row under `prefix`. Every read is bounded by the
+    /// read budget of one call (see [`RangeWalk`]), also in a range that holds
+    /// many deleted keys, such as the binding records after many unbinds.
     async fn fold_inventory_rows(
         &self,
         prefix: &str,
@@ -133,35 +135,23 @@ impl AtomStore {
         mut fold: impl FnMut(&str, &[u8]),
     ) -> Result<(), SchemaError> {
         let end = FilterUtils::create_prefix_end(prefix)?;
-        let mut cursor: Option<Vec<u8>> = None;
-        let mut page_rows = INVENTORY_PAGE_ROWS_MIN;
-        loop {
-            let start = cursor.as_deref().unwrap_or(prefix.as_bytes());
+        let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), INVENTORY_PAGE_ROWS_MIN);
+        while !walk.done() {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(start, end.as_bytes(), page_rows)
+                .walk_step(&mut walk)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan {what}: {e}")))?;
-            if rows.is_empty() {
-                break;
-            }
-            let exhausted = rows.len() < page_rows;
+                .map_err(|e| SchemaError::InvalidData(format!("scan {what}: {e}")))?
+                .rows;
             let mut page_bytes = 0u64;
             for (key, value) in &rows {
                 page_bytes += (key.len() + value.len()) as u64;
-                if cursor.as_deref() == Some(key.as_slice()) {
-                    continue;
-                }
                 if let Ok(key) = std::str::from_utf8(key) {
                     fold(key, value);
                 }
             }
-            if exhausted {
-                break;
+            if !rows.is_empty() {
+                walk.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
             }
-            page_rows = inventory_next_page_rows(page_bytes, rows.len());
-            cursor = rows.last().map(|(key, _)| key.clone());
         }
         Ok(())
     }
