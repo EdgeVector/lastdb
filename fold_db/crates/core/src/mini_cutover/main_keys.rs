@@ -11,8 +11,8 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
         Some("atoms")
     } else if bare.starts_with("mref:v1:") {
         Some("molecule_ref_edges")
-    } else if bare.starts_with("bref:v2:") {
-        Some("blob_ref_edges")
+    } else if bare.starts_with("bref:v3:") {
+        Some("atoms")
     } else if bare.starts_with("protein:")
         || bare.starts_with("molprot:")
         || bare.starts_with("fldprot:")

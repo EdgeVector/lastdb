@@ -12,6 +12,8 @@ mod app_cmds;
 use app_cmds::*;
 #[path = "lastdb/liveness_atom_print.rs"]
 mod liveness_atom_print;
+#[path = "lastdb/liveness_blob_print.rs"]
+mod liveness_blob_print;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;
 use schema_record_cmds::*;

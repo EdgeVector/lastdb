@@ -236,7 +236,6 @@ fn collect_integrity(out: &mut Vec<GaugeContractEntry>, i: &IntegrityHealth) {
 
 fn collect_atom_ref_edges(out: &mut Vec<GaugeContractEntry>, a: &AtomRefEdgeHealth) {
     push_gauge(out, "atom_ref_edges.molecule_bytes", &a.molecule_bytes);
-    push_gauge(out, "atom_ref_edges.blob_bytes", &a.blob_bytes);
 }
 
 fn collect_file_blob(out: &mut Vec<GaugeContractEntry>, f: &FileBlobHealth) {
@@ -629,6 +628,7 @@ fn default_status_snapshot(
         purge_stats: HashMap::new(),
         local_retention: crate::self_metrics::LocalRetentionHealth::default(),
         atom_counters: None,
+        blob_counters: None,
         at_rest_compression: None,
         codec_policy: None,
     }

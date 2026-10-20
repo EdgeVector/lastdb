@@ -7,10 +7,10 @@ the number of tip records and conflict records that name the atom. The counter
 is the only authority for the life of a body. No other structure allows a
 delete. No other structure blocks one.
 
-A batch that lowers the count to exactly zero deletes the body, the counter,
-and the blob references of the body in the same batch as the last tip change.
-A body exists if and only if its counter exists. A counter never holds zero,
-except a counter with the `suspect` flag.
+A batch that lowers the count to exactly zero deletes the body and the counter,
+and lowers the blob counters that the counter lists, in the same batch as the
+last tip change. A body exists if and only if its counter exists. A counter never
+holds zero, except a counter with the `suspect` flag.
 
 ## Records
 
@@ -22,10 +22,12 @@ except a counter with the `suspect` flag.
 The first NUL ends the hash. The body and the counter of one atom share one
 hash group. A storage scope adds its prefix before the key.
 
-Blob roots (`bref:v2`) have two sources. A body names the blobs in its counter.
-A tip record that carries file metadata names its own blob. The planner changes
-the roots of both in the batch of the change: the root of an old tip record goes
-and the root of a new tip record comes in the same batch as the tip.
+Blob references have two sources. A body names the blobs in its counter. A tip
+record that carries file metadata names its own blob. The planner changes the
+blob counters of both in the batch of the change: a created atom counter raises
+the counters of its blobs, a deleted one lowers them, and an old tip record lowers
+and a new tip record raises the counters of the blobs that their metadata names.
+The contract of the blob counters is in `docs/lastdb-blob-counter.md`.
 
 The counter is JSON: `{"v":1,"refs":N,"blobs":[...],"suspect":false}`.
 `blobs` lists the blob references of the body, so a delete needs no body read.
@@ -180,7 +182,7 @@ Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
 - S3: the recorder releases conflict references (a janitor), and a purge reads the slot directory.
 - S4: molecule counters replace the molecule edges and the catalog binding records.
-- S5: blob counters replace the blob edges and the file blob sweep.
+- S5 (done): blob counters replace the blob edges and the file blob sweep.
 - S6: `verify-refs` and offline `recount`.
 - S7: a resumable drain of a dead molecule.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.

@@ -162,8 +162,10 @@ pub fn referenced_instance_ids(entries: &[DbCatalogEntry]) -> std::collections::
         .collect()
 }
 
-/// Remove one current database scope and its exact global blob roots.
+/// Remove one current database scope. The blob counters that the scope's atom
+/// counters and tips held go down in the same batch as the rows that held them.
 pub async fn drop_prefixed_rows_for_instance(
+    atoms: &super::AtomStore,
     main: &dyn crate::storage::traits::KvStore,
     instance_id: &str,
 ) -> StorageResult<usize> {
@@ -179,10 +181,10 @@ pub async fn drop_prefixed_rows_for_instance(
             continue;
         };
         if crate::storage::current_keys::exact_scope(text)? == Some(instance_id) {
-            selected.push((instance_id.to_string(), key, value));
+            selected.push((key, value));
         }
     }
-    drop_scoped_source_rows(main, selected).await
+    drop_scoped_source_rows(atoms, main, selected).await
 }
 
 async fn current_scope_rows(
@@ -208,34 +210,35 @@ async fn current_scope_rows(
     Ok(rows)
 }
 
+/// Rows of one scope that one native batch deletes with the blob counter changes
+/// of the same rows. A chunk stays far below the batch limit of an older home.
+const DROP_CHUNK: usize = 512;
+
 async fn drop_scoped_source_rows(
+    atoms: &super::AtomStore,
     main: &dyn crate::storage::traits::KvStore,
-    rows: Vec<(String, Vec<u8>, Vec<u8>)>,
+    rows: Vec<(Vec<u8>, Vec<u8>)>,
 ) -> StorageResult<usize> {
     let removed = rows.len();
-    let mut sources = Vec::new();
-    let mut owners = Vec::new();
-    for (scope, key, value) in rows {
-        if let Some(edge) = super::atom_store::BlobRefEdge::scoped_owner_row(&key, &value, &scope)?
-        {
-            owners.push(edge);
-        } else {
-            sources.push(key);
-        }
-    }
-    // Owner rows stay until their sources are gone. A process stop leaves
-    // enough exact owner rows for a repeated catalog cleanup to finish.
-    for chunk in sources.chunks(2_048) {
-        main.batch_delete(chunk.to_vec()).await?;
-    }
-    for chunk in owners.chunks(1_024) {
-        main.batch_mutate(
-            chunk
-                .iter()
-                .flat_map(super::atom_store::BlobRefEdge::delete_mutations)
-                .collect(),
-        )
-        .await?;
+    let backend = |error: crate::schema::SchemaError| StorageError::BackendError(error.to_string());
+    for chunk in rows.chunks(DROP_CHUNK) {
+        let mut deltas = super::atom_store::blob_counter::BlobDeltas::default();
+        deltas.scope_rows_dropped(chunk).map_err(backend)?;
+        atoms
+            .in_write_scope(async {
+                let blob_writes = atoms.blob_counter_mutations(deltas).await?;
+                let keys = chunk.iter().map(|(key, _)| key.clone()).collect();
+                let store_error = |error: StorageError| {
+                    crate::schema::SchemaError::InvalidData(format!("drop scope rows: {error}"))
+                };
+                main.batch_delete(keys).await.map_err(store_error)?;
+                if !blob_writes.is_empty() {
+                    main.batch_mutate(blob_writes).await.map_err(store_error)?;
+                }
+                Ok(())
+            })
+            .await
+            .map_err(backend)?;
     }
     Ok(removed)
 }

@@ -135,7 +135,8 @@ impl FoldDB {
             .namespaced_store()
             .open_namespace("main")
             .await?;
-        reclaim.rows = drop_prefixed_rows_for_instance(main.as_ref(), instance).await?;
+        reclaim.rows =
+            drop_prefixed_rows_for_instance(self.db_ops().atoms(), main.as_ref(), instance).await?;
         Ok(reclaim)
     }
 

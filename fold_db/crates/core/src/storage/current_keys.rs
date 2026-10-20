@@ -38,7 +38,8 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
             return Err(unsupported("retired flat key spelling"));
         }
     }
-    if bare.starts_with("bref:v1:") || bare.starts_with("rdel:v1:") {
+    if bare.starts_with("bref:v1:") || bare.starts_with("bref:v2:") || bare.starts_with("rdel:v1:")
+    {
         return Err(unsupported("retired reference or delete key format"));
     }
     validate_references(bare, family)?;
@@ -88,13 +89,7 @@ fn validate_suffix(suffix: &str) -> StorageResult<()> {
 
 fn validate_references(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        "bref" => {
-            key == "bref:v2:complete"
-                || key
-                    .strip_prefix("bref:v2:e:")
-                    .or_else(|| key.strip_prefix("bref:v2:s:"))
-                    .is_some_and(hex_pair)
-        }
+        "bref" => crate::db_operations::atom_store::blob_counter::is_current_key(key),
         "mref" => {
             matches!(
                 key,

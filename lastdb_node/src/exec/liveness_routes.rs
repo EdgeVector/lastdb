@@ -11,7 +11,8 @@ pub(super) async fn execute_liveness_explain_route(
         class: String,
         #[serde(default)]
         id: String,
-        /// Several atom ids in one call. Only the class `atom` reads them.
+        /// Several atom ids or blob references in one call. Only the classes
+        /// `atom` and `blob` read them.
         #[serde(default)]
         ids: Vec<String>,
     }
@@ -49,6 +50,9 @@ pub(super) async fn execute_liveness_explain_route(
     }
     if class == "atom" {
         return explain_atoms(host, ctx, id, request.ids).await;
+    }
+    if class == "blob" {
+        return explain_blobs(host, ctx, id, request.ids).await;
     }
     let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
 
@@ -116,10 +120,6 @@ async fn read_liveness_references(
                 .await?;
             LivenessReferences::with_edges(lookup.complete, lookup.edges)
         }
-        "blob" => {
-            let lookup = atoms.blob_ref_edges_for_blob(id, storage_prefix).await?;
-            LivenessReferences::with_edges(lookup.complete, lookup.edges)
-        }
         _ => Err(fold_db::schema::SchemaError::InvalidData(
             "class must be atom, molecule, or blob".into(),
         )),
@@ -168,6 +168,62 @@ async fn explain_atoms(
                 .collect();
             json_ok(&envelope(
                 &serde_json::json!({ "liveness": { "class": "atom", "atoms": rows } }),
+                ctx.user_id.as_str(),
+            ))
+        }
+        Err(error) => mapped_error_response(
+            "liveness explain failed",
+            fold_db::error::FoldDbError::Schema(error),
+            ctx,
+        ),
+    }
+}
+
+/// The counter of each named blob. A blob counts the atom counters that list it
+/// and the live tips that name it; it has no list of referrers. A blob at zero
+/// is in its dwell until `zero_since` plus the dwell has passed.
+async fn explain_blobs(
+    host: &Host,
+    ctx: &AccessContext,
+    id: &str,
+    mut ids: Vec<String>,
+) -> UdsResponse {
+    if !id.is_empty() {
+        ids.insert(0, id.to_string());
+    }
+    ids.truncate(10_000);
+    match host.db.db_ops().atoms().blob_counter_views(&ids).await {
+        Ok(views) => {
+            let rows: Vec<serde_json::Value> = views
+                .iter()
+                .map(|view| {
+                    let state = match (view.refs, view.zero_since, view.suspect) {
+                        (Some(_), _, true) => "suspect",
+                        (Some(refs), _, false) if refs > 0 => "referenced",
+                        (Some(_), Some(_), false) => "in_dwell",
+                        (Some(_), None, false) => "inconsistent",
+                        (None, _, _) if view.row_present => "row_without_counter",
+                        (None, _, _) => "absent",
+                    };
+                    serde_json::json!({
+                        "blob": view.blob,
+                        "refs": view.refs,
+                        "zero_since_unix_ms": view.zero_since,
+                        "suspect": view.suspect,
+                        "queued": view.queued,
+                        "row_present": view.row_present,
+                        "state": state,
+                    })
+                })
+                .collect();
+            json_ok(&envelope(
+                &serde_json::json!({
+                    "liveness": {
+                        "class": "blob",
+                        "dwell_secs": host.db.blob_counter_report().dwell_secs,
+                        "blobs": rows,
+                    }
+                }),
                 ctx.user_id.as_str(),
             ))
         }

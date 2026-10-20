@@ -106,7 +106,6 @@ pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
 pub const LEDGER_VERB_GC_ATOMS: &str = "gc-atoms";
 pub const LEDGER_VERB_REPAIR_TIPS: &str = "repair-dangling-tips";
-pub const LEDGER_VERB_GC_FILE_BLOBS: &str = "gc-file-blobs";
 /// Live `Delete` tip converge (`purge::converge_delete_tips`).
 ///
 /// Deliberately NOT [`LEDGER_VERB_DELETE`]. Converge removes tip (`mk:`) rows
@@ -214,33 +213,9 @@ pub struct AtomDeleteLedgerEntry {
     /// is a hash of the file's plaintext, so retaining it would be the same
     /// confirmation oracle the atoms-uuid rule closes (see module docs). A
     /// nonzero value tells compliance that sealed blob bytes may now be
-    /// orphaned and `gc-file-blobs` is the reclaim path.
+    /// orphaned. The blob counter reclaims them when the dwell passes.
     #[serde(default)]
     pub file_pointer_atoms_purged: u64,
-    /// GC (file blobs) only: blob rows walked across both local planes
-    /// (`cas_blobs` namespace + resident `cas_blob:` main-store rows).
-    #[serde(default)]
-    pub file_blobs_scanned: u64,
-    /// GC (file blobs) only: blob rows kept because a live atom references
-    /// them (content pointer or metadata).
-    #[serde(default)]
-    pub file_blobs_referenced: u64,
-    /// GC (file blobs) only: unreferenced rows deleted.
-    #[serde(default)]
-    pub file_blobs_deleted: u64,
-    /// GC (file blobs) only: unreferenced rows protected because their
-    /// `stored_at` is at or after `scan_started_at`.
-    #[serde(default)]
-    pub file_blobs_skipped_recent: u64,
-    /// GC (file blobs) only: undated rows stamped with this run's
-    /// `scan_started_at` instead of being deleted. They become reclaimable on
-    /// a later run if still unreferenced — the two-pass contract that makes
-    /// the pre-`stored_at` population safe to age.
-    #[serde(default)]
-    pub file_blobs_stamped: u64,
-    /// GC (file blobs) only: approximate bytes freed by the deleted rows.
-    #[serde(default)]
-    pub file_blob_bytes_freed_approx: u64,
 }
 
 impl AtomDeleteLedgerEntry {
@@ -272,12 +247,6 @@ impl AtomDeleteLedgerEntry {
             tips_removed: 0,
             records_converged: 0,
             file_pointer_atoms_purged: 0,
-            file_blobs_scanned: 0,
-            file_blobs_referenced: 0,
-            file_blobs_deleted: 0,
-            file_blobs_skipped_recent: 0,
-            file_blobs_stamped: 0,
-            file_blob_bytes_freed_approx: 0,
         }
     }
 
@@ -318,14 +287,6 @@ impl AtomDeleteLedgerEntry {
     /// answerable on the converge lane as it was on the inline one.
     pub fn delete_converge(caller: &str, schema: &str, described_key: &str) -> Self {
         Self::erasure(LEDGER_VERB_DELETE_CONVERGE, caller, schema, described_key)
-    }
-
-    /// A `gc-file-blobs --execute` row, before the blob delete batch runs.
-    pub fn gc_file_blobs(caller: &str, scan_started_at: &str) -> Self {
-        Self {
-            scan_started_at: Some(scan_started_at.to_string()),
-            ..Self::base(LEDGER_VERB_GC_FILE_BLOBS, caller)
-        }
     }
 }
 

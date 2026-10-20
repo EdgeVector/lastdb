@@ -1,7 +1,7 @@
 //! Namespace restore, namespace scan and key-ownership helpers for snapshots.
 
 use super::*;
-mod blob_roots;
+mod clear;
 mod files;
 mod proofs;
 pub(super) use proofs::{begin_reference_restore, finish_reference_restore};
@@ -54,18 +54,12 @@ pub(super) async fn restore_namespace(
     } else {
         decoded
     };
-    blob_roots::clear_existing(store, &kv, existing, mode, is_main).await?;
-    if is_main {
-        blob_roots::prepare_incoming(store, &decoded, mode).await?;
-    }
+    clear::clear_existing(&kv, existing, mode, is_main).await?;
     for chunk in decoded.chunks(128) {
         let mut items = Vec::with_capacity(chunk.len());
         for (key, value) in chunk {
             let key = key.clone();
-            if is_main
-                && (proofs::is_reference_proof(&key)
-                    || crate::db_operations::atom_store::BlobRefEdge::is_target_key(&key))
-            {
+            if is_main && proofs::is_reference_proof(&key) {
                 continue;
             }
             // Node-local rows never travel in a snapshot: the peer-apply row

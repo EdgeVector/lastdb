@@ -141,18 +141,15 @@ prints the pointer.
   not `cas_blobs`, so without this sync a crash could keep a record that names a
   blob the node lost. Call the route, then write the pointer as the whole value
   of a field of type `Any`. **A pointer inside a JSON string is not a
-  reference**: `gc-file-blobs` reclaims that blob once its row is older than
-  600 s.
-- A repeat put of the same bytes writes nothing while the row is younger than
-  300 s. An older row is written back with a new `stored_at` (the same sealed
-  text, no second seal); this keeps a retried push from losing its blob to
-  `gc-file-blobs` (grace window 600 s) between the put and the pointer write.
-  Nothing compacts `cas_blobs` automatically, so a rewrite leaves one dead copy
-  on disk until an owner compacts that collection.
+  reference**: the dwell pass deletes that blob once its dwell
+  (`LASTDB_BLOB_DWELL_SECS`, one hour by default) has passed with no reference.
+- The put registers the upload with the blob counter in the same native write
+  request as the row (`docs/lastdb-blob-counter.md`). A blob at zero starts its
+  dwell again, so a retried push keeps its blob between the put and the pointer
+  write. A repeat put of the same bytes writes no second copy of an intact row.
 - A legacy plain row (written by the photo migration, which reads it without a
-  key) stays plain. The put keeps an intact one, or renews its `stored_at`; it
-  never seals it. A row that does not hash to its key is replaced by a sealed
-  row.
+  key) stays plain. The put keeps an intact one and never seals it. A row that
+  does not hash to its key is replaced by a sealed row.
 - A full disk on the row write is `507 storage_full`, and capture backpressure
   is `503`, as for every other write route.
 - `POST /api/db/fetch-file-blob` reads the local row first. With no sync engine

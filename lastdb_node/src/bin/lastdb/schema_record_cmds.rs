@@ -407,6 +407,14 @@ pub(super) fn liveness_explain_command(
         crate::liveness_atom_print::print_atom_liveness(atoms);
         return Ok(());
     }
+    if let Some(blobs) = report.get("blobs").and_then(serde_json::Value::as_array) {
+        let dwell = report
+            .get("dwell_secs")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        crate::liveness_blob_print::print_blob_liveness(blobs, dwell);
+        return Ok(());
+    }
     let returned_class = report
         .get("class")
         .and_then(serde_json::Value::as_str)

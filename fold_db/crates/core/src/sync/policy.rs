@@ -21,7 +21,7 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 /// skips by its tag, because the planner rebuilds it on every node.
 pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
     "mref:v1:",
-    "bref:v2:",
+    "bref:v3:",
     "mk:",
     "rdel:v2:",
     "mgp:v1:",
@@ -54,10 +54,8 @@ pub(crate) fn is_node_local_gc_scratch_key(key: &[u8]) -> bool {
 
 /// Physical collections whose current keys are omitted from mutation capture.
 /// Full backups retain every current reference directory and completeness key.
-pub(crate) const CAPTURE_SKIP_BY_KEY_PREFIX_PLANES: &[(&str, &str)] = &[
-    ("molecule_ref_edges", "mref:v1:"),
-    ("blob_ref_edges", "bref:v2:"),
-];
+pub(crate) const CAPTURE_SKIP_BY_KEY_PREFIX_PLANES: &[(&str, &str)] =
+    &[("molecule_ref_edges", "mref:v1:")];
 
 pub(crate) fn compaction_is_capture_free(collection: &str) -> bool {
     capture_should_skip_namespace(collection)
@@ -150,7 +148,7 @@ fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -
         | "gcatoms-probe-tv-skip:"
         | "peer-apply:" => namespace == "tips",
         "mref:v1:" => namespace == "molecule_ref_edges",
-        "bref:v2:" => namespace == "blob_ref_edges",
+        "bref:v3:" => namespace == "atoms",
         _ => false,
     }
 }

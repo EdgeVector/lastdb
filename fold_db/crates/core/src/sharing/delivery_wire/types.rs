@@ -92,11 +92,9 @@ pub struct ContentAddressedBlob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_cipher_suite: Option<String>,
     /// RFC3339 instant this row was durably stored (stamped by
-    /// `blob_cas::put_raw_record`, or by the first `gc-file-blobs` pass to see
-    /// an unstamped row). The GC age gate: an unreferenced blob is only
-    /// reclaimable once this predates the run's `scan_started_at`, so a row
-    /// whose referencing atom lands mid-scan is never deleted on the run that
-    /// could not have seen that atom. Not part of content addressing.
+    /// `blob_cas::put_raw_record`). Information only: the blob counter decides
+    /// when a row may go (`db_operations::atom_store::blob_counter`). Not part
+    /// of content addressing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored_at: Option<String>,
 }

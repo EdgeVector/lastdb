@@ -16,12 +16,13 @@
 //! - [`atoms`] — atom CRUD, history, schema listing
 //! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
-//! - [`blob_ref_edges`], [`molecule_ref_edges`] — blob and molecule roots
+//! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
+//! - [`molecule_ref_edges`] — molecule roots
 //! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
 //! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
 mod atoms;
-mod blob_ref_edges;
+pub(crate) mod blob_counter;
 mod catalog_bindings;
 mod codec;
 mod conflict_record;
@@ -41,7 +42,10 @@ mod schema_keys;
 mod types;
 
 pub(crate) use atoms::SealedAtom;
-pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
+pub use blob_counter::{
+    BlobCounter, BlobCounterReport, BlobCounterView, DwellChunk, DwellEntry, DwellGuard, DwellScan,
+    DWELL_CHUNK,
+};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{AtomCounterReport, AtomCounterView};
 pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
@@ -200,6 +204,8 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// Totals, the last queue reading and recent faults of the blob counters.
+    blob_events: Arc<blob_counter::BlobEvents>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
     /// tip decision treats a write from any other non-empty device as a write
     /// from a peer. See [`AtomStore::local_origin_device`].
@@ -227,6 +233,12 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The blob counter report: totals, the queue reading of the last dwell pass.
+    #[must_use]
+    pub fn blob_counter_report(&self) -> BlobCounterReport {
+        self.blob_events.snapshot()
     }
 
     /// This store's identity in the legacy-history memo.

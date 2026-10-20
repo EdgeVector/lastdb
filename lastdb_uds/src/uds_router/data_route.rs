@@ -326,11 +326,6 @@ pub enum DataRoute {
     /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).
     /// Execute skips while a backup cut is held. Never stamps missing groups.
     DbStampPurgedAtomRetirements,
-    /// `POST /api/db/gc-file-blobs` — delete local file-blob rows
-    /// (`cas_blobs` + resident `cas_blob:`) no live atom references; the
-    /// reclaim path for sealed bytes a purge orphans. OWNER socket only.
-    /// Body: `{ dry_run?: bool }` (default true).
-    DbGcFileBlobs,
     /// `POST /api/db/gc-proteins` — delete empty, unbound `protein:` rows.
     /// OWNER socket only. Body: `{ dry_run?: bool }` (default true).
     DbGcProteins,

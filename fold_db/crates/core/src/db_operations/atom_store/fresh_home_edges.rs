@@ -1,27 +1,24 @@
-//! Key format marker and completeness proofs for a constructor-proven empty home.
+//! Key format marker and completeness proof for a constructor-proven empty home.
 //!
-//! The atom counter makes atom bodies the only authority for atom references.
-//! A new home holds no blob or molecule reference, so the proofs that both
-//! reference planes are complete are true by construction. An older home has no
-//! feature bit for atom records and the storage layer refuses it before this
-//! code runs.
+//! The atom counter makes atom bodies the only authority for atom references,
+//! and the blob counter does the same for local file blobs. A new home holds no
+//! molecule reference, so the proof that the molecule reference plane is
+//! complete is true by construction. An older home has no feature bit for atom
+//! records and the storage layer refuses it before this code runs. A home from a
+//! build that kept blob reference edges has the key format `2`: it has no blob
+//! counters, so this build refuses it and asks for a new empty home.
 
-use super::{
-    AtomStore, BlobRefCompleteness, MoleculeRefCompleteness, BLOB_REF_COMPLETE_KEY,
-    MOLECULE_REF_COMPLETE_KEY,
-};
+use super::{AtomStore, MoleculeRefCompleteness, MOLECULE_REF_COMPLETE_KEY};
 use crate::storage::{KvMutation, StorageError};
 
 const KEY_FORMAT_KEY: &str = "layout:v2:keys";
-const KEY_FORMAT: &[u8] = b"2";
+/// `3`: local file blobs have counters (`bref:v3:`). Format `2` kept blob edges.
+const KEY_FORMAT: &[u8] = b"3";
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.
-pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[
-    KEY_FORMAT_KEY,
-    MOLECULE_REF_COMPLETE_KEY,
-    BLOB_REF_COMPLETE_KEY,
-];
+pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] =
+    &[KEY_FORMAT_KEY, MOLECULE_REF_COMPLETE_KEY];
 
 impl AtomStore {
     /// Validate the explicit key settings before the native store creates files.
@@ -103,8 +100,6 @@ impl AtomStore {
 
 /// The proof rows in the order of [`CURRENT_NATIVE_INITIALIZATION_KEYS`].
 fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
-    let blob = serde_json::to_vec(&BlobRefCompleteness { version: 2 })
-        .map_err(|error| StorageError::SerializationError(error.to_string()))?;
     let molecule = serde_json::to_vec(&MoleculeRefCompleteness {
         version: 2,
         schema_fields: 0,
@@ -114,6 +109,5 @@ fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
     Ok(vec![
         KvMutation::put(KEY_FORMAT_KEY.as_bytes(), KEY_FORMAT),
         KvMutation::put(MOLECULE_REF_COMPLETE_KEY.as_bytes(), molecule),
-        KvMutation::put(BLOB_REF_COMPLETE_KEY.as_bytes(), blob),
     ])
 }
