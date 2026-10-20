@@ -9,11 +9,6 @@ impl CoreWarmSet {
         &mut self,
         requested: &[CorePath],
     ) -> Result<Vec<CorePath>, CoreCapacity> {
-        if requested.len() > super::super::resident_key_cap() {
-            return Err(CoreCapacity {
-                detail: "core warm reservation exceeds the logical path cap",
-            });
-        }
         let mut paths: Vec<_> = requested
             .iter()
             .cloned()
@@ -100,6 +95,7 @@ impl CoreWarmSet {
         self.mark_slot(id, false, dirty_sequence);
         self.slots.get_mut(id).expect("warm core slot").owned = owned;
         self.touch(path);
+        self.trim_after_admit(path);
         Ok(())
     }
 

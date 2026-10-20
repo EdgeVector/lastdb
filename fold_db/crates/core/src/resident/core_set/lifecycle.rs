@@ -1,6 +1,10 @@
 //! The separate recency list retains only logical path references.
 
+use super::charge::path_charge;
 use super::*;
+
+/// Victims selected per scan of the recency list.
+const PURGE_BATCH: usize = 64;
 
 impl CoreWarmSet {
     /// Release exact reservations. Unknown placeholders leave after their last hold.
@@ -32,86 +36,125 @@ impl CoreWarmSet {
         for id in unknown {
             self.drop_id(id);
         }
+        // Flushed paths just became purgeable. Without this, a quiet node
+        // would stay over the limit until its next admission.
+        if !self.fits(0) {
+            self.trim_to_limit(0, &HashSet::new());
+        }
     }
 
-    /// Explicit pressure relief changes retention, not the stage-one admission
-    /// policy. Shared or call-held atoms remain measured after their path leaves.
+    /// Explicit pressure relief to a byte target below the configured limit.
+    /// Shared or call-held atoms remain measured after their path leaves.
     pub(crate) fn purge_clean_to_bytes(&mut self, target: usize) -> (usize, usize, usize) {
         let before = self.byte_stats().used_bytes;
-        let victims: Vec<_> = self
-            .order
-            .values()
-            .filter(|id| {
-                self.paths
-                    .state(**id)
-                    .is_some_and(|state| state.holds == 0 && state.dirty.is_none())
-            })
-            .copied()
-            .collect();
-        let mut purged = 0;
-        for id in victims {
-            if self.bytes.used() <= target {
-                break;
-            }
-            let slot = self
-                .paths
-                .state(id)
-                .and_then(|state| self.slots.get(state.slot));
-            let allocations = [
-                slot.and_then(|slot| slot.atom.as_ref())
-                    .map(|atom| Arc::as_ptr(&atom.value) as usize),
-                slot.and_then(|slot| slot.owned.as_ref())
-                    .and_then(|owned| owned.value.as_ref())
-                    .map(|value| Arc::as_ptr(&value.atom) as usize),
-            ];
-            self.drop_id(id);
-            for allocation in allocations.into_iter().flatten() {
-                self.bytes.release_dead_atom(allocation);
-            }
-            purged += 1;
-        }
-        self.purged = self.purged.saturating_add(purged as u64);
+        let purged = self.purge_clean_until(target, &HashSet::new());
         (purged, before, self.byte_stats().used_bytes)
     }
 
-    /// Check the entire reservation before any purge or path insertion.
+    /// Make room for the requested paths under the byte limit. Never refuses:
+    /// if only held or unflushed paths remain, the new paths enter over the
+    /// limit and a later admission purges again (design D5).
     pub(super) fn make_room(&mut self, requested: &[CorePath]) -> Result<(), CoreCapacity> {
-        let cap = super::super::resident_key_cap();
-        let requested: Vec<_> = requested.iter().map(|path| self.path_id(path)).collect();
-        let new_paths = requested.iter().filter(|id| id.is_none()).count();
-        if new_paths > cap {
-            return Err(CoreCapacity {
-                detail: "core warm batch exceeds the logical path cap",
-            });
+        let new_paths = requested
+            .iter()
+            .filter(|path| self.path_id(path).is_none())
+            .count();
+        let incoming = new_paths * path_charge();
+        // The common case fits: decide before any allocation.
+        if self.fits(incoming) {
+            return Ok(());
         }
-        let needed = self
-            .paths
-            .len()
-            .saturating_add(new_paths)
-            .saturating_sub(cap);
-        let requested: HashSet<_> = requested.into_iter().flatten().collect();
-        let victims: Vec<_> = self
-            .order
-            .values()
-            .filter(|id| !requested.contains(*id))
-            .filter(|id| {
-                self.paths
-                    .state(**id)
-                    .is_some_and(|state| state.holds == 0 && state.dirty.is_none())
-            })
-            .take(needed)
-            .copied()
+        let keep: HashSet<_> = requested
+            .iter()
+            .filter_map(|path| self.path_id(path))
             .collect();
-        if victims.len() < needed {
-            return Err(CoreCapacity {
-                detail: "all core warm path slots are held or unflushed",
-            });
-        }
-        for id in victims {
-            self.drop_id(id);
-            self.purged = self.purged.saturating_add(1);
-        }
+        self.trim_to_limit(incoming, &keep);
         Ok(())
+    }
+
+    /// Bring the charge back under the limit after an atom charge, which is
+    /// known only at admission. The admitted path itself stays.
+    pub(super) fn trim_after_admit(&mut self, path: &CorePath) {
+        if self.fits(0) {
+            return;
+        }
+        let keep: HashSet<_> = self.path_id(path).into_iter().collect();
+        self.trim_to_limit(0, &keep);
+    }
+
+    fn fits(&self, incoming: usize) -> bool {
+        self.bytes.used().saturating_add(incoming) <= crate::resident::core_warm_bytes()
+    }
+
+    /// Purge least recently used clean paths until `incoming` more bytes fit.
+    fn trim_to_limit(&mut self, incoming: usize, keep: &HashSet<path_table::PathId>) {
+        let limit = crate::resident::core_warm_bytes();
+        if self.fits(incoming) {
+            return;
+        }
+        self.bytes.sweep_if_stale();
+        if self.bytes.used().saturating_add(incoming) <= limit {
+            return;
+        }
+        self.purge_clean_until(limit.saturating_sub(incoming), keep);
+        if self.bytes.used().saturating_add(incoming) > limit {
+            self.bytes.note_over_limit();
+        }
+    }
+
+    /// Remove clean, unheld paths oldest first until the charge is at or under
+    /// `target`. Returns the number of paths removed.
+    fn purge_clean_until(&mut self, target: usize, keep: &HashSet<path_table::PathId>) -> usize {
+        let before = self.bytes.used();
+        let mut purged = 0;
+        // Bounded batches: the order list is not borrowed while paths leave.
+        'scan: loop {
+            let victims: Vec<_> = self
+                .order
+                .values()
+                .filter(|id| !keep.contains(*id))
+                .filter(|id| {
+                    self.paths
+                        .state(**id)
+                        .is_some_and(|state| state.holds == 0 && state.dirty.is_none())
+                })
+                .take(PURGE_BATCH)
+                .copied()
+                .collect();
+            if victims.is_empty() {
+                break;
+            }
+            for id in victims {
+                if self.bytes.used() <= target {
+                    break 'scan;
+                }
+                self.purge_path(id);
+                purged += 1;
+            }
+        }
+        self.purged = self.purged.saturating_add(purged as u64);
+        self.bytes
+            .note_purged(before.saturating_sub(self.bytes.used()));
+        purged
+    }
+
+    /// Drop one path and release its atom charges if no other holder remains.
+    fn purge_path(&mut self, id: path_table::PathId) {
+        let slot = self
+            .paths
+            .state(id)
+            .and_then(|state| self.slots.get(state.slot));
+        let allocations = [
+            slot.and_then(|slot| slot.atom.as_ref())
+                .map(|atom| Arc::as_ptr(&atom.value) as usize),
+            slot.and_then(|slot| slot.owned.as_ref())
+                .and_then(|owned| owned.value.as_ref())
+                .map(|value| Arc::as_ptr(&value.atom) as usize),
+        ];
+        self.drop_id(id);
+        for allocation in allocations.into_iter().flatten() {
+            self.bytes.release_dead_atom(allocation);
+        }
     }
 
     pub(super) fn touch(&mut self, path: &CorePath) {
