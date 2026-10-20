@@ -11,10 +11,12 @@
 //! An upload comes before the atom that names it. So a blob whose count is zero
 //! is not deleted at once. It has a dwell (`LASTDB_BLOB_DWELL_SECS`, one hour by
 //! default) that starts when its count reaches zero or when it is uploaded. A
-//! new reference during the dwell cancels it. A dwell pass reads the time
-//! ordered queue of blobs at zero, and for each blob whose dwell has passed it
-//! reads the counter again inside the write gate and deletes the blob row, the
-//! counter and the queue entry in one batch.
+//! new reference during the dwell cancels it. The dwell must be longer than the
+//! delay between the ack of a `queued` write and the batch of that write (the
+//! batch raises the counters). A dwell pass reads the time ordered queue of
+//! blobs at zero, and for each blob whose dwell has passed it reads the counter
+//! again inside the write gate and deletes the blob row, the counter and the
+//! queue entry in one batch.
 //!
 //! Records, all in the `atoms` collection:
 //!
@@ -25,8 +27,8 @@
 //!
 //! A key hashes on its first NUL. The counter of a blob is one hash, as the
 //! counter of an atom is. The queue key hashes with the tag only, so the whole
-//! queue is one hash and a page of the oldest entries is one range read. Only the modules here write
-//! these records. `scripts/lints/lint-atom-counter-writers.py` guards that.
+//! queue is one hash and a page of the oldest entries is one range read. Only
+//! the modules here write these records. `scripts/lints/lint-atom-counter-writers.py` guards that.
 
 mod commit;
 mod deltas;

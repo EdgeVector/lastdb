@@ -13,10 +13,8 @@
 //! for at most the reads and the staging of a chunk.
 
 use super::commit::{counter_put, queue_put};
-use super::{
-    blob_counter_key_of_id, blob_dwell_millis, blob_queue_prefix, parse_blob_queue_key, BlobCounter,
-};
-use crate::db_operations::atom_store::AtomStore;
+use super::{blob_counter_key_of_id, blob_dwell_millis, parse_blob_queue_key, BlobCounter};
+use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -84,12 +82,17 @@ impl AtomStore {
     /// One range read under one hash. It writes nothing.
     pub async fn blob_dwell_scan(&self, now: u64) -> Result<DwellScan, SchemaError> {
         let dwell = blob_dwell_millis();
-        let rows = self
-            .main_store
-            .inner()
-            .scan_prefix_paged(blob_queue_prefix().as_bytes(), DWELL_PAGE)
-            .await
-            .map_err(|error| SchemaError::InvalidData(format!("read blob queue: {error}")))?;
+        // A delete leaves a tombstone, and one read call may examine at most
+        // 10,000 keys, deleted keys included. The oldest entries are the ones
+        // that go, so the head of the range fills with tombstones. A bounded walk
+        // cuts the range when a read hits the limit, so the scan still finds the
+        // oldest live entries.
+        let (start, end) = super::queue_range();
+        let mut walk = RangeWalk::new(&start, &end, DWELL_PAGE);
+        let mut rows = Vec::new();
+        while rows.is_empty() && !walk.done() {
+            rows = self.walk_step(&mut walk).await?.rows;
+        }
         let depth = rows.len();
         let mut scan = DwellScan {
             depth,

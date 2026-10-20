@@ -19,6 +19,15 @@ when its count reaches zero, or when it is uploaded at a count of zero. The dwel
 is `LASTDB_BLOB_DWELL_SECS` seconds, one hour by default. A reference that arrives
 during the dwell cancels the deletion.
 
+The dwell must be longer than the delay between the ack of a `queued` write and the
+batch of that write. A `queued` write is acknowledged from memory (flush interval
+500 ms) and its batch, which raises the blob counters, runs after the ack. A backlog
+on one schema lane can stretch that delay to seconds. The default of one hour is far
+above it. A dwell of a few seconds is for tests: with it, a `queued` write that
+names a blob can run after the dwell of the blob has passed, and the pass has then
+deleted the blob row. A `durable` write has its batch accepted before the ack, so
+the count rises before the client sees the write.
+
 ## Records
 
 All records are in the `atoms` collection of the main store. The blob row itself
