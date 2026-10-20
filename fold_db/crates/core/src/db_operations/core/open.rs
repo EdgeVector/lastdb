@@ -311,12 +311,15 @@ impl DbOperations {
             return Ok(());
         };
         crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
-            if runtime.claim_fresh_empty_boundary() {
+            if runtime.fresh_initialization_pending()
+                && atoms.fresh_native_initialization_needed().await?
+            {
                 atoms.initialize_fresh_atom_layout().await?;
                 atoms.initialize_current_reference_proofs().await?;
             }
             atoms.require_current_key_format().await
         })
-        .await
+        .await?;
+        runtime.finish_fresh_initialization().await
     }
 }

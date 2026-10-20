@@ -57,6 +57,7 @@ pub use dropped_schema_reap::{
     DroppedSchemaReapCursor, DroppedSchemaReapPhase, DroppedSchemaReapReport,
     DroppedSchemaTipProbe, DroppedSchemaTipProof, MAX_DROPPED_SCHEMA_REAP_OPS,
 };
+pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
 pub use molecule_ref_edges::{

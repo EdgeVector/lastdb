@@ -2,6 +2,7 @@
 
 use super::*;
 mod blob_roots;
+mod files;
 mod proofs;
 pub(super) use proofs::{begin_reference_restore, finish_reference_restore};
 
@@ -24,7 +25,6 @@ pub(super) async fn restore_namespace(
     mode: RestoreMode<'_>,
 ) -> SyncResult<NamespaceRestoreResult> {
     let kv = store.open_namespace(&namespace.name).await?;
-    let existing = namespace_rows(kv.as_ref()).await?;
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
     let decoded = namespace
         .entries
@@ -39,12 +39,25 @@ pub(super) async fn restore_namespace(
             Ok((key, value))
         })
         .collect::<SyncResult<Vec<_>>>()?;
+    if namespace.name == "cas_blobs" {
+        return files::merge_missing(store, &kv, decoded, b"", mode).await;
+    }
+    let existing = namespace_rows(kv.as_ref()).await?;
     let is_main = namespace.name == "main";
+    let mut report = NamespaceRestoreResult::default();
+    let decoded = if is_main {
+        let (file_rows, source_rows) = decoded
+            .into_iter()
+            .partition(|(key, _)| files::is_main_file_key(key));
+        report = files::merge_missing(store, &kv, file_rows, b"cas_blob:", mode).await?;
+        source_rows
+    } else {
+        decoded
+    };
     blob_roots::clear_existing(store, &kv, existing, mode, is_main).await?;
     if is_main {
         blob_roots::prepare_incoming(store, &decoded, mode).await?;
     }
-    let mut report = NamespaceRestoreResult::default();
     for chunk in decoded.chunks(128) {
         let mut items = Vec::with_capacity(chunk.len());
         for (key, value) in chunk {

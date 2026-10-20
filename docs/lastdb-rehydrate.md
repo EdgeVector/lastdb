@@ -179,6 +179,9 @@ Each file reference has a node-wide target and an exact source record in its dat
 Database deletion removes the target and its source record together.
 Current backups keep these records and proofs.
 A scoped restore uses the exact source records to restore their targets.
+A personal restore keeps existing node-wide file bytes and their encryption metadata.
+It adds only files that are absent from the node.
+This rule covers both local file stores. Normal file cleanup removes unused files after its reference checks.
 
 File cleanup checks current accepted writes and deletes file blobs inside bounded native write scopes.
 The check and deletion share the same scope, including writes that still await flush.
@@ -280,7 +283,10 @@ Later cleanup or cutover checks must identify their own source and product evide
 ## Current key format
 
 A new home records the current key format before it serves requests.
-A home without that marker receives an error. Startup does not convert data.
+A new home records its setup state before it creates the physical store.
+An interrupted new setup can resume from that state. It cannot accept user writes before setup completes.
+An existing home without the current format marker or that setup state receives an error.
+Startup does not convert data.
 Flat keys use the current zero-byte separator. A read never tries an older colon spelling.
 Molecule identities use their exact current base64url form. A hex identity is not an alternate key.
 The current atom placement choices remain flat or located by molecule and hash.
