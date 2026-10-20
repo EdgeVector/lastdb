@@ -18,6 +18,7 @@
 use super::commit::{RecordRefs, ReleaseRequest};
 use super::refs::event_atoms;
 use crate::atom::MutationEvent;
+use crate::db_operations::atom_store::conflict_record::is_counted_record_key;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -80,6 +81,15 @@ impl Released {
 }
 
 impl AtomStore {
+    /// Tell the verifier which atoms the releases of this batch change, while a
+    /// run reads. One atomic load when no run reads.
+    pub(super) fn note_released_atoms(&self, released: &Released) {
+        let watch = self.counter_verify().watch();
+        if watch.is_active() {
+            watch.note(released.atoms.iter().flatten().map(String::as_str));
+        }
+    }
+
     /// Read the history row of each release in the write gate and decide what
     /// the batch lowers and deletes.
     pub(super) async fn read_released_records(
@@ -106,6 +116,13 @@ impl AtomStore {
                     SchemaError::InvalidData(format!("read released rows: {error}"))
                 })?;
             for (release, bytes) in chunk.iter().zip(stored) {
+                if !is_counted_record_key(&release.history) {
+                    // Only a counted record holds references (invariant I1). A
+                    // release of any other row would lower a count that this
+                    // row never raised.
+                    tracing::error!(history = %release.history, "release names a row that holds no references; nothing released");
+                    continue;
+                }
                 let Some(bytes) = bytes else {
                     // The row is gone already. Its dependent rows still go.
                     out.deletes.extend(release.deletes.iter().cloned());

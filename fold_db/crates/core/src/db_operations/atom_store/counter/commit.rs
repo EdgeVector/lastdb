@@ -131,6 +131,8 @@ impl AtomStore {
         let old = self.read_old_tips(&tips).await?;
         let new_records = self.read_new_records(&records).await?;
         let released = self.read_released_records(releases).await?;
+        self.note_touched_atoms(&tips, &old, (&records, &new_records));
+        self.note_released_atoms(&released);
         let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
         released.lower(&mut deltas);
         let rows = with_new_record_rows(rows, &records, &new_records);
@@ -159,6 +161,35 @@ impl AtomStore {
                 })?;
         }
         Ok(commit)
+    }
+
+    /// Tell the verifier which atoms this batch changes, while a run reads.
+    /// Every atom of an old or a new tip or of a new record counts, also when
+    /// the net change of its count is zero: a tip that moves from one atom to
+    /// another changes what a page of tips shows. One atomic load when no run
+    /// reads.
+    fn note_touched_atoms(
+        &self,
+        tips: &BTreeMap<String, Option<PerKeyRecord>>,
+        old: &HashMap<String, PerKeyRecord>,
+        (records, new_records): (&[RecordRefs], &[bool]),
+    ) {
+        let watch = self.counter_verify().watch();
+        if !watch.is_active() {
+            return;
+        }
+        let new_tips = tips.values().flatten();
+        let atoms = new_tips
+            .chain(old.values())
+            .map(|tip| tip.entry.atom_uuid.as_str())
+            .chain(
+                records
+                    .iter()
+                    .zip(new_records)
+                    .filter(|(_, is_new)| **is_new)
+                    .flat_map(|(record, _)| record.atoms.iter().map(String::as_str)),
+            );
+        watch.note(atoms);
     }
 
     /// A native store commits one batch only inside a request scope.

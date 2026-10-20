@@ -7,6 +7,9 @@
 fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
 fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N|the planner: its one batch_mutate joins the pending batch of the request
 
+fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|plan_decision|B N|offline recount (`lastdb db recount` on a stopped home, the one scan the design keeps): writes the exact counter, deletes a counter that has no body, and deletes a body that no tip and no counted record names; no gate and no writer exist while it runs; only the offline command calls it
+fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|flush_pending|-|offline recount: writes the batch that plan_decision built; the batch is whole, and a second run changes only what is still wrong
+
 fold_db/crates/core/src/db_operations/admin_db/history_prune.rs|clear_mutation_history|C|clear-history deletes history rows that are not conflict rows (a conflict row keeps its atom references)
 
 

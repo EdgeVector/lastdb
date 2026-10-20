@@ -7,7 +7,8 @@ North Star: `north-star-lastdb-delete-returns-the-bytes`.
 1. Live `Delete` stamps a resident tombstone and ACKs. Reads hide the key.
 2. The persist lane converges the slot: LastStore deletes the `mk:` tip and its
    `tv:` chain. A LastStore delete is an **append** of a delete marker.
-3. `gc-atoms` frees the atom bodies no tip names. Also appends.
+3. The batch that removes the last reference to an atom deletes its body and
+   its counter (`docs/lastdb-atom-counter.md`). Also appends.
 4. Compaction rewrites the plane. This is the only step that returns bytes.
 
 Steps 1 to 3 make the plane larger. Step 4 must run, or a delete returns nothing.
@@ -55,14 +56,12 @@ per plane under `automatic_compactions`; `lastdb db compact --collection X`
 
 ## Proof
 
-- `vendor/laststore/tests/residue.rs`: counters through put, overwrite,
-  delete, compact; cold reload equals incremental; sidecar answers without a
-  load; encrypted groups.
-- `fold_db/crates/core/tests/delete_returns_bytes_test.rs`: create N rows,
-  delete them, run `gc-atoms`, assert both planes report dead bytes with zero
-  filesystem slack, compact both, assert on-disk bytes fall and residue reads
-  zero, and the atoms rewrite left its retirement record for the next manifest
-  cut.
+- The test files that this section once named (`vendor/laststore/tests/residue.rs`
+  and `fold_db/crates/core/tests/delete_returns_bytes_test.rs`) were deleted
+  with the repository tests (2026-10-09). The check is now a run on a synthetic
+  home: create N rows, delete or purge them, read the residue counters in
+  `lastdb status`, run `lastdb db compact --collection atoms --execute`, and
+  compare the size of the plane before and after.
 - Measured on a copy-on-write clone of the primary (2026-09-07, build
   `b112ee096-dirty`): `atoms` 3,273,093,491 B -> 2,996,045,022 B after one
   rewrite (8.5% dead); a second probe measured every group with
@@ -102,7 +101,5 @@ and re-arm the tests in `sync::policy`.
   which also runs on a node booted without `cloud_sync.json` and so without a
   sync engine. `cas_blobs` has no automatic compaction on any node; the owner
   verb is its only path.
-- `gc-atoms` pages its prologue by physical handle. One manual call may
-  return before it frees anything; call until `prune_more_remaining` is false.
 - Two rows with the same body share one content-addressed atom, and the second
   put re-appends the whole body. That residue is now visible and reclaimable.

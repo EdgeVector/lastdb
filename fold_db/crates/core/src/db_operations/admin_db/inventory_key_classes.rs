@@ -1,5 +1,9 @@
 //! The `main` key-prefix classes the live byte inventory reports.
 
+/// Label of the counter class, which the walk of `atom:` reports beside the bodies.
+pub(super) const ATOM_COUNTER_CLASS_LABEL: &str =
+    "atom:{uuid}\\0c — atom counter (references to the body)";
+
 pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
     ("atom_content", "atom:", "atom:{uuid}\\0b — field values"),
     (
