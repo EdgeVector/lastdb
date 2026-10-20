@@ -44,6 +44,11 @@ pub(crate) enum BlobEvent {
     Underflow,
     /// A removal named a blob that has no counter.
     Dangling,
+    /// A reference made a counter for a blob whose row is gone: the atom names
+    /// a blob that is not in the store.
+    LateReference,
+    /// The counter record did not decode. The counter is now `suspect`.
+    Unreadable,
 }
 
 /// Why a plan cannot proceed.
@@ -96,6 +101,21 @@ pub(super) fn plan_upload(blob: &str, before: Option<&BlobCounter>, now: u64) ->
             Some(BlobEvent::Registered),
         ),
     }
+}
+
+/// The counter record does not decode, so its state is unknown. Replace it with a
+/// `suspect` counter that holds the references this batch adds. A `suspect`
+/// counter never authorizes a delete, and the verifier and the recount report
+/// it. The old queue entry, if any, is left: the dwell pass drops it as stale.
+pub(super) fn plan_unreadable(blob: &str, delta: i64) -> BlobPlan {
+    let mut counter = BlobCounter::new(blob, delta.max(0).unsigned_abs(), None);
+    counter.suspect = true;
+    BlobPlan::Write(BlobWrite {
+        counter,
+        unqueue: None,
+        enqueue: None,
+        event: Some(BlobEvent::Unreadable),
+    })
 }
 
 fn raise(counter: &BlobCounter, add: u64) -> Result<BlobPlan, PlanError> {

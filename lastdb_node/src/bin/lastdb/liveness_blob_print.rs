@@ -35,5 +35,13 @@ pub(super) fn print_blob_liveness(blobs: &[serde_json::Value], dwell_secs: u64) 
         println!("  Queued for the dwell pass: {}", flag("queued"));
         println!("  Suspect: {}", flag("suspect"));
         println!("  Blob row present: {}", flag("row_present"));
+        if state == "referenced_row_missing" {
+            println!(
+                "  The atoms name a blob that is not in the store (a write named it after its dwell). Upload the file again and write the atom again."
+            );
+        }
+        if flag("unreadable") {
+            println!("  The counter record does not decode. Run `lastdb db recount`.");
+        }
     }
 }

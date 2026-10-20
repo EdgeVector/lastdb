@@ -193,6 +193,12 @@ async fn current_scope_rows(
 /// of the same rows. A chunk stays far below the batch limit of an older home.
 const DROP_CHUNK: usize = 512;
 
+/// Delete the rows of a dropped scope, chunk by chunk. The caller read the rows
+/// without a gate, so a writer can change them before a chunk runs. A chunk reads
+/// its rows again inside the write gate and acts on what it finds: a row that is
+/// gone (a writer deleted it, and lowered its blob counters in that batch) lowers
+/// nothing again, and a row that changed lowers what it holds now. A row that a
+/// writer added after the walk is not in the chunk and stays, as before.
 async fn drop_scoped_source_rows(
     atoms: &super::AtomStore,
     main: &dyn crate::storage::traits::KvStore,
@@ -201,21 +207,28 @@ async fn drop_scoped_source_rows(
     let removed = rows.len();
     let backend = |error: crate::schema::SchemaError| StorageError::BackendError(error.to_string());
     for chunk in rows.chunks(DROP_CHUNK) {
-        let mut deltas = super::atom_store::blob_counter::BlobDeltas::default();
-        let unreadable = deltas.scope_rows_dropped(chunk);
-        if unreadable > 0 {
-            tracing::warn!(
-                unreadable,
-                "rows of a dropped scope do not decode; their blob counters stay too high until a recount"
-            );
-        }
         atoms
             .in_write_scope(async {
-                let blob_writes = atoms.blob_counter_mutations(deltas).await?;
-                let keys = chunk.iter().map(|(key, _)| key.clone()).collect();
                 let store_error = |error: StorageError| {
                     crate::schema::SchemaError::InvalidData(format!("drop scope rows: {error}"))
                 };
+                let keys: Vec<Vec<u8>> = chunk.iter().map(|(key, _)| key.clone()).collect();
+                let values = main.get_many(keys.clone()).await.map_err(store_error)?;
+                let current: Vec<(Vec<u8>, Vec<u8>)> = keys
+                    .into_iter()
+                    .zip(values)
+                    .filter_map(|(key, value)| value.map(|value| (key, value)))
+                    .collect();
+                let mut deltas = super::atom_store::blob_counter::BlobDeltas::default();
+                let unreadable = deltas.scope_rows_dropped(&current);
+                if unreadable > 0 {
+                    tracing::warn!(
+                        unreadable,
+                        "rows of a dropped scope do not decode; their blob counters stay too high until a recount"
+                    );
+                }
+                let blob_writes = atoms.blob_counter_mutations(deltas).await?;
+                let keys = current.into_iter().map(|(key, _)| key).collect();
                 main.batch_delete(keys).await.map_err(store_error)?;
                 if !blob_writes.is_empty() {
                     main.batch_mutate(blob_writes).await.map_err(store_error)?;

@@ -22,6 +22,8 @@ pub(crate) struct BlobEvents {
     cancelled: AtomicU64,
     underflows: AtomicU64,
     dangling_removals: AtomicU64,
+    late_references: AtomicU64,
+    unreadable_counters: AtomicU64,
     blobs_deleted: AtomicU64,
     stale_entries: AtomicU64,
     passes: AtomicU64,
@@ -31,6 +33,7 @@ pub(crate) struct BlobEvents {
     last_pass_unix_ms: AtomicU64,
     running: AtomicBool,
     recent_faults: Mutex<VecDeque<String>>,
+    pub(super) clock: super::clock::BlobClock,
 }
 
 /// Keeps the single dwell pass of a store. Dropping it ends the pass.
@@ -53,11 +56,15 @@ impl BlobEvents {
             BlobEvent::ZeroReached => &self.zero_reached,
             BlobEvent::Underflow => &self.underflows,
             BlobEvent::Dangling => &self.dangling_removals,
+            BlobEvent::LateReference => &self.late_references,
+            BlobEvent::Unreadable => &self.unreadable_counters,
         };
         total.fetch_add(1, Ordering::Relaxed);
         let name = match event {
             BlobEvent::Underflow => "underflow",
             BlobEvent::Dangling => "dangling_removal",
+            BlobEvent::LateReference => "late_reference",
+            BlobEvent::Unreadable => "unreadable_counter",
             _ => return,
         };
         tracing::error!(blob = %blob, event = name, "blob counter fault; the blob stays");
@@ -108,6 +115,8 @@ impl BlobEvents {
             stale_queue_entries: self.stale_entries.load(Ordering::Relaxed),
             underflows: self.underflows.load(Ordering::Relaxed),
             dangling_removals: self.dangling_removals.load(Ordering::Relaxed),
+            late_references: self.late_references.load(Ordering::Relaxed),
+            unreadable_counters: self.unreadable_counters.load(Ordering::Relaxed),
             dwell_passes: self.passes.load(Ordering::Relaxed),
             queue_depth: self.queue_depth.load(Ordering::Relaxed),
             queue_depth_capped: self.queue_depth_capped.load(Ordering::Relaxed),
@@ -136,6 +145,14 @@ pub struct BlobCounterReport {
     pub stale_queue_entries: u64,
     pub underflows: u64,
     pub dangling_removals: u64,
+    /// A reference raised a counter that did not exist, for a blob whose row is
+    /// gone. The write went through and the atom names a blob that is not there.
+    #[serde(default)]
+    pub late_references: u64,
+    /// A counter did not decode. The planner marked it `suspect`, or the dwell
+    /// pass skipped it.
+    #[serde(default)]
+    pub unreadable_counters: u64,
     pub dwell_passes: u64,
     /// Entries in the first page of the queue at the last pass.
     pub queue_depth: u64,
@@ -159,4 +176,6 @@ pub struct BlobCounterView {
     pub queued: bool,
     /// The `cas_blobs` plane holds a row for the blob.
     pub row_present: bool,
+    /// The counter record exists and does not decode.
+    pub unreadable: bool,
 }

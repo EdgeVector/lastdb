@@ -32,6 +32,12 @@ pub struct BlobMismatches {
     pub blob_suspect: u64,
     #[serde(default)]
     pub unreadable_blob_counter: u64,
+    /// A blob counter holds references and the blob has no row in the store: an
+    /// atom names a blob that is not there. A late write after the dwell makes
+    /// one. With on-demand cloud file sync, a blob that has not downloaded yet
+    /// reads the same way.
+    #[serde(default)]
+    pub blob_counter_without_blob: u64,
 }
 
 impl BlobMismatches {
@@ -45,6 +51,7 @@ impl BlobMismatches {
             Kind::BlobStaleQueueEntry => &mut self.blob_stale_queue_entry,
             Kind::BlobSuspect => &mut self.blob_suspect,
             Kind::UnreadableBlobCounter => &mut self.unreadable_blob_counter,
+            Kind::BlobCounterWithoutBlob => &mut self.blob_counter_without_blob,
             other => unreachable!("{} is not a blob fault kind", other.name()),
         }
     }
@@ -60,5 +67,6 @@ impl BlobMismatches {
             + self.blob_stale_queue_entry
             + self.blob_suspect
             + self.unreadable_blob_counter
+            + self.blob_counter_without_blob
     }
 }

@@ -137,7 +137,13 @@ async fn explain_blobs(
                 .iter()
                 .map(|view| {
                     let state = match (view.refs, view.zero_since, view.suspect) {
+                        _ if view.unreadable => "unreadable",
                         (Some(_), _, true) => "suspect",
+                        // Atoms name the blob and the store has no row for it: a
+                        // write named the blob after its dwell deleted it.
+                        (Some(refs), _, false) if refs > 0 && !view.row_present => {
+                            "referenced_row_missing"
+                        }
                         (Some(refs), _, false) if refs > 0 => "referenced",
                         (Some(_), Some(_), false) => "in_dwell",
                         (Some(_), None, false) => "inconsistent",
@@ -151,6 +157,7 @@ async fn explain_blobs(
                         "suspect": view.suspect,
                         "queued": view.queued,
                         "row_present": view.row_present,
+                        "unreadable": view.unreadable,
                         "state": state,
                     })
                 })

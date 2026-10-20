@@ -13,8 +13,9 @@
 //! for at most the reads and the staging of a chunk.
 
 use super::commit::{counter_put, queue_put};
+use super::plan::BlobEvent;
 use super::{
-    blob_counter_key_of_id, blob_dwell_millis, blob_id, parse_blob_queue_key, BlobCounter,
+    blob_counter_key_of_id, blob_dwell_millis, blob_id, parse_blob_queue_key, BlobCounter, BlobRead,
 };
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::types::field::build_storage_key;
@@ -61,6 +62,9 @@ pub struct DwellChunk {
     pub stale: u64,
     /// Blobs that a retired-intent root keeps. Their dwell starts again.
     pub renewed: u64,
+    /// Queue entries whose counter does not decode. The entry is dropped and the
+    /// blob stays: nothing can say that its count is zero.
+    pub unreadable: u64,
 }
 
 #[derive(Deserialize)]
@@ -72,6 +76,7 @@ enum Fate {
     Delete(BlobCounter),
     Renew(BlobCounter),
     Stale,
+    Unreadable,
 }
 
 impl AtomStore {
@@ -80,9 +85,11 @@ impl AtomStore {
         self.blob_events.begin_pass()
     }
 
-    /// Read the oldest page of the queue and name the entries that are due.
-    /// One range read under one hash. It writes nothing.
-    pub async fn blob_dwell_scan(&self, now: u64) -> Result<DwellScan, SchemaError> {
+    /// Read the oldest page of the queue and name the entries that are due, on the
+    /// clock of the blob counters. One bounded walk under one hash. It writes
+    /// nothing.
+    pub async fn blob_dwell_scan(&self) -> Result<DwellScan, SchemaError> {
+        let now = self.blob_clock_millis();
         let dwell = blob_dwell_millis();
         // A delete leaves a tombstone, and one read call may examine at most
         // 10,000 keys, deleted keys included. The oldest entries are the ones
@@ -136,11 +143,11 @@ impl AtomStore {
     pub async fn blob_dwell_delete(
         &self,
         entries: &[DwellEntry],
-        now: u64,
     ) -> Result<DwellChunk, SchemaError> {
         if entries.is_empty() {
             return Ok(DwellChunk::default());
         }
+        let now = self.blob_clock_millis();
         let refs: Vec<String> = entries
             .iter()
             .filter_map(|entry| entry.blob.clone())
@@ -159,6 +166,7 @@ impl AtomStore {
             deleted = chunk.deleted,
             stale = chunk.stale,
             renewed = chunk.renewed,
+            unreadable = chunk.unreadable,
             "blob dwell chunk"
         );
         Ok(chunk)
@@ -177,16 +185,17 @@ impl AtomStore {
         let counters = self.read_blob_counters_at(&keys).await?;
         let refs: Vec<String> = named.iter().filter_map(|e| e.blob.clone()).collect();
         let retired = self.retired_intent_blob_roots(&refs).await?;
-        let mut state: HashMap<&str, Option<BlobCounter>> = HashMap::new();
+        let mut state: HashMap<&str, BlobRead> = HashMap::new();
         for (entry, counter) in named.iter().zip(counters) {
             state.insert(entry.id.as_str(), counter);
         }
+        let absent = BlobRead::Absent;
         let mut main = Vec::new();
         let mut rows = Vec::new();
         let mut chunk = DwellChunk::default();
         for entry in entries {
-            let counter = state.get(entry.id.as_str()).and_then(Option::as_ref);
-            match fate(entry, counter, &retired) {
+            let read = state.get(entry.id.as_str()).unwrap_or(&absent);
+            match fate(entry, read, &retired) {
                 Fate::Delete(counter) => {
                     main.extend(delete_mutations(entry, &counter));
                     rows.push(counter.blob.into_bytes());
@@ -199,6 +208,13 @@ impl AtomStore {
                 Fate::Stale => {
                     main.push(KvMutation::delete(entry.key.clone()));
                     chunk.stale += 1;
+                }
+                Fate::Unreadable => {
+                    // Keep the blob and its counter. Drop the entry, so the same
+                    // entry does not come back at the head of every scan.
+                    self.blob_events.note(&entry.id, BlobEvent::Unreadable);
+                    main.push(KvMutation::delete(entry.key.clone()));
+                    chunk.unreadable += 1;
                 }
             }
         }
@@ -235,9 +251,11 @@ impl AtomStore {
 }
 
 /// The decision for one due entry, from the counter read inside the gate.
-fn fate(entry: &DwellEntry, counter: Option<&BlobCounter>, retired: &HashSet<String>) -> Fate {
-    let Some(counter) = counter else {
-        return Fate::Stale;
+fn fate(entry: &DwellEntry, read: &BlobRead, retired: &HashSet<String>) -> Fate {
+    let counter = match read {
+        BlobRead::Absent => return Fate::Stale,
+        BlobRead::Unreadable => return Fate::Unreadable,
+        BlobRead::Present(counter) => counter,
     };
     // A counter that names another blob than its key does would make the pass
     // delete the wrong row. Treat it as stale and leave the verifier to report it.

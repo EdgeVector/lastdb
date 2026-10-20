@@ -239,6 +239,13 @@ fn print_blob_step(report: &RecountReport) {
         blobs.queue_deleted,
         blobs.queue_restored
     );
+    if blobs.rows_missing > 0 {
+        println!(
+            "  blob rows missing: {} referenced blob(s), for example {}",
+            blobs.rows_missing,
+            blobs.missing_row_samples.join(", ")
+        );
+    }
     for note in &blobs.notes {
         println!("  note: {note}");
     }

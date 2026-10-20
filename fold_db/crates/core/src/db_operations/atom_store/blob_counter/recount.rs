@@ -18,7 +18,7 @@
 //! After the counters, the queue is checked: an entry that no counter at zero
 //! backs is deleted.
 
-use super::{blob_queue_key, BlobCounter};
+use super::{blob_queue_key, BlobCounter, BlobRead};
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -29,6 +29,8 @@ use std::collections::HashMap;
 const BATCH_OPERATIONS: usize = 400;
 /// Rows asked for in each read.
 const PAGE_ROWS: usize = 1_000;
+/// Blobs without a row that the report names.
+const MISSING_SAMPLES: usize = 10;
 
 /// What the blob step found and did.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +58,14 @@ pub struct BlobRecountReport {
     /// A blob that nothing references starts its dwell (exact only).
     pub dwell_started: u64,
     pub unreadable_counters: u64,
+    /// Blobs that atom counters, tips or a counter hold references to, and whose
+    /// `cas_blobs` row is missing. The recount cannot restore the bytes. A late
+    /// write that names a blob after its dwell makes one.
+    #[serde(default)]
+    pub rows_missing: u64,
+    /// The first of them, by blob reference.
+    #[serde(default)]
+    pub missing_row_samples: Vec<String>,
     pub queue_read: u64,
     /// Queue entries that no counter at zero backs, deleted.
     pub queue_deleted: u64,
@@ -215,6 +225,7 @@ impl AtomStore {
         report.referenced_blobs = holders.len() as u64;
         let now = crate::clock::unix_millis();
         let mut pending = Vec::new();
+        let mut referenced: Vec<String> = Vec::new();
         let (start, end) = super::counter_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         while !walk.done() {
@@ -234,6 +245,9 @@ impl AtomStore {
                     continue;
                 };
                 let held = holders.remove(&counter.blob).unwrap_or(0);
+                if held > 0 || counter.refs > 0 {
+                    referenced.push(counter.blob.clone());
+                }
                 match decide(&counter.blob, Some(&counter), held, exact, now) {
                     None => {
                         report.unchanged += 1;
@@ -252,18 +266,30 @@ impl AtomStore {
             }
             self.restore_queue_entries(&in_dwell, &mut pending, report)
                 .await?;
+            self.note_missing_rows(&mut referenced, report).await?;
         }
         // Blobs that are named and have no counter.
         for (blob, held) in holders {
             if let Some(fix) = decide(&blob, None, held, exact, now) {
                 count(report, &fix);
                 pending.extend(mutations(&fix)?);
+                referenced.push(blob);
+            }
+            if referenced.len() >= PAGE_ROWS {
+                self.note_missing_rows(&mut referenced, report).await?;
             }
             if pending.len() >= BATCH_OPERATIONS {
                 self.flush_blob_batch(&mut pending, execute, report).await?;
             }
         }
         self.flush_blob_batch(&mut pending, execute, report).await?;
+        self.note_missing_rows(&mut referenced, report).await?;
+        if report.rows_missing > 0 {
+            report.notes.push(format!(
+                "{} referenced blob(s) have no blob row: the atoms name a blob that is not in the store; the recount cannot restore the bytes",
+                report.rows_missing
+            ));
+        }
         if report.unreadable_counters > 0 {
             report.notes.push(format!(
                 "{} blob counter(s) do not decode and were not changed",
@@ -271,6 +297,31 @@ impl AtomStore {
             ));
         }
         self.recount_blob_queue(execute, report).await
+    }
+
+    /// Count the referenced blobs whose `cas_blobs` row is missing. Empties
+    /// `blobs`.
+    async fn note_missing_rows(
+        &self,
+        blobs: &mut Vec<String>,
+        report: &mut BlobRecountReport,
+    ) -> Result<(), SchemaError> {
+        let asked = std::mem::take(blobs);
+        if asked.is_empty() {
+            return Ok(());
+        }
+        let Some(rows) = self.blob_rows_exist(&asked).await? else {
+            return Ok(());
+        };
+        for (blob, present) in asked.into_iter().zip(rows) {
+            if !present {
+                report.rows_missing += 1;
+                if report.missing_row_samples.len() < MISSING_SAMPLES {
+                    report.missing_row_samples.push(blob);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// A counter that keeps its `zero_since` must have its queue entry, or the
@@ -328,10 +379,10 @@ impl AtomStore {
                 .iter()
                 .map(|(_, _, id)| super::blob_counter_key_of_id(id))
                 .collect();
-            let counters = self.read_blob_counters_at(&keys).await?;
+            let counters: Vec<BlobRead> = self.read_blob_counters_at(&keys).await?;
             for ((key, at, _), counter) in entries.into_iter().zip(counters) {
                 report.queue_read += 1;
-                let backed = counter.is_some_and(|counter| {
+                let backed = counter.counter().is_some_and(|counter| {
                     counter.refs == 0 && !counter.suspect && counter.zero_since == Some(at)
                 });
                 if !backed {

@@ -109,7 +109,7 @@ pub fn blob_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         )
     };
     let mut head = format!(
-        "Blob counters: created={} uploads_registered={} zero_reached={} dwell_cancelled={} blobs_deleted={} stale_queue_entries={} underflows={} dangling_removals={}; queue_depth={}{} next_due_in={} last_pass_ago={} dwell={}s passes={}; totals are process-lifetime (reset on daemon restart)",
+        "Blob counters: created={} uploads_registered={} zero_reached={} dwell_cancelled={} blobs_deleted={} stale_queue_entries={} underflows={} dangling_removals={} late_references={} unreadable_counters={}; queue_depth={}{} next_due_in={} last_pass_ago={} dwell={}s passes={}; totals are process-lifetime (reset on daemon restart)",
         report.counters_created,
         report.uploads_registered,
         report.zero_reached,
@@ -118,6 +118,8 @@ pub fn blob_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         report.stale_queue_entries,
         report.underflows,
         report.dangling_removals,
+        report.late_references,
+        report.unreadable_counters,
         report.queue_depth,
         if report.queue_depth_capped { "+" } else { "" },
         until(report.next_due_unix_ms),

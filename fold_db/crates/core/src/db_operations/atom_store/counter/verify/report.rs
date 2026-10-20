@@ -79,6 +79,7 @@ pub(crate) enum Kind {
     BlobStaleQueueEntry,
     BlobSuspect,
     UnreadableBlobCounter,
+    BlobCounterWithoutBlob,
 }
 
 impl Kind {
@@ -94,6 +95,7 @@ impl Kind {
                 | Self::BlobStaleQueueEntry
                 | Self::BlobSuspect
                 | Self::UnreadableBlobCounter
+                | Self::BlobCounterWithoutBlob
         )
     }
 
@@ -133,6 +135,7 @@ impl Kind {
             Self::BlobStaleQueueEntry => "blob_stale_queue_entry",
             Self::BlobSuspect => "blob_suspect",
             Self::UnreadableBlobCounter => "unreadable_blob_counter",
+            Self::BlobCounterWithoutBlob => "blob_counter_without_blob",
         }
     }
 }

@@ -7,18 +7,24 @@
 //! read under one hash, and deletes the due blobs in chunks. A chunk takes the
 //! native write gate for its own reads and its one batch, and the gate is free
 //! between chunks. The pass takes the local mutation admission per chunk, as the
-//! TTL sweep does, so a backup cut never starts inside a chunk.
+//! TTL sweep does, so a backup cut never starts inside a chunk. After each chunk
+//! the pass rests for a share of the chunk time (`pace.rs`: duty 10 percent by
+//! default), so a writer waits for at most one small chunk and then runs free.
 //!
-//! The dwell is `LASTDB_BLOB_DWELL_SECS` (one hour by default). Kill switch for
-//! the pass: `LASTDB_BLOB_DWELL_PASS=0`. Default **on**. With the pass off no
-//! blob leaves the store, and the queue grows until the pass runs again.
+//! The dwell is `LASTDB_BLOB_DWELL_SECS` (one hour by default, 120 s at least
+//! unless `LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV=1`). Kill switch for the pass:
+//! `LASTDB_BLOB_DWELL_PASS=0`. Default **on**. With the pass off no blob leaves
+//! the store, and the queue grows until the pass runs again.
 
-use fold_db::clock::unix_millis;
-use fold_db::db_operations::DWELL_CHUNK;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tracing::Instrument;
 
 use crate::host::Host;
+
+mod pace;
+use pace::Pace;
+pub use pace::{BLOB_DWELL_CHUNK_ENV, BLOB_DWELL_DUTY_PCT_ENV, BLOB_DWELL_MIN_PAUSE_MS_ENV};
 
 /// Default-on kill switch. Off only for the explicit falsey values.
 pub const BLOB_DWELL_PASS_ENV: &str = "LASTDB_BLOB_DWELL_PASS";
@@ -64,11 +70,12 @@ pub fn maybe_spawn_blob_dwell_pass(
 /// Run one bounded dwell pass.
 pub async fn run_pass(host: &Host, shutdown: &AtomicBool) {
     let atoms = host.db.db_ops().atoms();
+    let pace = Pace::from_env();
     for _ in 0..MAX_SCANS_PER_PASS {
         if shutdown.load(Ordering::Acquire) {
             return;
         }
-        let scan = match atoms.blob_dwell_scan(unix_millis()).await {
+        let scan = match atoms.blob_dwell_scan().await {
             Ok(scan) => scan,
             Err(error) => {
                 tracing::warn!(target: "lastdbd::blob_dwell", error = %error, "blob dwell scan failed");
@@ -78,11 +85,12 @@ pub async fn run_pass(host: &Host, shutdown: &AtomicBool) {
         if scan.due.is_empty() {
             return;
         }
-        for chunk in scan.due.chunks(DWELL_CHUNK) {
+        for chunk in scan.due.chunks(pace.chunk) {
             if shutdown.load(Ordering::Acquire) {
                 return;
             }
-            let delete = atoms.blob_dwell_delete(chunk, unix_millis());
+            let started = Instant::now();
+            let delete = atoms.blob_dwell_delete(chunk);
             match crate::maintenance_write_gate::run(host, delete).await {
                 Some(Ok(_)) => {}
                 Some(Err(error)) => {
@@ -92,10 +100,26 @@ pub async fn run_pass(host: &Host, shutdown: &AtomicBool) {
                 // Local writes are paused for a retained cloud source.
                 None => return,
             }
-            tokio::task::yield_now().await;
+            rest(pace.pause_after(started.elapsed()), shutdown).await;
         }
         if !scan.capped {
             return;
         }
+    }
+}
+
+/// Rest between two chunks, in short slices so that a shutdown ends it at once.
+async fn rest(pause: Duration, shutdown: &AtomicBool) {
+    const SLICE: Duration = Duration::from_millis(250);
+    let end = Instant::now() + pause;
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            return;
+        }
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        tokio::time::sleep(left.min(SLICE)).await;
     }
 }

@@ -7,8 +7,10 @@
 //! the other writer: a blob row put starts the dwell of a blob that has no
 //! reference yet, in the same scope as the row.
 
-use super::plan::{plan_delta, plan_upload, BlobEvent, BlobPlan, BlobWrite, PlanError};
-use super::{blob_counter_key, blob_queue_key, BlobCounter, BlobCounterView, BlobDeltas};
+use super::plan::{
+    plan_delta, plan_unreadable, plan_upload, BlobEvent, BlobPlan, BlobWrite, PlanError,
+};
+use super::{blob_counter_key, blob_queue_key, BlobCounter, BlobCounterView, BlobDeltas, BlobRead};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -34,19 +36,56 @@ impl AtomStore {
         if changes.is_empty() {
             return Ok(Vec::new());
         }
-        let now = crate::clock::unix_millis();
+        let now = self.blob_clock_millis();
         let blobs: Vec<&str> = changes.iter().map(|(blob, _)| blob.as_str()).collect();
         let before = self.read_blob_counters(&blobs).await?;
+        self.note_late_references(&changes, &before).await?;
         let mut mutations = Vec::new();
-        for ((blob, delta), counter) in changes.iter().zip(&before) {
-            let plan = plan_delta(blob, counter.as_ref(), *delta, now).map_err(
-                |PlanError::Overflow| {
-                    SchemaError::InvalidData(format!("blob {blob} reference count overflows"))
-                },
-            )?;
+        for ((blob, delta), read) in changes.iter().zip(&before) {
+            let plan = match read {
+                BlobRead::Unreadable => plan_unreadable(blob, *delta),
+                read => plan_delta(blob, read.counter(), *delta, now).map_err(
+                    |PlanError::Overflow| {
+                        SchemaError::InvalidData(format!("blob {blob} reference count overflows"))
+                    },
+                )?,
+            };
             self.push_blob_plan(blob, plan, &mut mutations)?;
         }
         Ok(mutations)
+    }
+
+    /// A reference that makes the counter of a blob whose row is gone is a late
+    /// reference: the dwell deleted the blob (the counter with it), and an atom
+    /// that names it arrives afterwards. The write goes through, because a blob
+    /// that comes from a peer arrives after the atom that names it. The report
+    /// counts it and logs the blob, `lastdb liveness explain blob` says
+    /// `referenced_row_missing`, and `lastdb db verify-refs` reports
+    /// `blob_counter_without_blob`. One keyed read of the rows of the blobs that
+    /// have no counter; a blob that has a counter costs nothing.
+    async fn note_late_references(
+        &self,
+        changes: &[(String, i64)],
+        before: &[BlobRead],
+    ) -> Result<(), SchemaError> {
+        let fresh: Vec<String> = changes
+            .iter()
+            .zip(before)
+            .filter(|((_, delta), read)| *delta > 0 && matches!(read, BlobRead::Absent))
+            .map(|((blob, _), _)| blob.clone())
+            .collect();
+        if fresh.is_empty() {
+            return Ok(());
+        }
+        let Some(rows) = self.blob_rows_exist(&fresh).await? else {
+            return Ok(());
+        };
+        for (blob, present) in fresh.iter().zip(rows) {
+            if !present {
+                self.blob_events.note(blob, BlobEvent::LateReference);
+            }
+        }
+        Ok(())
     }
 
     /// A blob row was put. A blob with no reference starts or renews its dwell,
@@ -55,7 +94,12 @@ impl AtomStore {
     pub(crate) async fn register_blob_upload(&self, blob_ref: &str) -> Result<(), SchemaError> {
         self.require_atomic_scope()?;
         let before = self.read_blob_counters(&[blob_ref]).await?;
-        let plan = plan_upload(blob_ref, before[0].as_ref(), crate::clock::unix_millis());
+        let plan = match &before[0] {
+            // A counter that does not decode is `suspect` once a planner run
+            // touches it. An upload leaves it alone: the blob stays.
+            BlobRead::Unreadable => BlobPlan::Unchanged,
+            read => plan_upload(blob_ref, read.counter(), self.blob_clock_millis()),
+        };
         let mut mutations = Vec::new();
         self.push_blob_plan(blob_ref, plan, &mut mutations)?;
         if !mutations.is_empty() {
@@ -74,26 +118,30 @@ impl AtomStore {
     pub(crate) async fn read_blob_counters(
         &self,
         blobs: &[&str],
-    ) -> Result<Vec<Option<BlobCounter>>, SchemaError> {
+    ) -> Result<Vec<BlobRead>, SchemaError> {
         let keys: Vec<String> = blobs.iter().map(|blob| blob_counter_key(blob)).collect();
         self.read_blob_counters_at(&keys).await
     }
 
-    /// The counter state at each counter key, in the order given.
+    /// The counter state at each counter key, in the order given. A record that
+    /// does not decode reads as [`BlobRead::Unreadable`]. It does not fail the
+    /// read, so one bad record cannot stop a chunk of the dwell pass or a write
+    /// that names another blob.
     pub(super) async fn read_blob_counters_at(
         &self,
         keys: &[String],
-    ) -> Result<Vec<Option<BlobCounter>>, SchemaError> {
+    ) -> Result<Vec<BlobRead>, SchemaError> {
         let mut out = Vec::with_capacity(keys.len());
         for chunk in keys.chunks(READ_CHUNK) {
-            out.extend(
-                self.main_store
-                    .get_items::<BlobCounter>(chunk)
-                    .await
-                    .map_err(|error| {
-                        SchemaError::InvalidData(format!("read blob counters: {error}"))
-                    })?,
-            );
+            let bytes = self
+                .main_store
+                .inner()
+                .get_many(chunk.iter().map(|key| key.clone().into_bytes()).collect())
+                .await
+                .map_err(|error| {
+                    SchemaError::InvalidData(format!("read blob counters: {error}"))
+                })?;
+            out.extend(bytes.iter().map(|bytes| BlobRead::parse(bytes.as_deref())));
         }
         Ok(out)
     }
@@ -109,8 +157,8 @@ impl AtomStore {
         let queue_keys: Vec<Vec<u8>> = blobs
             .iter()
             .zip(&counters)
-            .map(|(blob, counter)| {
-                let at = counter.as_ref().and_then(|counter| counter.zero_since);
+            .map(|(blob, read)| {
+                let at = read.counter().and_then(|counter| counter.zero_since);
                 blob_queue_key(at.unwrap_or(0), blob).into_bytes()
             })
             .collect();
@@ -120,26 +168,37 @@ impl AtomStore {
             .exists_many(queue_keys)
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read blob queue: {error}")))?;
-        let rows = self.blob_rows_exist(blobs).await?;
+        let rows = self
+            .blob_rows_exist(blobs)
+            .await?
+            .unwrap_or_else(|| vec![false; blobs.len()]);
         Ok(blobs
             .iter()
             .zip(counters)
             .zip(queued.into_iter().zip(rows))
-            .map(|((blob, counter), (queued, row_present))| BlobCounterView {
-                blob: blob.clone(),
-                refs: counter.as_ref().map(|counter| counter.refs),
-                zero_since: counter.as_ref().and_then(|counter| counter.zero_since),
-                suspect: counter.as_ref().is_some_and(|counter| counter.suspect),
-                queued: queued && counter.as_ref().is_some_and(|c| c.zero_since.is_some()),
-                row_present,
+            .map(|((blob, read), (queued, row_present))| {
+                let counter = read.counter();
+                BlobCounterView {
+                    blob: blob.clone(),
+                    refs: counter.map(|counter| counter.refs),
+                    zero_since: counter.and_then(|counter| counter.zero_since),
+                    suspect: counter.is_some_and(|counter| counter.suspect),
+                    queued: queued && counter.is_some_and(|c| c.zero_since.is_some()),
+                    row_present,
+                    unreadable: read == BlobRead::Unreadable,
+                }
             })
             .collect())
     }
 
-    /// For each blob, whether the `cas_blobs` plane holds its row.
-    async fn blob_rows_exist(&self, blobs: &[String]) -> Result<Vec<bool>, SchemaError> {
+    /// For each blob, whether the `cas_blobs` plane holds its row. `None` when
+    /// the store has no native plane to ask.
+    pub(in crate::db_operations::atom_store) async fn blob_rows_exist(
+        &self,
+        blobs: &[String],
+    ) -> Result<Option<Vec<bool>>, SchemaError> {
         let Some(store) = self.namespaced_store.as_ref() else {
-            return Ok(vec![false; blobs.len()]);
+            return Ok(None);
         };
         let cas = store
             .open_namespace("cas_blobs")
@@ -148,7 +207,15 @@ impl AtomStore {
         let keys = blobs.iter().map(|blob| blob.as_bytes().to_vec()).collect();
         cas.exists_many(keys)
             .await
+            .map(Some)
             .map_err(|error| SchemaError::InvalidData(format!("read blob rows: {error}")))
+    }
+
+    /// Unix milliseconds on the clock of the blob counters: the wall clock, never
+    /// more than a day ahead of the monotonic time since the store was made.
+    #[must_use]
+    pub fn blob_clock_millis(&self) -> u64 {
+        self.blob_events.clock.now_millis()
     }
 
     fn push_blob_plan(

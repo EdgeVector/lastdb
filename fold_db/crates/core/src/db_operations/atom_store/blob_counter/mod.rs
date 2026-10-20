@@ -10,10 +10,11 @@
 //!
 //! An upload comes before the atom that names it. So a blob whose count is zero
 //! is not deleted at once. It has a dwell (`LASTDB_BLOB_DWELL_SECS`, one hour by
-//! default) that starts when its count reaches zero or when it is uploaded. A
-//! new reference during the dwell cancels it. The dwell must be longer than the
-//! delay between the ack of a `queued` write and the batch of that write (the
-//! batch raises the counters). A dwell pass reads the time ordered queue of
+//! default, never below 120 s unless a dev knob says so) that starts when its
+//! count reaches zero or when it is uploaded. A new reference during the dwell
+//! cancels it. The dwell must be longer than the delay between the ack of a
+//! `queued` write and the batch of that write (the batch raises the counters):
+//! see [`BLOB_DWELL_FLOOR_SECS`]. A dwell pass reads the time ordered queue of
 //! blobs at zero, and for each blob whose dwell has passed it reads the counter
 //! again inside the write gate and deletes the blob row, the counter and the
 //! queue entry in one batch.
@@ -30,6 +31,7 @@
 //! queue is one hash and a page of the oldest entries is one range read. Only
 //! the modules here write these records. `scripts/lints/lint-atom-counter-writers.py` guards that.
 
+mod clock;
 mod commit;
 mod deltas;
 mod dwell;
@@ -55,6 +57,23 @@ pub const BLOB_DWELL_SECS_ENV: &str = "LASTDB_BLOB_DWELL_SECS";
 
 /// One hour. An upload and the atom that names it come close together.
 pub const BLOB_DWELL_SECS_DEFAULT: u64 = 3600;
+
+/// The shortest dwell that the node accepts, in seconds.
+///
+/// A `queued` write is acked from memory and its batch (which raises the blob
+/// counters) runs later. A blob row that the dwell pass deletes before that batch
+/// runs leaves an atom that names a blob that is gone. A request has at most 90 s
+/// (the handler budget) and the persist lane that runs the batch has a bulk queue
+/// budget of about 60 s, so the floor is the handler budget plus 30 s. It is a
+/// floor, not a proof: a lane that stalls for longer than the floor can still lose
+/// the race, and the one hour default is the real margin. A shorter dwell breaks
+/// the contract. With a dwell of 3 s and a backlog of 400 queued writes, a queued
+/// write was acked after 3.7 s and the pass had deleted the blob first.
+pub const BLOB_DWELL_FLOOR_SECS: u64 = 120;
+
+/// Dev knob: allow a dwell below [`BLOB_DWELL_FLOOR_SECS`]. For short proofs on a
+/// synthetic home only. Never set it on a home that holds user data.
+pub const BLOB_DWELL_UNSAFE_SHORT_ENV: &str = "LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV";
 
 const COUNTER_PREFIX: &str = "bref:v3:c:";
 const QUEUE_HASH: &str = "bref:v3:q";
@@ -94,12 +113,53 @@ impl BlobCounter {
     }
 }
 
-/// The dwell of a blob at zero, in milliseconds.
+/// The dwell of a blob at zero, in milliseconds. A value below the floor is
+/// refused: the floor applies, and the node logs it once.
 #[must_use]
 pub fn blob_dwell_millis() -> u64 {
-    env_flag::var_parsed::<u64>(BLOB_DWELL_SECS_ENV)
-        .unwrap_or(BLOB_DWELL_SECS_DEFAULT)
-        .saturating_mul(1000)
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let asked = env_flag::var_parsed::<u64>(BLOB_DWELL_SECS_ENV).unwrap_or(BLOB_DWELL_SECS_DEFAULT);
+    let secs =
+        if asked < BLOB_DWELL_FLOOR_SECS && !env_flag::var_truthy(BLOB_DWELL_UNSAFE_SHORT_ENV) {
+            if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(
+                    asked_secs = asked,
+                    floor_secs = BLOB_DWELL_FLOOR_SECS,
+                    "{BLOB_DWELL_SECS_ENV} is below the floor and is refused; the floor applies. \
+                 {BLOB_DWELL_UNSAFE_SHORT_ENV}=1 allows a short dwell on a synthetic home"
+                );
+            }
+            BLOB_DWELL_FLOOR_SECS
+        } else {
+            asked
+        };
+    secs.saturating_mul(1000)
+}
+
+/// What a read of one counter record found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BlobRead {
+    Absent,
+    /// The record exists and does not decode.
+    Unreadable,
+    Present(BlobCounter),
+}
+
+impl BlobRead {
+    pub(crate) fn parse(bytes: Option<&[u8]>) -> Self {
+        match bytes {
+            None => Self::Absent,
+            Some(bytes) => serde_json::from_slice(bytes).map_or(Self::Unreadable, Self::Present),
+        }
+    }
+
+    /// The counter, when the record exists and decodes.
+    pub(crate) fn counter(&self) -> Option<&BlobCounter> {
+        match self {
+            Self::Present(counter) => Some(counter),
+            _ => None,
+        }
+    }
 }
 
 /// The identity of a blob in a counter key and a queue key.
