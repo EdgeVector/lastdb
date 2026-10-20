@@ -68,14 +68,14 @@ impl AtomStore {
     }
 
     /// Schema-facing pages require selected bodies and exclude foreign layouts.
-    pub(crate) async fn list_schema_record_keys_filtered(
+    pub(crate) async fn list_schema_record_keys_filtered<'a>(
         &self,
-        molecule: &str,
+        molecule: &'a str,
         limit: usize,
-        after: Option<&str>,
-        hash_filter: Option<&str>,
-        membership: SchemaKeyMembership<'_>,
-        storage_prefix: Option<&str>,
+        after: Option<&'a str>,
+        hash_filter: Option<&'a str>,
+        membership: SchemaKeyMembership<'a>,
+        storage_prefix: Option<&'a str>,
     ) -> Result<KeyPage, SchemaError> {
         self.list_record_keys_read(KeyList {
             molecule,
