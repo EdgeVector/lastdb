@@ -315,8 +315,16 @@ holds more rows. A short page is therefore not the end of a range. The range
 walk (`atom_store/bounded_range.rs`) counts the dropped rows for each read
 (`crypto::count_unsealed_discards`, a count that belongs to that read only) and
 adds them to the rows it got: a page is full when the sum reaches the rows asked
-for. When a page holds only dropped rows, it asks for more rows from the same
-start. The verifier, the recount and the inventory all use this walk.
+for. When a page holds only dropped rows, it names no key to continue from, so
+the walk asks for more rows from the same start (up to 10,000 rows). A read that
+then hits the read limit, and a page of 10,000 dropped rows, **cut the key range
+in two** and read the lower half first: a smaller page would repeat the same
+reads and never move. Each cut makes the span smaller, so the walk always moves,
+also for a run of dropped rows that is longer than one read and is followed by
+many deleted keys. Cutting a tight run of keys takes about 150 reads. If 1,024
+reads in a row find no row to continue from, or the range cannot be cut, the walk
+stops with an error that names the rows without an envelope (it does not loop).
+The verifier, the recount and the inventory all use this walk.
 
 - The verifier reports the dropped rows as the fault `unsealed_rows` (a count of
   reads that dropped a row, with a sample that names the fix). The rest of the
