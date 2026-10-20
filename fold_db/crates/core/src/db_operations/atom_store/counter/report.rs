@@ -44,7 +44,8 @@ impl CounterEvent {
     }
 }
 
-/// Totals since the node started, and the recent faults.
+/// Totals since this process started, and the recent faults. Memory only: a
+/// restart sets them to zero.
 #[derive(Debug, Default)]
 pub(crate) struct CounterEvents {
     created: AtomicU64,

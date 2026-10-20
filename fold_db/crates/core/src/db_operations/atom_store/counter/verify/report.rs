@@ -352,6 +352,23 @@ pub struct VerifyLast {
     /// Tips the run read. Zero in a scope that holds data means a wrong scope.
     #[serde(default)]
     pub tips_read: u64,
+    /// The rest of what the run read and counted. `lastdb db verify-refs --last`
+    /// prints the same lines as the run did, so it needs the same numbers.
+    #[serde(default)]
+    pub records_read: u64,
+    #[serde(default)]
+    pub counters_read: u64,
+    #[serde(default)]
+    pub bodies_read: u64,
+    /// Pages read again because a read hit the read limit of one call.
+    #[serde(default)]
+    pub page_retries: u64,
+    /// Atoms the totals of the first two phases hold.
+    #[serde(default)]
+    pub tally_atoms: u64,
+    /// Atoms that writers changed while the run read.
+    #[serde(default)]
+    pub touched_atoms: u64,
 }
 
 /// A run in progress.
@@ -377,6 +394,12 @@ impl VerifyReport {
             suspect_atoms: self.suspect_atoms,
             tally_complete: self.tally_complete,
             tips_read: self.tips_read,
+            records_read: self.records_read,
+            counters_read: self.counters_read,
+            bodies_read: self.bodies_read,
+            page_retries: self.page_retries,
+            tally_atoms: self.tally_atoms,
+            touched_atoms: self.touched_atoms,
         })
     }
 }

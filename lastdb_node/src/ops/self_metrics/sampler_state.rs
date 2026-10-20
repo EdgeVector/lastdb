@@ -135,6 +135,10 @@ pub(super) struct TtlSweepState {
     pub(super) policy_error: Option<String>,
     pub(super) schema_failures: u64,
     pub(super) last_pass: super::ttl_pass::TtlPassReport,
+    /// No new pass starts before this instant (`ttl_backoff`).
+    pub(super) retry_at: Option<Instant>,
+    /// The same moment in unix seconds, for the status.
+    pub(super) next_attempt_unix_secs: Option<u64>,
 }
 
 /// Node-local retention policy and sweep state exposed by `/api/status`.
@@ -158,6 +162,11 @@ pub struct LocalRetentionHealth {
     pub schema_failures: u64,
     #[serde(default)]
     pub last_pass: super::ttl_pass::TtlPassReport,
+    /// Set while the sweep waits after repeated failed passes: the unix second
+    /// at which the next pass may start. `failures` counts the failed passes in
+    /// a row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_attempt_unix_secs: Option<u64>,
 }
 
 impl SamplerRuntimeState {
@@ -257,23 +266,6 @@ impl SamplerRuntimeState {
         }
     }
 
-    pub(crate) fn begin_ttl_sweep(&self) -> bool {
-        let mut ttl = self
-            .ttl
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // A completed empty pass only describes the last observed cutoff. A
-        // later write can age past that cutoff, or an operator can add a new
-        // policy, without restarting the daemon. Keep the single-flight guard,
-        // but let the next sampler tick check the bounded policy and key paths.
-        if ttl.in_flight || ttl.failures >= MAX_DRAIN_ATTEMPTS {
-            return false;
-        }
-        ttl.settled = false;
-        ttl.in_flight = true;
-        true
-    }
-
     pub(crate) fn end_ttl_sweep(&self) {
         self.ttl
             .lock()
@@ -286,38 +278,6 @@ impl SamplerRuntimeState {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .settled = true;
-    }
-
-    pub(crate) fn record_ttl_sweep_failure(&self) {
-        let mut ttl = self
-            .ttl
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        ttl.failures += 1;
-        if ttl.failures >= MAX_DRAIN_ATTEMPTS {
-            ttl.settled = true;
-            tracing::warn!(
-                target: "lastdbd::self_metrics",
-                failures = ttl.failures,
-                "ttl sweep giving up for this process; restart the daemon to retry"
-            );
-        }
-    }
-
-    pub(crate) fn mark_ttl_sweep_pass(&self, removed: usize, now: u64) {
-        let mut ttl = self
-            .ttl
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        ttl.passes = ttl.passes.saturating_add(1);
-        ttl.rows_reaped = ttl
-            .rows_reaped
-            .saturating_add(u64::try_from(removed).unwrap_or(u64::MAX));
-        ttl.last_sweep_unix_secs = Some(now);
-        ttl.failures = 0;
-        if removed == 0 {
-            ttl.settled = true;
-        }
     }
 
     pub(crate) fn cache_retention_policies(
@@ -356,6 +316,7 @@ impl SamplerRuntimeState {
             policy_error: ttl.policy_error.clone(),
             schema_failures: ttl.schema_failures,
             last_pass: ttl.last_pass.clone(),
+            next_attempt_unix_secs: ttl.next_attempt_unix_secs,
         }
     }
 
