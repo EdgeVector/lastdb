@@ -235,6 +235,7 @@ async fn run_wake(
         let batch_started = std::time::Instant::now();
         match atoms.release_due_entries(due, now).await {
             Ok(outcome) => {
+                atoms.retention_state().note_released(outcome.released);
                 released += outcome.released;
                 skipped += outcome.skipped;
                 *watermark = last_due;

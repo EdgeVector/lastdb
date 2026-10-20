@@ -92,11 +92,17 @@ impl RetentionState {
         self.purge_leftover.fetch_add(leftover, Ordering::Relaxed);
     }
 
-    /// One janitor wake: how many records it released, and why it stopped early.
-    pub(crate) fn note_run(&self, released: u64, error: Option<String>) {
-        self.runs.fetch_add(1, Ordering::Relaxed);
+    /// One release batch of the janitor ended. The total counts at once, so a
+    /// wake that rests between many pages shows its progress.
+    pub(crate) fn note_released(&self, released: u64) {
         self.released_by_janitor
             .fetch_add(released, Ordering::Relaxed);
+    }
+
+    /// One janitor wake ended: how many records it released, and why it
+    /// stopped early.
+    pub(crate) fn note_run(&self, released: u64, error: Option<String>) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
         self.last_run_released.store(released, Ordering::Relaxed);
         let now = chrono::Utc::now().timestamp_millis();
         self.last_run_unix_ms
