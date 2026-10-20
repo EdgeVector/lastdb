@@ -41,16 +41,11 @@ impl BlobDeltas {
     /// Rows of one storage scope that a drop of the scope deletes. An atom
     /// counter row lowers the blobs it lists, a tip row lowers the blobs that its
     /// metadata names. Every other row holds no blob reference. A row that does
-    /// not decode is an error: skipping it would leave a count too high forever.
-    pub(crate) fn scope_rows_dropped(
-        &mut self,
-        rows: &[(Vec<u8>, Vec<u8>)],
-    ) -> Result<(), crate::schema::SchemaError> {
-        let bad = |what: &str, error: serde_json::Error| {
-            crate::schema::SchemaError::InvalidData(format!(
-                "decode {what} of a dropped scope: {error}"
-            ))
-        };
+    /// not decode lowers nothing: the blob counters stay too high (a leak, which
+    /// `lastdb db recount` repairs), and the drop is not blocked. Returns the
+    /// number of rows that did not decode.
+    pub(crate) fn scope_rows_dropped(&mut self, rows: &[(Vec<u8>, Vec<u8>)]) -> usize {
+        let mut unreadable = 0;
         for (key, value) in rows {
             let Ok(key) = std::str::from_utf8(key) else {
                 continue;
@@ -60,16 +55,18 @@ impl BlobDeltas {
             };
             let bare = scope.map_or(key, |scope| key.get(scope.len() + 1..).unwrap_or(key));
             if crate::atom::atom_key_codec::is_counter_key(bare) {
-                let counter: AtomCounter =
-                    serde_json::from_slice(value).map_err(|e| bad("atom counter", e))?;
-                self.atom_counter_deleted(&counter.blobs);
+                match serde_json::from_slice::<AtomCounter>(value) {
+                    Ok(counter) => self.atom_counter_deleted(&counter.blobs),
+                    Err(_) => unreadable += 1,
+                }
             } else if bare.starts_with("mk:") {
-                let record: PerKeyRecord =
-                    serde_json::from_slice(value).map_err(|e| bad("tip record", e))?;
-                self.tip_replaced(Some(&record), None);
+                match serde_json::from_slice::<PerKeyRecord>(value) {
+                    Ok(record) => self.tip_replaced(Some(&record), None),
+                    Err(_) => unreadable += 1,
+                }
             }
         }
-        Ok(())
+        unreadable
     }
 
     fn add(&mut self, blobs: &[String], step: i64) {

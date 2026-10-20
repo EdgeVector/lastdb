@@ -223,7 +223,13 @@ async fn drop_scoped_source_rows(
     let backend = |error: crate::schema::SchemaError| StorageError::BackendError(error.to_string());
     for chunk in rows.chunks(DROP_CHUNK) {
         let mut deltas = super::atom_store::blob_counter::BlobDeltas::default();
-        deltas.scope_rows_dropped(chunk).map_err(backend)?;
+        let unreadable = deltas.scope_rows_dropped(chunk);
+        if unreadable > 0 {
+            tracing::warn!(
+                unreadable,
+                "rows of a dropped scope do not decode; their blob counters stay too high until a recount"
+            );
+        }
         atoms
             .in_write_scope(async {
                 let blob_writes = atoms.blob_counter_mutations(deltas).await?;
