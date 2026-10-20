@@ -169,9 +169,10 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    followed by a rest of 270 ms. A writer then waits for one small chunk and runs
    free in the rest. The next chunk takes the gate again. The time of a chunk is the
    time of the whole call, which includes the wait for the local mutation admission
-   and for the batch to be accepted. On a busy host a chunk takes 0.3 s to 2 s, so the
-   pass then deletes about 30 to 100 blobs a minute (three to ten seconds for a chunk
-   of 32 with its rest). That is the price of leaving the writers alone. Set
+   and for the batch to be accepted. The gate is held for 1 to 15 ms of it, but a
+   chunk took 0.2 s to 1 s on a busy host, so a chunk of 29 blobs and its rest took
+   about 9 s: the pass then deletes about 200 blobs a minute. That is the price of
+   leaving the writers alone. Set
    `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a large backlog faster. The node logs
    the time and the rest of each chunk at debug level
    (`lastdbd::blob_dwell`).
