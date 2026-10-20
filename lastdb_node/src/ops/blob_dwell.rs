@@ -64,7 +64,7 @@ pub fn maybe_spawn_blob_dwell_pass(
     let shutdown = std::sync::Arc::clone(shutdown);
     tokio::spawn(
         async move {
-            let mut cursor = guard.take_cursor();
+            let mut cursor = guard.take_cursor(Pace::from_env().chunk);
             let result = run_pass(&host, &shutdown, &mut cursor).await;
             if let Err(error) = &result {
                 tracing::warn!(target: "lastdbd::blob_dwell", error = %error, "blob dwell pass failed");

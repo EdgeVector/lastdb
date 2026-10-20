@@ -57,14 +57,20 @@ pub struct DwellGuard {
 
 impl DwellGuard {
     /// The reader of the dwell queue: the one the last pass left, or a new one.
+    /// A read asks for `chunk` keys (1 to 64), the size of the chunk of a step. A
+    /// reader that was made for another size is replaced.
     #[must_use]
-    pub fn take_cursor(&self) -> DwellCursor {
-        self.events
+    pub fn take_cursor(&self, chunk: usize) -> DwellCursor {
+        let kept = self
+            .events
             .cursor
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-            .unwrap_or_else(|| DwellCursor::new(self.events.queue))
+            .take();
+        match kept {
+            Some(cursor) if cursor.page() == chunk.clamp(1, super::DWELL_CHUNK) => cursor,
+            _ => DwellCursor::new(self.events.queue, chunk),
+        }
     }
 
     /// Keep the reader for the next pass.

@@ -46,6 +46,8 @@ const FULL_PASS_EVERY: u64 = 60;
 #[derive(Debug)]
 pub struct DwellCursor {
     reader: QueueReader,
+    /// The keys one read asks for: the chunk of the steps.
+    page: usize,
     passes: u64,
     /// Buckets in which a step handled the head of a page and left the rest of
     /// it for the next step. A bucket in this set is not retired.
@@ -53,12 +55,19 @@ pub struct DwellCursor {
 }
 
 impl DwellCursor {
-    pub(super) fn new(queue: BlobQueue) -> Self {
+    pub(super) fn new(queue: BlobQueue, page: usize) -> Self {
+        let page = page.clamp(1, DWELL_CHUNK);
         Self {
-            reader: QueueReader::new(queue.layout(), DWELL_CHUNK),
+            reader: QueueReader::new(queue.layout(), page),
+            page,
             passes: 0,
             partial: BTreeSet::new(),
         }
+    }
+
+    /// The keys one read asks for.
+    pub(super) fn page(&self) -> usize {
+        self.page
     }
 
     /// Buckets the reader knows.

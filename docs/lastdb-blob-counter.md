@@ -228,7 +228,8 @@ fails, up to 10 minutes. A good pass clears it. `lastdb status` shows the error,
 count and the time to the next try.
 
 The reads and the batches stay small on purpose. A read call of the walk asks for
-a page of 64 keys and is cut in two when it meets the read budget. The real budget
+a page of one chunk (32 keys by default) and is cut in two when it meets the
+read budget. The real budget
 of one native call is 4,096 metadata pages, and one native mutation may publish at
 most 4,096 metadata pages, so a chunk (about 4 rows for each blob) stays far below
 it.
