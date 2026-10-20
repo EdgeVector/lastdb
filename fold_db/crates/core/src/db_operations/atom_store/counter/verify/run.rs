@@ -1,5 +1,6 @@
 //! The driver of the verifier: steps with a page budget and a time budget.
 
+use super::blobs::{apply_blobs, apply_listed, apply_queue, BlobsPage, QueuePage};
 use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
 use super::pages::{phase_range, AtomsPage, ReferencedPage};
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
@@ -24,6 +25,8 @@ const DEFAULT_MAX_ATOMS: usize = 1_000_000;
 enum Page {
     Referenced(ReferencedPage),
     Atoms(AtomsPage),
+    Blobs(BlobsPage),
+    Queue(QueuePage),
 }
 
 impl AtomStore {
@@ -109,6 +112,8 @@ impl AtomStore {
                 .read_referenced_page(run.phase, scope.as_deref(), request)
                 .await
                 .map(Page::Referenced),
+            Phase::Blobs => self.read_blobs_page(request).await.map(Page::Blobs),
+            Phase::BlobQueue => self.read_queue_page(request).await.map(Page::Queue),
             Phase::Done => return Ok(()),
         };
         match page {
@@ -130,6 +135,28 @@ impl AtomStore {
                     .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
                 {
                     Progress::Moved => apply_atoms(run, watch, page),
+                    Progress::Widened => run.report.page_retries += 1,
+                    Progress::Stuck => return Err(unsealed_run_error()),
+                }
+            }
+            Ok(Page::Blobs(page)) => {
+                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
+                match run
+                    .walk
+                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
+                {
+                    Progress::Moved => apply_blobs(run, page),
+                    Progress::Widened => run.report.page_retries += 1,
+                    Progress::Stuck => return Err(unsealed_run_error()),
+                }
+            }
+            Ok(Page::Queue(page)) => {
+                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
+                match run
+                    .walk
+                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
+                {
+                    Progress::Moved => apply_queue(run, page),
                     Progress::Widened => run.report.page_retries += 1,
                     Progress::Stuck => return Err(unsealed_run_error()),
                 }
@@ -171,7 +198,10 @@ fn next_phase(run: &mut Run) {
     run.phase = match run.phase {
         Phase::Tips => Phase::Records,
         Phase::Records => Phase::Atoms,
-        Phase::Atoms | Phase::Done => Phase::Done,
+        // The blob counters are global. The personal run checks them once.
+        Phase::Atoms if run.report.scope.is_none() => Phase::Blobs,
+        Phase::Blobs => Phase::BlobQueue,
+        Phase::Atoms | Phase::BlobQueue | Phase::Done => Phase::Done,
     };
     let range = phase_range(run.phase, run.report.scope.as_deref());
     if let Some((start, end)) = range {
@@ -237,6 +267,7 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
             run.note_fault(finding.kind, &read.atom, finding.detail);
         }
     }
+    apply_listed(run, page.blobs, "tips");
 }
 
 /// Judge a page of atoms: the pairing, and the counter against the totals.
@@ -272,4 +303,5 @@ fn apply_atoms(run: &mut Run, watch: &Watch, page: AtomsPage) {
             run.note_fault(finding.kind, &pair.atom, finding.detail);
         }
     }
+    apply_listed(run, page.blobs, "atom counters");
 }

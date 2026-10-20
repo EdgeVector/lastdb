@@ -94,3 +94,13 @@ fn tip_blobs(record: &PerKeyRecord) -> Vec<String> {
     };
     crate::atom::file_pointer::blob_refs_of_atom(&serde_json::Value::Null, meta.metadata.as_ref())
 }
+
+/// The blobs that a stored tip row names in its metadata. A row that does not
+/// mention a file key names none, and it is not decoded. An error means a row
+/// that mentions one and does not decode.
+pub(crate) fn blobs_of_tip_row(value: &[u8]) -> Result<Vec<String>, serde_json::Error> {
+    if !value.windows(5).any(|window| window == b"file_") {
+        return Ok(Vec::new());
+    }
+    Ok(tip_blobs(&serde_json::from_slice::<PerKeyRecord>(value)?))
+}

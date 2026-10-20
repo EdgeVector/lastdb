@@ -41,6 +41,7 @@
 //! compare counters with totals, and it says so in the report. A run that no
 //! step touched for ten minutes is dropped.
 
+mod blobs;
 mod check;
 mod pages;
 mod report;

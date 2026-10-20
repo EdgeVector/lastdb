@@ -32,10 +32,12 @@ mod commit;
 mod deltas;
 mod dwell;
 mod plan;
+mod recount;
 mod report;
 
-pub(crate) use deltas::BlobDeltas;
+pub(crate) use deltas::{blobs_of_tip_row, BlobDeltas};
 pub use dwell::{DwellChunk, DwellEntry, DwellScan, DWELL_CHUNK};
+pub use recount::BlobRecountReport;
 pub(crate) use report::BlobEvents;
 pub use report::{BlobCounterReport, BlobCounterView, DwellGuard};
 
@@ -126,6 +128,24 @@ pub(crate) fn blob_queue_key(zero_since: u64, blob_ref: &str) -> String {
 #[must_use]
 pub(crate) fn blob_queue_prefix() -> String {
     format!("{QUEUE_HASH}\0")
+}
+
+/// The key range of every blob counter: one hash for each blob.
+#[must_use]
+pub(crate) fn counter_range() -> (Vec<u8>, Vec<u8>) {
+    prefix_range(COUNTER_PREFIX)
+}
+
+/// The key range of the whole queue: one hash.
+#[must_use]
+pub(crate) fn queue_range() -> (Vec<u8>, Vec<u8>) {
+    prefix_range(&blob_queue_prefix())
+}
+
+fn prefix_range(prefix: &str) -> (Vec<u8>, Vec<u8>) {
+    let end = crate::schema::types::field::FilterUtils::create_prefix_end(prefix)
+        .expect("a family prefix has a finite upper bound");
+    (prefix.as_bytes().to_vec(), end.into_bytes())
 }
 
 /// `(zero_since, id)` of a queue key. `None` for a key of another shape.

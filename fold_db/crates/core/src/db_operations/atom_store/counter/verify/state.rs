@@ -59,6 +59,8 @@ impl Run {
                 records_read: 0,
                 counters_read: 0,
                 bodies_read: 0,
+                blob_counters_read: 0,
+                blob_queue_read: 0,
                 page_retries: 0,
                 range_reads: WalkStats::default(),
                 tally_atoms: 0,
@@ -131,6 +133,8 @@ impl Run {
         let phase = match self.phase {
             Phase::Tips => "tip",
             Phase::Records => "history",
+            Phase::Blobs => "blob counter",
+            Phase::BlobQueue => "blob queue",
             _ => "atom",
         };
         self.note_faults(

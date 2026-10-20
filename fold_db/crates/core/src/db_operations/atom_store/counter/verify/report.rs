@@ -16,6 +16,11 @@ pub enum Phase {
     /// Body and counter records of atoms: pairing, zero, suspect, and the
     /// counter against the totals of the first two phases.
     Atoms,
+    /// Blob counters (personal run only): each counter alone. See `blobs.rs`.
+    Blobs,
+    /// The queue of blobs at zero (personal run only): each entry against its
+    /// counter.
+    BlobQueue,
     /// The run is complete.
     Done,
 }
@@ -37,6 +42,14 @@ pub(crate) enum Kind {
     UnreadableRecord,
     UnreadableCounter,
     UnsealedRows,
+    BlobCounterMissing,
+    BlobCounterBelowRefs,
+    BlobZeroWithoutDwell,
+    BlobDwellWithRefs,
+    BlobUnqueued,
+    BlobStaleQueueEntry,
+    BlobSuspect,
+    UnreadableBlobCounter,
 }
 
 impl Kind {
@@ -55,6 +68,14 @@ impl Kind {
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
             Self::UnsealedRows => "unsealed_rows",
+            Self::BlobCounterMissing => "blob_counter_missing",
+            Self::BlobCounterBelowRefs => "blob_counter_below_refs",
+            Self::BlobZeroWithoutDwell => "blob_zero_without_dwell",
+            Self::BlobDwellWithRefs => "blob_dwell_with_refs",
+            Self::BlobUnqueued => "blob_unqueued",
+            Self::BlobStaleQueueEntry => "blob_stale_queue_entry",
+            Self::BlobSuspect => "blob_suspect",
+            Self::UnreadableBlobCounter => "unreadable_blob_counter",
         }
     }
 }
@@ -90,6 +111,31 @@ pub struct Mismatches {
     /// removes these rows.
     #[serde(default)]
     pub unsealed_rows: u64,
+    /// An atom counter or a tip names a blob that has no counter.
+    #[serde(default)]
+    pub blob_counter_missing: u64,
+    /// A blob counter holds fewer references than the atom counters or tips of
+    /// one page that name the blob.
+    #[serde(default)]
+    pub blob_counter_below_refs: u64,
+    /// A blob counter holds zero, is not `suspect`, and has no `zero_since`.
+    #[serde(default)]
+    pub blob_zero_without_dwell: u64,
+    /// A blob counter holds references and has a `zero_since`.
+    #[serde(default)]
+    pub blob_dwell_with_refs: u64,
+    /// A blob counter has a `zero_since` and the queue has no entry for it.
+    #[serde(default)]
+    pub blob_unqueued: u64,
+    /// A queue entry names a counter that is absent, has references, is
+    /// `suspect`, or has another `zero_since`.
+    #[serde(default)]
+    pub blob_stale_queue_entry: u64,
+    /// A blob counter has the `suspect` flag.
+    #[serde(default)]
+    pub blob_suspect: u64,
+    #[serde(default)]
+    pub unreadable_blob_counter: u64,
 }
 
 impl Mismatches {
@@ -116,6 +162,14 @@ impl Mismatches {
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
             Kind::UnsealedRows => &mut self.unsealed_rows,
+            Kind::BlobCounterMissing => &mut self.blob_counter_missing,
+            Kind::BlobCounterBelowRefs => &mut self.blob_counter_below_refs,
+            Kind::BlobZeroWithoutDwell => &mut self.blob_zero_without_dwell,
+            Kind::BlobDwellWithRefs => &mut self.blob_dwell_with_refs,
+            Kind::BlobUnqueued => &mut self.blob_unqueued,
+            Kind::BlobStaleQueueEntry => &mut self.blob_stale_queue_entry,
+            Kind::BlobSuspect => &mut self.blob_suspect,
+            Kind::UnreadableBlobCounter => &mut self.unreadable_blob_counter,
         }
     }
 
@@ -134,6 +188,14 @@ impl Mismatches {
             + self.unreadable_record
             + self.unreadable_counter
             + self.unsealed_rows
+            + self.blob_counter_missing
+            + self.blob_counter_below_refs
+            + self.blob_zero_without_dwell
+            + self.blob_dwell_with_refs
+            + self.blob_unqueued
+            + self.blob_stale_queue_entry
+            + self.blob_suspect
+            + self.unreadable_blob_counter
     }
 }
 
@@ -192,6 +254,12 @@ pub struct VerifyReport {
     pub records_read: u64,
     pub counters_read: u64,
     pub bodies_read: u64,
+    /// Blob counters the blobs phase read.
+    #[serde(default)]
+    pub blob_counters_read: u64,
+    /// Queue entries the blob queue phase read.
+    #[serde(default)]
+    pub blob_queue_read: u64,
     /// Pages read again because a read hit the read limit of one call.
     pub page_retries: u64,
     pub range_reads: WalkStats,
