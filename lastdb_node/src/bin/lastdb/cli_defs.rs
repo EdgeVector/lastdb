@@ -403,8 +403,6 @@ pub(super) enum Command {
     /// Database admin.
     ///
     /// Most verbs talk to the running daemon over the owner socket.
-    /// `retain-superseded-versions-offline` rewrites tip files while the daemon
-    /// is stopped. Stop the daemon, run that verb, then start the same daemon.
     Db {
         #[command(subcommand)]
         action: DbCommand,

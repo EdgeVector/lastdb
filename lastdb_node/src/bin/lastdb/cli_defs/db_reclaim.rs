@@ -69,7 +69,7 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// GC: delete local file-blob rows no live atom references.
+    /// GC: delete local file blobs with no current atom or tip metadata reference.
     ///
     /// The reclaim path for the sealed bytes a purge orphans: purge destroys
     /// the `$lastdb_file` pointer but blobs are shared across records, so

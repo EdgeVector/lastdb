@@ -64,7 +64,7 @@ pub(crate) enum DbInspectCommand {
         json: bool,
     },
     /// List one molecule's live `mk:` storage keys (decoded hash/range +
-    /// collision flag). Read-only diagnostic for H1 vs H2 order-log shortfall.
+    /// collision flag). Read-only diagnostic for the current key format.
     MoleculeKeys {
         /// Molecule uuid (the `M` in `mk:{M}:…`).
         #[arg(long)]
