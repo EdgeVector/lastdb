@@ -14,6 +14,13 @@
 //! Every call is its own read call with its own budget. The walk is a loop of
 //! bounded calls with a cursor, and the cursor is the least key not read yet.
 //!
+//! A scan can also return fewer rows than it read. The encrypting store drops a
+//! row that has no at-rest envelope, after the row limit applied, so a short
+//! page does not mean the end of the range. The walk counts the dropped rows
+//! (`count_unsealed_discards`) and adds them to the rows it got: a page is full
+//! when the sum reaches the rows asked for. A page of dropped rows only cannot
+//! name the next key, so the walk asks for more rows from the same start.
+//!
 //! `RangeWalk` does no I/O. [`AtomStore::walk_step`] drives it for a caller
 //! that reads outside a captured read scope. A caller that reads inside a scope
 //! (the verifier) drives the same state machine itself, because a read-limit
@@ -26,6 +33,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The least page the walk asks for after a read hit the limit.
 const MIN_ROWS: usize = 16;
+/// The most rows one read asks for. The native scan refuses more.
+const MAX_ROWS: usize = 10_000;
 
 /// Counts of the calls one walk made.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +45,10 @@ pub struct WalkStats {
     pub shrinks: u64,
     /// Times a key range was cut in two because fewer rows did not help.
     pub splits: u64,
+    /// Reads that dropped a row with no at-rest envelope. The row reads as
+    /// absent. A row next to the end of a page can count again in the next page.
+    #[serde(default)]
+    pub unsealed_rows: u64,
 }
 
 impl WalkStats {
@@ -44,6 +57,7 @@ impl WalkStats {
         self.calls += other.calls;
         self.shrinks += other.shrinks;
         self.splits += other.splits;
+        self.unsealed_rows += other.unsealed_rows;
     }
 }
 
@@ -53,6 +67,7 @@ pub(crate) struct WalkTotals {
     calls: AtomicU64,
     shrinks: AtomicU64,
     splits: AtomicU64,
+    unsealed_rows: AtomicU64,
 }
 
 impl WalkTotals {
@@ -60,6 +75,8 @@ impl WalkTotals {
         self.calls.fetch_add(stats.calls, Ordering::Relaxed);
         self.shrinks.fetch_add(stats.shrinks, Ordering::Relaxed);
         self.splits.fetch_add(stats.splits, Ordering::Relaxed);
+        self.unsealed_rows
+            .fetch_add(stats.unsealed_rows, Ordering::Relaxed);
     }
 
     /// The totals now.
@@ -68,6 +85,7 @@ impl WalkTotals {
             calls: self.calls.load(Ordering::Relaxed),
             shrinks: self.shrinks.load(Ordering::Relaxed),
             splits: self.splits.load(Ordering::Relaxed),
+            unsealed_rows: self.unsealed_rows.load(Ordering::Relaxed),
         }
     }
 }
@@ -80,8 +98,38 @@ impl WalkStats {
             calls: self.calls.saturating_sub(earlier.calls),
             shrinks: self.shrinks.saturating_sub(earlier.shrinks),
             splits: self.splits.saturating_sub(earlier.splits),
+            unsealed_rows: self.unsealed_rows.saturating_sub(earlier.unsealed_rows),
         }
     }
+}
+
+/// What a finished read did to the walk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Progress {
+    /// The walk moved on, or the span ended.
+    Moved,
+    /// The page held no row to continue from. The walk asks for more rows from
+    /// the same start. The caller reads again.
+    Widened,
+    /// More than the most rows of one read lie in a row without an at-rest
+    /// envelope. The walk cannot move on.
+    Stuck,
+}
+
+/// One bounded piece of a walk.
+#[derive(Debug, Default)]
+pub(crate) struct Step {
+    pub rows: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Reads of this step that dropped a row with no at-rest envelope.
+    pub unsealed: u64,
+}
+
+/// The error of a walk that met only rows without an at-rest envelope.
+pub(crate) fn unsealed_run_error() -> SchemaError {
+    SchemaError::InvalidData(format!(
+        "more than {MAX_ROWS} rows in a row have no at-rest envelope and read as absent; \
+         the range cannot be walked. Run `lastdb db reap-unsealed --collection <name>` and try again"
+    ))
 }
 
 /// The state of a bounded walk over `start..end`.
@@ -136,23 +184,43 @@ impl RangeWalk {
             .map(|(start, end)| (start.clone(), end.clone(), self.asked))
     }
 
-    /// The read returned `count` rows. `last` is the key of the last row.
-    pub(crate) fn finish_read(&mut self, count: usize, last: Option<&[u8]>) {
+    /// A read returned `returned` rows and dropped `unsealed` rows that had no
+    /// at-rest envelope. `last` is the key of the last returned row.
+    ///
+    /// The page was full when the rows read, returned and dropped, reach the
+    /// rows asked for. A short page is the end of the span only if it is short
+    /// after the dropped rows are added.
+    pub(crate) fn finish_read(
+        &mut self,
+        returned: usize,
+        unsealed: u64,
+        last: Option<&[u8]>,
+    ) -> Progress {
         self.stats.calls += 1;
-        let Some((_, end)) = self.todo.pop() else {
-            return;
-        };
-        if count < self.asked {
-            return;
+        self.stats.unsealed_rows += unsealed;
+        let read = returned as u64 + unsealed;
+        if read < self.asked as u64 {
+            self.todo.pop();
+            return Progress::Moved;
         }
         // A full page: more rows may lie above the last one.
-        if let Some(last) = last {
+        let Some(last) = last else {
+            // Every row of the page was dropped, so the page names no key to
+            // continue from. Ask for more rows from the same start.
+            if self.asked >= MAX_ROWS {
+                return Progress::Stuck;
+            }
+            self.asked = (self.asked * 4).min(MAX_ROWS);
+            return Progress::Widened;
+        };
+        if let Some((_, end)) = self.todo.pop() {
             let next = successor(last);
             if next < end {
                 self.todo.push((next, end));
             }
         }
         self.asked = (self.asked * 2).min(self.limit);
+        Progress::Moved
     }
 
     /// The read hit the read limit. Ask for fewer rows, or cut the span in two.
@@ -182,27 +250,32 @@ impl AtomStore {
     /// Read the next bounded piece of a walk, outside any captured read scope.
     ///
     /// The piece can hold no rows while the walk is not done: a span that held
-    /// only deleted keys. A caller loops until [`RangeWalk::done`].
-    pub(crate) async fn walk_step(
-        &self,
-        walk: &mut RangeWalk,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
+    /// only deleted keys. A caller loops until [`RangeWalk::done`]. `unsealed`
+    /// counts the reads that dropped a row with no at-rest envelope: such a row
+    /// reads as absent everywhere, and the walk does not take the short page
+    /// for the end of the range. A caller that must not act on a range with
+    /// such a row (the recount) checks the count.
+    pub(crate) async fn walk_step(&self, walk: &mut RangeWalk) -> Result<Step, SchemaError> {
+        let mut unsealed = 0;
         loop {
             let Some((start, end, asked)) = walk.request() else {
-                return Ok(Vec::new());
+                return Ok(Step::default());
             };
-            let result = self
-                .raw()
-                .inner()
-                .scan_range_paged(&start, &end, asked)
-                .await
-                .map_err(SchemaError::from);
-            match result {
+            let (result, dropped) = crate::crypto::count_unsealed_discards(
+                self.raw().inner().scan_range_paged(&start, &end, asked),
+            )
+            .await;
+            unsealed += dropped;
+            match result.map_err(SchemaError::from) {
                 Ok(rows) => {
                     let last = rows.last().map(|(key, _)| key.clone());
-                    walk.finish_read(rows.len(), last.as_deref());
+                    let progress = walk.finish_read(rows.len(), dropped, last.as_deref());
                     self.range_walks.add(walk.take_stats());
-                    return Ok(rows);
+                    match progress {
+                        Progress::Moved => return Ok(Step { rows, unsealed }),
+                        Progress::Widened => {}
+                        Progress::Stuck => return Err(unsealed_run_error()),
+                    }
                 }
                 Err(error @ SchemaError::ReadResourceLimit { .. }) => {
                     let cut = walk.read_too_big();

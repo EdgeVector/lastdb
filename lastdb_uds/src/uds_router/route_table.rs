@@ -46,6 +46,7 @@ pub(super) static EXACT_ROUTES: &[Row] = &[
     row("/api/status", Scope::Owner, "GET", DataRoute::Status),
     row("/api/admin/shed", Scope::Owner, "POST", DataRoute::AdminShed),
     row("/api/db/inventory", Scope::Owner, "GET", DataRoute::DbInventory),
+    row("/api/db/verify-refs/scopes", Scope::Owner, "GET", DataRoute::DbVerifyRefsScopes),
     row("/api/db/schemas", Scope::Owner, "GET", DataRoute::DbSchemas),
     row("/api/storage/schema", Scope::Owner, "POST", DataRoute::SchemaStorage),
     row("/api/storage/schemas", Scope::Owner, "GET", DataRoute::SchemaStorageReport),

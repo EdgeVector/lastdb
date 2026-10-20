@@ -47,7 +47,8 @@ impl AtomStore {
             let rows = self
                 .walk_step(&mut range)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan mk tips: {e}")))?;
+                .map_err(|e| SchemaError::InvalidData(format!("scan mk tips: {e}")))?
+                .rows;
             for (k, v) in rows {
                 let key = String::from_utf8_lossy(&k).into_owned();
                 if max_keys.is_some_and(|max| stats.tips_scanned as usize >= max)

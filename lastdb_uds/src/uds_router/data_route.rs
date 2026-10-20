@@ -301,6 +301,10 @@ pub enum DataRoute {
     /// `GET /api/db/verify-refs` — the last complete verify run and the run in
     /// progress, from memory. OWNER socket only. Reads no store.
     DbVerifyRefsLast,
+    /// `GET /api/db/verify-refs/scopes` — the storage scope prefixes that the
+    /// database catalog names, besides the personal scope. OWNER socket only.
+    /// Reads the catalog, not the data.
+    DbVerifyRefsScopes,
     /// `GET /api/db/schemas` — atom-only per-schema logical storage.
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
     /// order-log / tip-format walks) but still a heavy admin scan.

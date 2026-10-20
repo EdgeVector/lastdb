@@ -180,7 +180,10 @@ It reads in three phases, each in pages with a cursor:
 1. Tip records (`mk:`): the atom of each tip has a body, and its counter is not
    below the tips of the page.
 2. Counted conflict records (`history`, tagged `conflict` or `suppressed`): the
-   same checks for the atoms a record holds.
+   same checks for the atoms a record holds. All history rows share one hash,
+   and a row does not say by its key alone whether it holds references, so this
+   phase reads every `history\0` row and skips the uncounted ones. Its cost
+   follows the total size of the history, not the number of counted records.
 3. Body and counter records of atoms (`atom:`): body and counter exist
    together, no counter holds zero, no counter is `suspect`, and the counter
    equals the totals of phases 1 and 2.
@@ -229,7 +232,32 @@ batches, so I1 to I4 hold at it. Therefore:
   verifier again when the writers are quiet**: a candidate that was a write
   between two pages is gone, and a real fault stays.
 - A new run takes the write gate once, for an empty scope, to order itself after
-  the writes in flight. It holds the gate for no read.
+  the writes in flight. It holds the gate for no read. The empty scope is a
+  durable fence: it seals the write queue and waits for one flush. A writer
+  that arrives in that time waits for the same flush (up to the flush
+  interval, 500 ms). The run pays this once, at its start, and not at each step.
+
+### Rows without an at-rest envelope
+
+A row in an encrypted collection that carries no at-rest envelope reads as
+absent (the product treats it as not written). A scan drops such a row **after**
+it applied the row limit, so a page can come back short although the range
+holds more rows. A short page is therefore not the end of a range. The range
+walk (`atom_store/bounded_range.rs`) counts the dropped rows for each read
+(`crypto::count_unsealed_discards`, a count that belongs to that read only) and
+adds them to the rows it got: a page is full when the sum reaches the rows asked
+for. When a page holds only dropped rows, it asks for more rows from the same
+start. The verifier, the recount and the inventory all use this walk.
+
+- The verifier reports the dropped rows as the fault `unsealed_rows` (a count of
+  reads that dropped a row, with a sample that names the fix). The rest of the
+  run reads on, so the other faults are not false.
+- The recount **refuses to write** while any read dropped such a row: it cannot
+  count a row that reads as absent, and a body or counter that is only absent
+  for that reason must not decide a delete. A dry run plans no delete of a body.
+  Run `lastdb db reap-unsealed --collection <name>` (dry run first), then
+  recount again.
+- The inventory counts the reads in `scan.unsealed_rows` and adds a note.
 
 ### Limits
 
@@ -241,7 +269,19 @@ batches, so I1 to I4 hold at it. Therefore:
   and one read call may read 4,096 pages. A very large home can exceed that
   page budget before the first row. The verifier then fails with a read
   resource error instead of a wrong answer.
-- A run checks one storage scope: the personal scope, or `--scope PREFIX`.
+- A run checks **one storage scope**: the personal scope, or `--scope PREFIX`
+  (an org or share scope is a 64-hex prefix). A tip under an org prefix is not
+  seen by the default run. `--all-scopes` checks the personal scope and each
+  scope that the database catalog names (the catalog is small; listing it is not
+  a scan of the data). A scope that holds data and has no catalog entry needs
+  `--scope`. The report, the `Verify refs` status line and the command print the
+  scope. A run that reads 0 tips in its scope prints a warning on stderr, a note
+  in the report and `WARNING` in the status line: a mistyped `--scope` reads
+  nothing and finds no fault.
+- A run that cannot compare the counters with the totals (`tally_complete:
+  false`, more atoms than `--max-atoms`) skips the check for a counter above its
+  holders. The command prints `INCOMPLETE` and **exits non-zero** with a message
+  that names the cap, also when it found no other fault.
 - A record whose encryption does not verify ends the step with an error
   (HTTP 500): the batch read of the page fails as a whole. A record that
   decrypts and does not decode as JSON is counted as `unreadable_counter`,
@@ -276,12 +316,15 @@ stopped run leaves whole batches, and the next run changes only what is still
 wrong. A second run after a complete run changes nothing.
 
 It writes nothing while a tip or conflict row does not decode, because a count
-that is too low loses data. `--shards N` makes N passes over the tips and
+that is too low loses data. It writes nothing while a read drops a row with no
+at-rest envelope (see above). It recounts the personal scope; `--scope PREFIX`
+(repeat for more) and `--all-scopes` add other scopes. `--shards N` makes N passes over the tips and
 records and holds one Nth of the atoms in memory in each pass.
 `scripts/lints/atom-counter-writers.allow` lists the two functions that write
 (`recount/apply.rs`) with the reason.
 
-After a recount, start the daemon and run `lastdb db verify-refs`. It must find
+After a recount, start the daemon and run `lastdb db verify-refs` (with
+`--all-scopes` when you recounted other scopes). It must find
 no fault except the lost bodies. Purge the keys of a lost body to remove them.
 
 ## Inventory: `lastdb db inventory`

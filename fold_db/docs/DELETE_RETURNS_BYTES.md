@@ -56,14 +56,12 @@ per plane under `automatic_compactions`; `lastdb db compact --collection X`
 
 ## Proof
 
-- `vendor/laststore/tests/residue.rs`: counters through put, overwrite,
-  delete, compact; cold reload equals incremental; sidecar answers without a
-  load; encrypted groups.
-- `fold_db/crates/core/tests/delete_returns_bytes_test.rs`: create N rows,
-  delete them, purge them, assert both planes report dead bytes with zero
-  filesystem slack, compact both, assert on-disk bytes fall and residue reads
-  zero, and the atoms rewrite left its retirement record for the next manifest
-  cut.
+- The test files that this section once named (`vendor/laststore/tests/residue.rs`
+  and `fold_db/crates/core/tests/delete_returns_bytes_test.rs`) were deleted
+  with the repository tests (2026-10-09). The check is now a run on a synthetic
+  home: create N rows, delete or purge them, read the residue counters in
+  `lastdb status`, run `lastdb db compact --collection atoms --execute`, and
+  compare the size of the plane before and after.
 - Measured on a copy-on-write clone of the primary (2026-09-07, build
   `b112ee096-dirty`): `atoms` 3,273,093,491 B -> 2,996,045,022 B after one
   rewrite (8.5% dead); a second probe measured every group with

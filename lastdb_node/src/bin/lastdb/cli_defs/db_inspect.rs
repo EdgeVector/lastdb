@@ -92,9 +92,14 @@ pub(crate) enum DbInspectCommand {
         /// Rows asked for in each read (default 1000).
         #[arg(long)]
         page_rows: Option<usize>,
-        /// Storage scope prefix to check (default: the personal scope).
+        /// Storage scope prefix to check (default: the personal scope). An org
+        /// or share scope is not checked unless you name it or use --all-scopes.
         #[arg(long)]
         scope: Option<String>,
+        /// Check the personal scope and each scope that the database catalog
+        /// names. A scope that holds data and has no catalog entry needs --scope.
+        #[arg(long)]
+        all_scopes: bool,
         /// The most atoms the totals hold (default 1000000).
         #[arg(long)]
         max_atoms: Option<usize>,

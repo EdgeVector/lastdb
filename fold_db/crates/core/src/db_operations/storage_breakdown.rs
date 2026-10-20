@@ -198,7 +198,8 @@ impl AtomStore {
             let rows = self
                 .walk_step(&mut range)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("storage_breakdown scan: {e}")))?;
+                .map_err(|e| SchemaError::InvalidData(format!("storage_breakdown scan: {e}")))?
+                .rows;
             let mut page_bytes = 0u64;
             for (k, v) in &rows {
                 page_bytes += (k.len() + v.len()) as u64;

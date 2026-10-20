@@ -50,6 +50,11 @@ pub struct RecountReport {
     pub records_read: u64,
     /// Tip or conflict rows that do not decode. Nothing is written while any exists.
     pub unreadable_rows: u64,
+    /// Reads that dropped a row with no at-rest envelope. Such a row reads as
+    /// absent. An execute with any such read writes nothing and fails. A dry
+    /// run plans no delete of a body.
+    #[serde(default)]
+    pub unsealed_row_reads: u64,
     /// Atoms that tips or records name.
     pub referenced_atoms: u64,
     pub counters_read: u64,

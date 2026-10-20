@@ -267,6 +267,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbFlush
         | DataRoute::DbNativeStatus
         | DataRoute::DbVerifyRefsLast
+        | DataRoute::DbVerifyRefsScopes
         | DataRoute::Mutation
         | DataRoute::AggregateFinalize
         | DataRoute::MutationBatch

@@ -25,7 +25,8 @@ impl AtomStore {
             let rows = self
                 .walk_step(&mut walk)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan {what}: {e}")))?;
+                .map_err(|e| SchemaError::InvalidData(format!("scan {what}: {e}")))?
+                .rows;
             let mut page_bytes = 0u64;
             for (k, v) in &rows {
                 let row_bytes = k.len() as u64 + v.len() as u64;
@@ -54,7 +55,8 @@ impl AtomStore {
             let rows = self
                 .walk_step(&mut walk)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("scan atom_content: {e}")))?;
+                .map_err(|e| SchemaError::InvalidData(format!("scan atom_content: {e}")))?
+                .rows;
             let mut page_bytes = 0u64;
             for (k, v) in &rows {
                 let row_bytes = k.len() as u64 + v.len() as u64;
@@ -135,7 +137,15 @@ impl AtomStore {
             .await?;
 
         let tip_format = self.scan_tip_format(None, None, storage_prefix).await?;
-        let notes = inventory_notes(&main_classes, &tip_format);
+        let scan = self.range_walks().snapshot().since(walks_before);
+        let mut notes = inventory_notes(&main_classes, &tip_format);
+        if scan.unsealed_rows > 0 {
+            notes.push(format!(
+                "{} read(s) dropped a row with no at-rest envelope. Such a row reads as absent and is not in these totals. \
+                 Run `lastdb db reap-unsealed --collection <name>` (dry run first) to remove them.",
+                scan.unsealed_rows
+            ));
+        }
 
         Ok(DbInventory {
             main_classes,
@@ -147,7 +157,7 @@ impl AtomStore {
             per_schema_history,
             per_schema_order_log,
             tip_format,
-            scan: self.range_walks().snapshot().since(walks_before),
+            scan,
             attribution: crate::db_operations::AttributionSummary::default(),
             notes,
         })

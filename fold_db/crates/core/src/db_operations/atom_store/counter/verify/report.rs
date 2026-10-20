@@ -36,6 +36,7 @@ pub(crate) enum Kind {
     UnreadableTip,
     UnreadableRecord,
     UnreadableCounter,
+    UnsealedRows,
 }
 
 impl Kind {
@@ -53,6 +54,7 @@ impl Kind {
             Self::UnreadableTip => "unreadable_tip",
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
+            Self::UnsealedRows => "unsealed_rows",
         }
     }
 }
@@ -83,11 +85,20 @@ pub struct Mismatches {
     pub unreadable_tip: u64,
     pub unreadable_record: u64,
     pub unreadable_counter: u64,
+    /// Reads that dropped a row with no at-rest envelope. Such a row reads as
+    /// absent, so the verifier cannot judge it. `lastdb db reap-unsealed`
+    /// removes these rows.
+    #[serde(default)]
+    pub unsealed_rows: u64,
 }
 
 impl Mismatches {
     pub(crate) fn add(&mut self, kind: Kind) {
-        *self.slot(kind) += 1;
+        self.add_many(kind, 1);
+    }
+
+    pub(crate) fn add_many(&mut self, kind: Kind, count: u64) {
+        *self.slot(kind) += count;
     }
 
     fn slot(&mut self, kind: Kind) -> &mut u64 {
@@ -104,6 +115,7 @@ impl Mismatches {
             Kind::UnreadableTip => &mut self.unreadable_tip,
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
+            Kind::UnsealedRows => &mut self.unsealed_rows,
         }
     }
 
@@ -121,6 +133,7 @@ impl Mismatches {
             + self.unreadable_tip
             + self.unreadable_record
             + self.unreadable_counter
+            + self.unsealed_rows
     }
 }
 
@@ -220,6 +233,9 @@ pub struct VerifyLast {
     pub mismatches_total: u64,
     pub suspect_atoms: u64,
     pub tally_complete: bool,
+    /// Tips the run read. Zero in a scope that holds data means a wrong scope.
+    #[serde(default)]
+    pub tips_read: u64,
 }
 
 /// A run in progress.
@@ -244,6 +260,7 @@ impl VerifyReport {
             mismatches_total: self.mismatches_total,
             suspect_atoms: self.suspect_atoms,
             tally_complete: self.tally_complete,
+            tips_read: self.tips_read,
         })
     }
 }

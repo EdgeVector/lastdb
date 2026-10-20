@@ -27,6 +27,7 @@ pub(super) fn db_inspect_command(
             pause_ms,
             page_rows,
             scope,
+            all_scopes,
             max_atoms,
         } => db_verify_refs(
             socket,
@@ -40,6 +41,7 @@ pub(super) fn db_inspect_command(
                 pause_ms,
                 page_rows,
                 scope,
+                all_scopes,
                 max_atoms,
             },
         ),

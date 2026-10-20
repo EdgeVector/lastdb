@@ -32,4 +32,27 @@ impl FoldDB {
     pub fn verify_refs_summary(&self) -> crate::db_operations::VerifySummary {
         self.db_ops().atoms().verify_refs_summary()
     }
+
+    /// The storage scope prefixes that the database catalog names, besides the
+    /// personal scope. The catalog is small, so listing it is not a scan of the
+    /// data. A scope that holds data and has no catalog entry is not listed.
+    pub async fn atom_counter_scopes(&self) -> Result<Vec<String>, FoldDbError> {
+        use crate::db_operations::db_catalog_store::{
+            referenced_instance_ids, UNPREFIXED_INSTANCE_ID,
+        };
+        let entries = self
+            .db_ops()
+            .db_catalog()
+            .list_entries()
+            .await
+            .map_err(|error| {
+                FoldDbError::Database(format!("list the database catalog: {error}"))
+            })?;
+        let mut scopes: Vec<String> = referenced_instance_ids(&entries)
+            .into_iter()
+            .filter(|id| !id.is_empty() && id != UNPREFIXED_INSTANCE_ID)
+            .collect();
+        scopes.sort();
+        Ok(scopes)
+    }
 }

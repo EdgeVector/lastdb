@@ -44,7 +44,7 @@ mod types;
 pub(crate) use atoms::SealedAtom;
 pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
 pub use bounded_range::WalkStats;
-pub(crate) use bounded_range::{successor, RangeWalk, WalkTotals};
+pub(crate) use bounded_range::{successor, unsealed_run_error, Progress, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
     AtomCounterReport, AtomCounterView, Change, RecountOptions, RecountReport, VerifyReport,

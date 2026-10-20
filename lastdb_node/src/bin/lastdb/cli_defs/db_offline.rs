@@ -28,6 +28,10 @@ pub(crate) enum DbOfflineCommand {
         /// Repeat the flag for more scopes.
         #[arg(long = "scope")]
         scopes: Vec<String>,
+        /// Recount each scope that the database catalog names, besides the
+        /// personal scope. A scope with data and no catalog entry needs --scope.
+        #[arg(long)]
+        all_scopes: bool,
         /// Passes over the tips and records. Each pass holds the atoms of one
         /// shard in memory, so more passes use less memory (default 1).
         #[arg(long, default_value_t = 1)]

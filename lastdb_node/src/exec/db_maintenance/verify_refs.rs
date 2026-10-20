@@ -47,3 +47,19 @@ pub(in crate::exec) fn execute_db_verify_refs_last_route(
         ctx.user_id.as_str(),
     ))
 }
+
+/// `GET /api/db/verify-refs/scopes` — the storage scopes that the database
+/// catalog names, besides the personal scope. `lastdb db verify-refs
+/// --all-scopes` checks the personal scope and each of these.
+pub(in crate::exec) async fn execute_db_verify_refs_scopes_route(
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    match host.db.atom_counter_scopes().await {
+        Ok(scopes) => json_ok(&envelope(
+            &serde_json::json!({ "scopes": scopes }),
+            ctx.user_id.as_str(),
+        )),
+        Err(error) => mapped_error_response("verify-refs scopes failed", error, ctx),
+    }
+}

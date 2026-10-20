@@ -4,6 +4,7 @@
 //! writes.
 
 use super::report::Phase;
+use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::counter::scan::{
     family_range, record_holders, tip_holders, CounterRead, Family, PairRead,
 };
@@ -27,6 +28,11 @@ pub(super) struct AtomRead {
 pub(super) struct ReferencedPage {
     pub rows: usize,
     pub last_key: Option<Vec<u8>>,
+    /// Rows the scan dropped for want of an at-rest envelope. They count toward
+    /// a full page.
+    pub scan_unsealed: u64,
+    /// Counter and body reads that dropped such a row. The row reads as absent.
+    pub point_unsealed: u64,
     /// Rows that did not decode.
     pub unreadable: u64,
     pub unreadable_keys: Vec<String>,
@@ -37,6 +43,8 @@ pub(super) struct ReferencedPage {
 pub(super) struct AtomsPage {
     pub rows: usize,
     pub last_key: Option<Vec<u8>>,
+    pub scan_unsealed: u64,
+    pub point_unsealed: u64,
     /// Keys under `atom:` that are neither a body nor a counter record.
     pub foreign: u64,
     pub pairs: Vec<PairRead>,
@@ -63,24 +71,25 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<ReferencedPage, SchemaError> {
         self.atom_read_scope(async {
-            let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(&start, &end, asked)
-                .await
-                .map_err(SchemaError::from)?;
+            let (rows, scan_unsealed) =
+                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
+                    .await;
+            let rows = rows.map_err(SchemaError::from)?;
             let last_key = rows.last().map(|(key, _)| key.clone());
             let (holders, bad) = match phase {
                 Phase::Records => record_holders(&rows),
                 _ => tip_holders(&rows),
             };
-            let atoms = self.read_atoms_of(holders, scope).await?;
+            let (atoms, point_unsealed) =
+                count_unsealed_discards(self.read_atoms_of(holders, scope)).await;
             Ok(ReferencedPage {
                 rows: rows.len(),
                 last_key,
+                scan_unsealed,
+                point_unsealed,
                 unreadable: bad.total,
                 unreadable_keys: bad.keys,
-                atoms,
+                atoms: atoms?,
             })
         })
         .await
@@ -115,19 +124,19 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<AtomsPage, SchemaError> {
         self.atom_read_scope(async {
-            let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(&start, &end, asked)
-                .await
-                .map_err(SchemaError::from)?;
+            let (rows, scan_unsealed) =
+                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
+                    .await;
+            let rows = rows.map_err(SchemaError::from)?;
             let last_key = rows.last().map(|(key, _)| key.clone());
-            let (pairs, foreign) = self.pair_rows(&rows, &start, scope).await?;
+            let paired = self.pair_rows(&rows, &start, scope).await?;
             Ok(AtomsPage {
                 rows: rows.len(),
                 last_key,
-                foreign,
-                pairs,
+                scan_unsealed,
+                point_unsealed: paired.unsealed,
+                foreign: paired.foreign,
+                pairs: paired.pairs,
             })
         })
         .await

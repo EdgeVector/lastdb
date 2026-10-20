@@ -198,7 +198,18 @@ impl Run {
 
     /// Record one fault: the count, and a sample while the kind has room.
     pub(super) fn note_fault(&mut self, kind: super::report::Kind, atom: &str, detail: String) {
-        self.report.mismatches.add(kind);
+        self.note_faults(kind, atom, detail, 1);
+    }
+
+    /// Record `count` faults of one kind with one sample.
+    pub(super) fn note_faults(
+        &mut self,
+        kind: super::report::Kind,
+        atom: &str,
+        detail: String,
+        count: u64,
+    ) {
+        self.report.mismatches.add_many(kind, count);
         let name = kind.name();
         let held = self
             .report
@@ -213,6 +224,28 @@ impl Run {
                 detail,
             });
         }
+    }
+
+    /// Record reads that dropped a row with no at-rest envelope. Such a row
+    /// reads as absent, so this run cannot judge it.
+    pub(super) fn note_unsealed(&mut self, count: u64) {
+        if count == 0 {
+            return;
+        }
+        let phase = match self.phase {
+            Phase::Tips => "tip",
+            Phase::Records => "history",
+            _ => "atom",
+        };
+        self.note_faults(
+            super::report::Kind::UnsealedRows,
+            "",
+            format!(
+                "{count} read(s) of the {phase} rows dropped a row with no at-rest envelope; the row reads as absent. \
+                 Run `lastdb db reap-unsealed --collection <name>` (dry run first), then verify again"
+            ),
+            count,
+        );
     }
 
     /// Remember that a page reported this atom as below its holders.

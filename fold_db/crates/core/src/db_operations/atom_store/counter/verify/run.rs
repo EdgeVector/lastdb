@@ -5,7 +5,7 @@ use super::pages::{phase_range, AtomsPage, ReferencedPage};
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{digest, Run, StepGuard, Watch};
 use crate::db_operations::atom_store::counter::scan::CounterRead;
-use crate::db_operations::atom_store::{AtomStore, RangeWalk};
+use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress, RangeWalk};
 use crate::schema::SchemaError;
 use std::time::{Duration, Instant};
 
@@ -112,12 +112,26 @@ impl AtomStore {
         };
         match page {
             Ok(Page::Referenced(page)) => {
-                run.walk.finish_read(page.rows, page.last_key.as_deref());
-                apply_referenced(run, page);
+                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
+                match run
+                    .walk
+                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
+                {
+                    Progress::Moved => apply_referenced(run, page),
+                    Progress::Widened => run.report.page_retries += 1,
+                    Progress::Stuck => return Err(unsealed_run_error()),
+                }
             }
             Ok(Page::Atoms(page)) => {
-                run.walk.finish_read(page.rows, page.last_key.as_deref());
-                apply_atoms(run, watch, page);
+                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
+                match run
+                    .walk
+                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
+                {
+                    Progress::Moved => apply_atoms(run, watch, page),
+                    Progress::Widened => run.report.page_retries += 1,
+                    Progress::Stuck => return Err(unsealed_run_error()),
+                }
             }
             Err(SchemaError::ReadResourceLimit { .. }) => {
                 // The read hit the limit of one call. Ask for fewer rows or a
@@ -177,6 +191,12 @@ fn close_step(mut guard: StepGuard<'_>) -> VerifyReport {
     run.report.steps += 1;
     run.refresh_report(touched);
     let done = run.phase == Phase::Done;
+    if done && run.report.tips_read == 0 {
+        run.report.notes.push(format!(
+            "0 tips read in scope {}: check the scope. A scope other than the personal one needs --scope PREFIX or --all-scopes.",
+            run.report.scope.as_deref().unwrap_or("personal")
+        ));
+    }
     run.report.done = done;
     run.report.finished_at = done.then(chrono::Utc::now);
     run.report.next_cursor = (!done).then(|| run.cursor());

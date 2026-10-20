@@ -61,6 +61,16 @@ pub(super) struct PairRead {
     pub counter: CounterRead,
 }
 
+/// The pairs of one page of the `atom:` range.
+pub(super) struct Paired {
+    pub pairs: Vec<PairRead>,
+    /// Keys under `atom:` that are neither a body nor a counter.
+    pub foreign: u64,
+    /// Partner reads that dropped a row with no at-rest envelope. Such a row
+    /// reads as absent, so the pair shows a missing body or counter.
+    pub unsealed: u64,
+}
+
 /// Rows that did not decode.
 #[derive(Default)]
 pub(super) struct Unreadable {
@@ -191,14 +201,13 @@ impl AtomStore {
     ///
     /// An atom belongs to the page that holds the first key it could have, its
     /// body key. A page that starts after the body key skips the atom, because
-    /// the page before it paired the atom whole. Returns the pairs and the
-    /// number of keys under `atom:` that are neither a body nor a counter.
+    /// the page before it paired the atom whole.
     pub(super) async fn pair_rows(
         &self,
         rows: &[(Vec<u8>, Vec<u8>)],
         start: &[u8],
         scope: Option<&str>,
-    ) -> Result<(Vec<PairRead>, u64), SchemaError> {
+    ) -> Result<Paired, SchemaError> {
         let (mut groups, foreign) = group_rows(rows);
         groups.retain(|group| {
             build_storage_key(scope, &atom_key_codec::body_key(&group.atom)).as_bytes() >= start
@@ -211,8 +220,13 @@ impl AtomStore {
             at.iter().map(|slot| groups[*slot].atom.clone()).collect()
         };
         let (body_atoms, counter_atoms) = (named(&no_body), named(&no_counter));
-        let bodies = self.read_body_flags(&body_atoms, scope).await?;
-        let counters = self.read_counter_bytes(&counter_atoms, scope).await?;
+        let (partners, unsealed) = crate::crypto::count_unsealed_discards(async {
+            let bodies = self.read_body_flags(&body_atoms, scope).await?;
+            let counters = self.read_counter_bytes(&counter_atoms, scope).await?;
+            Ok::<_, SchemaError>((bodies, counters))
+        })
+        .await;
+        let (bodies, counters) = partners?;
         for (slot, found) in no_body.into_iter().zip(bodies) {
             groups[slot].body = found;
         }
@@ -227,6 +241,10 @@ impl AtomStore {
                 atom: group.atom,
             })
             .collect();
-        Ok((pairs, foreign))
+        Ok(Paired {
+            pairs,
+            foreign,
+            unsealed,
+        })
     }
 }

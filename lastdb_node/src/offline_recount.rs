@@ -27,6 +27,9 @@ pub struct RecountArgs<'a> {
     pub execute: bool,
     /// Storage scope prefixes to recount, besides the personal scope.
     pub scopes: Vec<String>,
+    /// Recount each scope that the database catalog names, besides the
+    /// personal scope.
+    pub all_scopes: bool,
     pub shards: u32,
     pub i_know_this_is_primary: bool,
     pub json: bool,
@@ -68,7 +71,7 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         .build()
         .map_err(|e| format!("tokio: {e}"))?;
     let started = Instant::now();
-    let report = runtime.block_on(run_recount(args.home, store_root, &options))?;
+    let report = runtime.block_on(run_recount(args.home, store_root, options, args.all_scopes))?;
     print_report(args, &preflight, started.elapsed().as_secs(), &report)
 }
 
@@ -77,7 +80,8 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
 async fn run_recount(
     home: &Path,
     store_root: PathBuf,
-    options: &RecountOptions,
+    mut options: RecountOptions,
+    all_scopes: bool,
 ) -> Result<RecountReport, String> {
     let (e2e, keypair) = load_e2e_keys(home)?;
     let db = fold_db::fold_db_core::factory::create_fold_db(
@@ -91,10 +95,25 @@ async fn run_recount(
     )
     .await
     .map_err(|e| format!("create_fold_db: {e}"))?;
+    if all_scopes {
+        match db.atom_counter_scopes().await {
+            Ok(named) => {
+                for scope in named {
+                    if !options.scopes.contains(&Some(scope.clone())) {
+                        options.scopes.push(Some(scope));
+                    }
+                }
+            }
+            Err(error) => {
+                let _ = db.shutdown_local_only().await;
+                return Err(format!("list the scopes: {error}"));
+            }
+        }
+    }
     let outcome = db
         .db_ops()
         .atoms()
-        .recount_counters(options)
+        .recount_counters(&options)
         .await
         .map_err(|e| format!("recount: {e}"));
     let shutdown = db
@@ -136,6 +155,12 @@ fn print_report(
         }
     );
     println!("  home: {}", args.home.display());
+    let scopes: Vec<&str> = report
+        .scopes
+        .iter()
+        .map(|scope| scope.as_deref().unwrap_or("personal"))
+        .collect();
+    println!("  scopes: {}", scopes.join(", "));
     println!(
         "  read: {} tips, {} conflict records, {} counters, {} bodies; {} atoms are referenced",
         report.tips_read,

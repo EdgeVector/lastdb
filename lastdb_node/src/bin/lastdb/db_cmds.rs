@@ -105,6 +105,7 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
         DbOfflineCommand::Recount {
             execute,
             scopes,
+            all_scopes,
             shards,
             i_know_this_is_primary,
             json,
@@ -113,6 +114,7 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
                 home,
                 execute,
                 scopes,
+                all_scopes,
                 shards,
                 i_know_this_is_primary,
                 json,

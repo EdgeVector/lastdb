@@ -40,9 +40,11 @@ fn verify_refs_line(report: &fold_db::db_operations::AtomCounterReport) -> Strin
         Some(last) => {
             let m = &last.mismatches;
             format!(
-                "Verify refs: last run {} complete pages={} faults={} suspect_atoms={} candidates={} (below_tips={} above_tips={} body_without_counter={} counter_without_body={} zero={} tip_without_body={}){}",
+                "Verify refs: last run {} scope={} complete pages={} tips={} faults={} suspect_atoms={} candidates={} (below_tips={} above_tips={} body_without_counter={} counter_without_body={} zero={} tip_without_body={} unsealed_rows={}){}{}",
                 last.finished_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                last.scope.as_deref().unwrap_or("personal"),
                 last.pages,
+                last.tips_read,
                 last.mismatches_total,
                 last.suspect_atoms,
                 m.unconfirmed_count_mismatch,
@@ -52,7 +54,17 @@ fn verify_refs_line(report: &fold_db::db_operations::AtomCounterReport) -> Strin
                 m.counter_without_body,
                 m.zero_counter,
                 m.tip_without_body + m.record_without_body,
-                if last.tally_complete { "" } else { " totals_incomplete" },
+                m.unsealed_rows,
+                if last.tally_complete {
+                    ""
+                } else {
+                    " INCOMPLETE (counters were not compared with the totals)"
+                },
+                if last.tips_read == 0 {
+                    " WARNING 0 tips read in this scope: check the scope"
+                } else {
+                    ""
+                },
             )
         }
     };
