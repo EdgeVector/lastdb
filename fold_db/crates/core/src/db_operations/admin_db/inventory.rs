@@ -45,6 +45,14 @@ impl AtomStore {
                 if cursor.as_deref() == Some(k.as_slice()) {
                     continue;
                 }
+                // The `atom:` prefix also holds the counter record of each atom.
+                // The counters have their own totals (`atom_counters`); they are
+                // not atom content.
+                if what == "atom_content"
+                    && std::str::from_utf8(k).is_ok_and(crate::atom::atom_key_codec::is_counter_key)
+                {
+                    continue;
+                }
                 keys += 1;
                 bytes += row_bytes;
             }

@@ -98,24 +98,28 @@ keys and fields of the batch. It never follows the size of the schema. A purge o
 ## Batch size and the request limit
 
 One erase request stages all its chunks of 64 keys in one native batch. A batch holds at most
-16,384 operations (4,096 on a home from an older build). A tip costs at most 4 operations in a
-`purge` (the tip delete, the `mgd` marker, and the body and counter deletes) and 5 in a `delete`
-(one barrier row more). A chunk adds `F + 8` operations for F fields. The node counts the request
-before it takes the write gate (`fold_db_core/purge/budget.rs`). A client request that is too big
-returns HTTP 400 at once, with the key count that fits, for example: "this purge of 200 keys of 24
-fields needs up to 19328 storage operations; one request holds at most 16384; send at most 169 keys
-of 24 fields in one request".
+16,384 operations (4,096 on a home from an older build), and the reads of the request share a
+budget of 40,000 examined keys. A tip costs at most 4 operations in a `purge` (the tip delete, the
+`mgd` marker, and the body and counter deletes) and 5 in a `delete` (one barrier row more). It costs
+at most 12 and 13 examined keys. A chunk adds `F + 8` of each for F fields. The node counts the
+request before it takes the write gate (`fold_db_core/purge/budget.rs`). A client request that is
+too big returns HTTP 400 at once, with the key count that fits, for example: "this purge of 200 keys
+of 24 fields needs up to 19328 storage operations and 52928 reads; one request holds at most 16384
+operations and 40000 reads; send at most 151 keys of 24 fields in one request".
 
 | Schema | `purge`, fresh home | `delete`, fresh home | `purge`, older home | `delete`, older home |
 |---|---|---|---|---|
-| 6 fields | 676 keys | 541 keys | 168 keys | 135 keys |
-| 24 fields | 169 keys | 135 keys | 42 keys | 33 keys |
-| 48 fields | 84 keys | 67 keys | 21 keys | 16 keys |
+| 6 fields | 603 keys | 541 keys | 168 keys | 135 keys |
+| 24 fields | 151 keys | 135 keys | 42 keys | 33 keys |
+| 48 fields | 75 keys | 67 keys | 21 keys | 16 keys |
+| 300 fields | 12 keys | 10 keys | 3 keys | 2 keys |
 
 The sweep cuts its batch to the smaller of the pace (`LASTDB_TTL_SWEEP_BATCH`, default 16) and the
-key count that fits its schema. The default of 16 fits a schema of up to about 60 fields on any home.
-A schema of 300 fields gets batches of 13 keys on a fresh home (measured: 15,883 operations in the
-largest batch, no failure).
+key count that fits its schema. The bound is an estimate, so a batch that still hits a size limit
+changed nothing: the sweep halves it for that schema and retries, and it does not skip the schema.
+The default of 16 fits a schema of up to about 200 fields on a fresh home and about 60 on an older
+home. A schema of 300 fields gets batches of 11 keys on a fresh home (measured: 13,487 operations in
+the largest batch, no failure).
 
 ## The write-time guard (Hash and Single schemas)
 

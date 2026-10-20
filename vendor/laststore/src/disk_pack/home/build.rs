@@ -29,14 +29,26 @@ impl HomeBuilder {
         root: &Path,
         descriptor: HomeDescriptor,
     ) -> Result<Current> {
-        let mut builder = Self::create(root, descriptor, 0)?;
+        let mut builder = Self::create_fenced(root, descriptor, 0)?;
         builder.inner.required_features |=
             crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS | crate::disk_pack::FEATURE_ATOM_RECORDS;
         builder.finish()
     }
 
+    /// A generic builder makes a home with no atom-record feature, and this
+    /// build refuses to open such a home. Refuse at the start, before the
+    /// builder creates anything, with the message of the fence.
+    pub fn create(_root: &Path, _descriptor: HomeDescriptor, _frontier: u64) -> Result<Self> {
+        Err(crate::Error::Config(
+            "unsupported atom record layout: a generic home builder or conversion makes a home \
+             with no atom-record feature, and this build refuses such a home; nothing was created"
+                .into(),
+        ))
+    }
+
     /// Create only at a nonexistent destination. Never modify the source home.
-    pub fn create(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {
+    /// The caller sets the atom-record feature before it finishes.
+    fn create_fenced(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {
         descriptor.validate()?;
         let inner = ArtifactBuilder::create_native(root, &descriptor, frontier)?;
         Ok(Self { descriptor, inner })

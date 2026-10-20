@@ -28,8 +28,7 @@ pub(crate) enum DbReclaimCommand {
     /// Allowlist:
     /// `schemas`, `schema_states`, `schema_index`, `tips`, `metadata`,
     /// `idempotency`, `change_feed`, `sync_pin_log`, `sync_capture_reexport`,
-    /// `atoms`, `atom_ref_edges`, `atom_ref_edges_v2`,
-    /// `molecule_ref_edges`, `blob_ref_edges`, `proteins`,
+    /// `atoms`, `molecule_ref_edges`, `blob_ref_edges`, `proteins`,
     /// `field_update_order_log`, `field_update_order_count`, `indexes`,
     /// `keep_small`, `cas_blobs`.
     /// Atom execute records the retired chunk shas for the next signed
@@ -70,9 +69,6 @@ pub(crate) enum DbReclaimCommand {
     /// Its physical compact is capture-neutral through capture suppression;
     /// ordinary metadata writes remain captured.
     ///
-    /// `atom_ref_edges` and `atom_ref_edges_v2` hold the rebuildable legacy and
-    /// compact reverse-reference shadow indexes. The residual sweep compacts
-    /// them above `LASTDB_RESIDUAL_PLANE_COMPACT_MAX_BYTES` (default 64 MiB).
     /// `molecule_ref_edges` and `blob_ref_edges` hold the rebuildable active
     /// molecule and local-blob liveness sets. The same capture-free residual
     /// sweep compacts them.
@@ -242,7 +238,7 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Read the durable atom hard-delete audit trail (purge + gc-atoms), oldest first.
+    /// Read the durable atom hard-delete audit trail (purge and delete), oldest first.
     ///
     /// Answers "was this atom body deleted on purpose, or lost?" from the store's
     /// own evidence rather than a ~15h log window. The negative answer is the

@@ -87,24 +87,64 @@ of keys of the request, and never the size of the schema.
   bring the key back.
 - Both verbs reach the protein siblings of the key.
 
+## Memory acknowledgement
+
+A write that asks for a memory acknowledgement (`durability: queued`) returns
+when its batch is accepted, before the flush. The batch holds the tips, the
+counters and the bodies of the request, and the typed model of the warm set
+changes at the same acceptance. The check that allows this
+(`logical_paths/completeness.rs`, `covers`) accepts the counter key and the body
+key of an atom without a typed cover of their own. Why this is safe:
+
+1. A body is immutable. One atom id holds one content, so a body create cannot
+   change a value that a cached path holds. The path record of a tip write
+   lists its new body as a source.
+2. A body delete happens only in the batch that takes the counter to exactly
+   zero (I1). After that batch no tip and no conflict record names the atom, so
+   no live path resolves through the body.
+3. A cached path that lists the deleted body as a source is the old value of a
+   slot that the same batch rewrites or erases. The typed model requires that
+   (`core_set/model/coverage.rs`, `covered`): every cached slot with a changed
+   source must be one of the typed changes of the publication. If one is not,
+   the dirty publication is refused and the write takes the disk-first path,
+   which waits for the flush. A stale value cannot be published.
+4. A reader that captured its view before the acceptance keeps the old root,
+   the older accepted batches and the older typed model. It sees the old tip with
+   the old body. A reader after the acceptance sees the new tip and no old body.
+   No reader sees half of a batch.
+5. The typed publication happens at the acceptance, under the queue lock, with
+   no await between it and the hand-over to the queue owner. The flush writes
+   the accepted batches later, as one durable commit.
+6. A crash before the flush loses the whole batch. The disk keeps the old tip,
+   the old body and the old counter, which agree. The loss is the one that a
+   `queued` acknowledgement already allows (up to the flush interval).
+
+Without the body key in `covers`, every write whose old atom reached zero took the
+disk-first path and waited about 250 ms for the flush, and the per-schema lane
+waited with it.
+
 ## Size of one request
 
 A native batch holds at most 16,384 operations (4,096 on a home from an older
-build). A purge or delete stages all its chunks of 64 keys in one batch. The
-request is counted before it takes the write gate
+build). The reads of one write request, inside the write gate, share a budget of
+40,000 examined keys. A purge or delete stages all its chunks of 64 keys in one
+batch. The request is counted before it takes the write gate
 (`fold_db_core/purge/budget.rs`), with these upper bounds for K keys of F fields:
 
-- purge: `4 * K * F` operations,
-- delete: `5 * K * F` operations,
-- plus `F + 8` operations for each chunk of 64 keys.
+- purge: `4 * K * F` operations and `12 * K * F` examined keys,
+- delete: `5 * K * F` operations and `13 * K * F` examined keys,
+- plus `F + 8` of each for every chunk of 64 keys.
 
 A tip costs the tip delete, the `mgd` marker, and the body delete and counter
-delete when it holds the last reference. A delete adds one barrier row. A request
-over the limit is refused with the number of keys that fits ("send at most M keys
-of F fields in one request"). For a schema of 24 fields, a purge fits 169 keys
-and a delete fits 135 on a fresh home (42 and 33 on an older home). The TTL sweep
-cuts its batch to fit, so the default of 16 keys fits a schema of up to about 60
-fields on any home.
+delete when it holds the last reference. A delete adds one barrier row. The reads
+are the target tips, the peer expansion, the counters and the body records
+(measured 9 to 12 examined keys for each tip). A request over either limit is
+refused with the number of keys that fits ("send at most M keys of F fields in
+one request"). For a schema of 24 fields, a purge fits 151 keys and a delete
+fits 135 on a fresh home (42 and 33 on an older home). For 300 fields the limits
+are 12 and 10 keys. The TTL sweep cuts its batch to fit, and it halves a batch
+that still hits a size limit and retries, so the default of 16 keys fits a
+schema of up to about 200 fields on a fresh home and about 60 on an older home.
 
 ## Reads
 

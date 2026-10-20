@@ -16,10 +16,6 @@ pub(crate) fn prepare_destination(
             format!("create {}: {e}", target.display()),
         )
     })?;
-    // First, before any restored row can land: the home will hold data it did
-    // not author, so its first boot must record that (automatic atom delete).
-    lastdb_node::cloud::write_peer_derived_marker(target)
-        .map_err(|detail| io_failure(Stage::PrepareDestination, detail))?;
     write_owner_only_local(
         &target.join(lastdb_node::host::IDENTITY_KEY_FILE),
         &identity.seed,

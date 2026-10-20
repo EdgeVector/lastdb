@@ -326,7 +326,7 @@ Input: a schema, K keys, a verb (purge or delete), a policy (Refuse or Skip), an
 
 **Delete** and **overwrite** use the same planner. The only difference of `delete` is the delete barrier records it writes.
 
-**Chunking.** A batch holds at most `ops_limit` operations. The first estimate was `3·K·F + F + K + 1`. It undercounted, because each tip also costs a `mgd` marker, and a delete writes a barrier row. The S1 build measured 3.8 to 4.0 operations per tip for a purge and 4.8 to 5.0 for a delete (every atom unique). The code uses the upper bounds `4·K·F` (purge) and `5·K·F` (delete), plus `F + 8` for each chunk of 64 keys (`fold_db_core/purge/budget.rs`). A request that the bound puts over `ops_limit` is refused before it takes the gate, with the number of keys that fits. The sweep sets K from the same bound. The key is the unit: all fields of one key go in one batch. A purge of more keys than K is several independent batches. Between two batches the state is valid (section 8).
+**Chunking.** A batch holds at most `ops_limit` operations. The first estimate was `3·K·F + F + K + 1`. It undercounted, because each tip also costs a `mgd` marker, and a delete writes a barrier row. The S1 build measured 3.8 to 4.0 operations per tip for a purge and 4.8 to 5.0 for a delete (every atom unique). The code uses the upper bounds `4·K·F` (purge) and `5·K·F` (delete), plus `F + 8` for each chunk of 64 keys (`fold_db_core/purge/budget.rs`). The reads of the request share the budget of 40,000 examined keys (R13); they cost 9 to 12 for each tip, so the code bounds them at `12·K·F` and `13·K·F`. A request that either bound puts over its limit is refused before it takes the gate, with the number of keys that fits. The sweep sets K from the same bound, and it halves a batch that still hits a size limit. The key is the unit: all fields of one key go in one batch. A purge of more keys than K is several independent batches. Between two batches the state is valid (section 8).
 
 **No lock beyond the gate.** The schema purge barrier, the molecule write locks of `acquire_purge_apply_guards` (`hard_erasure.rs:253-270`), and the atom stripe locks go. The gate orders all writers. The TTL sweep keeps its maintenance admission, which stops a backup cut from starting inside a batch (`ttl_sweep/erase.rs:109-117`).
 
@@ -479,7 +479,7 @@ The estimate of section 13 undercounted the operations (see the chunking rule in
 | | Today (1,000 rows, measured) | New (expected) |
 |---|---|---|
 | Batch of 16 keys | median 4.8 s (4.1 to 21.6 s) | 0.4 to 0.8 s. Target: well under 2 s. |
-| Fails at | about 2,400 rows | no size limit from the schema. Limit from K·F: one request holds up to 16,384 operations (4,096 on an older home). A purge fits 676 keys of 6 fields or 169 keys of 24 fields (168 and 42 on an older home). A delete fits 541 and 135 (135 and 33). |
+| Fails at | about 2,400 rows | no size limit from the schema. Limit from K·F: one request holds up to 16,384 operations (4,096 on an older home). A purge fits 603 keys of 6 fields or 151 keys of 24 fields (168 and 42 on an older home). A delete fits 541 and 135 (135 and 33). |
 | Schema purge barrier | 0.72 to 1.07 s per batch | **none** |
 | Gate hold per batch | not measured | reads of about 200 keys plus staging. Expected under 300 ms. Target under 1 s. |
 | Writers during the sweep | other schema: longest 5.1 s | one gate hold plus the flush wait, which is outside the gate |
@@ -530,7 +530,7 @@ Total about 11,000 lines. Replaced by: the counter record type, the planner, the
 | R10 | Old defects stay: `mgd` markers grow, delete barriers grow. | Out of scope. Named here so no reader thinks this design fixes them. |
 | R11 | Two builds with two counter models open one home. | The format fence (S1). |
 | R12 | A request with many fields exceeds the operation limit. | Refuse before the gate with a clear limit error. Chunk by key for erasure. |
-| R13 | The in-gate read budget (40,000) limits K·F. | At about 2 examined keys per tip, K·F ≤ 10,000 is far below the limit. |
+| R13 | The in-gate read budget (40,000) limits K·F. | The estimate of 2 examined keys per tip was wrong. The S1 build measured 9 to 12 (target tips, peer expansion, counters, bodies), so the budget binds at about 3,300 tips (151 keys of 24 fields for a purge). The size check refuses early, and the sweep halves a batch that hits the limit. |
 
 ---
 

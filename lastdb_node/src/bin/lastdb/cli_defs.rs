@@ -457,7 +457,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         action: SchemaInspectCommand,
     },
-    /// Inspect active target liveness edges and reclaim blockers.
+    /// Inspect the counter of an atom, or the active edges of a molecule or a blob.
     Liveness {
         #[command(subcommand)]
         action: LivenessCommand,

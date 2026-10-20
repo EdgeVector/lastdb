@@ -210,8 +210,6 @@ fn print_tip_format(tf: &Value) {
         println!();
         println!("  → migrate: lastdb db migrate-thin-tips            # dry-run");
         println!("             lastdb db migrate-thin-tips --execute  # rewrite in place");
-        println!("  → rekey:   lastdb db rekey-atom-partition-prefix  # dual-write dry-run");
-        println!("             lastdb db rekey-atom-partition-prefix --execute");
     }
 }
 

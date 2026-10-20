@@ -17,7 +17,7 @@ pub(crate) enum DbTipsCommand {
     /// Move `photos/Photo.file_bytes` (inline base64) into local CAS blobs.
     ///
     /// Default is dry-run. Pass `--execute` to write CAS + clear the field.
-    /// Follow with `gc-atoms --execute` to drop tombstoned tip history + orphan atoms.
+    /// The atom counter deletes each replaced atom body when its last tip goes.
     MigratePhotoBlobs {
         #[arg(long)]
         execute: bool,

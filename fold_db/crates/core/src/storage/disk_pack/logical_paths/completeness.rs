@@ -52,9 +52,31 @@ pub(super) fn covers(
         {
             return false;
         }
-        // The counter of an atom is accounting. It resolves no logical value,
-        // and the body that it counts is covered through the path sources.
-        if crate::atom::atom_key_codec::is_counter_key(raw) {
+        // The counter and the body of an atom need no typed cover of their own.
+        //
+        // - A counter is accounting. It resolves no logical value.
+        // - A body is immutable: one atom id holds one content. A body create
+        //   cannot change a value that a cached path holds. A path record that
+        //   a tip write stages lists its new body as a source, so the common
+        //   create is covered anyway.
+        // - A body delete happens only in the batch that takes the counter to
+        //   exactly zero (invariant I1 of `atom_store::counter`). After that
+        //   batch no tip and no conflict record names the atom, so no live path
+        //   resolves through the body. A cached path that lists the deleted
+        //   body as a source is the old value of a slot that the same batch
+        //   rewrites or erases. The typed model checks exactly that
+        //   (`core_set::model::coverage::covered`): a cached slot with a
+        //   changed source must be one of the typed changes of this
+        //   publication, or `prepare_dirty` fails and the write takes the
+        //   disk-first path. So a stale value cannot be published.
+        //
+        // A reader that captured its view before the acceptance keeps the old
+        // root, the older accepted batches and the older typed model, and sees
+        // the old tip with the old body. A reader after it sees the new tip and
+        // no old body. The batch is one durable commit with the tip and the
+        // counter, so a crash before the flush leaves the previous consistent
+        // state. See `docs/lastdb-atom-counter.md`, section Memory acknowledgement.
+        if crate::atom::atom_key_codec::uuid_of(raw).is_some() {
             return true;
         }
         if !["atom", "mk", "rdel", "mh", "hcu"]
