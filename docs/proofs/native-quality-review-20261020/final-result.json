@@ -1,0 +1,77 @@
+{
+  "accepted_temporary_homes_reclaimed": true,
+  "binary_sha256": "d453d7c6ee978ed41bf57cedb09584e11ea3844c4ade41a1b49e5a5742d76bd8",
+  "concurrent_read_actions": 36,
+  "evidence": {
+    "accepted/cleanup-summary.json": {
+      "bytes": 1913,
+      "sha256": "eba36a51e1047308c08f55fd53912386adea2945b682d791272df11c3a64bb52"
+    },
+    "accepted/independent-cleanup-review.json": {
+      "bytes": 6934,
+      "sha256": "0f640cdc5f4b5dd991e6d20e7ea3a4d107cfdb6134728d7cfa4392234d9e6cda"
+    },
+    "accepted/independent-operations-review.json": {
+      "bytes": 6622,
+      "sha256": "c741ea2374afd9ca5fd74e852380b0ed618d06b0b2569f9e9db5709d57cc142d"
+    },
+    "accepted/independent-release-review.json": {
+      "bytes": 7637,
+      "sha256": "2b1a4fa0fd797e1bd67f798c4e1710846565a4ef2a4e486c5a955dabbd3b706d"
+    },
+    "accepted/release-identity.json": {
+      "bytes": 97262,
+      "sha256": "00f47e9416295ff10f8cd4619757f1f9796a6b345dd33a1a7b291017ec4223b7"
+    },
+    "accepted/sealed-runs.json": {
+      "bytes": 15637,
+      "sha256": "9714816220bdc42b1dde15e2b4451bdd22e0e2a9cd7dc4e39fcedeeb69fc0833"
+    },
+    "independent-first-operations-review.json": {
+      "bytes": 6328,
+      "sha256": "d2b14b7ef45ace7bb313cdb4007df719c0a1a8c78417b12ea09442791799f818"
+    },
+    "independent-initial-cleanup-postcheck.json": {
+      "bytes": 3040,
+      "sha256": "94207e3647ffc27470c2ea9e43736511c5bf2bfa9c72cf675a9b3c564686cd09"
+    },
+    "operation-helper-identity.json": {
+      "bytes": 2083,
+      "sha256": "b4afd6b982d055f5c0559602226f660ca4904853bc0009054a9a91e1bf6a1e13"
+    },
+    "requests.json": {
+      "bytes": 1122150,
+      "sha256": "4c4cec8f45495dfd8a29425513ce3b40c622b713dc7a51869bf816b98f216560"
+    }
+  },
+  "initial_attempt_state": "not_pass_preserved",
+  "limits": [
+    "No tests, new executable check suite, primary data, migration, or cloud activation.",
+    "No throughput or operating-system cold-cache conclusion.",
+    "Library-only unusual field-name identities receive source review only.",
+    "Ordinary concurrency does not force a selected internal interleaving.",
+    "Main afbd0dc9b is a disjoint scoped snapshot restore change; merged CI remains required."
+  ],
+  "original_temporary_homes_reclaimed": true,
+  "query_responses": 457,
+  "retained_bytes_after_cold_and_repeat": 261728,
+  "returned_records": 3430,
+  "source_commit": "a0ccb6b505e42ce39c85f4bb27a1b90fed7f59ba",
+  "source_inputs": 1812,
+  "source_inventory_sha256": "9176cf2c612aa200d5fc927f527a2fee74c10decf2fbfc3d520d310e827acf32",
+  "state": "local_review_pass",
+  "validation": [
+    "format",
+    "diff whitespace",
+    "function and file size",
+    "no new allows",
+    "atom counter writer boundary",
+    "workspace policy lints",
+    "both full workspace Clippy lanes",
+    "normal locked release build",
+    "ordinary fresh synthetic API operations",
+    "independent source, release, operation, and cleanup reviews"
+  ],
+  "warm_limit_bytes": 262144,
+  "zero_file_read_actions": 29
+}

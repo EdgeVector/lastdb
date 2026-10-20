@@ -1,0 +1,62 @@
+{
+  "checked_utc": "2026-10-20T17:06:15.494879+00:00",
+  "reviewer": "/root/mutation_contract_round9",
+  "scope": "Postcheck of the two initial synthetic roots only; final accepted-run cleanup is separate.",
+  "initial_seal_sha256_unchanged": true,
+  "seal_sha256": "dd3ba02c0f478161ae9dacd2823a6db004ba8264855cb45ee94a9136e74f85ec",
+  "independent_precleanup_review_sha256": "542f8c0783eb8533da4beffe4f1638d207b16bcf7da25e55ffc4c21ba5fd5a29",
+  "cleanup_summary_sha256": "e3d0832a4295747c0441183ef9ebdebc63ab9e48de38a53fd692e4c2c505b45d",
+  "original_binary_receipt_sha256": "6d8896a47dbbab4897097e5e71f74c64216eecb298f38de3f5aa8f53e8501b7e",
+  "original_source_receipt_commit": "37a36d037aa6c440dd7cbfb1f6d98a16163acaa5",
+  "sealed_files_checked": 48,
+  "primary_or_archive_accessed": false,
+  "product_source_changed_by_reviewer": false,
+  "cleanup_executed_by_reviewer": false,
+  "runs": [
+    {
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.mc0eysz0",
+      "root_absent_including_symlink": true,
+      "sealed_receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/metadata-and-purge",
+      "sealed_files_checked": 41,
+      "seal_mismatches": [],
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.mc0eysz0",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.mc0eysz0",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.mc0eysz0 (released exact synthetic seed)\n"
+      },
+      "cleanup_receipt_sha256": "20357c1efd2927e9f1305d34f7b04657b8eddb21a152b52f61951ae0f3f39118"
+    },
+    {
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._n1u_qjq",
+      "root_absent_including_symlink": true,
+      "sealed_receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/core-cohorts",
+      "sealed_files_checked": 7,
+      "seal_mismatches": [],
+      "cleanup_receipt": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._n1u_qjq",
+          "--exact-home"
+        ],
+        "exit_code": 0,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._n1u_qjq",
+        "root_exists_after": false,
+        "stderr": "",
+        "stdout": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp._n1u_qjq (released exact synthetic seed)\n"
+      },
+      "cleanup_receipt_sha256": "58c35974dadc662cb042b6bd724781b42f70313dabfe24cf680853070b199b13"
+    }
+  ],
+  "passed": true
+}
