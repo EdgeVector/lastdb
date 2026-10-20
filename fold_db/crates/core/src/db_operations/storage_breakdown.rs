@@ -17,6 +17,7 @@
 
 use crate::{
     db_operations::{
+        atom_store::RangeWalk,
         keep_small::{atom_histogram, AtomHistogram},
         AtomStore,
     },
@@ -67,6 +68,64 @@ pub struct AtomCounterTotals {
     pub counters_without_body: u64,
     /// Counters that hold zero and are not `suspect`.
     pub zero_counters: u64,
+    /// How many counters hold each count.
+    #[serde(default)]
+    pub refs_histogram: RefsHistogram,
+    /// The atoms with the most references, most first.
+    #[serde(default)]
+    pub hottest: Vec<HotAtom>,
+}
+
+/// How many atom counters hold each count. A counter at zero is not here: it
+/// is in `zero_counters`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RefsHistogram {
+    pub one: u64,
+    pub two: u64,
+    pub three_to_nine: u64,
+    pub ten_to_ninety_nine: u64,
+    pub hundred_or_more: u64,
+}
+
+/// One atom with a high count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HotAtom {
+    pub atom: String,
+    pub refs: u64,
+}
+
+/// How many hot atoms the inventory lists.
+const HOTTEST_ATOMS: usize = 5;
+
+impl AtomCounterTotals {
+    /// Fold the count of one counter into the histogram and the hot list.
+    fn note_refs(&mut self, atom: Option<&str>, refs: u64) {
+        let bucket = match refs {
+            0 => return,
+            1 => &mut self.refs_histogram.one,
+            2 => &mut self.refs_histogram.two,
+            3..=9 => &mut self.refs_histogram.three_to_nine,
+            10..=99 => &mut self.refs_histogram.ten_to_ninety_nine,
+            _ => &mut self.refs_histogram.hundred_or_more,
+        };
+        *bucket += 1;
+        let Some(atom) = atom else {
+            return;
+        };
+        let full = self.hottest.len() >= HOTTEST_ATOMS;
+        if full && self.hottest.last().is_some_and(|last| last.refs >= refs) {
+            return;
+        }
+        let at = self.hottest.partition_point(|hot| hot.refs >= refs);
+        self.hottest.insert(
+            at,
+            HotAtom {
+                atom: atom.to_string(),
+                refs,
+            },
+        );
+        self.hottest.truncate(HOTTEST_ATOMS);
+    }
 }
 
 /// The local logical storage breakdown: per-schema sizes plus the total.
@@ -127,36 +186,28 @@ impl AtomStore {
         // Reading the whole prefix therefore cost roughly the atom keyspace
         // twice over — on a live node, for a per-schema total. Page instead, so
         // only one bounded page and one decoded atom are held at a time. See
-        // `INVENTORY_PAGE_BYTE_BUDGET` for the budget these pages aim at.
-        let mut cursor: Option<Vec<u8>> = None;
-        let mut page_rows = INVENTORY_PAGE_ROWS_MIN;
-        loop {
-            let start = cursor.as_deref().unwrap_or(scan_prefix.as_bytes());
+        // `INVENTORY_PAGE_BYTE_BUDGET` for the budget these pages aim at. Each
+        // read is also bounded by the read budget of one call, whatever the
+        // range holds (see `RangeWalk`).
+        let mut range = RangeWalk::new(
+            scan_prefix.as_bytes(),
+            scan_end.as_bytes(),
+            INVENTORY_PAGE_ROWS_MIN,
+        );
+        while !range.done() {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(start, scan_end.as_bytes(), page_rows)
+                .walk_step(&mut range)
                 .await
-                .map_err(|e| SchemaError::InvalidData(format!("storage_breakdown scan: {e}")))?;
-            if rows.is_empty() {
-                break;
-            }
-            let exhausted = rows.len() < page_rows;
+                .map_err(|e| SchemaError::InvalidData(format!("storage_breakdown scan: {e}")))?
+                .rows;
             let mut page_bytes = 0u64;
             for (k, v) in &rows {
                 page_bytes += (k.len() + v.len()) as u64;
-                // The start bound is inclusive, so the previous page's last row
-                // leads this one; skip it by key, not by position.
-                if cursor.as_deref() == Some(k.as_slice()) {
-                    continue;
-                }
                 self.fold_breakdown_row(&mut walk, k, v).await?;
             }
-            if exhausted {
-                break;
+            if !rows.is_empty() {
+                range.set_limit(inventory_next_page_rows(page_bytes, rows.len()));
             }
-            page_rows = inventory_next_page_rows(page_bytes, rows.len());
-            cursor = rows.last().map(|(k, _)| k.clone());
         }
 
         let BreakdownWalk {
@@ -280,6 +331,7 @@ fn note_counter_row(
     };
     totals.refs_total = totals.refs_total.saturating_add(counter.refs);
     totals.max_refs = totals.max_refs.max(counter.refs);
+    totals.note_refs(crate::atom::atom_key_codec::uuid_of(key), counter.refs);
     if counter.suspect {
         totals.suspect += 1;
     } else if counter.refs == 0 {

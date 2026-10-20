@@ -29,14 +29,20 @@ mod build;
 mod commit;
 mod plan;
 mod read;
+mod recount;
 mod refs;
 mod report;
+mod scan;
+mod verify;
 
 pub(crate) use commit::{RecordRefs, TipChange, TipChangeSet, TipCommit};
 pub use read::AtomCounterView;
+pub use recount::{Change, RecountOptions, RecountReport};
 pub(crate) use refs::event_atoms;
 pub use report::AtomCounterReport;
 pub(crate) use report::CounterEvents;
+pub(crate) use verify::VerifyState;
+pub use verify::{VerifyReport, VerifyRequest, VerifySummary};
 
 use serde::{Deserialize, Serialize};
 
