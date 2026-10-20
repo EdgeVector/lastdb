@@ -4,7 +4,7 @@ pub mod atom_locator_codec;
 pub mod content_at_rest;
 pub(crate) mod delete_barrier;
 pub mod file_pointer;
-pub mod legacy_history_memo;
+pub mod history_event_memo;
 pub mod merkle;
 mod molecule_hash_range;
 pub(crate) use molecule_hash_range::keys::{
@@ -50,9 +50,8 @@ pub use tombstone::{is_tombstone_value, TOMBSTONE_KEY};
 ///
 /// Incoming wins iff `(written_at, logical_counter, device_id, mutation_uuid,
 /// atom_uuid)` is strictly greater than local (tuple lexicographic order).
-/// Empty `device_id` is allowed for
-/// legacy fat tips (callers should pass `writer_pubkey` as the device key
-/// when `device_id` is empty — see [`AtomEntry::lww_device`]).
+/// When `device_id` is empty, [`AtomEntry::lww_device`] uses the optional
+/// `writer_pubkey` as the device key.
 ///
 /// `written_at` is the original device's signed write time and is the primary
 /// order field. The signed logical counter breaks equal-time ties. `device_id`
@@ -60,7 +59,7 @@ pub use tombstone::{is_tombstone_value, TOMBSTONE_KEY};
 /// ties within one writer, and `atom_uuid` is the final stable total-order
 /// tiebreak (content-addressed).
 ///
-/// Pre-clock data carries `logical_counter == 0` and keeps its time order.
+/// A missing logical counter uses zero and keeps its time order.
 ///
 /// Build both operands with [`lww_order_key`] or [`AtomEntry::lww_key`] — never
 /// spell the tuple out at a call site, or the two orderings drift apart.
@@ -101,77 +100,57 @@ fn is_zero_u64(v: &u64) -> bool {
     *v == 0
 }
 
-/// Per-key tip binding: which atom is current at this molecule slot.
+/// Current atom and author identity at one molecule key.
 ///
-/// **Thin tips (default write path):** `atom_uuid`, `written_at`, `device_id`,
-/// and no history link. Crypto fields stay empty and are omitted from JSON
-/// (`skip_serializing_if`).
-///
-/// **Optional history model (tip version chain):** when explicitly enabled and
-/// a tip is overwritten, the prior value is archived under `tv:{prev_tip_id}`.
-/// Walking the chain yields full per-slot history for `as_of`. No separate
-/// `history:` MutationEvent log is written.
-///
-/// **Legacy fat tips:** may still contain `writer_pubkey` / `signature` /
-/// `provenance` from older binaries. Dual-read: deserialize either shape;
-/// [`AtomEntry::to_thin`] strips crypto for migration.
+/// Current constructors leave the optional crypto fields empty. A tip has no
+/// archived-value query or history chain. Separate `history\0` mutation events
+/// retain conflict and replay outcomes with their own atom references.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct AtomEntry {
     pub atom_uuid: String,
     #[serde(default)]
     pub written_at: u64, // nanos since epoch
-    /// Durable per-device logical author counter. Legacy tips use zero.
+    /// Durable per-device logical author counter. Zero when no counter is supplied.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub logical_counter: u64,
     /// Mutation identity used after the author clock as a stable tie-break.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mutation_uuid: String,
-    /// Base64-encoded public key (legacy fat tips). Empty on thin tips.
+    /// Optional base64-encoded public key. Current constructors leave it empty.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub writer_pubkey: String,
-    /// Base64-encoded Ed25519 signature (legacy fat tips). Empty on thin tips.
+    /// Optional base64-encoded signature. Current constructors leave it empty.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub signature: String,
-    /// Signature scheme version (1 = signed fat tip). 0 on thin tips.
+    /// Optional signature scheme version. Current constructors use zero.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub signature_version: u8,
-    /// Writer identity (legacy fat tips). None on thin tips.
+    /// Optional writer provenance. Current constructors leave it absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<Provenance>,
-    /// Device identity for LWW tie-break (thin tips). Stable node/device id
-    /// (typically the writer's public key base64). Empty on pre-thin tips.
+    /// Device identity for the LWW tie-break, usually the writer's public key.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub device_id: String,
     /// Sync device that wrote this tip (the sync `writer_id` of its log
     /// stream). Not part of the LWW order: `device_id` above is the owner key,
     /// which own devices share. Empty means "in doubt": an old tip, a write
-    /// made before the node had a sync device id, or an import path that does
-    /// not know the writer. An old binary ignores this field and drops it the
-    /// next time it rewrites the tip.
+    /// without a sync device id, or an import whose writer is unknown.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub origin_device: String,
-    /// Id of the previous tip version at this slot (`tv:{id}`). Empty on first
-    /// write. Walk this chain for real per-slot history / `as_of`.
-    ///
-    /// Serde alias `prev_atom_uuid` reads short-lived depth-1 tips from an
-    /// earlier cutover (those values were atom ids, not `tv:` ids — walk stops
-    /// if the version node is missing).
-    #[serde(
-        default,
-        skip_serializing_if = "String::is_empty",
-        alias = "prev_atom_uuid"
-    )]
+    /// Retained serialized field. Current writes leave it empty; no archived
+    /// tip reader or historical query follows this value.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub prev_tip_id: String,
 }
 
 impl AtomEntry {
-    /// Construct a thin tip with no previous link.
+    /// Construct a current tip with the reserved link field empty.
     #[must_use]
     pub fn thin(atom_uuid: String, written_at: u64, device_id: String) -> Self {
         Self::thin_with_prev(atom_uuid, written_at, device_id, String::new())
     }
 
-    /// Construct a thin tip, optionally linking to a previous tip version id.
+    /// Construct a current tip with the supplied reserved link field.
     #[must_use]
     pub fn thin_with_prev(
         atom_uuid: String,
@@ -194,7 +173,7 @@ impl AtomEntry {
         }
     }
 
-    /// Construct a thin tip with a signed mutation author identity.
+    /// Construct a current tip with a signed mutation author identity.
     #[must_use]
     pub fn thin_with_author(
         atom_uuid: String,
@@ -226,37 +205,7 @@ impl AtomEntry {
         self
     }
 
-    /// True when this entry has no per-tip crypto payload (thin format).
-    #[must_use]
-    pub fn is_thin(&self) -> bool {
-        self.signature.is_empty()
-            && self.writer_pubkey.is_empty()
-            && self.provenance.is_none()
-            && self.signature_version == 0
-    }
-
-    /// Strip crypto fields for on-disk migration to thin tips. Preserves
-    /// `atom_uuid`, `written_at`, `prev_tip_id`, and derives `device_id`
-    /// from existing `device_id` or legacy `writer_pubkey`.
-    #[must_use]
-    pub fn to_thin(&self) -> Self {
-        let device_id = if self.device_id.is_empty() {
-            self.writer_pubkey.clone()
-        } else {
-            self.device_id.clone()
-        };
-        Self::thin_with_author(
-            self.atom_uuid.clone(),
-            self.written_at,
-            self.logical_counter,
-            device_id,
-            self.mutation_uuid.clone(),
-            self.prev_tip_id.clone(),
-        )
-        .with_origin_device(self.origin_device.clone())
-    }
-
-    /// Device key used for LWW: explicit `device_id`, else legacy `writer_pubkey`.
+    /// Device key used for LWW: explicit `device_id`, otherwise `writer_pubkey`.
     #[must_use]
     pub fn lww_device(&self) -> &str {
         if self.device_id.is_empty() {

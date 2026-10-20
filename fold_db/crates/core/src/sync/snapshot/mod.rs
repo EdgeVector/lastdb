@@ -1,8 +1,6 @@
 use super::error::{SyncError, SyncResult};
-use super::org_sync::{storage_prefix_for_key, strip_storage_prefix};
-use crate::atom::molecule_key_codec::{order_entry_key, MOC_PREFIX, MORD_PREFIX};
+use super::org_sync::storage_prefix_for_key;
 use crate::crypto::CryptoProvider;
-use crate::kind_partition::{colon_prefix_matches, form_twin, rest_of, rewrite_key_like};
 use crate::storage::traits::NamespacedStore;
 use crate::sync::policy;
 use futures::{stream, StreamExt};
@@ -12,24 +10,20 @@ use std::sync::Arc;
 use std::time::Instant;
 
 pub(crate) mod cloud_purge;
-mod order_baseline;
+mod current_format;
 mod reports;
 mod restore_scan;
 
 pub use reports::{ScrubReport, SnapshotRestoreReport, SnapshotScrubReport, UndecryptableRow};
 
-use order_baseline::*;
+use current_format::*;
 use restore_scan::*;
 
 mod model;
 pub use model::{NamespaceData, Snapshot, SnapshotEntry, SnapshotValueEncoding};
 
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
 const HASH_SIZE: usize = 32;
-// Large enough for the current photograph namespaces while still bounding the
-// decoded key/value staging allocation. One namespace batch lets LastStore
-// group every destination shard once instead of revisiting it per small chunk.
-const RESTORE_BATCH_SIZE: usize = 262_144;
 const RESTORE_NAMESPACE_CONCURRENCY: usize = 4;
 
 enum SnapshotNamespaceMode<'a> {
@@ -46,9 +40,8 @@ impl Snapshot {
         device_id: &str,
         last_seq: u64,
     ) -> SyncResult<Self> {
-        let namespaces = prepare_logical_photograph(
+        let namespaces = validate_photograph(
             collect_snapshot_namespaces(store, SnapshotNamespaceMode::All).await?,
-            true,
         )?;
         Ok(snapshot_from_namespaces(
             device_id,
@@ -74,7 +67,9 @@ impl Snapshot {
         device_id: &str,
         last_seq: u64,
     ) -> SyncResult<Self> {
-        let namespaces = collect_snapshot_namespaces(raw_store, SnapshotNamespaceMode::All).await?;
+        let namespaces = validate_photograph(
+            collect_snapshot_namespaces(raw_store, SnapshotNamespaceMode::All).await?,
+        )?;
         Ok(snapshot_from_namespaces(
             device_id,
             last_seq,
@@ -96,10 +91,9 @@ impl Snapshot {
         last_seq: u64,
         target_prefixes: &[String],
     ) -> SyncResult<Self> {
-        let namespaces = prepare_logical_photograph(
+        let namespaces = validate_photograph(
             collect_snapshot_namespaces(store, SnapshotNamespaceMode::Scoped(target_prefixes))
                 .await?,
-            true,
         )?;
         Ok(snapshot_from_namespaces(
             device_id,
@@ -208,14 +202,18 @@ impl Snapshot {
     /// - [`SnapshotValueEncoding::AtRestEnc`] — pass the **raw** store so
     ///   `ENC:…` envelopes are written as-is (no double-encrypt).
     pub async fn restore(&self, store: &dyn NamespacedStore) -> SyncResult<SnapshotRestoreReport> {
+        self.validate_current_version()?;
+        self.validate_full_format_markers()?;
         let normalized;
         let namespaces = if self.value_encoding == SnapshotValueEncoding::Logical {
-            normalized = prepare_logical_photograph(self.namespaces.clone(), false)?;
+            normalized = validate_photograph(self.namespaces.clone())?;
             normalized.as_slice()
         } else {
             self.validate_unique_restore_keys()?;
             self.namespaces.as_slice()
         };
+        let reference_proofs =
+            begin_reference_restore(store, namespaces, RestoreMode::Personal).await?;
         let materialize_started = Instant::now();
         let mut org_skipped = 0usize;
         let mut entries = 0usize;
@@ -238,6 +236,7 @@ impl Snapshot {
         let materialize_ms = elapsed_ms(materialize_started);
         let flush_started = Instant::now();
         store.restore_durability_barrier().await?;
+        finish_reference_restore(store, reference_proofs).await?;
         let final_flush_ms = elapsed_ms(flush_started);
 
         if org_skipped > 0 {
@@ -263,14 +262,23 @@ impl Snapshot {
         store: &dyn NamespacedStore,
         target_prefixes: &[String],
     ) -> SyncResult<SnapshotRestoreReport> {
+        self.validate_current_version()?;
+        if self.value_encoding != SnapshotValueEncoding::Logical {
+            return Err(SyncError::Serialization(
+                "scoped restore requires a current logical backup".to_string(),
+            ));
+        }
         let normalized;
         let namespaces = if self.value_encoding == SnapshotValueEncoding::Logical {
-            normalized = prepare_logical_photograph(self.namespaces.clone(), false)?;
+            normalized = validate_photograph(self.namespaces.clone())?;
             normalized.as_slice()
         } else {
             self.validate_unique_restore_keys()?;
             self.namespaces.as_slice()
         };
+        let reference_proofs =
+            begin_reference_restore(store, namespaces, RestoreMode::Scoped(target_prefixes))
+                .await?;
         let materialize_started = Instant::now();
         let mut entries = 0usize;
         let mut batches = 0usize;
@@ -289,6 +297,7 @@ impl Snapshot {
         let materialize_ms = elapsed_ms(materialize_started);
         let flush_started = Instant::now();
         store.restore_durability_barrier().await?;
+        finish_reference_restore(store, reference_proofs).await?;
         let final_flush_ms = elapsed_ms(flush_started);
 
         Ok(SnapshotRestoreReport {
@@ -298,6 +307,15 @@ impl Snapshot {
             materialize_ms,
             final_flush_ms,
         })
+    }
+
+    fn validate_current_version(&self) -> SyncResult<()> {
+        if self.version != SNAPSHOT_VERSION {
+            return Err(SyncError::Serialization(
+                "unsupported backup format; a current version2 backup is required".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn validate_unique_restore_keys(&self) -> SyncResult<()> {
@@ -311,6 +329,11 @@ impl Snapshot {
             }
             let mut keys = HashSet::with_capacity(namespace.entries.len());
             for entry in &namespace.entries {
+                use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+                let decoded = BASE64.decode(&entry.key).map_err(|error| {
+                    SyncError::Serialization(format!("invalid key base64: {error}"))
+                })?;
+                crate::storage::current_keys::validate(&namespace.name, &decoded)?;
                 if !keys.insert(entry.key.as_str()) {
                     return Err(SyncError::Serialization(format!(
                         "snapshot namespace '{}' contains a duplicate key",

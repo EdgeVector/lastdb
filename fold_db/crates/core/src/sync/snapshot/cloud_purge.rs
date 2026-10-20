@@ -18,6 +18,7 @@ impl Snapshot {
         let raw = store
             .raw_last_store()
             .ok_or_else(|| fail("share cut requires LastStore"))?;
+        let target_prefixes = [prefix.to_string()];
         let mut namespaces = Vec::new();
         let mut json_bound = 1024u64;
         for name in store.list_namespaces().await? {
@@ -31,7 +32,13 @@ impl Snapshot {
             };
             let keys: Vec<_> = identities
                 .into_keys()
-                .filter(|key| key_belongs_to_target(key.as_bytes(), prefix))
+                .filter(|key| {
+                    namespace_key_belongs_to_any_target(
+                        key.as_bytes(),
+                        &target_prefixes,
+                        name == "main",
+                    )
+                })
                 .collect();
             let entries = read_namespace(store, &name, &keys, &mut json_bound, admission).await?;
             namespaces.push(NamespaceData { name, entries });
@@ -40,7 +47,7 @@ impl Snapshot {
         Ok(snapshot_from_namespaces(
             device_id,
             last_seq,
-            prepare_logical_photograph(namespaces, true)?,
+            validate_photograph(namespaces)?,
             SnapshotValueEncoding::Logical,
         ))
     }

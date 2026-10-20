@@ -1,6 +1,4 @@
-//! Guards and key loading shared by the offline maintenance binaries
-//! (`lastdb_local_maintain`, the atom-content tools and
-//! the smoke and proof binaries).
+//! Primary-home guards and key loading for the current storage recovery proof.
 //!
 //! Each binary used to carry its own copy of the primary-home guard. Two copies
 //! checked only `~/.lastdb` and let the legacy `~/.folddb` home through. One

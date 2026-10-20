@@ -96,7 +96,7 @@ pub(crate) fn resolve_homes(
     }
     let resume_mutation_log = dest_has_committed_s0(&target);
     if flavor.cache_home.is_some() || remote_only {
-        refuse_non_fresh_migration_home(&target).map_err(preflight_failure)?;
+        require_empty_restore_home(&target).map_err(preflight_failure)?;
     }
     if !resume_mutation_log || flavor.cache_home.is_some() || remote_only {
         refuse_non_fresh_restore_home(&target).map_err(preflight_failure)?;

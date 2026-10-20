@@ -1,4 +1,4 @@
-//! Owner-socket routes that purge, collect and reap dead storage: schema index, atoms, file blobs, proteins, ref blobs, dropped schemas and plane residue.
+//! Owner-socket atom, file-blob, protein and dropped-schema GC.
 
 use super::*;
 
@@ -12,10 +12,6 @@ pub(in crate::exec) async fn execute_db_gc_atoms_route(
     struct Body {
         #[serde(default)]
         dry_run: Option<bool>,
-        /// When true, also prune tip-version history on **live** tips (not only
-        /// tombstoned). Drops `as_of` history; frees append-heavy body atoms.
-        #[serde(default)]
-        prune_live_history: Option<bool>,
         #[serde(default)]
         schema: Option<String>,
         /// Accept that the atoms of a lost multi-device write can be deleted.
@@ -33,7 +29,6 @@ pub(in crate::exec) async fn execute_db_gc_atoms_route(
     let body: Body = if req.body.is_empty() {
         Body {
             dry_run: None,
-            prune_live_history: None,
             schema: None,
             allow_after_peer_apply: None,
         }
@@ -46,15 +41,14 @@ pub(in crate::exec) async fn execute_db_gc_atoms_route(
         }
     };
     let dry_run = body.dry_run.unwrap_or(true);
-    let prune_live_history = body.prune_live_history.unwrap_or(false);
     let allow_after_peer_apply = body.allow_after_peer_apply.unwrap_or(false);
     let result = if let Some(schema) = body.schema.as_deref() {
         host.db
-            .gc_orphan_atoms_for_schema(schema, dry_run, prune_live_history, allow_after_peer_apply)
+            .gc_orphan_atoms_for_schema(schema, dry_run, allow_after_peer_apply)
             .await
     } else {
         host.db
-            .gc_orphan_atoms_with(dry_run, prune_live_history, allow_after_peer_apply)
+            .gc_orphan_atoms_with(dry_run, allow_after_peer_apply)
             .await
     };
     match result {
@@ -227,101 +221,5 @@ pub(in crate::exec) async fn execute_db_gc_proteins_route(
             ctx.user_id.as_str(),
         )),
         Err(e) => error_response(500, &format!("gc-proteins failed: {e}"), ctx),
-    }
-}
-
-/// `POST /api/db/purge-ref-blobs` — measure/delete legacy `ref:` whole-molecule blobs.
-pub(in crate::exec) async fn execute_db_purge_ref_blobs_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    #[derive(Deserialize)]
-    struct Body {
-        #[serde(default)]
-        dry_run: Option<bool>,
-    }
-    let body: Body = if req.body.is_empty() {
-        Body { dry_run: None }
-    } else {
-        match serde_json::from_slice(&req.body) {
-            Ok(b) => b,
-            Err(e) => {
-                return error_response(
-                    400,
-                    &format!("invalid /api/db/purge-ref-blobs body: {e}"),
-                    ctx,
-                )
-            }
-        }
-    };
-    let dry_run = body.dry_run.unwrap_or(true);
-    match host.db.purge_ref_blobs(dry_run).await {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({ "purge_ref_blobs": report }),
-            ctx.user_id.as_str(),
-        )),
-        Err(e) => error_response(500, &format!("purge-ref-blobs failed: {e}"), ctx),
-    }
-}
-
-/// `POST /api/db/drain-plane-residue` — copy one bounded page of rows sitting
-/// outside their canonical plane collection into the canonical home, deleting
-/// the source copy per key once the target holds it. Dry run by default.
-pub(in crate::exec) async fn execute_db_drain_plane_residue_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    use fold_db::storage::{PlaneResidueDrainOptions, PlaneResidueFamily};
-
-    #[derive(Deserialize)]
-    struct Body {
-        family: PlaneResidueFamily,
-        source_collection: String,
-        target_collection: String,
-        /// Optional id prefix (required for protein/index drains from tips).
-        #[serde(default)]
-        key_prefix: Option<String>,
-        #[serde(default)]
-        after: Option<String>,
-        /// Rows one call decides. Bounds the page so a full-collection drain
-        /// is a resumable loop of short calls, not one long socket request.
-        #[serde(default)]
-        limit: Option<usize>,
-        #[serde(default)]
-        execute: bool,
-        #[serde(default)]
-        drop_empty_source: bool,
-    }
-    let body: Body = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(e) => {
-            return error_response(
-                400,
-                &format!("invalid /api/db/drain-plane-residue body: {e}"),
-                ctx,
-            )
-        }
-    };
-    match host
-        .db
-        .drain_plane_residue(PlaneResidueDrainOptions {
-            family: body.family,
-            source_collection: body.source_collection,
-            target_collection: body.target_collection,
-            key_prefix: body.key_prefix,
-            after: body.after,
-            limit: body.limit.unwrap_or(1000),
-            execute: body.execute,
-            drop_empty_source: body.drop_empty_source,
-        })
-        .await
-    {
-        Ok(report) => json_ok(&envelope(
-            &serde_json::json!({ "plane_residue_drain": report }),
-            ctx.user_id.as_str(),
-        )),
-        Err(e) => mapped_error_response("drain-plane-residue failed", e, ctx),
     }
 }

@@ -26,9 +26,6 @@ pub(super) async fn dispatch_org_catalog(
         DataRoute::DbCatalogShare => {
             heap_route!(execute_db_catalog_share_route, req, ctx, host).await
         }
-        DataRoute::DbCatalogReclaim => {
-            heap_route!(execute_db_catalog_reclaim_route, req, ctx, host).await
-        }
         DataRoute::OrgSyncTargets => {
             heap_route_ctx_host!(execute_org_sync_targets_route, ctx, host).await
         }

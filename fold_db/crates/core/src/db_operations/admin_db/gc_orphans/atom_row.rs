@@ -120,9 +120,13 @@ impl AtomStore {
         let blob_edges: Vec<String> =
             crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
                 .into_iter()
-                .map(|blob_ref| {
-                    crate::db_operations::atom_store::BlobRefEdge::atom(uuid, &blob_ref)
-                        .storage_key(storage_prefix)
+                .flat_map(|blob_ref| {
+                    let edge = crate::db_operations::atom_store::BlobRefEdge::atom(
+                        uuid,
+                        &blob_ref,
+                        storage_prefix,
+                    );
+                    [edge.storage_key(), edge.owner_key()]
                 })
                 .collect();
         Some(blob_edges)

@@ -54,7 +54,7 @@ pub(super) async fn pin_log_reference_page_for(
     engine: Option<&SyncEngine>,
     checkpoint: &crate::db_operations::AutomaticGcAtomsProbeCheckpoint,
 ) -> Result<Option<crate::db_operations::AutomaticGcAtomsPinLogReferencePage>, String> {
-    if checkpoint.version != 2
+    if checkpoint.version != 3
         || checkpoint.phase != crate::db_operations::AutomaticGcAtomsProbePhase::PinLogReferences
     {
         return Ok(None);
@@ -113,7 +113,7 @@ pub(super) async fn advance_gc_atoms_probe(
             }
         };
         if let Some(engine) = engine {
-            if checkpoint.version != 2
+            if checkpoint.version != 3
                 || checkpoint.phase
                     == crate::db_operations::AutomaticGcAtomsProbePhase::ClearReferenceMarkers
                 || (checkpoint.phase == crate::db_operations::AutomaticGcAtomsProbePhase::Complete
@@ -142,7 +142,7 @@ pub(super) async fn advance_gc_atoms_probe(
         match call {
             Ok(report) => {
                 if report.phase
-                    == crate::db_operations::AutomaticGcAtomsProbePhase::ClearTipVersionSkipMarkers
+                    == crate::db_operations::AutomaticGcAtomsProbePhase::PinLogReferences
                     && atoms.automatic_gc_atoms_generation() == 0
                 {
                     if let Some(engine) = engine {

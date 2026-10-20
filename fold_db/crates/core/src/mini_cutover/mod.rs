@@ -6,11 +6,9 @@
 pub mod main_keys;
 pub mod plane_roles;
 
-pub use main_keys::{
-    classify_main_key, LEGACY_MAIN_MIGRATION_COLLECTIONS, MAIN_MIGRATION_COLLECTIONS,
-};
+pub use main_keys::classify_main_key;
 pub use plane_roles::{
-    classify_collection_plane, dual_read_hits_by_plane, plane_breakdown_for_store_root,
-    plane_status_lines, CollectionPlaneEntry, CollectionPlaneRole, DualReadPlaneHit,
-    PlaneBreakdown, PlaneMapCollection, PlaneMapReport, PlaneMapRoleTotal, SOT_NAMED_COLLECTIONS,
+    classify_collection_plane, plane_breakdown_for_store_root, plane_status_lines,
+    CollectionPlaneEntry, CollectionPlaneRole, PlaneBreakdown, PlaneMapCollection, PlaneMapReport,
+    PlaneMapRoleTotal, SOT_NAMED_COLLECTIONS,
 };

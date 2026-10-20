@@ -108,8 +108,6 @@ impl LastStoreNamespacedStore {
 mod backup;
 mod backup_file;
 mod compact_admin;
-mod index_residue;
-mod residue_drain;
 
 pub(super) fn collection_dir_bytes(store_root: &Path, collection: &str) -> u64 {
     let dir = store_root.join("data").join(collection);

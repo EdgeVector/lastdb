@@ -23,38 +23,11 @@ pub(super) fn db_inspect_command(
             max_keys,
             json,
         } => db_molecule_keys(socket, &molecule, max_keys, json),
-        DbInspectCommand::OrderLogAudit { max_keys, json } => {
-            db_order_log_audit(socket, max_keys, json)
-        }
         DbInspectCommand::PinLogAudit {
             max_keys,
             after_key,
             json,
         } => db_pin_log_audit(socket, max_keys, after_key.as_deref(), json),
-        DbInspectCommand::OrderLogBloatAudit { max_keys, json } => {
-            db_order_log_bloat_audit(socket, max_keys, json)
-        }
-        DbInspectCommand::TombstoneFlagAudit {
-            schema,
-            execute,
-            max_keys,
-            after_key,
-            once,
-            json,
-        } => db_tombstone_flag_audit(
-            socket,
-            &TombstoneFlagAuditCliOpts {
-                schema,
-                execute,
-                max_keys,
-                after_key,
-                once,
-                json_only: json,
-            },
-        ),
-        DbInspectCommand::LegacyKeyForkAudit { max_keys, json } => {
-            db_legacy_key_forks(socket, false, max_keys, json)
-        }
         DbInspectCommand::ProbeDroppedTip {
             schema,
             molecule,
@@ -97,25 +70,17 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
         DbReclaimCommand::GcAtoms {
             schema,
             execute,
-            prune_live_history,
             allow_after_peer_apply,
             json,
         } => db_gc_atoms(
             socket,
             schema.as_deref(),
             execute,
-            prune_live_history,
             allow_after_peer_apply,
             json,
         ),
         DbReclaimCommand::GcFileBlobs { execute, json } => db_gc_file_blobs(socket, execute, json),
         DbReclaimCommand::GcProteins { execute, json } => db_gc_proteins(socket, execute, json),
-        DbReclaimCommand::PurgeRefBlobs { execute, json } => {
-            db_purge_ref_blobs(socket, execute, json)
-        }
-        DbReclaimCommand::ReclaimKeepSmallLegacy { execute, json } => {
-            db_reclaim_keep_small_legacy(socket, execute, json)
-        }
         DbReclaimCommand::ReclaimKeepSmallSnapshot { execute, json } => {
             db_reclaim_keep_small_snapshot(socket, execute, json)
         }
@@ -142,48 +107,9 @@ pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Res
     }
 }
 
-/// Dispatch the tip-history retention, drain and migration verbs.
+/// Dispatch the current tip repair command.
 pub(super) fn db_tips_command(socket: &Path, action: DbTipsCommand) -> Result<(), String> {
     match action {
-        DbTipsCommand::RetainSupersededVersions {
-            execute,
-            max_keys,
-            max_prunes,
-            after_key,
-            from_checkpoint,
-            retention_seconds,
-            json,
-        } => db_retain_superseded_versions(
-            socket,
-            &RetainSupersededVersionsCliOpts {
-                execute,
-                max_keys,
-                max_prunes,
-                after_key,
-                from_checkpoint,
-                retention_seconds,
-                json_only: json,
-            },
-        ),
-        DbTipsCommand::RetainSupersededVersionsOffline { .. } => {
-            Err("retain-superseded-versions-offline is handled before the daemon probe".into())
-        }
-        DbTipsCommand::DrainTipHistory {
-            execute,
-            max_keys,
-            max_prunes,
-            after_key,
-            from_checkpoint,
-            json,
-        } => db_drain_tip_history(
-            socket,
-            execute,
-            max_keys,
-            max_prunes,
-            after_key,
-            from_checkpoint,
-            json,
-        ),
         DbTipsCommand::RepairDanglingTips {
             execute,
             max_ops,
@@ -204,11 +130,5 @@ pub(super) fn db_tips_command(socket: &Path, action: DbTipsCommand) -> Result<()
             },
             json,
         ),
-        DbTipsCommand::MigrateThinTips { execute, json } => {
-            db_migrate_thin_tips(socket, execute, json)
-        }
-        DbTipsCommand::MigratePhotoBlobs { execute, json } => {
-            db_migrate_photo_blobs(socket, execute, json)
-        }
     }
 }

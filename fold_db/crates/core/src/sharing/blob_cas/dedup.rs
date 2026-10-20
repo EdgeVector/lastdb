@@ -111,50 +111,56 @@ pub async fn put_blob_sealed_under_dek_dedup_in_ops(
     name: Option<String>,
     dek_hex: &str,
 ) -> Result<SealedPutOutcome, FoldDbError> {
-    let content_sha256 = sha256_hex(plaintext);
-    let blob_ref = format!("sha256:{content_sha256}");
-    let _target_gate = ops
-        .atoms()
-        .lock_liveness_blobs(std::slice::from_ref(&blob_ref))
-        .await;
-    let store = namespace(ops).await?;
-    let wanted = Wanted {
-        blob_ref: &blob_ref,
-        content_sha256: &content_sha256,
-        plain_len: plaintext.len(),
-        dek_hex,
-    };
-    match inspect_existing(&store, &wanted).await {
-        Existing::Intact { row, age } => {
-            if age < chrono::Duration::seconds(DUPLICATE_PUT_REFRESH_SECS) {
-                return Ok(SealedPutOutcome::AlreadyPresent);
+    let runtime = ops.namespaced_store().disk_pack_runtime();
+    // Take the native gate before the blob lock. Its private read view sees
+    // earlier accepted rows, so a pending put cannot look absent or stale.
+    crate::storage::disk_pack::transaction::background_scope(runtime, async {
+        let content_sha256 = sha256_hex(plaintext);
+        let blob_ref = format!("sha256:{content_sha256}");
+        let _target_gate = ops
+            .atoms()
+            .lock_liveness_blobs(std::slice::from_ref(&blob_ref))
+            .await;
+        let store = namespace(ops).await?;
+        let wanted = Wanted {
+            blob_ref: &blob_ref,
+            content_sha256: &content_sha256,
+            plain_len: plaintext.len(),
+            dek_hex,
+        };
+        match inspect_existing(&store, &wanted).await {
+            Existing::Intact { row, age } => {
+                if age < chrono::Duration::seconds(DUPLICATE_PUT_REFRESH_SECS) {
+                    return Ok(SealedPutOutcome::AlreadyPresent);
+                }
+                // Same row, same format, new stamp. No second seal.
+                let mut renewed = row;
+                renewed.stored_at = Some(Utc::now().to_rfc3339());
+                let value = encode_row(&renewed)?;
+                drop(renewed);
+                put_row(&store, &blob_ref, value).await?;
+                Ok(SealedPutOutcome::Refreshed)
             }
-            // Same row, same format, new stamp. No second seal.
-            let mut renewed = row;
-            renewed.stored_at = Some(Utc::now().to_rfc3339());
-            let value = encode_row(&renewed)?;
-            drop(renewed);
-            put_row(&store, &blob_ref, value).await?;
-            Ok(SealedPutOutcome::Refreshed)
-        }
-        Existing::Absent | Existing::Unusable => {
-            let mut sealed =
-                content_addressed_blob_sealed_under_dek(plaintext, media_type, name, dek_hex)?;
-            if sealed.blob_ref != blob_ref {
-                return Err(FoldDbError::SecurityError(format!(
-                    "sealed blob_ref {} does not match the gate target {blob_ref}",
-                    sealed.blob_ref
-                )));
+            Existing::Absent | Existing::Unusable => {
+                let mut sealed =
+                    content_addressed_blob_sealed_under_dek(plaintext, media_type, name, dek_hex)?;
+                if sealed.blob_ref != blob_ref {
+                    return Err(FoldDbError::SecurityError(format!(
+                        "sealed blob_ref {} does not match the gate target {blob_ref}",
+                        sealed.blob_ref
+                    )));
+                }
+                // Stamp here, on the value we own. The shared row writer would
+                // clone the whole sealed string to stamp it.
+                sealed.stored_at = Some(Utc::now().to_rfc3339());
+                let value = encode_row(&sealed)?;
+                drop(sealed);
+                put_row(&store, &blob_ref, value).await?;
+                Ok(SealedPutOutcome::Stored)
             }
-            // Stamp here, on the value we own. The shared row writer would
-            // clone the whole sealed string to stamp it.
-            sealed.stored_at = Some(Utc::now().to_rfc3339());
-            let value = encode_row(&sealed)?;
-            drop(sealed);
-            put_row(&store, &blob_ref, value).await?;
-            Ok(SealedPutOutcome::Stored)
         }
-    }
+    })
+    .await
 }
 
 /// Serialize a row into one buffer sized up front. The sealed text is the whole

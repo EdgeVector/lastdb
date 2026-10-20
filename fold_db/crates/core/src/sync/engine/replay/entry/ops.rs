@@ -44,7 +44,7 @@ impl SyncEngine {
         key: &str,
         entry: &LogEntry,
         target: Option<&SyncTarget>,
-        crypto: &dyn CryptoProvider,
+        _crypto: &dyn CryptoProvider,
     ) -> SyncResult<()> {
         let final_key =
             match Self::rewrite_key_if_needed(namespace, key, target, KeyRewriteOp::Delete) {
@@ -62,7 +62,7 @@ impl SyncEngine {
         }
         if std::str::from_utf8(&final_key)
             .ok()
-            .and_then(Self::legacy_physical_molecule_uuid)
+            .and_then(Self::physical_molecule_uuid)
             .is_some()
         {
             return Err(SyncError::replay_refused(
@@ -72,32 +72,11 @@ impl SyncEngine {
                 ReplayCause::LegacyMoleculeDelete,
             ));
         }
+        crate::storage::current_keys::validate(namespace, &final_key)?;
         let kv = self.store.open_namespace(namespace).await?;
-        match self
-            .prepare_replay_delete(&kv, namespace, &final_key, entry, crypto)
-            .await?
-        {
-            ReplayDeleteDecision::Skip => {
-                self.absorb_delete_or_warn(namespace, &final_key, false, "delete")
-                    .await;
-            }
-            ReplayDeleteDecision::Apply { marker, mol_uuid } => {
-                if let Some((marker_key, marker_value)) = marker {
-                    let mut mutations = vec![
-                        KvMutation::put(marker_key, marker_value),
-                        KvMutation::delete(final_key.clone()),
-                    ];
-                    if let Some(mol_uuid) = mol_uuid.as_ref() {
-                        Self::append_hash_range_index_delete(&mut mutations, &final_key, mol_uuid);
-                    }
-                    kv.batch_mutate(mutations).await?;
-                } else {
-                    kv.delete(&final_key).await?;
-                }
-                self.absorb_delete_or_warn(namespace, &final_key, true, "delete")
-                    .await;
-            }
-        }
+        kv.delete(&final_key).await?;
+        self.absorb_delete_or_warn(namespace, &final_key, true, "delete")
+            .await;
         Ok(())
     }
 
@@ -122,6 +101,7 @@ impl SyncEngine {
             if let Ok(final_key) =
                 Self::rewrite_key_if_needed(namespace, key, target, KeyRewriteOp::Write)
             {
+                crate::storage::current_keys::validate(namespace, &final_key)?;
                 if !Self::should_skip_org_scoped_replay_key(&final_key, target)
                     && super::super::apply::is_raw_delete_barrier_key(namespace, &final_key)
                 {
@@ -164,7 +144,7 @@ impl SyncEngine {
         keys: &[String],
         entry: &LogEntry,
         target: Option<&SyncTarget>,
-        crypto: &dyn CryptoProvider,
+        _crypto: &dyn CryptoProvider,
     ) -> SyncResult<()> {
         let total = keys.len();
         let mut decoded: Vec<Vec<u8>> = Vec::with_capacity(total);
@@ -184,7 +164,7 @@ impl SyncEngine {
         if decoded.iter().any(|key| {
             std::str::from_utf8(key)
                 .ok()
-                .and_then(Self::legacy_physical_molecule_uuid)
+                .and_then(Self::physical_molecule_uuid)
                 .is_some()
         }) {
             return Err(SyncError::replay_refused(
@@ -194,34 +174,12 @@ impl SyncEngine {
                 ReplayCause::LegacyMoleculeDelete,
             ));
         }
-        let kv = self.store.open_namespace(namespace).await?;
-        let mut mutations = Vec::with_capacity(decoded.len() * 2);
-        let mut accepted = Vec::with_capacity(decoded.len());
         for key in &decoded {
-            match self
-                .prepare_replay_delete(&kv, namespace, key, entry, crypto)
-                .await?
-            {
-                ReplayDeleteDecision::Skip => {
-                    self.absorb_delete_or_warn(namespace, key, false, "batch delete")
-                        .await;
-                }
-                ReplayDeleteDecision::Apply { marker, mol_uuid } => {
-                    if let Some((marker_key, marker_value)) = marker {
-                        mutations.push(KvMutation::put(marker_key, marker_value));
-                    }
-                    if let Some(mol_uuid) = mol_uuid {
-                        Self::append_hash_range_index_delete(&mut mutations, key, &mol_uuid);
-                    }
-                    mutations.push(KvMutation::delete(key.clone()));
-                    accepted.push(key.clone());
-                }
-            }
+            crate::storage::current_keys::validate(namespace, key)?;
         }
-        if !mutations.is_empty() {
-            kv.batch_mutate(mutations).await?;
-        }
-        for key in accepted {
+        let kv = self.store.open_namespace(namespace).await?;
+        kv.batch_delete(decoded.clone()).await?;
+        for key in decoded {
             self.absorb_delete_or_warn(namespace, &key, true, "batch delete")
                 .await;
         }
@@ -243,6 +201,7 @@ impl SyncEngine {
             if let Ok(final_key) =
                 Self::rewrite_key_if_needed(&change.namespace, &change.key, target, op)
             {
+                crate::storage::current_keys::validate(&change.namespace, &final_key)?;
                 if Self::should_skip_org_scoped_replay_key(&final_key, target) {
                     continue;
                 }
@@ -251,7 +210,7 @@ impl SyncEngine {
                 } else {
                     std::str::from_utf8(&final_key)
                         .ok()
-                        .and_then(Self::legacy_physical_molecule_uuid)
+                        .and_then(Self::physical_molecule_uuid)
                         .is_some()
                 };
                 if blocked {

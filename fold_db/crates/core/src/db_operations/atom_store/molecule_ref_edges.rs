@@ -12,8 +12,6 @@ use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-mod bootstrap;
-
 const MOLECULE_REF_PREFIX: &str = "mref:v1:e:";
 const DATABASE_CATALOG_REF_PRESENT_KEY: &str = "mref:v1:m:database-catalog-present";
 pub const MOLECULE_REF_COMPLETE_KEY: &str = "mref:v1:complete";
@@ -132,11 +130,10 @@ impl AtomStore {
         Ok(self
             .molecule_ref_completeness(storage_prefix)
             .await?
-            .is_some_and(|proof| matches!(proof.version, 1 | 2)))
+            .is_some_and(|proof| proof.version == 2))
     }
 
     /// Native memory admission requires v2 and the native bit16 writer fence.
-    /// A legacy v1 marker retains its original liveness meaning only.
     pub async fn molecule_ref_edges_v2_complete(
         &self,
         storage_prefix: Option<&str>,

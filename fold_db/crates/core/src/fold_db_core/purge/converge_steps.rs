@@ -29,29 +29,12 @@ pub(super) async fn store_and_reload_converged_schema(
     Ok(schema_unchanged)
 }
 
-/// Tip-version chain keys (with their backrefs) and trailing edge keys that
-/// the molecule-key removal deletes together with the tips.
-pub(super) async fn converge_extra_and_trailing_keys(
-    db_ops: &Arc<DbOperations>,
-    plan: &ConvergePlan,
-) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), SchemaError> {
-    let tip_version_backref_keys = db_ops
-        .atoms()
-        .tip_version_backref_delete_keys_for_tv_keys(&plan.tip_version_keys)
-        .await?;
-    let mut extra_keys: Vec<Vec<u8>> = plan
-        .tip_version_keys
+/// Current tip-edge keys removed after their source tips.
+pub(super) fn converge_trailing_keys(plan: &ConvergePlan) -> Vec<Vec<u8>> {
+    plan.atom_ref_v2_edge_keys
         .iter()
         .map(|key| key.as_bytes().to_vec())
-        .collect();
-    extra_keys.extend(tip_version_backref_keys);
-    let trailing_keys: Vec<Vec<u8>> = plan
-        .atom_ref_edge_keys
-        .iter()
-        .chain(&plan.atom_ref_v2_edge_keys)
-        .map(|key| key.as_bytes().to_vec())
-        .collect();
-    Ok((extra_keys, trailing_keys))
+        .collect()
 }
 
 /// Write-ahead audit row, before anything is destroyed. Converge reclaims
@@ -75,7 +58,6 @@ pub(super) fn build_converge_ledger_entry(
     );
     ledger_entry.tips_removed = plan.removed_tip_keys.len() as u64;
     ledger_entry.records_converged = plan.keys.len() as u64;
-    ledger_entry.tip_versions_pruned = plan.tip_version_keys.len() as u64;
     ledger_entry.storage_keys_deleted =
         (plan.removed_tip_keys.len() + extra_key_count + trailing_key_count) as u64;
     ledger_entry

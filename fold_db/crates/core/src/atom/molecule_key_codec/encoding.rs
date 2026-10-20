@@ -1,7 +1,3 @@
-/// Character length of a [`HashKeyEncoding::BlindV1`] storage hash segment:
-/// 16 HMAC bytes in base64url without padding.
-pub(super) const BLIND_HASH_KEY_TOKEN_LEN: usize = 22;
-
 /// How API HashKeys are encoded into storage key segments.
 ///
 /// **Product default (env unset): [`Self::BlindV1`]** so fresh Mini installs
@@ -27,18 +23,11 @@ impl HashKeyEncoding {
     /// - **Unset** → [`Self::BlindV1`] (fresh install: encrypt keys from start)
     /// - `plain` → [`Self::Plain`]
     /// - `blind_v1` → [`Self::BlindV1`]
-    /// - Deprecated `migrating_blind_v1` → [`Self::BlindV1`] with warn
     #[must_use]
     pub fn from_env_or_default() -> Self {
         match std::env::var("LASTDB_HASH_KEY_ENCODING") {
             Ok(s) if s.eq_ignore_ascii_case("plain") => Self::Plain,
             Ok(s) if s.eq_ignore_ascii_case("blind_v1") => Self::BlindV1,
-            Ok(s) if s.eq_ignore_ascii_case("migrating_blind_v1") => {
-                tracing::warn!(
-                    "LASTDB_HASH_KEY_ENCODING=migrating_blind_v1 is removed; using blind_v1 (no dual-read)"
-                );
-                Self::BlindV1
-            }
             Ok(s) => {
                 tracing::warn!(
                     encoding = %s,
@@ -60,7 +49,7 @@ impl HashKeyEncoding {
 /// / HashRangePrefix work when scan *and* in-memory apply use storage-form
 /// bounds (see `expand_filter_range_bounds_for_apply`).
 ///
-/// Explicit `plain` remains for tests. No dual-read / `migrating_ope_v1`.
+/// Explicit `plain` remains a supported unencoded placement choice.
 ///
 /// [`Default`] for this enum stays [`Self::Plain`] for library `plain()` codecs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -78,18 +67,11 @@ impl RangeKeyEncoding {
     /// - **Unset** → [`Self::OpeV1`] (fresh install: encode ranges from start)
     /// - `plain` → [`Self::Plain`]
     /// - `ope_v1` → [`Self::OpeV1`]
-    /// - Deprecated `migrating_ope_v1` → [`Self::OpeV1`] with warn
     #[must_use]
     pub fn from_env_or_default() -> Self {
         match std::env::var("LASTDB_RANGE_KEY_ENCODING") {
             Ok(s) if s.eq_ignore_ascii_case("plain") => Self::Plain,
             Ok(s) if s.eq_ignore_ascii_case("ope_v1") => Self::OpeV1,
-            Ok(s) if s.eq_ignore_ascii_case("migrating_ope_v1") => {
-                tracing::warn!(
-                    "LASTDB_RANGE_KEY_ENCODING=migrating_ope_v1 is removed; using ope_v1 (no dual-read)"
-                );
-                Self::OpeV1
-            }
             Ok(s) => {
                 tracing::warn!(
                     encoding = %s,

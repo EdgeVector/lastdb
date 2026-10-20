@@ -16,7 +16,6 @@
 //! Each OPE key preserves range order within its own encoded range stream.
 
 use crate::crypto::E2eKeys;
-use crate::hex::hex_lower;
 
 /// Chokepoint: API HashKey/RangeKey → storage segments.
 ///
@@ -204,33 +203,6 @@ impl MoleculeKeyCodec {
         let h = self.storage_hash(molecule_uuid, api_hash)?;
         Ok(hash_range_scan_prefix_for_hash(molecule_uuid, &h))
     }
-
-    /// True when `segment` has the **shape** this codec's [`Self::storage_hash`]
-    /// produces for a non-empty API hash.
-    ///
-    /// Shape-only, and deliberately so: it exists to spot `mk:` hash segments
-    /// left behind in an OLDER encoding, so that a caller can ask whether the
-    /// current-encoding twin also exists. A blind token is HMAC-SHA256 → first
-    /// 16 bytes → base64url no pad, which is exactly 22 characters over
-    /// `[A-Za-z0-9_-]` (see [`E2eKeys::blind_hash_key`]).
-    ///
-    /// A plaintext key that happens to match that shape is reported as
-    /// storage-form and simply never gets the twin test. That direction is the
-    /// safe one: it leaves the row exactly as today's code treats it rather
-    /// than dropping something on a guess.
-    #[must_use]
-    pub fn looks_like_storage_hash(&self, segment: &str) -> bool {
-        match self.hash_encoding {
-            // Plain writes the API hash verbatim, so every segment is current form.
-            HashKeyEncoding::Plain => true,
-            HashKeyEncoding::BlindV1 => {
-                segment.len() == BLIND_HASH_KEY_TOKEN_LEN
-                    && segment
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-            }
-        }
-    }
 }
 
 /// Errors from [`MoleculeKeyCodec`].
@@ -270,45 +242,6 @@ pub const MOLECULE_GENERATION_POINTER_PREFIX: &str = "mgp:v1:";
 pub const MOLECULE_GENERATION_RECORD_PREFIX: &str = "mgr:v1:";
 /// Sparse post-generation slot deletions.
 pub const MOLECULE_GENERATION_DELETE_PREFIX: &str = "mgd:v1:";
-/// Sled key prefix for one entry of a molecule's append-only `update_order`
-/// log (HashRange only). Each entry is `mord:{M}:{seq}`; see [`order_entry_key`].
-pub const MORD_PREFIX: &str = "mord:";
-/// Sled key prefix for a molecule's append-only `update_order` count record
-/// (HashRange only) — the number of persisted `mord:{M}:*` entries. See
-/// [`order_count_key`].
-pub const MOC_PREFIX: &str = "moc:";
-/// Sled key prefix for the range-major secondary index over HashRange molecule
-/// records. The authoritative record remains `mk:{M}:{esc(hash)}\0{range}`;
-/// `mhr:{M}\0{esc(range)}\0{esc(hash)}` is a tiny derived marker used only to
-/// page a whole HashRange field in `(range, hash)` order without scanning all
-/// hash-major keys.
-const MHR_PREFIX: &str = "mhr:";
-/// Sled key prefix for the hash-major uniqueness marker over HashRange molecule
-/// records. `mhk:{M}:{esc(hash)}` stores a derived fast-path record only when a
-/// hash currently maps to one range; ambiguous hashes carry an ambiguous marker
-/// and fall back to the authoritative `mk:` prefix scan.
-const MHK_PREFIX: &str = "mhk:";
-/// Sled key prefix for the completion marker that says the range-major
-/// HashRange page index has been built for molecule `M`.
-const MHI_PREFIX: &str = "mhi:";
-/// Version tag for the completion marker, bumped whenever the page-index key
-/// shape changes so an already-indexed home rebuilds instead of trusting a
-/// marker that describes rows the live prefix can no longer see.
-///
-/// It sits *inside* [`MHI_PREFIX`] (`mhi:v2:{M}`) rather than replacing it
-/// (`mhi2:{M}`) on purpose: `MAIN_KEY_PREFIX_COLLECTIONS` and the mini-cutover
-/// classifier both route this row to `field_hashrange_complete` by matching the
-/// literal `"mhi:"`, so a sibling prefix would quietly land the marker in the
-/// default collection. Molecule uuids are 43-char base64url (or legacy 64-char
-/// hex) and never collide with the `v2:` tag.
-const MHI_VERSION_TAG: &str = "v2:";
-
-/// Width of the zero-padded sequence in an `mord:{M}:{seq}` key. 16 decimal
-/// digits hold up to ~10^16 entries — far beyond any realistic field
-/// cardinality — and the fixed width makes the raw Sled key order identical to
-/// the numeric insertion order (so a prefix scan reassembles `update_order` in
-/// order without parsing the seq).
-const ORDER_SEQ_WIDTH: usize = 16;
 
 const SEP: char = '\u{0}'; // hash↔range separator (never appears in esc(hash))
 const ESC: char = '\u{1}'; // escape byte for the hash segment
@@ -372,9 +305,9 @@ mod encoding;
 pub use encoding::*;
 mod generation_keys;
 pub use generation_keys::*;
-mod tip_keys;
-pub use tip_keys::*;
+mod history_keys;
+pub use history_keys::*;
 mod atom_ref_keys;
 pub use atom_ref_keys::*;
-mod order_keys;
-pub use order_keys::*;
+mod record_keys;
+pub use record_keys::*;

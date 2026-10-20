@@ -3,8 +3,7 @@ use super::*;
 impl AtomStore {
     /// Incremental budget/churn: tip bytes + bookkeeping + live-replace correction.
     ///
-    /// Must not GET the live store. Repair tests (and LastStore wrappers)
-    /// treat tip reads as observable; a metering GET would fire them.
+    /// Meter from the accepted source items without extra store reads.
     ///
     /// Two passes on purpose. Pass one binds each molecule to the schema that
     /// owns it, using the atom the tip points at; pass two meters. A batch
@@ -38,7 +37,7 @@ impl AtomStore {
             // measurer, so both count the same rows at the same size. The old
             // `contains("mord:")` / `contains("moc:")` test missed the
             // kind-anchored `mord\0` / `moc\0` rows (52 bytes on the
-            // schema_storage_is_scan_free fixture).
+            // measured source shape).
             let Some((row, row_molecule)) = molecule_key_codec::molecule_counter_row(key) else {
                 continue;
             };
@@ -144,7 +143,9 @@ impl AtomStore {
             .await;
         let tip_keys = tip_item_keys(&items);
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
-        let decisions = self.retain_durable_tip_winners(&mut items).await?;
+        let (decisions, blob_changes) = self
+            .retain_durable_tip_winners(&mut items, storage_prefix)
+            .await?;
         // The conflict rows reach disk before the tip. See `conflict_record`.
         // Boxed: the store future is already deep in the node's async graph,
         // and the recorder adds a second deep subtree.
@@ -159,7 +160,7 @@ impl AtomStore {
 
         refuse_legacy_ref_blob_store_items(&items)?;
         let accounted_items = items.clone();
-        self.batch_put_items_with_atom_ref_v2(items, storage_prefix)
+        self.batch_put_items_with_blob_roots(items, storage_prefix, blob_changes)
             .await
             .map_err(|e| {
                 SchemaError::InvalidData(format!(
@@ -281,7 +282,9 @@ impl AtomStore {
             .await;
         let tip_keys = tip_item_keys(&all_items);
         let _tip_guards = self.lock_tip_commits(&tip_keys).await;
-        let decisions = self.retain_durable_tip_winners(&mut all_items).await?;
+        let (decisions, blob_changes) = self
+            .retain_durable_tip_winners(&mut all_items, storage_prefix)
+            .await?;
         // The conflict rows reach disk before the tips. See `conflict_record`.
         if Self::has_conflicts_to_record(molecules, &decisions) {
             Box::pin(self.record_store_conflicts(molecules, decisions, storage_prefix)).await?;
@@ -293,7 +296,7 @@ impl AtomStore {
 
         refuse_legacy_ref_blob_store_items(&all_items)?;
         let accounted_items = all_items.clone();
-        self.batch_put_items_with_atom_ref_v2(all_items, storage_prefix)
+        self.batch_put_items_with_blob_roots(all_items, storage_prefix, blob_changes)
             .await
             .map_err(|e| {
                 SchemaError::InvalidData(format!(

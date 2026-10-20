@@ -89,7 +89,7 @@ async fn converge_planned(
     ),
 ) -> Result<BulkPurgeReport, SchemaError> {
     let (planned_barriers, tip_guards) = locks;
-    let (extra_keys, trailing_keys) = converge_extra_and_trailing_keys(db_ops, &plan).await?;
+    let trailing_keys = converge_trailing_keys(&plan);
     let batch_refs: Vec<_> = plan
         .owned_for_batch
         .iter()
@@ -99,13 +99,8 @@ async fn converge_planned(
         .collect();
 
     let step_started = std::time::Instant::now();
-    let ledger_entry = build_converge_ledger_entry(
-        caller,
-        schema_name,
-        &plan,
-        extra_keys.len(),
-        trailing_keys.len(),
-    );
+    let ledger_entry =
+        build_converge_ledger_entry(caller, schema_name, &plan, 0, trailing_keys.len());
     let ledger_started = std::time::Instant::now();
     let ledger_handle = db_ops
         .atoms()
@@ -126,7 +121,7 @@ async fn converge_planned(
     let batch_started = std::time::Instant::now();
     db_ops
         .atoms()
-        .remove_molecules_keys_with_extra_and_trailing_batch(&batch_refs, extra_keys, trailing_keys)
+        .remove_molecules_keys_with_extra_and_trailing_batch(&batch_refs, Vec::new(), trailing_keys)
         .await?;
     plan.timings.batch = batch_started.elapsed();
     plan.timings.remove = step_started.elapsed();
@@ -160,7 +155,7 @@ async fn converge_planned(
     Ok(finish_converge_report(
         schema_name,
         plan.keys.len(),
-        plan.tip_version_keys.len(),
+        0,
         plan.target_slots,
         schema_unchanged,
         &plan.timings,

@@ -1,16 +1,12 @@
-//! Durable atom reverse-reference edges.
-//!
-//! `mk:` tips and `tv:` history rows remain authoritative. `aref:` is a
-//! rebuildable shadow access pattern keyed by atom UUID. Writers place the
-//! authoritative row and its edge transition in one durable put batch. A
-//! two-pass rebuild uses a durable cursor and mutation watermark, then marks
-//! each molecule complete only after the replay pass leaves that molecule.
+//! Current exact atom references from live tips and mutation-history events.
+//! Writers store source changes and compact edge/count changes in one batch.
+//! Only the proven-empty constructor creates global completeness proofs.
 
 use super::{AtomStore, MoleculeData, PerKeyRecord};
 use crate::atom::{molecule_key_codec, AtomEntry, MutationEvent};
 use crate::clock::unix_nanos;
 use crate::db_operations::DbCatalogStore;
-use crate::schema::types::field::{build_storage_key, FilterUtils};
+use crate::schema::types::field::build_storage_key;
 use crate::schema::{Schema, SchemaError};
 use crate::storage::KvMutation;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -22,15 +18,8 @@ use std::collections::{BTreeSet, HashMap};
 mod catalog_refs;
 mod counts_pending;
 mod edge_keys;
-mod reindex;
-mod reindex_v1_upgrade;
 mod transitions;
-mod types;
-mod v1_drain;
-pub use types::*;
 
-pub const ATOM_REF_MANIFEST_VERSION_TIPS: u8 = 1;
-pub const ATOM_REF_MANIFEST_VERSION_HISTORY: u8 = 2;
 pub const ATOM_REF_V2_ACTIVE_MARKER: &[u8] = &[0x01];
 const ATOM_REF_V2_PREFIX: &str = "aref:v2:e:";
 const ATOM_LIVE_REFCOUNT_SUFFIX: &str = "!live-count";
@@ -39,15 +28,13 @@ const ATOM_REF_PENDING_PREFIX: &str = "aref:pending:v1:";
 const CATALOG_ATOM_REF_TRANSITIONS_KEY: &str = "aref:catalog-transitions:v1";
 const MOLECULE_CATALOG_REFCOUNT_PREFIX: &str = "mref:v1:c:database-catalog:";
 const ATOM_REF_V2_SOURCE_DOMAIN: &[u8] = b"lastdb:atom-ref-edge-source:v2\0";
-const ATOM_REF_V2_COMPLETE_MARKER: &[u8] = b"true";
-const ATOM_REF_V1_DRAIN_END: &str = "\u{10ffff}";
+pub(super) const ATOM_REF_V2_COMPLETE_MARKER: &[u8] = b"true";
 
 /// The durable row type that keeps an atom alive.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum AtomRefEdgeType {
     Tip,
-    TipVersion,
     MutationHistory,
 }
 
@@ -55,7 +42,6 @@ impl AtomRefEdgeType {
     fn key_name(self) -> &'static str {
         match self {
             Self::Tip => "tip",
-            Self::TipVersion => "tip-version",
             Self::MutationHistory => "mutation-history",
         }
     }
@@ -75,20 +61,6 @@ pub struct AtomRefEdge {
 }
 
 impl AtomRefEdge {
-    pub(crate) fn storage_key(&self, storage_prefix: Option<&str>) -> String {
-        build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::atom_ref_edge_key(
-                &self.atom_uuid,
-                self.edge_type.key_name(),
-                &self.molecule_uuid,
-                &self.disk_hash,
-                &self.disk_range,
-                &self.version_id,
-            ),
-        )
-    }
-
     /// Build the compact v2 key for this source relationship.
     pub fn storage_key_v2(&self, storage_prefix: Option<&str>) -> Result<String, SchemaError> {
         let atom_token = atom_content_sha256_token(&self.atom_uuid)?;
@@ -104,12 +76,7 @@ impl AtomRefEdge {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AtomLiveRefCount {
     pub live_refs: u64,
-    #[serde(default = "atom_live_ref_count_exact")]
     pub exact: bool,
-}
-
-fn atom_live_ref_count_exact() -> bool {
-    true
 }
 
 impl Default for AtomLiveRefCount {
@@ -220,15 +187,17 @@ fn stable_token(bytes: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
 }
 
-pub(super) fn atom_live_ref_count_key(atom_uuid: &str, storage_prefix: Option<&str>) -> String {
-    build_storage_key(
+pub(super) fn atom_live_ref_count_key(
+    atom_uuid: &str,
+    storage_prefix: Option<&str>,
+) -> Result<String, SchemaError> {
+    Ok(build_storage_key(
         storage_prefix,
         &format!(
             "{ATOM_REF_V2_PREFIX}{}\0{ATOM_LIVE_REFCOUNT_SUFFIX}",
-            atom_content_sha256_token(atom_uuid)
-                .unwrap_or_else(|_| stable_token(atom_uuid.as_bytes()))
+            atom_content_sha256_token(atom_uuid)?
         ),
-    )
+    ))
 }
 
 fn molecule_catalog_ref_count_key(molecule_uuid: &str, storage_prefix: Option<&str>) -> String {
@@ -284,26 +253,8 @@ fn tip_edge(
         molecule_uuid: molecule_uuid.to_string(),
         disk_hash: disk_hash.to_string(),
         disk_range: disk_range.to_string(),
-        version_id: tip_version_identity(entry),
+        version_id: tip_edge_identity(entry),
         active,
-    }
-}
-
-fn history_edge(
-    molecule_uuid: &str,
-    disk_hash: &str,
-    disk_range: &str,
-    version_id: &str,
-    entry: &AtomEntry,
-) -> AtomRefEdge {
-    AtomRefEdge {
-        atom_uuid: entry.atom_uuid.clone(),
-        edge_type: AtomRefEdgeType::TipVersion,
-        molecule_uuid: molecule_uuid.to_string(),
-        disk_hash: disk_hash.to_string(),
-        disk_range: disk_range.to_string(),
-        version_id: version_id.to_string(),
-        active: true,
     }
 }
 
@@ -336,7 +287,7 @@ pub(crate) fn mutation_history_edge_items(
     mutation_history_edges(event_key, event)
         .into_iter()
         .map(|edge| {
-            let key = edge.storage_key(storage_prefix);
+            let key = edge.storage_key_v2(storage_prefix)?;
             let value = serde_json::to_value(edge).map_err(|e| {
                 SchemaError::InvalidData(format!("serialize mutation-history atom edge: {e}"))
             })?;
@@ -345,7 +296,7 @@ pub(crate) fn mutation_history_edge_items(
         .collect()
 }
 
-fn tip_version_identity(entry: &AtomEntry) -> String {
+fn tip_edge_identity(entry: &AtomEntry) -> String {
     format!(
         "{:020}:{}:{}",
         entry.written_at,
@@ -359,35 +310,10 @@ fn push_edge_item(
     edge: AtomRefEdge,
     storage_prefix: Option<&str>,
 ) -> Result<(), SchemaError> {
-    let key = edge.storage_key(storage_prefix);
+    let key = edge.storage_key_v2(storage_prefix)?;
     let value = serde_json::to_value(edge)
         .map_err(|e| SchemaError::InvalidData(format!("serialize atom reverse edge: {e}")))?;
     items.push((key, value));
-    Ok(())
-}
-
-fn push_manifest_item_with_version(
-    items: &mut Vec<(String, Value)>,
-    molecule_uuid: &str,
-    mutation_watermark_nanos: u64,
-    replay_complete: bool,
-    version: u8,
-    storage_prefix: Option<&str>,
-) -> Result<(), SchemaError> {
-    let manifest = AtomRefMoleculeManifest {
-        version,
-        molecule_uuid: molecule_uuid.to_string(),
-        mutation_watermark_nanos,
-        replay_complete,
-    };
-    items.push((
-        build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::atom_ref_molecule_manifest_key(molecule_uuid),
-        ),
-        serde_json::to_value(manifest)
-            .map_err(|e| SchemaError::InvalidData(format!("serialize atom edge manifest: {e}")))?,
-    ));
     Ok(())
 }
 
@@ -401,10 +327,11 @@ fn strip_storage_prefix<'a>(storage_prefix: Option<&str>, full_key: &'a str) -> 
 struct CompactEdgePlan {
     active_edges: HashMap<Vec<u8>, AtomRefEdge>,
     inactive_edges: HashMap<Vec<u8>, AtomRefEdge>,
-    converted_v1_keys: BTreeSet<String>,
+    source_edge_keys: BTreeSet<String>,
 }
 
-fn is_v1_atom_ref_edge_key(key: &str, storage_prefix: Option<&str>) -> bool {
-    strip_storage_prefix(storage_prefix, key)
-        .is_some_and(|base_key| base_key.starts_with(molecule_key_codec::ATOM_REF_EDGE_PREFIX))
+fn is_atom_ref_edge_item_key(key: &str, storage_prefix: Option<&str>) -> bool {
+    strip_storage_prefix(storage_prefix, key).is_some_and(|base_key| {
+        base_key.starts_with(ATOM_REF_V2_PREFIX) && !is_atom_live_ref_count_key(base_key.as_bytes())
+    })
 }

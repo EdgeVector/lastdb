@@ -1,6 +1,9 @@
 //! Namespace restore, namespace scan and key-ownership helpers for snapshots.
 
 use super::*;
+mod blob_roots;
+mod proofs;
+pub(super) use proofs::{begin_reference_restore, finish_reference_restore};
 
 #[derive(Clone, Copy)]
 pub(super) enum RestoreMode<'a> {
@@ -21,27 +24,37 @@ pub(super) async fn restore_namespace(
     mode: RestoreMode<'_>,
 ) -> SyncResult<NamespaceRestoreResult> {
     let kv = store.open_namespace(&namespace.name).await?;
-    let existing = kv.scan_prefix(&[]).await?;
-    let keys: Vec<Vec<u8>> = existing
-        .into_iter()
-        .map(|(key, _)| key)
-        .filter(|key| match mode {
-            RestoreMode::Personal => !is_org_scoped_key_bytes(key),
-            RestoreMode::Scoped(prefixes) => key_belongs_to_any_target(key, prefixes),
-        })
-        .collect();
-    if !keys.is_empty() {
-        kv.batch_delete(keys).await?;
-    }
-
-    let mut report = NamespaceRestoreResult::default();
+    let existing = namespace_rows(kv.as_ref()).await?;
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-    for chunk in namespace.entries.chunks(RESTORE_BATCH_SIZE) {
-        let mut items = Vec::with_capacity(chunk.len());
-        for entry in chunk {
+    let decoded = namespace
+        .entries
+        .iter()
+        .map(|entry| {
             let key = BASE64.decode(&entry.key).map_err(|error| {
                 SyncError::Serialization(format!("invalid key base64: {error}"))
             })?;
+            let value = BASE64.decode(&entry.value).map_err(|error| {
+                SyncError::Serialization(format!("invalid value base64: {error}"))
+            })?;
+            Ok((key, value))
+        })
+        .collect::<SyncResult<Vec<_>>>()?;
+    let is_main = namespace.name == "main";
+    blob_roots::clear_existing(store, &kv, existing, mode, is_main).await?;
+    if is_main {
+        blob_roots::prepare_incoming(store, &decoded, mode).await?;
+    }
+    let mut report = NamespaceRestoreResult::default();
+    for chunk in decoded.chunks(128) {
+        let mut items = Vec::with_capacity(chunk.len());
+        for (key, value) in chunk {
+            let key = key.clone();
+            if is_main
+                && (proofs::is_reference_proof(&key)
+                    || crate::db_operations::atom_store::BlobRefEdge::is_target_key(&key))
+            {
+                continue;
+            }
             // Node-local rows never travel in a snapshot: the peer-apply row
             // (the restoring node writes its own `seen` after the install) and
             // the `gcatoms-*` probe checkpoints and markers, which describe the
@@ -54,17 +67,16 @@ pub(super) async fn restore_namespace(
                     report.org_skipped = report.org_skipped.saturating_add(1);
                     continue;
                 }
-                RestoreMode::Scoped(prefixes) if !key_belongs_to_any_target(&key, prefixes) => {
+                RestoreMode::Scoped(prefixes)
+                    if !namespace_key_belongs_to_any_target(&key, prefixes, is_main) =>
+                {
                     return Err(SyncError::Serialization(
                         "scoped snapshot contained an out-of-scope key".to_string(),
                     ));
                 }
                 _ => {}
             }
-            let value = BASE64.decode(&entry.value).map_err(|error| {
-                SyncError::Serialization(format!("invalid value base64: {error}"))
-            })?;
-            items.push((key, value));
+            items.push((key, value.clone()));
         }
         if !items.is_empty() {
             report.entries = report.entries.saturating_add(items.len());
@@ -75,19 +87,27 @@ pub(super) async fn restore_namespace(
     Ok(report)
 }
 
-pub(super) fn elapsed_ms(started: Instant) -> u64 {
-    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+async fn namespace_rows(kv: &dyn crate::storage::KvStore) -> SyncResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut cursor: Option<crate::storage::traits::PhysicalScanCursor> = None;
+    let mut rows = Vec::new();
+    loop {
+        let page = kv
+            .scan_range_physical_paged(b"", b"\xff", cursor.as_ref(), 128, 1)
+            .await?;
+        rows.extend(page.rows);
+        let Some(next) = page.next_cursor else { break };
+        if cursor.as_ref() == Some(&next) {
+            return Err(SyncError::Serialization(
+                "snapshot namespace walk did not advance".into(),
+            ));
+        }
+        cursor = Some(next);
+    }
+    Ok(rows)
 }
 
-/// A whole-store photograph fails on the first unreadable row. Name the
-/// namespace in the error: the at-rest codec error carries no row identity,
-/// and without it an operator cannot find the row that blocks every
-/// compaction (the 2026-09-29 primary failed 44 times with no clue).
-pub(super) fn namespace_scan_error(
-    ns_name: &str,
-    e: &crate::storage::error::StorageError,
-) -> SyncError {
-    SyncError::Storage(format!("snapshot scan of namespace '{ns_name}': {e}"))
+pub(super) fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 pub(super) async fn collect_snapshot_namespaces(
@@ -96,6 +116,8 @@ pub(super) async fn collect_snapshot_namespaces(
 ) -> SyncResult<Vec<NamespaceData>> {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
+    let runtime = store.disk_pack_runtime();
+    let boundary = runtime.as_ref().map(|runtime| runtime.snapshot_boundary());
     let ns_names = store.list_namespaces().await?;
     let mut namespaces = Vec::with_capacity(ns_names.len());
 
@@ -106,10 +128,8 @@ pub(super) async fn collect_snapshot_namespaces(
 
         let kv = store.open_namespace(ns_name).await?;
         let entries = match &mode {
-            SnapshotNamespaceMode::All => kv
-                .scan_prefix(&[])
-                .await
-                .map_err(|e| namespace_scan_error(ns_name, &e))?
+            SnapshotNamespaceMode::All => namespace_rows(kv.as_ref())
+                .await?
                 .into_iter()
                 .filter(|(k, _)| !crate::sync::policy::is_node_local_gc_scratch_key(k))
                 .map(|(k, v)| SnapshotEntry {
@@ -117,12 +137,12 @@ pub(super) async fn collect_snapshot_namespaces(
                     value: BASE64.encode(&v),
                 })
                 .collect(),
-            SnapshotNamespaceMode::Scoped(target_prefixes) => kv
-                .scan_prefix(&[])
-                .await
-                .map_err(|e| namespace_scan_error(ns_name, &e))?
+            SnapshotNamespaceMode::Scoped(target_prefixes) => namespace_rows(kv.as_ref())
+                .await?
                 .into_iter()
-                .filter(|(k, _)| key_belongs_to_any_target(k, target_prefixes))
+                .filter(|(k, _)| {
+                    namespace_key_belongs_to_any_target(k, target_prefixes, ns_name == "main")
+                })
                 .map(|(k, v)| SnapshotEntry {
                     key: BASE64.encode(&k),
                     value: BASE64.encode(&v),
@@ -136,6 +156,11 @@ pub(super) async fn collect_snapshot_namespaces(
         });
     }
 
+    if runtime.as_ref().map(|runtime| runtime.snapshot_boundary()) != boundary {
+        return Err(SyncError::Storage(
+            "native data changed during the snapshot; no complete backup was created".into(),
+        ));
+    }
     Ok(namespaces)
 }
 
@@ -146,6 +171,24 @@ pub(super) fn is_org_scoped_key_bytes(key: &[u8]) -> bool {
         .ok()
         .and_then(storage_prefix_for_key)
         .is_some()
+}
+
+pub(super) fn namespace_key_belongs_to_any_target(
+    key: &[u8],
+    target_prefixes: &[String],
+    is_main: bool,
+) -> bool {
+    if is_main {
+        return std::str::from_utf8(key)
+            .ok()
+            .and_then(|key| {
+                crate::storage::current_keys::exact_scope(key)
+                    .ok()
+                    .flatten()
+            })
+            .is_some_and(|scope| target_prefixes.iter().any(|prefix| prefix == scope));
+    }
+    key_belongs_to_any_target(key, target_prefixes)
 }
 
 pub(super) fn key_belongs_to_any_target(key: &[u8], target_prefixes: &[String]) -> bool {

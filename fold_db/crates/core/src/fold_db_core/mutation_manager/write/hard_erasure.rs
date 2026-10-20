@@ -64,9 +64,13 @@ impl MutationManager {
         ),
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<PurgeEnqueue, SchemaError> {
-        let (schema, mut job, purge_bytes) = self
-            .prepare_schema_purge_job(&schema_name, schema_erasures, storage_prefix, missing, verb)
-            .await?;
+        let (schema, mut job, purge_bytes) = self.prepare_schema_purge_job(
+            &schema_name,
+            schema_erasures,
+            storage_prefix,
+            missing,
+            verb,
+        )?;
         let lane_key =
             crate::resident::PersistLaneKey::new(storage_prefix.unwrap_or(""), schema_name.clone());
         let reservation = self
@@ -121,7 +125,7 @@ impl MutationManager {
     }
 
     /// Prepare one schema's cleanup facts without an enqueue or a lane wait.
-    pub(in crate::fold_db_core::mutation_manager) async fn prepare_schema_purge_job(
+    pub(in crate::fold_db_core::mutation_manager) fn prepare_schema_purge_job(
         &self,
         schema_name: &str,
         erasures: Vec<Mutation>,
@@ -136,9 +140,7 @@ impl MutationManager {
         ),
         SchemaError,
     > {
-        let (schema, plan) = self
-            .plan_schema_purge(schema_name, &erasures, storage_prefix, verb)
-            .await?;
+        let (schema, plan) = self.plan_schema_purge(schema_name, &erasures, storage_prefix)?;
         let job = super::super::molecules::PurgeEnvelope {
             author_clock_barrier: None,
             erasures,
@@ -149,7 +151,6 @@ impl MutationManager {
             search_batch: plan.search_batch,
             retention_keys: plan.retention_keys,
             verb,
-            guarded_complement_retained: plan.guarded_complement_retained,
             completion: None,
             pending_completion: None,
         };
@@ -158,12 +159,11 @@ impl MutationManager {
 
     /// Load and validate the schema, then compute everything the purge
     /// envelope needs before it occupies a persist slot.
-    async fn plan_schema_purge(
+    fn plan_schema_purge(
         &self,
         schema_name: &str,
         schema_erasures: &[Mutation],
         storage_prefix: Option<&str>,
-        verb: super::super::super::purge::HardEraseVerb,
     ) -> Result<(crate::schema::Schema, SchemaPurgePlan), SchemaError> {
         let mut schema = self
             .schema_manager
@@ -203,48 +203,12 @@ impl MutationManager {
                     .and_then(|batch| serde_json::to_vec(batch).ok())
                     .map_or(0, |body| body.len() as u64),
             );
-        // Walk retained chains on this thread, before occupying a persist
-        // slot. The persist worker only commits. A one-record complement
-        // walk on the worker froze LastgitCiStatus for ~328 s and 503'd
-        // every merge writer (2026-09-04).
-        // Both Delete forms only converge tips. Their preconditions do not
-        // require the physical Purge's atom-ref manifest or history upgrade.
-        let atom_ref_cutover = if verb.is_delete() {
-            false
-        } else {
-            super::super::super::purge::atom_ref_cutover_ready(&self.db_ops, &schema).await?
-        };
-        let guarded_complement_retained = if !verb.is_delete() && !atom_ref_cutover {
-            let keys: Vec<crate::schema::types::KeyValue> = schema_erasures
-                .iter()
-                .map(|mutation| mutation.key_value.clone())
-                .collect();
-            Some(
-                super::super::super::purge::plan_guarded_complement_retained(
-                    super::super::super::purge::PurgeScope {
-                        db_ops: &self.db_ops,
-                        schema_manager: &self.schema_manager,
-                        schema_name,
-                        storage_prefix,
-                    },
-                    &keys,
-                )
-                .await?,
-            )
-        } else {
-            None
-        };
-        let purge_bytes = serialized_purge_bytes
-            .saturating_add(estimate_retained_atom_set_bytes(
-                guarded_complement_retained.as_ref(),
-            ))
-            .max(1);
+        let purge_bytes = serialized_purge_bytes.max(1);
         Ok((
             schema,
             SchemaPurgePlan {
                 search_batch,
                 retention_keys,
-                guarded_complement_retained,
                 purge_bytes,
             },
         ))
@@ -277,7 +241,6 @@ impl MutationManager {
 struct SchemaPurgePlan {
     search_batch: Option<crate::db_operations::search_index::IndexChangeBatch>,
     retention_keys: Option<Vec<crate::schema::types::KeyValue>>,
-    guarded_complement_retained: Option<HashSet<String>>,
     purge_bytes: u64,
 }
 

@@ -28,24 +28,8 @@ pub const ATOM_PREFIX: &str = "atom:";
 /// Env var selecting the atom storage-key encoding.
 pub const ATOM_KEY_ENCODING_ENV: &str = "LASTDB_ATOM_KEY_ENCODING";
 
-/// Durable record, in the home, of the encoding this store's atom bodies are
-/// written under. A sibling of [`crate::db_operations::ATOM_PARTITION_REKEY_CHECKPOINT_KEY`]
-/// in the `main` namespace, stamped on every boot that resolves to
-/// [`AtomKeyEncoding::PartitionPrefix`].
-///
-/// Deliberately store-wide rather than per-`storage_prefix`: the encoding is one
-/// property of the [`crate::db_operations::AtomStore`], not of an org scope.
-pub const ATOM_KEY_ENCODING_MARKER_KEY: &str = "amigr:atom_key_encoding_v1";
-
-/// Escape hatch for the boot gate: set to `1`/`true` to serve a home that holds
-/// prefixed keys under [`AtomKeyEncoding::Flat`] anyway.
-///
-/// Exists so a deliberate diagnostic (or a rollback that genuinely wants the
-/// flat view) stays possible, while the *accidental* env-less boot — the case
-/// that silently truncated reads — fails loudly. Serving short pages is wrong
-/// however `Flat` was arrived at, so this override is required even when the
-/// operator spelled `flat` out explicitly.
-pub const ATOM_KEY_ENCODING_ALLOW_FLAT_ENV: &str = "LASTDB_ALLOW_FLAT_ON_PREFIXED_HOME";
+/// Exact atom placement policy recorded when a fresh home is created.
+pub const ATOM_KEY_ENCODING_MARKER_KEY: &str = "layout:v2:atoms";
 
 /// Marker value stored at [`ATOM_KEY_ENCODING_MARKER_KEY`].
 ///
@@ -57,23 +41,16 @@ pub struct AtomKeyEncodingMarker {
     /// [`AtomKeyEncoding::as_marker_str`].
     pub encoding: String,
     /// Unix seconds when this home was first stamped with `encoding`.
-    #[serde(default)]
     pub stamped_at_unix: u64,
 }
 
-/// How an atom body's storage key is built.
-///
-/// [`Default`] is [`Self::Flat`] — the shipped shape. Unlike
-/// [`crate::atom::HashKeyEncoding`] / [`crate::atom::RangeKeyEncoding`], whose
-/// defaults flipped to the encoded form for fresh installs, this one stays flat
-/// until the migration exists: changing it rewrites where existing bodies live,
-/// and a home that half-flipped would read `None` for every unmigrated row.
+/// Current atom placement policy. The home fixes this policy at creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AtomKeyEncoding {
-    /// `atom:{uuid}` — no locality prefix. Every shipped home.
+    /// `atom\0{uuid}` — the current flat layout.
     #[default]
     Flat,
-    /// `atom:{partition}{uuid}` — body co-located with its partition's tips.
+    /// `atom:mk:{M}:{escaped_hash}\0{uuid}` for a known owning slot.
     PartitionPrefix,
 }
 
@@ -100,35 +77,14 @@ impl AtomKeyEncoding {
         }
     }
 
-    /// The explicit operator override from [`ATOM_KEY_ENCODING_ENV`], if any.
-    ///
-    /// `None` means "the environment said nothing" — the caller falls through to
-    /// the home marker. An *unknown* value is also `None`, with a warn: a
-    /// typo must not be read as a decision, and falling through to the marker
-    /// keeps a migrated home readable where the old
-    /// silently-coerce-to-`Flat` behaviour truncated it.
-    #[must_use]
-    pub fn from_env() -> Option<Self> {
-        match std::env::var(ATOM_KEY_ENCODING_ENV) {
-            Ok(s) => Self::from_marker_str(&s).or_else(|| {
-                tracing::warn!(
-                    encoding = %s,
-                    "unknown {ATOM_KEY_ENCODING_ENV}; falling through to the home marker"
-                );
-                None
-            }),
-            Err(_) => None,
-        }
-    }
-
-    /// [`Self::from_env`] with the bare default, for call sites with no home to
-    /// consult (test constructors, and the pre-resolution seed in
-    /// [`crate::db_operations::AtomStore`], which
-    /// [`crate::db_operations::AtomStore::resolve_boot_encoding`] then corrects
-    /// against the home).
+    /// The requested placement policy before the home marker is available.
+    /// The store constructor validates the setting before it serves data.
     #[must_use]
     pub fn from_env_or_default() -> Self {
-        Self::from_env().unwrap_or_default()
+        std::env::var(ATOM_KEY_ENCODING_ENV)
+            .ok()
+            .and_then(|value| Self::from_marker_str(&value))
+            .unwrap_or_default()
     }
 
     /// Whether this encoding co-locates bodies with their partition's tips.
@@ -168,7 +124,7 @@ impl AtomPartition {
     pub fn molecule_uuid(&self) -> Option<&str> {
         let rest = self.0.strip_prefix(molecule_key_codec::MK_PREFIX)?;
         let (molecule_uuid, _) = rest.split_once(':')?;
-        (!molecule_uuid.is_empty()).then_some(molecule_uuid)
+        super::molecule_uuid::is_canonical_molecule_uuid(molecule_uuid).then_some(molecule_uuid)
     }
 
     /// The partition of the per-key record stored at `record_key`.
@@ -190,16 +146,16 @@ impl AtomPartition {
             return None;
         }
         let end = record_key.find(molecule_key_codec::PARTITION_SEP)?;
-        Some(Self(record_key[..=end].to_string()))
+        Self::from_prefix(&record_key[..=end])
     }
 
     /// Rebuild a partition from its stored string form (a locator value).
     ///
     /// Validates the shape rather than trusting it: a partition is
     /// `mk:{M}:{esc(hash)}\0` — `mk:`-prefixed, separator-terminated, and
-    /// carrying exactly one separator (the hash segment is byte-stuffed, so a
-    /// second one means the value is not a partition prefix). Anything else is
-    /// `None`, which degrades to the flat key.
+    /// carrying a canonical molecule UUID and exactly one separator (the hash
+    /// segment is byte-stuffed, so a second one is not a partition prefix).
+    /// A malformed prefix returns `None`.
     #[must_use]
     pub fn from_prefix(prefix: &str) -> Option<Self> {
         let sep = molecule_key_codec::PARTITION_SEP;
@@ -209,7 +165,10 @@ impl AtomPartition {
         {
             return None;
         }
-        Some(Self(prefix.to_string()))
+        let rest = prefix.strip_prefix(molecule_key_codec::MK_PREFIX)?;
+        let (molecule_uuid, _) = rest.split_once(':')?;
+        super::molecule_uuid::is_canonical_molecule_uuid(molecule_uuid)
+            .then(|| Self(prefix.to_string()))
     }
 
     /// The prefix, separator included.
@@ -220,7 +179,6 @@ impl AtomPartition {
 }
 
 /// The unpartitioned body key `atom\0{uuid}` — kind-as-partition write form.
-/// Dual-read still resolves the colon form `atom:{uuid}`.
 #[must_use]
 pub fn flat_key(atom_uuid: &str) -> String {
     crate::kind_partition::anchored("atom", atom_uuid)

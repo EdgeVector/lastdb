@@ -144,14 +144,6 @@ impl AtomStore {
             }
             return Ok(());
         }
-        // A conflict loser or history atom can hold only a legacy v1 edge,
-        // which the v2 read above cannot see.
-        if self
-            .legacy_edge_keeps_candidate(&candidate, storage_prefix, options, report)
-            .await?
-        {
-            return Ok(());
-        }
         if self
             .has_any_pending_atom_refs(&atom_uuid, storage_prefix)
             .await?
@@ -231,43 +223,6 @@ impl AtomStore {
                     .is_none_or(|id| candidate.audit_is_from(id))
                 && candidate.audit_clears_delete()
         }))
-    }
-
-    /// The second edge guard. An active legacy v1 edge keeps the atom (and
-    /// cancels the candidate, like a v2 edge). An edge that cannot be read keeps
-    /// the atom and its candidate row: it is never a pass. `true` means the
-    /// candidate is kept and the caller returns.
-    async fn legacy_edge_keeps_candidate(
-        &self,
-        candidate: &AtomGcCandidate,
-        storage_prefix: Option<&str>,
-        options: &AtomGcReapOptions,
-        report: &mut AtomGcReapReport,
-    ) -> Result<bool, SchemaError> {
-        match self
-            .has_active_legacy_atom_ref_edge(&candidate.atom_uuid, storage_prefix)
-            .await
-        {
-            Ok(false) => Ok(false),
-            Ok(true) => {
-                report.cancelled_positive_count = report.cancelled_positive_count.saturating_add(1);
-                if !options.dry_run {
-                    self.delete_atom_gc_candidate(candidate, storage_prefix)
-                        .await?;
-                }
-                Ok(true)
-            }
-            Err(error) => {
-                tracing::warn!(
-                    atom_uuid = %candidate.atom_uuid,
-                    %error,
-                    "atom GC kept a candidate whose legacy edges could not be read"
-                );
-                report.retained_pending_reference =
-                    report.retained_pending_reference.saturating_add(1);
-                Ok(true)
-            }
-        }
     }
 
     /// Flush the deletes and optionally compact the atom plane.

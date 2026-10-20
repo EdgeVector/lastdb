@@ -159,28 +159,6 @@ impl FoldDB {
         self.sync_coordinator.engine()
     }
 
-    /// Stamp the compact reverse-edge completion markers on a brand-new,
-    /// empty home so automatic `gc-atoms` can delete on it. The caller is the
-    /// one boot that created the home. Best effort: returns `false` when the
-    /// home is not provably empty or on any error, and never fails boot.
-    pub async fn stamp_fresh_home_atom_ref_markers(&self) -> bool {
-        self.db_ops
-            .atoms()
-            .stamp_fresh_home_atom_ref_markers()
-            .await
-    }
-
-    /// Stamp the peer-apply row `never` on a brand-new, empty home. The caller
-    /// is the one boot that created the home. Best effort: `false` when the
-    /// home is not provably new or on any error (the state then stays
-    /// `unknown`), and it never fails boot.
-    pub async fn stamp_peer_apply_never_on_new_home(&self) -> bool {
-        self.db_ops
-            .atoms()
-            .stamp_peer_apply_never_on_new_home()
-            .await
-    }
-
     /// Record that this home holds data from a peer or a restore. Called at
     /// boot for a home that a restore finished. Durable before it returns.
     pub async fn mark_peer_apply_seen(&self) -> Result<(), crate::schema::SchemaError> {

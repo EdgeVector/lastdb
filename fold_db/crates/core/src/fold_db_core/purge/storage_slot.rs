@@ -17,7 +17,6 @@ pub struct StorageSlotPurgeTarget {
     field_name: String,
     molecule_uuid: String,
     storage_key: KeyValue,
-    expected_tombstone: Option<String>,
 }
 
 impl StorageSlotPurgeTarget {
@@ -31,13 +30,7 @@ impl StorageSlotPurgeTarget {
             field_name: field_name.into(),
             molecule_uuid: molecule_uuid.into(),
             storage_key: KeyValue::new(Some(storage_hash.into()), Some(storage_range.into())),
-            expected_tombstone: None,
         }
-    }
-
-    pub(in crate::fold_db_core) fn with_expected_tombstone(mut self, atom_uuid: String) -> Self {
-        self.expected_tombstone = Some(atom_uuid);
-        self
     }
 
     pub(in crate::fold_db_core) fn storage_record_key(&self) -> String {
@@ -58,11 +51,6 @@ impl StorageSlotPurgeTarget {
                 .saturating_add(self.storage_key.range.as_deref().map_or(0, str::len)),
         )
         .unwrap_or(u64::MAX)
-        .saturating_add(
-            self.expected_tombstone
-                .as_ref()
-                .map_or(0, |uuid| uuid.len() as u64),
-        )
     }
 }
 
@@ -146,18 +134,6 @@ pub(in crate::fold_db_core) struct PlannedStorageSlot {
     pub(super) disk_range: String,
 }
 
-pub(in crate::fold_db_core) type StorageSlotIdentity = (String, String, String);
-
-impl PlannedStorageSlot {
-    pub(super) fn identity(&self) -> StorageSlotIdentity {
-        (
-            self.molecule_uuid.clone(),
-            self.disk_hash.clone(),
-            self.disk_range.clone(),
-        )
-    }
-}
-
 /// Schema-wide work that a storage-slot purge needs once, not once per barrier
 /// chunk.
 ///
@@ -202,10 +178,9 @@ pub(in crate::fold_db_core) async fn prepare_storage_slot_purge(
         })?;
     refresh_runtime_field_molecules(db_ops, &mut schema).await?;
 
-    // A storage cursor cannot correlate a BlindV1/OpeV1 slot to plaintext
-    // legacy `history:` FieldKeys. Preserve every history row and every atom it
-    // names instead of guessing. Current stores use `tv:` chains; this is the
-    // conservative legacy fallback required for safe owner scans.
+    // Encoded storage slots cannot identify plaintext mutation-history keys.
+    // Preserve those events and their atoms; current reverse references remain
+    // the final authority for body deletion.
     let mut history_referenced_by_retained = HashSet::new();
     for field in schema.runtime_fields.values() {
         let Some(molecule_uuid) = field.common().molecule_uuid() else {
@@ -276,14 +251,11 @@ pub(in crate::fold_db_core) async fn purge_storage_slots_bulk(
     let purge = GuardedPurge {
         candidate_atoms: plan.candidate_atoms,
         history_keys: Vec::new(),
-        tip_version_keys: plan.tip_version_keys,
-        atom_ref_edge_keys: Vec::new(),
         atom_ref_v2_edge_keys: plan.atom_ref_v2_edge_keys,
         history_referenced_by_retained,
         records_purged: plan.planned.len(),
         mode: PurgeMode {
             reachability: PurgeReachability::GuardedComplement,
-            precomputed_retained: None,
             caller: "mutation-pipeline",
         },
     };

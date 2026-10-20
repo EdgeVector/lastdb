@@ -40,6 +40,16 @@ pub(super) struct NativeReadView {
 }
 
 impl PackRuntime {
+    /// Detect accepted writes and durable root changes across a paged backup.
+    pub(crate) fn snapshot_boundary(&self) -> (u64, u64, u64) {
+        let view = self.view.read().expect("native snapshot boundary");
+        (
+            view.revision,
+            view.current.generation,
+            view.current.frontier,
+        )
+    }
+
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         let view = self.view.read().expect("native disk status view");

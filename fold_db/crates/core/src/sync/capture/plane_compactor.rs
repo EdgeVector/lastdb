@@ -31,7 +31,7 @@ use super::worker::{
     overhang_bps, overhang_ratio_met, overhang_trigger_met, photograph_compact_budget_exhausted,
     raise_plane_floor, ChurnPlaneTrigger, PhotographDirtyPlane, PhotographPlaneKind,
     ATOMS_NAMESPACE, CAPTURE_REEXPORT_NAMESPACE, LARGE_CAPTURED_SELF_COMPACT_PLANES,
-    LOCATOR_NAMESPACE, ORDER_LOG_NAMESPACE, TIPS_NAMESPACE,
+    LOCATOR_NAMESPACE, TIPS_NAMESPACE,
 };
 use super::{ResidualPlaneTrigger, RESIDUAL_SELF_COMPACT_PLANES};
 use crate::storage::traits::NamespacedStore;
@@ -266,26 +266,15 @@ impl PlaneCompactor {
                     (*plane, trigger)
                 })
                 .collect(),
-            large_captured_plane_triggers: [
-                (
-                    ATOMS_NAMESPACE,
-                    ResidualPlaneTrigger::new(
-                        super::atoms_compact_min_overhang_bps(),
-                        super::atoms_compact_min_overhang_bytes(),
-                        super::atoms_compact_max_bytes(),
-                        super::large_captured_plane_probe_interval_s(),
-                    ),
+            large_captured_plane_triggers: [(
+                ATOMS_NAMESPACE,
+                ResidualPlaneTrigger::new(
+                    super::atoms_compact_min_overhang_bps(),
+                    super::atoms_compact_min_overhang_bytes(),
+                    super::atoms_compact_max_bytes(),
+                    super::large_captured_plane_probe_interval_s(),
                 ),
-                (
-                    ORDER_LOG_NAMESPACE,
-                    ResidualPlaneTrigger::new(
-                        super::order_log_compact_min_overhang_bps(),
-                        super::order_log_compact_min_overhang_bytes(),
-                        super::order_log_compact_max_bytes(),
-                        super::large_captured_plane_probe_interval_s(),
-                    ),
-                ),
-            ]
+            )]
             .into_iter()
             .collect(),
             automatic_compaction_status: Arc::new(Mutex::new(BTreeMap::new())),

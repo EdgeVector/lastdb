@@ -257,10 +257,8 @@ impl DbOperations {
         db_catalog: &DbCatalogStore,
         admit_meter_trust: bool,
     ) -> Result<AtomStore, crate::storage::StorageError> {
-        // Resolve the atom body key encoding against the home, not just the
-        // environment, and refuse to serve a flat view of a migrated home.
-        // Every construction path funnels through here, so this is the one
-        // place a boot can pick the wrong addressing.
+        // Fresh native construction records the selected current key layout.
+        // Reopen requires that exact marker and refuses a different setting.
         let atom_store = AtomStore::new_with_content_and_hash_key_codec(
             namespaces.main,
             namespaces.schema_index,
@@ -269,10 +267,9 @@ impl DbOperations {
         )
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
-        .with_keep_small_persist(namespaces.keep_small)
-        .resolve_boot_encoding()
-        .await?;
+        .with_keep_small_persist(namespaces.keep_small);
         Self::initialize_fresh_native_refs(store, &atom_store).await?;
+        let atom_store = atom_store.resolve_boot_encoding().await?;
         atom_store
             .recover_catalog_atom_ref_transitions(db_catalog)
             .await
@@ -299,7 +296,7 @@ impl DbOperations {
                     error = %e,
                     "LASTDB_KEEP_SMALL_HYDRATE_FAILED meters marked incomplete; boot continues \
                      (reports stay incomplete and meter-dependent deletion stays closed until \
-                     the liveness bootstrap re-measures)"
+                     a new complete meter snapshot is available)"
                 );
             }
         }
@@ -315,19 +312,10 @@ impl DbOperations {
         };
         crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
             if runtime.claim_fresh_empty_boundary() {
-                // The native constructor proves that no atom or molecule
-                // exists. Use the normal typed/encrypted store and complete
-                // publication; never infer completeness from an absent marker.
-                atoms
-                    .bootstrap_molecule_ref_edges_on_isolated_copy(&[], 0, 0, None)
-                    .await
-                    .map_err(|error| {
-                        crate::storage::StorageError::BackendError(format!(
-                            "initialize known empty native molecule references: {error}"
-                        ))
-                    })?;
+                atoms.initialize_fresh_atom_layout().await?;
+                atoms.initialize_current_reference_proofs().await?;
             }
-            Ok(())
+            atoms.require_current_key_format().await
         })
         .await
     }

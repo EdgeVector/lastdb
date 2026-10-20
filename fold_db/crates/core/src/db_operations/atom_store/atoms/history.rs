@@ -3,8 +3,8 @@ use super::*;
 impl AtomStore {
     /// Load all mutation events for a molecule, sorted chronologically.
     ///
-    /// When `storage_prefix` is `Some`, the scan prefix is `{storage_prefix}:history:{mol}:`.
-    /// Exact prefix only (no bare dual-read).
+    /// The exact prefix is `history\0{molecule}:`, with the requested storage
+    /// scope when present. No alternate key spelling is read.
     ///
     /// This is a history inspection and purge API, not a historical query view.
     pub async fn get_mutation_events(
@@ -28,17 +28,10 @@ impl AtomStore {
     ) -> Result<Vec<(String, MutationEvent)>, SchemaError> {
         let base_prefix = molecule_key_codec::history_molecule_prefix(molecule_uuid);
 
-        // This scan cannot be pruned to a partition — the key is `:`-separated
-        // and carries no `PARTITION_SEP` — so LastStore enumerates every group
-        // in the collection, and proving the prefix EMPTY costs exactly as much
-        // as finding rows. The purge planner runs it once per field inside the
-        // schema's exclusive write barrier, which is how a purge that deletes
-        // nothing still held that barrier for a minute. Emptiness is monotone
-        // within a process and both writers invalidate, so answer from the memo
-        // when we have already proven this prefix empty.
-        // See `crate::atom::legacy_history_memo`.
+        // Reuse a confirmed empty result for this opened store. Current event
+        // writers invalidate the exact prefix after their successful batch.
         let scan_key = build_storage_key(storage_prefix, &base_prefix);
-        if crate::atom::legacy_history_memo::is_known_empty(self.store_id(), &scan_key) {
+        if crate::atom::history_event_memo::is_known_empty(self.store_id(), &scan_key) {
             return Ok(Vec::new());
         }
 
@@ -50,39 +43,13 @@ impl AtomStore {
             )
             .await?;
 
-        // Only emptiness is cached. A prefix that HAS rows takes the scan every
-        // time, so a legacy store behaves exactly as it does today and rows
-        // written later are always seen.
+        // A nonempty prefix always reads storage; no event values are cached.
         if items.is_empty() {
-            crate::atom::legacy_history_memo::mark_empty(self.store_id(), &scan_key);
+            crate::atom::history_event_memo::mark_empty(self.store_id(), &scan_key);
         }
 
         // Rows are already in lexicographic order, which is chronological for
         // the zero-padded history key.
         Ok(items)
-    }
-
-    /// Load one archived tip version (`tv:{version_id}`).
-    pub async fn get_tip_version(
-        &self,
-        version_id: &str,
-        storage_prefix: Option<&str>,
-    ) -> Result<Option<crate::atom::AtomEntry>, SchemaError> {
-        use crate::atom::molecule_key_codec;
-        use crate::schema::types::field::build_storage_key;
-
-        if version_id.is_empty() {
-            return Ok(None);
-        }
-        let key = build_storage_key(
-            storage_prefix,
-            &molecule_key_codec::tip_version_key(version_id),
-        );
-        let raw = self
-            .main_store
-            .get_item::<crate::atom::AtomEntry>(&key)
-            .await
-            .map_err(|e| SchemaError::InvalidData(format!("load tip version {version_id}: {e}")))?;
-        Ok(raw)
     }
 }

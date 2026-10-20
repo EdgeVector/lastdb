@@ -83,8 +83,6 @@ pub(crate) fn main_rows(
         "main",
         "legacy_blob_refs",
         "mutation_history",
-        "field_update_order_log",
-        "field_update_order_count",
         "field_hashrange_page_index",
         "field_hashrange_hash_index",
         "field_hashrange_complete",
@@ -114,16 +112,7 @@ pub(crate) fn bare(key: &str) -> (&str, &str) {
 
 pub(super) fn molecule(key: &str) -> Option<&str> {
     let key = bare(key).1;
-    for prefix in [
-        "mgp:v1:",
-        "mgr:v1:",
-        "mgd:v1:",
-        "history:",
-        "history\0",
-        "mord\0",
-        "moc\0",
-        "molprot:",
-    ] {
+    for prefix in ["mgp:v1:", "mgr:v1:", "mgd:v1:", "history\0", "molprot:"] {
         if let Some(rest) = key.strip_prefix(prefix) {
             return rest.split([':', '\0']).next();
         }

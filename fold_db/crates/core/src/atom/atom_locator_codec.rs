@@ -39,12 +39,8 @@
 //! *content* is sealed. So the locator exposes nothing the tip catalog did not
 //! already expose, and it never contains atom content.
 //!
-//! ## Degradation
-//!
-//! A missing locator resolves to the flat key, never to an error. That is what
-//! makes the collection safe to build incrementally: a home mid-migration, an
-//! atom written before the locator existed, and an orphan with no owning slot
-//! all read exactly as they do today.
+//! A missing locator denotes an absent located copy. Unknown-owner bodies use
+//! the current flat atom key directly.
 
 use crate::atom::atom_key_codec::AtomPartition;
 
@@ -56,7 +52,6 @@ pub const LOCATOR_COLLECTION: &str = "atom_locators";
 /// BASE key: callers add `{storage_prefix}:` via
 /// [`crate::schema::types::field::build_storage_key`], so a share namespace's
 /// locators stay inside that namespace exactly like its bodies do.
-/// Dual-read still resolves the colon form `aloc:{uuid}`.
 #[must_use]
 pub fn locator_key(atom_uuid: &str) -> String {
     crate::kind_partition::anchored("aloc", atom_uuid)

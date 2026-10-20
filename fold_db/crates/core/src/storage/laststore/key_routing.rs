@@ -2,52 +2,70 @@
 
 use super::*;
 
-/// Non-default current key families. Unlisted keys belong to `tips`.
-const ROUTED_PREFIXES: &[&str] = &[
-    "atom:",
-    "aloc:",
-    "aref:v2:",
-    "aref:",
-    "mref:v1:",
-    "bref:v1:",
-    "protein:",
-    "molprot:",
-    "fldprot:",
-    "pfq:",
-    "mhr:",
-    "mhk:",
-    "mhi:",
-    "schema_atoms:",
-    "idx:",
-    "schemaidx:",
+/// Current physical prefixes and their exact destination collections.
+const ROUTED_PREFIXES: &[(&str, &str)] = &[
+    ("atom\0", "atoms"),
+    ("atom:mk:", "atoms"),
+    ("aloc\0", "atom_locators"),
+    ("aref:v2:e:", "atom_ref_edges_v2"),
+    ("aref:v2:m:", "atom_ref_edges_v2"),
+    ("aref:pending:v1:", "atom_ref_edges"),
+    ("aref:catalog-transitions:v1", "atom_ref_edges"),
+    ("aref:gc:v1:c:", "atom_ref_edges"),
+    ("aref:gc:v1:q:", "atom_ref_edges"),
+    ("mref:v1:", "molecule_ref_edges"),
+    ("bref:v2:", "blob_ref_edges"),
+    ("protein:", "proteins"),
+    ("molprot:", "proteins"),
+    ("fldprot:", "proteins"),
+    ("pfq:", "proteins"),
+    ("schemaidx\0", "indexes"),
 ];
 
 pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {
-    classify_main_key(key).unwrap_or(TIPS_COLLECTION)
-}
-
-/// `key` without a leading 64-hex org storage prefix (`{sha256}:rest`).
-pub(super) fn strip_org_storage_prefix(key: &str) -> &str {
-    crate::kind_partition::split_org_storage_prefix(key).map_or(key, |(_, rest)| rest)
+    let bare = std::str::from_utf8(key)
+        .ok()
+        .and_then(|key| crate::storage::current_keys::source_key(key).ok());
+    bare.and_then(|key| classify_main_key(key.as_bytes()))
+        .unwrap_or(TIPS_COLLECTION)
 }
 
 pub(super) fn main_collections_for_key(key: &[u8]) -> Vec<&'static str> {
     vec![main_collection_for_key(key)]
 }
 
-/// Broad metadata prefixes can intersect several current key families.
+/// A structural prefix selects only current families. A prefix that stops
+/// inside a scope can intersect every current collection.
 pub(super) fn main_collections_for_prefix(prefix: &[u8]) -> Vec<&'static str> {
-    let mut collections = vec![main_collection_for_key(prefix)];
-    let Ok(prefix) = std::str::from_utf8(prefix) else {
-        return collections;
+    let Some(bare) = std::str::from_utf8(prefix)
+        .ok()
+        .and_then(|prefix| crate::storage::current_keys::source_key(prefix).ok())
+    else {
+        return all_current_collections();
     };
-    let bare = strip_org_storage_prefix(prefix);
-    for family in ROUTED_PREFIXES {
-        if family.starts_with(bare) {
-            let collection = main_collection_for_key(family.as_bytes());
-            if !collections.contains(&collection) {
-                collections.push(collection);
-            }
+    let family = bare.split([':', '\0']).next().unwrap_or_default();
+    if !crate::storage::current_keys::main_family(family) {
+        return all_current_collections();
+    }
+    let mut collections = Vec::new();
+    for (family_prefix, collection) in ROUTED_PREFIXES {
+        if (family_prefix.starts_with(bare) || bare.starts_with(family_prefix))
+            && !collections.contains(collection)
+        {
+            collections.push(*collection);
+        }
+    }
+    if collections.is_empty() {
+        collections.push(TIPS_COLLECTION);
+    }
+    collections
+}
+
+fn all_current_collections() -> Vec<&'static str> {
+    let mut collections = vec![TIPS_COLLECTION];
+    for (_, collection) in ROUTED_PREFIXES {
+        if !collections.contains(collection) {
+            collections.push(*collection);
         }
     }
     collections

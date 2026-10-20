@@ -10,34 +10,8 @@ impl AtomStore {
     /// per group in every plane, including planes with no rows to find (an
     /// empty marker prefix took 699 calls and still ran). The row limit still
     /// bounds a call over dense groups, so only sparse planes change. The
-    /// prologue and the delete scan stop in the middle of a page and resume
-    /// from one handle, so they keep one handle per call.
+    /// delete scan can stop within a page and resumes from one handle.
     pub(crate) const GC_PROBE_HANDLES_PER_CALL: usize = 8;
-
-    /// Load the durable `gc-atoms` prologue checkpoint (empty if absent).
-    pub async fn gc_atoms_prune_checkpoint(
-        &self,
-        storage_prefix: Option<&str>,
-    ) -> Result<GcAtomsPruneCheckpoint, SchemaError> {
-        let key = build_storage_key(storage_prefix, GC_ATOMS_PRUNE_CHECKPOINT_KEY);
-        let raw: Option<GcAtomsPruneCheckpoint> = self.raw().get_item(&key).await.map_err(|e| {
-            SchemaError::InvalidData(format!("load gc-atoms prune checkpoint: {e}"))
-        })?;
-        Ok(raw.unwrap_or_default())
-    }
-
-    /// Persist the `gc-atoms` prologue checkpoint.
-    pub async fn put_gc_atoms_prune_checkpoint(
-        &self,
-        storage_prefix: Option<&str>,
-        checkpoint: &GcAtomsPruneCheckpoint,
-    ) -> Result<(), SchemaError> {
-        let key = build_storage_key(storage_prefix, GC_ATOMS_PRUNE_CHECKPOINT_KEY);
-        self.raw().put_item(&key, checkpoint).await.map_err(|e| {
-            SchemaError::InvalidData(format!("store gc-atoms prune checkpoint: {e}"))
-        })?;
-        Ok(())
-    }
 
     /// Load the constant-size checkpoint for the automatic orphan-byte probe.
     pub async fn automatic_gc_atoms_probe_checkpoint(
@@ -52,10 +26,7 @@ impl AtomStore {
         Ok(raw.unwrap_or_default())
     }
 
-    /// Inclusive start and exclusive end covering `kind\0` and `kind:` twins.
-    ///
-    /// `mk:` and `ref:` are not kind-as-partition kinds, so the range stays the
-    /// colon prefix. Listed kinds start at `kind\0` and end after `kind:`.
+    /// Exact current family bounds, including both current atom placement policies.
     pub(crate) fn kind_plane_scan_bounds(
         storage_prefix: Option<&str>,
         colon_prefix: &str,
@@ -212,7 +183,7 @@ impl AtomStore {
             .await?;
         let generation = checkpoint
             .filter(|checkpoint| {
-                checkpoint.version == 2
+                checkpoint.version == 3
                     && !matches!(
                         checkpoint.phase,
                         AutomaticGcAtomsProbePhase::ClearReferenceMarkers
@@ -221,16 +192,6 @@ impl AtomStore {
             .map_or(0, |checkpoint| checkpoint.generation);
         self.set_automatic_gc_atoms_generation(generation);
         Ok(())
-    }
-
-    pub(super) fn automatic_gc_atoms_tv_skip_marker_key(
-        storage_prefix: Option<&str>,
-        tv_key: &str,
-    ) -> String {
-        build_storage_key(
-            storage_prefix,
-            &format!("{GC_ATOMS_PROBE_TV_SKIP_PREFIX}{tv_key}"),
-        )
     }
 
     pub(super) async fn persist_automatic_gc_atoms_probe(

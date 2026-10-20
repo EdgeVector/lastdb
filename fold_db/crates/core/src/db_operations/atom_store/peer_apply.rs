@@ -170,62 +170,6 @@ impl AtomStore {
         Ok(())
     }
 
-    /// Stamp `never` on a brand-new, empty home. The caller is the one boot
-    /// that created the home. Returns `true` when the row was written. A row
-    /// already present, a plane that is not provably empty, or any error leaves
-    /// the home `unknown`. Never an `Err`, so boot cannot fail on it.
-    pub(crate) async fn stamp_peer_apply_never_on_new_home(&self) -> bool {
-        match self.try_stamp_peer_apply_never().await {
-            Ok(stamped) => stamped,
-            Err(error) => {
-                tracing::warn!(
-                    target: "fold_db::gc_atoms",
-                    %error,
-                    "could not prove the home new; peer-apply state left unknown"
-                );
-                false
-            }
-        }
-    }
-
-    /// The stamp holds the same lock as the `seen` write. Sync can start before
-    /// the stamp runs, so a replay may already have marked `seen`: the stamp
-    /// then finds the row (or the flag) and writes nothing. It can never
-    /// overwrite `seen`, and no peer data is applied while it holds the lock.
-    async fn try_stamp_peer_apply_never(&self) -> Result<bool, crate::storage::StorageError> {
-        let _guard = self.peer_apply_lock.lock().await;
-        if self.peer_apply_seen.load(Ordering::Acquire)
-            || self.peer_apply_durable.load(Ordering::Acquire)
-        {
-            return Ok(false);
-        }
-        if self
-            .main_store
-            .inner()
-            .get(PEER_APPLY_KEY.as_bytes())
-            .await?
-            .is_some()
-        {
-            return Ok(false);
-        }
-        if !self.home_holds_no_atom_data().await? {
-            return Ok(false);
-        }
-        self.main_store
-            .inner()
-            .batch_mutate(vec![KvMutation::put(
-                PEER_APPLY_KEY.as_bytes().to_vec(),
-                NEVER,
-            )])
-            .await?;
-        self.main_store.inner().flush().await?;
-        tracing::info!(
-            target: "fold_db::gc_atoms",
-            "new home: no peer mutation applied yet; automatic atom delete may run"
-        );
-        Ok(true)
-    }
-
     /// The interlock for every deleter that finds atoms by the absence of a
     /// reference. `Ok` only when this node has never applied a peer mutation, or
     /// the caller (or the operator override env) allows it explicitly. A read

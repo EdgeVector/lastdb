@@ -10,41 +10,6 @@ struct PreparedAtomPhase {
 }
 
 impl MutationManager {
-    /// Build protein sibling tips from the current entry-schema base.
-    ///
-    /// Imported mutations first apply to a prospective entry molecule. This
-    /// keeps a losing imported entry from changing a sibling tip.
-    pub(super) async fn build_protein_sibling_updates(
-        &self,
-        schema: &crate::schema::types::Schema,
-        schema_mutations: &[Mutation],
-        mutation_key_values: &[crate::schema::types::KeyValue],
-        atom_results: &[(usize, String, crate::atom::Atom)],
-    ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
-        let sibling_schema = if schema_mutations
-            .iter()
-            .any(|mutation| mutation.imported_written_at.is_some())
-        {
-            let mut prospective = schema.clone();
-            self.apply_mutations_to_molecules(
-                &mut prospective,
-                schema_mutations,
-                mutation_key_values,
-                atom_results.to_vec(),
-            );
-            prospective
-        } else {
-            schema.clone()
-        };
-        self.fold_protein_siblings_after_write(
-            &sibling_schema,
-            schema_mutations,
-            mutation_key_values,
-            atom_results,
-        )
-        .await
-    }
-
     /// Whether the schema feeds the retention-age or hash-partition trackers.
     fn retention_tracking(
         schema: &crate::schema::types::Schema,
@@ -95,34 +60,6 @@ impl MutationManager {
         })
     }
 
-    /// Prepare sibling tip data before resident apply. There must be no await
-    /// between apply and the infallible lane fill, or cancellation can drop
-    /// the only durable owner after the value becomes visible.
-    async fn prepare_sibling_phase(
-        &self,
-        schema: &crate::schema::types::Schema,
-        schema_mutations: &[Mutation],
-        mutation_key_values: &[crate::schema::types::KeyValue],
-        atom_results: &[(usize, String, crate::atom::Atom)],
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-    ) -> Result<super::super::molecules::PreparedSiblingUpdates, SchemaError> {
-        let fold_start = std::time::Instant::now();
-        let (sibling_updates, sibling_origins, sibling_moves) = self
-            .build_protein_sibling_updates(
-                schema,
-                schema_mutations,
-                mutation_key_values,
-                atom_results,
-            )
-            .await?;
-        Self::add_timing(
-            timing_breakdown,
-            "  - protein_sibling_fold",
-            fold_start.elapsed(),
-        );
-        Ok((sibling_updates, sibling_origins, sibling_moves))
-    }
-
     /// Prepare one schema group's atoms, restored tips, and persist capacity.
     /// Publishes no resident tip change.
     pub(super) async fn prepare_schema_delta(
@@ -162,16 +99,6 @@ impl MutationManager {
                 timing_breakdown,
             )
             .await?;
-        let (sibling_updates, sibling_origins, sibling_moves) = self
-            .prepare_sibling_phase(
-                &schema,
-                &schema_mutations,
-                &mutation_key_values,
-                &atom_results,
-                timing_breakdown,
-            )
-            .await?;
-
         let search_batch = Self::build_index_change_batch(
             &schema_name,
             &schema,
@@ -189,9 +116,9 @@ impl MutationManager {
             deferred_atoms,
             search_batch,
             share_prefixes,
-            sibling_updates,
-            sibling_origins,
-            sibling_moves,
+            sibling_updates: Vec::new(),
+            sibling_origins: Vec::new(),
+            sibling_moves: Vec::new(),
             idempotency_entries,
             changed_keys,
             tracks_retention_age,

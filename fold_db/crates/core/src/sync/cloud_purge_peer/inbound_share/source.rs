@@ -96,16 +96,7 @@ pub(super) fn physical_keys(
 }
 
 fn molecule(bare: &str) -> Option<&str> {
-    for prefix in [
-        "mgp:v1:",
-        "mgr:v1:",
-        "mgd:v1:",
-        "history:",
-        "history\0",
-        "mord\0",
-        "moc\0",
-        "molprot:",
-    ] {
+    for prefix in ["mgp:v1:", "mgr:v1:", "mgd:v1:", "history\0", "molprot:"] {
         if let Some(rest) = bare.strip_prefix(prefix) {
             return rest.split([':', '\0']).next();
         }

@@ -38,13 +38,6 @@ impl NamespacedStore for LastStoreNamespacedStore {
         Some(Arc::new(self.clone()))
     }
 
-    async fn drain_plane_residue(
-        &self,
-        options: PlaneResidueDrainOptions,
-    ) -> StorageResult<PlaneResidueDrainReport> {
-        self.drain_plane_residue_collection(options).await
-    }
-
     async fn compact_collection(
         &self,
         options: CollectionCompactOptions,

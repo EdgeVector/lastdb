@@ -63,8 +63,6 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
     let PurgeTrace {
         candidate_atoms,
         history_keys,
-        tip_version_keys,
-        atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
         history_referenced_by_retained,
         traced,
@@ -88,8 +86,6 @@ pub(in crate::fold_db_core) async fn purge_records_bulk(
     let purge = GuardedPurge {
         candidate_atoms,
         history_keys,
-        tip_version_keys,
-        atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
         history_referenced_by_retained,
         records_purged: keys.len(),
@@ -189,8 +185,6 @@ pub(super) async fn collect_purge_trace(
 ) -> Result<PurgeTrace, SchemaError> {
     let mut candidate_atoms: HashSet<String> = HashSet::new();
     let mut history_keys: Vec<String> = Vec::new();
-    let mut tip_version_keys: Vec<String> = Vec::new();
-    let mut atom_ref_edge_keys: Vec<String> = Vec::new();
     let mut atom_ref_v2_edge_keys: Vec<String> = Vec::new();
     let mut history_referenced_by_retained: HashSet<String> = HashSet::new();
     let mut traced: HashSet<usize> = HashSet::new();
@@ -221,11 +215,7 @@ pub(super) async fn collect_purge_trace(
                         candidate_atoms.insert(old.clone());
                     }
                     history_keys.push(event_key.clone());
-                    atom_ref_edge_keys.extend(db_ops.atoms().mutation_history_atom_ref_edge_keys(
-                        event_key,
-                        ev,
-                        storage_prefix,
-                    ));
+
                     atom_ref_v2_edge_keys.extend(
                         db_ops.atoms().mutation_history_atom_ref_v2_edge_keys(
                             event_key,
@@ -248,22 +238,13 @@ pub(super) async fn collect_purge_trace(
                 candidate_atoms.insert(a);
                 traced.insert(idx);
             }
-            let chain = collect_target_chain(db_ops, field, key).await?;
-            if !chain.atom_uuids.is_empty() || !chain.tip_version_keys.is_empty() {
-                traced.insert(idx);
-            }
-            candidate_atoms.extend(chain.atom_uuids);
-            tip_version_keys.extend(chain.tip_version_keys);
-            atom_ref_edge_keys.extend(chain.atom_ref_edge_keys);
-            atom_ref_v2_edge_keys.extend(chain.atom_ref_v2_edge_keys);
+            atom_ref_v2_edge_keys.extend(collect_target_edges(db_ops, field, key)?);
         }
     }
 
     Ok(PurgeTrace {
         candidate_atoms,
         history_keys,
-        tip_version_keys,
-        atom_ref_edge_keys,
         atom_ref_v2_edge_keys,
         history_referenced_by_retained,
         traced,
@@ -323,74 +304,6 @@ pub(in crate::fold_db_core) async fn validate_purge_targets_present(
             verb,
         )))
     }
-}
-
-/// Prepare conservative retained atoms before this work occupies a purge lane.
-/// The later native transaction still checks current shared references before
-/// it can remove atom bodies. Planning does not replace that final proof.
-pub(in crate::fold_db_core) async fn plan_guarded_complement_retained(
-    scope: PurgeScope<'_>,
-    keys: &[KeyValue],
-) -> Result<HashSet<String>, SchemaError> {
-    if keys.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let PurgeScope {
-        db_ops,
-        schema_name,
-        ..
-    } = scope;
-    let mut schema = scope.schema()?;
-    for key in keys {
-        validate_purge_key_shape(&schema, schema_name, key)?;
-    }
-    // Preparation precedes lane admission. Record its work separately from
-    // the final exclusive destructive stage.
-    let materialize_start = std::time::Instant::now();
-    let materialized = refresh_runtime_field_molecules(db_ops, &mut schema).await;
-    crate::request_phases::add_phase(
-        crate::request_phases::RequestPhase::PurgeMaterialize,
-        materialize_start.elapsed(),
-    );
-    materialized?;
-    let mut seen: HashSet<String> = HashSet::new();
-    let deduped: Vec<KeyValue> = keys
-        .iter()
-        .filter(|k| seen.insert(describe_key(k)))
-        .cloned()
-        .collect();
-    let trace_start = std::time::Instant::now();
-    let trace = collect_purge_trace(db_ops, &schema, &deduped).await;
-    crate::request_phases::add_phase(
-        crate::request_phases::RequestPhase::PurgeTrace,
-        trace_start.elapsed(),
-    );
-    let trace = trace?;
-    let mut target_slots: HashSet<(String, String, String)> = HashSet::new();
-    for field in schema.runtime_fields.values() {
-        let Some(molecule_uuid) = field.common().molecule_uuid().cloned() else {
-            continue;
-        };
-        for storage_key in storage_form_keys(db_ops, field, &deduped)? {
-            let Some((disk_hash, disk_range)) = field.slot_coordinates(&storage_key) else {
-                continue;
-            };
-            target_slots.insert((molecule_uuid.clone(), disk_hash, disk_range));
-        }
-    }
-    let guard_start = std::time::Instant::now();
-    let retained = collect_retained_chain_atoms_for_storage_slots(
-        db_ops,
-        &schema,
-        &trace.candidate_atoms,
-        &target_slots,
-    )
-    .await;
-    crate::request_phases::add_phase(
-        crate::request_phases::RequestPhase::PurgeRetentionGuard,
-        guard_start.elapsed(),
-    );
-    retained
 }
 
 pub(super) fn missing_targets_error(

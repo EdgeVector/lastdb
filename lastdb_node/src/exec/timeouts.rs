@@ -221,31 +221,16 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbReapDroppedSchema
         | DataRoute::DbGcFileBlobs
         | DataRoute::DbGcProteins
-        | DataRoute::DbPurgeRefBlobs
-        | DataRoute::DbReclaimKeepSmallLegacy
         | DataRoute::DbReclaimKeepSmallSnapshot
         | DataRoute::DbRepairDanglingTips
-        | DataRoute::DbDrainTipHistory
-        | DataRoute::DbRetainSupersededVersions
         | DataRoute::DbProbeLocatorOnly
-        | DataRoute::DbMigratePhotoBlobs
-        | DataRoute::DbMigrateThinTips
-        | DataRoute::DbRekeyAtomPartitionPrefix
         | DataRoute::DbResealAtRest
         | DataRoute::DbReapUnsealed
         | DataRoute::DbDeleteLedger
-        | DataRoute::DbTombstoneFlagAudit
-        | DataRoute::DbDrainLegacyTombstones
-        | DataRoute::DbLegacyKeyForkAudit
-        | DataRoute::DbOrderLogAudit
         | DataRoute::DbPinLogAudit
         | DataRoute::DbExportMutationLog
         | DataRoute::DbReplayMutationLog
-        | DataRoute::DbOrderLogBloatAudit
-        | DataRoute::DbCompactOrderLog
-        | DataRoute::DbRepairOrderLogShortfall
         | DataRoute::DbRepairHashRangeKeyFields
-        | DataRoute::DbDrainPlaneResidue
         | DataRoute::SyncHealStaging
         | DataRoute::SyncLastStoreSnapshot
         | DataRoute::SyncBackupGc
@@ -257,10 +242,8 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::SyncQuarantineReplayBlocker
         | DataRoute::AggregateRepair
         | DataRoute::DeclareSchema
-        | DataRoute::DbCatalogReclaim
         | DataRoute::OrgAuthorityPublish
-        | DataRoute::OrgAuthorityStatus
-        | DataRoute::LivenessBootstrap => admin_handler_timeout(),
+        | DataRoute::OrgAuthorityStatus => admin_handler_timeout(),
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),
         DataRoute::AdminShed => Duration::from_secs(60),

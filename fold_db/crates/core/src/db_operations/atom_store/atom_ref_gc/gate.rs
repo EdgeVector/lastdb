@@ -64,14 +64,14 @@ impl AtomStore {
     pub(crate) fn atom_gc_delete_pass_keys(
         candidate: &AtomGcCandidate,
         storage_prefix: Option<&str>,
-    ) -> Vec<String> {
-        vec![
+    ) -> Result<Vec<String>, SchemaError> {
+        Ok(vec![
             atom_gc_candidate_key(&candidate.atom_uuid, storage_prefix),
             candidate.queue_key.clone(),
             super::super::atom_ref_edges::atom_live_ref_count_key(
                 &candidate.atom_uuid,
                 storage_prefix,
-            ),
-        ]
+            )?,
+        ])
     }
 }

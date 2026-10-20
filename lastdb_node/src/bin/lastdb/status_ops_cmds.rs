@@ -165,8 +165,6 @@ pub(super) fn status_json(
         .as_ref()
         .and_then(|s| s.codec_policy.as_ref())
         .cloned();
-    let dual_read = snapshot.map(|s| s.dual_read);
-    let dual_read_by_plane = dual_read.as_ref().map(|d| &d.legacy_hits_by_plane);
     let (planes, plane_inventory) = safe_status_plane_fields();
     let payload = serde_json::json!({
         "home": home.display().to_string(),
@@ -190,11 +188,8 @@ pub(super) fn status_json(
         "codec_policy": codec_policy,
         "planes": planes,
         "plane_inventory": plane_inventory,
-        "dual_read": dual_read,
-        "dual_read_legacy_hits_by_plane": dual_read_by_plane,
         "notes": [
             "planes is null by design — use `lastdb db inventory` for disk plane totals",
-            "dual_read counters are process-lifetime on the running daemon",
             "capture pin_log_disk_bytes and reexport_disk_bytes are collection-directory \
              stat walks, not compact dry-runs or key inventories",
             "daemon_build is what the PROCESS reports; cli_build is this binary. \
@@ -235,14 +230,6 @@ pub(super) fn plane_sot_spotlight_lines(
             .collect();
         lines.push(format!("  SOT named: {}", bits.join(" ")));
     }
-    if !report.residue_named.is_empty() {
-        let bits: Vec<String> = report
-            .residue_named
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!("  residue: {}", bits.join(" ")));
-    }
     if !report.unknown_active_collections.is_empty() {
         let bits: Vec<String> = report
             .unknown_active_collections
@@ -252,49 +239,6 @@ pub(super) fn plane_sot_spotlight_lines(
         lines.push(format!(
             "  unattributed: {} (not in the plane map; liveness unknown, not a reclaim target)",
             bits.join(" ")
-        ));
-    }
-    if !report.history_adjacent_named.is_empty() {
-        let bits: Vec<String> = report
-            .history_adjacent_named
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!("  history-adjacent: {}", bits.join(" ")));
-    }
-    // Drain-listed collections, named as one set with a total.
-    //
-    // `TIP_RESIDUE_LEGACY_COLLECTIONS` is the sunset's own list, and the two
-    // members it holds land in DIFFERENT roles above: `field_tip_headers` is
-    // `TipResidue` and prints under `residue:`, while `field_tip_versions` is
-    // `HistoryAdjacent` — the one role an operator is told never to reclaim —
-    // and prints beside `field_update_order_log`, which is real append-only
-    // architecture. On the primary that showed 4.9 MiB of a 12.3 MiB dead pair,
-    // and a run sizing the remaining drain work from this output dropped
-    // `field_tip_versions` from its list one paragraph after naming it residue.
-    //
-    // The roles are NOT changed to fix this. `HistoryAdjacent` is the
-    // never-blind-GC guard, and `field_tip_versions` keeps it. What was missing
-    // is that the operator surface never said the drain list exists.
-    let drain_listed: Vec<&fold_db::mini_cutover::PlaneMapCollection> = report
-        .collections
-        .iter()
-        .filter(|c| {
-            c.bytes > 0
-                && fold_db::storage::TIP_RESIDUE_LEGACY_COLLECTIONS.contains(&c.name.as_str())
-        })
-        .collect();
-    if !drain_listed.is_empty() {
-        let total: u64 = drain_listed.iter().map(|c| c.bytes).sum();
-        let bits: Vec<String> = drain_listed
-            .iter()
-            .map(|c| format!("{}={}", c.name, format_bytes(c.bytes)))
-            .collect();
-        lines.push(format!(
-            "  drain-listed: {} (total {}; the tip-family sunset owns these — \
-             a drain is expected to empty them, whatever role they print under above)",
-            bits.join(" "),
-            format_bytes(total),
         ));
     }
     lines
@@ -331,11 +275,6 @@ pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
              all {} groups, and `limit` does not prune.",
             descriptor.groups_per_partition_read()
         ));
-        lines.push(
-            "           Relayout (offline copy, source untouched): lastdb migrate-hash-group \
-             --from <stopped home> --into <fresh home> --hash-group-key partition-prefix"
-                .to_string(),
-        );
     }
     lines
 }

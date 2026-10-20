@@ -108,7 +108,6 @@ impl MutationManager {
                     // This envelope owns a revision, not every future
                     // value of the key. Complete its turn before the
                     // revision-conditional resident cleanup below.
-                    precomputed_retained: job.guarded_complement_retained.clone(),
                 },
             )
             .await

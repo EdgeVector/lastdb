@@ -12,7 +12,14 @@ impl AtomStore {
     pub(in super::super) async fn retain_durable_tip_winners(
         &self,
         items: &mut Vec<(String, Value)>,
-    ) -> Result<Vec<crate::db_operations::atom_store::DurableTipDecision>, SchemaError> {
+        storage_prefix: Option<&str>,
+    ) -> Result<
+        (
+            Vec<crate::db_operations::atom_store::DurableTipDecision>,
+            super::super::super::blob_ref_edges::TipBlobChanges,
+        ),
+        SchemaError,
+    > {
         let (mut ordinary, mut tips) = Self::collapse_pending_tips(items)?;
         let tip_keys: Vec<String> = tips.keys().cloned().collect();
         let barriers = self.winning_delete_barriers(&tip_keys).await?;
@@ -30,6 +37,7 @@ impl AtomStore {
         let mut accepted_slots = std::collections::HashSet::new();
         let mut accepted_tip_edges = std::collections::HashSet::new();
         let mut decisions = Vec::new();
+        let mut blob_changes = super::super::super::blob_ref_edges::TipBlobChanges::default();
         for (key, durable) in eligible_keys.into_iter().zip(durable_tips) {
             let incoming = tips.remove(&key).expect("eligible tip must exist");
             let mut incoming_loses = false;
@@ -48,6 +56,7 @@ impl AtomStore {
             if incoming_loses {
                 continue;
             }
+            blob_changes.replace(&key, storage_prefix, durable.as_ref(), Some(&incoming))?;
             let value = serde_json::to_value(&incoming).map_err(|error| {
                 SchemaError::InvalidData(format!("serialize durable tip winner {key}: {error}"))
             })?;
@@ -75,7 +84,7 @@ impl AtomStore {
         }
         Self::retain_accepted_tip_edges(&mut ordinary, &accepted_slots, &accepted_tip_edges);
         *items = ordinary;
-        Ok(decisions)
+        Ok((decisions, blob_changes))
     }
 
     /// Split pending items into ordinary rows and one LWW winner per `mk:` tip key.

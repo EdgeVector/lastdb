@@ -68,9 +68,6 @@ pub(crate) fn db_delete_ledger(socket: &Path, limit: u64, json_only: bool) -> Re
         if n("history_rows_deleted") > 0 {
             line.push_str(&format!(" history={}", n("history_rows_deleted")));
         }
-        if n("tip_versions_pruned") > 0 {
-            line.push_str(&format!(" tv={}", n("tip_versions_pruned")));
-        }
         // A `delete-converge` row always reads `atoms=0` by design, so without
         // these two the human view cannot tell it from a batch that did
         // nothing — and "did the delete path run in this window" is the

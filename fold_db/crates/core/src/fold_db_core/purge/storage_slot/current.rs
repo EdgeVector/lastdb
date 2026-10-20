@@ -15,7 +15,7 @@ pub(super) async fn current_storage_slot_targets<'a>(
         .atoms()
         .delete_target_tips_with_generations(&keys, None)
         .await?;
-    let candidates: Vec<_> = targets
+    Ok(targets
         .iter()
         .zip(current)
         .filter_map(|(target, current)| {
@@ -23,30 +23,6 @@ pub(super) async fn current_storage_slot_targets<'a>(
             let field = schema.runtime_fields.get(&target.field_name)?;
             if current_atom_for_key(field, &target.storage_key).as_deref()
                 != Some(current.entry.atom_uuid.as_str())
-            {
-                return None;
-            }
-            if target
-                .expected_tombstone
-                .as_ref()
-                .is_some_and(|expected| expected != &current.entry.atom_uuid)
-            {
-                return None;
-            }
-            Some((target, current.entry.atom_uuid))
-        })
-        .collect();
-    let located: Vec<_> = candidates
-        .iter()
-        .map(|(_, uuid)| (uuid.as_str(), None))
-        .collect();
-    let atoms = db_ops.atoms().get_atoms_located(&located, None).await?;
-    Ok(candidates
-        .into_iter()
-        .zip(atoms)
-        .filter_map(|((target, _), atom)| {
-            if target.expected_tombstone.is_some()
-                && !atom.is_some_and(|atom| crate::atom::is_tombstone_value(atom.content()))
             {
                 return None;
             }

@@ -130,24 +130,6 @@ pub trait NamespacedStore: Send + Sync {
         Ok(None)
     }
 
-    /// Owner maintenance: drain one bounded page of plane residue (rows whose
-    /// canonical plane home differs from the collection they sit in) toward
-    /// the canonical collection. Copy-then-delete per key, target wins.
-    ///
-    /// Default is unsupported — only backends with real per-collection
-    /// placement (LastStore) implement it. Exposed on the trait so the live
-    /// daemon can run the drain over the owner socket instead of requiring an
-    /// offline exclusive open of the primary home.
-    async fn drain_plane_residue(
-        &self,
-        options: crate::storage::laststore::PlaneResidueDrainOptions,
-    ) -> StorageResult<crate::storage::laststore::PlaneResidueDrainReport> {
-        let _ = options;
-        Err(StorageError::BackendError(
-            "plane-residue drain is not supported by this storage backend".to_string(),
-        ))
-    }
-
     /// Owner maintenance: compact one LastStore collection (rewrite live keys,
     /// drop superseded segment records so space returns to the OS).
     ///

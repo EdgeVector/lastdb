@@ -77,7 +77,7 @@ impl AtomStore {
         };
         self.flush_recorded_groups(&placements).await?;
         for conflict in unique.values() {
-            crate::atom::legacy_history_memo::invalidate_for_event_key(
+            crate::atom::history_event_memo::invalidate_for_event_key(
                 &conflict.history_key(storage_prefix),
             );
         }

@@ -11,9 +11,8 @@ use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 
-pub(crate) use super::chain_walk::*;
 pub(crate) use super::core_live::collect_core_live_atom_uuids;
-pub(crate) use super::target_chain::*;
+pub(crate) use super::target_edges::*;
 
 /// Translate an API-form (plaintext) [`KeyValue`] into the **storage form** the
 /// loaded molecule is actually keyed by.
@@ -147,8 +146,6 @@ pub(crate) async fn refresh_runtime_field_molecules(
             continue;
         };
         if let Some(field) = schema.runtime_fields.get_mut(&name) {
-            // Same normalization/kind checks as `refresh_from_db`.
-            let data = data.retyped_to_slot(field.kind.retype_slot());
             field.set_molecule_data(data)?;
         }
     }
@@ -210,7 +207,7 @@ pub(crate) async fn refresh_runtime_field_molecules_for_purge_keys(
         };
         field.clear_molecule();
         if let Some(data) = data {
-            field.set_molecule_data(data.retyped_to_slot(field.kind.retype_slot()))?;
+            field.set_molecule_data(data)?;
         }
     }
     Ok(())
@@ -218,10 +215,7 @@ pub(crate) async fn refresh_runtime_field_molecules_for_purge_keys(
 
 /// True when this schema can use the exact reverse-edge purge path.
 ///
-/// Every molecule that can reference a same-schema content-addressed atom must
-/// have a replay-complete manifest that includes mutation-history edges.
-/// A v1 tip-only manifest advances one bounded, molecule-keyed history page.
-/// Incomplete work keeps the guarded path for this purge and resumes later.
+/// The current global completion proof covers every source in every scope.
 pub(crate) async fn atom_ref_cutover_ready(
     db_ops: &Arc<DbOperations>,
     schema: &Schema,
@@ -230,35 +224,11 @@ pub(crate) async fn atom_ref_cutover_ready(
         return Ok(false);
     }
 
-    let mut saw_molecule = false;
-    for field in schema.runtime_fields.values() {
-        let Some(molecule_uuid) = field.common().molecule_uuid() else {
-            continue;
-        };
-        saw_molecule = true;
-        let prefix = field.common().storage_prefix();
-        let Some(manifest) = db_ops
-            .atoms()
-            .atom_ref_molecule_manifest(molecule_uuid, prefix)
-            .await?
-        else {
-            return Ok(false);
-        };
-        match (manifest.version, manifest.replay_complete) {
-            (crate::db_operations::atom_store::ATOM_REF_MANIFEST_VERSION_HISTORY, true) => {}
-            (crate::db_operations::atom_store::ATOM_REF_MANIFEST_VERSION_TIPS, true) => {
-                let upgrade = db_ops
-                    .atoms()
-                    .upgrade_atom_ref_molecule_history_page(molecule_uuid, prefix, 256)
-                    .await?;
-                if !upgrade.complete {
-                    return Ok(false);
-                }
-            }
-            _ => return Ok(false),
-        }
-    }
-    Ok(saw_molecule)
+    let has_molecule = schema
+        .runtime_fields
+        .values()
+        .any(|field| field.common().molecule_uuid().is_some());
+    Ok(has_molecule && db_ops.atoms().atom_ref_v2_reads_ready().await?)
 }
 
 fn barrierless_purge_enabled_from(raw: Option<&str>) -> bool {
@@ -337,9 +307,12 @@ pub(crate) fn describe_key(kv: &KeyValue) -> String {
     }
 }
 
-// `FieldPurgePlan` lived here: a per-field materialised plan that only made
-// sense while planning was scoped to one record. The batched path accumulates
-// candidates, `history:` keys and `tv:` keys across the whole batch instead, so
-// the per-field struct had no remaining reader. Removed rather than left
-// `#[allow(dead_code)]` — an unused plan type in the store's most destructive
-// module reads as a surface someone still maintains.
+/// Every data scope represented by the selected schema's current fields.
+pub(crate) fn schema_storage_prefixes(schema: &Schema) -> HashSet<Option<String>> {
+    schema
+        .runtime_fields
+        .values()
+        .filter(|field| field.common().molecule_uuid().is_some())
+        .map(|field| field.common().storage_prefix().map(str::to_string))
+        .collect()
+}

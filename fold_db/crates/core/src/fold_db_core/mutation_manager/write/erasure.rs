@@ -11,29 +11,6 @@ use crate::schema::SchemaError;
 use super::attribution::{attribution_events, live_write_attribution_path};
 use super::MutationManager;
 
-/// Conservative heap charge for the retained-atom set held by a purge retry.
-///
-/// `HashSet::capacity` states the element capacity, not the raw bucket count.
-/// Charging twice that capacity covers the table load factor and small-table
-/// rounding. Each charged bucket includes a `String` header and control data.
-/// The string allocation uses its capacity because the retry owns that heap.
-pub(super) fn estimate_retained_atom_set_bytes(retained: Option<&HashSet<String>>) -> u64 {
-    const RAW_BUCKETS_PER_ELEMENT_CAPACITY: u64 = 2;
-    const CONTROL_BYTES_PER_BUCKET: u64 = 8;
-
-    retained.map_or(0, |set| {
-        let element_capacity = u64::try_from(set.capacity()).unwrap_or(u64::MAX);
-        let raw_buckets = element_capacity.saturating_mul(RAW_BUCKETS_PER_ELEMENT_CAPACITY);
-        let string_header_bytes = u64::try_from(std::mem::size_of::<String>()).unwrap_or(u64::MAX);
-        let table_bytes = raw_buckets
-            .saturating_mul(string_header_bytes.saturating_add(CONTROL_BYTES_PER_BUCKET));
-
-        set.iter().fold(table_bytes, |total, atom| {
-            total.saturating_add(u64::try_from(atom.capacity()).unwrap_or(u64::MAX))
-        })
-    })
-}
-
 impl MutationManager {
     /// Persist the durable attribution root for a batch, then append its
     /// source events and clear the pending-scope markers.

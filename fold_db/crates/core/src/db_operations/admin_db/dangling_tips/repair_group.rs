@@ -153,7 +153,7 @@ impl AtomStore {
 
     pub(super) async fn revalidate_dangling_tip(
         &self,
-        slot: &RekeySlot,
+        slot: &DanglingTipSlot,
         storage_prefix: Option<&str>,
     ) -> Result<Option<RepairAttempt>, SchemaError> {
         // The last word before anything is deleted, so it must come from the
@@ -186,7 +186,7 @@ impl AtomStore {
 
     pub(super) async fn classify_repairable_dangling_tip(
         &self,
-        slot: &RekeySlot,
+        slot: &DanglingTipSlot,
         storage_prefix: Option<&str>,
         authority: ExistsAuthority,
     ) -> Result<Option<UnresolvedTipClass>, SchemaError> {
@@ -207,10 +207,10 @@ impl AtomStore {
             .get_item(&slot.locator_key)
             .await
             .map_err(|e| SchemaError::InvalidData(format!("repair get locator: {e}")))?;
-        let Some(raw) = locator else {
+        let Some(locator_value) = locator else {
             return Ok(Some(UnresolvedTipClass::NoBodyAnywhere));
         };
-        let Some(located) = atom_locator_codec::decode_value(&raw) else {
+        let Some(located) = atom_locator_codec::decode_value(&locator_value) else {
             return Ok(Some(UnresolvedTipClass::UndecodableLocator));
         };
         if located.as_str() == slot.partition.as_str() {

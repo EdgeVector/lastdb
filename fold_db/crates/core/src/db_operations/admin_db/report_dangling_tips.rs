@@ -2,9 +2,9 @@
 
 use super::*;
 
-/// Why one tip in an atom partition-prefix rekey resolved to no atom body.
+/// Why one current tip resolved to no atom body.
 ///
-/// The rekey's `missing_body` counter says only "neither the tip-derived
+/// The unresolved-body count says only "neither the tip-derived
 /// prefixed key nor the flat key held a body". That is four different
 /// situations with four different severities, and a bare count cannot tell
 /// them apart — so it cannot answer the one question `--remove-flat` needs
@@ -54,7 +54,7 @@ pub enum UnresolvedTipClass {
     NoBodyAnywhere,
 }
 
-/// One tip that an atom partition-prefix rekey could not resolve to a body,
+/// One current tip that the repair could not resolve to a body,
 /// with the addresses that were tried.
 ///
 /// Every field here is already-plaintext catalog data: a `mk:` tip key, an atom
@@ -68,7 +68,7 @@ pub struct UnresolvedTip {
     pub tip_key: String,
     /// The atom UUID the tip's `entry.atom_uuid` names.
     pub atom_uuid: String,
-    /// Partition taken off the tip's own key — where the rekey looked, and
+    /// Partition from the tip key, where the repair looked, and
     /// where every tip-driven hot read looks.
     pub derived_partition: String,
     /// Molecule identity decoded out of `derived_partition`, exposed directly
@@ -254,31 +254,8 @@ pub struct DanglingTipRepairOptions {
 /// continuing would just log the same error a million times.
 pub(super) const MAX_CONSECUTIVE_REPAIR_FAILURES: u64 = 25;
 
-/// Which existence tier a dangling-tip classification is allowed to trust.
-///
-/// The two tiers can disagree, and on real data they do: a 2026-08-03 CoW pass
-/// over Tom's primary saw ~942 tips move from "body present at the derived key"
-/// to "present only via the locator" between a cold scan and every later scan
-/// of the same range. Nothing was written in between — only the cache warmed.
-///
-/// **Which direction of a cheap wrong answer is safe is a property of the
-/// CALLER, not of this enum.** For the dangling-tip repair a cheap answer may
-/// only ever make it do *less*: a false "present" skips a repairable tip, which
-/// costs nothing, while a false "absent" deletes a tip whose body is live.
-///
-/// The rekey's `--remove-flat` phase runs the other way round — there a false
-/// "present" is what moves a flat key into `flat_keys_to_reclaim`'s doomed set,
-/// so the cheap tier's *accepted* error mode is the destructive one. Reading
-/// this comment's repair-shaped argument as a module-wide rule is how that
-/// phase came to gate its delete on three cached probes. Two of them now go
-/// through `rekey_exists_confirmed`, which narrows a cheap answer with a live
-/// one; the third, phase (4)'s post-write verify, deliberately stays cheap for
-/// a reason stated at its call site — read it before "fixing" it.
-///
-/// So the honest rule is not "no delete may rest on a `Cached` answer"; it is
-/// **name the direction a cheap wrong answer moves THIS caller in, and say so
-/// where the probe is taken.** Every silent assumption here has been a caller
-/// inheriting a neighbour's polarity.
+/// The final repair check reads the current live body address.
+/// The page check can use batched existence metadata to skip healthy tips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ExistsAuthority {
     /// Batched, may answer a cold group from the key-index cache or sidecar.
@@ -311,13 +288,6 @@ pub(super) enum RepairAttempt {
     /// hash/range slot. Permanent for the same reason as
     /// [`RepairAttempt::MoleculeMissing`].
     ///
-    /// Worth watching specifically: a molecule is reassembled from its `mk:`
-    /// records *plus* its `update_order` append log, and that log is known to
-    /// come back short on at least one molecule of the primary — `moc` 74,105
-    /// against 9,000 entries loaded, logged as "possible interrupted snapshot
-    /// or data loss". A tip for a slot the truncated order dropped would land
-    /// here. If this counter tracks that molecule, the residue and the
-    /// append-log shortfall are one fault, not two.
     AtomNotInMolecule,
     BodyRestored,
     MisDerived,
@@ -344,8 +314,17 @@ pub(super) struct RepairKey {
     pub(super) range: String,
 }
 
+pub(super) struct DanglingTipSlot {
+    pub(super) tip_key: String,
+    pub(super) uuid: String,
+    pub(super) partition: crate::atom::AtomPartition,
+    pub(super) flat_key: String,
+    pub(super) prefixed_key: String,
+    pub(super) locator_key: String,
+}
+
 pub(super) struct RepairCandidate {
-    pub(super) slot: RekeySlot,
+    pub(super) slot: DanglingTipSlot,
     pub(super) key: RepairKey,
 }
 

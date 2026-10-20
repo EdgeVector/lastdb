@@ -1,18 +1,12 @@
-//! Collect the atom UUIDs that tips, history, conflicts and legacy refs still reference.
+//! Collect atom UUIDs from current tips, history and conflicts.
 
 use super::*;
 
 impl AtomStore {
-    /// Collect atom UUIDs still referenced by tips (`mk:`), tip-version chain
-    /// (`tv:`), history, conflicts, and legacy `ref:` molecule blobs.
-    ///
-    /// `skip_tv_keys`: full storage keys of `tv:` rows that will be (or were)
-    /// pruned — dry-run uses this so freeable atoms are counted without first
-    /// applying the prune.
+    /// Collect atom UUIDs from current tips, history events and conflicts.
     pub(in super::super) async fn collect_referenced_atom_uuids(
         &self,
         storage_prefix: Option<&str>,
-        skip_tv_keys: &HashSet<String>,
         dry_run: bool,
     ) -> Result<HashSet<String>, SchemaError> {
         // Every scan below streams in bounded pages (see
@@ -35,20 +29,6 @@ impl AtomStore {
         })
         .await?;
 
-        // Tip version chain: tv: → AtomEntry.atom_uuid (historical values).
-        // Skip keys scheduled for tombstone-chain prune.
-        let tv_prefix = build_storage_key(storage_prefix, "tv:");
-        self.for_each_row_under_prefix(&tv_prefix, "gc scan tv", dry_run, |k, v| {
-            let key = String::from_utf8_lossy(k);
-            if skip_tv_keys.contains(key.as_ref()) {
-                return;
-            }
-            if let Ok(entry) = serde_json::from_slice::<crate::atom::AtomEntry>(v) {
-                refs.insert(entry.atom_uuid);
-            }
-        })
-        .await?;
-
         // History events still present after clear-history.
         //
         // Only the *head* atom of each remaining history row is required for
@@ -56,7 +36,7 @@ impl AtomStore {
         // bulk of orphaned historical field values (e.g. pre-migration Photo
         // file_bytes). We intentionally do not pin them — use a fuller backup
         // if you need deep history reconstruction.
-        let hist_prefix = build_storage_key(storage_prefix, "history:");
+        let hist_prefix = build_storage_key(storage_prefix, "history\0");
         self.for_each_row_under_prefix(&hist_prefix, "gc scan history", dry_run, |_k, v| {
             if let Ok(ev) = serde_json::from_slice::<MutationEvent>(v) {
                 refs.insert(ev.new_atom_uuid);
@@ -68,15 +48,8 @@ impl AtomStore {
         .await?;
 
         // Conflict records may name atom UUIDs
-        let conflict_prefix = build_storage_key(storage_prefix, "conflict:");
+        let conflict_prefix = build_storage_key(storage_prefix, "conflict\0");
         self.for_each_row_under_prefix(&conflict_prefix, "gc scan conflict", dry_run, |_k, v| {
-            collect_atom_uuid_strings(v, &mut refs);
-        })
-        .await?;
-
-        // Legacy ref: molecule blobs
-        let ref_prefix = build_storage_key(storage_prefix, "ref:");
-        self.for_each_row_under_prefix(&ref_prefix, "gc scan ref", dry_run, |_k, v| {
             collect_atom_uuid_strings(v, &mut refs);
         })
         .await?;

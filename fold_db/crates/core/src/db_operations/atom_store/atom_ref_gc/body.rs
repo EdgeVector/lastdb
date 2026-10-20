@@ -36,7 +36,7 @@ impl AtomStore {
             storage_prefix,
             atom.as_ref(),
             locator_key,
-        ));
+        )?);
         // The schema marker lives in a separate namespace, so LastStore cannot
         // include it in the main-store transaction. Delete it first and keep
         // both candidate rows until that delete succeeds. If the following
@@ -147,23 +147,25 @@ fn related_delete_mutations(
     storage_prefix: Option<&str>,
     atom: Option<&Atom>,
     locator_key: String,
-) -> Vec<KvMutation> {
+) -> Result<Vec<KvMutation>, SchemaError> {
     let mut mutations = Vec::new();
     if let Some(atom) = atom {
         for blob_ref in
             crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata())
         {
-            mutations.push(KvMutation::delete(
-                super::super::BlobRefEdge::atom(&candidate.atom_uuid, &blob_ref)
-                    .storage_key(storage_prefix)
-                    .into_bytes(),
-            ));
+            mutations.extend(
+                super::super::BlobRefEdge::atom(&candidate.atom_uuid, &blob_ref, storage_prefix)
+                    .delete_mutations(),
+            );
         }
     }
     mutations.push(KvMutation::delete(locator_key.into_bytes()));
     mutations.push(KvMutation::delete(
-        super::super::atom_ref_edges::atom_live_ref_count_key(&candidate.atom_uuid, storage_prefix)
-            .into_bytes(),
+        super::super::atom_ref_edges::atom_live_ref_count_key(
+            &candidate.atom_uuid,
+            storage_prefix,
+        )?
+        .into_bytes(),
     ));
-    mutations
+    Ok(mutations)
 }

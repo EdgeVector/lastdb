@@ -7,35 +7,15 @@ use super::delete_ledger::{AtomDeleteLedgerEntry, DeleteLedgerHandle};
 use super::storage_breakdown::{SchemaStorage, StorageBreakdown};
 use super::AtomStore;
 use crate::atom::{molecule_key_codec, MutationEvent};
-use crate::clock::unix_nanos;
-use crate::kind_partition;
+
 use crate::protein::{Protein, MEMBER_BACKREF_PREFIX, PROTEIN_RECORD_PREFIX};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
 use crate::schema::SchemaError;
 use crate::storage::traits::PhysicalScanCursor;
-use crate::storage::KvMutation;
 use chrono::{DateTime, Utc};
-use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-
-/// Colon form, NUL-plane start, exclusive end covering `moc\0` writes and leftover `moc:`.
-fn moc_plane(storage_prefix: Option<&str>) -> (String, String, String) {
-    let colon = build_storage_key(storage_prefix, molecule_key_codec::MOC_PREFIX);
-    let (start, end) = kind_partition::colon_plane_bounds(&colon);
-    (colon, start, end)
-}
-
-fn moc_molecule_from_key(key: &str) -> Option<String> {
-    kind_partition::rest_of(key, "moc")
-        .filter(|rest| !rest.is_empty())
-        .map(str::to_owned)
-}
-
-fn cursor_is_moc_plane(key: &str) -> bool {
-    kind_partition::rest_of(key, "moc").is_some()
-}
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Rate-limited operator progress for the long-running `gc-atoms` phases.
 ///
@@ -110,18 +90,12 @@ mod report_gc;
 pub use report_gc::*;
 mod report_gc_automatic;
 pub use report_gc_automatic::*;
-mod report_tip_history;
-pub use report_tip_history::*;
 mod report_inventory;
 pub use report_inventory::*;
 mod report_locator_probe;
 pub use report_locator_probe::*;
 mod report_molecule_keys;
 pub use report_molecule_keys::*;
-mod report_order_log;
-pub use report_order_log::*;
-mod report_rekey;
-pub use report_rekey::*;
 mod dangling_tips;
 mod gc_atoms_delete;
 mod gc_atoms_delete_steps;
@@ -133,13 +107,6 @@ mod history_prune;
 mod inventory;
 mod inventory_key_classes;
 mod inventory_molecule_keys;
-mod inventory_tip_format;
-mod order_log;
-mod rekey;
-mod superseded_retention;
-mod tip_chain_prune;
-mod tip_history_drain;
-mod tombstones;
 
 /// Strip an optional storage prefix from a full storage key, returning the base
 /// key (`mk:…`, `atom:…`, …). `None` when the key is outside that scope.
@@ -151,39 +118,6 @@ fn strip_storage_prefix<'a>(storage_prefix: Option<&str>, full_key: &'a str) -> 
             full_key.strip_prefix(&with_sep)
         }
     }
-}
-
-/// Has the `mk:` head moved since the planning scan observed it?
-///
-/// Compares the three fields a tip append necessarily changes: the body it
-/// points at, the chain link, and the write clock. `written_at` alone is not
-/// enough — it is a coarse nanosecond stamp taken by the writer, and a
-/// same-value rewrite can reuse an atom uuid — so all three are checked.
-///
-/// A row that vanished (`None`) counts as changed: something deleted or purged
-/// the key underneath the run, and re-creating it from a stale snapshot would
-/// resurrect a record another verb deliberately removed.
-/// Index of the first dated `tv:` node older than `cutoff_ns`. Nodes with
-/// `written_at == 0` are undatable and stay in the kept prefix.
-fn first_expired_tv_index(
-    nodes: &[(String, crate::atom::AtomEntry, u64)],
-    cutoff_ns: u64,
-) -> Option<usize> {
-    nodes
-        .iter()
-        .position(|(_, entry, _)| entry.written_at > 0 && entry.written_at < cutoff_ns)
-}
-
-fn head_is_unchanged(
-    current: Option<&super::atom_store::PerKeyRecord>,
-    observed: &super::atom_store::PerKeyRecord,
-) -> bool {
-    let Some(cur) = current else {
-        return false;
-    };
-    cur.entry.atom_uuid == observed.entry.atom_uuid
-        && cur.entry.prev_tip_id == observed.entry.prev_tip_id
-        && cur.entry.written_at == observed.entry.written_at
 }
 
 /// Read an `atom:` row's `created_at` without opening its content seal.

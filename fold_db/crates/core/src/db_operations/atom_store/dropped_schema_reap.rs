@@ -151,7 +151,7 @@ pub struct DroppedSchemaTipProbe {
     /// `None` when the tip is absent or the atom body is absent.
     pub atom_source_schema_matches: Option<bool>,
     /// `None` when the tip is absent and no atom UUID can be read.
-    /// Checks both anchored and legacy schema-index marker forms.
+    /// Checks the exact current schema-index marker.
     pub schema_index_present: Option<bool>,
     pub protein_bound: bool,
     pub ref_edges_present_conservative: bool,

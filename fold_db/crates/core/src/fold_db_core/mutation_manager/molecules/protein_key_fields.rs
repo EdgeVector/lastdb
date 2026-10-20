@@ -33,7 +33,7 @@ impl MutationManager {
         }
         self.fill_protein_key_fields(schema, keys, &required, &mut before)
             .await?;
-        let after = after_fields(schema, mutations, keys, &indices, &names, &before);
+        let after = after_fields(schema, mutations, keys, eligible, &names, &before);
         Ok(ProteinKeyFields { before, after })
     }
 
@@ -139,32 +139,60 @@ fn after_fields(
     schema: &Schema,
     mutations: &[Mutation],
     keys: &[KeyValue],
-    indices: &BTreeSet<usize>,
+    eligible: &[(usize, &Atom, &str)],
     names: &BTreeSet<String>,
     before: &KeyFields,
 ) -> KeyFields {
-    let mut after = HashMap::new();
+    let indices: BTreeSet<_> = eligible.iter().map(|(idx, _, _)| *idx).collect();
     let mut heads: HashMap<&KeyValue, HashMap<String, String>> = HashMap::new();
-    for &idx in indices {
-        // Later mutations inherit earlier private key changes. The BEFORE
-        // map still describes the actual committed old coordinates, because
-        // intermediate source tips can lose at final batch rebase.
-        let mut fields = heads.get(&keys[idx]).unwrap_or(&before[&idx]).clone();
+    for &idx in &indices {
+        let fields = heads
+            .entry(&keys[idx])
+            .or_insert_with(|| before[&idx].clone());
+        // Payload-only names are routing inputs, not writable source fields.
+        // Registered fields below must use their accepted atom instead.
         for name in names {
-            let value = mutations[idx].fields_and_values.get(name);
-            if let Some(value) = value {
-                if let Some(value) = scalar_key_coordinate(value) {
-                    fields.insert(name.clone(), value.into_owned());
-                } else {
-                    fields.remove(name);
+            if !schema.runtime_fields.contains_key(name) {
+                if let Some(value) = mutations[idx].fields_and_values.get(name) {
+                    set_coordinate(fields, name, value);
                 }
             }
         }
-        fields.extend(addressed_fields(schema, &keys[idx]));
-        heads.insert(&keys[idx], fields.clone());
-        after.insert(idx, fields);
     }
-    after
+    let mut names_by_molecule: HashMap<&str, Vec<&String>> = HashMap::new();
+    for name in names {
+        if let Some(uuid) = schema
+            .runtime_fields
+            .get(name)
+            .and_then(|field| field.common().molecule_uuid())
+        {
+            names_by_molecule.entry(uuid).or_default().push(name);
+        }
+    }
+    // All winning fields for one addressed key share its final coordinates.
+    // An earlier winning field must not route through an intermediate key.
+    for &(idx, atom, molecule) in eligible {
+        let fields = heads.get_mut(&keys[idx]).expect("protein source key");
+        for name in names_by_molecule.get(molecule).into_iter().flatten() {
+            set_coordinate(fields, name, atom.content());
+        }
+    }
+    indices
+        .into_iter()
+        .map(|idx| {
+            let mut fields = heads[&keys[idx]].clone();
+            fields.extend(addressed_fields(schema, &keys[idx]));
+            (idx, fields)
+        })
+        .collect()
+}
+
+fn set_coordinate(fields: &mut HashMap<String, String>, name: &str, value: &serde_json::Value) {
+    if let Some(value) = scalar_key_coordinate(value) {
+        fields.insert(name.to_owned(), value.into_owned());
+    } else {
+        fields.remove(name);
+    }
 }
 
 pub(super) fn member_ids(schema: &Schema) -> Vec<&str> {

@@ -62,62 +62,34 @@ pub(super) async fn load_candidate_tips(
         .partition(|tip| removable.contains(&tip.candidate.mk_key)))
 }
 
-pub(super) async fn trace_candidate_tips(
+pub(super) fn trace_candidate_tips(
     db_ops: &Arc<DbOperations>,
     tips: &[CandidateTip],
 ) -> Result<super::converge_plan::ConvergeTrace, SchemaError> {
-    use futures::{stream, StreamExt, TryStreamExt};
-    // Own each task's inputs so the lane future remains Send at its async-trait boundary.
-    let mut plans = Vec::with_capacity(tips.len());
-    for tip in tips {
-        plans.push((
-            tip.key_index,
-            tip.candidate.clone(),
-            tip.record.entry.clone(),
-        ));
-    }
-    let traces: Vec<_> = stream::iter(plans.into_iter().map(|(key_index, candidate, entry)| {
-        let db_ops = Arc::clone(db_ops);
-        async move {
-            let trace =
-                target_chain::collect_delete_candidate_chain(&db_ops, &candidate, &entry).await?;
-            Ok::<_, SchemaError>((key_index, trace))
-        }
-    }))
-    .buffer_unordered(4)
-    .try_collect()
-    .await?;
-    let mut out = super::converge_plan::ConvergeTrace {
+    let mut trace = super::converge_plan::ConvergeTrace {
         traced: HashSet::new(),
-        tip_version_keys: Vec::new(),
-        atom_ref_edge_keys: Vec::new(),
         atom_ref_v2_edge_keys: Vec::new(),
     };
-    for (key_index, trace) in traces {
-        out.traced.insert(key_index);
-        out.tip_version_keys.extend(trace.tip_version_keys);
-        out.atom_ref_edge_keys.extend(trace.atom_ref_edge_keys);
-        out.atom_ref_v2_edge_keys
-            .extend(trace.atom_ref_v2_edge_keys);
+    for tip in tips {
+        trace.traced.insert(tip.key_index);
+        trace
+            .atom_ref_v2_edge_keys
+            .push(db_ops.atoms().atom_ref_tip_edge_v2_key(
+                &tip.candidate.molecule_uuid,
+                &tip.candidate.hash,
+                &tip.candidate.range,
+                &tip.record.entry,
+                tip.candidate.storage_prefix.as_deref(),
+            )?);
     }
-    out.tip_version_keys.sort_unstable();
-    out.tip_version_keys.dedup();
-    Ok(out)
+    Ok(trace)
 }
 
 pub(super) fn protect_retained_history(
     removable: &mut super::converge_plan::ConvergeTrace,
     retained: super::converge_plan::ConvergeTrace,
 ) {
-    let protected_versions: HashSet<_> = retained.tip_version_keys.into_iter().collect();
-    let protected_edges: HashSet<_> = retained.atom_ref_edge_keys.into_iter().collect();
     let protected_v2_edges: HashSet<_> = retained.atom_ref_v2_edge_keys.into_iter().collect();
-    removable
-        .tip_version_keys
-        .retain(|key| !protected_versions.contains(key));
-    removable
-        .atom_ref_edge_keys
-        .retain(|key| !protected_edges.contains(key));
     removable
         .atom_ref_v2_edge_keys
         .retain(|key| !protected_v2_edges.contains(key));

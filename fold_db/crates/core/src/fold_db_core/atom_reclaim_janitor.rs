@@ -1,41 +1,6 @@
-//! Bounded background janitor that reclaims unreferenced `atom:` bodies
-//! after live Delete converge.
-//!
-//! ## Why
-//!
-//! Live `MutationType::Delete` (Skip) now converges tip absence to disk on
-//! the persist lane instead of running the full atom-reachability sweep
-//! inline (see [`super::purge::converge_delete_tips`],
-//! `design-lastdb-delete-converge-then-reclaim`). Converge makes disk match
-//! resident for that slot — the tip and its `tv:` chain are gone — but it
-//! deliberately does not walk atom reverse edges or free atom bodies, so
-//! that ACK never waits on a store-wide reachability scan. Something has to
-//! do that second half, or every Delete leaks the atom bytes it stopped
-//! reclaiming inline.
-//!
-//! This is that something: an opt-in periodic task, the same shape as
-//! [`super::protein_reaper`] and [`super::tip_history_drain`], that runs an
-//! ordered reclaim pass on a timer. The pass first waits for deferred-write
-//! admission, then calls the existing `gc-atoms` verb
-//! ([`crate::db_operations::AtomStore::gc_orphan_atoms_with_roots`]). That verb
-//! checks live atom edges and target gates, prunes molecule-tip history through
-//! its durable checkpoint, and writes its delete ledger. When that transition
-//! completes, the pass runs local file-blob GC, which checks its own active
-//! blob edges and target gates. A failed or incomplete stage blocks the later
-//! stage. This module adds the ordered coordinator, not new reachability
-//! logic.
-//!
-//! Cloud keep-set / backup-manifest shrink is a separate concern
-//! ([`design-purged-atom-retirement-receipt`]) with its own automatic
-//! cadence (`SyncCoordinator::start_automatic_gc_atoms`, cloud-sync only,
-//! byte-budget gated, coupled to the backup publish lock). This janitor is
-//! local-only and does not touch that lock or that cadence.
-//!
-//! ## Env
-//!
-//! | Variable | Meaning |
-//! |----------|---------|
-//! | `LASTDB_ATOM_RECLAIM_MS` | Interval for the background reclaim janitor. Unset or `0` disables it. |
+//! Background reclaim waits for durable writes, then removes unreferenced
+//! atoms before unreferenced local file blobs. Each stage uses current reverse
+//! references and its own durable ledger. A failed stage stops the next stage.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -66,7 +31,7 @@ const ATOM_RECLAIM_PERSIST_CUT_TIMEOUT: Duration = Duration::from_secs(30);
 pub enum ReclaimStage {
     #[default]
     Admission,
-    AtomsAndMoleculeTips,
+    Atoms,
     LocalBlobs,
     Complete,
 }
@@ -74,8 +39,8 @@ pub enum ReclaimStage {
 impl ReclaimStage {
     fn next(self) -> Option<Self> {
         match self {
-            Self::Admission => Some(Self::AtomsAndMoleculeTips),
-            Self::AtomsAndMoleculeTips => Some(Self::LocalBlobs),
+            Self::Admission => Some(Self::Atoms),
+            Self::Atoms => Some(Self::LocalBlobs),
             Self::LocalBlobs => Some(Self::Complete),
             Self::Complete => None,
         }
@@ -89,8 +54,6 @@ pub struct ReclaimPassReport {
     pub stage: ReclaimStage,
     /// Atom bodies removed by the atom stage.
     pub atoms_deleted: u64,
-    /// Molecule tip-version records removed by the atom stage.
-    pub molecule_tip_versions_pruned: u64,
     /// Local file-blob rows removed after the atom stage.
     pub local_blobs_deleted: u64,
 }
@@ -113,36 +76,20 @@ async fn run_reclaim_pass(
     {
         return Ok(None);
     }
-    stage = stage
-        .next()
-        .expect("admission must lead to atom and molecule-tip reclaim");
+    stage = stage.next().expect("admission must lead to atom reclaim");
 
     let extra_roots = mutation_manager.pending_pin_log_atom_roots().await?;
     let atoms = db_ops
         .atoms()
         // No explicit override: the janitor honors the peer-apply interlock
         // (only the daemon-wide env override lets it delete after a peer apply).
-        .gc_orphan_atoms_with_roots_at_cut(false, None, false, &extra_roots, scan_started_at, false)
+        .gc_orphan_atoms_with_roots_at_cut(false, None, &extra_roots, scan_started_at, false)
         .await?;
 
-    // The atom pass can return while its bounded molecule-tip prologue still
-    // has work. Do not advance to blob deletion until this transition settles.
-    if atoms.prune_more_remaining {
-        return Ok(Some(ReclaimPassReport {
-            stage,
-            atoms_deleted: atoms.atoms_deleted,
-            molecule_tip_versions_pruned: atoms.tip_versions_pruned,
-            local_blobs_deleted: 0,
-        }));
-    }
-
-    stage = stage
-        .next()
-        .expect("atom and molecule-tip reclaim must lead to local blobs");
+    stage = stage.next().expect("atom reclaim must lead to local blobs");
     let mut report = ReclaimPassReport {
         stage,
         atoms_deleted: atoms.atoms_deleted,
-        molecule_tip_versions_pruned: atoms.tip_versions_pruned,
         local_blobs_deleted: 0,
     };
 
@@ -256,16 +203,13 @@ impl BackgroundAtomReclaimJanitorTask {
                         );
                     }
                     Ok(Some(report))
-                        if report.atoms_deleted > 0
-                            || report.molecule_tip_versions_pruned > 0
-                            || report.local_blobs_deleted > 0 =>
+                        if report.atoms_deleted > 0 || report.local_blobs_deleted > 0 =>
                     {
                         tracing::info!(
                             target: "fold_node::database",
                             atoms_deleted = report.atoms_deleted,
-                            molecule_tip_versions_pruned = report.molecule_tip_versions_pruned,
                             local_blobs_deleted = report.local_blobs_deleted,
-                            "background reclaim completed ordered atom, molecule-tip, and local-blob stages"
+                            "background reclaim completed ordered atom and local-blob stages"
                         );
                     }
                     Ok(Some(_)) => {}
