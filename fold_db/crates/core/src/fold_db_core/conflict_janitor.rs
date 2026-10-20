@@ -9,7 +9,7 @@
 //! The read of a page holds no write gate. Each page that has due records runs
 //! one release batch (`AtomStore::release_due_entries`): one native write scope,
 //! one batch, and the gate is free again before the next page. The janitor
-//! rests after each batch for `took * (100 - duty) / duty` (a duty share of 25
+//! rests after each batch for `took * (100 - duty) / duty` (a duty share of 10
 //! percent by default), so the flush of a release batch leaves the disk to the
 //! writers most of the time. The janitor deletes no atom. The batch names the history
 //! rows to the planner, which lowers the references and deletes a body only
@@ -23,7 +23,7 @@
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_CONFLICT_JANITOR_MS` | Interval between wakes. Zero turns the janitor off. Default 60000. |
-//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of wall time, in percent, that release batches may take (1 to 100). Default 25. |
+//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of wall time, in percent, that release batches may take (1 to 100). Default 10. |
 //! | `LASTDB_CONFLICT_RETENTION_SECS` | The retention window. Default 30 days. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,8 +45,10 @@ const PAGES_PER_WAKE: usize = 256;
 /// with every writer. The janitor rests after each batch for
 /// `took * (100 - duty) / duty`, like the TTL sweep (`ttl_sweep/pace.rs`).
 pub const CONFLICT_JANITOR_DUTY_PCT_ENV: &str = "LASTDB_CONFLICT_JANITOR_DUTY_PCT";
-/// Default duty share: 25 percent.
-pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 25;
+/// Default duty share: 10 percent. In a run with 700 records due at once, 25
+/// percent raised the median write latency by 9 to 46 percent while the
+/// janitor released them, and 10 percent left it unchanged within the noise.
+pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 10;
 /// The shortest rest between two pages.
 const MIN_PAUSE: Duration = Duration::from_millis(25);
 /// The longest rest between two pages.
