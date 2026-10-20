@@ -2,11 +2,12 @@
 //!
 //! A charge is a calculated estimate of retained heap bytes, rounded up. The
 //! variable parts (strings, vectors, maps, the decoded JSON tree) are measured
-//! from capacities; only the per-object constants are estimates. Stage 1 only
-//! reports these charges. The record count still controls admission.
+//! from capacities; only the per-object constants are estimates. Admission
+//! purges clean records against this byte charge.
 
 use super::SlotKey;
-use crate::atom::Atom;
+use crate::atom::provenance::Provenance;
+use crate::atom::{Atom, AtomEntry, KeyMetadata};
 use serde_json::Value;
 
 /// One path: its path table entry, index bucket, and recency entry. The
@@ -53,6 +54,55 @@ pub(super) fn slot_charge(slot: &SlotKey) -> usize {
     finish(SLOT_BASE + SLOT_KEY_COPIES * (slot.hash.len() + slot.range.len()))
 }
 
+/// Heap owned by the current molecule tip, apart from the fixed slot cost.
+/// Key metadata and its coordinate copies belong to each slot, even when the
+/// atom body is shared. The two base key copies exclude this metadata map.
+pub(super) fn tip_heap_charge(
+    entry: &AtomEntry,
+    metadata: Option<&KeyMetadata>,
+    metadata_key_bytes: usize,
+) -> usize {
+    let strings = [
+        &entry.atom_uuid,
+        &entry.mutation_uuid,
+        &entry.writer_pubkey,
+        &entry.signature,
+        &entry.device_id,
+        &entry.origin_device,
+        &entry.prev_tip_id,
+    ]
+    .into_iter()
+    .map(String::capacity)
+    .sum::<usize>();
+    let provenance = entry
+        .provenance
+        .as_ref()
+        .map_or(0, |provenance| match provenance {
+            Provenance::User {
+                pubkey, signature, ..
+            } => pubkey.capacity() + signature.capacity(),
+            Provenance::Derived {
+                wasm_hash,
+                input_snapshot_hash,
+                sources_merkle_root,
+                ..
+            } => {
+                wasm_hash.capacity()
+                    + input_snapshot_hash.capacity()
+                    + sources_merkle_root.capacity()
+            }
+        });
+    let metadata = metadata.map_or(0, |metadata| {
+        metadata_key_bytes
+            + metadata
+                .source_file_name
+                .as_ref()
+                .map_or(0, String::capacity)
+            + metadata.metadata.as_ref().map_or(0, metadata_heap_bytes)
+    });
+    finish(strings + provenance + metadata)
+}
+
 /// One source link. Both sides store only ids.
 pub(super) fn link_charge() -> usize {
     finish(LINK_BASE)
@@ -70,13 +120,7 @@ pub(super) fn atom_charge(atom: &Atom) -> usize {
     let strings = atom.uuid().len()
         + atom.source_schema_name().len()
         + atom.source_file_name().map_or(0, String::capacity);
-    let metadata = atom.metadata().map_or(0, |map| {
-        map.capacity() * HASH_MAP_SLOT
-            + map
-                .iter()
-                .map(|(key, value)| key.capacity() + value.capacity())
-                .sum::<usize>()
-    });
+    let metadata = atom.metadata().map_or(0, metadata_heap_bytes);
     finish(
         ARC_HEADER
             + std::mem::size_of::<Atom>()
@@ -84,6 +128,14 @@ pub(super) fn atom_charge(atom: &Atom) -> usize {
             + metadata
             + json_heap_bytes(atom.content()),
     )
+}
+
+fn metadata_heap_bytes(map: &std::collections::HashMap<String, String>) -> usize {
+    map.capacity() * HASH_MAP_SLOT
+        + map
+            .iter()
+            .map(|(key, value)| key.capacity() + value.capacity())
+            .sum::<usize>()
 }
 
 /// Heap bytes that a JSON value owns outside its own inline slot.

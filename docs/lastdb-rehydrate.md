@@ -13,6 +13,10 @@ A call holds its selected records. The purge skips those records and writes that
 File contents stay outside this model. An atom can return a file reference and its access metadata.
 Reads and writes reuse an equal complete atom object when one is already available.
 An equal UUID alone cannot combine copies with different atom metadata.
+The warm set charges each molecule tip's metadata separately from its shared atom.
+Schema aliases at one molecule key share this charge.
+A tip update replaces the charge. Absence and removal release it.
+Private write metadata retains its separate allowance.
 
 ## Read
 
@@ -20,7 +24,7 @@ An equal UUID alone cannot combine copies with different atom metadata.
 2. Capture the current core state and the matching disk root.
 3. Use the known keys, tips, and full atom values from that captured state.
 4. Fetch the missing records in batches from the held disk root.
-5. Admit the fetched logical records when their source checks and memory allowances permit it.
+5. Admit each successful fetch after its source checks. Purge clean, unused records when the byte charge exceeds the limit.
 
 A call can retain an earlier value while a later write replaces the current value.
 Its memory owner stays charged until that call returns.

@@ -90,6 +90,15 @@ impl AtomStore {
         molecules: &[String],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<MoleculeCountersView>, SchemaError> {
+        self.atom_read_scope(self.molecule_counter_views_captured(molecules, storage_prefix))
+            .await
+    }
+
+    async fn molecule_counter_views_captured(
+        &self,
+        molecules: &[String],
+        storage_prefix: Option<&str>,
+    ) -> Result<Vec<MoleculeCountersView>, SchemaError> {
         let keys: Vec<String> = molecules
             .iter()
             .map(|molecule| build_storage_key(storage_prefix, &header_key(molecule)))

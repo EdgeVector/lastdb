@@ -125,19 +125,15 @@ fn plan_purge(loaded: &LoadedTargets, mutations: &[Mutation]) -> ErasePlan {
 
 /// The cutoff of each distinct key, in unix nanoseconds, when the mutation has one.
 fn key_cutoffs(keys: &[KeyValue], mutations: &[Mutation]) -> HashMap<usize, u64> {
-    let mut by_key: HashMap<String, u64> = HashMap::new();
+    let mut by_key: HashMap<KeyValue, u64> = HashMap::new();
     for mutation in mutations {
         if let Some(cutoff) = mutation.erase_tips_before_nanos {
-            by_key.insert(describe_key(&mutation.key_value), cutoff);
+            by_key.insert(mutation.key_value.clone(), cutoff);
         }
     }
     keys.iter()
         .enumerate()
-        .filter_map(|(index, key)| {
-            by_key
-                .get(&describe_key(key))
-                .map(|cutoff| (index, *cutoff))
-        })
+        .filter_map(|(index, key)| by_key.get(key).map(|cutoff| (index, *cutoff)))
         .collect()
 }
 

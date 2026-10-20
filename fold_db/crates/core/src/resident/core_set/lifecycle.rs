@@ -203,6 +203,7 @@ impl CoreWarmSet {
     }
 
     pub(super) fn forget_slot_value(&mut self, id: tables::SlotId) {
+        self.set_tip_charge(id, 0);
         let Some(slot) = self.slots.get_mut(id) else {
             return;
         };
