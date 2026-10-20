@@ -9,8 +9,9 @@ impl AtomStore {
     /// old state comes from the commit: `commit.previous` holds the old tip of
     /// each changed key that had one, read by the planner inside the write
     /// gate, and `commit.atom_sizes` the size of each atom whose count
-    /// changed. The header's old size is the molecule counter's current header
-    /// bytes (one header per molecule).
+    /// changed. Header rows come from `commit.headers`: the planner merges the
+    /// counters into each header and reads the stored row under its scoped
+    /// key, so the meter counts the bytes it writes in each scope.
     ///
     /// Two passes on purpose. Pass one binds each molecule to the schema that
     /// owns it, using the atom the tip points at; pass two meters. A batch
@@ -49,44 +50,41 @@ impl AtomStore {
             // `contains("mord:")` / `contains("moc:")` test missed the
             // kind-anchored `mord\0` / `moc\0` rows (52 bytes on the
             // measured source shape).
-            let Some((row, row_molecule)) = molecule_key_codec::molecule_counter_row(key) else {
+            // Header rows are metered from `commit.headers` below.
+            let Some((molecule_key_codec::MoleculeCounterRow::Tip, row_molecule)) =
+                molecule_key_codec::molecule_counter_row(key)
+            else {
                 continue;
             };
             let new_bytes =
                 crate::db_operations::keep_small::molecule_counter_row_bytes(value).unwrap_or(0);
-            let is_tip = row == molecule_key_codec::MoleculeCounterRow::Tip;
-            // Structural rows carry no schema name. The molecule they belong
-            // to does, so the owner is honest rather than inferred.
+            // Tip rows carry no schema name. The molecule they belong to
+            // does, so the owner is honest rather than inferred.
             let schema = self.keep_small.molecule_schema(row_molecule);
-            if is_tip {
-                let old = commit.previous.get(key);
-                let prev_bytes = old.map_or(0, |old| old.row_bytes);
-                if let Some(new_uuid) = value
-                    .get("entry")
-                    .and_then(|e| e.get("atom_uuid"))
-                    .and_then(|v| v.as_str())
-                {
-                    self.account_tip_atom(
-                        row_molecule,
-                        old,
-                        new_uuid,
-                        commit,
-                        new_bytes,
-                        prev_bytes,
-                    );
-                }
-                self.keep_small
-                    .record_tip_put(schema.as_deref(), new_bytes, prev_bytes);
-            } else {
-                let prev_bytes = self.keep_small.molecule_header_bytes(row_molecule);
-                self.keep_small
-                    .record_bookkeeping_put(schema.as_deref(), new_bytes, prev_bytes);
-                self.keep_small.record_molecule_bookkeeping_put(
-                    row_molecule,
-                    new_bytes,
-                    prev_bytes,
-                );
+            let old = commit.previous.get(key);
+            let prev_bytes = old.map_or(0, |old| old.row_bytes);
+            if let Some(new_uuid) = value
+                .get("entry")
+                .and_then(|e| e.get("atom_uuid"))
+                .and_then(|v| v.as_str())
+            {
+                self.account_tip_atom(row_molecule, old, new_uuid, commit, new_bytes, prev_bytes);
             }
+            self.keep_small
+                .record_tip_put(schema.as_deref(), new_bytes, prev_bytes);
+        }
+        for header in &commit.headers {
+            let schema = self.keep_small.molecule_schema(&header.molecule);
+            self.keep_small.record_bookkeeping_put(
+                schema.as_deref(),
+                header.new_bytes,
+                header.old_bytes,
+            );
+            self.keep_small.record_molecule_bookkeeping_put(
+                &header.molecule,
+                header.new_bytes,
+                header.old_bytes,
+            );
         }
     }
 
@@ -124,12 +122,14 @@ impl AtomStore {
             meters.mark_molecule_counters_incomplete();
         }
         let (atom_bytes, blob_bytes) = contribution.unwrap_or_default();
+        // An old atom whose net count does not change (another tip of the
+        // batch gains it) has no counter read; the batch's bodies list it.
         let old_source = old.and_then(|old| {
-            let size = commit.atom_sizes.get(&old.atom_uuid)?;
+            let (atom_value_bytes, blob_reference_bytes) = known(&old.atom_uuid)?;
             Some(MoleculeTipCounterSource {
                 atom_uuid: old.atom_uuid.clone(),
-                atom_value_bytes: size.atom_bytes(),
-                blob_reference_bytes: size.blob_bytes(),
+                atom_value_bytes,
+                blob_reference_bytes,
             })
         });
         if let Some(source) = old_source.as_ref() {

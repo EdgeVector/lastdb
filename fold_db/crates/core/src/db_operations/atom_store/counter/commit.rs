@@ -102,6 +102,9 @@ pub(crate) struct TipCommit {
     /// The size of each atom whose count changed, from its counter or from
     /// the body this run created. An atom whose counter has no size is absent.
     pub atom_sizes: HashMap<String, AtomSize>,
+    /// Each molecule header row the run wrote, with its old and new length,
+    /// read under the scoped key.
+    pub headers: Vec<super::molecule::HeaderChange>,
 }
 
 impl TipCommit {
@@ -112,6 +115,7 @@ impl TipCommit {
         self.counter_events += other.counter_events;
         self.previous.extend(other.previous);
         self.atom_sizes.extend(other.atom_sizes);
+        self.headers.extend(other.headers);
     }
 }
 
@@ -157,6 +161,7 @@ impl AtomStore {
             build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
         commit.previous = previous;
         commit.atom_sizes = atom_sizes;
+        commit.headers = molecule_run.headers;
         for (molecule, fault) in molecule_run.faults {
             self.counter_report().note_molecule(&molecule, fault);
             commit.counter_events += 1;
