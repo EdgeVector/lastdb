@@ -22,6 +22,11 @@ except a counter with the `suspect` flag.
 The first NUL ends the hash. The body and the counter of one atom share one
 hash group. A storage scope adds its prefix before the key.
 
+Blob roots (`bref:v2`) have two sources. A body names the blobs in its counter.
+A tip record that carries file metadata names its own blob. The planner changes
+the roots of both in the batch of the change: the root of an old tip record goes
+and the root of a new tip record comes in the same batch as the tip.
+
 The counter is JSON: `{"v":1,"refs":N,"blobs":[...],"suspect":false}`.
 `blobs` lists the blob references of the body, so a delete needs no body read.
 
