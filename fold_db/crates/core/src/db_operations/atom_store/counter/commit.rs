@@ -11,7 +11,7 @@ use super::molecule::molecule_changes;
 use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::report::CounterEvent;
-use crate::atom::Atom;
+use crate::atom::{molecule_key_codec, Atom};
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
 use crate::schema::SchemaError;
 use serde_json::Value;
@@ -168,6 +168,19 @@ impl AtomStore {
                     .flat_map(|(record, _)| record.atoms.iter().map(String::as_str)),
             );
         watch.note(atoms);
+        // A molecule changes with its tips and its records. The header checks
+        // treat a difference for such a molecule as a candidate.
+        let molecules = tips
+            .keys()
+            .filter_map(|key| molecule_key_codec::molecule_uuid_from_storage_key(key))
+            .chain(
+                records
+                    .iter()
+                    .zip(new_records)
+                    .filter(|(_, is_new)| **is_new)
+                    .map(|(record, _)| record.molecule.as_str()),
+            );
+        watch.note(molecules);
     }
 
     /// A native store commits one batch only inside a request scope.

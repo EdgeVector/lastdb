@@ -119,7 +119,9 @@ impl AtomStore {
         if unique.is_empty() {
             return Ok(0);
         }
+        let asked = unique.len();
         self.in_write_scope(async move {
+            let started = std::time::Instant::now();
             let present = self.binding_records_present(&unique).await?;
             let changed: Vec<(&String, &MoleculeRefEdge)> = unique
                 .iter()
@@ -158,6 +160,15 @@ impl AtomStore {
                 .map_err(|error| {
                     SchemaError::InvalidData(format!("write molecule bindings: {error}"))
                 })?;
+            tracing::debug!(
+                target: "fold_db::molecule_bindings",
+                bind = flip == Flip::Bind,
+                asked,
+                flipped = changed.len(),
+                molecules = by_molecule.len(),
+                elapsed_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
+                "molecule bindings changed"
+            );
             Ok(changed.len())
         })
         .await

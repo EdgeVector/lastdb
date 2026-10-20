@@ -14,6 +14,7 @@ use crate::schema::SchemaCore;
 mod accessors;
 mod admin_db;
 mod catalog_gc;
+mod catalog_membership;
 mod catalog_share;
 mod conflict_metadata;
 mod file_blobs;

@@ -111,7 +111,9 @@ where
 
 /// The kinds of operation in one accepted batch, for a run that reads the log.
 /// Tips, atom bodies and atom counters of one request share one batch, so a
-/// delete on zero shows its three deletes under one sequence number.
+/// delete on zero shows its three deletes under one sequence number. The
+/// molecule headers (with the slots and records counters) and the binding
+/// records and counters join the same batch.
 #[derive(Default)]
 struct BatchShape {
     tip_puts: u32,
@@ -120,6 +122,9 @@ struct BatchShape {
     body_deletes: u32,
     counter_puts: u32,
     counter_deletes: u32,
+    header_puts: u32,
+    binding_puts: u32,
+    binding_deletes: u32,
 }
 
 impl BatchShape {
@@ -148,6 +153,14 @@ impl BatchShape {
                     &mut shape.counter_puts
                 } else {
                     &mut shape.counter_deletes
+                }
+            } else if key.starts_with("mh:") && put {
+                &mut shape.header_puts
+            } else if key.starts_with("mref:v1:") {
+                if put {
+                    &mut shape.binding_puts
+                } else {
+                    &mut shape.binding_deletes
                 }
             } else {
                 continue;
@@ -178,6 +191,9 @@ fn note_gate_hold(
         body_deletes = shape.body_deletes,
         counter_puts = shape.counter_puts,
         counter_deletes = shape.counter_deletes,
+        header_puts = shape.header_puts,
+        binding_puts = shape.binding_puts,
+        binding_deletes = shape.binding_deletes,
         "native write gate released"
     );
 }
