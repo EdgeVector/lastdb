@@ -2,15 +2,17 @@
 """Writer boundary of the atom counter.
 
 Only the planner (db_operations/atom_store/counter/) may write tip records
-(`mk:`), conflict and history records, atom bodies and atom counters inside a
-write scope. This lint finds every Rust function that writes through a store
+(`mk:`), conflict and history records, atom bodies, atom counters and the
+molecule counters in the molecule header (`mh:`) inside a write scope. The
+`bindings` counter has one writer, `molecule_bindings.rs`. This lint finds every Rust function that writes through a store
 and either (a) names one of those key families or (b) holds a raw store handle,
 and it compares the set with scripts/lints/atom-counter-writers.allow.
 
 The check is per function, not per file. A function is a writer when its body
 has a write verb (put, delete, batch_mutate, restore_batch_put, ...) and one of:
 
-- a key family token (family T tip, C conflict or history, B body, N counter);
+- a key family token (family T tip, C conflict or history, B body, N atom
+  counter, M molecule header and binding counters);
 - a raw handle token: `.raw()`, `main_store`, `open_namespace(`, a generic row
   restore (`restore_batch_put(`), or a scan (`scan_prefix(`, `scan_range(`, ...)
   next to a delete, which is a range delete of rows of every family.
@@ -55,6 +57,10 @@ FAMILIES = {
     ),
     "B": re.compile(r'\bbody_key\(|\bbody_storage_key\(|\batom_key_codec\b|"atom:'),
     "N": re.compile(r"\bcounter_key\(|\bAtomCounter\b"),
+    "M": re.compile(
+        r'"mh:|\bMH_PREFIX\b|\bheader_key\(|\bMoleculeHeader\b|'
+        r'\bmolecule_bindings_key\b|\bMoleculeBindings\b|"mref:v1:n:'
+    ),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -216,7 +222,7 @@ def load_allow(root):
                 sys.exit(1)
             path, fn, fams, reason = (p.strip() for p in parts)
             allowed = set() if fams == "-" else set(fams.split())
-            bad = allowed - {"T", "C", "B", "N"}
+            bad = allowed - {"T", "C", "B", "N", "M"}
             if bad:
                 print(f"{ALLOW}:{number}: unknown family {sorted(bad)}", file=sys.stderr)
                 sys.exit(1)
@@ -257,7 +263,7 @@ def main():
             print(
                 f"lint-atom-counter-writers: {path}::{fn} names famil{'ies' if len(missing) > 1 else 'y'} "
                 f"{' '.join(sorted(missing))} but the allow list covers [{' '.join(sorted(covered)) or '-'}].\n"
-                "  A new tip, conflict, body or counter write belongs in the planner.",
+                "  A new tip, conflict, body, counter or molecule counter write belongs in the planner.",
                 file=sys.stderr,
             )
     for e in entries:

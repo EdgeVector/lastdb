@@ -1,5 +1,6 @@
 //! The request and the result of a verify step.
 
+use super::molecule_report::MoleculeMismatches;
 use crate::db_operations::atom_store::WalkStats;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,8 +17,22 @@ pub enum Phase {
     /// Body and counter records of atoms: pairing, zero, suspect, and the
     /// counter against the totals of the first two phases.
     Atoms,
+    /// Molecule headers: the `slots` and `records` counters against the tips and
+    /// the conflict records the first two phases counted for each molecule.
+    Headers,
+    /// `bindings` counters: each against the binding records of its molecule.
+    Bindings,
+    /// Binding records: each has a `bindings` counter.
+    BindingRecords,
     /// The run is complete.
     Done,
+}
+
+impl Phase {
+    /// The phases that check the molecule counters.
+    pub(super) fn reads_molecules(self) -> bool {
+        matches!(self, Self::Headers | Self::Bindings | Self::BindingRecords)
+    }
 }
 
 /// The kinds of fault the verifier reports. A kind is a fact about one atom. An
@@ -37,6 +52,19 @@ pub(crate) enum Kind {
     UnreadableRecord,
     UnreadableCounter,
     UnsealedRows,
+    SlotsAboveTips,
+    SlotsBelowTips,
+    RecordsAboveRecords,
+    RecordsBelowRecords,
+    TipsWithoutHeader,
+    MoleculeCountersUnset,
+    SuspectMolecule,
+    UnreadableHeader,
+    BindingsMismatch,
+    BindingRecordWithoutCounter,
+    ZeroBindingsCounter,
+    SuspectBindings,
+    UnreadableBindings,
 }
 
 impl Kind {
@@ -55,6 +83,19 @@ impl Kind {
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
             Self::UnsealedRows => "unsealed_rows",
+            Self::SlotsAboveTips => "molecule_slots_above_tips",
+            Self::SlotsBelowTips => "molecule_slots_below_tips",
+            Self::RecordsAboveRecords => "molecule_records_above_records",
+            Self::RecordsBelowRecords => "molecule_records_below_records",
+            Self::TipsWithoutHeader => "tips_without_header",
+            Self::MoleculeCountersUnset => "molecule_counters_unset",
+            Self::SuspectMolecule => "suspect_molecule",
+            Self::UnreadableHeader => "unreadable_header",
+            Self::BindingsMismatch => "bindings_counter_mismatch",
+            Self::BindingRecordWithoutCounter => "binding_record_without_counter",
+            Self::ZeroBindingsCounter => "zero_bindings_counter",
+            Self::SuspectBindings => "suspect_bindings",
+            Self::UnreadableBindings => "unreadable_bindings",
         }
     }
 }
@@ -90,6 +131,9 @@ pub struct Mismatches {
     /// removes these rows.
     #[serde(default)]
     pub unsealed_rows: u64,
+    /// The molecule counter faults (headers, `bindings` counters, binding records).
+    #[serde(flatten)]
+    pub molecule: MoleculeMismatches,
 }
 
 impl Mismatches {
@@ -116,6 +160,7 @@ impl Mismatches {
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
             Kind::UnsealedRows => &mut self.unsealed_rows,
+            _ => self.molecule.slot(kind),
         }
     }
 
@@ -134,6 +179,7 @@ impl Mismatches {
             + self.unreadable_record
             + self.unreadable_counter
             + self.unsealed_rows
+            + self.molecule.total()
     }
 }
 
@@ -192,6 +238,15 @@ pub struct VerifyReport {
     pub records_read: u64,
     pub counters_read: u64,
     pub bodies_read: u64,
+    /// Molecule headers the run read.
+    #[serde(default)]
+    pub headers_read: u64,
+    /// `bindings` counters the run read.
+    #[serde(default)]
+    pub binding_counters_read: u64,
+    /// Binding records the run read.
+    #[serde(default)]
+    pub binding_records_read: u64,
     /// Pages read again because a read hit the read limit of one call.
     pub page_retries: u64,
     pub range_reads: WalkStats,

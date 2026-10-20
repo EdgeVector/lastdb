@@ -413,9 +413,7 @@ pub(crate) async fn insert_declare_catalog_membership(
         return Ok(());
     }
     host.db
-        .db_ops()
-        .db_catalog()
-        .ensure_named_membership(locator, schema_name, ctx.storage_prefix.clone())
+        .ensure_catalog_membership(locator, schema_name, ctx.storage_prefix.clone())
         .await
         .map_err(|e| e.to_string())?;
     Ok(())

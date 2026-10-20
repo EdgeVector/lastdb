@@ -24,6 +24,12 @@ pub(super) struct Run {
     pub phase: Phase,
     pub walk: RangeWalk,
     pub tally: Tally,
+    /// Tips per molecule, over the first phase.
+    pub molecule_tips: Tally,
+    /// Conflict records per molecule, over the second phase.
+    pub molecule_records: Tally,
+    /// Molecules whose header the run has read.
+    pub headers_seen: HashSet<u128>,
     pub reported_below: HashSet<u128>,
     pub report: VerifyReport,
     pub page_rows: usize,
@@ -43,6 +49,9 @@ impl Run {
             phase: Phase::Tips,
             walk,
             tally: Tally::new(max_atoms),
+            molecule_tips: Tally::new(max_atoms),
+            molecule_records: Tally::new(max_atoms),
+            headers_seen: HashSet::new(),
             reported_below: HashSet::new(),
             report: VerifyReport {
                 run_id: id,
@@ -59,6 +68,9 @@ impl Run {
                 records_read: 0,
                 counters_read: 0,
                 bodies_read: 0,
+                headers_read: 0,
+                binding_counters_read: 0,
+                binding_records_read: 0,
                 page_retries: 0,
                 range_reads: WalkStats::default(),
                 tally_atoms: 0,
@@ -131,6 +143,8 @@ impl Run {
         let phase = match self.phase {
             Phase::Tips => "tip",
             Phase::Records => "history",
+            Phase::Headers => "molecule header",
+            Phase::Bindings | Phase::BindingRecords => "molecule binding",
             _ => "atom",
         };
         self.note_faults(
