@@ -1,0 +1,9 @@
+Schema key pages could return records from another mapped key layout. Large reads could also skip warm admission once a second copy of their atom bodies filled a 4 MiB receipt allowance. This change checks schema membership before each page limit and keeps compact source certificates instead of duplicate bodies.
+
+Catalog decisions, molecule bindings, and instance cleanup now share one native write boundary. The native gate precedes molecule locks, which removes the reverse lock order. Search receives logical keys after commit. Instance cleanup retains node-global encryption wraps, and an oversized cleanup receives an atomic refusal.
+
+The change also frames molecule and binding identities without ambiguous separators, removes a write-only queue of prior tips, and uses the existing home file allowance for generation cleanup instead of a conflicting 4,096-generation cutoff.
+
+Validation: independent source reviews, format, function/file size, writer-boundary, dependency-lane, and secret checks pass. Full workspace Clippy, the release build, and fresh synthetic owner-API operations are pending. This PR remains a draft until those results are recorded.
+
+Limits: catalog cleanup must fit the native operation and 128 MiB byte limits. The planning limit does not define a whole-process memory cap. Cloud remains disabled; domain-aware wrap revocation needs a separate design before cloud reactivation. No migration, primary-data access, or test suite is included.

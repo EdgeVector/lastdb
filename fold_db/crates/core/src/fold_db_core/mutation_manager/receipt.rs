@@ -209,9 +209,9 @@ pub struct ResidentCommitStages {
 /// One logical resident commit's answer to its caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResidentCommitReceipt {
-    /// Mutation ids, in the order the pipeline produced them. Byte-identical to
-    /// what `write_mutations_batch_async` returned before the receipt existed,
-    /// so every existing caller keeps its exact result.
+    /// One accepted input mutation identity per caller input, in caller order.
+    /// Idempotent repeats retain their submitted identity. This list does not
+    /// claim which identity currently owns a tip or which erase removed bytes.
     pub mutation_ids: Vec<String>,
     /// The one committed revision for the primary record and every exact
     /// projection in this batch.
@@ -252,23 +252,6 @@ impl ResidentCommitReceipt {
             cloud: None,
             stages: ResidentCommitStages::default(),
             touched_group_ids: Vec::new(),
-        }
-    }
-
-    /// A receipt carrying only ids, for the paths that peel work off the
-    /// create/update pipeline (hard erasure) and have no resident stages of
-    /// their own.
-    #[must_use]
-    pub fn from_ids(mutation_ids: Vec<String>, operations: ResidentCommitOperations) -> Self {
-        Self {
-            mutation_ids,
-            revision: None,
-            operations,
-            durability: ResidentDurability::Queued,
-            cloud: None,
-            stages: ResidentCommitStages::default(),
-            // Filled when this peel runs inside the batch log. Otherwise empty.
-            touched_group_ids: crate::durable_flush::current_touched_groups(),
         }
     }
 }

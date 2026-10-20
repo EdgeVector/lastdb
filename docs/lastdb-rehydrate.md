@@ -147,6 +147,11 @@ An empty hash is valid for both initial key preload and later changes to the com
 4. Publish the complete core change, then send the permitted ack.
 5. Flush the prepared bytes through the one native disk queue.
 
+A successful batch returns one accepted input mutation ID per caller input, in caller order.
+Delete, Purge, and idempotent repeats follow the same rule.
+The ID identifies the accepted input. It does not identify the atom that wins a field conflict.
+Change notices use that exact input-to-ID association. They do not substitute another input's ID.
+
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
 Native after-commit work sends the Search change after the disk commit.
