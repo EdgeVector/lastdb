@@ -10,6 +10,8 @@
 //! 2. **Bounded workers** do handler work (CPU-shaped concurrency).
 //! 3. **Bounded queue** absorbs bursts; when full → immediate **backpressure**
 //!    (HTTP 503) instead of spawning unbounded threads.
+//! 4. **LIFO hand-off** ([`dispatch`]): a new job goes to the most recently idle
+//!    worker, so light load reuses a few warm threads and their allocator pages.
 //!
 //! FD exhaustion (EMFILE) is still bounded because in-flight streams cannot
 //! exceed roughly `workers + queue_capacity` — without pretending “connections”
@@ -27,12 +29,14 @@
 use std::cell::Cell;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::uds_http;
+
+mod dispatch;
+use dispatch::{Dispatch, Rejected, Slot};
 
 /// Default queue depth when `LASTDB_UDS_QUEUE` is unset.
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
@@ -175,7 +179,7 @@ pub struct UdsWorkerPool {
 }
 
 struct PoolInner {
-    tx: SyncSender<ConnJob>,
+    dispatch: Arc<Dispatch<ConnJob>>,
     workers: usize,
     queue_capacity: usize,
     submitted: AtomicU64,
@@ -190,6 +194,13 @@ struct PoolInner {
 struct AdmissionState {
     closed: bool,
     in_flight: usize,
+}
+
+/// The last handle closes dispatch, as dropping the old channel sender did.
+impl Drop for PoolInner {
+    fn drop(&mut self) {
+        self.dispatch.close();
+    }
 }
 
 struct InFlightGuard(Arc<PoolInner>);
@@ -209,15 +220,15 @@ impl Drop for InFlightGuard {
 }
 
 impl UdsWorkerPool {
-    /// Spawn `config.workers` threads that pull from a bounded channel of size
-    /// `config.queue_capacity`.
+    /// Spawn `config.workers` threads fed by a LIFO hand-off with a bounded
+    /// FIFO queue of `config.queue_capacity` waiting jobs.
     #[must_use]
     fn new(config: WorkerPoolConfig) -> Self {
         let workers = config.workers.max(1);
         let queue_capacity = config.queue_capacity.max(1);
-        let (tx, rx) = sync_channel::<ConnJob>(queue_capacity);
+        let dispatch = Dispatch::new(queue_capacity);
         let inner = Arc::new(PoolInner {
-            tx,
+            dispatch: Arc::clone(&dispatch),
             workers,
             queue_capacity,
             submitted: AtomicU64::new(0),
@@ -226,16 +237,13 @@ impl UdsWorkerPool {
             drained: Condvar::new(),
         });
 
-        // `std::sync::mpsc::Receiver` is not `Sync`; share it behind a mutex so
-        // workers can compete for jobs.
-        let rx = Arc::new(std::sync::Mutex::new(rx));
         // Take the LARGER of our floor and any `RUST_MIN_STACK` the operator
         // set: setting `stack_size` explicitly makes `std::thread` stop
         // consulting that variable, so a naive floor would silently REMOVE the
         // documented workaround from anyone already relying on it.
         let stack_bytes = worker_stack_bytes();
         for i in 0..workers {
-            let rx = Arc::clone(&rx);
+            let dispatch = Arc::clone(&dispatch);
             // Two independent reproductions of the same 2 MiB default being too
             // small, both on 2026-07-31: serializing a real-home /api/schemas
             // catalog (~2 MiB JSON, 1k+ schemas) overflowed on the first
@@ -245,7 +253,7 @@ impl UdsWorkerPool {
             thread::Builder::new()
                 .name(format!("lastdb-uds-worker-{i}"))
                 .stack_size(stack_bytes)
-                .spawn(move || worker_loop(&rx))
+                .spawn(move || worker_loop(&dispatch))
                 .unwrap_or_else(|e| panic!("failed to spawn UDS worker {i}: {e}"));
         }
 
@@ -293,12 +301,12 @@ impl UdsWorkerPool {
             work: Box::new(work),
             in_flight_guard,
         };
-        match self.inner.tx.try_send(job) {
+        match self.inner.dispatch.submit(job) {
             Ok(()) => {
                 self.inner.submitted.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
-            Err(TrySendError::Full(job)) => {
+            Err(Rejected::Full(job)) => {
                 self.inner
                     .queue_full_rejects
                     .fetch_add(1, Ordering::Relaxed);
@@ -308,7 +316,7 @@ impl UdsWorkerPool {
                 }
                 Err(SubmitError::QueueFull)
             }
-            Err(TrySendError::Disconnected(job)) => {
+            Err(Rejected::Closed(job)) => {
                 let mut stream = job.stream;
                 if let Err(e) = uds_http::write_busy_and_close(&mut stream) {
                     tracing::debug!(error = %e, "busy response write failed");
@@ -395,18 +403,9 @@ impl UdsWorkerPool {
     }
 }
 
-fn worker_loop(rx: &Arc<std::sync::Mutex<Receiver<ConnJob>>>) {
-    loop {
-        let job = {
-            let guard = match rx.lock() {
-                Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            match guard.recv() {
-                Ok(job) => job,
-                Err(_) => return, // sender dropped
-            }
-        };
+fn worker_loop(dispatch: &Dispatch<ConnJob>) {
+    let slot = Slot::new();
+    while let Some(job) = dispatch.next(&slot) {
         let ConnJob {
             stream,
             enqueued_at,
