@@ -9,4 +9,11 @@ impl FoldDB {
     pub fn atom_counter_report(&self) -> crate::db_operations::AtomCounterReport {
         self.db_ops().atoms().counter_report().snapshot()
     }
+
+    /// The retention window of kept conflict records, the janitor's last run,
+    /// and the queue depth at that run. A read of in-memory counters.
+    #[must_use]
+    pub fn conflict_retention_report(&self) -> crate::db_operations::ConflictRetentionReport {
+        self.db_ops().atoms().retention_state().snapshot()
+    }
 }

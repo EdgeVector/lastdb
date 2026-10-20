@@ -9,6 +9,7 @@
 use super::build::build_mutations;
 use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
+use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
 use crate::atom::Atom;
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
@@ -29,9 +30,24 @@ pub(crate) struct RecordRefs {
     pub key: String,
     /// The distinct atoms that the record names.
     pub atoms: Vec<String>,
+    /// Rows that only a new record writes: its retention queue entry and its
+    /// slot directory entry. A repeat of a decision writes none of them.
+    pub new_rows: Vec<(String, Value)>,
+}
+
+/// One kept record to release. The planner reads the history row at `history`
+/// in the write gate, lowers one reference for each distinct atom the row
+/// names, and deletes the row and `deletes` in the same batch.
+pub(crate) struct ReleaseRequest {
+    /// The full storage key of the history row that holds the references.
+    pub history: String,
+    /// The other rows of the record (conflict row, directory entry, queue
+    /// entry). They go with the history row, or when it is already gone.
+    pub deletes: Vec<Vec<u8>>,
 }
 
 /// Everything one planner run needs.
+#[derive(Default)]
 pub(crate) struct TipChangeSet<'a> {
     pub scope: Option<&'a str>,
     pub tips: Vec<TipChange>,
@@ -44,6 +60,9 @@ pub(crate) struct TipChangeSet<'a> {
     /// Conflict records written by this run. The planner adds one reference per
     /// distinct atom for each record that is new.
     pub records: Vec<RecordRefs>,
+    /// Conflict records this run releases (a purge of their key, or the end of
+    /// their retention window). See `records.rs`.
+    pub releases: Vec<ReleaseRequest>,
     /// Other rows of the same batch: molecule headers, order log, record rows.
     pub rows: Vec<(String, Value)>,
     /// Other keys that the same batch deletes.
@@ -70,6 +89,8 @@ pub(crate) struct TipCommit {
     pub created: Vec<Atom>,
     /// Atoms whose count reached zero. The run deleted their bodies.
     pub deleted: Vec<DeletedAtom>,
+    /// History rows of conflict records this run released.
+    pub records_released: u64,
     /// Counter faults: an underflow, an absent counter, or a dangling removal.
     pub counter_events: u64,
 }
@@ -79,6 +100,7 @@ impl TipCommit {
     pub(crate) fn absorb(&mut self, other: Self) {
         self.created.extend(other.created);
         self.deleted.extend(other.deleted);
+        self.records_released += other.records_released;
         self.counter_events += other.counter_events;
     }
 }
@@ -100,13 +122,21 @@ impl AtomStore {
             bodies,
             body_source,
             records,
+            releases,
             rows,
             deletes,
         } = set;
         let tips = collapse_tips(tips);
+        let records = dedupe_records(records);
         let old = self.read_old_tips(&tips).await?;
         let new_records = self.read_new_records(&records).await?;
-        let deltas = ref_deltas(&tips, &old, &records, &new_records);
+        let released = self.read_released_records(releases).await?;
+        let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
+        released.lower(&mut deltas);
+        let rows = with_new_record_rows(rows, &records, &new_records);
+        let records_released = released.count();
+        let mut deletes = deletes;
+        deletes.extend(released.into_deletes());
         let before = self.read_counters(&deltas, scope).await?;
         let sources = BodySources {
             bodies,
@@ -116,8 +146,9 @@ impl AtomStore {
             .offer_bodies(&deltas, &before, &tips, &sources, scope)
             .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
-        let (mutations, commit) =
+        let (mutations, mut commit) =
             build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
+        commit.records_released = records_released;
         if !mutations.is_empty() {
             self.main_store
                 .inner()

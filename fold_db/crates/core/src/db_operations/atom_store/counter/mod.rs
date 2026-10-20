@@ -29,10 +29,11 @@ mod build;
 mod commit;
 mod plan;
 mod read;
+mod records;
 mod refs;
 mod report;
 
-pub(crate) use commit::{RecordRefs, TipChange, TipChangeSet, TipCommit};
+pub(crate) use commit::{RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit};
 pub use read::AtomCounterView;
 pub(crate) use refs::event_atoms;
 pub use report::AtomCounterReport;

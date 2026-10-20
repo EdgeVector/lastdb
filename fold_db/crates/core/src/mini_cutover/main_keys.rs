@@ -31,6 +31,8 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
         || colon_prefix_matches(bare, "history:")
         || colon_prefix_matches(bare, "conflict:")
         || colon_prefix_matches(bare, "dellog:")
+        || bare.starts_with("crq:")
+        || bare.starts_with("crs:")
         || colon_prefix_matches(bare, "gcatoms-probe-ref:")
     {
         Some("tips")

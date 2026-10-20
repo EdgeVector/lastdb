@@ -6,7 +6,7 @@ use crate::schema::SchemaError;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 
-use super::super::counter::{TipChange, TipChangeSet, TipCommit};
+use super::super::counter::{ReleaseRequest, TipChange, TipChangeSet, TipCommit};
 use super::super::types::{MoleculeData, MoleculeHeader};
 use super::super::{AtomStore, PerKeyRecord};
 
@@ -45,16 +45,26 @@ impl AtomStore {
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
     ) -> Result<TipCommit, SchemaError> {
-        self.remove_molecules_keys_with_rows(removals, Vec::new())
-            .await
+        self.remove_slots(removals, Vec::new(), false).await
     }
 
-    /// [`Self::remove_molecules_keys_batch`] with caller rows (delete barriers,
-    /// ledger rows) that join the same batch.
+    /// [`Self::remove_molecules_keys_batch`] for an erase (delete, purge, TTL
+    /// sweep), with caller rows (delete barriers, ledger rows) that join the
+    /// same batch. The erase ends the retention of the kept conflict records of
+    /// the slots it removes: the same batch releases them (`retention`).
     pub(crate) async fn remove_molecules_keys_with_rows(
         &self,
         removals: &[MoleculeKeyRemoval<'_>],
         extra_rows: Vec<(String, Value)>,
+    ) -> Result<TipCommit, SchemaError> {
+        self.remove_slots(removals, extra_rows, true).await
+    }
+
+    async fn remove_slots(
+        &self,
+        removals: &[MoleculeKeyRemoval<'_>],
+        extra_rows: Vec<(String, Value)>,
+        release_records: bool,
     ) -> Result<TipCommit, SchemaError> {
         let current = self.read_removed_slots(removals).await?;
         let mut plans: BTreeMap<Option<&str>, SlotRemovalPlan> = BTreeMap::new();
@@ -67,6 +77,11 @@ impl AtomStore {
         for (scope, plan) in plans {
             let mut rows = plan.rows;
             rows.extend(extra_rows.take().unwrap_or_default());
+            let releases = if release_records {
+                self.erase_release_requests(scope, removals).await?
+            } else {
+                Vec::new()
+            };
             let commit = self
                 .commit_tip_changes(TipChangeSet {
                     scope,
@@ -78,6 +93,7 @@ impl AtomStore {
                     bodies: &[],
                     body_source: None,
                     records: Vec::new(),
+                    releases,
                     rows,
                     deletes: Vec::new(),
                 })
@@ -85,6 +101,7 @@ impl AtomStore {
                 .map_err(|e| {
                     SchemaError::InvalidData(format!("Failed to remove slots from molecules: {e}"))
                 })?;
+            self.retention_state().note_purge(commit.records_released);
             total.absorb(commit);
         }
         if let Some(rows) = extra_rows.filter(|rows| !rows.is_empty()) {
@@ -96,6 +113,7 @@ impl AtomStore {
                     bodies: &[],
                     body_source: None,
                     records: Vec::new(),
+                    releases: Vec::new(),
                     rows,
                     deletes: Vec::new(),
                 })
@@ -103,6 +121,21 @@ impl AtomStore {
             total.absorb(commit);
         }
         Ok(total)
+    }
+
+    /// The releases for the kept conflict records of the slots that the
+    /// removals of one storage scope name.
+    async fn erase_release_requests(
+        &self,
+        scope: Option<&str>,
+        removals: &[MoleculeKeyRemoval<'_>],
+    ) -> Result<Vec<ReleaseRequest>, SchemaError> {
+        let slots: Vec<_> = removals
+            .iter()
+            .filter(|removal| removal.3 == scope)
+            .map(|removal| (removal.0, removal.2))
+            .collect();
+        self.slot_release_requests(scope, &slots).await
     }
 
     /// The physical record of every slot the removals name, in one grouped read

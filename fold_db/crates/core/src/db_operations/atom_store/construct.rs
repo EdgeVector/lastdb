@@ -68,6 +68,7 @@ impl AtomStore {
             keep_small_hard_erase_pending: Arc::default(),
             keep_small_hard_erase_orphaned: Arc::default(),
             counter_events: Arc::default(),
+            retention: Arc::default(),
             local_origin_device: Arc::default(),
             conflict_record_epoch: Arc::default(),
             molecule_liveness_locks: Arc::new(

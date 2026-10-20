@@ -34,7 +34,9 @@ pub use admin_db::{
     SchemaHistoryClearStat, SchemaHistoryStat, SchemaLogicalStorageReport, SchemaLogicalStorageRow,
     SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
-pub use atom_store::{AtomCounterReport, AtomCounterView, AtomStore, MoleculeData};
+pub use atom_store::{
+    AtomCounterReport, AtomCounterView, AtomStore, ConflictRetentionReport, MoleculeData,
+};
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
     classification_for_roots, AttributionClass, AttributionClassCounts, AttributionEvent,

@@ -172,6 +172,7 @@ impl AtomStore {
                 bodies,
                 body_source: None,
                 records: recorded.refs,
+                releases: Vec::new(),
                 rows,
                 deletes: Vec::new(),
             })

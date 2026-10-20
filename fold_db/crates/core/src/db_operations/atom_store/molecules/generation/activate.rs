@@ -99,6 +99,7 @@ impl AtomStore {
                 bodies,
                 body_source: Some(None),
                 records: Vec::new(),
+                releases: Vec::new(),
                 rows,
                 deletes: Vec::new(),
             })

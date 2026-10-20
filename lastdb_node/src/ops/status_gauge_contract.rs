@@ -629,6 +629,7 @@ fn default_status_snapshot(
         purge_stats: HashMap::new(),
         local_retention: crate::self_metrics::LocalRetentionHealth::default(),
         atom_counters: None,
+        conflict_retention: None,
         at_rest_compression: None,
         codec_policy: None,
     }

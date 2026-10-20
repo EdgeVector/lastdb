@@ -38,6 +38,21 @@ impl AtomStore {
         crate::storage::disk_pack::transaction::scope(runtime, work).boxed()
     }
 
+    /// Run `work` inside one native write request scope of a background job.
+    /// It holds the write gate like [`Self::in_write_scope`], and it returns
+    /// after the batch is durable. Unreserved background work shares the
+    /// current collection window instead of sealing one for each batch.
+    pub(crate) fn in_background_scope<'a, T: Send + 'a>(
+        &'a self,
+        work: impl std::future::Future<Output = Result<T, crate::schema::SchemaError>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, crate::schema::SchemaError>> {
+        let runtime = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime());
+        crate::storage::disk_pack::transaction::background_scope(runtime, work).boxed()
+    }
+
     /// Guard the short (read `moc:` → build items → commit) section for one
     /// molecule. See [`AtomStore::molecule_commit_locks`].
     pub(crate) async fn lock_molecule_commit(

@@ -42,6 +42,7 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         return Err(unsupported("retired reference or delete key format"));
     }
     validate_references(bare, family)?;
+    validate_retention(bare, family)?;
     if let Some(rest) = bare.strip_prefix("mk:") {
         validate_record(rest)?;
     } else if let Some(molecule) = bare
@@ -70,6 +71,21 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         return Err(unsupported("invalid generation key format"));
     }
     Ok(())
+}
+
+/// The retention queue and the slot directory of kept conflict records.
+fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
+    let current = match family {
+        "crq" => key.starts_with("crq:v1\0"),
+        "crs" => key
+            .strip_prefix("crs:v1:")
+            .and_then(|rest| rest.split_once('\0'))
+            .is_some_and(|(molecule, _)| validate_molecule(molecule).is_ok()),
+        _ => true,
+    };
+    current
+        .then_some(())
+        .ok_or_else(|| unsupported("invalid retention key format"))
 }
 
 fn validate_record(rest: &str) -> StorageResult<()> {
@@ -228,6 +244,8 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
             | "tvr"
             | "tvr-meta"
             | "history"
+            | "crq"
+            | "crs"
             | "conflict"
             | "dellog"
             | "schemaidx"

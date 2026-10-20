@@ -10,6 +10,7 @@
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
 //! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
+//! - [`retention`] — queue, slot directory and release of kept conflict records
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
@@ -36,6 +37,7 @@ mod keep_small;
 mod locks;
 mod molecule_ref_edges;
 mod molecules;
+mod retention;
 mod retired_intent_retention;
 mod schema_keys;
 mod types;
@@ -51,6 +53,8 @@ pub use molecule_ref_edges::{
     MoleculeRefCompleteness, MoleculeRefEdge, MoleculeRefLookup, MOLECULE_REF_COMPLETE_KEY,
 };
 pub(crate) use molecules::MoleculeKeyDomain;
+pub use retention::ConflictRetentionReport;
+pub(crate) use retention::RecordSlot;
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };
@@ -200,6 +204,8 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// The retention window of kept conflict records and the janitor report.
+    retention: Arc<retention::RetentionState>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
     /// tip decision treats a write from any other non-empty device as a write
     /// from a peer. See [`AtomStore::local_origin_device`].
@@ -227,6 +233,11 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The retention window and the report of kept conflict records.
+    pub(crate) fn retention_state(&self) -> &retention::RetentionState {
+        &self.retention
     }
 
     /// This store's identity in the legacy-history memo.

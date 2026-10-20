@@ -1,5 +1,6 @@
 use super::*;
 use crate::db_operations::atom_store::counter::{event_atoms, RecordRefs, TipChangeSet};
+use crate::db_operations::atom_store::RecordSlot;
 
 impl AtomStore {
     /// Keep imported Puts that lost to a Delete without changing a tip.
@@ -25,9 +26,26 @@ impl AtomStore {
                     "suppressed Put history requires a suppressed Put event".into(),
                 ));
             }
+            // The slot of the Put, in storage form, for the slot directory.
+            let molecule = event.molecule_uuid.as_str();
+            let hash =
+                self.storage_hash(molecule, event.field_key.hash.as_deref().unwrap_or(""))?;
+            let range =
+                self.storage_range(molecule, event.field_key.range.as_deref().unwrap_or(""))?;
+            let new_rows = self.retention_rows(
+                storage_prefix,
+                &key,
+                &RecordSlot {
+                    molecule,
+                    hash: &hash,
+                    range: &range,
+                },
+                None,
+            )?;
             records.push(RecordRefs {
                 key: key.clone(),
                 atoms: event_atoms(&event),
+                new_rows,
             });
             rows.push((
                 key.clone(),
@@ -47,6 +65,7 @@ impl AtomStore {
                 bodies,
                 body_source: None,
                 records,
+                releases: Vec::new(),
                 rows,
                 deletes: Vec::new(),
             }))

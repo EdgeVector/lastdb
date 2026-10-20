@@ -10,6 +10,7 @@
 //! - [`pending_task_tracker`] — background task bookkeeping
 //! - [`sync_coordinator`] — cloud sync lifecycle (`cloud-sync` feature)
 
+pub mod conflict_janitor;
 pub mod factory;
 pub mod fold_db;
 pub mod mutation_flush;
@@ -25,6 +26,10 @@ pub mod sync_coordinator;
 pub use query::QueryExecutor;
 pub use query::{HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent};
 
+pub use conflict_janitor::{
+    BackgroundConflictJanitorTask, ConflictJanitorPolicy, CONFLICT_JANITOR_MS_ENV,
+    DEFAULT_CONFLICT_JANITOR_MS,
+};
 pub use mutation_flush::{
     mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,
     DEFAULT_BACKGROUND_FLUSH_MS, MUTATION_SYNC_FLUSH_ENV,
