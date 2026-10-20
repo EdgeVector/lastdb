@@ -35,4 +35,4 @@ mod retire;
 mod stats;
 
 pub(crate) use keys::TimeQueue;
-pub(crate) use reader::QueueReader;
+pub(crate) use reader::{DuePage, QueueReader};

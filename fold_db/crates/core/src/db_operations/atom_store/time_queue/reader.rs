@@ -9,7 +9,7 @@
 //! never reads a bucket that is not in the directory.
 //!
 //! The reader decides nothing about what an entry means. A caller reads a page
-//! of due keys, releases them, and then calls [`QueueReader::finish`], so the
+//! of due entries, releases them, and then calls [`QueueReader::finish`], so the
 //! cursor moves only past keys that the caller handled.
 
 use super::keys::TimeQueue;
@@ -32,14 +32,15 @@ struct Bucket {
     waiting_until: Option<u64>,
 }
 
-/// One page of due keys of one bucket, read and not yet handled.
+/// One page of due entries of one bucket, read and not yet handled.
 #[derive(Debug)]
 pub(crate) struct DuePage {
     pub(crate) bucket: u64,
-    /// Keys whose expiry is at or before the clock, oldest first. A key whose
-    /// expiry cannot be read counts as due: the caller reports it and the
-    /// cursor moves past it, so one bad key cannot hold back the rest.
-    pub(crate) keys: Vec<String>,
+    /// Keys and values of the entries whose expiry is at or before the clock,
+    /// oldest first. A key whose expiry cannot be read counts as due: the
+    /// caller reports it and the cursor moves past it, so one bad key cannot
+    /// hold back the rest.
+    pub(crate) rows: Vec<(String, Vec<u8>)>,
     /// The walk after the read.
     walk: RangeWalk,
     /// The first key that is not due, and its expiry.
@@ -185,8 +186,8 @@ impl QueueReader {
         self.buckets.len()
     }
 
-    /// Read the next keys of `bucket`: the keys of one non-empty read, up to the
-    /// first key that is not due at `now`. The read holds no write gate. It
+    /// Read the next entries of `bucket`: the entries of one non-empty read, up
+    /// to the first key that is not due at `now`. The read holds no write gate. It
     /// changes nothing in the state, so a caller that fails keeps its place.
     pub(crate) async fn read_due(
         &self,
@@ -198,11 +199,11 @@ impl QueueReader {
             SchemaError::InvalidData(format!("time queue bucket {bucket} is not in the reader"))
         })?;
         let mut walk = state.walk.clone();
-        let mut keys = Vec::new();
+        let mut rows = Vec::new();
         let mut stop = None;
-        while keys.is_empty() && stop.is_none() && !walk.done() {
+        while rows.is_empty() && stop.is_none() && !walk.done() {
             let step = store.walk_step(&mut walk).await?;
-            for (raw, _) in step.rows {
+            for (raw, value) in step.rows {
                 let Ok(key) = String::from_utf8(raw) else {
                     continue;
                 };
@@ -211,13 +212,13 @@ impl QueueReader {
                         stop = Some((key, expiry));
                         break;
                     }
-                    _ => keys.push(key),
+                    _ => rows.push((key, value)),
                 }
             }
         }
         Ok(DuePage {
             bucket,
-            keys,
+            rows,
             walk,
             stop,
         })

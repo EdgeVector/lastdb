@@ -1,7 +1,7 @@
 //! The janitor side: the release of the records that a page of due queue keys
 //! names.
 
-use super::entry::{DrainMarker, QueueValue, RetentionEntry};
+use super::entry::{QueueValue, RetentionEntry};
 use crate::db_operations::atom_store::counter::{ReleaseRequest, TipChangeSet};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -18,10 +18,6 @@ pub(crate) struct ReleaseOutcome {
     pub(crate) released: u64,
     /// Entries left alone: an entry that did not decode.
     pub(crate) skipped: u64,
-    /// Drain markers that the page held. The batch releases none of their
-    /// records: the janitor drains each marker in its own batches, so a long
-    /// drain does not hold back the due records behind it.
-    pub(crate) markers: Vec<DrainMarker>,
 }
 
 /// One due queue key after the read in the gate.
@@ -29,7 +25,6 @@ enum Due {
     /// Gone, not due, or not readable: nothing to release.
     Nothing,
     Record(RetentionEntry),
-    Drain(DrainMarker),
 }
 
 impl AtomStore {
@@ -38,8 +33,9 @@ impl AtomStore {
     /// gone, or is not due at `now_nanos`, is left alone. The scope holds the
     /// write gate for this batch only, never across pages.
     ///
-    /// A record entry releases one record. A drain marker releases nothing
-    /// here: it comes back in the outcome.
+    /// A record entry releases one record. The caller passes record entries
+    /// only: a drain marker needs no write gate, and the janitor drains it in
+    /// its own batches (`steps.rs`). A marker that comes here is left alone.
     pub(crate) async fn release_due_records(
         &self,
         due: &[String],
@@ -53,10 +49,8 @@ impl AtomStore {
             let mut outcome = ReleaseOutcome::default();
             let mut entries: Vec<RetentionEntry> = Vec::new();
             for item in items {
-                match item {
-                    Due::Nothing => {}
-                    Due::Record(entry) => entries.push(entry),
-                    Due::Drain(marker) => outcome.markers.push(marker),
+                if let Due::Record(entry) = item {
+                    entries.push(entry);
                 }
             }
             outcome.skipped += self
@@ -155,7 +149,7 @@ impl AtomStore {
             }
             match QueueValue::decode(&bytes) {
                 Ok(QueueValue::Record(entry)) => items.push(Due::Record(entry)),
-                Ok(QueueValue::Drain(marker)) => items.push(Due::Drain(marker)),
+                Ok(QueueValue::Drain(_)) => items.push(Due::Nothing),
                 Err(error) => {
                     tracing::error!(%key, %error, "retention queue entry does not decode");
                     self.retention_state().note_undecodable();

@@ -203,6 +203,9 @@ A record ends in two ways, and both use the same release:
    wakes the cursors of the live buckets start again the same way, in case the
    clock stepped back. Neither reads a bucket that the directory dropped.
 
+   A page of drain markers needs no write gate and costs no batch: the janitor
+   keeps the markers it reads as pending drains (at most 1,024).
+
    The wake alternates two kinds of work: up to 4 batches of slot drains, then
    up to 4 batches of due records, and again. So a long drain delays the due
    records by at most 4 batches, and a long backlog delays a drain by at most 4

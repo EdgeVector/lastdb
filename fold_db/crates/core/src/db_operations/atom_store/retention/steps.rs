@@ -15,9 +15,9 @@
 //! long backlog cannot hold back a drain.
 
 use super::drain::{DrainOutcome, PendingDrain, MAX_PENDING_DRAINS};
-use super::entry::DrainMarker;
-use super::page::RELEASE_BATCH_RECORDS;
-use crate::db_operations::atom_store::time_queue::{QueueReader, TimeQueue};
+use super::entry::{DrainMarker, QueueValue};
+use super::page::{ReleaseOutcome, RELEASE_BATCH_RECORDS};
+use crate::db_operations::atom_store::time_queue::{DuePage, QueueReader, TimeQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::VecDeque;
@@ -46,6 +46,9 @@ pub(crate) struct StepOutcome {
     pub(crate) retired: bool,
 }
 
+/// Pages of drain markers that one ordinary step reads before it returns. A page
+/// of markers needs no write gate, so it costs no batch and no rest.
+const MARKER_PAGES_PER_STEP: usize = 64;
 /// A bucket whose marker found no room waits this long before the next read.
 const RETRY_NANOS: u64 = 1_000_000_000;
 
@@ -131,6 +134,11 @@ impl AtomStore {
     /// One batch of ordinary work: release one page of due records, or retire
     /// one bucket whose walk is complete. `None` means nothing is due.
     ///
+    /// A page that holds drain markers keeps them as pending drains. This needs
+    /// no write gate, so a page of markers costs no batch: the step goes on to the
+    /// next page, up to [`MARKER_PAGES_PER_STEP`] pages, and the batch is the
+    /// release of the first page that holds records.
+    ///
     /// A bucket is retired only when its walk has read every key, and no slot
     /// drain still holds a marker in it. The retirement is a guarded delete of
     /// the directory row (`retire_bucket`): it leaves the row if a writer added
@@ -140,6 +148,7 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
+        let mut marker_pages = 0usize;
         for bucket in cursor.reader.candidates(now_nanos) {
             loop {
                 if cursor.reader.exhausted(bucket) {
@@ -161,7 +170,7 @@ impl AtomStore {
                     }));
                 }
                 let page = cursor.reader.read_due(self, bucket, now_nanos).await?;
-                if page.keys.is_empty() {
+                if page.rows.is_empty() {
                     // The walk ended, or it met a key that is not due.
                     let waits = page.waits();
                     cursor.reader.finish(page);
@@ -170,8 +179,15 @@ impl AtomStore {
                     }
                     continue;
                 }
-                let outcome = self.release_due_records(&page.keys, now_nanos).await?;
-                match cursor.register(outcome.markers) {
+                let (records, markers) = self.split_due_rows(&page);
+                let refused = cursor.register(markers);
+                let outcome = if records.is_empty() {
+                    ReleaseOutcome::default()
+                } else {
+                    self.release_due_records(&records, now_nanos).await?
+                };
+                let stays = refused.is_some();
+                match refused {
                     None => cursor.reader.finish(page),
                     Some(refused) => cursor.reader.finish_before(
                         &page,
@@ -179,15 +195,47 @@ impl AtomStore {
                         now_nanos.saturating_add(RETRY_NANOS),
                     ),
                 }
-                return Ok(Some(StepOutcome {
-                    lane: Lane::Ordinary,
-                    released: outcome.released,
-                    skipped: outcome.skipped,
-                    ..StepOutcome::default()
-                }));
+                if !records.is_empty() || marker_pages >= MARKER_PAGES_PER_STEP {
+                    return Ok(Some(StepOutcome {
+                        lane: Lane::Ordinary,
+                        released: outcome.released,
+                        skipped: outcome.skipped,
+                        ..StepOutcome::default()
+                    }));
+                }
+                marker_pages += 1;
+                if stays {
+                    // The bucket waits for room among the pending drains.
+                    break;
+                }
             }
         }
         Ok(None)
+    }
+
+    /// The keys of the record entries of a page, and its drain markers. An entry
+    /// that does not decode, or whose key has no readable expiry, is counted and
+    /// left alone: the cursor moves past it, and the entry stays.
+    fn split_due_rows(&self, page: &DuePage) -> (Vec<String>, Vec<DrainMarker>) {
+        let queue = self.retention_state().queue();
+        let mut records = Vec::new();
+        let mut markers = Vec::new();
+        for (key, value) in &page.rows {
+            if queue.entry_expiry(key).is_none() {
+                tracing::error!(%key, "retention queue key has no readable expiry");
+                self.retention_state().note_undecodable();
+                continue;
+            }
+            match QueueValue::decode(value) {
+                Ok(QueueValue::Record(_)) => records.push(key.clone()),
+                Ok(QueueValue::Drain(marker)) => markers.push(marker),
+                Err(error) => {
+                    tracing::error!(%key, %error, "retention queue entry does not decode");
+                    self.retention_state().note_undecodable();
+                }
+            }
+        }
+        (records, markers)
     }
 
     /// One batch of slot drains. `None` means the janitor holds no drain. A

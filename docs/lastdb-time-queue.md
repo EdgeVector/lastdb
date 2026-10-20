@@ -127,6 +127,12 @@ turn, so a bucket that starts while a long drain runs gets its turn. Many small
 pieces of work share a batch (the drains of many slots with one record each take
 one batch of 32 records), and a batch touches at most 64 drains.
 
+A page of drain markers needs no write gate: the reader decodes the markers from
+the page it read, and keeps them as pending drains. Such a page costs no batch and
+no rest, so a bucket of many markers is passed in a few reads. A marker is ordered
+by its due time like any entry: due records that expired before the erase are
+released first.
+
 The janitor holds at most 1,024 pending drains. A marker that finds no room stays
 in its bucket. The cursor of the bucket stays at it, and the bucket waits for a
 second before it is read again. Memory does not grow with the number of markers.
