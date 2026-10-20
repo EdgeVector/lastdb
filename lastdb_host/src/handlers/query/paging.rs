@@ -184,23 +184,15 @@ pub(in crate::handlers) fn reject_wrong_expected_total_count(
 
 /// No stage that decides row membership after the key set is read.
 pub(in crate::handlers) fn has_no_post_key_stage(query: &Query) -> bool {
-    query.value_filters.is_none()
-        && query.field_predicates.is_none()
-        && query.order_by.is_none()
-        && query.predicate_limit.is_none()
+    !query.requires_post_key_work()
 }
 
 pub(in crate::handlers) fn caller_supplied_page(query: &Query) -> Option<(usize, usize)> {
-    match (
-        &query.filter,
-        &query.value_filters,
-        &query.field_predicates,
-        &query.order_by,
-        &query.predicate_limit,
-    ) {
-        (Some(HashRangeFilter::Page { offset, limit }), None, None, None, None) => {
-            Some((*offset, *limit))
-        }
+    if query.requires_post_key_work() {
+        return None;
+    }
+    match &query.filter {
+        Some(HashRangeFilter::Page { offset, limit }) => Some((*offset, *limit)),
         _ => None,
     }
 }

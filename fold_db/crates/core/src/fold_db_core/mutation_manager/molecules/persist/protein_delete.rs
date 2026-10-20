@@ -19,13 +19,16 @@ impl MutationManager {
         }
         // Caller conditions pass at the shared erasure entry point. Only the
         // caller's keys carry the must-exist requirement; peers are idempotent.
+        let inputs = self.current_logical_erasure_inputs(job).await?;
         self.validate_purge_job_targets(job).await?;
         let ids = job
             .erasures
             .iter()
             .map(|mutation| mutation.uuid.clone())
             .collect();
-        let erasures = self.current_erasure_targets(job).await?;
+        let erasures = self
+            .current_erasure_targets(inputs, job.storage_prefix.as_deref())
+            .await?;
         let (order, mut grouped) = super::super::super::write::group_mutations_by_schema(erasures);
         for schema in order {
             let erasures = grouped.remove(&schema).expect("prepared Delete schema");
@@ -50,11 +53,14 @@ impl MutationManager {
 
     async fn current_erasure_targets(
         &self,
-        job: &PurgeEnvelope,
+        inputs: Vec<crate::schema::types::Mutation>,
+        scope: Option<&str>,
     ) -> Result<Vec<crate::schema::types::Mutation>, PurgeAttemptError> {
-        let scope = job.storage_prefix.as_deref();
+        if inputs.is_empty() {
+            return Ok(inputs);
+        }
         let erasures = self
-            .expand_protein_member_deletes(job.erasures.clone(), scope)
+            .expand_protein_member_deletes(inputs, scope)
             .await
             .map_err(target_error)?;
         // This pass also handles scoped HashRange peers and can reach an
@@ -91,6 +97,69 @@ impl MutationManager {
             .await
             .map_err(PurgeAttemptError::Retry)?;
         Ok(erasures)
+    }
+
+    /// A user erases logical records, not another layout's physical slots.
+    /// The same current membership decision also controls conditional reads.
+    async fn current_logical_erasure_inputs(
+        &self,
+        job: &PurgeEnvelope,
+    ) -> Result<Vec<crate::schema::types::Mutation>, PurgeAttemptError> {
+        let Some(first) = job.erasures.first() else {
+            return Ok(Vec::new());
+        };
+        let schema = self
+            .schema_manager
+            .get_schema_metadata(&first.schema_name)
+            .map_err(PurgeAttemptError::Retry)?
+            .ok_or_else(|| {
+                PurgeAttemptError::Retry(SchemaError::InvalidData(
+                    "logical erasure schema is absent".into(),
+                ))
+            })?;
+        let keys: Vec<_> = job
+            .erasures
+            .iter()
+            .map(|mutation| mutation.key_value.clone())
+            .collect();
+        let membership = crate::db_operations::logical_membership::logical_key_membership(
+            &self.db_ops,
+            &schema,
+            &keys,
+            job.storage_prefix.as_deref(),
+        )
+        .await
+        .map_err(target_error)?;
+        if job.missing == crate::fold_db_core::purge::PurgeMissingPolicy::Refuse
+            && !job.validated_present
+        {
+            if let Some((mutation, _)) = job
+                .erasures
+                .iter()
+                .zip(&membership)
+                .find(|(_, member)| !**member)
+            {
+                return Err(PurgeAttemptError::Rejected(SchemaError::InvalidData(format!(
+                    "{} target not found: schema '{}', key {} belongs to another declared key layout",
+                    job.verb.ledger_verb(), mutation.schema_name, mutation.key_value.to_storage_key(),
+                ))));
+            }
+        }
+        let skipped: Vec<_> = job
+            .erasures
+            .iter()
+            .zip(&membership)
+            .filter_map(|(mutation, member)| (!member).then_some(mutation.uuid.as_str()))
+            .collect();
+        self.db_ops
+            .atoms()
+            .clear_pending_delete_barriers_of(&skipped);
+        Ok(job
+            .erasures
+            .iter()
+            .zip(membership)
+            .filter_map(|(mutation, member)| member.then(|| mutation.clone()))
+            .collect())
     }
 }
 

@@ -16,6 +16,7 @@ pub mod delete_ledger;
 pub mod file_blob_gc;
 pub mod keep_small;
 pub mod lineage_index;
+pub(crate) mod logical_membership;
 pub mod metadata_store;
 pub mod molecule_key_store;
 mod public_key_operations;

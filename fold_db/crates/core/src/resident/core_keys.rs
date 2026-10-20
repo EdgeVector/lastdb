@@ -44,7 +44,6 @@ pub(crate) enum CoreKeyPhase {
     Loading,
     Ready,
     DiskOnly,
-    Failed,
     Retired,
 }
 

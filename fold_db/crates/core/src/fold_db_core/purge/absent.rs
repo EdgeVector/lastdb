@@ -1,12 +1,21 @@
-//! Which keys of a batch have no trace in a schema: a read, no change.
+//! Exact logical absence for recovery of a refused erasure batch.
 
 use super::bulk::collect_purge_trace;
 use super::*;
 
-/// The keys of `keys` that no field of `schema_name` has a record for, in the
-/// order given and without repeats. A TTL purge uses it to drop the keys that
-/// a client or a peer already removed, and then retries the rest of its batch.
+/// A foreign mapped layout is absent in the requested schema even when its
+/// physical slots still exist. TTL drops these and physically missing keys
+/// before it retries the other targets. All reads share one captured state.
 pub(in crate::fold_db_core) async fn absent_purge_targets(
+    scope: PurgeScope<'_>,
+    keys: &[KeyValue],
+) -> Result<Vec<KeyValue>, SchemaError> {
+    let read = scope.db_ops.read_scope().await?;
+    read.run_result(absent_purge_targets_captured(scope, keys))
+        .await
+}
+
+async fn absent_purge_targets_captured(
     scope: PurgeScope<'_>,
     keys: &[KeyValue],
 ) -> Result<Vec<KeyValue>, SchemaError> {
@@ -21,12 +30,19 @@ pub(in crate::fold_db_core) async fn absent_purge_targets(
         return Ok(Vec::new());
     }
     let mut schema = scope.schema()?;
+    let membership = crate::db_operations::logical_membership::logical_key_membership(
+        db_ops,
+        &schema,
+        &keys,
+        scope.storage_prefix,
+    )
+    .await?;
     refresh_runtime_field_molecules_for_purge_keys(db_ops, &mut schema, &keys).await?;
     let trace = collect_purge_trace(db_ops, &schema, &keys).await?;
     Ok(keys
         .into_iter()
         .enumerate()
-        .filter(|(index, _)| !trace.traced.contains(index))
+        .filter(|(index, _)| !membership[*index] || !trace.traced.contains(index))
         .map(|(_, key)| key)
         .collect())
 }

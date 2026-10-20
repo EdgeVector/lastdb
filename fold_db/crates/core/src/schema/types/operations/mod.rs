@@ -15,7 +15,7 @@ pub enum ValueFilter {
     GreaterThan { field: String, value: f64 },
     /// field value < threshold
     LessThan { field: String, value: f64 },
-    /// field value == target (exact float equality)
+    /// field value == the exact represented float target
     Equals { field: String, value: f64 },
     /// min <= field value <= max
     Between { field: String, min: f64, max: f64 },
@@ -62,22 +62,20 @@ impl ValueFilter {
     /// Tests whether the given JSON value satisfies this filter condition.
     /// Returns `false` if the value is not numeric.
     pub fn matches(&self, field_value: &serde_json::Value) -> bool {
-        let Some(num) = field_value.as_f64() else {
+        let Some(number) = field_value.as_number() else {
             return false;
         };
+        let compare = |value| crate::json_order::compare_number_to_f64(number, value);
         match self {
-            Self::GreaterThan { value, .. } => num > *value,
-            Self::LessThan { value, .. } => num < *value,
-            // `f64::EPSILON` is the gap between 1.0 and the next f64 — a
-            // fixed *absolute* tolerance, not a relative one. Using it as
-            // a "close enough" threshold lets `Equals(0.0)` swallow any
-            // non-zero record value smaller than ~2.22e-16 (e.g. 1e-20),
-            // so a query asking for "score == 0" silently includes
-            // records whose score is demonstrably non-zero. The doc
-            // contract for this arm is exact equality; bit-exact `==`
-            // delivers that and also keeps NaN inert (NaN != NaN).
-            Self::Equals { value, .. } => num == *value,
-            Self::Between { min, max, .. } => num >= *min && num <= *max,
+            Self::GreaterThan { value, .. } => {
+                compare(*value).is_some_and(std::cmp::Ordering::is_gt)
+            }
+            Self::LessThan { value, .. } => compare(*value).is_some_and(std::cmp::Ordering::is_lt),
+            Self::Equals { value, .. } => compare(*value).is_some_and(std::cmp::Ordering::is_eq),
+            Self::Between { min, max, .. } => {
+                compare(*min).is_some_and(std::cmp::Ordering::is_ge)
+                    && compare(*max).is_some_and(std::cmp::Ordering::is_le)
+            }
         }
     }
 
@@ -172,6 +170,22 @@ pub struct Query {
 }
 
 impl Query {
+    /// Whether candidate keys need a later condition, ordering, or limit stage.
+    /// Empty condition lists are equivalent to omitted conditions for both
+    /// direct library callers and requests decoded from the wire.
+    #[must_use]
+    pub fn requires_post_key_work(&self) -> bool {
+        self.value_filters
+            .as_ref()
+            .is_some_and(|filters| !filters.is_empty())
+            || self
+                .field_predicates
+                .as_ref()
+                .is_some_and(|predicates| !predicates.is_empty())
+            || self.order_by.is_some()
+            || self.predicate_limit.is_some()
+    }
+
     #[must_use]
     pub fn new(schema_name: String, fields: Vec<String>) -> Self {
         Self {
