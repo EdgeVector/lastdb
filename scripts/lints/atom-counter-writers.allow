@@ -7,7 +7,7 @@
 fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
 fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N M|the planner: its one batch_mutate joins the pending batch of the request; the molecule counters in the header rows of the batch come from counter/molecule.rs
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/commit.rs|*|R|the blob planner: blob counters and queue entries change in the batch of the atom counters (counter/build.rs), or in the request scope of a blob row put
-fold_db/crates/core/src/db_operations/atom_store/blob_counter/dwell.rs|*|R|the dwell pass: reads the counter again in the write gate, then deletes the blob row, the counter and the queue entry in one batch
+fold_db/crates/core/src/db_operations/atom_store/blob_counter/dwell_chunk.rs|*|R|the dwell chunk: reads the counter again in the write gate, then deletes the blob row, the counter and the queue entry in one batch (the retirement of a bucket is the guarded delete of the planner)
 fold_db/crates/core/src/db_operations/atom_store/blob_counter/recount.rs|*|R|the blob step of the offline recount: writes the exact blob counters and deletes stale queue entries on a stopped home, in whole batches
 fold_db/crates/core/src/db_operations/atom_store/molecule_bindings.rs|flip_molecule_bindings|M|the one writer of binding records and of the bindings counter: both change in one batch inside the write gate, from the state of the records
 
