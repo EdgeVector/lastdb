@@ -91,3 +91,57 @@ pub(super) fn outer_kind(kind: &str) -> bool {
     ];
     OUTER_KINDS.contains(&kind)
 }
+
+/// Unsupported legacy scopes must not masquerade as an unrelated outer kind.
+/// Recognize generation key structure before examining a payload: generation
+/// records can contain key text and record-shaped values legitimately.
+pub(super) fn reject_hidden_source(key: &str, value: &[u8]) -> Result<(), SchemaError> {
+    if generation_payload_key(key)
+        || ![":mk:", ":mgp:v1:", ":atom:", ":atom\0"]
+            .iter()
+            .any(|token| key.contains(token))
+    {
+        return Ok(());
+    }
+    let json = serde_json::from_slice::<serde_json::Value>(value).ok();
+    let source_value = value.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX)
+        || json.as_ref().is_some_and(|row| {
+            row.get("entry").is_some()
+                || row.get("source_schema_name").is_some()
+                || (row.get("generation").is_some() && row.get("activated_at_unix_nanos").is_some())
+        });
+    if source_value {
+        return Err(SchemaError::InvalidData(format!(
+            "blob reference bootstrap cannot certify ambiguous legacy source scope in {key:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn generation_payload_key(key: &str) -> bool {
+    use crate::atom::molecule_key_codec as codec;
+    if let Some(rest) = key.strip_prefix("mgr:v1:") {
+        let Some((molecule, rest)) = rest.split_once(':') else {
+            return false;
+        };
+        let Some((generation, _)) = rest.split_once(':') else {
+            return false;
+        };
+        if molecule.is_empty() || generation.is_empty() {
+            return false;
+        }
+        return codec::molecule_record_key_from_generation_key(molecule, generation, key)
+            .is_some_and(|base| codec::decode_hash_range(&base, molecule).is_some());
+    }
+    if let Some(rest) = key.strip_prefix("mgd:v1:") {
+        let Some((molecule, _)) = rest.split_once(':') else {
+            return false;
+        };
+        if molecule.is_empty() {
+            return false;
+        }
+        return codec::molecule_record_key_from_generation_delete_key(molecule, key)
+            .is_some_and(|base| codec::decode_hash_range(&base, molecule).is_some());
+    }
+    false
+}

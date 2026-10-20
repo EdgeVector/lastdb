@@ -189,6 +189,9 @@ impl AtomStore {
                 break;
             }
         }
+        if scope.is_none() && !bare.starts_with("mk:") && !bare.starts_with("mgp:v1:") {
+            sources::reject_hidden_source(bare, value)?;
+        }
         Ok(())
     }
 
