@@ -60,6 +60,7 @@ sets or clears `zero_since` puts or deletes the entry.
 3. **The drop of a storage scope** (`delete_catalog_membership`) lowers the blobs
    that the dropped atom counters and tips held, in the same batch as the rows.
 4. **The dwell pass** deletes a blob (see below).
+5. **The offline recount** (see "Verify and recount").
 
 No other code writes these records. `scripts/lints/lint-atom-counter-writers.py`
 checks that, function by function (family `R`).
@@ -85,7 +86,11 @@ A `suspect` counter never starts a dwell and never authorizes a delete.
 `lastdbd` starts at most one pass at a time from the sampler tick
 (`LASTDB_SELF_METRICS_SAMPLE_SECS`, 60 s by default). A pass:
 
-1. reads the oldest page of the queue (256 entries, one range read, no gate);
+1. reads the oldest page of the queue (256 entries, no gate). A delete leaves a
+   tombstone, one read call may examine at most 10,000 keys, and the oldest entries
+   are the ones that go, so the head of the queue range fills with tombstones. The
+   scan is a bounded range walk: a read that hits the limit is cut in two, and the
+   lower half is read first;
 2. takes the entries whose `zero_since` plus the dwell has passed;
 3. for each chunk of 64 of them, takes the local mutation admission and the native
    write gate, takes the blob gates, reads each counter again, and reads the
@@ -157,5 +162,13 @@ clears `suspect`, and starts the dwell of a blob that nothing references.
   blob. The size check of an erase request counts four operations for each tip and
   does not know the blobs. A request that exceeds the batch limit fails with the
   limit error and changes nothing. The TTL sweep halves its batch and retries.
+- A row that a dropped scope held and that does not decode lowers no blob counter.
+  The drop goes on, the counters stay too high, and `lastdb db recount` repairs them.
+- Cloud purge copies blob rows (`sync/cloud_purge/blob_copy.rs`, `org_files.rs`) and
+  the cloud file closure writes rows without a counter. A row with no counter is never
+  queued, so nothing deletes it. Cloud sync is off in this build.
+- A delete leaves a tombstone in the queue hash. `lastdb db compact --collection atoms`
+  returns them. The scan stays correct without it and costs one more read call for
+  every 10,000 tombstones.
 - The dwell uses the wall clock. A clock that jumps forward by more than the dwell
   can end a dwell early.
