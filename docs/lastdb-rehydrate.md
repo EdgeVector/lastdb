@@ -314,6 +314,9 @@ Later cleanup or cutover checks must identify their own source and product evide
 ## Current key format
 
 A new home records the current key format before it serves requests.
+The current logical marker is `layout:v3:keys` with value `3`.
+It covers framed molecule identities and exact binding identities.
+The physical node marker remains `laststore-pack-node-v1`.
 A new home records its setup state before it creates the physical store.
 An interrupted new setup can resume from that state. It cannot accept user writes before setup completes.
 An existing home without the current format marker or that setup state receives an error.
@@ -326,6 +329,6 @@ A changed atom placement setting receives an error after home creation.
 
 The old key conversion, key fork, tip conversion, and collection copy commands are removed.
 Archived tip files and their repair jobs are removed. Current history events remain.
-Version 2 logical snapshots use the current keys.
+Version 2 logical snapshots require the same current key format marker.
 Older logical snapshots receive an error before restore writes data.
 This key format change leaves the current warm set limits unchanged.
