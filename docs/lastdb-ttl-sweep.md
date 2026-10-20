@@ -73,28 +73,28 @@ every peer. Today no code knows a maximum offline time for a device and no code 
 Synthetic fresh home, development-release build, `EXEMEM_ENV=dev`, default knobs (batch 16,
 duty 25, minimum rest 25 ms), verb `purge`. One HashRange schema with 6 fields and 2,400 rows
 (2,100 expired) and 150-byte bodies. Two writers: one on the swept schema and one on a second
-schema (one small durable write every 100 ms each). The host load was 4 to 5. The `main` column is
+schema (one small durable write every 100 ms each). The host load of the final run was 3 to 4. The `main` column is
 the build before the counter (`main` at `8ed44f56`); it ran in the same hour as an earlier run of the
-branch. The `with the counter` column is the final run of the branch after the last merge of main.
+branch (host load 4 to 5). The `with the counter` column is the final run of the branch after the merge of #239 (`a9eb17526`).
 
 | | `main` before the counter | with the counter |
 |---|---|---|
-| Keys erased | 0 in 782 s | 2,100 in 557 s (3.77 keys per second, 132 batches) |
+| Keys erased | 0 in 782 s | 2,100 in 497 s (4.22 keys per second, 132 batches) |
 | Sweep result | each pass fails: `read resource limit exceeded`, because the old purge read the whole schema | every pass succeeds |
-| Time of one batch of 16 keys | no batch finished | median 0.70 s, shortest 0.21 s, longest 3.46 s (131 full batches) |
-| Hold of the native write gate for one erase request | not measured | median 42 ms, longest 130 ms |
+| Time of one batch of 16 keys | no batch finished | median 0.67 s, shortest 0.24 s, longest 3.13 s (131 full batches) |
+| Hold of the native write gate for one erase request | not measured | median 45 ms, longest 123 ms |
 | Hold of the schema purge barrier | the barrier exists | the barrier is gone |
-| Writes to the swept schema during the sweep | p50 470 ms, p95 1,124 ms, longest 16.6 s | p50 483 ms, p95 1,309 ms, longest 2.7 s |
-| Writes to the second schema during the sweep | p50 446 ms, p95 1,146 ms, longest 2.9 s | p50 452 ms, p95 1,258 ms, longest 2.6 s |
-| A client `purge` of 16 keys of the swept schema | HTTP 503 after 73.9 s | HTTP 200 after 0.50 s |
+| Writes to the swept schema during the sweep | p50 470 ms, p95 1,124 ms, longest 16.6 s | p50 423 ms, p95 994 ms, longest 2.4 s |
+| Writes to the second schema during the sweep | p50 446 ms, p95 1,146 ms, longest 2.9 s | p50 404 ms, p95 1,019 ms, longest 2.1 s |
+| A client `purge` of 16 keys of the swept schema | HTTP 503 after 73.9 s | HTTP 200 after 0.61 s |
 
 The write latencies are mostly the durable wait of each writer (the flush interval is 500 ms).
-The erase takes the write gate for 42 ms, so a writer never waits for a sweep batch.
+The erase takes the write gate for 45 ms, so a writer never waits for a sweep batch.
 
 A `purge` batch reads about 2 records for each tip it removes, so its cost follows the number of
 keys and fields of the batch. It never follows the size of the schema. A purge of 64 keys of a
 24-field schema (1,536 tips, 6,046 operations) held the gate for 215 to 255 ms and took 0.66 to
-0.94 s.
+1.6 s.
 
 ## Batch size and the request limit
 
