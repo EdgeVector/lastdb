@@ -3,9 +3,7 @@
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
 use crate::resident::PersistLaneMetrics;
-use laststore::disk_pack::home::{
-    DiskHome, HomeBuilder, HomeDescriptor, HomeJournal, HomeMutation,
-};
+use laststore::disk_pack::home::{DiskHome, HomeJournal, HomeMutation};
 use laststore::disk_pack::maintenance::SpaceReservation;
 use laststore::disk_pack::{Current, ReadBudget};
 use std::path::Path;
@@ -13,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
+mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
 mod maintenance;
@@ -55,7 +54,8 @@ pub struct PackRuntime {
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
     failed: AtomicBool,
-    fresh_empty: AtomicBool,
+    initializing: AtomicBool,
+    node_home: Option<initialization::NodeHome>,
     // Failed journal publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
     space_policy: laststore::disk_pack::maintenance::SpacePolicy,
@@ -101,76 +101,26 @@ impl PackNamespacedStore {
     /// Open a native node store, or create the native format in an empty home.
     /// The caller must reject cloud sync until its native transfer gate is wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
+        crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         let space_policy = space::policy_from_env()?;
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
         }
         space::validate_resident_policy()?;
-        use std::io::{Read, Write};
-        let expected = b"format=1\nhome=disk-pack\n";
-        let marker = path.join(NODE_MARKER);
-        let exists = marker.try_exists()?;
-        let created = !exists;
-        if exists {
-            let mut fence = std::fs::File::open(path.join("laststore-layout-v1"))?;
-            let expected_fence = laststore::disk_pack::home::LEGACY_FENCE_BYTES;
-            if fence.metadata()?.len() != expected_fence.len() as u64 {
-                return Err(StorageError::ConfigurationError(
-                    "native node downgrade fence differs from its format".into(),
-                ));
-            }
-            let mut bytes = vec![0; expected_fence.len()];
-            fence.read_exact(&mut bytes)?;
-            if bytes != expected_fence {
-                return Err(StorageError::ConfigurationError(
-                    "native node downgrade fence is invalid".into(),
-                ));
-            }
-            let mut bytes = Vec::new();
-            std::fs::File::open(&marker)?
-                .take(128)
-                .read_to_end(&mut bytes)?;
-            if bytes != expected {
-                return Err(StorageError::BackendError(
-                    "invalid native node home fence".into(),
-                ));
-            }
-        } else {
-            std::fs::create_dir_all(path)?;
-            if std::fs::read_dir(path)?.next().is_some() {
-                return Err(StorageError::InvalidOperation(
-                    "native creation requires an empty home; old-format data is unsupported".into(),
-                ));
-            }
-            // Empty construction has no data-dependent output: one empty tree,
-            // descriptor, current and journal-tail metadata plus directories.
-            // Reserve a conservative MiB before writing any format fence.
-            let _initial_space =
-                laststore::disk_pack::maintenance::reserve_space(path, &space_policy, 1024 * 1024)
-                    .map_err(map)?;
-            laststore::disk_pack::home::write_legacy_fence(path).map_err(map)?;
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&marker)?;
-            file.write_all(expected)?;
-            file.sync_all()?;
-            std::fs::File::open(path)?.sync_all()?;
-            HomeBuilder::create_empty_with_schema_record_refs(
-                &path.join("disk-pack"),
-                // New native homes match the plain LastStore fanout. Existing
-                // homes always retain the fanout in their saved descriptor.
-                HomeDescriptor::new(1, 0).map_err(map)?,
-            )
-            .map_err(map)?;
-        }
-        let store = Self::open_home(&path.join("disk-pack"))?;
-        store.runtime.fresh_empty.store(created, Ordering::Release);
-        Ok(store)
+        let node_home = initialization::NodeHome::open(path, &space_policy)?;
+        Self::open_physical(&path.join("disk-pack"), Some(node_home))
     }
 
     /// Open the native physical home beneath the node format fence.
     pub(crate) fn open_home(path: &Path) -> StorageResult<Self> {
+        initialization::refuse_in_progress_parent(path)?;
+        Self::open_physical(path, None)
+    }
+
+    fn open_physical(
+        path: &Path,
+        node_home: Option<initialization::NodeHome>,
+    ) -> StorageResult<Self> {
         let space_policy = space::policy_from_env()?;
         space::validate_resident_policy()?;
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
@@ -197,7 +147,10 @@ impl PackNamespacedStore {
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
                 failed: AtomicBool::new(false),
-                fresh_empty: AtomicBool::new(false),
+                initializing: AtomicBool::new(
+                    node_home.as_ref().is_some_and(|home| home.initializing),
+                ),
+                node_home,
                 failed_write: Mutex::new(None),
                 space_policy,
             }),

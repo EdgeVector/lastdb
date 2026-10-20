@@ -67,6 +67,7 @@ impl PackRuntime {
         &self,
         options: NativeMaintenanceOptions,
     ) -> StorageResult<NativeMaintenanceReport> {
+        self.require_initialized()?;
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
                 "native maintenance requires complete recovery of the failed writer".into(),

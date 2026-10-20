@@ -6,6 +6,12 @@ use crate::storage::StorageError;
 use std::sync::atomic::Ordering;
 
 impl AtomStore {
+    /// Validate all explicit key settings before the native store creates files.
+    pub(crate) fn validate_boot_key_encoding_settings() -> Result<(), StorageError> {
+        validate_molecule_encoding_settings()?;
+        requested_encoding().map(|_| ())
+    }
+
     #[must_use]
     pub(crate) fn atom_key_encoding(&self) -> AtomKeyEncoding {
         if self.atom_keys_partition_prefixed.load(Ordering::Acquire) {
@@ -17,7 +23,7 @@ impl AtomStore {
 
     /// Called only inside the constructor-proven empty-home transaction.
     pub(crate) async fn initialize_fresh_atom_layout(&self) -> Result<(), StorageError> {
-        validate_molecule_encoding_settings()?;
+        Self::validate_boot_key_encoding_settings()?;
         let encoding = requested_encoding()?.unwrap_or_default();
         self.main_store
             .put_item(

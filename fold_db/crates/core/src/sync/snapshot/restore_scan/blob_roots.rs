@@ -26,7 +26,10 @@ pub(super) async fn clear_existing(
     let mut owners = Vec::new();
     for (key, value) in rows {
         if !selected(&key, mode, is_main)
-            || (is_main && (BlobRefEdge::is_target_key(&key) || proofs::is_reference_proof(&key)))
+            || (is_main
+                && (BlobRefEdge::is_target_key(&key)
+                    || proofs::is_reference_proof(&key)
+                    || files::is_main_file_key(&key)))
         {
             continue;
         }
