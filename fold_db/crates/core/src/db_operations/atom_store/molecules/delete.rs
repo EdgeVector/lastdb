@@ -81,7 +81,7 @@ impl AtomStore {
             let slot_releases = if release_records {
                 self.erase_release_requests(scope, removals).await?
             } else {
-                Default::default()
+                SlotReleases::default()
             };
             rows.extend(slot_releases.rows);
             let commit = self
