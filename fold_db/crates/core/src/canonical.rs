@@ -26,10 +26,8 @@
 //! (`hash_input_snapshot`), #438 (`MoleculeRange`), #442 (`MoleculeHash`),
 //! #566 (`MoleculeRef`), and #573 (`Molecule`) — each one re-deriving the same
 //! fix and re-implementing the same private helper. This module is the *one*
-//! home for that discipline so the next signing/hashing site inherits it for
-//! free, and the injectivity property is enforced by a test
-//! ([`tests::framing_is_injective_over_adversarial_corpus`]) rather than by
-//! reviewer vigilance.
+//! home for that discipline so each signing/hashing site uses the same field
+//! framing rule.
 //!
 //! # The framing
 //!
@@ -41,7 +39,7 @@
 //! Because every variable field carries its own length, the byte stream is
 //! *uniquely decodable* given the field schema: there is exactly one way to
 //! parse it back into its fields. Unique decodability ⇒ injectivity ⇒ no
-//! cross-message collision. (Decode is exercised by the round-trip test.)
+//! cross-message collision from ambiguous field boundaries.
 //!
 //! Callers are still responsible for choosing a *fixed field order* per
 //! message type and for not making two different message types share a layout;
