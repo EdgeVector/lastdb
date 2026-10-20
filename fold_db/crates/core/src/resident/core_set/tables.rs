@@ -23,6 +23,8 @@ pub(super) struct SlotEntry {
     pub(super) sources: SmallVec<[SourceId; 8]>,
     pub(super) atom: Option<Arc<SharedAtom>>,
     pub(super) owned: Option<Arc<model::CoreModelSlot>>,
+    /// Heap of the current molecule tip, charged once for all alias paths.
+    pub(super) tip_charge: usize,
 }
 
 #[derive(Default)]
@@ -95,6 +97,7 @@ impl SlotTable {
             sources: SmallVec::new(),
             atom: None,
             owned: None,
+            tip_charge: 0,
         };
         let id = slab_insert(&mut self.entries, &mut self.free, entry);
         let (entries, hasher) = (&self.entries, &self.hasher);

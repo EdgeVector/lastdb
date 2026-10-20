@@ -1,0 +1,138 @@
+{
+  "binary_sha256": "d453d7c6ee978ed41bf57cedb09584e11ea3844c4ade41a1b49e5a5742d76bd8",
+  "complete": true,
+  "error": null,
+  "observations": [
+    {
+      "http_status": 200,
+      "label": "declare-Round12PurgeIdentity",
+      "phase": "current",
+      "raw_body": "raw-http/current-003.json",
+      "raw_sha256": "fe01db0708d0148b40a6e2687ff665c5487c53bf4694ea23b9a4d3edd3fc3e0d"
+    },
+    {
+      "http_status": 200,
+      "label": "declare-Round12MetadataBytes",
+      "phase": "current",
+      "raw_body": "raw-http/current-004.json",
+      "raw_sha256": "834d0f1480b326a20a9ca23408335329c12232ec3cc998692fe7dc4597db34d9"
+    },
+    {
+      "http_status": 200,
+      "label": "purge-seed-two-distinct-keys",
+      "phase": "current",
+      "raw_body": "raw-http/current-005.json",
+      "raw_sha256": "277f4ec868c79998a1d91b35af83342bdd619ef5029a372bf0bb12de0b7f272a"
+    },
+    {
+      "http_status": 200,
+      "label": "purge-exact-before",
+      "phase": "current",
+      "raw_body": "raw-http/current-007.json",
+      "raw_sha256": "3d78a53d9c4e860106cc0b08f5776c4a01f0113a02ef97f9eb6ea8f42d99112e"
+    },
+    {
+      "http_status": 200,
+      "label": "atom-before-purge",
+      "phase": "current",
+      "raw_body": "raw-http/current-008.json",
+      "raw_sha256": "d61ee48f58e47458e7ee795f56111be19efebbeb9fcc50c31bec086b990cf2bf"
+    },
+    {
+      "http_status": 200,
+      "label": "molecule-before-purge",
+      "phase": "current",
+      "raw_body": "raw-http/current-009.json",
+      "raw_sha256": "22eb6d0a9f69be691a5f9c7c3a3b9f52a973477e4932691e88d0933c115d987f"
+    },
+    {
+      "http_status": 200,
+      "label": "purge-both-distinct-keys",
+      "phase": "current",
+      "raw_body": "raw-http/current-010.json",
+      "raw_sha256": "e8d1f3276abcd63f7013b1571c43b5104b8fc03b6929b6a161abf0dbd65433a2"
+    },
+    {
+      "http_status": 200,
+      "label": "purge-exact-after",
+      "phase": "current",
+      "raw_body": "raw-http/current-011.json",
+      "raw_sha256": "f95fabb8ed08bb22507c561f75c99da3a9aa4acdff3feeaf460a9acb60983b50"
+    },
+    {
+      "http_status": 200,
+      "label": "molecule-after-purge",
+      "phase": "current",
+      "raw_body": "raw-http/current-014.json",
+      "raw_sha256": "a062f20fcd8778f3b0cd8e0d6d411b9278756d69a5c20b17be14c649de529ff8"
+    },
+    {
+      "http_status": 200,
+      "label": "atom-after-purge",
+      "phase": "current",
+      "raw_body": "raw-http/current-013.json",
+      "raw_sha256": "afe849ab4bd6c6bdea291a552b954812be1fa9cc22e70e5ee83bb9fcd8565c4a"
+    },
+    {
+      "http_status": 400,
+      "label": "blob-ids-only-refusal",
+      "phase": "current",
+      "raw_body": "raw-http/current-015.json",
+      "raw_sha256": "38652af82e78236a799da76e72baf86d1b7a18a62688fb7ebf3ae1f3e6dededa"
+    },
+    {
+      "http_status": 200,
+      "label": "blob-absent-one-id",
+      "phase": "current",
+      "raw_body": "raw-http/current-016.json",
+      "raw_sha256": "9930368427684fbe7084d779e172b90d93edc7d5565c2b379d4a003299928e28"
+    },
+    {
+      "http_status": 200,
+      "label": "metadata-seed-all-33",
+      "phase": "current",
+      "raw_body": "raw-http/current-017.json",
+      "raw_sha256": "edeb10bf6c160b1fbb855965edf005c3fac6808b50bd2f935c123328920b19b2"
+    },
+    {
+      "http_status": 200,
+      "label": "purge-exact-after",
+      "phase": "reopened",
+      "raw_body": "raw-http/reopened-022.json",
+      "raw_sha256": "2955646755110dad70ca82485b450cec1f02f624c9c7519f4103dec7fd1962f2"
+    },
+    {
+      "http_status": 200,
+      "label": "metadata-cold-first-32",
+      "phase": "cold",
+      "raw_body": "raw-http/cold-024.json",
+      "raw_sha256": "1b61abf756415c7e56e7f2ce42ae38120f396d41c908e11ae811b19e1bb96d7e"
+    },
+    {
+      "http_status": 200,
+      "label": "metadata-next-extra-key",
+      "phase": "next",
+      "raw_body": "raw-http/next-026.json",
+      "raw_sha256": "7ffbd250f78f81c584799d9ba02b1121f530f605a26eeb86ba5885de6930042a"
+    },
+    {
+      "http_status": 200,
+      "label": "metadata-cold-first-32",
+      "phase": "repeat",
+      "raw_body": "raw-http/repeat-028.json",
+      "raw_sha256": "246dde70d35382984830cad32e18c78e20a6220af0784b733e59f455a86d4df2"
+    }
+  ],
+  "policy": {
+    "LASTDB_BACKGROUND_FLUSH_MS": "500",
+    "LASTDB_CORE_WARM_BYTES": "262144",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_RANGE_KEY_ENCODING": "ope_v1",
+    "LASTDB_SCHEMA_KEY_BYTES": "134217728",
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "Round12PurgeIdentity,CoreOwnedWritesHashRange"
+  },
+  "scope": "Fresh synthetic data. Normal release. No engine-selection flags. No comparative speed claim.",
+  "semantic_review": "Pending independent raw-result review.",
+  "source_commit": "a0ccb6b505e42ce39c85f4bb27a1b90fed7f59ba"
+}

@@ -1,0 +1,21 @@
+{
+  "files": [
+    {
+      "gzip": "metadata-and-purge/raw-http/cold-024.json.gz",
+      "gzip_bytes": 33764,
+      "gzip_sha256": "885b09878332878023271a1f07041e85d912532017a2dcae78e4e62ef0b51e9a",
+      "original": "metadata-and-purge/raw-http/cold-024.json",
+      "original_bytes": 2152659,
+      "original_sha256": "1b61abf756415c7e56e7f2ce42ae38120f396d41c908e11ae811b19e1bb96d7e"
+    },
+    {
+      "gzip": "metadata-and-purge/raw-http/repeat-028.json.gz",
+      "gzip_bytes": 33687,
+      "gzip_sha256": "cc4340fa6f34e62ac2eb289ddbf9bee78c6f1ea0545bcc2719a4d7cc01197c9b",
+      "original": "metadata-and-purge/raw-http/repeat-028.json",
+      "original_bytes": 2152623,
+      "original_sha256": "246dde70d35382984830cad32e18c78e20a6220af0784b733e59f455a86d4df2"
+    }
+  ],
+  "scope": "Originals remain unchanged locally and in the operational seal. Gzip copies preserve their exact bytes for review."
+}

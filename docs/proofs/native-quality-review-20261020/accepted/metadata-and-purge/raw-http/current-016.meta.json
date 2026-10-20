@@ -1,0 +1,1 @@
+{"http_status": 200, "label": "blob-absent-one-id", "path": "/api/storage/liveness/explain", "phase": "current", "raw_sha256": "9930368427684fbe7084d779e172b90d93edc7d5565c2b379d4a003299928e28", "request": {"class": "blob", "id": "round12-never-uploaded-blob"}, "response_headers": [["Content-Length", "198"], ["Connection", "close"], ["Content-Type", "application/json"]]}

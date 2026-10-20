@@ -1,0 +1,206 @@
+{
+  "checked_utc": "2026-10-20T17:13:07.715885+00:00",
+  "reviewer": "/root/mutation_contract_round9",
+  "scope": "Independent cleanup safety review of two exact stopped accepted synthetic roots. Runtime semantic acceptance remains a separate review.",
+  "seal_sha256": "9714816220bdc42b1dde15e2b4451bdd22e0e2a9cd7dc4e39fcedeeb69fc0833",
+  "preview_summary_sha256": "3eb223b8aa654b064b0f92997f02075a8c6a86395f44f6f35b47a5cc28fa2829",
+  "source_manifest_sha256": "8858979ec8f557687fd5edc370b7eb69ce0532b9cff75dbc797cb56a0e8b9995",
+  "source_commit": "a0ccb6b505e42ce39c85f4bb27a1b90fed7f59ba",
+  "binary_sha256": "d453d7c6ee978ed41bf57cedb09584e11ea3844c4ade41a1b49e5a5742d76bd8",
+  "frozen_head_still_matches": true,
+  "target_release_binary_unchanged": true,
+  "expected_roots_only": true,
+  "primary_and_archive_accessed": false,
+  "primary_or_archive_root_in_approved_commands": false,
+  "receipt_seal_preserved": true,
+  "six_normal_unforced_sessions_preserved": true,
+  "cleanup_commands_executed_by_reviewer": false,
+  "runs": [
+    {
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0o_ahyo9",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0o_ahyo9",
+      "owner_uid": 501,
+      "device": 16777231,
+      "inode": 1479839997,
+      "exact_directory_not_symlink": true,
+      "marker_matches_current_root_and_preflight": true,
+      "live_marker_matches_sealed_copy": true,
+      "sealed_receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/metadata-and-purge",
+      "sealed_files_checked": 41,
+      "sealed_bytes_preserved": 11031991,
+      "seal_mismatches": [],
+      "source_and_binary_receipt_identity_preserved": true,
+      "normal_stop_receipts": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 5812,
+          "variant": "metadata-and-purge"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 5991,
+          "variant": "metadata-and-purge"
+        }
+      ],
+      "stop_receipts_match_preflight": true,
+      "normal_stop_count_matches_seal": true,
+      "current_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "5807,5812,5991",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "current_open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0o_ahyo9"
+        ],
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "current_socket_check": {
+        "command": [
+          "find",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0o_ahyo9",
+          "-maxdepth",
+          "6",
+          "-type",
+          "s",
+          "-print"
+        ],
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "socket_check_depth": 6,
+      "supported_preview_matches_summary": true,
+      "preview_sha256": "87470ff4ab558b599ccf868fa87a711a846698edfc87adde6266ed3864ae56ae",
+      "preflight_sha256": "787cb92466f070f2811e6963ba7474c201fabed37b6442bc251011da5c899533",
+      "approved_reclaim_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.0o_ahyo9",
+        "--exact-home"
+      ],
+      "cleanup_safe": true
+    },
+    {
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkznsxyq",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkznsxyq",
+      "owner_uid": 501,
+      "device": 16777231,
+      "inode": 1479842843,
+      "exact_directory_not_symlink": true,
+      "marker_matches_current_root_and_preflight": true,
+      "live_marker_matches_sealed_copy": true,
+      "sealed_receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/core-cohorts",
+      "sealed_files_checked": 7,
+      "sealed_bytes_preserved": 9137171,
+      "seal_mismatches": [],
+      "source_and_binary_receipt_identity_preserved": true,
+      "normal_stop_receipts": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 6132,
+          "variant": "core-cohorts"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 6685,
+          "variant": "core-cohorts"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 6692,
+          "variant": "core-cohorts"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 6860,
+          "variant": "core-cohorts"
+        }
+      ],
+      "stop_receipts_match_preflight": true,
+      "normal_stop_count_matches_seal": true,
+      "current_process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "5807,6132,6685,6692,6860",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "current_open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkznsxyq"
+        ],
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "current_socket_check": {
+        "command": [
+          "find",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkznsxyq",
+          "-maxdepth",
+          "6",
+          "-type",
+          "s",
+          "-print"
+        ],
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "socket_check_depth": 6,
+      "supported_preview_matches_summary": true,
+      "preview_sha256": "c567fca557170e30d88c437589cf526931112ee98df3934546af41004c696dce",
+      "preflight_sha256": "135274e8edbfeee8abe6eb4ec110a066c90ced33d1b4114dfcc3b7b29c17639d",
+      "approved_reclaim_command": [
+        "/Users/tomtang/.local/bin/lastdb-dev",
+        "reclaim",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tkznsxyq",
+        "--exact-home"
+      ],
+      "cleanup_safe": true
+    }
+  ],
+  "problems": [],
+  "approved_for_exact_supported_reclaim": true
+}

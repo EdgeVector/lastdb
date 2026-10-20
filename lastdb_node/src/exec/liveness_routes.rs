@@ -14,8 +14,8 @@ pub(super) async fn execute_liveness_explain_route(
         /// Several ids in one call. The classes `atom` and `molecule` read them.
         #[serde(default)]
         ids: Vec<String>,
-        /// A storage scope prefix (a database instance). Without it the request
-        /// scope applies, which is the personal scope for the default handle.
+        /// Atom and molecule storage scope. Without it the request scope
+        /// applies. Blob references span the whole node.
         #[serde(default)]
         scope: Option<String>,
     }
@@ -42,6 +42,9 @@ pub(super) async fn execute_liveness_explain_route(
     if !matches!(class.as_str(), "atom" | "molecule" | "blob") {
         return error_response(400, "class must be atom, molecule, or blob", ctx);
     }
+    if class == "blob" && (id.is_empty() || !request.ids.is_empty()) {
+        return error_response(400, "blob liveness explain requires one id", ctx);
+    }
     // A named handle can map each schema to a different storage instance.
     // This target-only diagnostic has no schema with which to resolve it.
     if ctx.db_locator.is_some() {
@@ -63,73 +66,29 @@ pub(super) async fn execute_liveness_explain_route(
     if class == "molecule" {
         return explain_molecules(host, ctx, scope, id, request.ids).await;
     }
-    let result = read_liveness_references(&class, id, ctx.storage_prefix.as_deref(), atoms).await;
-
-    match result {
+    match atoms.blob_ref_edges_for_blob(id, None).await {
         Ok(references) => {
             let reclaim_state = if !references.complete {
                 "blocked_index_incomplete"
-            } else if references.active_references.is_some_and(|count| count > 0) {
+            } else if !references.edges.is_empty() {
                 "blocked_active_edges"
             } else {
                 "candidate"
             };
-            let mut report = serde_json::json!({
+            let report = serde_json::json!({
                 "class": class,
                 "id": id,
                 "complete": references.complete,
-                "active_references": references.active_references,
+                "active_references": references.edges.len(),
                 "reclaim_state": reclaim_state,
+                "edges": references.edges,
             });
-            if let Some(edges) = references.edges {
-                report["edges"] = edges;
-            }
             json_ok(&envelope(
                 &serde_json::json!({ "liveness": report }),
                 ctx.user_id.as_str(),
             ))
         }
         Err(error) => mapped_error_response("liveness explain failed", error.into(), ctx),
-    }
-}
-
-struct LivenessReferences {
-    complete: bool,
-    active_references: Option<u64>,
-    edges: Option<serde_json::Value>,
-}
-
-impl LivenessReferences {
-    fn with_edges<T: serde::Serialize>(
-        complete: bool,
-        edges: Vec<T>,
-    ) -> Result<Self, fold_db::schema::SchemaError> {
-        let active_references = Some(edges.len() as u64);
-        let edges = serde_json::to_value(edges).map_err(|error| {
-            fold_db::schema::SchemaError::InvalidData(format!("serialize liveness edges: {error}"))
-        })?;
-        Ok(Self {
-            complete,
-            active_references,
-            edges: Some(edges),
-        })
-    }
-}
-
-async fn read_liveness_references(
-    class: &str,
-    id: &str,
-    storage_prefix: Option<&str>,
-    atoms: &fold_db::db_operations::AtomStore,
-) -> Result<LivenessReferences, fold_db::schema::SchemaError> {
-    match class {
-        "blob" => {
-            let lookup = atoms.blob_ref_edges_for_blob(id, storage_prefix).await?;
-            LivenessReferences::with_edges(lookup.complete, lookup.edges)
-        }
-        _ => Err(fold_db::schema::SchemaError::InvalidData(
-            "class must be atom, molecule, or blob".into(),
-        )),
     }
 }
 

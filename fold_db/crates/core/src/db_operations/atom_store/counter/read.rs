@@ -45,6 +45,15 @@ impl AtomStore {
         atoms: &[String],
         scope: Option<&str>,
     ) -> Result<Vec<AtomCounterView>, SchemaError> {
+        self.atom_read_scope(self.atom_counter_views_captured(atoms, scope))
+            .await
+    }
+
+    async fn atom_counter_views_captured(
+        &self,
+        atoms: &[String],
+        scope: Option<&str>,
+    ) -> Result<Vec<AtomCounterView>, SchemaError> {
         let counter_keys: Vec<String> = atoms
             .iter()
             .map(|atom| build_storage_key(scope, &atom_key_codec::counter_key(atom)))

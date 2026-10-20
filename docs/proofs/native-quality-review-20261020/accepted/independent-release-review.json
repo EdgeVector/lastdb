@@ -1,0 +1,186 @@
+{
+  "version": 1,
+  "reviewed_utc": "2026-10-20T17:11:39.009326+00:00",
+  "scope": "Independent frozen source, normal release executable, and dependency coverage review. No runtime or cleanup approval.",
+  "head": "a0ccb6b505e42ce39c85f4bb27a1b90fed7f59ba",
+  "tree": "4daf35ad186e9d70582ab21cd1f9c9ae421cf64f",
+  "source_input_count": 1812,
+  "source_inventory_sha256": "9176cf2c612aa200d5fc927f527a2fee74c10decf2fbfc3d520d310e827acf32",
+  "source_manifest": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/source-identity.json",
+    "bytes": 323156,
+    "sha256": "8858979ec8f557687fd5edc370b7eb69ce0532b9cff75dbc797cb56a0e8b9995"
+  },
+  "checks": {
+    "frozen_head": true,
+    "frozen_tree": true,
+    "1812_source_inputs": true,
+    "source_inventory_hash": true,
+    "current_source_bytes": true,
+    "immutable_git_source_bytes": true,
+    "independent_discovery_matches": true,
+    "tracked_product_tree_clean": true,
+    "prior_manifest_unchanged": true,
+    "identity_helpers_unchanged": true,
+    "host_configs_match": true,
+    "host_build_environment_matches": true,
+    "compiler_versions_match": true,
+    "finalized_release_manifest": true,
+    "both_clippy_lanes_and_release_normal": true,
+    "normal_locked_release_command": true,
+    "normal_executable_binary": true,
+    "exactly_one_matching_deps_binary": true,
+    "normal_default_features": true,
+    "no_rustflags_or_cross_target": true,
+    "dependency_repository_inputs_all_captured": true,
+    "environment_registry_explicit_prebuild_input": true,
+    "environment_registry_dependency_captured": true
+  },
+  "passed": true,
+  "current_source_mismatches": [],
+  "source_mismatches_at_end": [],
+  "immutable_git_blob_mismatches": [],
+  "discovery_missing": [],
+  "discovery_extra": [],
+  "tracked_product_changes": [],
+  "identity_helper_mismatches": [],
+  "external_config_mismatches": [],
+  "host_build_environment_mismatches": {},
+  "compiler_version_mismatches": [],
+  "normal_binary": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "bytes": 65249248,
+    "sha256": "d453d7c6ee978ed41bf57cedb09584e11ea3844c4ade41a1b49e5a5742d76bd8"
+  },
+  "binary_file_description": "Mach-O 64-bit executable arm64",
+  "matching_deps_binaries": [
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/deps/lastdbd-8f666e6da3036684",
+      "bytes": 65249248,
+      "sha256": "d453d7c6ee978ed41bf57cedb09584e11ea3844c4ade41a1b49e5a5742d76bd8"
+    }
+  ],
+  "cargo_fingerprint": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/.fingerprint/lastdb_node-8f666e6da3036684/bin-lastdbd.json",
+    "bytes": 2975,
+    "sha256": "b56ac67ef5dceee80d6d4fa43b8d8f0a3d505e174b3c79abd583b969563b618a",
+    "features": "[\"default\", \"purging-allocator\", \"sentry-telemetry\"]",
+    "rustflags": [],
+    "profile": 17633828320530640230,
+    "compile_kind": 0
+  },
+  "build_results": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/build-results.json",
+    "bytes": 957,
+    "sha256": "e754cbe030c69ef7a95354def36f4fd7996176870aeb3cf2374251f290b5b5eb"
+  },
+  "build_logs": [
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/clippy-workspace.log",
+      "bytes": 898,
+      "sha256": "48f13c2e688abb3d242e40d7be78b6d7572080aba839b5f95303df6aa41988e9",
+      "check": "clippy-workspace",
+      "command": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--lib",
+        "--bins",
+        "--locked",
+        "--exclude",
+        "generate_validated_schema_org_seeds",
+        "--exclude",
+        "schema_service_worker",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "elapsed_seconds": 46.796665541,
+      "exit_code": 0,
+      "normal_completion": true
+    },
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/clippy-offlane.log",
+      "bytes": 72,
+      "sha256": "fc5b16bc4342f093a52115087c240e1f6fe65f972486e7cac73e26a2ac51b1c9",
+      "check": "clippy-offlane",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "generate_validated_schema_org_seeds",
+        "-p",
+        "schema_service_worker",
+        "--bins",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "elapsed_seconds": 1.153540417000002,
+      "exit_code": 0,
+      "normal_completion": true
+    },
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/native-quality-review-20261020/accepted/release.log",
+      "bytes": 693,
+      "sha256": "58d9357ad0e9d3aeea87c8a27bf5a5752186bce5fbb436bee8086e5049c82314",
+      "check": "release",
+      "command": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd"
+      ],
+      "elapsed_seconds": 212.917724292,
+      "exit_code": 0,
+      "normal_completion": true
+    }
+  ],
+  "dependency_file": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd.d",
+    "bytes": 209209,
+    "sha256": "7d332097a92a57ab00a20897038dd52eaa9868d4e0f135180bf740cf29d7b8e9",
+    "repository_input_count": 1573,
+    "uncovered_repository_inputs": [],
+    "generated_target_inputs": [
+      "target/release/build/folddb_profile-ae9122eefce02cff/out/environments_generated.rs"
+    ],
+    "external_git_metadata": [
+      {
+        "path": "/Users/tomtang/.cache/edgevector-git/lastdb.git/packed-refs",
+        "bytes": 24112,
+        "sha256": "6447105e584f07d3991fb7c5d9f56a06579f3bfd9dcf60d0f8559169c9963f93"
+      },
+      {
+        "path": "/Users/tomtang/.cache/edgevector-git/lastdb.git/refs/heads/fix/native-contract-round12",
+        "bytes": 41,
+        "sha256": "341e3dc323d49d842ab1bf03e9720933921b16400309b040ced4b2751c1d1ed4"
+      },
+      {
+        "path": "/Users/tomtang/.cache/edgevector-git/lastdb.git/worktrees/lastdb-kanban-layer2-batch-storage-20261016/HEAD",
+        "bytes": 44,
+        "sha256": "66f276021d1139e70a4fa186f9e6163569fd002b15dd13ec4c836e19992a1879"
+      }
+    ],
+    "other_external_paths": []
+  },
+  "environment_registry": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/folddb_profile/environments.json",
+    "bytes": 825,
+    "sha256": "125896bca694dfbe3814ade693052312ae8498a973df5598e63ac1c80002011c",
+    "capture_role": "Explicit source input before release build"
+  },
+  "limits": [
+    "No product executable, node, build, test, operation helper, or socket call ran in this review.",
+    "Recorded normal completion logs and Cargo fingerprint support the declared build; this review does not reconstruct the historical shell process.",
+    "Installed registry package source bytes are outside the repository inventory. Cargo.lock records package identities.",
+    "The compiler-generated target source and Git build-stamp metadata are recorded separately from source inputs.",
+    "Source captured before the later disjoint origin/main snapshot-only commit remains the accepted candidate identity.",
+    "Ordinary product semantics and final synthetic-home cleanup remain separate reviews."
+  ]
+}

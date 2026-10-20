@@ -92,6 +92,7 @@ impl CoreWarmSet {
                 value.entry,
                 value.metadata,
             );
+        self.refresh_tip_charge(id);
         self.mark_slot(id, false, dirty_sequence);
         self.slots.get_mut(id).expect("warm core slot").owned = owned;
         self.touch(path);
@@ -145,8 +146,10 @@ impl CoreWarmSet {
                 tip.entry,
                 tip.metadata,
             );
+        self.refresh_tip_charge(id);
         self.mark_slot(id, false, None);
         self.touch(path);
+        self.trim_after_admit(path);
         Ok(retains_value)
     }
 
@@ -247,6 +250,8 @@ impl CoreWarmSet {
                 state.tip_authorized = false;
             }
         }
+        self.refresh_tip_charge(id);
+        self.trim_after_admit(path);
         true
     }
 
