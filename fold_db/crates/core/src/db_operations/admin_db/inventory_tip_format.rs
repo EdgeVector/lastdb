@@ -1,6 +1,7 @@
 //! Tip-format scan and thin-tip migration.
 
 use super::*;
+use crate::db_operations::atom_store::{successor, RangeWalk};
 
 impl AtomStore {
     /// Scan `mk:` tip values and count thin vs fat, bounded and resumable.
@@ -34,38 +35,27 @@ impl AtomStore {
         let prefix = build_storage_key(storage_prefix, "mk:");
         let end = FilterUtils::create_prefix_end(&prefix)?;
         let mut stats = TipFormatStats::default();
-        let mut page_start = after_key.map_or_else(|| prefix.clone(), str::to_owned);
-        let mut skip_head = after_key.map(str::to_owned);
-        let mut range_exhausted = false;
-
-        while !range_exhausted {
+        // `after_key` is the last key a previous call decided; the walk starts
+        // at the least key above it. Each read is bounded by the read budget of
+        // one call, also in a range that holds many deleted keys.
+        let start = after_key.map_or_else(
+            || prefix.clone().into_bytes(),
+            |key| successor(key.as_bytes()),
+        );
+        let mut range = RangeWalk::new(&start, end.as_bytes(), Self::TIP_SCAN_PAGE);
+        'pages: while !range.done() {
             let rows = self
-                .raw()
-                .inner()
-                .scan_range_paged(page_start.as_bytes(), end.as_bytes(), Self::TIP_SCAN_PAGE)
+                .walk_step(&mut range)
                 .await
                 .map_err(|e| SchemaError::InvalidData(format!("scan mk tips: {e}")))?;
-            if rows.len() < Self::TIP_SCAN_PAGE {
-                range_exhausted = true;
-            }
-            if rows.is_empty() {
-                break;
-            }
-            let head = skip_head.take();
-            let mut stop_after_page = false;
             for (k, v) in rows {
                 let key = String::from_utf8_lossy(&k).into_owned();
-                page_start.clone_from(&key);
-                if head.as_deref() == Some(key.as_str()) {
-                    continue;
-                }
                 if max_keys.is_some_and(|max| stats.tips_scanned as usize >= max)
                     || (stats.tips_scanned > 0
                         && pass_started.elapsed() >= Self::TIP_PASS_TIME_BUDGET)
                 {
                     stats.more_remaining = true;
-                    stop_after_page = true;
-                    break;
+                    break 'pages;
                 }
                 stats.tips_scanned += 1;
                 stats.next_after_key = Some(key);
@@ -83,10 +73,6 @@ impl AtomStore {
                         stats.tips_unreadable += 1;
                     }
                 }
-            }
-            skip_head = Some(page_start.clone());
-            if stop_after_page {
-                break;
             }
         }
         Ok(stats)
