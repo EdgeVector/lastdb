@@ -179,7 +179,8 @@ Only a whole-home offline rebuild can issue the new proof.
 A scoped rebuild receives an error.
 The rebuild reads both sources in every database scope before it records the proof.
 It refuses a database scope that overlaps a reserved storage key name.
-Raw database removal clears the proof; the next whole-home rebuild removes the old file protection.
+Raw database or tip maintenance clears the proof.
+The next whole-home rebuild removes obsolete file blob protection.
 
 File cleanup checks current accepted writes and deletes file blobs inside bounded native write scopes.
 The check and deletion share the same scope, including writes that still await flush.

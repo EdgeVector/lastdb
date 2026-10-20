@@ -143,6 +143,7 @@ impl AtomStore {
         if delete.is_empty() {
             return Ok(());
         }
+        self.revoke_blob_ref_completeness().await?;
         self.raw()
             .batch_delete_keys(delete.clone())
             .await

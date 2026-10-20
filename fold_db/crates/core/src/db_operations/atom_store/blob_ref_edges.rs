@@ -76,6 +76,19 @@ pub struct BlobRefCompleteness {
 }
 
 impl AtomStore {
+    /// Raw maintenance cannot preserve exact source ownership. Rebuild it
+    /// offline before file-blob reclaim can resume.
+    pub(crate) async fn revoke_blob_ref_completeness(&self) -> Result<(), SchemaError> {
+        self.main_store
+            .inner()
+            .batch_delete(vec![
+                BLOB_REF_COMPLETE_KEY.as_bytes().to_vec(),
+                LEGACY_COMPLETE_KEY.as_bytes().to_vec(),
+            ])
+            .await?;
+        Ok(())
+    }
+
     pub async fn blob_ref_edges_complete(
         &self,
         _storage_prefix: Option<&str>,

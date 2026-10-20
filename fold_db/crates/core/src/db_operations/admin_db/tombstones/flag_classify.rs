@@ -18,6 +18,10 @@ impl AtomStore {
         report: &mut TombstoneFlagBackfillReport,
         min_queued: usize,
     ) -> Result<(), SchemaError> {
+        if to_stamp.len() <= min_queued {
+            return Ok(());
+        }
+        self.revoke_blob_ref_completeness().await?;
         while to_stamp.len() > min_queued && !to_stamp.is_empty() {
             let take = to_stamp.len().min(min_queued.max(1000));
             let chunk: Vec<(String, Value)> = to_stamp.drain(..take).collect();
