@@ -135,15 +135,23 @@ impl MutationManager {
     /// [`Self::write_mutations_batch_with_receipt`] one layer down. Widening
     /// the established name instead would have made every unrelated call site
     /// unwrap a field it has no reader for.
-    pub async fn write_mutations_with_access(
-        &self,
+    ///
+    /// The future is boxed here. A caller that spawns a task on it would
+    /// otherwise make the compiler prove `Send` through the whole write graph
+    /// from the spawn site, and that proof overflows the recursion limit.
+    pub fn write_mutations_with_access<'a>(
+        &'a self,
         mutations: Vec<Mutation>,
-        access_context: &crate::access::AccessContext,
-    ) -> Result<Vec<String>, SchemaError> {
-        Ok(self
-            .write_mutations_with_access_receipt(mutations, access_context)
-            .await?
-            .mutation_ids)
+        access_context: &'a crate::access::AccessContext,
+    ) -> futures::future::BoxFuture<'a, Result<Vec<String>, SchemaError>> {
+        use futures::FutureExt;
+        async move {
+            Ok(self
+                .write_mutations_with_access_receipt(mutations, access_context)
+                .await?
+                .mutation_ids)
+        }
+        .boxed()
     }
 
     /// Write multiple mutations in a batch for improved performance (async version)
