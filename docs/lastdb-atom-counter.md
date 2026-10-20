@@ -140,9 +140,9 @@ delete when it holds the last reference. A delete adds one barrier row. The read
 are the target tips, the peer expansion, the counters and the body records
 (measured 9 to 12 examined keys for each tip). A request over either limit is
 refused with the number of keys that fits ("send at most M keys of F fields in
-one request"). For a schema of 24 fields, a purge fits 151 keys and a delete
-fits 135 on a fresh home (42 and 33 on an older home). For 300 fields the limits
-are 12 and 10 keys. The TTL sweep cuts its batch to fit, and it halves a batch
+one request"). For a schema of 24 fields, a purge fits 138 keys and a delete
+fits 128 on a fresh home (42 and 33 on an older home). For 300 fields the limits
+are 11 and 10 keys. The TTL sweep cuts its batch to fit, and it halves a batch
 that still hits a size limit and retries, so the default of 16 keys fits a
 schema of up to about 200 fields on a fresh home and about 60 on an older home.
 
