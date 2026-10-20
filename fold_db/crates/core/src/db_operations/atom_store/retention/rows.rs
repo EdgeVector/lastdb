@@ -44,9 +44,6 @@ impl AtomStore {
         let value = serde_json::to_value(&entry).map_err(|error| {
             SchemaError::InvalidData(format!("serialize retention entry: {error}"))
         })?;
-        Ok(vec![
-            (entry.queue.clone(), value.clone()),
-            (entry.dir.clone(), value),
-        ])
+        Ok(vec![(entry.queue, value.clone()), (entry.dir, value)])
     }
 }

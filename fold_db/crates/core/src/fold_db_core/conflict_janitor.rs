@@ -124,7 +124,7 @@ impl BackgroundConflictJanitorTask {
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
                 }
-                if wakes % FULL_PASS_EVERY == 0 {
+                if wakes.is_multiple_of(FULL_PASS_EVERY) {
                     watermark = None;
                 }
                 wakes += 1;

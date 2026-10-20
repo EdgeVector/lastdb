@@ -17,11 +17,13 @@ pub(crate) struct QueuePage {
 
 impl QueuePage {
     /// The keys whose expiry is at or before `now_nanos`. The queue is sorted
-    /// by expiry, so the due keys come first.
+    /// by expiry, so the due keys come first. A key with no readable expiry
+    /// counts as due: the release batch reports it and the wake moves past it,
+    /// so one bad key cannot hold back every later entry.
     pub(crate) fn due(&self, now_nanos: u64) -> Vec<String> {
         self.keys
             .iter()
-            .take_while(|key| keys::queue_expiry(key).is_some_and(|expiry| expiry <= now_nanos))
+            .take_while(|key| keys::queue_expiry(key).is_none_or(|expiry| expiry <= now_nanos))
             .cloned()
             .collect()
     }
@@ -135,8 +137,15 @@ impl AtomStore {
             let Some(bytes) = bytes else {
                 continue;
             };
-            if !keys::queue_expiry(key).is_some_and(|expiry| expiry <= now_nanos) {
-                continue;
+            match keys::queue_expiry(key) {
+                Some(expiry) if expiry <= now_nanos => {}
+                Some(_) => continue,
+                None => {
+                    tracing::error!(%key, "retention queue key has no readable expiry");
+                    self.retention_state().note_undecodable();
+                    skipped += 1;
+                    continue;
+                }
             }
             match serde_json::from_slice::<RetentionEntry>(&bytes) {
                 Ok(entry) => entries.push(entry),

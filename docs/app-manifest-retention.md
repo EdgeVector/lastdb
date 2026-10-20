@@ -213,8 +213,9 @@ read error is never treated as "no policy".
   for each field of each key, about 3,170 B for each key and field, and nothing
   prunes them. What each verb erases and leaves is in
   [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md) (Verbs, Records that stay).
-  Both verbs leave the conflict records: the database layer keeps conflicts, and
-  the app owns the shape of its data.
+  Both verbs release the kept conflict records of the key they erase: the
+  database layer keeps a conflict until its key goes or its retention window
+  ends, and the app owns the shape of its data.
 - A TTL erase syncs to the peers as an erase of that key, whichever verb runs,
   and **a peer that never declared the TTL still applies it**. A peer that never
   held the record skips it without an error.

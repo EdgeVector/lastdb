@@ -44,8 +44,10 @@ selected, the two verbs, what each verb leaves on disk, and the four knobs.
 | `purge` (default) | The hard-erasure verb. It deletes the tips of the key. The atom counter deletes each body whose last tip goes, in the same batch. It writes no delete barrier. |
 | `delete` | The ordinary delete a client uses. It removes the tips and writes the delete barrier. The atom counter deletes each body whose last tip goes, in the same batch. |
 
-Both verbs leave the conflict records, and both leave one `mgd:v1:` record for each field of
-each key (see Records that stay).
+Both verbs release the kept conflict records of the slots they remove, in the same batch as the
+tip deletes (the slot directory, `docs/lastdb-atom-counter.md`, section Conflict records and their
+retention). A kept loser whose last reference goes is deleted in that batch. Both verbs leave one
+`mgd:v1:` record for each field of each key (see Records that stay).
 
 Any other value logs one warning at the first sampler tick and uses `purge`.
 
