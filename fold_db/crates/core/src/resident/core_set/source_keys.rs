@@ -7,6 +7,8 @@
 
 use super::tables::{slab_insert, SlotId};
 use super::*;
+use hashbrown::HashTable;
+use std::hash::{BuildHasher, RandomState};
 
 pub(super) type SourceId = u32;
 
@@ -71,23 +73,82 @@ impl IdSet {
     }
 }
 
+/// How one source key is stored.
+enum StoredKey {
+    /// The `pack_source` form of the coordinates.
+    Packed(Arc<[u8]>),
+    /// A delete barrier (`rdel:v2:`) spells its `mk:` key in hex two times, so
+    /// it is stored as the `pack_source` form of that `mk:` key. The `Arc` is
+    /// shared with the `mk:` source when both are interned.
+    Barrier(Arc<[u8]>),
+}
+
 pub(super) struct SourceEntry {
-    /// `pack_source` form of the coordinates; the same allocation keys the index.
-    packed: Arc<[u8]>,
+    key: StoredKey,
+    /// The hash of the full coordinates. The index stores only ids.
+    hash: u64,
     pub(super) slots: IdSet,
 }
 
 #[derive(Default)]
 pub(super) struct SourceTable {
-    index: HashMap<Arc<[u8]>, SourceId>,
+    index: HashTable<SourceId>,
+    hasher: RandomState,
     entries: Vec<Option<SourceEntry>>,
     free: Vec<SourceId>,
 }
 
+/// Lazily packed forms of one lookup, so a probe packs at most once.
+struct Probe<'a> {
+    collection: &'a str,
+    key: &'a str,
+    packed: Option<Vec<u8>>,
+    barrier: Option<Option<Vec<u8>>>,
+}
+
+impl<'a> Probe<'a> {
+    fn new(collection: &'a str, key: &'a str) -> Self {
+        Self {
+            collection,
+            key,
+            packed: None,
+            barrier: None,
+        }
+    }
+
+    fn matches(&mut self, stored: &StoredKey) -> bool {
+        match stored {
+            StoredKey::Packed(packed) => {
+                let probe = self
+                    .packed
+                    .get_or_insert_with(|| pack_source(self.collection, self.key));
+                packed.as_ref() == probe.as_slice()
+            }
+            StoredKey::Barrier(base) => {
+                let probe = self.barrier.get_or_insert_with(|| {
+                    barrier_base(self.key).map(|mk| pack_source(self.collection, &mk))
+                });
+                probe.as_deref() == Some(base.as_ref())
+            }
+        }
+    }
+}
+
 impl SourceTable {
+    fn hash(&self, collection: &str, key: &str) -> u64 {
+        self.hasher.hash_one((collection, key))
+    }
+
     pub(super) fn find(&self, collection: &str, key: &str) -> Option<SourceId> {
+        let hash = self.hash(collection, key);
+        let mut probe = Probe::new(collection, key);
+        let entries = &self.entries;
         self.index
-            .get(pack_source(collection, key).as_slice())
+            .find(hash, |id| {
+                entries[*id as usize]
+                    .as_ref()
+                    .is_some_and(|entry| entry.hash == hash && probe.matches(&entry.key))
+            })
             .copied()
     }
 
@@ -96,32 +157,61 @@ impl SourceTable {
     }
 
     pub(super) fn coordinates(&self, id: SourceId) -> (String, String) {
-        unpack_source(&self.get(id).expect("linked core source").packed)
+        coordinates(&self.get(id).expect("linked core source").key)
     }
 
-    pub(super) fn packed_len(&self, id: SourceId) -> usize {
-        self.get(id).map_or(0, |entry| entry.packed.len())
+    /// The key bytes charged to this source. A barrier is charged nothing for
+    /// its key: its bytes are those of the `mk:` source that it shares.
+    pub(super) fn charged_len(&self, id: SourceId) -> usize {
+        self.get(id).map_or(0, |entry| charged_len(&entry.key))
     }
 
     /// Return the id of the source and whether this call created it. A new
     /// source has no slots; the caller links it at once.
     pub(super) fn intern(&mut self, collection: &str, key: &str, slot: SlotId) -> (SourceId, bool) {
-        let packed = pack_source(collection, key);
-        if let Some(id) = self.index.get(packed.as_slice()) {
-            return (*id, false);
+        if let Some(id) = self.find(collection, key) {
+            return (id, false);
         }
+        let stored = match barrier_base(key) {
+            Some(mk) => StoredKey::Barrier(self.shared_mk(collection, &mk, None)),
+            None => StoredKey::Packed(self.shared_mk(collection, key, Some(key))),
+        };
         debug_assert!(
-            unpack_source(&packed) == (collection.to_owned(), key.to_owned()),
-            "packed core source round trip"
+            coordinates(&stored) == (collection.to_owned(), key.to_owned()),
+            "stored core source round trip"
         );
-        let packed: Arc<[u8]> = Arc::from(packed);
+        let hash = self.hash(collection, key);
         let entry = SourceEntry {
-            packed: Arc::clone(&packed),
+            key: stored,
+            hash,
             slots: IdSet::One(slot),
         };
         let id = slab_insert(&mut self.entries, &mut self.free, entry);
-        self.index.insert(packed, id);
+        let entries = &self.entries;
+        self.index
+            .insert_unique(hash, id, |id| entry_hash(entries, *id));
         (id, true)
+    }
+
+    /// The packed `(collection, mk)` form, shared with an interned source
+    /// that already stores it: the `mk:` source itself (`plain` is None) or
+    /// the barrier of a new `mk:` source (`plain` is the new key).
+    fn shared_mk(&self, collection: &str, mk: &str, plain: Option<&str>) -> Arc<[u8]> {
+        let other = match plain {
+            None => self.find(collection, mk),
+            Some(key) if key.contains("mk:") => {
+                let barrier = crate::atom::delete_barrier::delete_barrier_key(key.as_bytes());
+                self.find(collection, &barrier)
+            }
+            Some(_) => None,
+        };
+        let shared = other.and_then(|id| match (&self.get(id)?.key, plain) {
+            (StoredKey::Packed(packed), None) | (StoredKey::Barrier(packed), Some(_)) => {
+                Some(Arc::clone(packed))
+            }
+            _ => None,
+        });
+        shared.unwrap_or_else(|| Arc::from(pack_source(collection, mk)))
     }
 
     pub(super) fn link(&mut self, source: SourceId, slot: SlotId) {
@@ -134,26 +224,70 @@ impl SourceTable {
         }
     }
 
-    /// Remove one link. Returns the packed length of the source when this was
-    /// its last slot and the source left the table.
+    /// Remove one link. Returns the charged key length of the source when
+    /// this was its last slot and the source left the table.
     pub(super) fn unlink(&mut self, source: SourceId, slot: SlotId) -> Option<usize> {
         let entry = self.entries.get_mut(source as usize)?.as_mut()?;
         if !entry.slots.remove(slot) {
             return None;
         }
         let entry = self.entries[source as usize].take()?;
-        self.index.remove(&entry.packed);
+        if let Ok(found) = self.index.find_entry(entry.hash, |id| *id == source) {
+            found.remove();
+        }
         self.free.push(source);
-        Some(entry.packed.len())
+        Some(charged_len(&entry.key))
     }
 
     pub(super) fn try_reserve(&mut self, additional: usize) -> Result<(), CoreCapacity> {
+        let entries = &self.entries;
         self.index
+            .try_reserve(additional, |id| entry_hash(entries, *id))
+            .map_err(|_| super::model::capacity())?;
+        self.free
             .try_reserve(additional)
-            .and_then(|_| self.free.try_reserve(additional))
             .and_then(|_| self.entries.try_reserve(additional))
             .map_err(|_| super::model::capacity())
     }
+}
+
+fn entry_hash(entries: &[Option<SourceEntry>], id: SourceId) -> u64 {
+    entries[id as usize]
+        .as_ref()
+        .expect("indexed core source")
+        .hash
+}
+
+fn coordinates(stored: &StoredKey) -> (String, String) {
+    match stored {
+        StoredKey::Packed(packed) => unpack_source(packed),
+        StoredKey::Barrier(base) => {
+            let (collection, mk) = unpack_source(base);
+            let key = crate::atom::delete_barrier::delete_barrier_key(mk.as_bytes());
+            (collection, key)
+        }
+    }
+}
+
+fn charged_len(stored: &StoredKey) -> usize {
+    match stored {
+        StoredKey::Packed(packed) => packed.len(),
+        StoredKey::Barrier(_) => 0,
+    }
+}
+
+/// The `mk:` key of a delete barrier key, only when the barrier of that `mk:`
+/// key is exactly `key`. Any other key is stored packed.
+fn barrier_base(key: &str) -> Option<String> {
+    let marker = key.find("rdel:v2:")?;
+    let (_, tail) = key[marker..].split_once('\0')?;
+    let (len, hex) = tail.split_once(':')?;
+    let bytes = crate::hex::hex_decode(hex)?;
+    if len.parse::<usize>().ok()? != bytes.len() {
+        return None;
+    }
+    let mk = String::from_utf8(bytes).ok()?;
+    (crate::atom::delete_barrier::delete_barrier_key(mk.as_bytes()) == key).then_some(mk)
 }
 
 /// The collection length, the collection, then the packed key. Packing is

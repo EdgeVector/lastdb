@@ -121,14 +121,25 @@ pub(crate) struct CoreModelStats {
 
 impl CoreWarmSet {
     /// A path hold protects membership; these owners protect overwritten bytes.
+    /// A clean value has no owned copy, so its holder keeps the atom itself.
     pub(crate) fn retained_values(
         &self,
         paths: &[CorePath],
     ) -> Vec<Arc<dyn std::any::Any + Send + Sync>> {
         paths
             .iter()
-            .filter_map(|path| self.slots.get(self.slot_of(path)?)?.owned.clone())
-            .map(|slot| slot as Arc<dyn std::any::Any + Send + Sync>)
+            .filter_map(|path| {
+                let slot = self.slots.get(self.slot_of(path)?)?;
+                match (&slot.owned, &slot.atom) {
+                    (Some(owned), _) => {
+                        Some(Arc::clone(owned) as Arc<dyn std::any::Any + Send + Sync>)
+                    }
+                    (None, Some(atom)) => {
+                        Some(Arc::clone(&atom.value) as Arc<dyn std::any::Any + Send + Sync>)
+                    }
+                    (None, None) => None,
+                }
+            })
             .collect()
     }
 

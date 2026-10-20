@@ -2015,6 +2015,7 @@ dependencies = [
  "env_flag",
  "flate2",
  "futures",
+ "hashbrown 0.17.0",
  "hkdf",
  "hmac 0.12.1",
  "laststore",

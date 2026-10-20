@@ -15,6 +15,7 @@ mod keys;
 mod lifecycle;
 mod memory;
 mod model;
+mod path_table;
 mod source_keys;
 mod sources;
 mod tables;
@@ -193,10 +194,9 @@ pub(crate) struct CoreWarmSet {
     // A content UUID does not identify the immutable metadata of a full atom.
     // The UUID buckets share only fully equal atoms and own no retained bytes.
     atoms: HashMap<AtomKey, Vec<Weak<SharedAtom>>>,
-    // One `Arc<CorePath>` per path, shared by `paths`, `order`, and the
-    // owner list of its slot.
-    paths: HashMap<Arc<CorePath>, PathState>,
-    order: BTreeMap<u64, Arc<CorePath>>,
+    // Interned paths. `order` and slot owner lists hold path ids.
+    paths: path_table::PathTable,
+    order: BTreeMap<u64, path_table::PathId>,
     clock: u64,
     // Slot owners, atoms, owned values, and source links, by interned id.
     slots: tables::SlotTable,
@@ -225,7 +225,7 @@ impl CoreWarmSet {
             .flat_map(|(_, slot)| &slot.owners)
             .filter(|path| {
                 self.paths
-                    .get(path.as_ref())
+                    .state(**path)
                     .is_some_and(|state| state.known && !state.absent)
             })
             .count();
@@ -234,11 +234,15 @@ impl CoreWarmSet {
             tip_only_paths,
             molecules: self.molecules.len(),
             atoms: self.atoms.values().map(Vec::len).sum(),
-            held: self.paths.values().filter(|state| state.holds > 0).count(),
+            held: self
+                .paths
+                .iter()
+                .filter(|(_, state)| state.holds > 0)
+                .count(),
             dirty: self
                 .paths
-                .values()
-                .filter(|state| state.dirty.is_some())
+                .iter()
+                .filter(|(_, state)| state.dirty.is_some())
                 .count(),
             hits: self.hits,
             misses: self.misses,
@@ -265,32 +269,36 @@ impl CoreWarmSet {
             return;
         };
         for owner in &slot.owners {
-            if let Some(state) = self.paths.get_mut(owner.as_ref()) {
+            if let Some(state) = self.paths.state_mut(*owner) {
                 state.tip_authorized = state.known;
             }
         }
     }
 
     pub(crate) fn path_authorized(&self, path: &CorePath) -> bool {
-        self.paths
-            .get(path)
+        self.path_state(path)
             .is_some_and(|state| state.known && state.tip_authorized)
     }
 
     /// Control records can change visible tips without changing their bodies.
     pub(crate) fn clear_authorizations(&mut self) {
-        for state in self.paths.values_mut() {
+        for (_, state) in self.paths.iter_mut() {
             state.tip_authorized = false;
         }
     }
 
-    /// The slot of a path, or of its alias when this path is not warm.
-    /// Only the second case builds a temporary key.
+    /// The slot of a path, or of its alias when this path is not warm. A
+    /// warm path always has the slot of its own slot key.
     fn slot_of(&self, path: &CorePath) -> Option<tables::SlotId> {
-        match self.paths.get(path) {
-            Some(state) => Some(state.slot),
-            None => self.slots.find(&path.slot_key()),
-        }
+        self.slots.find_path(path)
+    }
+
+    fn path_id(&self, path: &CorePath) -> Option<path_table::PathId> {
+        self.paths.find(&self.slots, path)
+    }
+
+    fn path_state(&self, path: &CorePath) -> Option<&PathState> {
+        self.paths.state(self.path_id(path)?)
     }
 }
 

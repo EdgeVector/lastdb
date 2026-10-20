@@ -24,6 +24,8 @@ serde_json = { workspace = true }
 
 # Inline id lists in the warm set slot and source tables.
 smallvec = "1"
+# Id-only indexes for the warm set source and slot tables.
+hashbrown = { version = "0.17", default-features = false }
 
 # Storage
 laststore = { path = "../../../vendor/laststore" }

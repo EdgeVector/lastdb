@@ -15,9 +15,9 @@ impl CoreWarmSet {
             .flat_map(|source| source.slots.iter())
             .filter_map(|slot| self.slots.get(slot))
             .flat_map(|slot| slot.owners.iter())
-            .map(|path| path.as_ref().clone())
             .collect::<HashSet<_>>()
             .into_iter()
+            .filter_map(|path| self.paths.core_path(&self.slots, *path))
             .collect()
     }
 
@@ -35,7 +35,7 @@ impl CoreWarmSet {
         path: &CorePath,
         sources: &[(String, String)],
     ) -> bool {
-        if !self.paths.contains_key(path) {
+        if self.path_id(path).is_none() {
             return false;
         }
         let mut distinct = HashSet::new();
@@ -66,7 +66,7 @@ impl CoreWarmSet {
     /// Source edges belong to the shared slot and leave with its last path.
     /// Removing one schema alias cannot remove another alias's protection.
     pub(crate) fn link_source(&mut self, path: &CorePath, collection: &str, key: &str) -> bool {
-        let Some(id) = self.paths.get(path).map(|state| state.slot) else {
+        let Some(id) = self.path_state(path).map(|state| state.slot) else {
             return false;
         };
         let slot = self.slots.get(id).expect("warm core slot");
@@ -80,7 +80,7 @@ impl CoreWarmSet {
         }
         let (source, created) = self.sources.intern(collection, key, id);
         if created {
-            self.charge_source(self.sources.packed_len(source));
+            self.charge_source(self.sources.charged_len(source));
         } else {
             self.sources.link(source, id);
         }
@@ -137,11 +137,11 @@ impl CoreWarmSet {
         let Some(slot) = self.slots.get(id) else {
             return;
         };
-        let owners: Vec<_> = slot.owners.iter().cloned().collect();
+        let owners = slot.owners.clone();
         self.forget_slot_sources(id);
         self.forget_slot_value(id);
         for path in owners {
-            let forget = if let Some(state) = self.paths.get_mut(path.as_ref()) {
+            let forget = if let Some(state) = self.paths.state_mut(path) {
                 state.known = false;
                 state.absent = false;
                 state.tip_authorized = false;
@@ -150,7 +150,7 @@ impl CoreWarmSet {
                 false
             };
             if forget {
-                self.drop_path(&path);
+                self.drop_id(path);
             }
         }
     }

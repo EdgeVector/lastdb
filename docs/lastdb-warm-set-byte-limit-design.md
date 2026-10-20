@@ -323,6 +323,25 @@ The goal was about 1–2 KB for each path. About 4.2 KB is left:
 
 Each part needs its own change. Source keys need a shared prefix table or keys that the core derives from the slot. The owned copy of the tip is what a call that holds the slot keeps, so a change to it changes hold behavior.
 
+## Second bookkeeping shrink (2026-10-19)
+
+The change (proof: `docs/proofs/warm-set-shrink-path-20261019/RESULTS.md`):
+
+- A clean read keeps no owned copy of the tip. A call that holds the path gets the slot atom, so the call keeps the same atom alive as before. A prepared value keeps its owned value and its reservation owner.
+- A warm path is its slot id plus interned schema and field name ids. The path index, the recency map, and the slot owner lists hold a 32-bit path id.
+- The slot index and the source index hold only ids. A lookup by borrowed strings makes no temporary key.
+- A delete-barrier key is stored as its packed `mk:` key and shares that allocation with the `mk:` source.
+- The gauge constants match the new layout.
+
+Result for 8,800 extra paths (normal cap against a cap of 1,200; 4 molecules per record on current main):
+
+| Shape | Allocator growth per path, before | After | Gauge ratio, after |
+|---|---|---|---|
+| small (3,000 × 200 B) | 3.5 KB | 2.2 KB | 1.030 |
+| medium (3,000 × 8 KB) | 5.4 KB | 4.0 KB | 1.067 |
+
+The warm set core part falls from about 2.9 KB to about 1.25 KB for each path. The molecule tip and key metadata (about 0.74 KB) are outside the warm set code and did not change.
+
 ## Later step
 
 The same reservation type can carry the definition cache (16 MiB), the complete keys (128 MiB), and the write metadata (16 MiB).

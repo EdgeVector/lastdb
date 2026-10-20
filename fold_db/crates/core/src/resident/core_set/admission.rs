@@ -22,8 +22,7 @@ impl CoreWarmSet {
             .collect();
         paths.sort();
         if paths.iter().any(|path| {
-            self.paths
-                .get(path)
+            self.path_state(path)
                 .is_some_and(|state| state.holds == u32::MAX)
         }) {
             return Err(CoreCapacity {
@@ -32,10 +31,11 @@ impl CoreWarmSet {
         }
         self.make_room(&paths)?;
         for path in &paths {
-            if !self.paths.contains_key(path) {
-                self.insert_path(path);
-            }
-            self.paths.get_mut(path).expect("reserved core path").holds += 1;
+            let id = match self.path_id(path) {
+                Some(id) => id,
+                None => self.insert_path(path),
+            };
+            self.paths.state_mut(id).expect("reserved core path").holds += 1;
         }
         Ok(paths)
     }
@@ -64,6 +64,9 @@ impl CoreWarmSet {
         self.share_model_atom(&molecule, &mut value);
         self.track_atom(&value.atom);
         let slot = self.slots.get(id).expect("warm core slot");
+        // A clean read keeps no owned copy: the tip lives in the molecule and
+        // the atom in `slot.atom`, which `retained_values` hands to holders.
+        // An identical prepared value keeps its owner and reservation.
         let owned = slot
             .owned
             .as_ref()
@@ -74,8 +77,7 @@ impl CoreWarmSet {
                         && previous.atom.as_ref() == value.atom.as_ref()
                 })
             })
-            .cloned()
-            .unwrap_or_else(|| model::CoreModelSlot::clean(Some(value.clone())));
+            .cloned();
         let key = slot.key.clone();
         let previous = self
             .molecules
@@ -96,7 +98,7 @@ impl CoreWarmSet {
                 value.metadata,
             );
         self.mark_slot(id, false, dirty_sequence);
-        self.slots.get_mut(id).expect("warm core slot").owned = Some(owned);
+        self.slots.get_mut(id).expect("warm core slot").owned = owned;
         self.touch(path);
         Ok(())
     }
@@ -123,7 +125,7 @@ impl CoreWarmSet {
             && existing.is_some_and(|slot| {
                 slot.owners.iter().any(|owner| {
                     self.paths
-                        .get(owner.as_ref())
+                        .state(*owner)
                         .is_some_and(|state| state.dirty.is_some())
                 })
             })
@@ -171,13 +173,15 @@ impl CoreWarmSet {
 
     /// Select a known tip, a full value, or absence under the caller's lock.
     pub(crate) fn lookup(&mut self, path: &CorePath) -> CoreWarmLookup {
-        let known = self.paths.get(path).is_some_and(|state| state.known);
-        if !known {
+        let Some(id) = self
+            .path_id(path)
+            .filter(|id| self.paths.state(*id).is_some_and(|state| state.known))
+        else {
             self.misses = self.misses.saturating_add(1);
             return CoreWarmLookup::unknown();
-        }
-        self.touch(path);
-        if self.paths.get(path).is_some_and(|state| state.absent) {
+        };
+        self.touch_id(id);
+        if self.paths.state(id).is_some_and(|state| state.absent) {
             self.hits = self.hits.saturating_add(1);
             return CoreWarmLookup::absent();
         }
@@ -198,14 +202,13 @@ impl CoreWarmSet {
         entry: AtomEntry,
         metadata: Option<KeyMetadata>,
     ) -> bool {
-        if !self
-            .paths
-            .get(path)
-            .is_some_and(|state| state.known && !state.absent)
-        {
+        let Some(id) = self
+            .path_state(path)
+            .filter(|state| state.known && !state.absent)
+            .map(|state| state.slot)
+        else {
             return false;
-        }
-        let id = self.paths[path].slot;
+        };
         if self.slot_atom(id, &entry.atom_uuid).is_none() {
             return false;
         }
@@ -244,7 +247,7 @@ impl CoreWarmSet {
             }));
         }
         for owner in &slot.owners {
-            if let Some(state) = self.paths.get_mut(owner.as_ref()) {
+            if let Some(state) = self.paths.state_mut(*owner) {
                 state.tip_authorized = false;
             }
         }
@@ -279,38 +282,37 @@ impl CoreWarmSet {
 
     /// Return the slot of a path that is warm after this call.
     fn ensure_path(&mut self, path: &CorePath) -> Result<tables::SlotId, CoreCapacity> {
-        if let Some(state) = self.paths.get(path) {
+        if let Some(state) = self.path_state(path) {
             return Ok(state.slot);
         }
         self.make_room(std::slice::from_ref(path))?;
-        Ok(self.insert_path(path))
+        let id = self.insert_path(path);
+        Ok(self.paths.state(id).expect("warm core path").slot)
     }
 
-    fn insert_path(&mut self, path: &CorePath) -> tables::SlotId {
-        let key = path.slot_key();
-        let id = if let Some(id) = self.slots.find(&key) {
-            id
+    fn insert_path(&mut self, path: &CorePath) -> path_table::PathId {
+        let slot = if let Some(slot) = self.slots.find_path(path) {
+            slot
         } else {
-            let id = self.slots.insert(key);
-            self.charge_slot(id);
-            id
+            let slot = self.slots.insert(path.slot_key());
+            self.charge_slot(slot);
+            slot
         };
-        let shared = Arc::new(path.clone());
-        self.slots
-            .get_mut(id)
-            .expect("warm core slot")
-            .owners
-            .push(Arc::clone(&shared));
-        let charge = self.charge_path(path);
-        self.paths.insert(
-            shared,
+        let charge = self.charge_path();
+        let id = self.paths.insert(
+            path,
             PathState {
-                slot: id,
+                slot,
                 charge,
                 ..PathState::default()
             },
         );
-        self.touch(path);
+        self.slots
+            .get_mut(slot)
+            .expect("warm core slot")
+            .owners
+            .push(id);
+        self.touch_id(id);
         id
     }
 
@@ -319,7 +321,7 @@ impl CoreWarmSet {
             return;
         };
         for path in &slot.owners {
-            let state = self.paths.get_mut(path.as_ref()).expect("core slot owner");
+            let state = self.paths.state_mut(*path).expect("core slot owner");
             state.known = true;
             state.absent = absent;
             state.tip_authorized = false;

@@ -5,29 +5,30 @@
 //! from capacities; only the per-object constants are estimates. Stage 1 only
 //! reports these charges. The record count still controls admission.
 
-use super::{CorePath, SlotKey};
+use super::SlotKey;
 use crate::atom::Atom;
 use serde_json::Value;
 
-/// One path: its `paths` entry and `PathState`, the shared `Arc<CorePath>`
-/// header and struct, its recency entry, and its pointer in the slot owner
-/// list. Calibrated on 2026-10-19 from a heap profile of the interned tables
-/// (about 0.64 KB per path with its strings).
-const PATH_BASE: usize = 368;
+/// One path: its path table entry, index bucket, and recency entry. The
+/// schema and field names are interned and shared by every path that uses
+/// them, so they are not charged. Calibrated on 2026-10-19 from a heap
+/// profile of the path table (about 130 bytes per path).
+const PATH_BASE: usize = 112;
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
 const JSON_MAP_ENTRY: usize = 96;
 /// One source link: one id in the slot's list and one in the source's set.
 /// Both lists are usually inline, so this covers spills and table growth.
 const LINK_BASE: usize = 8;
-/// One interned source key: its index entry, its table entry, and the header
-/// of its single packed allocation. Calibrated on 2026-10-19 (heap profile:
-/// about 350 bytes per source with a packed key of about 190 bytes).
-const SOURCE_BASE: usize = 96;
-/// One slot: its table and index entries, the molecule tip and key-metadata
-/// map entries, and the copy of the tip entry in its owned value. Calibrated
-/// on 2026-10-19 from a heap profile of the interned tables (about 1.87 KB
-/// per slot).
-const SLOT_BASE: usize = 1656;
+/// One interned source key: its id-only index bucket, its table entry, and
+/// the header of its packed allocation. A delete barrier shares the packed
+/// `mk:` key and is charged this base only. Calibrated on 2026-10-19 (heap
+/// profile: about 450 bytes of sources per path).
+const SOURCE_BASE: usize = 72;
+/// One slot: its table and index entries, its atom link, and the molecule tip
+/// and key-metadata map entries. A clean read keeps no owned copy of the tip.
+/// Calibrated on 2026-10-19 from a heap profile of the interned tables (about
+/// 1.34 KB per slot).
+const SLOT_BASE: usize = 1170;
 /// Copies of the slot hash and range strings: the interned key and the
 /// molecule tip map.
 const SLOT_KEY_COPIES: usize = 2;
@@ -41,16 +42,9 @@ const ROUND: usize = 16;
 
 const VALUE_SIZE: usize = std::mem::size_of::<Value>();
 
-/// One path: the base cost plus its key strings, held once in the shared
-/// `Arc<CorePath>`.
-pub(super) fn path_charge(path: &CorePath) -> usize {
-    let strings = path.scope.as_ref().map_or(0, String::capacity)
-        + path.schema.capacity()
-        + path.field.capacity()
-        + path.molecule.capacity()
-        + path.hash.capacity()
-        + path.range.capacity();
-    finish(PATH_BASE + strings)
+/// One path. Its strings live in the slot key and the name table.
+pub(super) fn path_charge() -> usize {
+    finish(PATH_BASE)
 }
 
 /// One slot: the per-slot entries and the copies of its hash and range.

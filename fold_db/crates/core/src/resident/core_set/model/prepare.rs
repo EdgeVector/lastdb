@@ -250,8 +250,7 @@ impl CoreWarmSet {
 fn validate(core: &CoreWarmSet, changes: &[CoreModelChange]) -> Result<(), CoreCapacity> {
     for change in changes {
         if core
-            .paths
-            .get(&change.path)
+            .path_state(&change.path)
             .is_none_or(|state| state.holds == 0)
             || change.sources.is_empty()
             || change.sources.len() > 64

@@ -86,8 +86,8 @@ impl WarmBytes {
 
 impl CoreWarmSet {
     /// Charge one new path. Returns the charge that `PathState` keeps.
-    pub(super) fn charge_path(&mut self, path: &CorePath) -> usize {
-        let charge = path_charge(path);
+    pub(super) fn charge_path(&mut self) -> usize {
+        let charge = path_charge();
         self.bytes.path_bytes += charge;
         self.bytes.note_peak();
         charge
@@ -197,17 +197,22 @@ impl CoreWarmSet {
     fn dirty_bytes(&self) -> usize {
         let mut atoms = HashSet::new();
         let mut bytes = 0;
-        for state in self.paths.values() {
+        for (_, state) in self.paths.iter() {
             if state.dirty.is_none() {
                 continue;
             }
             bytes += state.charge;
-            let atom = self
-                .slots
-                .get(state.slot)
-                .and_then(|slot| slot.owned.as_ref())
-                .and_then(|slot| slot.value.as_ref())
-                .map(|value| Arc::as_ptr(&value.atom) as usize);
+            let atom = self.slots.get(state.slot).and_then(|slot| {
+                slot.owned
+                    .as_ref()
+                    .and_then(|owned| owned.value.as_ref())
+                    .map(|value| Arc::as_ptr(&value.atom) as usize)
+                    .or_else(|| {
+                        slot.atom
+                            .as_ref()
+                            .map(|atom| Arc::as_ptr(&atom.value) as usize)
+                    })
+            });
             if let Some(key) = atom.filter(|key| atoms.insert(*key)) {
                 bytes += self
                     .bytes
