@@ -19,7 +19,13 @@
 //! page does not mean the end of the range. The walk counts the dropped rows
 //! (`count_unsealed_discards`) and adds them to the rows it got: a page is full
 //! when the sum reaches the rows asked for. A page of dropped rows only cannot
-//! name the next key, so the walk asks for more rows from the same start.
+//! name the next key, so the walk asks for more rows from the same start. The
+//! widening is bounded (`MAX_ROWS`). A read that fails after the walk widened,
+//! or a page of `MAX_ROWS` dropped rows, cuts the key range in two. Fewer rows
+//! cannot help there, because a page of dropped rows names no key to continue
+//! from. Each cut makes the span smaller, so the walk always moves. A run of
+//! reads that finds no row to continue from, `MAX_IDLE_READS` in a row, ends the
+//! walk with an error that names the cause.
 //!
 //! `RangeWalk` does no I/O. [`AtomStore::walk_step`] drives it for a caller
 //! that reads outside a captured read scope. A caller that reads inside a scope
@@ -35,6 +41,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const MIN_ROWS: usize = 16;
 /// The most rows one read asks for. The native scan refuses more.
 const MAX_ROWS: usize = 10_000;
+/// The most reads in a row that find no row to continue from (every row of the
+/// page was dropped, or the read failed after the walk widened). Each of them
+/// widens the page or cuts the span, so a run of them is the cost of a long run
+/// of dropped rows, and the key range is cut about 150 times at most before a
+/// span holds fewer rows than one read. Beyond this the walk stops.
+const MAX_IDLE_READS: u32 = 1_024;
 
 /// Counts of the calls one walk made.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,8 +139,9 @@ pub(crate) struct Step {
 /// The error of a walk that met only rows without an at-rest envelope.
 pub(crate) fn unsealed_run_error() -> SchemaError {
     SchemaError::InvalidData(format!(
-        "more than {MAX_ROWS} rows in a row have no at-rest envelope and read as absent; \
-         the range cannot be walked. Run `lastdb db reap-unsealed --collection <name>` and try again"
+        "{MAX_IDLE_READS} reads in a row found only rows with no at-rest envelope, which read as absent, \
+         and the key range could not be cut further; the range cannot be walked. \
+         Run `lastdb db reap-unsealed --collection <name>` and try again"
     ))
 }
 
@@ -139,6 +152,12 @@ pub(crate) struct RangeWalk {
     todo: Vec<(Vec<u8>, Vec<u8>)>,
     limit: usize,
     asked: usize,
+    /// The last read held only dropped rows, and the walk widened the page.
+    /// A read limit then cuts the span in two: fewer rows cannot name a key to
+    /// continue from, so shrinking the page would only repeat the same reads.
+    widened: bool,
+    /// Reads in a row that found no row to continue from.
+    idle: u32,
     pub stats: WalkStats,
 }
 
@@ -156,6 +175,8 @@ impl RangeWalk {
             todo,
             limit,
             asked: limit,
+            widened: false,
+            idle: 0,
             stats: WalkStats::default(),
         }
     }
@@ -201,17 +222,12 @@ impl RangeWalk {
         let read = returned as u64 + unsealed;
         if read < self.asked as u64 {
             self.todo.pop();
+            self.moved();
             return Progress::Moved;
         }
         // A full page: more rows may lie above the last one.
         let Some(last) = last else {
-            // Every row of the page was dropped, so the page names no key to
-            // continue from. Ask for more rows from the same start.
-            if self.asked >= MAX_ROWS {
-                return Progress::Stuck;
-            }
-            self.asked = (self.asked * 4).min(MAX_ROWS);
-            return Progress::Widened;
+            return self.widen_or_cut();
         };
         if let Some((_, end)) = self.todo.pop() {
             let next = successor(last);
@@ -220,18 +236,40 @@ impl RangeWalk {
             }
         }
         self.asked = (self.asked * 2).min(self.limit);
+        self.moved();
         Progress::Moved
     }
 
-    /// The read hit the read limit. Ask for fewer rows, or cut the span in two.
-    /// Returns false when the span cannot be cut: the read cannot be bounded.
-    pub(crate) fn read_too_big(&mut self) -> bool {
-        self.stats.calls += 1;
-        if self.asked > MIN_ROWS {
-            self.stats.shrinks += 1;
-            self.asked = MIN_ROWS;
-            return true;
+    /// The walk found a row, or the end of a span.
+    fn moved(&mut self) {
+        self.widened = false;
+        self.idle = 0;
+    }
+
+    /// Every row of a full page was dropped, so the page names no key to
+    /// continue from. Ask for more rows from the same start, up to `MAX_ROWS`.
+    /// A page of `MAX_ROWS` dropped rows cuts the span in two. The walk stops
+    /// when too many reads in a row found nothing, or the span cannot be cut.
+    fn widen_or_cut(&mut self) -> Progress {
+        self.idle += 1;
+        if self.idle > MAX_IDLE_READS {
+            return Progress::Stuck;
         }
+        self.widened = true;
+        if self.asked < MAX_ROWS {
+            self.asked = (self.asked * 4).min(MAX_ROWS);
+            return Progress::Widened;
+        }
+        if self.cut_top() {
+            Progress::Widened
+        } else {
+            Progress::Stuck
+        }
+    }
+
+    /// Cut the lowest span in two and read the lower half first. Returns false
+    /// when no key lies between the ends of the span.
+    fn cut_top(&mut self) -> bool {
         let Some((start, end)) = self.todo.pop() else {
             return false;
         };
@@ -243,6 +281,37 @@ impl RangeWalk {
         self.todo.push((middle.clone(), end));
         self.todo.push((start, middle));
         true
+    }
+
+    /// The error of a walk that cannot go on: the read-limit `error`, or, when
+    /// the walk met rows without an at-rest envelope, the error that names them.
+    pub(crate) fn failure(&self, error: SchemaError) -> SchemaError {
+        if self.widened || self.idle > 0 {
+            unsealed_run_error()
+        } else {
+            error
+        }
+    }
+
+    /// The read hit the read limit. Ask for fewer rows, or cut the span in two.
+    /// Returns false when the span cannot be cut, or when too many reads in a
+    /// row found nothing: the read cannot be bounded.
+    ///
+    /// After a widened page the walk does not shrink: a page of dropped rows
+    /// names no key, so a smaller page repeats the reads of the widening and
+    /// never moves. It cuts the span, and keeps the wide page for the half.
+    pub(crate) fn read_too_big(&mut self) -> bool {
+        self.stats.calls += 1;
+        if self.widened {
+            self.idle += 1;
+            return self.idle <= MAX_IDLE_READS && self.cut_top();
+        }
+        if self.asked > MIN_ROWS {
+            self.stats.shrinks += 1;
+            self.asked = MIN_ROWS;
+            return true;
+        }
+        self.cut_top()
     }
 }
 
@@ -281,7 +350,7 @@ impl AtomStore {
                     let cut = walk.read_too_big();
                     self.range_walks.add(walk.take_stats());
                     if !cut {
-                        return Err(error);
+                        return Err(walk.failure(error));
                     }
                 }
                 Err(error) => return Err(error),
