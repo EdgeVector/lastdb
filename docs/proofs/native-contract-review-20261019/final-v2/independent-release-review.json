@@ -1,0 +1,93 @@
+{
+  "cargo_deps_binary": {
+    "bytes": 67960160,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/deps/lastdbd-2751ebd72ffc795b",
+    "sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e"
+  },
+  "cargo_fingerprint": {
+    "bytes": 2978,
+    "compile_kind": 0,
+    "features": [
+      "default",
+      "purging-allocator",
+      "sentry-telemetry"
+    ],
+    "path": "target/release/.fingerprint/lastdb_node-2751ebd72ffc795b/bin-lastdbd.json",
+    "profile_fingerprint": 17633828320530640230,
+    "rustflags": [],
+    "sha256": "fdf748616b246e8d35848d3b5bcee53f4d17ffa8ff299ead3b5436754f25f68a"
+  },
+  "checks": {
+    "all_1892_sources_match_git_and_current_bytes": true,
+    "deps_binary_matches": true,
+    "external_configs_match": true,
+    "fingerprint_default_features": true,
+    "first_private_copy_matches": true,
+    "frozen_commit": true,
+    "full_manifest_hash_link": true,
+    "manifest_binary_hashes_match": true,
+    "no_rustflag_or_cross_target_override": true,
+    "normal_binary_identity": true,
+    "normal_build_command": true,
+    "normal_release_completion": true,
+    "release_verified_manifests": true
+  },
+  "current_source_mismatches": [],
+  "external_config_mismatches": [],
+  "first_active_private_copy": {
+    "bytes": 67960160,
+    "inputs_identity": {
+      "bytes": 1676,
+      "sha256": "a15ff0b39598ed3583a262879edf6697fc84aed494f7fede3c5e4faf00b571a6"
+    },
+    "note": "Direct read-only identity check. The node is active; no node or socket interaction occurred.",
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.6vui6_vw/program-lastdbd",
+    "sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e"
+  },
+  "head": "42b5102165e649f5348d1d055d2f91a598b29f8c",
+  "immutable_blob_mismatches": [],
+  "limits": [
+    "No source edits, builds, tests, program executions, or node interactions ran in this audit.",
+    "Recorded normal release command and completion log agree with the Cargo fingerprint; this audit does not reconstruct the historical shell process.",
+    "Runtime semantics and final stopped-root/private-copy checks remain pending."
+  ],
+  "normal_binary": {
+    "bytes": 67960160,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "sha256": "a1261a7b4f595019b38c7818dd00060fb470f930c6747cacbd5a90217a63c24e"
+  },
+  "ready_for_runtime_receipt_review": true,
+  "recorded_build_command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "release_build_log": {
+    "bytes": 693,
+    "path": "docs/proofs/native-contract-review-20261019/final-v2-release-build.err",
+    "sha256": "73a6fb6b18857ffa230758ad6007ffb67887eb691d8d9dfffc75f6eafee1a5a4"
+  },
+  "release_manifest": {
+    "bytes": 22831,
+    "path": "docs/proofs/native-contract-review-20261019/final-v2/release-identity.json",
+    "sha256": "99e75808d08691c7f04d3e68a0815480a0010487cbebc9797942d09b52d9c0a7"
+  },
+  "reviewed_utc": "2026-10-20T01:12:23.727909+00:00",
+  "source_input_count": 1892,
+  "source_inventory_sha256": "4a66f0aaa79899a7e952c478ddfbb87ad8b4d0836553de0c4f1ef20c92003060",
+  "source_manifest": {
+    "bytes": 340610,
+    "path": "docs/proofs/native-contract-review-20261019/final-v2/source-identity.json",
+    "sha256": "17639812a9370ae5ed2d10c524f208700d0cb40f039724dfabdfcaa1bea49e65"
+  },
+  "version": 1
+}

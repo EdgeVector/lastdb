@@ -21,7 +21,6 @@ enum Phase {
     Loading,
     Ready,
     DiskOnly,
-    Failed,
 }
 
 struct EntryState {
@@ -57,6 +56,7 @@ pub struct SchemaKeyStatus {
     pub ready: usize,
     pub loading: usize,
     pub disk_only: usize,
+    /// Retained for the status contract; refused preloads use disk_only.
     pub failed: usize,
     pub keys: usize,
     pub loads: u64,
@@ -138,7 +138,6 @@ impl SchemaKeys {
                 Phase::Ready => status.ready += 1,
                 Phase::Loading => status.loading += 1,
                 Phase::DiskOnly => status.disk_only += 1,
-                Phase::Failed => status.failed += 1,
                 Phase::Unloaded => {}
             }
             let state = entry.state.lock().expect("schema key state");

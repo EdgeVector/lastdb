@@ -43,8 +43,6 @@ pub struct SignedMolecule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub molecule_uuid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub molecule_version: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writer_pubkey: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,

@@ -78,7 +78,7 @@ impl PackRuntime {
                     self.remove_key_candidate(entry, &mut state, candidate);
                 }
                 Phase::Ready => self.insert_key_candidate(entry, &mut state, candidate),
-                Phase::Unloaded | Phase::DiskOnly | Phase::Failed => {}
+                Phase::Unloaded | Phase::DiskOnly => {}
             }
         }
     }

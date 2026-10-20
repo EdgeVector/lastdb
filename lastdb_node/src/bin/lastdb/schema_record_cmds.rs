@@ -423,14 +423,19 @@ pub(super) fn liveness_explain_command(
         .get("reclaim_state")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
-    let edges = report
-        .get("edges")
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
     println!("Liveness: {returned_class} {returned_id}");
     println!("  Complete: {complete}");
     println!("  Reclaim state: {reclaim_state}");
-    println!("  Active edges in this target partition: {edges}");
+    match report
+        .get("active_references")
+        .and_then(serde_json::Value::as_u64)
+    {
+        Some(count) => println!("  Active references in this target: {count}"),
+        None => println!("  Active references in this target: unknown"),
+    }
+    if let Some(edges) = report.get("edges").and_then(serde_json::Value::as_array) {
+        println!("  Active edges in this target partition: {}", edges.len());
+    }
     Ok(())
 }
 

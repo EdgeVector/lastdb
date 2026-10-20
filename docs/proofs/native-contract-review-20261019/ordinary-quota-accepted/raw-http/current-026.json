@@ -1,0 +1,1 @@
+{"actual":null,"error":"cas_conflict","expected":"\"original\"","field":"payload","key":"{\"hash\":\"cas\",\"range\":\"L\"}","message":"CAS conflict on schema 'Round10MapB' field 'payload' key '{\"hash\":\"cas\",\"range\":\"L\"}':                  expected \"original\", found <absent>","ok":false,"schema":"Round10MapB"}

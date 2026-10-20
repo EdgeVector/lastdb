@@ -74,11 +74,7 @@ impl PackKvStore {
                     }
                 }
             }
-            // Candidate order is authoritative; stable sort retains its first value.
-            combined.sort_by(|left, right| left.0.cmp(&right.0));
-            combined.dedup_by(|left, right| left.0 == right.0);
-            combined.truncate(limit);
-            Ok(combined)
+            finish_rows(combined, limit, require_end)
         })
         .await;
         observed.remember(&result);
@@ -141,15 +137,32 @@ impl PackKvStore {
                     out.push((native_routing::decode(&key)?, body));
                 }
             }
-            out.sort_by(|left, right| left.0.cmp(&right.0));
-            out.dedup_by(|left, right| left.0 == right.0);
-            out.truncate(limit);
-            Ok(out)
+            finish_rows(out, limit, require_end)
         })
         .await;
         observed.remember(&result);
         result
     }
+}
+
+/// Completeness covers the union of current layouts and collections. Private
+/// write preparation has a larger read allowance, so it cannot rely on the
+/// ordinary call's key cap to detect an oversized combined metadata result.
+fn finish_rows(
+    mut rows: Vec<(Vec<u8>, Vec<u8>)>,
+    limit: usize,
+    require_end: bool,
+) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    // Candidate order is authoritative; stable sort retains its first value.
+    rows.sort_by(|left, right| left.0.cmp(&right.0));
+    rows.dedup_by(|left, right| left.0 == right.0);
+    if require_end && rows.len() > limit {
+        return Err(StorageError::ReadResourceLimit {
+            detail: format!("native complete metadata result exceeds {limit} distinct keys"),
+        });
+    }
+    rows.truncate(limit);
+    Ok(rows)
 }
 
 fn text_upper(prefix: &str) -> Option<String> {
