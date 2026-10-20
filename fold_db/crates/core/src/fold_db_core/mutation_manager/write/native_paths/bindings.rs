@@ -56,30 +56,16 @@ impl MutationManager {
         let Some(source) = source.strip_prefix("schema:") else {
             return Ok(None);
         };
-        let candidates: Vec<_> = source
-            .match_indices(":field:")
-            .map(|(at, _)| (&source[..at], &source[at + 7..]))
-            .collect();
-        if candidates.len() > 64 {
-            return Ok(None);
-        }
-        let values = futures::future::try_join_all(candidates.into_iter().map(
-            |(schema, field)| async move {
-                let snapshot = self.db_ops.schemas().read_snapshot(schema).await?;
-                let Some(schema) = snapshot.schema else {
-                    return Ok::<_, SchemaError>(None);
-                };
-                Ok(schema_bindings(&schema, molecule)?
-                    .into_iter()
-                    .find(|binding| binding.name == field))
-            },
-        ))
-        .await?;
-        let mut found = values.into_iter().flatten();
-        let Some(binding) = found.next() else {
+        let Ok((schema_name, field_name)) = serde_json::from_str::<(String, String)>(source) else {
             return Ok(None);
         };
-        Ok(found.next().is_none().then_some(binding))
+        let snapshot = self.db_ops.schemas().read_snapshot(&schema_name).await?;
+        let Some(schema) = snapshot.schema else {
+            return Ok(None);
+        };
+        Ok(schema_bindings(&schema, molecule)?
+            .into_iter()
+            .find(|binding| binding.name == field_name))
     }
 }
 

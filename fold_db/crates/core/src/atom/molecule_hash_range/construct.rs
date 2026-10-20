@@ -13,7 +13,6 @@ impl MoleculeHashRange {
         Self {
             uuid: deterministic_molecule_uuid(schema_name, field_name),
             atom_uuids: HashMap::new(),
-            pending_replaced_tips: Vec::new(),
             pending_tip_conflicts: Vec::new(),
             updated_at: Utc::now(),
             order_is_tail: false,
@@ -38,7 +37,6 @@ impl MoleculeHashRange {
         Self {
             uuid,
             atom_uuids: HashMap::new(),
-            pending_replaced_tips: Vec::new(),
             pending_tip_conflicts: Vec::new(),
             updated_at: Utc::now(),
             order_is_tail: false,
@@ -110,7 +108,6 @@ impl MoleculeHashRange {
             complete_keys: None,
             version,
             key_metadata,
-            pending_replaced_tips: Vec::new(),
             pending_tip_conflicts: Vec::new(),
         }
     }
@@ -146,7 +143,6 @@ impl MoleculeHashRange {
             complete_keys: None,
             version,
             key_metadata,
-            pending_replaced_tips: Vec::new(),
             pending_tip_conflicts: Vec::new(),
         }
     }

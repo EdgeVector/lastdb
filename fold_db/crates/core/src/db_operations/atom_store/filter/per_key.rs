@@ -12,3 +12,5 @@ mod batch;
 mod list;
 mod load;
 mod scan;
+
+pub(crate) use list::SchemaKeyMembership;

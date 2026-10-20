@@ -63,7 +63,7 @@ pub async fn fetch_atoms_with_key_metadata_async_with_prefix(
             storage_prefix,
             molecule_uuid,
             &key,
-            &value,
+            atom,
         )?;
         resolved_values.insert(key, value);
     }

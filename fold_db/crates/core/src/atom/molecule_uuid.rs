@@ -1,15 +1,22 @@
-//! Deterministic molecule UUIDs use the base64url form of SHA-256(schema:field).
+//! Deterministic molecule UUIDs hash a framed domain, schema and field tuple.
+//! The digest uses the current unpadded base64url spelling.
 //!
 //! Reads, writes, and physical cleanup use the supplied UUID exactly.
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 
-/// SHA-256(`{schema}:{field}`) as 32 raw bytes.
+/// SHA-256 of the domain, schema and field, each with its own length prefix.
 #[must_use]
 pub fn molecule_uuid_digest(schema_name: &str, field_name: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(format!("{schema_name}:{field_name}").as_bytes());
+    for part in [
+        b"lastdb:molecule-uuid:v1".as_slice(),
+        schema_name.as_bytes(),
+        field_name.as_bytes(),
+    ] {
+        crate::canonical::push_field(&mut hasher, part);
+    }
     hasher.finalize().into()
 }
 

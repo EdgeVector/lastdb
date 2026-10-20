@@ -2,9 +2,14 @@
 
 use super::*;
 use crate::db_operations::SchemaRecordKeysRequest;
+use crate::schema::types::key_value::KeyValue;
+use crate::schema::types::Schema;
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::logical_paths::field;
+use futures::FutureExt;
 use std::sync::Arc;
+
+type KeyPage = (Vec<(String, String)>, Option<String>, bool);
 
 impl FoldDB {
     /// Return a personal schema's live API keys, with a physical-key cursor.
@@ -63,9 +68,8 @@ impl FoldDB {
         let SchemaRecordKeysRequest {
             requested,
             schema_id,
-            limit,
-            cursor,
             hash_filter,
+            ..
         } = request;
         let storage_prefix = match access {
             Some(access) => {
@@ -117,27 +121,15 @@ impl FoldDB {
                     .and_then(|field| field.inner.molecule_uuid().cloned())
             })
             .unwrap_or_else(|| crate::atom::deterministic_molecule_uuid(&schema.name, &key_field));
-        let named_layout = matches!(
-            schema.schema_type,
-            crate::schema::types::schema::DeclarativeSchemaType::HashRange
-        );
-        if let Some(runtime) = self.db_ops().namespaced_store().disk_pack_runtime() {
-            runtime
-                .preload_bound_field(Arc::clone(self.db_ops()), &schema, &key_field)
-                .await?;
-        }
-        let binding = field::FieldScope::new(&schema, &key_field)?;
-        let (pairs, next_cursor, has_more) = field::query_scope(binding.run(
-            self.db_ops().atoms().list_schema_record_keys_filtered(
+        let (pairs, next_cursor, has_more) = self
+            .list_schema_key_page(
+                &schema,
+                &key_field,
                 &molecule,
-                limit,
-                cursor,
-                hash_filter,
-                named_layout,
+                &request,
                 storage_prefix.as_deref(),
-            ),
-        ))
-        .await?;
+            )
+            .await?;
         Ok(SchemaRecordKeysReport {
             schema: requested.to_string(),
             schema_id: schema.name.clone(),
@@ -154,5 +146,52 @@ impl FoldDB {
             has_more,
             truncated: has_more,
         })
+    }
+
+    /// Keep the field binding, membership proof, and physical refill in one read.
+    async fn list_schema_key_page(
+        &self,
+        schema: &Schema,
+        key_field: &str,
+        molecule: &str,
+        request: &SchemaRecordKeysRequest<'_>,
+        storage_prefix: Option<&str>,
+    ) -> Result<KeyPage, SchemaError> {
+        let named_layout = matches!(
+            schema.schema_type,
+            crate::schema::types::schema::DeclarativeSchemaType::HashRange
+        );
+        if let Some(runtime) = self.db_ops().namespaced_store().disk_pack_runtime() {
+            runtime
+                .preload_bound_field(Arc::clone(self.db_ops()), schema, key_field)
+                .await?;
+        }
+        let binding = field::FieldScope::new(schema, key_field)?;
+        let check = |keys: Vec<KeyValue>| {
+            async move {
+                crate::db_operations::logical_membership::logical_key_membership(
+                    self.db_ops(),
+                    schema,
+                    &keys,
+                    storage_prefix,
+                )
+                .await
+            }
+            .boxed()
+        };
+        field::query_scope(
+            binding.run(self.db_ops().atoms().list_schema_record_keys_filtered(
+                molecule,
+                request.limit,
+                request.cursor,
+                request.hash_filter,
+                crate::db_operations::atom_store::SchemaKeyMembership {
+                    named_layout,
+                    check: &check,
+                },
+                storage_prefix,
+            )),
+        )
+        .await
     }
 }

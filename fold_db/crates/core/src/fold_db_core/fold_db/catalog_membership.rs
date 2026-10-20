@@ -19,50 +19,59 @@ impl FoldDB {
     /// scope of the row. A row that moves to another instance first unbinds the
     /// scope it leaves. A schema that is not installed has no molecules to bind.
     pub async fn put_catalog_membership(&self, entry: &DbCatalogEntry) -> FoldDbResult<()> {
-        let catalog = self.db_ops().db_catalog();
         // The bindings and the row are one batch, so a crash cannot leave a
         // binding for a row that was never written.
         self.db_ops()
             .atoms()
-            .in_write_scope(async {
-                let old = catalog.get(&entry.db_locator, &entry.schema_name).await?;
-                if let Some(old) = old
-                    .as_ref()
-                    .filter(|old| old.instance_id != entry.instance_id)
-                {
-                    self.unbind_catalog_entry(old).await?;
-                }
-                self.bind_catalog_entry(entry).await?;
-                catalog.put(entry).await?;
-                Ok(())
-            })
+            .in_write_scope(self.put_catalog_entry_in_scope(entry))
             .await?;
+        Ok(())
+    }
+
+    async fn put_catalog_entry_in_scope(&self, entry: &DbCatalogEntry) -> Result<(), SchemaError> {
+        let catalog = self.db_ops().db_catalog();
+        let old = catalog.get(&entry.db_locator, &entry.schema_name).await?;
+        if let Some(old) = old
+            .as_ref()
+            .filter(|old| old.instance_id != entry.instance_id)
+        {
+            self.unbind_catalog_entry(old).await?;
+        }
+        self.bind_catalog_entry(entry).await?;
+        catalog.put(entry).await?;
         Ok(())
     }
 
     /// The row of a named database for a schema, written when it is absent. An
     /// existing row wins, so a re-declare does not mint a second instance, and
-    /// its molecules are bound again: the bind is idempotent, and a row that an
-    /// older build wrote has no binding records.
+    /// its molecules are bound again. The read, bind, and optional insert share
+    /// one native write scope, so another writer cannot remove or replace the
+    /// selected row before its bindings are established.
     pub async fn ensure_catalog_membership(
         &self,
         db_locator: &str,
         schema_name: &str,
         instance_id: Option<String>,
     ) -> FoldDbResult<DbCatalogEntry> {
-        let catalog = self.db_ops().db_catalog();
-        if let Some(existing) = catalog.get(db_locator, schema_name).await? {
-            self.bind_catalog_entry(&existing).await?;
-            return Ok(existing);
-        }
-        let entry = DbCatalogEntry {
-            db_locator: db_locator.to_string(),
-            schema_name: schema_name.to_string(),
-            instance_id,
-            key_selection: DbCatalogKeySelection::WholeSchema,
-        };
-        self.put_catalog_membership(&entry).await?;
-        Ok(entry)
+        Ok(self
+            .db_ops()
+            .atoms()
+            .in_write_scope(async {
+                let catalog = self.db_ops().db_catalog();
+                if let Some(existing) = catalog.get(db_locator, schema_name).await? {
+                    self.bind_catalog_entry(&existing).await?;
+                    return Ok(existing);
+                }
+                let entry = DbCatalogEntry {
+                    db_locator: db_locator.to_string(),
+                    schema_name: schema_name.to_string(),
+                    instance_id,
+                    key_selection: DbCatalogKeySelection::WholeSchema,
+                };
+                self.put_catalog_entry_in_scope(&entry).await?;
+                Ok(entry)
+            })
+            .await?)
     }
 
     async fn bind_catalog_entry(&self, entry: &DbCatalogEntry) -> Result<(), SchemaError> {

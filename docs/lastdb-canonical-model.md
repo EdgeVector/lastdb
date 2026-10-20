@@ -49,9 +49,11 @@ The native logical query and write routes reject those layouts before they fetch
 
 **Every field of a schema has its own molecule.** A molecule is an **index**:
 under one key configuration — a hash, or a hash plus range — it maps key
-coordinates to the current **atom** for that field (the *tip*). Molecule
-identity is deterministic: `sha256(schema:field)`, so a writer that knows the
-schema and field can name the molecule without loading anything.
+coordinates to the current **atom** for that field (the *tip*).
+Molecule identity uses SHA-256 over the fixed domain `lastdb:molecule-uuid:v1`, the schema name, and the field name.
+Each part has a four-byte length prefix. The digest uses unpadded base64url text.
+A writer can name the molecule from the schema and field without a fetch.
+An explicit field mapper can share another field's molecule.
 
 The molecule is the only way in. To find data you present the key the molecule
 is built on; there is no other read path.
@@ -270,9 +272,17 @@ cross-DB."
 - This extends §2's "one atom set, shared" rule (protein members index the
   same atoms, not copies) up one level: databases also reference shared
   molecules/atoms rather than holding copies.
-- Mechanism fit (§1): molecule identity is deterministic
-  (`sha256(schema:field)`) and atoms are content-addressed, which is what
-  makes reference-not-copy possible across DBs on one node.
+- Molecule identity uses the framed tuple from §1.
+  An explicit schema copy keeps the same molecule identities and atoms.
+
+The local catalog read and write decisions share one native write scope.
+The native gate precedes molecule locks for a share or delete.
+Instance cleanup uses one complete batch and refuses work above the native operation or 128 MiB limit.
+A refusal retains the catalog reference and data. Search receives removals after the complete batch reaches disk.
+
+Instance cleanup retains molecule access-domain wraps because another instance or shared schema can use them.
+The `reclaimed_wraps` result therefore remains zero. Cloud sync stays disabled.
+Cloud sync needs domain-aware access revocation before it can resume.
 
 Scope note: this universality is **per node**. Cross-user sharing (a shared
 DB synced to another person's node) still replicates data to that node — see
