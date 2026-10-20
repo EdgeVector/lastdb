@@ -11,14 +11,7 @@ impl MoleculeHashRange {
         range: String,
         entry: AtomEntry,
     ) {
-        if self.get_atom_entry(&hash, &range).is_some_and(|existing| {
-            existing.atom_uuid == entry.atom_uuid
-                && existing.written_at == entry.written_at
-                && existing.logical_counter == entry.logical_counter
-                && existing.lww_device() == entry.lww_device()
-                && existing.mutation_uuid == entry.mutation_uuid
-                && existing.writer_pubkey == entry.writer_pubkey
-        }) {
+        if self.get_atom_entry(&hash, &range) == Some(&entry) {
             return;
         }
         self.version += 1;

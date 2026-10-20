@@ -133,8 +133,8 @@ impl MutationManager {
     ///
     /// Select each tip once, then batch-load their bodies at the same scope.
     /// The winner comes from the same selected tips as the returned values.
-    /// AggregateSet uses it to distinguish an exact replay from a newer
-    /// byte-identical mutation that the molecule layer would keep as a no-op.
+    /// AggregateSet uses it to check whether the stored source order matches
+    /// an exact replay before it advances the member's winner.
     pub(super) async fn read_current_row_fields_with_winner(
         &self,
         mutation: &Mutation,

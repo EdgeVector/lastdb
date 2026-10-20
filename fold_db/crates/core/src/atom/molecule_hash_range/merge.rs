@@ -2,10 +2,10 @@
 
 use crate::security::Ed25519KeyPair;
 use chrono::Utc;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use super::MoleculeHashRange;
-use crate::atom::{AtomEntry, FieldKey, KeyMetadata, MergeConflict};
+use crate::atom::{AtomEntry, FieldKey, MergeConflict};
 
 impl MoleculeHashRange {
     pub fn merge(&mut self, other: &Self, _keypair: &Ed25519KeyPair) -> Vec<MergeConflict> {
@@ -28,96 +28,50 @@ impl MoleculeHashRange {
                             .entry(hash.clone())
                             .or_default()
                             .insert(range.clone(), other_entry.clone());
-                        // Carry over `other`'s per-key metadata for the newly
-                        // merged-in entry. Field-side write code
-                        // (`hash_range_field::write_mutation`) bundles
-                        // `set_atom_uuid_from_values` and `set_key_metadata`
-                        // into the same write, so the LWW per-key resolution
-                        // applied to atoms must extend to metadata or the
-                        // record's `source_file_name` / custom metadata is
-                        // silently lost on cross-node sync — the merged-in
-                        // atom surfaces with `key_meta = None` downstream
-                        // (see `hash_range_field::resolve_value`).
-                        Self::copy_key_metadata_from(
-                            &mut self.key_metadata,
-                            &other.key_metadata,
-                            hash,
-                            range,
-                        );
+                        self.copy_key_metadata_from(other, hash, range);
                         self.version += 1;
                     }
                     Some(se) => {
-                        if se.atom_uuid == other_entry.atom_uuid {
-                            continue;
-                        }
-                        // Only record a conflict when LOCAL state actually
-                        // changes (other wins). A self-won "conflict" is a
-                        // no-op for this node. Its event would describe a
-                        // transition from the peer's atom to the local atom,
-                        // although the peer's atom was never local. The peer's own local
-                        // audit records its loss symmetrically when it
-                        // merges with us.
+                        // The clock selects the full tip and its metadata.
+                        // An equal atom still accepts a newer author clock,
+                        // but does not describe a conflict between atoms.
                         if crate::atom::incoming_wins_lww(other_entry.lww_key(), se.lww_key()) {
-                            let field_key = FieldKey::hash_range(hash.clone(), range.clone());
-                            conflicts.push(MergeConflict {
-                                key: MergeConflict::display_key(&field_key),
-                                field_key,
-                                winner_atom: other_entry.atom_uuid.clone(),
-                                loser_atom: se.atom_uuid.clone(),
-                                winner_written_at: other_entry.written_at,
-                                loser_written_at: se.written_at,
-                            });
+                            if se.atom_uuid != other_entry.atom_uuid {
+                                let field_key = FieldKey::hash_range(hash.clone(), range.clone());
+                                conflicts.push(MergeConflict {
+                                    key: MergeConflict::display_key(&field_key),
+                                    field_key,
+                                    winner_atom: other_entry.atom_uuid.clone(),
+                                    loser_atom: se.atom_uuid.clone(),
+                                    winner_written_at: other_entry.written_at,
+                                    loser_written_at: se.written_at,
+                                });
+                            }
                             self.atom_uuids
                                 .entry(hash.clone())
                                 .or_default()
                                 .insert(range.clone(), other_entry.clone());
-                            // Other won the LWW — adopt its bundled
-                            // key_metadata too, mirroring the field-side
-                            // write contract that pairs each
-                            // `set_atom_uuid_from_values` with a
-                            // `set_key_metadata`.
-                            Self::copy_key_metadata_from(
-                                &mut self.key_metadata,
-                                &other.key_metadata,
-                                hash,
-                                range,
-                            );
+                            self.copy_key_metadata_from(other, hash, range);
                             self.version += 1;
                         }
                     }
                 }
             }
         }
-        // `version` is bumped exactly when the merge changes content (a new
-        // key inserted or a conflict resolved in `other`'s favor), so a
-        // change in `version` is the precise signal that `updated_at` should
-        // advance. Gating on `!conflicts.is_empty()` alone misses the
-        // new-key-inserted-without-conflict case — `updated_at` would lag
-        // behind `version` on a real content change.
+        // New keys and newer tips advance the version, including equal atoms
+        // whose author clock or metadata changes without an atom conflict.
         if self.version != version_before {
             self.updated_at = Utc::now();
         }
         conflicts
     }
 
-    /// Copy `other`'s per-key metadata at `(hash, range)` onto `target`,
-    /// leaving `target` untouched when `other` has no metadata for that key.
-    /// "No metadata on other" is treated as "no information" rather than
-    /// "explicit removal" — the field-side write path always bundles
-    /// metadata with the atom, so a missing entry on `other` means it was
-    /// written by an older / non-field path and shouldn't erase metadata
-    /// the local node may have set.
-    fn copy_key_metadata_from(
-        target: &mut HashMap<String, BTreeMap<String, KeyMetadata>>,
-        source: &HashMap<String, BTreeMap<String, KeyMetadata>>,
-        hash: &str,
-        range: &str,
-    ) {
-        if let Some(meta) = source.get(hash).and_then(|rm| rm.get(range)).cloned() {
-            target
-                .entry(hash.to_string())
-                .or_default()
-                .insert(range.to_string(), meta);
+    /// The winning tip owns its complete optional metadata. Absence clears
+    /// the previous tip's metadata instead of attaching it to another write.
+    fn copy_key_metadata_from(&mut self, source: &Self, hash: &str, range: &str) {
+        self.remove_key_metadata(hash, range);
+        if let Some(meta) = source.get_key_metadata(hash, range).cloned() {
+            self.set_key_metadata(hash.to_string(), range.to_string(), meta);
         }
     }
 }

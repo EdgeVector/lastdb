@@ -1,0 +1,41 @@
+{
+  "checks": {
+    "declared_discovery_population_matches": true,
+    "git_blobs_match": true,
+    "head_equals_frozen_commit": true,
+    "input_count_matches": true,
+    "inventory_digest_matches": true,
+    "tree_equals_captured_tree": true,
+    "working_sources_match": true
+  },
+  "discovery_extra_inputs": [],
+  "discovery_missing_inputs": [],
+  "expected_head": "fb5e65dbd49ed73ee964c2bdcb08033f6eb588dc",
+  "git_tree": "7487e263c78dab26bf874e506d74061b7a2093c6",
+  "head": "fb5e65dbd49ed73ee964c2bdcb08033f6eb588dc",
+  "immutable_git_blob_mismatches": [],
+  "kind": "independent source check, not runtime proof",
+  "limits": [
+    "No tests, builds, nodes, or runtime operations ran in this independent review.",
+    "Executable verification awaits the normal release build; no executable identity claim is made here.",
+    "The inventory is a conservative repository input set. External registry source bytes remain outside this source check."
+  ],
+  "ready_for_release_verification": true,
+  "reviewed_utc": "2026-10-20T00:45:33.792390+00:00",
+  "source_input_count": 1892,
+  "source_inventory_sha256": "6cfdde635fb45db2935f5d285ab69d9741885147760381378295e80d9a0c7194",
+  "source_manifest_at_review": "docs/proofs/native-contract-review-20261019/source-identity.json",
+  "source_manifest_sha256_at_review": "4885fe20920baf9668d8b8884a57a4fd6955df908c0326753afdb0b1afae476a",
+  "source_manifest_state_at_review": "sources_frozen_binary_pending",
+  "source_review": {
+    "author_clock": "PASS: checked local timestamp range is reserved on a copied state before stamping; all local items retain one batch counter; final physical high-water covers the final timestamp. Imports stay unchanged. Native publication awaits the single durable barrier before its write gate.",
+    "author_clock_exhaustion": "PASS: count/counter/time exhaustion returns before state assignment, clock submission, or data publication. An unaccepted private allocation can be discarded; acknowledged clocks remain protected by durable high-water coverage.",
+    "complete_metadata_rows": "PASS: require_end checks the final distinct union after each physical range proves exhaustion. Stable candidate precedence and paged truncation remain unchanged.",
+    "numeric_order": "PASS: exact signed/unsigned/finite-float comparisons preserve represented numeric magnitude, signed zero equality, large integer distinctions, and transitivity. NaN API thresholds reject; infinities retain mathematical order.",
+    "preload_failed_references": "PASS: private Phase::Failed and CoreKeyPhase::Failed variants and branches are removed. The serialized failed gauge remains zero with an explicit compatibility comment.",
+    "preload_failure": "PASS: all worker preload errors retire and detach incomplete keys, clear changes/generation state, retain the diagnostic reason, and select bounded DiskOnly. Required disk reads keep their own error path.",
+    "receipt_revision": "PASS: first local mutation again names the common batch counter. Earlier concern about per-item counters is resolved by consecutive author times."
+  },
+  "version": 1,
+  "working_source_mismatches": []
+}

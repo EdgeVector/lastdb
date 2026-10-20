@@ -119,7 +119,6 @@ pub(crate) fn field_value_from_atom(
         source_file_name,
         metadata,
         molecule_uuid: None,
-        molecule_version: None,
         // Per-key writer_pubkey looked up from the molecule's
         // AtomEntry. For Hash/Range/HashRange variants this is
         // the only place writer_pubkey gets surfaced (the

@@ -54,18 +54,19 @@ pub struct PendingTipConflict {
     pub loser: AtomEntry,
 }
 
-/// A pair is a candidate only when the incoming write names a sync device and
-/// that device did not write the tip. A write from the same device is in
-/// sequence with the tip, so it is not a conflict.
+/// Only different atoms from different sync devices form a conflict pair.
+/// Equal atoms can still carry a newer author clock or different key metadata.
 fn may_conflict(incoming: &AtomEntry, tip: &AtomEntry) -> bool {
-    !incoming.origin_device.is_empty() && incoming.origin_device != tip.origin_device
+    incoming.atom_uuid != tip.atom_uuid
+        && !incoming.origin_device.is_empty()
+        && incoming.origin_device != tip.origin_device
 }
 
 impl MoleculeHashRange {
     /// Import a tip while preserving its signed author-clock identity.
     ///
-    /// Last-writer-wins decides the tip. A decision between different atoms
-    /// from different sync devices is also kept in `pending_tip_conflicts`.
+    /// Last-writer-wins decides the full tip, even when its atom is unchanged.
+    /// Different atoms from different sync devices also produce a conflict pair.
     /// Returns true only when the incoming tip becomes the new head.
     pub fn set_atom_uuid_from_values_imported_with_author(
         &mut self,
@@ -73,9 +74,6 @@ impl MoleculeHashRange {
         range_value: String,
         tip: ImportedTip,
     ) -> bool {
-        if self.get_atom_uuid(&hash_value, &range_value) == Some(&tip.atom_uuid) {
-            return false;
-        }
         let written_at = tip.written_at.unwrap_or_else(now_nanos);
         // Imported tips may carry an external signature for data_share verify.
         // Local mutation path uses AtomEntry::thin only (no per-tip crypto).
@@ -103,27 +101,7 @@ impl MoleculeHashRange {
         };
         let mut replaced = None;
         if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
-            // Pre-clock #1556 envelopes deserialize written_at=0. Treat that as
-            // "no origin clock": last-write-wins among zeros so bootstrap of
-            // several updates to one key cannot lose on atom-uuid lex order,
-            // but still lose to any real (non-zero) tip.
-            let legacy_zero_clock =
-                written_at == 0 && entry.logical_counter == 0 && entry.mutation_uuid.is_empty();
-            let incoming_wins = if legacy_zero_clock {
-                existing.written_at == 0
-            } else {
-                crate::atom::incoming_wins_lww(
-                    crate::atom::lww_order_key(
-                        written_at,
-                        entry.logical_counter,
-                        entry.device_id.as_str(),
-                        entry.mutation_uuid.as_str(),
-                        entry.atom_uuid.as_str(),
-                    ),
-                    existing.lww_key(),
-                )
-            };
-            // A zero-clock pair is in doubt, so it is queued like any other.
+            let incoming_wins = crate::atom::incoming_wins_lww(entry.lww_key(), existing.lww_key());
             let queued = may_conflict(&entry, existing);
             if !incoming_wins {
                 if queued {
