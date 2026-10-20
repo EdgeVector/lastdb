@@ -319,6 +319,9 @@ async fn run_wake(
                 progressed = true;
                 batches += 1;
                 atoms.retention_state().note_released(outcome.released);
+                atoms
+                    .retention_state()
+                    .set_pending_drains(cursor.pending_drains() as u64);
                 wake.released += outcome.released;
                 wake.skipped += outcome.skipped;
                 tracing::debug!(
