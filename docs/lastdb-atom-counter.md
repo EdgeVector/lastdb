@@ -92,6 +92,67 @@ of keys of the request, and never the size of the schema.
   bring the key back.
 - Both verbs reach the protein siblings of the key.
 
+## Conflict records and their retention
+
+The database keeps every conflicting write. A conflict record is a history row:
+`history\0{molecule}:{ts}:conflict:{digest}` from the tip-conflict recorder, or
+`history\0{molecule}:{ts}:suppressed:{digest}` from a Put that lost to a Delete.
+It holds one counted reference to each distinct atom it names (I1). A Replaced
+record names the loser and the winner. A Dropped record names the loser only.
+So a kept loser keeps its body while its record exists, also when its last tip
+is purged.
+
+Two more rows go with a new record, in the same batch as its history row and
+only when the record is new (a repeat of one decision writes none of them):
+
+| Row | Key | Use |
+|---|---|---|
+| Queue entry | `crq:v1\0{expires_at_nanos:020}:{record_id}` | one hash for the whole queue; the range is the expiry, so a range read returns the oldest expiry first |
+| Directory entry | `{scope:}crs:v1:{M}\0{esc(hash)}\0{range}\0{record_id}` | one hash for each scope and molecule; a purge reads the entries of the slots it removes |
+
+`record_id` is the SHA-256 of the full key of the history row. Both entries hold
+the same JSON: the history key, the conflict row key, both entry keys and the
+`mk:` key of the slot. The queue and the directory hold no atom reference. The
+history row is the only holder.
+
+A record ends in two ways, and both use the same release:
+
+1. **The key goes.** A delete, a purge and a TTL sweep read the directory of the
+   slots they remove (inside `remove_molecules_keys_with_rows`) and release the
+   records in the same batch as the tip deletes. A molecule with no entry costs
+   one read of limit one. For a molecule with entries, each removed slot costs
+   one range read, and an entry counts only when its `mk:` key matches the slot
+   exactly. One erase request releases at most 100 records. A key that holds
+   more keeps the rest until its window ends (`purge_leftover` in the status).
+   A protein key move is not an erase and releases nothing.
+2. **The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes
+   every `LASTDB_CONFLICT_JANITOR_MS` (60,000; zero turns it off). It reads the
+   queue oldest first, in pages of 64 keys, with no write gate, and runs one
+   release batch for each page that has due entries (`background_scope`: one
+   gate hold, then durable). The gate is free between pages. The window is
+   `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
+   records the pair.
+
+A release names the history row to the planner (`counter::ReleaseRequest`). The
+planner reads the row inside the same gate hold, lowers one reference for each
+distinct atom the row names, and deletes the row, the conflict row, the
+directory entry and the queue entry in one batch. A caller never names an atom,
+and the janitor never deletes an atom: an atom whose count reaches zero goes by
+the delete-on-zero rule above. A release of a row that is gone lowers nothing,
+and a row that does not decode is kept with its references and counted
+(`undecodable_rows`). Only a row that `is_counted_record_key` accepts can be
+released.
+
+`lastdb status` shows the window, the janitor's last run, the queue depth (up to
+1,000) and the records released by the janitor and by purges. `lastdb db
+inventory` has the classes `retention_queue` and `retention_directory`.
+
+Not done in this step: the `records` counter of the molecule header (step S4:
+it lets a purge skip the probe of a molecule that has no record), and the
+conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
+when it finds a conflict row gone. The keep-small meters are not debited when a
+release deletes rows or atoms (the old reaper did not debit them either).
+
 ## Memory acknowledgement
 
 A write that asks for a memory acknowledgement (`durability: queued`) returns
@@ -369,7 +430,6 @@ refuses the home. This build refuses a home without the bit.
 
 Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
-- S3: the recorder releases conflict references (a janitor), and a purge reads the slot directory.
 - S4: molecule counters replace the molecule edges and the catalog binding records.
 - S5: blob counters replace the blob edges and the file blob sweep.
 - S7: a resumable drain of a dead molecule.
