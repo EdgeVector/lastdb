@@ -93,15 +93,48 @@ stays in the `cas_blobs` plane, keyed by its `blob_ref`.
 | Record | Key | Value |
 |---|---|---|
 | Counter | `bref:v3:c:{sha256(blob_ref)}\0c` | `{"v":1,"blob":"sha256:..","refs":N,"zero_since":ms,"suspect":false}` |
-| Queue entry | `bref:v3:q\0{zero_since_ms:020}\0{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
+| Queue entry | `bref:v3:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` | `{"blob":"sha256:.."}` |
+| Queue directory row | `bref:v3:d\0{bucket:020}` | a token (`{"v":1,"t":"{zero_since_ns:020}:{id}"}`) |
 
-`zero_since` is in unix milliseconds. It is present only while `refs` is zero.
-`suspect` is present only when true. A key hashes on its first NUL. The counter of
-a blob is one hash, as the counter of an atom is. The queue key hashes with its tag
-only, so the whole queue is one hash and the oldest entries are one range read.
+`zero_since` in the counter is in unix milliseconds. It is present only while
+`refs` is zero. `suspect` is present only when true. A key hashes on its first
+NUL. The counter of a blob is one hash, as the counter of an atom is.
+
+### The queue
+
+The queue is the time-bucketed queue of `docs/lastdb-time-queue.md`
+(`atom_store/time_queue`). Read that contract first. Why: a queue under one hash
+loses speed after about 10,000 deleted entries, because a delete leaves a deleted
+key, the oldest entries go first, and every read has to pass the deleted keys at
+the head. The review measured 16 blobs a minute after 9,800 deletions.
+
+- **The time of an entry is the `zero_since` of its counter**, in nanoseconds
+  (`zero_since_ms * 1,000,000`). The dwell is not in the key: the reader asks for
+  the entries older than `now - dwell`. A change of `LASTDB_BLOB_DWELL_SECS`
+  between two starts then needs no rewrite of the queue, and the cancel of a dwell
+  can always name the key from the counter.
+- **A bucket is a slice of time**: the dwell, between one second and one hour
+  (`TimeQueue::for_window` with a window of 64 dwells). With the default dwell a
+  bucket is one hour, so the directory gets 24 rows a day.
+- **Two key families**, `bref:v3:q` for the entries and `bref:v3:d` for the
+  directory. Neither holds a NUL, and neither is a prefix of the other or of the
+  counter family `bref:v3:c:`. The entries have no scope: a blob is global.
+- **A new entry brings the directory row of its bucket** in the same batch, with a
+  new token that names the entry. A planner run that zeroes several blobs of one
+  slice writes the directory row once (the last token stays).
+- **An entry ends with a delete** in the batch of the work that names it: the dwell
+  chunk (the blob row, the counter and the entry), a cancel (a reference arrives:
+  the counter loses `zero_since`, and the entry goes), or a stale entry.
+- **A bucket retires** when the reader has walked every key of it, with a guarded
+  delete of its directory row that holds only while the row has the token that the
+  reader read before the walk. A writer that adds an entry meanwhile changes the
+  token, the row stays, and the reader walks the bucket again. The deleted keys of
+  a retired bucket go out of reach with it.
 
 A counter has a queue entry if and only if it has a `zero_since`. The batch that
-sets or clears `zero_since` puts or deletes the entry.
+sets or clears `zero_since` puts or deletes the entry. The generic safety net of
+the time queue (a bucket that holds entries and has no directory row) is not part
+of this PR: it comes with the follow-up of the queue.
 
 ## Who changes a counter
 
@@ -147,22 +180,30 @@ with a `suspect` counter that holds the references of its own batch, and counts 
 `lastdbd` starts at most one pass at a time from the sampler tick
 (`LASTDB_SELF_METRICS_SAMPLE_SECS`, 60 s by default). A pass:
 
-1. reads the oldest page of the queue (256 entries, no gate). A delete leaves a
-   tombstone, one read call may examine at most 10,000 keys, and the oldest entries
-   are the ones that go, so the head of the queue range fills with tombstones. The
-   scan is a bounded range walk: a read that hits the limit is cut in two, and the
-   lower half is read first;
-2. takes the entries whose `zero_since` plus the dwell has passed;
-3. for each chunk of 32 of them (`LASTDB_BLOB_DWELL_CHUNK`, 1 to 64), takes the
-   local mutation admission and the native write gate, takes the blob gates, reads
-   each counter again, and reads the retired-intent roots of the blobs;
+1. keeps its reader of the queue from one pass to the next (`DwellCursor`): the
+   buckets it knows, and one bounded range walk for each of them. The walk is the
+   cursor. It moves over deleted keys and never goes back to the head of a hash. A
+   restart of the node loses the reader, and the next pass then walks each live
+   bucket once from its start; every 60th pass does the same, for a clock that
+   stepped back;
+2. lists the directory of the buckets that have started (`start <= now - dwell`) at
+   the start of the pass and every 16 steps, with a bounded range walk. A bucket
+   that is not in the directory is not read;
+3. a step reads one page of due entries of the oldest bucket that has some, with no
+   gate, and stops at the first key that is not due (the bucket then waits for its
+   time). Then it takes the entries of the page, up to a chunk of 32
+   (`LASTDB_BLOB_DWELL_CHUNK`, 1 to 64), takes the local mutation admission and the
+   native write gate, takes the blob gates, reads each counter again, and reads the
+   retired-intent roots of the blobs. The cursor moves only after the chunk's batch
+   is accepted. A step that fails leaves it where it was;
 4. in one batch, deletes the blob row (and any resident `cas_blob:` copy), the
    counter and the queue entry of every blob that is still at exactly zero with the
    same `zero_since`. A stale queue entry (the counter is gone, has references, is
    `suspect`, or has another `zero_since`) is deleted alone. An entry whose counter
    does not decode is deleted alone too, and the blob and the counter stay: nothing
    can say that the count is zero (the verifier reports the counter);
-5. releases the gate, and **rests**. The rest after a chunk is
+5. releases the gate, and **rests**. A step that finds a bucket done retires it
+   (a batch of one guarded delete) and rests the same way. The rest after a chunk is
    `took * (100 - duty) / duty`, with a duty share of 10 percent by default
    (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100), at least 25 ms
    (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. A chunk that took 30 ms is
@@ -178,8 +219,19 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    (`lastdbd::blob_dwell`).
 
 The gate is never held across chunks, and the read of the queue takes no gate. A
-pass handles at most 16 pages. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The
+pass runs at most 2,048 steps. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The
 knobs come from the node environment and are read at the start of each pass.
+
+A pass that ends with an error does not make the next pass start at once. The wait
+is 30 s after the first pass that fails and doubles with each pass in a row that
+fails, up to 10 minutes. A good pass clears it. `lastdb status` shows the error, the
+count and the time to the next try.
+
+The reads and the batches stay small on purpose. A read call of the walk asks for
+a page of 64 keys and is cut in two when it meets the read budget. The real budget
+of one native call is 4,096 metadata pages, and one native mutation may publish at
+most 4,096 metadata pages, so a chunk (about 4 rows for each blob) stays far below
+it.
 
 ## Retired-intent roots
 
@@ -192,9 +244,11 @@ counted reference, and this read can go.
 
 ## Format fence
 
-The key format marker `layout:v2:keys` is `3`. A home from a build that kept blob
-reference edges (`bref:v2`) has the marker `2`. It has no blob counters, so this
-build refuses it ("create a new empty home"). The design has no migration.
+The key format marker `layout:v3:keys` is `4`. A home from a build that kept blob
+reference edges (`bref:v2`) has the value `3` (an older one has the marker
+`layout:v2:keys`). It has no blob counters, so this build refuses it ("create a new
+empty home"). A home that this build made is refused the same way by a build that
+expects `3`. The design has no migration.
 
 ## Verify and recount
 
@@ -227,9 +281,10 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
   queue holds the entry, whether the `cas_blobs` plane holds the row, and a state:
   `referenced`, `referenced_row_missing`, `in_dwell`, `suspect`, `unreadable`,
   `absent`, `row_without_counter` or `inconsistent`. `lastdb liveness explain blob <blob_ref>` prints it.
-- `lastdb status` has a `Blob counters` line: process-lifetime totals, the queue
-  depth that the last pass read (`N+` when the page was full), and the time to the
-  next due entry.
+- `lastdb status` has a `Blob counters` line: process-lifetime totals, the size of
+  the dwell queue (`queue_depth`, up to 1,000 and `N+` when it stopped at the cap,
+  and `queue_buckets`), both counted by the bucket directory with bounded reads, and
+  `next_due_in`, the earliest time at which the oldest bucket can hold a due entry.
 
 ## Known limits
 
@@ -241,8 +296,9 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
   `blob_counter_below_refs`) and `lastdb db recount` raises the counter.
 - A tip record names a blob only when a cloud file upload wrote its metadata
   (`put_personal_file_blob`). A synthetic home cannot write that.
-- An erase of many atoms that list blobs costs up to three more operations for each
-  blob. The size check of an erase request counts four operations for each tip and
+- An erase of many atoms that list blobs costs up to four more operations for each
+  blob (the counter, the queue entry, the entry that goes, and the directory row of
+  the bucket, once for each bucket). The size check of an erase request counts four operations for each tip and
   does not know the blobs. A request that exceeds the batch limit fails with the
   limit error and changes nothing. The TTL sweep halves its batch and retries.
 - A row that a dropped scope held and that does not decode lowers no blob counter.
@@ -250,9 +306,11 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
 - Cloud purge copies blob rows (`sync/cloud_purge/blob_copy.rs`, `org_files.rs`) and
   the cloud file closure writes rows without a counter. A row with no counter is never
   queued, so nothing deletes it. Cloud sync is off in this build.
-- A delete leaves a tombstone in the queue hash. `lastdb db compact --collection atoms`
-  returns them. The scan stays correct without it and costs one more read call for
-  every 10,000 tombstones.
+- A delete leaves a deleted key in its bucket, and a retired bucket leaves one in
+  the directory (24 each day with the default dwell). No read passes them again, but
+  a restart of the node walks each live bucket and the directory from their start
+  with bounded reads, which cost one read call for every 10,000 deleted keys.
+  `lastdb db compact --collection atoms` returns them.
 - The clock of the dwell ignores a forward excursion beyond a quarter of the dwell
   only (see "The clock of the dwell"). A smaller forward jump ends dwells early by its
   size.

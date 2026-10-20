@@ -24,23 +24,31 @@
 //! | Record | Key |
 //! |---|---|
 //! | Counter | `bref:v3:c:{sha256(blob_ref)}\0c` |
-//! | Queue entry | `bref:v3:q\0{zero_since_ms:020}\0{sha256(blob_ref)}` |
+//! | Queue entry | `bref:v3:q:{bucket:020}\0{zero_since_ns:020}:{sha256(blob_ref)}` |
+//! | Queue directory row | `bref:v3:d\0{bucket:020}` |
 //!
 //! A key hashes on its first NUL. The counter of a blob is one hash, as the
-//! counter of an atom is. The queue key hashes with the tag only, so the whole
-//! queue is one hash and a page of the oldest entries is one range read. Only
-//! the modules here write these records. `scripts/lints/lint-atom-counter-writers.py` guards that.
+//! counter of an atom is. The queue is a time-bucketed queue (`queue.rs`, and
+//! `docs/lastdb-time-queue.md`): the entries of one slice of time are one hash,
+//! a small directory lists the buckets, and the dwell pass walks them with
+//! cursors. A delete leaves a deleted key in its bucket, and the bucket leaves
+//! the directory when it is done, so no read ever passes the deleted keys of a
+//! long history. Only the modules here write these records.
+//! `scripts/lints/lint-atom-counter-writers.py` guards that.
 
 mod clock;
 mod commit;
 mod deltas;
 mod dwell;
 mod plan;
+mod queue;
 mod recount;
 mod report;
+mod stats;
 
 pub(crate) use deltas::{blobs_of_tip_row, BlobDeltas};
-pub use dwell::{DwellChunk, DwellEntry, DwellScan, DWELL_CHUNK};
+pub use dwell::{DwellCursor, DwellStep, DWELL_CHUNK};
+pub(crate) use queue::BlobQueue;
 pub use recount::BlobRecountReport;
 pub(crate) use report::BlobEvents;
 pub use report::{BlobCounterReport, BlobCounterView, DwellGuard};
@@ -76,7 +84,6 @@ pub const BLOB_DWELL_FLOOR_SECS: u64 = 120;
 pub const BLOB_DWELL_UNSAFE_SHORT_ENV: &str = "LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV";
 
 const COUNTER_PREFIX: &str = "bref:v3:c:";
-const QUEUE_HASH: &str = "bref:v3:q";
 
 /// One blob counter record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,28 +187,10 @@ pub(crate) fn blob_counter_key_of_id(id: &str) -> String {
     format!("{COUNTER_PREFIX}{id}\0c")
 }
 
-/// Queue key `bref:v3:q\0{zero_since:020}\0{id}`.
-#[must_use]
-pub(crate) fn blob_queue_key(zero_since: u64, blob_ref: &str) -> String {
-    format!("{QUEUE_HASH}\0{zero_since:020}\0{}", blob_id(blob_ref))
-}
-
-/// The prefix of the whole queue: one hash.
-#[must_use]
-pub(crate) fn blob_queue_prefix() -> String {
-    format!("{QUEUE_HASH}\0")
-}
-
 /// The key range of every blob counter: one hash for each blob.
 #[must_use]
 pub(crate) fn counter_range() -> (Vec<u8>, Vec<u8>) {
     prefix_range(COUNTER_PREFIX)
-}
-
-/// The key range of the whole queue: one hash.
-#[must_use]
-pub(crate) fn queue_range() -> (Vec<u8>, Vec<u8>) {
-    prefix_range(&blob_queue_prefix())
 }
 
 fn prefix_range(prefix: &str) -> (Vec<u8>, Vec<u8>) {
@@ -210,26 +199,14 @@ fn prefix_range(prefix: &str) -> (Vec<u8>, Vec<u8>) {
     (prefix.as_bytes().to_vec(), end.into_bytes())
 }
 
-/// `(zero_since, id)` of a queue key. `None` for a key of another shape.
-#[must_use]
-pub(crate) fn parse_blob_queue_key(key: &[u8]) -> Option<(u64, String)> {
-    let rest = std::str::from_utf8(key)
-        .ok()?
-        .strip_prefix(blob_queue_prefix().as_str())?;
-    let (time, id) = rest.split_once('\0')?;
-    if time.len() != 20 || !is_id(id) {
-        return None;
-    }
-    Some((time.parse().ok()?, id.to_string()))
-}
-
-/// True for a counter key or a queue key of the current layout. The key check of
-/// every native write and every import calls this for the `bref` family.
+/// True for a counter key, a queue entry key or a queue directory key of the
+/// current layout. The key check of every native write and every import calls
+/// this for the `bref` family.
 #[must_use]
 pub(crate) fn is_current_key(key: &str) -> bool {
     match key.strip_prefix(COUNTER_PREFIX) {
         Some(rest) => rest.strip_suffix("\0c").is_some_and(is_id),
-        None => parse_blob_queue_key(key.as_bytes()).is_some(),
+        None => BlobQueue::is_queue_key(key),
     }
 }
 

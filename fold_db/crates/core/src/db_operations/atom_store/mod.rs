@@ -51,8 +51,8 @@ mod types;
 
 pub(crate) use atoms::SealedAtom;
 pub use blob_counter::{
-    BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellChunk, DwellEntry,
-    DwellGuard, DwellScan, DWELL_CHUNK,
+    BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
+    DwellStep, DWELL_CHUNK,
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};

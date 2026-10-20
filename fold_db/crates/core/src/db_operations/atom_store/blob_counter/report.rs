@@ -4,14 +4,22 @@
 //! The planner never hides a counter fault. It keeps the blob, marks the counter
 //! `suspect`, and records the event here. `lastdb status` shows these totals.
 
+use super::dwell::DwellCursor;
 use super::plan::BlobEvent;
+use super::queue::BlobQueue;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// How many recent fault events the report keeps.
 const RECENT_FAULTS: usize = 32;
+/// The wait after the first pass that failed. It doubles with each pass in a row
+/// that fails.
+const BACKOFF_BASE: Duration = Duration::from_secs(30);
+/// The longest wait after a pass that failed.
+const BACKOFF_MAX: Duration = Duration::from_secs(600);
 
 /// Totals since the node started, the last queue reading, and the recent faults.
 #[derive(Debug, Default)]
@@ -27,18 +35,53 @@ pub(crate) struct BlobEvents {
     blobs_deleted: AtomicU64,
     stale_entries: AtomicU64,
     passes: AtomicU64,
-    queue_depth: AtomicU64,
-    queue_depth_capped: AtomicBool,
-    next_due_unix_ms: AtomicU64,
     last_pass_unix_ms: AtomicU64,
     running: AtomicBool,
     recent_faults: Mutex<VecDeque<String>>,
     pub(super) clock: super::clock::BlobClock,
+    /// The layout of the dwell queue, fixed for the life of the store.
+    queue: BlobQueue,
+    /// The reader of the dwell queue. It lives between passes, so a pass goes on
+    /// where the last one stopped.
+    cursor: Mutex<Option<DwellCursor>>,
+    /// Passes in a row that ended with an error.
+    failures: AtomicU64,
+    last_error: Mutex<Option<String>>,
+    retry_not_before: Mutex<Option<Instant>>,
 }
 
 /// Keeps the single dwell pass of a store. Dropping it ends the pass.
 pub struct DwellGuard {
     events: Arc<BlobEvents>,
+}
+
+impl DwellGuard {
+    /// The reader of the dwell queue: the one the last pass left, or a new one.
+    #[must_use]
+    pub fn take_cursor(&self) -> DwellCursor {
+        self.events
+            .cursor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .unwrap_or_else(|| DwellCursor::new(self.events.queue))
+    }
+
+    /// Keep the reader for the next pass.
+    pub fn put_cursor(&self, cursor: DwellCursor) {
+        *self
+            .events
+            .cursor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cursor);
+    }
+
+    /// Record how the pass ended. A pass that failed makes the next ones wait,
+    /// and the wait doubles with each pass in a row that fails (30 s to 10 min).
+    /// A good pass clears the error.
+    pub fn finish(&self, error: Option<String>) {
+        self.events.note_result(error);
+    }
 }
 
 impl Drop for DwellGuard {
@@ -83,18 +126,49 @@ impl BlobEvents {
         self.stale_entries.fetch_add(stale, Ordering::Relaxed);
     }
 
-    /// What one dwell pass saw in the queue.
-    pub(super) fn note_pass(&self, depth: u64, capped: bool, next_due: Option<u64>, now: u64) {
+    /// A dwell pass began.
+    pub(super) fn note_pass(&self, now: u64) {
         self.passes.fetch_add(1, Ordering::Relaxed);
-        self.queue_depth.store(depth, Ordering::Relaxed);
-        self.queue_depth_capped.store(capped, Ordering::Relaxed);
-        self.next_due_unix_ms
-            .store(next_due.unwrap_or(0), Ordering::Relaxed);
         self.last_pass_unix_ms.store(now, Ordering::Relaxed);
     }
 
-    /// Start the one pass of this store, or `None` when a pass is running.
+    /// The layout of the dwell queue.
+    pub(crate) fn queue(&self) -> BlobQueue {
+        self.queue
+    }
+
+    fn note_result(&self, error: Option<String>) {
+        let mut retry = self
+            .retry_not_before
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let failed = error.is_some();
+        *self
+            .last_error
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = error;
+        if failed {
+            let failures = self.failures.fetch_add(1, Ordering::Relaxed) + 1;
+            let shift = u32::try_from(failures.saturating_sub(1).min(10)).unwrap_or(10);
+            *retry =
+                Some(Instant::now() + BACKOFF_BASE.saturating_mul(1 << shift).min(BACKOFF_MAX));
+        } else {
+            self.failures.store(0, Ordering::Relaxed);
+            *retry = None;
+        }
+    }
+
+    /// Start the one pass of this store, or `None` when a pass is running or the
+    /// last passes failed and the wait is not over.
     pub(super) fn begin_pass(self: &Arc<Self>) -> Option<DwellGuard> {
+        let waiting = self
+            .retry_not_before
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some_and(|at| Instant::now() < at);
+        if waiting {
+            return None;
+        }
         self.running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
@@ -118,9 +192,21 @@ impl BlobEvents {
             late_references: self.late_references.load(Ordering::Relaxed),
             unreadable_counters: self.unreadable_counters.load(Ordering::Relaxed),
             dwell_passes: self.passes.load(Ordering::Relaxed),
-            queue_depth: self.queue_depth.load(Ordering::Relaxed),
-            queue_depth_capped: self.queue_depth_capped.load(Ordering::Relaxed),
-            next_due_unix_ms: nonzero(&self.next_due_unix_ms),
+            pass_failures: self.failures.load(Ordering::Relaxed),
+            last_error: self
+                .last_error
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+            retry_in_secs: self
+                .retry_not_before
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .map(|at| at.saturating_duration_since(Instant::now()).as_secs()),
+            next_due_unix_ms: None,
+            queue_depth: 0,
+            queue_depth_capped: false,
+            queue_buckets: None,
             last_pass_unix_ms: nonzero(&self.last_pass_unix_ms),
             dwell_secs: super::blob_dwell_millis() / 1000,
             recent_faults: self
@@ -154,10 +240,25 @@ pub struct BlobCounterReport {
     #[serde(default)]
     pub unreadable_counters: u64,
     pub dwell_passes: u64,
-    /// Entries in the first page of the queue at the last pass.
+    /// Passes in a row that ended with an error. The next pass waits longer.
+    #[serde(default)]
+    pub pass_failures: u64,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Seconds until the next pass may start, after a pass that failed.
+    #[serde(default)]
+    pub retry_in_secs: Option<u64>,
+    /// Entries in the dwell queue, counted by its buckets with bounded reads,
+    /// up to a cap (`queue_depth_capped`). `lastdb status` fills it.
+    #[serde(default)]
     pub queue_depth: u64,
-    /// The queue holds at least `queue_depth` entries: the page was full.
+    /// The queue holds at least `queue_depth` entries.
+    #[serde(default)]
     pub queue_depth_capped: bool,
+    /// Buckets in the directory of the queue. `None` when the directory could
+    /// not be read.
+    #[serde(default)]
+    pub queue_buckets: Option<u64>,
     pub next_due_unix_ms: Option<u64>,
     pub last_pass_unix_ms: Option<u64>,
     pub dwell_secs: u64,

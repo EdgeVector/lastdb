@@ -164,7 +164,7 @@ impl BatchShape {
                 } else {
                     &mut shape.blob_counter_deletes
                 }
-            } else if key.starts_with("bref:v3:q\0") {
+            } else if key.starts_with("bref:v3:q:") || key.starts_with("bref:v3:d\0") {
                 if put {
                     &mut shape.blob_queue_puts
                 } else {

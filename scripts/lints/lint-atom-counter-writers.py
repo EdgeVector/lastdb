@@ -64,7 +64,7 @@ FAMILIES = {
         r'"mh:|\bMH_PREFIX\b|\bheader_key\(|\bMoleculeHeader\b|'
         r'\bmolecule_bindings_key\b|\bMoleculeBindings\b|"mref:v1:n:'
     ),
-    "R": re.compile(r'\bblob_counter_key|\bblob_queue_key|\bBlobCounter\b|"bref:v3'),
+    "R": re.compile(r'\bblob_counter_key|\bBlobQueue\b|\bBlobCounter\b|"bref:v3'),
 }
 FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 

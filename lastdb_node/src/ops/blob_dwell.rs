@@ -1,12 +1,12 @@
 //! Background dwell pass: delete the local file blobs whose count is zero and
 //! whose dwell has passed.
 //!
-//! The blob counter (`fold_db::db_operations::AtomStore::blob_dwell_scan`)
-//! keeps a time-ordered queue of the blobs at zero. Each sampler tick starts at
-//! most one pass. A pass reads the head page of the queue, which is one range
-//! read under one hash, and deletes the due blobs in chunks. A chunk takes the
-//! native write gate for its own reads and its one batch, and the gate is free
-//! between chunks. The pass takes the local mutation admission per chunk, as the
+//! The blob counter (`fold_db::db_operations::AtomStore::blob_dwell_step`)
+//! keeps a time-bucketed queue of the blobs at zero (`docs/lastdb-time-queue.md`).
+//! Each sampler tick starts at most one pass. A pass keeps the reader of the
+//! queue (its cursors over the buckets) from one pass to the next, and deletes
+//! the due blobs in chunks. A chunk takes the native write gate for its own
+//! reads and its one batch, and the gate is free between chunks. The pass takes the local mutation admission per chunk, as the
 //! TTL sweep does, so a backup cut never starts inside a chunk. After each chunk
 //! the pass rests for a share of the chunk time (`pace.rs`: duty 10 percent by
 //! default), so a writer waits for at most one small chunk and then runs free.
@@ -16,6 +16,7 @@
 //! `LASTDB_BLOB_DWELL_PASS=0`. Default **on**. With the pass off no blob leaves
 //! the store, and the queue grows until the pass runs again.
 
+use fold_db::db_operations::DwellCursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tracing::Instrument;
@@ -29,9 +30,12 @@ pub use pace::{BLOB_DWELL_CHUNK_ENV, BLOB_DWELL_DUTY_PCT_ENV, BLOB_DWELL_MIN_PAU
 /// Default-on kill switch. Off only for the explicit falsey values.
 pub const BLOB_DWELL_PASS_ENV: &str = "LASTDB_BLOB_DWELL_PASS";
 
-/// Scans of one pass. Each scan reads one page of the queue, so a pass handles
-/// at most this many pages. A longer queue continues on the next tick.
-const MAX_SCANS_PER_PASS: usize = 16;
+/// Steps of one pass, at most. A longer queue continues on the next tick.
+const MAX_STEPS_PER_PASS: usize = 2_048;
+
+/// Steps between two reads of the directory of the queue. A bucket that starts
+/// while a long pass runs then gets its turn.
+const REFRESH_EVERY: usize = 16;
 
 #[must_use]
 pub fn blob_dwell_pass_enabled() -> bool {
@@ -60,61 +64,61 @@ pub fn maybe_spawn_blob_dwell_pass(
     let shutdown = std::sync::Arc::clone(shutdown);
     tokio::spawn(
         async move {
-            let _guard = guard;
-            run_pass(&host, &shutdown).await;
+            let mut cursor = guard.take_cursor();
+            let result = run_pass(&host, &shutdown, &mut cursor).await;
+            if let Err(error) = &result {
+                tracing::warn!(target: "lastdbd::blob_dwell", error = %error, "blob dwell pass failed");
+            }
+            guard.put_cursor(cursor);
+            guard.finish(result.err());
         }
         .in_current_span(),
     );
 }
 
-/// Run one bounded dwell pass.
-pub async fn run_pass(host: &Host, shutdown: &AtomicBool) {
+/// Run one bounded dwell pass with the reader that the last pass left. A step
+/// reads one page of due entries and deletes it in one chunk, or retires one
+/// bucket. After each step the pass rests. An error ends the pass, and the next
+/// pass waits longer (30 s, doubling, up to 10 min).
+pub async fn run_pass(
+    host: &Host,
+    shutdown: &AtomicBool,
+    cursor: &mut DwellCursor,
+) -> Result<(), String> {
     let atoms = host.db.db_ops().atoms();
     let pace = Pace::from_env();
-    for _ in 0..MAX_SCANS_PER_PASS {
+    let failed = |error: fold_db::schema::SchemaError| error.to_string();
+    atoms.blob_dwell_begin(cursor).await.map_err(failed)?;
+    for number in 0..MAX_STEPS_PER_PASS {
         if shutdown.load(Ordering::Acquire) {
-            return;
+            return Ok(());
         }
-        let scan = match atoms.blob_dwell_scan().await {
-            Ok(scan) => scan,
-            Err(error) => {
-                tracing::warn!(target: "lastdbd::blob_dwell", error = %error, "blob dwell scan failed");
-                return;
-            }
+        if number > 0 && number % REFRESH_EVERY == 0 {
+            atoms.blob_dwell_refresh(cursor).await.map_err(failed)?;
+        }
+        let started = Instant::now();
+        let step = atoms.blob_dwell_step(cursor, pace.chunk);
+        let step = match crate::maintenance_write_gate::run(host, step).await {
+            Some(Ok(Some(step))) => step,
+            // Nothing is due, or local writes are paused for a retained cloud
+            // source.
+            Some(Ok(None)) | None => return Ok(()),
+            Some(Err(error)) => return Err(failed(error)),
         };
-        if scan.due.is_empty() {
-            return;
-        }
-        for chunk in scan.due.chunks(pace.chunk) {
-            if shutdown.load(Ordering::Acquire) {
-                return;
-            }
-            let started = Instant::now();
-            let delete = atoms.blob_dwell_delete(chunk);
-            match crate::maintenance_write_gate::run(host, delete).await {
-                Some(Ok(_)) => {}
-                Some(Err(error)) => {
-                    tracing::warn!(target: "lastdbd::blob_dwell", error = %error, "blob dwell delete failed");
-                    return;
-                }
-                // Local writes are paused for a retained cloud source.
-                None => return,
-            }
-            let took = started.elapsed();
-            let pause = pace.pause_after(took);
-            tracing::debug!(
-                target: "lastdbd::blob_dwell",
-                chunk = chunk.len(),
-                took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
-                rest_ms = u64::try_from(pause.as_millis()).unwrap_or(u64::MAX),
-                "blob dwell chunk done; resting"
-            );
-            rest(pause, shutdown).await;
-        }
-        if !scan.capped {
-            return;
-        }
+        let took = started.elapsed();
+        let pause = pace.pause_after(took);
+        tracing::debug!(
+            target: "lastdbd::blob_dwell",
+            chunk = step.handled(),
+            retired = step.retired,
+            buckets = cursor.buckets(),
+            took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+            rest_ms = u64::try_from(pause.as_millis()).unwrap_or(u64::MAX),
+            "blob dwell chunk done; resting"
+        );
+        rest(pause, shutdown).await;
     }
+    Ok(())
 }
 
 /// Rest between two chunks, in short slices so that a shutdown ends it at once.

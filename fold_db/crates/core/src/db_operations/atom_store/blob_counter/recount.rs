@@ -18,7 +18,7 @@
 //! After the counters, the queue is checked: an entry that no counter at zero
 //! backs is deleted.
 
-use super::{blob_queue_key, BlobCounter, BlobRead};
+use super::{BlobCounter, BlobQueue, BlobRead};
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -173,15 +173,15 @@ fn count(report: &mut BlobRecountReport, fix: &Fix) {
     *slot += 1;
 }
 
-fn mutations(fix: &Fix) -> Result<Vec<KvMutation>, SchemaError> {
+fn mutations(queue: &BlobQueue, fix: &Fix) -> Result<Vec<KvMutation>, SchemaError> {
     let blob = &fix.counter.blob;
-    let mut out = Vec::with_capacity(3);
+    let mut out = Vec::with_capacity(4);
     if let Some(at) = fix.unqueue {
-        out.push(KvMutation::delete(blob_queue_key(at, blob).into_bytes()));
+        out.push(KvMutation::delete(queue.entry_key(at, blob).into_bytes()));
     }
     out.push(super::commit::counter_put(&fix.counter)?);
     if let Some(at) = fix.enqueue {
-        out.push(super::commit::queue_put(blob, at)?);
+        out.extend(queue.put_mutations(at, blob)?);
     }
     Ok(out)
 }
@@ -223,7 +223,8 @@ impl AtomStore {
         report.ran = true;
         report.exact = exact;
         report.referenced_blobs = holders.len() as u64;
-        let now = crate::clock::unix_millis();
+        let now = self.blob_clock_millis();
+        let queue = self.blob_events.queue();
         let mut pending = Vec::new();
         let mut referenced: Vec<String> = Vec::new();
         let (start, end) = super::counter_range();
@@ -257,14 +258,14 @@ impl AtomStore {
                     }
                     Some(fix) => {
                         count(report, &fix);
-                        pending.extend(mutations(&fix)?);
+                        pending.extend(mutations(&queue, &fix)?);
                     }
                 }
                 if pending.len() >= BATCH_OPERATIONS {
                     self.flush_blob_batch(&mut pending, execute, report).await?;
                 }
             }
-            self.restore_queue_entries(&in_dwell, &mut pending, report)
+            self.restore_queue_entries(&queue, &in_dwell, &mut pending, report)
                 .await?;
             self.note_missing_rows(&mut referenced, report).await?;
         }
@@ -272,7 +273,7 @@ impl AtomStore {
         for (blob, held) in holders {
             if let Some(fix) = decide(&blob, None, held, exact, now) {
                 count(report, &fix);
-                pending.extend(mutations(&fix)?);
+                pending.extend(mutations(&queue, &fix)?);
                 referenced.push(blob);
             }
             if referenced.len() >= PAGE_ROWS {
@@ -328,6 +329,7 @@ impl AtomStore {
     /// dwell pass never sees the blob. Put the entry that is missing.
     async fn restore_queue_entries(
         &self,
+        queue: &BlobQueue,
         in_dwell: &[(String, u64)],
         pending: &mut Vec<KvMutation>,
         report: &mut BlobRecountReport,
@@ -337,7 +339,7 @@ impl AtomStore {
         }
         let keys = in_dwell
             .iter()
-            .map(|(blob, at)| blob_queue_key(*at, blob).into_bytes())
+            .map(|(blob, at)| queue.entry_key(*at, blob).into_bytes())
             .collect();
         let found = self
             .raw()
@@ -348,7 +350,7 @@ impl AtomStore {
         for ((blob, at), present) in in_dwell.iter().zip(found) {
             if !present {
                 report.queue_restored += 1;
-                pending.push(super::commit::queue_put(blob, *at)?);
+                pending.extend(queue.put_mutations(*at, blob)?);
             }
         }
         Ok(())
@@ -362,7 +364,8 @@ impl AtomStore {
         execute: bool,
         report: &mut BlobRecountReport,
     ) -> Result<(), SchemaError> {
-        let (start, end) = super::queue_range();
+        let queue = self.blob_events.queue();
+        let (start, end) = BlobQueue::entries_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         let mut pending = Vec::new();
         while !walk.done() {
@@ -370,7 +373,7 @@ impl AtomStore {
             let entries: Vec<(Vec<u8>, u64, String)> = step
                 .rows
                 .iter()
-                .map(|(key, _)| match super::parse_blob_queue_key(key) {
+                .map(|(key, _)| match queue.parse_entry(key) {
                     Some((at, id)) => (key.clone(), at, id),
                     None => (key.clone(), 0, String::new()),
                 })

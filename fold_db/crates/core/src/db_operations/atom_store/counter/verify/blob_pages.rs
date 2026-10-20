@@ -6,7 +6,7 @@ use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage};
 use super::pages::Request;
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{
-    blob_counter_key, blob_counter_key_of_id, blob_queue_key, parse_blob_queue_key, BlobRead,
+    blob_counter_key, blob_counter_key_of_id, BlobRead,
 };
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -62,6 +62,7 @@ impl AtomStore {
         &self,
         (start, end, asked): Request,
     ) -> Result<BlobsPage, SchemaError> {
+        let queue = self.blob_events.queue();
         self.atom_read_scope(async {
             let (rows, scan_unsealed) =
                 count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
@@ -77,7 +78,7 @@ impl AtomStore {
                 .filter_map(|counter| match counter {
                     BlobRead::Present(counter) => counter
                         .zero_since
-                        .map(|at| blob_queue_key(at, &counter.blob).into_bytes()),
+                        .map(|at| queue.entry_key(at, &counter.blob).into_bytes()),
                     _ => None,
                 })
                 .collect();
@@ -147,6 +148,7 @@ impl AtomStore {
         &self,
         (start, end, asked): Request,
     ) -> Result<QueuePage, SchemaError> {
+        let queue = self.blob_events.queue();
         self.atom_read_scope(async {
             let (rows, scan_unsealed) =
                 count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
@@ -155,7 +157,7 @@ impl AtomStore {
             let last_key = rows.last().map(|(key, _)| key.clone());
             let parsed: Vec<(u64, String)> = rows
                 .iter()
-                .filter_map(|(key, _)| parse_blob_queue_key(key))
+                .filter_map(|(key, _)| queue.parse_entry(key))
                 .collect();
             let keys = parsed
                 .iter()

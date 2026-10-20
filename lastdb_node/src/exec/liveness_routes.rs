@@ -166,7 +166,7 @@ async fn explain_blobs(
                 &serde_json::json!({
                     "liveness": {
                         "class": "blob",
-                        "dwell_secs": host.db.blob_counter_report().dwell_secs,
+                        "dwell_secs": host.db.db_ops().atoms().blob_counter_report().dwell_secs,
                         "blobs": rows,
                     }
                 }),

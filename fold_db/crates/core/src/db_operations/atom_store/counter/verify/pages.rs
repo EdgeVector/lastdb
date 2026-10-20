@@ -6,7 +6,7 @@
 use super::blobs::{blobs_of_pairs, blobs_of_tips, BlobListed};
 use super::report::Phase;
 use crate::crypto::count_unsealed_discards;
-use crate::db_operations::atom_store::blob_counter::{counter_range, queue_range};
+use crate::db_operations::atom_store::blob_counter::{counter_range, BlobQueue};
 use crate::db_operations::atom_store::counter::scan::{
     family_range, record_holders, record_molecules, tip_holders, tip_molecules, CounterRead,
     Family, PairRead,
@@ -69,7 +69,7 @@ pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>,
         Phase::Bindings => Family::BindingCounters,
         Phase::BindingRecords => Family::BindingRecords,
         Phase::Blobs => return Some(counter_range()),
-        Phase::BlobQueue => return Some(queue_range()),
+        Phase::BlobQueue => return Some(BlobQueue::entries_range()),
         Phase::Done => return None,
     };
     Some(family_range(family, scope))

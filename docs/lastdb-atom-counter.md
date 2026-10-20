@@ -365,7 +365,10 @@ personal run (`docs/lastdb-blob-counter.md`), each in pages with a cursor:
    `suspect`, holds zero with no `zero_since`, holds references and has a
    `zero_since`, or has a `zero_since` and no queue entry.
 8. The blob queue (personal run only): each entry has a counter at zero with the
-   same `zero_since`.
+   same `zero_since`. The phase walks the entries of all buckets with one bounded
+   range walk (an admin walk; the dwell pass never does that, it walks one bucket
+   at a time from the directory). It does not check the directory against the
+   entries; the generic check of the time queue does (follow-up).
 
 Phases 1 and 3 also read the blob counter of every blob that the tips or the atom
 counters of a page name. A counter that is absent, or below the number of holders

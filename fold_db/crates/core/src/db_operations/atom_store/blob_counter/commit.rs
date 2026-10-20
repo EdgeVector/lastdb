@@ -10,7 +10,7 @@
 use super::plan::{
     plan_delta, plan_unreadable, plan_upload, BlobEvent, BlobPlan, BlobWrite, PlanError,
 };
-use super::{blob_counter_key, blob_queue_key, BlobCounter, BlobCounterView, BlobDeltas, BlobRead};
+use super::{blob_counter_key, BlobCounter, BlobCounterView, BlobDeltas, BlobQueue, BlobRead};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -18,12 +18,6 @@ use serde::Serialize;
 
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
-
-/// The value of a queue entry. The key holds only the hash of the blob.
-#[derive(Serialize)]
-struct QueueValue<'a> {
-    blob: &'a str,
-}
 
 impl AtomStore {
     /// The blob counter writes of one planner run. Reads the counters by key in
@@ -52,7 +46,7 @@ impl AtomStore {
             };
             self.push_blob_plan(blob, plan, &mut mutations)?;
         }
-        Ok(mutations)
+        Ok(BlobQueue::keep_last_directory_rows(mutations))
     }
 
     /// A reference that makes the counter of a blob whose row is gone is a late
@@ -154,12 +148,13 @@ impl AtomStore {
     ) -> Result<Vec<BlobCounterView>, SchemaError> {
         let refs: Vec<&str> = blobs.iter().map(String::as_str).collect();
         let counters = self.read_blob_counters(&refs).await?;
+        let queue = self.blob_events.queue();
         let queue_keys: Vec<Vec<u8>> = blobs
             .iter()
             .zip(&counters)
             .map(|(blob, read)| {
                 let at = read.counter().and_then(|counter| counter.zero_since);
-                blob_queue_key(at.unwrap_or(0), blob).into_bytes()
+                queue.entry_key(at.unwrap_or(0), blob).into_bytes()
             })
             .collect();
         let queued = self
@@ -211,6 +206,25 @@ impl AtomStore {
             .map_err(|error| SchemaError::InvalidData(format!("read blob rows: {error}")))
     }
 
+    /// The counter put, with the queue entry that goes or comes. A new entry
+    /// brings the directory row of its bucket.
+    fn write_mutations(
+        &self,
+        blob: &str,
+        write: &BlobWrite,
+    ) -> Result<Vec<KvMutation>, SchemaError> {
+        let queue = self.blob_events.queue();
+        let mut out = Vec::with_capacity(4);
+        if let Some(at) = write.unqueue {
+            out.push(KvMutation::delete(queue.entry_key(at, blob).into_bytes()));
+        }
+        out.push(counter_put(&write.counter)?);
+        if let Some(at) = write.enqueue {
+            out.extend(queue.put_mutations(at, blob)?);
+        }
+        Ok(out)
+    }
+
     /// Unix milliseconds on the clock of the blob counters: the wall clock, never
     /// more than a day ahead of the monotonic time since the store was made.
     #[must_use]
@@ -229,7 +243,7 @@ impl AtomStore {
             BlobPlan::Dangling => self.blob_events.note(blob, BlobEvent::Dangling),
             BlobPlan::Write(write) => {
                 let event = write.event;
-                out.extend(write_mutations(blob, &write)?);
+                out.extend(self.write_mutations(blob, &write)?);
                 if let Some(event) = event {
                     self.blob_events.note(blob, event);
                 }
@@ -239,32 +253,11 @@ impl AtomStore {
     }
 }
 
-/// The counter put, with the queue entry that goes or comes.
-fn write_mutations(blob: &str, write: &BlobWrite) -> Result<Vec<KvMutation>, SchemaError> {
-    let mut out = Vec::with_capacity(3);
-    if let Some(at) = write.unqueue {
-        out.push(KvMutation::delete(blob_queue_key(at, blob).into_bytes()));
-    }
-    out.push(counter_put(&write.counter)?);
-    if let Some(at) = write.enqueue {
-        out.push(queue_put(blob, at)?);
-    }
-    Ok(out)
-}
-
 /// The put of one counter record.
 pub(super) fn counter_put(counter: &BlobCounter) -> Result<KvMutation, SchemaError> {
     Ok(KvMutation::put(
         blob_counter_key(&counter.blob).into_bytes(),
         to_bytes(counter, "blob counter")?,
-    ))
-}
-
-/// The put of the queue entry of `blob` at `zero_since`.
-pub(super) fn queue_put(blob: &str, zero_since: u64) -> Result<KvMutation, SchemaError> {
-    Ok(KvMutation::put(
-        blob_queue_key(zero_since, blob).into_bytes(),
-        to_bytes(&QueueValue { blob }, "blob queue entry")?,
     ))
 }
 
