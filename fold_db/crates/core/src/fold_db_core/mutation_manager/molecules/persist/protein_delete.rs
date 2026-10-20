@@ -158,7 +158,8 @@ impl MutationManager {
             .erasures
             .iter()
             .zip(membership)
-            .filter_map(|(mutation, member)| member.then(|| mutation.clone()))
+            .filter(|(_, member)| *member)
+            .map(|(mutation, _)| mutation.clone())
             .collect())
     }
 }
