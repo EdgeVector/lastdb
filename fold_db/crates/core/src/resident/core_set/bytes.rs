@@ -77,7 +77,7 @@ impl WarmBytes {
         self.peak_bytes = self.peak_bytes.max(self.used());
     }
 
-    fn sweep(&mut self) {
+    pub(super) fn sweep(&mut self) {
         let mut freed = 0;
         self.atoms.retain(|_, tracked| {
             let alive = tracked.atom.strong_count() > 0;

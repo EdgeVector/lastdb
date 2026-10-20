@@ -41,6 +41,12 @@ impl CoreCallHolds {
 
 impl Drop for CoreCallHolds {
     fn drop(&mut self) {
+        // Release overwritten values before the final path purge measures
+        // reclaimable bytes. Other calls retain their own owners and holds.
+        self.values
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
         let paths = self
             .paths
             .get_mut()

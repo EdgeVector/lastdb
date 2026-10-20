@@ -7,7 +7,8 @@ use super::*;
 const PURGE_BATCH: usize = 64;
 
 impl CoreWarmSet {
-    /// Release exact reservations. Unknown placeholders leave after their last hold.
+    /// Release exact reservations, then trim records that the call no longer holds.
+    /// Unknown placeholders leave after their last hold.
     pub(crate) fn release_paths(&mut self, paths: &[CorePath]) {
         for path in paths {
             let Some(id) = self.path_id(path) else {
@@ -18,6 +19,12 @@ impl CoreWarmSet {
             if !state.known && state.holds == 0 && state.dirty.is_none() {
                 self.drop_id(id);
             }
+        }
+        // The call drops its retained owners before this release. Sweep those
+        // dead allocations first, so the purge charges only live values.
+        if !self.fits(0) {
+            self.bytes.sweep();
+            self.trim_to_limit(0, &HashSet::new());
         }
     }
 
@@ -53,7 +60,7 @@ impl CoreWarmSet {
 
     /// Make room for the requested paths under the byte limit. Never refuses:
     /// if only held or unflushed paths remain, the new paths enter over the
-    /// limit and a later admission purges again (design D5).
+    /// limit. Call release, flush, or a later admission purges again (design D5).
     pub(super) fn make_room(&mut self, requested: &[CorePath]) -> Result<(), CoreCapacity> {
         let new_paths = requested
             .iter()

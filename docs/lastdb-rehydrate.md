@@ -10,6 +10,8 @@ It does not contain another copy of the values.
 A normal logical record follows one schema, field, molecule, and key to one atom.
 The warm set uses the byte limit defined in the [warm set design](lastdb-warm-set-byte-limit-design.md).
 A call holds its selected records. The purge skips those records and writes that still await flush.
+When the call releases its records, the purge restores the byte limit if clean records permit it.
+The call first releases its saved values, so dead allocations do not cause extra record removal.
 File contents stay outside this model. An atom can return a file reference and its access metadata.
 Reads and writes reuse an equal complete atom object when one is already available.
 An equal UUID alone cannot combine copies with different atom metadata.

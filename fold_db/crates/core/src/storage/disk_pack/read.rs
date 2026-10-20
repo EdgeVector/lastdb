@@ -15,7 +15,6 @@ pub(super) struct ReadContext {
     pub(super) call: Arc<Mutex<HomeRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
-    core_holds: Arc<core_holds::CoreCallHolds>,
     pub(super) core_model: crate::resident::CoreModelSnapshot,
     // Only private write preparation can inspect the existing flush log.
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
@@ -24,6 +23,10 @@ pub(super) struct ReadContext {
     current: Current,
     write_owner: Option<Arc<transaction::PendingBatch>>,
     _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
+    // Fields drop in declaration order. Drop captured model/source owners
+    // before the final holds owner trims paths, so dead call allocations do
+    // not force the purge to discard unrelated live records.
+    core_holds: Arc<core_holds::CoreCallHolds>,
 }
 
 struct ReadFailure {
