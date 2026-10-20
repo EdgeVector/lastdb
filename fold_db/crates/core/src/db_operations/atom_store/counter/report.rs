@@ -86,6 +86,8 @@ impl CounterEvents {
             underflows: self.underflows.load(Ordering::Relaxed),
             counters_absent: self.counters_absent.load(Ordering::Relaxed),
             dangling_removals: self.dangling_removals.load(Ordering::Relaxed),
+            suspect_marked: self.underflows.load(Ordering::Relaxed)
+                + self.counters_absent.load(Ordering::Relaxed),
             recent_faults: self
                 .recent_faults
                 .lock()
@@ -106,6 +108,12 @@ pub struct AtomCounterReport {
     pub underflows: u64,
     pub counters_absent: u64,
     pub dangling_removals: u64,
+    /// Counters this process marked `suspect`: `underflows` plus `counters_absent`.
+    /// It counts events since the daemon started, not the atoms that are
+    /// `suspect` now; the last verify run (`verify_refs.last.suspect_atoms`) and
+    /// `lastdb db inventory` count those.
+    #[serde(default)]
+    pub suspect_marked: u64,
     pub recent_faults: Vec<String>,
     /// The verifier: the last complete run and a run in progress. Memory only;
     /// it is empty after a restart. `None` when the daemon predates the field.

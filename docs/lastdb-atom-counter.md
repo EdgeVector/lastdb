@@ -154,6 +154,15 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
   list the referrers: the counter holds a number, not a list.
 - `lastdb status` has an `Atom counters` line and a `Verify refs` line.
   `lastdb db inventory` has an `Atom counters` block.
+  - `Atom counters` counts the planner events since the daemon started:
+    `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`,
+    `dangling_removals` and `suspect_marked` (the counters this process marked
+    `suspect`; `underflows` plus `counters_absent`).
+  - `Verify refs` shows the last complete run of the verifier: the time, the
+    pages, the faults, `suspect_atoms` (the `suspect` counters that run read),
+    and the candidates. It shows a run in progress. The verifier keeps this in
+    memory, so a restart clears it. The status JSON has the same data in
+    `atom_counters.verify_refs`.
 - `POST /api/db/verify-refs` runs one step of the verifier. `GET /api/db/verify-refs`
   returns the last result and the run in progress. Owner socket only.
 
