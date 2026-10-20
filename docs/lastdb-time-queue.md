@@ -122,7 +122,14 @@ N = 4. A long drain then delays the due entries by at most 4 batches, and a
 long backlog delays a drain by at most 4 batches.
 
 A long piece of work keeps its own cursor in memory. It does not stay at the
-head of the queue.
+head of the queue. The reader lists the directory again at the start of each
+turn, so a bucket that starts while a long drain runs gets its turn. Many small
+pieces of work share a batch (the drains of many slots with one record each take
+one batch of 32 records), and a batch touches at most 64 drains.
+
+The janitor holds at most 1,024 pending drains. A marker that finds no room stays
+in its bucket. The cursor of the bucket stays at it, and the bucket waits for a
+second before it is read again. Memory does not grow with the number of markers.
 
 ## Failure
 
