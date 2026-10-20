@@ -113,5 +113,6 @@ impl RecountReport {
             + self.blobs.dwell_cancelled
             + self.blobs.dwell_started
             + self.blobs.queue_deleted
+            + self.blobs.queue_restored
     }
 }

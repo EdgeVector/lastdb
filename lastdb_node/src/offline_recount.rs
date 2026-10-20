@@ -227,7 +227,7 @@ fn print_blob_step(report: &RecountReport) {
         blobs.counters_read
     );
     println!(
-        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted",
+        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted, {} restored",
         blobs.unchanged,
         blobs.created,
         blobs.raised,
@@ -236,7 +236,8 @@ fn print_blob_step(report: &RecountReport) {
         blobs.dwell_cancelled,
         blobs.dwell_started,
         blobs.queue_read,
-        blobs.queue_deleted
+        blobs.queue_deleted,
+        blobs.queue_restored
     );
     for note in &blobs.notes {
         println!("  note: {note}");

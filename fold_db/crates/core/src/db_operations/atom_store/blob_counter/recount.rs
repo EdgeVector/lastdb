@@ -59,6 +59,9 @@ pub struct BlobRecountReport {
     pub queue_read: u64,
     /// Queue entries that no counter at zero backs, deleted.
     pub queue_deleted: u64,
+    /// A counter with a `zero_since` had no queue entry. The entry is put.
+    #[serde(default)]
+    pub queue_restored: u64,
     pub operations: u64,
     pub batches: u64,
     pub notes: Vec<String>,
@@ -223,6 +226,7 @@ impl AtomStore {
                     step.unsealed
                 )));
             }
+            let mut in_dwell: Vec<(String, u64)> = Vec::new();
             for (_, value) in &step.rows {
                 report.counters_read += 1;
                 let Ok(counter) = serde_json::from_slice::<BlobCounter>(value) else {
@@ -231,7 +235,12 @@ impl AtomStore {
                 };
                 let held = holders.remove(&counter.blob).unwrap_or(0);
                 match decide(&counter.blob, Some(&counter), held, exact, now) {
-                    None => report.unchanged += 1,
+                    None => {
+                        report.unchanged += 1;
+                        if let Some(at) = counter.zero_since {
+                            in_dwell.push((counter.blob.clone(), at));
+                        }
+                    }
                     Some(fix) => {
                         count(report, &fix);
                         pending.extend(mutations(&fix)?);
@@ -241,6 +250,8 @@ impl AtomStore {
                     self.flush_blob_batch(&mut pending, execute, report).await?;
                 }
             }
+            self.restore_queue_entries(&in_dwell, &mut pending, report)
+                .await?;
         }
         // Blobs that are named and have no counter.
         for (blob, held) in holders {
@@ -260,6 +271,36 @@ impl AtomStore {
             ));
         }
         self.recount_blob_queue(execute, report).await
+    }
+
+    /// A counter that keeps its `zero_since` must have its queue entry, or the
+    /// dwell pass never sees the blob. Put the entry that is missing.
+    async fn restore_queue_entries(
+        &self,
+        in_dwell: &[(String, u64)],
+        pending: &mut Vec<KvMutation>,
+        report: &mut BlobRecountReport,
+    ) -> Result<(), SchemaError> {
+        if in_dwell.is_empty() {
+            return Ok(());
+        }
+        let keys = in_dwell
+            .iter()
+            .map(|(blob, at)| blob_queue_key(*at, blob).into_bytes())
+            .collect();
+        let found = self
+            .raw()
+            .inner()
+            .exists_many(keys)
+            .await
+            .map_err(SchemaError::from)?;
+        for ((blob, at), present) in in_dwell.iter().zip(found) {
+            if !present {
+                report.queue_restored += 1;
+                pending.push(super::commit::queue_put(blob, *at)?);
+            }
+        }
+        Ok(())
     }
 
     /// Delete the queue entries that no counter at zero backs. In a dry run the
