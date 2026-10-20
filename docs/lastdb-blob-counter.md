@@ -105,6 +105,24 @@ The key format marker `layout:v2:keys` is `3`. A home from a build that kept blo
 reference edges (`bref:v2`) has the marker `2`. It has no blob counters, so this
 build refuses it ("create a new empty home"). The design has no migration.
 
+## Verify and recount
+
+`lastdb db verify-refs` (`docs/lastdb-atom-counter.md`) reads the blob counters
+without a write gate. For the page of every atom counter and tip it reads the
+counters of the blobs they name at the same root, and reports `blob_counter_missing`
+and `blob_counter_below_refs`. The personal run then walks the counters
+(`blob_suspect`, `blob_zero_without_dwell`, `blob_dwell_with_refs`, `blob_unqueued`,
+`unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`). Every check has
+no false positive under concurrent writers, because one page is one committed root.
+A counter above its references is not found: the verifier checks one scope and the
+counters are global.
+
+`lastdb db recount` (offline) counts the references of each blob from the atom
+counters and the tips of the listed scopes. The default only raises counters, makes
+missing ones, restores a missing queue entry and deletes a queue entry that no
+counter backs. `--blobs-exact --all-scopes` also lowers a counter that is too high,
+clears `suspect`, and starts the dwell of a blob that nothing references.
+
 ## Reads
 
 - `POST /api/storage/liveness/explain` with `{"class":"blob","id":"sha256:.."}` (or
@@ -122,7 +140,8 @@ build refuses it ("create a new empty home"). The design has no migration.
   replay write atom rows that bypass the planner (see `docs/lastdb-atom-counter.md`).
   A restored atom that lists a blob does not raise the blob counter. The blob can
   then reach zero while the restored atom names it. Cloud sync is off in this build.
-  A recount belongs to step S6.
+  `lastdb db verify-refs` reports it (`blob_counter_missing` or
+  `blob_counter_below_refs`) and `lastdb db recount` raises the counter.
 - A tip record names a blob only when a cloud file upload wrote its metadata
   (`put_personal_file_blob`). A synthetic home cannot write that.
 - An erase of many atoms that list blobs costs up to three more operations for each

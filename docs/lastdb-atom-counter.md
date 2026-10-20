@@ -182,7 +182,8 @@ result in memory, so a restart clears it. The source check
 `scripts/lints/lint-atom-counter-writers.py` lists no writer in
 `counter/verify/`, so the verifier has no write call to a store.
 
-It reads in three phases, each in pages with a cursor:
+It reads in three phases for the atoms, and two more for the blob counters on
+the personal run (`docs/lastdb-blob-counter.md`), each in pages with a cursor:
 
 1. Tip records (`mk:`): the atom of each tip has a body, and its counter is not
    below the tips of the page.
@@ -194,6 +195,17 @@ It reads in three phases, each in pages with a cursor:
 3. Body and counter records of atoms (`atom:`): body and counter exist
    together, no counter holds zero, no counter is `suspect`, and the counter
    equals the totals of phases 1 and 2.
+4. Blob counters (personal run only): each counter alone. A counter is
+   `suspect`, holds zero with no `zero_since`, holds references and has a
+   `zero_since`, or has a `zero_since` and no queue entry.
+5. The blob queue (personal run only): each entry has a counter at zero with the
+   same `zero_since`.
+
+Phases 1 and 3 also read the blob counter of every blob that the tips or the atom
+counters of a page name. A counter that is absent, or below the number of holders
+in the page, is a fault. A counter above its holders is not found by a run,
+because the blob counters are global and a run checks one scope. The recount finds
+it.
 
 A step reads pages until it has used `max_pages` (default 64) or `max_ms`
 (default 3,000), pauses `pause_ms` (default 2) after each page, and returns a
@@ -214,6 +226,14 @@ Faults, by name:
 | `tip_without_body` | a tip names an atom that has no body (a lost body) |
 | `record_without_body` | a conflict record names an atom that has no body |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
+| `blob_counter_missing` | an atom counter or a tip names a blob that has no counter |
+| `blob_counter_below_refs` | a blob counter holds fewer references than the atom counters or tips of one page that name the blob |
+| `blob_zero_without_dwell` | a blob counter holds zero, is not `suspect`, and has no `zero_since` |
+| `blob_dwell_with_refs` | a blob counter holds references and has a `zero_since` |
+| `blob_unqueued` | a blob counter has a `zero_since` and the queue has no entry for it |
+| `blob_stale_queue_entry` | a queue entry names a counter that is absent, has references, is `suspect`, or has another `zero_since` |
+| `blob_suspect` | a blob counter has the `suspect` flag |
+| `unreadable_blob_counter` | a blob counter does not decode, or its blob does not match its key |
 | `unconfirmed_count_mismatch` | not a fault: see below |
 
 A kind is a fact about one atom, and an atom can show more than one. For
@@ -329,6 +349,25 @@ at-rest envelope (see above). It recounts the personal scope; `--scope PREFIX`
 records and holds one Nth of the atoms in memory in each pass.
 `scripts/lints/atom-counter-writers.allow` lists the two functions that write
 (`recount/apply.rs`) with the reason.
+
+The recount also checks the blob counters (`blobs` in the report). It counts, for
+each blob, the atom counters that list it and the live tips that name it in the
+listed scopes, and compares the count with the blob counter:
+
+| Found | The default (raise only) | With `--blobs-exact` (needs `--all-scopes`) |
+|---|---|---|
+| counter below the count | raises it | raises it |
+| counter missing, blob named | makes it | makes it |
+| counter above the count | nothing | lowers it |
+| counter `suspect` | nothing | clears the flag when the count is exact |
+| blob with a counter and no reference | nothing | starts its dwell (the dwell pass reclaims it) |
+| counter with a `zero_since` and no queue entry | puts the entry | puts the entry |
+| queue entry that no counter at zero backs | deletes it | deletes it |
+
+The blob counters are global, and a recount lists scopes. A scope that is missing
+makes the count too low, and a too low counter loses a blob. So only
+`--blobs-exact` lowers a counter, and it asks for `--all-scopes`. List every scope
+of the home: a scope that holds data and has no catalog entry needs `--scope`.
 
 After a recount, start the daemon and run `lastdb db verify-refs` (with
 `--all-scopes` when you recounted other scopes). It must find
