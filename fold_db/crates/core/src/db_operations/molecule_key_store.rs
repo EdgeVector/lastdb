@@ -219,30 +219,6 @@ impl MoleculeKeyStore {
         Ok(bundles.len())
     }
 
-    /// Drop every non-node wrap for a schema after its last catalog reference
-    /// disappears. The node wrap remains the durable owner capability.
-    pub async fn drop_schema_domain_wraps(&self, schema: &Schema) -> StorageResult<usize> {
-        if !self.is_enabled() {
-            return Ok(0);
-        }
-
-        let mut dropped = 0usize;
-        for molecule_uuid in schema_molecule_uuids(schema) {
-            let prefix = format!("mkw:{molecule_uuid}:");
-            let node_key = wrap_key_for(&molecule_uuid, NODE_DOMAIN);
-            for key in self.entries.list_keys_with_prefix(&prefix).await? {
-                if key == node_key {
-                    continue;
-                }
-                if self.entries.delete_item(&key).await? {
-                    dropped += 1;
-                }
-            }
-        }
-        self.entries.inner().flush().await?;
-        Ok(dropped)
-    }
-
     pub(crate) async fn flush(&self) -> StorageResult<()> {
         self.entries.inner().flush().await
     }

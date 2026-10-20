@@ -5,6 +5,8 @@ mod page_records;
 mod partition_page;
 mod per_key;
 
+pub(crate) use per_key::SchemaKeyMembership;
+
 use super::types::PerKeyRecord;
 
 /// Whether a bounded page window counts **stored** rows or **live** rows.

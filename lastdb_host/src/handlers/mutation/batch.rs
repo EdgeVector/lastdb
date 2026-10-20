@@ -62,17 +62,6 @@ pub async fn execute_mutations_batch<H: HostNode>(
     }
 
     let count = mutations.len();
-    // Resident receipts omit erasure UUIDs. Keep the original request IDs for
-    // the cloud-capture receipt so a mixed durable-delete batch names every
-    // envelope, independent of which operation appears first.
-    let cloud_mutation_ids = if requires_durable_cloud_capture {
-        mutations
-            .iter()
-            .map(|mutation| mutation.uuid.clone())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
     let receipt = write_batch(
         host,
         mutations,
@@ -103,7 +92,7 @@ pub async fn execute_mutations_batch<H: HostNode>(
         "touched_group_ids": &receipt.touched_group_ids
     });
     if requires_durable_cloud_capture {
-        attach_batch_cloud_capture(&mut response, &cloud_mutation_ids, receipt.cloud.as_ref());
+        attach_batch_cloud_capture(&mut response, &receipt.mutation_ids, receipt.cloud.as_ref());
     }
     Ok(response)
 }

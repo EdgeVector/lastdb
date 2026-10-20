@@ -38,6 +38,11 @@ A failed read cannot enter the model as a confirmed missing record.
 A selected tip requires its atom in every database scope.
 The shared body reader checks the result count and refuses a missing atom.
 It returns complete atoms, so callers do not contain another skip rule.
+The call keeps a compact certificate for each decoded atom and its exact disk source.
+The certificate covers the full value, metadata, and time. It excludes no atom field.
+The call moves its decoded atom into the warm set after the certificate check.
+The certificate store keeps no second atom body. Its metadata cap stays at 4 MiB.
+Sources, certificates, and scope bindings each permit up to 10,000 entries within that shared cap.
 The former skipped-atom reports remain empty wire fields. They own no counters or record lists.
 One shared query check refuses old-value and recursive-depth controls for reads and counts.
 The request decoder retains those names for an explicit refusal. Current field readers do not accept those controls.
@@ -142,6 +147,11 @@ An empty hash is valid for both initial key preload and later changes to the com
 4. Publish the complete core change, then send the permitted ack.
 5. Flush the prepared bytes through the one native disk queue.
 
+A successful batch returns one accepted input mutation ID per caller input, in caller order.
+Delete, Purge, and idempotent repeats follow the same rule.
+The ID identifies the accepted input. It does not identify the atom that wins a field conflict.
+Change notices use that exact input-to-ID association. They do not substitute another input's ID.
+
 The private preparation step transfers its schema, atoms, and related changes into the disk stage.
 That transfer does not copy those prepared payloads into a second job.
 Native after-commit work sends the Search change after the disk commit.
@@ -158,6 +168,16 @@ A failed schema change cannot publish its private keys in the shared cache.
 Current reads use that one key pair. No previous-key transition or automatic conversion runs.
 Preload loads the molecule keys before it captures their encoding identity.
 The native write boundary precedes the membership and molecule-liveness guards.
+
+Catalog put, declaration, share, and removal use that same write boundary.
+The native write boundary precedes molecule locks and the catalog's last-reference check.
+The catalog row, its molecule bindings, and a removed instance's data change together.
+Cleanup planning and preparation each refuse a request above the 128 MiB byte allowance.
+The native operation limit can also refuse the complete cleanup.
+
+A refusal retains the catalog row and all instance data. Search receives changes only after commit.
+Instance removal does not revoke molecule encryption wraps that other instances or schemas can use.
+Its `reclaimed_wraps` result remains zero. Cloud reactivation requires a separate domain-aware revocation design.
 
 The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.
@@ -245,6 +265,11 @@ The earlier request keeps its reservations until the extension succeeds.
 Acceptance transfers those owners without a second charge. Refusal releases only the private extension.
 A failed disk commit retains the complete reservation for its required output.
 
+Packed-file cleanup uses the home's file-count allowance for its generation inventory.
+It has no separate 4,096-generation cutoff that can block cleanup inside a valid home.
+The finite file-count allowance, retained backup references, and grace period still limit cleanup.
+Cleanup validates all retained files before it removes an old generation.
+
 ## Shared responsibilities
 
 | Part | Responsibility | Explicit boundary |
@@ -289,6 +314,9 @@ Later cleanup or cutover checks must identify their own source and product evide
 ## Current key format
 
 A new home records the current key format before it serves requests.
+The current logical marker is `layout:v3:keys` with value `3`.
+It covers framed molecule identities and exact binding identities.
+The physical node marker remains `laststore-pack-node-v1`.
 A new home records its setup state before it creates the physical store.
 An interrupted new setup can resume from that state. It cannot accept user writes before setup completes.
 An existing home without the current format marker or that setup state receives an error.
@@ -301,6 +329,6 @@ A changed atom placement setting receives an error after home creation.
 
 The old key conversion, key fork, tip conversion, and collection copy commands are removed.
 Archived tip files and their repair jobs are removed. Current history events remain.
-Version 2 logical snapshots use the current keys.
+Version 2 logical snapshots require the same current key format marker.
 Older logical snapshots receive an error before restore writes data.
 This key format change leaves the current warm set limits unchanged.

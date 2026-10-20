@@ -53,6 +53,7 @@ pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
     RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
+pub(crate) use filter::SchemaKeyMembership;
 pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;

@@ -142,7 +142,7 @@ impl MutationManager {
         let certified = crate::storage::disk_pack::logical_paths::source::certified_atoms(
             runtime,
             storage_prefix,
-            &expected,
+            expected,
         )?;
         let mut bytes = 0usize;
         let mut atoms = BTreeMap::new();

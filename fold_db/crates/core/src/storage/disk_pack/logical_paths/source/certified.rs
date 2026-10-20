@@ -1,7 +1,6 @@
-//! A fallback body keeps its actual copy and full metadata, within one scope.
+//! A decoded body enters memory only after its full certificate and scope match.
 
 use super::*;
-use std::collections::HashMap;
 
 pub(crate) struct CertifiedAtom {
     pub(crate) atom: Arc<Atom>,
@@ -12,45 +11,52 @@ pub(crate) struct CertifiedAtom {
 pub(crate) fn certified_atoms(
     runtime: Option<Arc<PackRuntime>>,
     scope: Option<&str>,
-    expected: &[Atom],
+    expected: Vec<Atom>,
 ) -> StorageResult<Vec<Option<CertifiedAtom>>> {
-    let mut out: Vec<_> = expected.iter().map(|_| None).collect();
     let Some(sources) = sources(runtime)? else {
-        return Ok(out);
+        return Ok(expected.into_iter().map(|_| None).collect());
     };
     let sources = sources.lock().expect("native actual body certificates");
-    let mut positions: HashMap<_, Vec<_>> = HashMap::new();
-    for (position, atom) in expected.iter().enumerate() {
-        positions.entry(atom.uuid()).or_default().push(position);
+    expected
+        .into_iter()
+        .map(|atom| {
+            let Some((_, key)) = certified_source(&sources, scope, &atom)? else {
+                return Ok(None);
+            };
+            Ok(Some(CertifiedAtom {
+                atom: Arc::new(atom),
+                key,
+            }))
+        })
+        .collect()
+}
+
+/// The source, full decoded content, and exact requested scope form one proof.
+pub(super) fn certified_source(
+    sources: &Sources,
+    scope: Option<&str>,
+    atom: &Atom,
+) -> StorageResult<Option<(SourceKey, String)>> {
+    let Some(certificate) = sources
+        .scoped
+        .get(&scoped(scope, atom.uuid()))
+        .and_then(|key| sources.atoms.get(key))
+    else {
+        return Ok(None);
+    };
+    let raw = crate::storage::laststore::native_routing::decode(&certificate.source.key)?;
+    let Ok(key) = String::from_utf8(raw) else {
+        return Ok(None);
+    };
+    if certificate.source.collection
+        != crate::storage::laststore::native_routing::write_collection(key.as_bytes())
+        || !same_scope(&key, scope)
+        || crate::atom::atom_key_codec::body_uuid_of(&key) != Some(atom.uuid())
+        || certificate.fingerprint != proof::fingerprint(atom)?
+    {
+        return Ok(None);
     }
-    for facts in sources.atoms.values() {
-        let Some(positions) = positions.get(facts.atom.uuid()) else {
-            continue;
-        };
-        let raw = crate::storage::laststore::native_routing::decode(&facts.source.key)?;
-        let Ok(key) = String::from_utf8(raw) else {
-            continue;
-        };
-        // A logical body source names its native write collection. A receipt
-        // from another collection cannot authorize a different physical copy.
-        if facts.source.collection
-            != crate::storage::laststore::native_routing::write_collection(key.as_bytes())
-        {
-            continue;
-        }
-        if !same_scope(&key, scope) {
-            continue;
-        }
-        for &position in positions {
-            if out[position].is_none() && facts.atom.as_ref() == &expected[position] {
-                out[position] = Some(CertifiedAtom {
-                    atom: Arc::clone(&facts.atom),
-                    key: key.clone(),
-                });
-            }
-        }
-    }
-    Ok(out)
+    Ok(Some((certificate.source.clone(), key)))
 }
 
 fn same_scope(key: &str, scope: Option<&str>) -> bool {

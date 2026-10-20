@@ -22,21 +22,41 @@ impl AtomStore {
                 request,
                 codec,
                 &storage_hash,
-                value.as_ref().map(|v| &v.value),
+                value.as_ref().map(|v| &v.field.value),
             )?;
             let api_key = hash
                 .as_ref()
                 .map(|hash| KeyValue::new(Some(hash.clone()), Some(range.clone())));
-            if let Some(hash) = hash {
-                selected.push((hash, range, key.clone()));
-            }
             keys.push(api_key);
         }
-        if matches!(request.membership, Membership::Schema { .. }) {
+        if let Membership::Schema(membership) = request.membership {
+            let requested: Vec<_> = keys.iter().filter_map(Clone::clone).collect();
+            let expected = requested.len();
+            let matches = (membership.check)(requested).await?;
+            if matches.len() != expected {
+                return Err(SchemaError::StorageRead {
+                    detail: "listed schema membership count differs".into(),
+                });
+            }
+            let mut matches = matches.into_iter();
+            for key in &mut keys {
+                if key.is_some() && !matches.next().expect("listed membership alignment") {
+                    *key = None;
+                }
+            }
             if request.hash.is_none() {
                 self.certify_listed_tips(request, &rows, &keys).await?;
             }
-            self.admit_listed_values(request, &rows, &keys, &values)?;
+            self.admit_listed_values(request, &keys, values)?;
+        }
+        for ((storage_key, _), key) in rows.iter().zip(keys) {
+            if let Some(key) = key {
+                selected.push((
+                    key.hash.unwrap_or_default(),
+                    key.range.unwrap_or_default(),
+                    storage_key.clone(),
+                ));
+            }
         }
         Ok(selected)
     }
@@ -74,12 +94,12 @@ fn listed_hash(
         None => None,
     };
     let hash = request.hash.or(recovered).unwrap_or(storage_hash);
-    if let Membership::Schema { named_layout } = request.membership {
+    if let Membership::Schema(membership) = request.membership {
         let Some(value) = value.filter(|value| !crate::atom::tombstone::is_tombstone_value(value))
         else {
             return Ok(None);
         };
-        if named_layout
+        if membership.named_layout
             && (recovered.is_none()
                 || !KeyValue::new(Some(hash.to_owned()), None).hash_matches_scalar(value))
         {

@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::Path;
 
-const MAX_GENERATIONS: usize = 4096;
 const MAX_RETAINED_PARTS: usize = 262_144;
 
 /// Reclaim only exact old-receipt paths, after a complete plan and all safety checks.
@@ -35,7 +34,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
         return Ok(receipt);
     };
     validate_roots(root)?;
-    cleanup_retired(root, &mut receipt)?;
+    cleanup_retired(root, policy.max_files, &mut receipt)?;
     let tail = crate::disk_pack::journal::JournalTail::read(root)?;
     if tail.stream != current.journal_stream || tail.last_batch != current.frontier {
         return Err(corrupt("reclaim requires a complete journal checkpoint"));
@@ -43,7 +42,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
-    let generations = generations(root)?;
+    let generations = generations(root, policy.max_files)?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
     for number in &generations {
@@ -105,7 +104,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
         }) {
             continue;
         }
-        remove_receipt(root, &held, &generation, &mut receipt)?;
+        remove_receipt(root, &held, policy.max_files, &mut receipt)?;
     }
     Ok(receipt)
 }
@@ -130,11 +129,13 @@ fn validate_roots(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generations(root: &Path) -> Result<Vec<u64>> {
+fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(root.join("generations"))? {
         let entry = entry?;
-        if out.len() == MAX_GENERATIONS || !entry.file_type()?.is_dir() {
+        // Each generation owns a receipt file. Use the home inventory budget;
+        // a lower independent limit can permanently prevent valid cleanup.
+        if out.len() >= max_files || !entry.file_type()?.is_dir() {
             return Err(corrupt(
                 "generation inventory exceeds bound or contains a non-directory",
             ));
@@ -202,7 +203,7 @@ fn validate_parents(root: &Path, path: &Path) -> Result<()> {
 fn remove_receipt(
     root: &Path,
     current: &Current,
-    generation: &generation::Generation,
+    max_files: usize,
     receipt: &mut MaintenanceReceipt,
 ) -> Result<()> {
     let path = root
@@ -215,20 +216,19 @@ fn remove_receipt(
     let target = parent.join(current.generation.to_string());
     // Leave the complete receipt readable until it atomically leaves the live set.
     // A restart can finish deletion in this exclusively owned retirement namespace.
-    let _ = generation;
     std::fs::rename(&path, target)?;
     durability::sync_directory(&File::open(root.join("generations"))?)?;
     durability::sync_directory(&File::open(parent)?)?;
-    cleanup_retired(root, receipt)
+    cleanup_retired(root, max_files, receipt)
 }
 
-fn cleanup_retired(root: &Path, receipt: &mut MaintenanceReceipt) -> Result<()> {
+fn cleanup_retired(root: &Path, max_files: usize, receipt: &mut MaintenanceReceipt) -> Result<()> {
     let parent = root.join("retired-generations");
     if !parent.try_exists()? {
         return Ok(());
     }
     for (index, entry) in std::fs::read_dir(&parent)?.enumerate() {
-        if index == MAX_GENERATIONS {
+        if index >= max_files {
             return Err(crate::disk_pack::resource());
         }
         let entry = entry?;

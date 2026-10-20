@@ -101,7 +101,12 @@ impl From<serde_json::Error> for FoldDbError {
 /// Conversion from storage::StorageError to FoldDbError
 impl From<crate::storage::StorageError> for FoldDbError {
     fn from(error: crate::storage::StorageError) -> Self {
-        Self::Database(error.to_string())
+        match error {
+            crate::storage::StorageError::MutationLimit { detail } => {
+                Self::Schema(SchemaError::WriteResourceLimit { detail })
+            }
+            other => Self::Database(other.to_string()),
+        }
     }
 }
 

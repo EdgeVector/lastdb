@@ -170,12 +170,23 @@ async fn current_scope_rows(
     end: &[u8],
 ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
     let mut rows = Vec::new();
+    let mut bytes = 0usize;
     let mut cursor: Option<crate::storage::traits::PhysicalScanCursor> = None;
     loop {
         let page = main
             .scan_range_physical_paged(start, end, cursor.as_ref(), 128, 1)
             .await?;
-        rows.extend(page.rows);
+        for (key, value) in page.rows {
+            // Planning must fit the complete native write budget before it
+            // retains another row body. Refusal leaves the entire scope intact.
+            bytes = bytes
+                .checked_add(160 + 2 * key.len() + value.len())
+                .filter(|bytes| *bytes <= 128 * 1024 * 1024 - 256)
+                .ok_or_else(|| StorageError::MutationLimit {
+                    detail: "complete database cleanup plan exceeds 128 MiB".into(),
+                })?;
+            rows.push((key, value));
+        }
         let Some(next) = page.next_cursor else { break };
         if cursor.as_ref() == Some(&next) {
             return Err(StorageError::BackendError(
@@ -202,8 +213,8 @@ async fn drop_scoped_source_rows(
             sources.push(key);
         }
     }
-    // Owner rows stay until their sources are gone. A process stop leaves
-    // enough exact owner rows for a repeated catalog cleanup to finish.
+    // The catalog's outer native scope stages sources before owners. A refusal
+    // or process stop before publication retains both sets and the catalog row.
     for chunk in sources.chunks(2_048) {
         main.batch_delete(chunk.to_vec()).await?;
     }
