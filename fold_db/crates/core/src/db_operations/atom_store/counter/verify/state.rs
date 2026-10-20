@@ -180,6 +180,16 @@ impl Run {
         }
     }
 
+    /// Where the run stands, for the status.
+    fn progress(&self) -> VerifyProgress {
+        VerifyProgress {
+            run_id: self.report.run_id.clone(),
+            phase: self.phase,
+            pages: self.report.pages,
+            started_at: self.report.started_at,
+        }
+    }
+
     /// The cursor of the next step. It names the run and the number of steps
     /// done, so a repeated or stale step is refused.
     pub(super) fn cursor(&self) -> String {
@@ -234,6 +244,9 @@ struct Inner {
     /// A step holds the run. A second step is refused.
     busy: bool,
     last: Option<VerifyLast>,
+    /// The run in progress, as of the last finished page. A step that holds
+    /// the run keeps this value, so the status shows a run during a step.
+    progress: Option<VerifyProgress>,
 }
 
 /// The verifier state of one atom store.
@@ -254,12 +267,7 @@ impl VerifyState {
         self.expire(&mut inner);
         VerifySummary {
             last: inner.last.clone(),
-            running: inner.run.as_ref().map(|run| VerifyProgress {
-                run_id: run.report.run_id.clone(),
-                phase: run.phase,
-                pages: run.report.pages,
-                started_at: run.report.started_at,
-            }),
+            running: inner.progress.clone(),
         }
     }
 
@@ -270,6 +278,7 @@ impl VerifyState {
             .is_some_and(|run| !inner.busy && run.touched_at.elapsed() > RUN_IDLE_LIMIT);
         if idle {
             inner.run = None;
+            inner.progress = None;
             self.watch.stop();
         }
     }
@@ -311,6 +320,7 @@ impl VerifyState {
         };
         inner.run = None;
         inner.busy = true;
+        inner.progress = Some(run.progress());
         Ok(StepGuard {
             state: self,
             run: Some(run),
@@ -350,6 +360,7 @@ impl StepGuard<'_> {
         let mut inner = lock(&self.state.inner);
         inner.last = run.report.last();
         inner.busy = false;
+        inner.progress = None;
         self.state.watch.stop();
     }
 }
@@ -359,6 +370,7 @@ impl Drop for StepGuard<'_> {
         let mut inner = lock(&self.state.inner);
         inner.busy = false;
         if let Some(run) = self.run.take() {
+            inner.progress = Some(run.progress());
             inner.run = Some(run);
         }
     }
