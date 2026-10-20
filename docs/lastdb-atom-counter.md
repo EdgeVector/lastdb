@@ -79,6 +79,15 @@ create, because the holders that the lost counter counted are not known. A
 shows `bodies_without_counter`, `counters_without_body`, `zero_counters` and
 `suspect` for the whole home.
 
+**Limit.** The planner catches a counter that is below the removal it gets. It
+cannot catch a counter that is too low by less than that. Example: two tips name
+an atom and the counter holds 1. A purge of one key asks for 1 reference and the
+counter holds 1, so the planner takes it to zero and deletes the body. The other
+key still names the atom, and a query of that key then returns a bare HTTP 500.
+`lastdb db verify-refs` reports such a counter as `counter_below_tips` before the
+purge, and `lastdb db recount --execute` (offline) repairs it. Repair a counter
+before any purge or TTL sweep reaches its atom.
+
 ## Delete and Purge
 
 Both verbs read the tips of their keys by key, in one batch, inside the gate.
@@ -115,8 +124,13 @@ key of an atom without a typed cover of their own. Why this is safe:
    which waits for the flush. A stale value cannot be published.
 4. A reader that captured its view before the acceptance keeps the old root,
    the older accepted batches and the older typed model. It sees the old tip with
-   the old body. A reader after the acceptance sees the new tip and no old body.
-   No reader sees half of a batch.
+   the old body. A query after the acceptance reads the new tip and the new
+   body, and it never reads the old body. No query sees half of a batch. One
+   read does not go through a tip: `GET /api/atom/{id}` reads a body by its id.
+   After a `queued` acknowledgement it still returns 200 with the old body of a
+   replaced atom until the flush commits the batch, and then it returns 404
+   (see Reads for the measured delay). After a `durable` acknowledgement it
+   returns 404 at once.
 5. The typed publication happens at the acceptance, under the queue lock, with
    no await between it and the hand-over to the queue owner. The flush writes
    the accepted batches later, as one durable commit.
@@ -153,16 +167,25 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
 
 ## Reads
 
-- `GET /api/atom/{id}` returns 404 after the last holder is purged.
+- `GET /api/atom/{id}` returns 404 after the last holder is purged. With
+  `durability: queued` it returns 200 with the old body of a replaced atom until
+  the flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement,
+  median 0.26 s, in 20 rounds on a synthetic home; the flush interval is
+  500 ms). A query by key shows the new value at once. With `durability: durable`
+  the route returns 404 as soon as the acknowledgement returns.
 - `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` returns
   the counter, the `suspect` flag and the body state of each atom. It cannot
   list the referrers: the counter holds a number, not a list.
 - `lastdb status` has an `Atom counters` line and a `Verify refs` line.
   `lastdb db inventory` has an `Atom counters` block.
-  - `Atom counters` counts the planner events since the daemon started:
+  - `Atom counters` counts the planner events since this process started:
     `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`,
     `dangling_removals` and `suspect_marked` (the counters this process marked
-    `suspect`; `underflows` plus `counters_absent`).
+    `suspect`; `underflows` plus `counters_absent`). A restart sets these
+    numbers to zero, so a home with `suspect` counters shows zeros after a
+    restart. The line says so. The count of `suspect` counters on disk comes
+    from one run of `lastdb db verify-refs` (`suspect_atoms`) or from
+    `lastdb db inventory`; the status does not scan for it.
   - `Verify refs` shows the last complete run of the verifier: the time, the
     pages, the faults, `suspect_atoms` (the `suspect` counters that run read),
     and the candidates. It shows a run in progress. The verifier keeps this in
