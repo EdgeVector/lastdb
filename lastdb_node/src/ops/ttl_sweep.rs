@@ -24,7 +24,8 @@
 //! - bounded batches
 //! - report a completed no-op, but recheck on the next sampler tick because
 //!   time and local policy can change without a daemon restart
-//! - give up after `MAX_DRAIN_ATTEMPTS` failures
+//! - after `MAX_DRAIN_ATTEMPTS` failed passes in a row, wait longer before each
+//!   next pass (up to an hour), and never stop for the life of the process
 //!
 //! Kill switch: `LASTDB_TTL_SWEEP=0`. Default **on**.
 //!
@@ -120,8 +121,8 @@ pub async fn sweep_ttl(host: &Host, shutdown: &AtomicBool) {
 }
 
 /// Count a pass that listed its schemas. Only a pass where no schema succeeded
-/// counts toward the give-up rule, because one broken schema must not stop the
-/// others for the life of the process.
+/// counts toward the wait rule, because one broken schema must not slow the
+/// others.
 fn finish_pass(host: &Host, totals: &erase::PassTotals, started: std::time::Instant) {
     let elapsed_ms = started.elapsed().as_millis() as u64;
     if totals.whole_pass_failed() {
