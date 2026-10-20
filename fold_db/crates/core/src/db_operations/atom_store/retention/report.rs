@@ -39,7 +39,7 @@ pub(crate) struct RetentionState {
     released_by_janitor: AtomicU64,
     released_by_purge: AtomicU64,
     undecodable: AtomicU64,
-    purge_leftover: AtomicU64,
+    purge_capped_slots: AtomicU64,
     last_error: Mutex<Option<String>>,
 }
 
@@ -62,7 +62,7 @@ impl RetentionState {
             released_by_janitor: AtomicU64::new(0),
             released_by_purge: AtomicU64::new(0),
             undecodable: AtomicU64::new(0),
-            purge_leftover: AtomicU64::new(0),
+            purge_capped_slots: AtomicU64::new(0),
             last_error: Mutex::new(None),
         }
     }
@@ -87,9 +87,10 @@ impl RetentionState {
             .fetch_add(released, Ordering::Relaxed);
     }
 
-    /// An erase left records to the window, because the key held too many.
-    pub(crate) fn note_leftover(&self, leftover: u64) {
-        self.purge_leftover.fetch_add(leftover, Ordering::Relaxed);
+    /// An erase left records of some slots to the window, because the slots
+    /// held more than one request releases.
+    pub(crate) fn note_capped_slots(&self, slots: u64) {
+        self.purge_capped_slots.fetch_add(slots, Ordering::Relaxed);
     }
 
     /// One release batch of the janitor ended. The total counts at once, so a
@@ -123,7 +124,7 @@ impl RetentionState {
             released_by_janitor: self.released_by_janitor.load(Ordering::Relaxed),
             released_by_purge: self.released_by_purge.load(Ordering::Relaxed),
             undecodable_rows: self.undecodable.load(Ordering::Relaxed),
-            purge_leftover: self.purge_leftover.load(Ordering::Relaxed),
+            purge_capped_slots: self.purge_capped_slots.load(Ordering::Relaxed),
             queue_depth: None,
             queue_depth_capped: false,
             last_error: self
@@ -153,9 +154,9 @@ pub struct ConflictRetentionReport {
     pub released_by_purge: u64,
     /// History rows that did not decode. They keep their references.
     pub undecodable_rows: u64,
-    /// Records a purge left for the janitor, because the key held more than
-    /// the limit of one request.
-    pub purge_leftover: u64,
+    /// Slots (of an erase) that held more kept records than one request
+    /// releases. The window ends the records that the erase left.
+    pub purge_capped_slots: u64,
     /// Entries in the queue when the report was built, counted up to a limit.
     /// `None` means the count failed.
     pub queue_depth: Option<u64>,

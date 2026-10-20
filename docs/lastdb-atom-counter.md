@@ -123,7 +123,7 @@ A record ends in two ways, and both use the same release:
    one read of limit one. For a molecule with entries, each removed slot costs
    one range read, and an entry counts only when its `mk:` key matches the slot
    exactly. One erase request releases at most 100 records. A key that holds
-   more keeps the rest until its window ends (`purge_leftover` in the status).
+   more keeps the rest until its window ends (`purge_capped_slots` in the status).
    A protein key move is not an erase and releases nothing.
 2. **The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes
    every `LASTDB_CONFLICT_JANITOR_MS` (60,000; zero turns it off). It reads the

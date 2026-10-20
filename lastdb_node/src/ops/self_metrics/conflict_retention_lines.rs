@@ -40,10 +40,10 @@ pub fn conflict_retention_status_lines(snapshot: &StatusSnapshot) -> Vec<String>
         "Conflict retention: window {} s; {janitor}; {last}; queue depth {depth}; released by janitor {}, by purge {}",
         report.window_secs, report.released_by_janitor, report.released_by_purge,
     );
-    if report.purge_leftover > 0 {
+    if report.purge_capped_slots > 0 {
         line.push_str(&format!(
-            "; left to the window by a purge {}",
-            report.purge_leftover
+            "; slots whose records a purge left to the window {}",
+            report.purge_capped_slots
         ));
     }
     if report.undecodable_rows > 0 {

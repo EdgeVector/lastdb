@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 
 /// The most records one erase request releases. A record costs a few
 /// operations and a few reads, so the cap keeps the release small beside the
-/// tips of the request. A key that holds more keeps the rest until the window
-/// ends, and the report counts them.
+/// tips of the request. A slot that holds more keeps the rest until the window
+/// ends, and the report counts the slots.
 pub(crate) const RELEASE_RECORD_CAP: usize = 100;
 
 /// One removed slot, in storage form.
@@ -36,27 +36,27 @@ impl AtomStore {
                 .extend(slots.iter());
         }
         let mut entries: Vec<RetentionEntry> = Vec::new();
-        let mut leftover = 0usize;
+        let mut capped_slots = 0u64;
         for (molecule, slots) in by_molecule {
             if !self.molecule_has_directory(scope, molecule).await? {
                 continue;
             }
             for (hash, range) in slots {
                 let room = RELEASE_RECORD_CAP.saturating_sub(entries.len());
-                let (found, more) = self
+                let (found, capped) = self
                     .slot_directory_entries(scope, molecule, hash, range, room)
                     .await?;
                 entries.extend(found);
-                leftover += more;
+                capped_slots += u64::from(capped);
             }
         }
-        if leftover > 0 {
+        if capped_slots > 0 {
             tracing::warn!(
-                leftover,
+                capped_slots,
                 cap = RELEASE_RECORD_CAP,
                 "an erase left kept conflict records to the retention window"
             );
-            self.retention_state().note_leftover(leftover as u64);
+            self.retention_state().note_capped_slots(capped_slots);
         }
         Ok(entries.iter().map(RetentionEntry::request).collect())
     }
@@ -77,8 +77,8 @@ impl AtomStore {
         Ok(!rows.is_empty())
     }
 
-    /// The entries of one slot, at most `room`. The second number counts the
-    /// entries that did not fit.
+    /// The entries of one slot, at most `room`. The flag is true when the slot
+    /// holds more entries than fit.
     async fn slot_directory_entries(
         &self,
         scope: Option<&str>,
@@ -86,7 +86,7 @@ impl AtomStore {
         hash: &str,
         range: &str,
         room: usize,
-    ) -> Result<(Vec<RetentionEntry>, usize), SchemaError> {
+    ) -> Result<(Vec<RetentionEntry>, bool), SchemaError> {
         let slot = keys::slot_key(scope, molecule, hash, range);
         let (start, end) = keys::prefix_range(&keys::slot_dir_prefix(scope, molecule, hash, range));
         let rows = self
@@ -96,7 +96,7 @@ impl AtomStore {
             .await
             .map_err(|error| SchemaError::InvalidData(format!("read slot directory: {error}")))?;
         let mut found = Vec::new();
-        let mut more = 0usize;
+        let mut capped = false;
         for (key, value) in rows {
             let Ok(entry) = serde_json::from_slice::<RetentionEntry>(&value) else {
                 // A directory entry that does not decode names nothing to
@@ -114,11 +114,11 @@ impl AtomStore {
                 continue;
             }
             if found.len() == room {
-                more += 1;
+                capped = true;
             } else {
                 found.push(entry);
             }
         }
-        Ok((found, more))
+        Ok((found, capped))
     }
 }
