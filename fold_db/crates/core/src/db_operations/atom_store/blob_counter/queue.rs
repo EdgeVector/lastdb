@@ -33,6 +33,8 @@ const ENTRIES: &str = "bref:v3:q";
 const DIRECTORY: &str = "bref:v3:d";
 /// Nanoseconds in a millisecond.
 const NANOS_PER_MILLI: u64 = 1_000_000;
+/// `TimeQueue::for_window` takes a 64th of the window for the slice.
+const SLICES_PER_DWELL: u64 = 64;
 
 /// The layout of the blob queue. A value holds names and a number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,14 +43,20 @@ pub(crate) struct BlobQueue {
 }
 
 impl BlobQueue {
-    /// The queue for a dwell of `dwell_ms`: slices of a 64th of the dwell, between
-    /// one second and one hour (`TimeQueue::for_window`).
+    /// The queue for a dwell of `dwell_ms`: slices of one dwell, between one second
+    /// and one hour. `TimeQueue::for_window` takes a 64th of the window of its
+    /// entries. An entry of this queue waits for its dwell, but the entries of
+    /// one slice are a few buckets of work, and a short slice would only make the
+    /// directory grow: with the default dwell a slice is one hour and the
+    /// directory gets 24 rows a day.
     pub(crate) fn for_dwell(dwell_ms: u64) -> Self {
         Self {
             queue: TimeQueue::for_window(
                 ENTRIES,
                 DIRECTORY,
-                dwell_ms.saturating_mul(NANOS_PER_MILLI),
+                dwell_ms
+                    .saturating_mul(NANOS_PER_MILLI)
+                    .saturating_mul(SLICES_PER_DWELL),
             ),
         }
     }
