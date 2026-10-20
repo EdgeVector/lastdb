@@ -158,9 +158,13 @@ The native journal supports recovery of stored writes. It does not replace the c
 Local mutations in one batch share one logical revision and receive consecutive author times in caller order.
 The durable clock reservation covers the final time before the batch can flush.
 Imported signed clocks remain unchanged. Random mutation identities do not order repeated local writes.
-A new winning tip replaces the full author clock and optional key metadata, even when its atom stays the same.
+A new winning tip replaces the full author clock and optional key metadata, even when its atom identity stays the same.
 The atom identity describes the schema and value. It does not describe the write time or key metadata.
 Equal atoms do not create a different-atom conflict or a replacement-history entry.
+The same commit retires the prior tip's reference. A reference that the current tip still uses stays active.
+A present key-metadata record supplies all its optional fields. An omitted member clears that value.
+Only the absence of the entire key-metadata record permits atom creation metadata as a fallback.
+Single and batch requests carry the declared source file name through the same write pipeline.
 Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.

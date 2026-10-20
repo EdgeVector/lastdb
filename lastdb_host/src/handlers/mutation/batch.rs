@@ -142,6 +142,7 @@ async fn prepare_batch_item<H: HostNode>(
         fields_and_values,
         key_value,
         mutation_type,
+        source_file_name,
         expected,
         convergence: _,
         durability,
@@ -194,6 +195,7 @@ async fn prepare_batch_item<H: HostNode>(
         host.public_key(),
         mutation_type,
     );
+    mutation.source_file_name = source_file_name;
     if durability.waits_for_persist() {
         mutation.synchronous = Some(true);
     }

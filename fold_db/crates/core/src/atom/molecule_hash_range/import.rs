@@ -114,7 +114,7 @@ impl MoleculeHashRange {
                 replaced = Some(existing.clone());
             }
         }
-        self.record_replaced_tip(&hash_value, &range_value, &entry.atom_uuid);
+        self.record_replaced_tip(&hash_value, &range_value);
         self.version += 1;
         if let Some(replaced) = replaced {
             let conflict = (TipConflictKind::Replaced, entry.clone(), replaced);

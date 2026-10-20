@@ -47,6 +47,7 @@ impl MoleculeHashRange {
                                     loser_written_at: se.written_at,
                                 });
                             }
+                            self.record_replaced_tip(hash, range);
                             self.atom_uuids
                                 .entry(hash.clone())
                                 .or_default()

@@ -51,7 +51,7 @@ impl MoleculeHashRange {
         mutation_uuid: String,
     ) {
         let device_id = keypair.public_key_base64();
-        self.record_replaced_tip(&hash_value, &range_value, &atom_uuid);
+        self.record_replaced_tip(&hash_value, &range_value);
         self.version += 1;
         let written_at = now_nanos();
         self.atom_uuids.entry(hash_value).or_default().insert(
@@ -69,14 +69,13 @@ impl MoleculeHashRange {
     }
 
     /// Retain the prior tip until persistence retires its reverse reference.
+    /// Equal atoms can have different references after an author-clock change.
+    /// The compact-edge planner preserves any edge still used by the new tip.
     /// This is a private write effect, not stored atom history.
-    pub(super) fn record_replaced_tip(&mut self, hash: &str, range: &str, new_atom_uuid: &str) {
+    pub(super) fn record_replaced_tip(&mut self, hash: &str, range: &str) {
         let Some(old) = self.get_atom_entry(hash, range).cloned() else {
             return;
         };
-        if old.atom_uuid == new_atom_uuid {
-            return;
-        }
         self.pending_replaced_tips
             .push((hash.to_string(), range.to_string(), old));
     }
