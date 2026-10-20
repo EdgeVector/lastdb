@@ -159,7 +159,8 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
 - `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` returns
   the counter, the `suspect` flag and the body state of each atom. It cannot
   list the referrers: the counter holds a number, not a list.
-- `lastdb status` has an `Atom counters` line and a `Verify refs` line.
+- `lastdb status` has an `Atom counters` line, a `Verify refs` line and a
+  `Blob counters` line (`docs/lastdb-blob-counter.md`).
   `lastdb db inventory` has an `Atom counters` block.
   - `Atom counters` counts the planner events since the daemon started:
     `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`,
