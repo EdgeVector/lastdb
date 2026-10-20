@@ -10,14 +10,16 @@ use super::owner_context;
 use super::verb::SweepVerb;
 use crate::host::Host;
 
-/// A purge batch can name a key that a client or a peer removed after the
-/// re-check. The sweep drops those keys and sends the rest, this many times.
-const MAX_MISSING_RETRIES: usize = 3;
-
 /// Send `keys`. A purge refuses a batch that names a key already gone, and a
-/// client or a peer can remove a key after the re-check. After a refused purge
-/// the sweep finds the absent keys, drops them, and sends the rest. Returns the
-/// count sent and the count dropped as absent.
+/// client, a peer or another purger can remove a key after the re-check, or
+/// while the batch waits. After a refused purge the sweep finds the absent
+/// keys, counts them as done, drops them, and sends the rest.
+///
+/// Each refusal that names an absent key makes the batch smaller by at least
+/// one key, so the loop ends after at most one round for each key of the batch.
+/// A refusal that names no absent key is a real error and goes back to the
+/// caller. A key that another purger removed is never an error of the sweep.
+/// Returns the count sent and the count dropped as absent.
 pub(super) async fn send_with_missing_retry(
     host: &Host,
     schema_name: &str,
@@ -25,12 +27,12 @@ pub(super) async fn send_with_missing_retry(
     (verb, tip_cutoff_nanos): (SweepVerb, Option<u64>),
 ) -> Result<(usize, usize), String> {
     let mut missing = 0;
-    for attempt in 0..=MAX_MISSING_RETRIES {
+    loop {
         let error = match purge_keys(host, schema_name, &keys, verb, tip_cutoff_nanos).await {
             Ok(()) => return Ok((keys.len(), missing)),
             Err(error) => error,
         };
-        if verb != SweepVerb::Purge || attempt == MAX_MISSING_RETRIES {
+        if verb != SweepVerb::Purge {
             return Err(error);
         }
         let absent = host
@@ -55,7 +57,6 @@ pub(super) async fn send_with_missing_retry(
             return Ok((0, missing));
         }
     }
-    Err("ttl sweep purge retries ended".to_string())
 }
 
 async fn purge_keys(

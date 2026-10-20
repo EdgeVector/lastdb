@@ -65,6 +65,7 @@ mod sync_health;
 mod sync_health_wire;
 mod sync_lines;
 mod sync_probe;
+mod ttl_backoff;
 mod ttl_pass;
 mod write;
 mod write_fields;

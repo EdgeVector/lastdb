@@ -28,14 +28,21 @@ selected, the two verbs, what each verb leaves on disk, and the four knobs.
    batch (below). The pass stops between batches when the daemon stops, when a backup cut starts,
    or when local writes pause. The next tick lists the rest again.
 7. A `purge` refuses a batch that names a key which is already gone, for example a key that a
-   client or a peer removed after the re-check. After such a refusal the sweep asks which keys of
-   the batch are absent, drops them, and sends the rest. It does this up to 3 times for a batch.
-   The count is `missing_dropped` in the status. The log line is `ttl sweep drops keys that are
-   already gone and sends the rest of the batch`.
+   client, a peer or another purger removed after the re-check. After such a refusal the sweep
+   asks which keys of the batch are absent, counts them as done, drops them, and sends the rest.
+   It repeats this until the batch is sent or empty. Each refusal that names an absent key makes
+   the batch smaller, so the loop ends. A key that another purger removed is never a failure of the
+   sweep. The count is `missing_dropped` in the status. The log line is `ttl sweep drops keys that
+   are already gone and sends the rest of the batch`. A refusal that names no absent key is a real
+   error and ends the schema for this pass (step 8).
 8. A listing error or a batch error ends that schema for this pass. The sweep logs it once with
-   the schema name, counts it, and goes on with the other schemas. Three passes in a row in which
-   no schema succeeded stop the sweep until the daemon restarts. A pass in which one schema
-   succeeded resets that count.
+   the schema name, counts it, and goes on with the other schemas. A pass in which no schema
+   succeeded counts as failed. After three failed passes in a row the sweep waits before each next
+   pass: 5 minutes, then 10, 20 and 40 minutes, and 1 hour at most for every pass after that. It
+   writes one `ttl sweep waits before the next pass` line at the start of each wait. The `Local
+   retention:` line shows `failures`, and a `sweep_waits:` line shows `next_attempt_unix_secs`
+   while the wait lasts. A pass in which one schema succeeded ends the wait and resets the count.
+   The sweep never stops for the life of the process, so a restart is not needed to resume it.
 
 ## Verbs
 
