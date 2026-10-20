@@ -1,0 +1,80 @@
+{
+  "accepted_runtime_semantics": false,
+  "candidate_binary_sha256": "5df56dc40067b62ba460ce3cb1fcb2e8abed6001f135389f81c92dfc3707e174",
+  "candidate_commit": "fb5e65dbd49ed73ee964c2bdcb08033f6eb588dc",
+  "candidate_outcome": "Not accepted. Initial OPE/plain requests contain request errors. OPE-v2 observer aborts on a supported text refusal. OPE-v3/plain-v3 expose a missing c1.id after Delete then same-value-key Update. Normal stop and copy identity do not establish semantic correctness.",
+  "checked_utc": "2026-10-20T01:01:27.091528+00:00",
+  "checks": {
+    "15_normal_unforced_stops_preserved": true,
+    "all_172_sealed_original_files_unchanged": true,
+    "five_exact_roots_absent": true,
+    "recorded_creators_and_nodes_absent": true,
+    "seal_unchanged": true,
+    "supported_cleanup_complete": true
+  },
+  "cleanup_outcome_identity": {
+    "bytes": 4523,
+    "sha256": "67e59bdab4f31273d9ef7655e198f174aaa34e705c662b42d6971949730953e9"
+  },
+  "complete": true,
+  "limits": [
+    "This source-free postcheck only reads retained receipts and exact root/PID state.",
+    "Normal stops and cleanup success do not establish candidate semantic correctness."
+  ],
+  "process_check": {
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "recorded_pids": [
+    6516,
+    6536,
+    8597,
+    8666,
+    8673,
+    8697,
+    8797,
+    8802,
+    8978,
+    9436,
+    9441,
+    15470,
+    15489,
+    16045,
+    16849,
+    17412,
+    18310,
+    24059,
+    24137,
+    26646
+  ],
+  "root_checks": [
+    {
+      "absent_even_as_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.2rf10qiv"
+    },
+    {
+      "absent_even_as_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.eyal9b3n"
+    },
+    {
+      "absent_even_as_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.gbd5lgyg"
+    },
+    {
+      "absent_even_as_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.v8ymqsmo"
+    },
+    {
+      "absent_even_as_symlink": true,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.xtkctp4k"
+    }
+  ],
+  "seal_identity": {
+    "bytes": 59105,
+    "sha256": "b4fef42711426ccfb5f83260dafc9a1e394637e2df00305d1e4e2700162497a1"
+  },
+  "sealed_original_file_count": 172,
+  "sealed_original_mismatches": [],
+  "version": 1
+}

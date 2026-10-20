@@ -36,6 +36,13 @@ impl MutationManager {
             )));
         };
 
+        if !self
+            .current_key_belongs(&schema, &key_value, storage_prefix)
+            .await?
+        {
+            return Ok((None, None));
+        }
+
         let Some(entry) = self
             .point_read_field_entry(
                 &mutation.schema_name,
@@ -85,6 +92,23 @@ impl MutationManager {
         Ok(schema)
     }
 
+    async fn current_key_belongs(
+        &self,
+        schema: &crate::schema::Schema,
+        key: &crate::schema::types::KeyValue,
+        storage_prefix: Option<&str>,
+    ) -> Result<bool, SchemaError> {
+        Ok(
+            crate::db_operations::logical_membership::logical_key_membership(
+                &self.db_ops,
+                schema,
+                std::slice::from_ref(key),
+                storage_prefix,
+            )
+            .await?[0],
+        )
+    }
+
     /// Point-read a fixed field set from one exact row.
     ///
     /// Aggregate apply uses this to load one member row and one summary row.
@@ -104,8 +128,8 @@ impl MutationManager {
     ///
     /// Select each tip once, then batch-load their bodies at the same scope.
     /// The winner comes from the same selected tips as the returned values.
-    /// AggregateSet uses it to distinguish an exact replay from a newer
-    /// byte-identical mutation that the molecule layer would keep as a no-op.
+    /// AggregateSet uses it to check whether the stored source order matches
+    /// an exact replay before it advances the member's winner.
     pub(super) async fn read_current_row_fields_with_winner(
         &self,
         mutation: &Mutation,
@@ -114,16 +138,28 @@ impl MutationManager {
     ) -> Result<(CurrentRowFields, Option<AggregateWinner>), SchemaError> {
         let schema = self.load_schema_for_point_read(mutation, storage_prefix)?;
         let key_value = Self::resolve_mutation_key_value(&mutation.schema_name, &schema, mutation)?;
+        if let Some(field) = fields
+            .iter()
+            .find(|field| !schema.runtime_fields.contains_key(*field))
+        {
+            return Err(SchemaError::InvalidField(format!(
+                "point read names field '{field}' absent from schema '{}'",
+                mutation.schema_name,
+            )));
+        }
+        if !self
+            .current_key_belongs(&schema, &key_value, storage_prefix)
+            .await?
+        {
+            return Ok((CurrentRowFields::Absent, None));
+        }
         let selected = futures::future::try_join_all(fields.iter().map(|field| {
-            let schema_field = schema.runtime_fields.get(field);
+            let schema_field = schema
+                .runtime_fields
+                .get(field)
+                .expect("validated current field");
             let key_value = &key_value;
             async move {
-                let schema_field = schema_field.ok_or_else(|| {
-                    SchemaError::InvalidField(format!(
-                        "point read names field '{field}' absent from schema '{}'",
-                        mutation.schema_name
-                    ))
-                })?;
                 let entry = self
                     .point_read_field_entry(
                         &mutation.schema_name,

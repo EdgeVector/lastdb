@@ -116,11 +116,10 @@ impl MutationManager {
         }
     }
 
-    /// Aggregate values are a materialized function of the persisted source
-    /// row. Fold's molecule layer intentionally keeps a same-atom write as
-    /// a no-op, including its old winner. Therefore, a newer member winner
-    /// is valid only when this mutation changes at least one live source
-    /// field. Exact signed retries and stale intents remain no-ops.
+    /// Aggregate member advancement requires at least one changed source value.
+    /// Equal source values permit an exact signed retry or an unchanged member;
+    /// a new member winner over those same values receives an explicit refusal.
+    /// This aggregate rule is separate from normal tip clock advancement.
     pub(super) fn check_source_advance(
         source: &Mutation,
         source_fields: &BTreeMap<String, serde_json::Value>,

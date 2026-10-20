@@ -39,6 +39,9 @@ The request decoder retains those names for an explicit refusal. Current field r
 Each field keeps its current atom in its molecule.
 A query assembles a record from those fields in the selected storage scope.
 Exact reads and range reads use the same query controls and each field's own atom metadata.
+Empty field and numeric condition lists mean no conditions for pages and counts.
+Numeric order and numeric conditions retain the exact stored integer value.
+They do not round a stored integer to a float before the comparison.
 Successful memory tip reads consume the same call allowance as other required reads, including records rejected by visibility checks.
 Keyed fields keep each selected tip's writer; the Single-field writer helper does not override them.
 Field and numeric conditions fetch their fields before the result limit, even when the response omits those fields.
@@ -88,6 +91,10 @@ Conflicts still choose each field's current atom by its author clock.
 A peer with mixed source identities or conflicting shared-field clocks remains unchanged by related cleanup.
 This rule does not introduce unique peer keys or replacement of an entire record on a field write.
 Each schema change reads the earlier private changes in the same batch before it prepares related keys and values.
+HashRange write conditions and explicit Delete or Purge use the declared key membership rule.
+A present declared hash field must prove both coordinates. An absent hash field retains the existing sparse projection rule.
+An ordinary Delete skips a key from another layout. A loud Delete or Purge refuses that key.
+Create and Update refuse the reserved tombstone value before preparation and validate ordinary field types.
 
 Schema key lists capture the schema, selected tips, and atom values in one read.
 The public key list resolves the caller's database membership inside that captured read.
@@ -114,6 +121,8 @@ Concurrent first queries share that load. Later ranges select keys from the comp
 Tips and atom values remain partial. Key preload does not fetch every value.
 The key allowance is separate from the 10,000-record warm limit.
 Unselected schemas and refused loads use the bounded disk selector.
+A failed optional preload releases its incomplete keys and retains its diagnostic reason.
+It does not prevent a later keyed disk read. A required disk read still reports its own error.
 An empty hash is valid for both initial key preload and later changes to the complete key set.
 
 ## Write and flush
@@ -146,6 +155,17 @@ Ordinary reads cannot query that queue.
 The prepared disk commit owns its disk-space reservation directly.
 A failed commit retains that reservation; the sealed queue retains its pending request owners.
 The native journal supports recovery of stored writes. It does not replace the current core state.
+Local mutations in one batch share one logical revision and receive consecutive author times in caller order.
+The durable clock reservation covers the final time before the batch can flush.
+Imported signed clocks remain unchanged. Random mutation identities do not order repeated local writes.
+A new winning tip replaces the full author clock and optional key metadata, even when its atom identity stays the same.
+The atom identity describes the schema and value. It does not describe the write time or key metadata.
+Equal atoms do not create a different-atom conflict or a replacement-history entry.
+The same commit retires the prior tip's reference. A reference that the current tip still uses stays active.
+A present key-metadata record supplies all its optional fields. An omitted member clears that value.
+Only the absence of the entire key-metadata record permits atom creation metadata as a fallback.
+Single and batch requests carry the declared source file name through the same write pipeline.
+Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
 
@@ -165,6 +185,9 @@ Both Purge paths check shared references after removal of the target tips.
 A failed reference check stops publication before atom removal.
 Reference data uses the selected database scope. Its completion proof covers the whole home and uses unprefixed markers.
 A missing completion proof refuses atom removal. An older reference store cannot replace that proof.
+The atom liveness report reads the current exact reference count. A missing or inexact count remains unknown.
+The report does not reconstruct atom references from retired JSON records or invent an empty reference list.
+This diagnostic accepts the default owner scope. It refuses named database handles because it lacks a schema for their alias lookup.
 An optional peer key without scalar coordinates receives no related deletion.
 The caller's addressed record remains eligible for deletion.
 Delete and Purge select related keys under the same native write boundary as their removal.

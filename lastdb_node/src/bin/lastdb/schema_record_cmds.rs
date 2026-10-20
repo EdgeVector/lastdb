@@ -404,7 +404,7 @@ pub(super) fn liveness_explain_command(
     }
 
     if let Some(atoms) = report.get("atoms").and_then(serde_json::Value::as_array) {
-        print_atom_liveness(atoms);
+        crate::liveness_atom_print::print_atom_liveness(atoms);
         return Ok(());
     }
     let returned_class = report
@@ -423,49 +423,20 @@ pub(super) fn liveness_explain_command(
         .get("reclaim_state")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
-    let edges = report
-        .get("edges")
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
     println!("Liveness: {returned_class} {returned_id}");
     println!("  Complete: {complete}");
     println!("  Reclaim state: {reclaim_state}");
-    println!("  Active edges in this target partition: {edges}");
-    Ok(())
-}
-
-/// One block for each atom: the counter, the state and the body. An atom has no
-/// list of referrers; the counter holds the number of tip and conflict records.
-fn print_atom_liveness(atoms: &[serde_json::Value]) {
-    for atom in atoms {
-        let id = atom
-            .get("atom")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("?");
-        let state = atom
-            .get("state")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unknown");
-        let refs = atom
-            .get("refs")
-            .and_then(serde_json::Value::as_u64)
-            .map_or_else(|| "none".to_string(), |refs| refs.to_string());
-        let flag = |name: &str| {
-            atom.get(name)
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-        };
-        let blobs = atom
-            .get("blobs")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        println!("Liveness: atom {id}");
-        println!("  State: {state}");
-        println!("  Counter (tip and conflict records that name the atom): {refs}");
-        println!("  Suspect: {}", flag("suspect"));
-        println!("  Body present: {}", flag("body_present"));
-        println!("  Blob references: {blobs}");
+    match report
+        .get("active_references")
+        .and_then(serde_json::Value::as_u64)
+    {
+        Some(count) => println!("  Active references in this target: {count}"),
+        None => println!("  Active references in this target: unknown"),
     }
+    if let Some(edges) = report.get("edges").and_then(serde_json::Value::as_array) {
+        println!("  Active edges in this target partition: {}", edges.len());
+    }
+    Ok(())
 }
 
 pub(super) fn liveness_bootstrap_command(

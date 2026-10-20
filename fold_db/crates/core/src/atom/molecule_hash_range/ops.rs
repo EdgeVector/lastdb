@@ -21,20 +21,8 @@ impl MoleculeHashRange {
         self.updated_at
     }
 
-    /// Adds an atom UUID using explicit hash and range values.
-    /// Bumps the version counter only when the atom actually changes.
-    ///
-    /// When the existing entry at `(hash_value, range_value)` already
-    /// references the same `atom_uuid` **and** was signed by the supplied
-    /// `keypair`'s pubkey, this is a complete no-op: `updated_at`, the
-    /// existing entry's `written_at`, and the existing signature are all
-    /// preserved. The `written_at` invariant is
-    /// load-bearing — `merge` consumes `AtomEntry.written_at` for
-    /// last-writer-wins per-key resolution, so silently bumping it on a
-    /// no-op write changes cross-node merge outcomes (mirror of PR #114's
-    /// merge-side fix and PR #123's `MoleculeHash` write-path fix). See
-    /// `MoleculeRange::set_atom_uuid` for the rationale on the
-    /// `writer_pubkey` check.
+    /// Add a local tip using explicit hash and range values.
+    /// A new write advances its author clock even when the atom is unchanged.
     pub fn set_atom_uuid_from_values(
         &mut self,
         hash_value: String,
@@ -63,22 +51,8 @@ impl MoleculeHashRange {
         mutation_uuid: String,
     ) {
         let device_id = keypair.public_key_base64();
-        if self
-            .get_atom_entry(&hash_value, &range_value)
-            .is_some_and(|e| {
-                e.atom_uuid == atom_uuid
-                    && (e.device_id == device_id
-                        || e.writer_pubkey == device_id
-                        || (e.device_id.is_empty() && e.writer_pubkey.is_empty()))
-            })
-        {
-            return;
-        }
-        self.record_replaced_tip(&hash_value, &range_value, &atom_uuid);
-        let value_changed = self.get_atom_uuid(&hash_value, &range_value) != Some(&atom_uuid);
-        if value_changed {
-            self.version += 1;
-        }
+        self.record_replaced_tip(&hash_value, &range_value);
+        self.version += 1;
         let written_at = now_nanos();
         self.atom_uuids.entry(hash_value).or_default().insert(
             range_value,
@@ -95,14 +69,13 @@ impl MoleculeHashRange {
     }
 
     /// Retain the prior tip until persistence retires its reverse reference.
+    /// Equal atoms can have different references after an author-clock change.
+    /// The compact-edge planner preserves any edge still used by the new tip.
     /// This is a private write effect, not stored atom history.
-    pub(super) fn record_replaced_tip(&mut self, hash: &str, range: &str, new_atom_uuid: &str) {
+    pub(super) fn record_replaced_tip(&mut self, hash: &str, range: &str) {
         let Some(old) = self.get_atom_entry(hash, range).cloned() else {
             return;
         };
-        if old.atom_uuid == new_atom_uuid {
-            return;
-        }
         self.pending_replaced_tips
             .push((hash.to_string(), range.to_string(), old));
     }

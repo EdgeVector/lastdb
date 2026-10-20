@@ -23,6 +23,7 @@ pub struct MutationComponents {
     pub fields_and_values: HashMap<String, Value>,
     pub key_value: KeyValue,
     pub mutation_type: MutationType,
+    pub source_file_name: Option<String>,
     pub expected: Option<fold_db::schema::types::cas::CasExpectation>,
     pub convergence: MutationConvergence,
     pub durability: MutationDurability,
@@ -60,6 +61,7 @@ pub async fn execute_mutation<H: HostNode>(
         fields_and_values,
         key_value,
         mutation_type,
+        source_file_name,
         expected,
         convergence,
         durability,
@@ -111,6 +113,7 @@ pub async fn execute_mutation<H: HostNode>(
         canonical: &canonical,
         fields_and_values: &fields_and_values,
         mutation_type,
+        source_file_name: &source_file_name,
         durability,
         expected: &expected,
         must_exist,
@@ -261,6 +264,7 @@ struct MutationTemplate<'a> {
     canonical: &'a str,
     fields_and_values: &'a HashMap<String, Value>,
     mutation_type: MutationType,
+    source_file_name: &'a Option<String>,
     durability: MutationDurability,
     expected: &'a Option<fold_db::schema::types::cas::CasExpectation>,
     must_exist: Option<bool>,
@@ -283,6 +287,7 @@ fn build_mutations<H: HostNode>(
                 host.public_key(),
                 tpl.mutation_type,
             );
+            mutation.source_file_name.clone_from(tpl.source_file_name);
             if tpl.durability.waits_for_persist() {
                 mutation.synchronous = Some(true);
             }

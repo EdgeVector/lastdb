@@ -6,7 +6,7 @@
 //!
 //! The option is off by default. An unchanged field then retains its previous
 //! tip time rather than advancing its conflict order. Writes with provenance,
-//! imported clocks, or a compare condition always retain their tip updates.
+//! key metadata, imported clocks, or a compare condition retain their tip updates.
 //! Repeated writes to the same physical slot within a batch also stay in order;
 //! comparing each one with the pre-batch tip could otherwise discard the final
 //! value in an A -> B -> A sequence. Delete uses its separate tip-removal route.
@@ -35,6 +35,8 @@ pub fn parse_write_dedupe(raw: Option<String>) -> bool {
 #[must_use]
 pub fn mutation_is_dedupe_eligible(mutation: &Mutation) -> bool {
     mutation.provenance.is_none()
+        && mutation.source_file_name.is_none()
+        && mutation.metadata.is_none()
         && mutation.imported_written_at.is_none()
         && mutation.imported_version.is_none()
         && mutation.expected.is_none()
@@ -100,9 +102,9 @@ impl MutationManager {
                 let Some(key_value) = mutation_key_values.get(*idx) else {
                     return true;
                 };
-                // Atom uuids are content-addressed over
-                // `(schema_name, content, source_file_name, metadata)`, so uuid
-                // equality here IS value equality — no separate compare.
+                // Atom UUIDs identify only the source schema and value.
+                // Eligibility excludes key metadata and authored tip changes;
+                // equal value bytes alone cannot establish those are unchanged.
                 let unchanged = field.current_atom_uuid(key_value).as_deref() == Some(atom.uuid());
                 if unchanged {
                     tracing::trace!(

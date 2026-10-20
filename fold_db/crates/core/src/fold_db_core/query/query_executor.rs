@@ -208,12 +208,7 @@ impl QueryExecutor {
                         ))
                     })?;
                 Self::reject_unknown_projection(&schema, &query.fields)?;
-                if query.value_filters.is_some()
-                    || query.field_predicates.is_some()
-                    || query.order_by.is_some()
-                    || query.predicate_limit.is_some()
-                    || query.include_tombstones
-                {
+                if query.requires_post_key_work() || query.include_tombstones {
                     return Ok(None);
                 }
                 if let Some(prefix) = storage_prefix.as_deref() {

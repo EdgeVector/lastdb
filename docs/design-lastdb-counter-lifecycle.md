@@ -468,9 +468,9 @@ The S1 build ran on fresh synthetic homes (`dev-release`, `EXEMEM_ENV=dev`).
 | Operations per tip, delete, same case | 4.8 at 6 fields, 5.0 at 24 fields |
 | Operations per tip when the atoms are shared | 2.3 to 2.5 (purge), 3.3 to 3.5 (delete) |
 | Purge of 64 keys of a 24-field schema (1,536 tips) | 6,046 operations in one batch, gate hold about 250 ms, 0.8 to 0.9 s from the client |
-| TTL sweep, 6 fields, 2,400 rows, 2,100 expired, two writers | all 2,100 erased in 572 s; a batch of 16 keys takes 0.90 s at the median and 3.6 s at most; the gate hold of an erase request is 37 ms at the median and 62 ms at most |
+| TTL sweep, 6 fields, 2,400 rows, 2,100 expired, two writers | all 2,100 erased in 557 s; a batch of 16 keys takes 0.70 s at the median and 3.5 s at most; the gate hold of an erase request is 42 ms at the median and 130 ms at most |
 
-The estimate of section 13 undercounted the operations (see the chunking rule in section 6). The batch time is above the 0.4 to 0.8 s expectation and under the 2 s target.
+The estimate of section 13 undercounted the operations and the reads (see the chunking rule in section 6). The median batch time is inside the 0.4 to 0.8 s expectation, and the longest batch is above the 2 s target.
 
 ---
 
@@ -479,7 +479,7 @@ The estimate of section 13 undercounted the operations (see the chunking rule in
 | | Today (1,000 rows, measured) | New (expected) |
 |---|---|---|
 | Batch of 16 keys | median 4.8 s (4.1 to 21.6 s) | 0.4 to 0.8 s. Target: well under 2 s. |
-| Fails at | about 2,400 rows | no size limit from the schema. Limit from K·F: one request holds up to 16,384 operations (4,096 on an older home). A purge fits 603 keys of 6 fields or 151 keys of 24 fields (168 and 42 on an older home). A delete fits 541 and 135 (135 and 33). |
+| Fails at | about 2,400 rows | no size limit from the schema. Limit from K·F: one request holds up to 16,384 operations (4,096 on an older home). A purge fits 553 keys of 6 fields or 138 keys of 24 fields (168 and 42 on an older home). A delete fits 511 and 128 (135 and 33). |
 | Schema purge barrier | 0.72 to 1.07 s per batch | **none** |
 | Gate hold per batch | not measured | reads of about 200 keys plus staging. Expected under 300 ms. Target under 1 s. |
 | Writers during the sweep | other schema: longest 5.1 s | one gate hold plus the flush wait, which is outside the gate |
@@ -530,7 +530,7 @@ Total about 11,000 lines. Replaced by: the counter record type, the planner, the
 | R10 | Old defects stay: `mgd` markers grow, delete barriers grow. | Out of scope. Named here so no reader thinks this design fixes them. |
 | R11 | Two builds with two counter models open one home. | The format fence (S1). |
 | R12 | A request with many fields exceeds the operation limit. | Refuse before the gate with a clear limit error. Chunk by key for erasure. |
-| R13 | The in-gate read budget (40,000) limits K·F. | The estimate of 2 examined keys per tip was wrong. The S1 build measured 9 to 12 (target tips, peer expansion, counters, bodies), so the budget binds at about 3,300 tips (151 keys of 24 fields for a purge). The size check refuses early, and the sweep halves a batch that hits the limit. |
+| R13 | The in-gate read budget (40,000) limits K·F. | The estimate of 2 examined keys per tip was wrong. The S1 build measured 9 to 12 (target tips, peer expansion, counters, bodies), so the budget binds at about 3,300 tips (138 keys of 24 fields for a purge). The size check refuses early, and the sweep halves a batch that hits the limit. |
 
 ---
 

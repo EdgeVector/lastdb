@@ -81,8 +81,8 @@ impl MutationManager {
         // this barrier, so durable LWW data cannot pass its durable clock.
         let author_clock_barrier =
             author_clock_persist.map(|(reservation, state)| reservation.submit_with_barrier(state));
-        // One clock value per caller batch, so the first locally authored
-        // mutation carries the whole batch's committed revision.
+        // One logical counter per caller batch, so its first local mutation
+        // carries the common revision. Per-item author times preserve order.
         let revision = authored_locally
             .iter()
             .zip(mutations.iter())

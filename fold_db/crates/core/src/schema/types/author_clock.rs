@@ -19,6 +19,24 @@ pub struct MutationAuthorClockState {
 }
 
 impl MutationAuthorClockState {
+    /// Reserve consecutive local write times under one batch revision. Each
+    /// mutation keeps the same counter, but later items outrank earlier items
+    /// without using their UUIDs. Refuse an exhausted range before changing
+    /// this state; the durable high-water includes its final timestamp.
+    pub(crate) fn advance_local_batch(
+        &mut self,
+        now_nanos: u64,
+        count: usize,
+    ) -> Option<(std::ops::RangeInclusive<u64>, u64)> {
+        let additional = u64::try_from(count.checked_sub(1)?).ok()?;
+        let mut state = *self;
+        let (first, counter) = state.advance_local(now_nanos)?;
+        let last = first.checked_add(additional)?;
+        state.physical_nanos = last;
+        *self = state;
+        Some((first..=last, counter))
+    }
+
     /// Advance one local event. A wall-clock rollback cannot reduce either
     /// component of the durable author clock.
     #[must_use]
