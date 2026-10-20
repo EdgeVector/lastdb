@@ -9,8 +9,11 @@
 //! The read of a page holds no write gate. Each page that has due records runs
 //! one release batch (`AtomStore::release_due_entries`): one native write scope,
 //! one batch, and the gate is free again before the next page. The janitor
-//! deletes no atom. The batch names the history rows to the planner, which
-//! lowers the references and deletes a body only when its count reaches zero.
+//! rests after each batch for three times the batch time (a duty share of 25
+//! percent), so the flush of a release batch leaves the disk to the writers
+//! most of the time. The janitor deletes no atom. The batch names the history
+//! rows to the planner, which lowers the references and deletes a body only
+//! when its count reaches zero.
 //!
 //! The queue is sorted by expiry, so a page whose first entry is not due ends
 //! the wake. A watermark remembers the last released key, so a page read skips
@@ -33,11 +36,18 @@ pub const CONFLICT_JANITOR_MS_ENV: &str = "LASTDB_CONFLICT_JANITOR_MS";
 /// Default interval between wakes: one minute.
 pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
 /// Queue keys that one page reads, and so the most records of one release batch.
-const PAGE: usize = 64;
+const PAGE: usize = 32;
 /// Pages of one wake, at most. A larger backlog continues at the next wake.
 const PAGES_PER_WAKE: usize = 256;
-/// The pause between two pages, so that a writer finds the gate free.
-const PAUSE_BETWEEN_PAGES: Duration = Duration::from_millis(20);
+/// The share of wall time, in percent, that the janitor may spend inside
+/// release batches. A batch deletes many keys, and its flush shares the disk
+/// with every writer. The janitor rests after each batch for
+/// `took * (100 - duty) / duty`, like the TTL sweep (`ttl_sweep/pace.rs`).
+const DUTY_PCT: u64 = 25;
+/// The shortest rest between two pages.
+const MIN_PAUSE: Duration = Duration::from_millis(25);
+/// The longest rest between two pages.
+const MAX_PAUSE: Duration = Duration::from_secs(30);
 /// A wake that reads the queue from its start, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
 
@@ -150,6 +160,13 @@ impl Drop for BackgroundConflictJanitorTask {
     }
 }
 
+/// The rest after a release batch that took `took`.
+fn pause_after(took: Duration) -> Duration {
+    let took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+    Duration::from_millis(took_ms.saturating_mul(100 - DUTY_PCT) / DUTY_PCT)
+        .clamp(MIN_PAUSE, MAX_PAUSE)
+}
+
 fn now_nanos() -> u64 {
     let now = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(i64::MAX);
     u64::try_from(now).unwrap_or(0)
@@ -179,6 +196,7 @@ async fn run_wake(db_ops: &DbOperations, stop: &AtomicBool, watermark: &mut Opti
         }
         let last_due = due.last().cloned();
         let more_due = due.len() == page.keys.len() && page.full;
+        let batch_started = std::time::Instant::now();
         match atoms.release_due_entries(due, now).await {
             Ok(outcome) => {
                 released += outcome.released;
@@ -193,7 +211,7 @@ async fn run_wake(db_ops: &DbOperations, stop: &AtomicBool, watermark: &mut Opti
         if !more_due {
             break;
         }
-        tokio::time::sleep(PAUSE_BETWEEN_PAGES).await;
+        tokio::time::sleep(pause_after(batch_started.elapsed())).await;
     }
     if let Some(failure) = &error {
         tracing::warn!(

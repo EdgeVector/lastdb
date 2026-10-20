@@ -127,9 +127,12 @@ A record ends in two ways, and both use the same release:
    A protein key move is not an erase and releases nothing.
 2. **The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes
    every `LASTDB_CONFLICT_JANITOR_MS` (60,000; zero turns it off). It reads the
-   queue oldest first, in pages of 64 keys, with no write gate, and runs one
+   queue oldest first, in pages of 32 keys, with no write gate, and runs one
    release batch for each page that has due entries (`background_scope`: one
-   gate hold, then durable). The gate is free between pages. The window is
+   gate hold, then durable). The gate is free between pages, and the janitor
+   rests after each batch for three times the batch time (a duty share of 25
+   percent), because the flush of a release batch shares the disk with the
+   writers. The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.
 
