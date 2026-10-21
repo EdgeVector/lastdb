@@ -140,6 +140,17 @@ A wake that ends with an error doubles the wait before the next one, up to ten m
 - `lastdb db verify-refs` stays clean after a drain: a molecule with no header and no tip
   has nothing to compare.
 
+## Why the candidate list is not the time queue
+
+A candidate has no due time, and the list holds only the molecules that lost their
+last binding and are not done. The list is one hash, read with a bounded range walk
+(`RangeWalk`) that passes the deleted keys of finished candidates with reads that
+cannot fail on them (`docs/lastdb-time-queue.md` explains the failure of a plain page
+read). The task reads the list from its start at each wake, so the cost of a wake grows
+with the number of molecules ever drained, not with the pending ones. A home that
+drained millions of molecules would pay reads at each wake. A bucketed layout can
+replace the single hash without a change to the drain steps.
+
 ## Known limits
 
 - A schema that is installed again before its drain finishes binds its molecules again. The
