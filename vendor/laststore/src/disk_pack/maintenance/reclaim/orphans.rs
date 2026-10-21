@@ -29,6 +29,8 @@ pub(in crate::disk_pack) fn sweep_orphans_locked(
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     }
+    // The sweep removes only files that no receipt on disk names. A local read
+    // holds a generation whose receipt stays, so no active read defers the sweep.
     let Some(_local) = lock.exclude_local_reads(&current)? else {
         receipt.reclaim_deferred = true;
         return Ok(receipt);
@@ -90,7 +92,11 @@ fn named_paths(
         for coordinate in receipt.coordinates {
             named.insert(coordinate.path(root)?);
             if named.len() > MAX_RETAINED_PARTS {
-                return Err(crate::disk_pack::resource());
+                return Err(crate::Error::Config(format!(
+                    "disk-pack orphan sweep: the receipts on disk name more than \
+                     {MAX_RETAINED_PARTS} parts; finish reclaim of old generations first; \
+                     nothing was deleted"
+                )));
             }
         }
     }

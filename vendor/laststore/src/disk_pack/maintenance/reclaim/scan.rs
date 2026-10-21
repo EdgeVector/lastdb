@@ -38,13 +38,21 @@ pub(super) fn scan_old(
             continue;
         }
         let receipt = at_generation(generation::read_receipt(root, &held), root, number)?;
-        for coordinate in &receipt.coordinates {
-            if !live.contains(coordinate) {
-                scan.candidates.insert(*coordinate, coordinate.path(root)?);
-                if scan.candidates.len() > MAX_RETAINED_PARTS {
-                    return Err(crate::disk_pack::resource());
-                }
-            }
+        let fresh: Vec<Coordinate> = receipt
+            .coordinates
+            .iter()
+            .filter(|coordinate| {
+                !live.contains(*coordinate) && !scan.candidates.contains_key(*coordinate)
+            })
+            .copied()
+            .collect();
+        // One call plans a bounded set of parts. The rest wait for the next call.
+        if !scan.old.is_empty() && scan.candidates.len() + fresh.len() > MAX_RETAINED_PARTS {
+            scan.remaining = true;
+            break;
+        }
+        for coordinate in fresh {
+            scan.candidates.insert(coordinate, coordinate.path(root)?);
         }
         // Retain root identities only; old conservative receipts can overlap heavily.
         scan.old.push(held);

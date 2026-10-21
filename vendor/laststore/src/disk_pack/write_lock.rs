@@ -1,5 +1,6 @@
 use super::{artifact, Current};
 use crate::Result;
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -9,6 +10,9 @@ pub(super) struct WriteLock {
     root: PathBuf,
     _file: File,
     checked_current: Mutex<Option<[u8; 32]>>,
+    /// Retained generations whose parts this lease already verified, with the
+    /// digest of each root. Reclaim reads such a receipt without opening every part again.
+    verified: Mutex<BTreeMap<u64, [u8; 32]>>,
     pub(super) read_state: Mutex<super::lifetime::WriterReadState>,
 }
 
@@ -51,6 +55,7 @@ impl WriteLock {
             root,
             _file: file,
             checked_current: Mutex::new(None),
+            verified: Mutex::new(BTreeMap::new()),
             read_state: Mutex::new(super::lifetime::WriterReadState::new(current.generation)),
         })
     }
@@ -66,6 +71,38 @@ impl WriteLock {
             .lock()
             .map_err(|_| super::corrupt("verified writer root lock is poisoned"))?;
         Ok(*checked == Some(super::bytes::digest(&current.encode()?)))
+    }
+
+    /// True when this lease verified this exact root, or published it.
+    pub(super) fn verified(&self, current: &Current) -> Result<bool> {
+        if self.checked(current)? {
+            return Ok(true);
+        }
+        let verified = self
+            .verified
+            .lock()
+            .map_err(|_| super::corrupt("verified generation lock is poisoned"))?;
+        Ok(verified.get(&current.generation) == Some(&super::bytes::digest(&current.encode()?)))
+    }
+
+    /// Call only after complete dependency verification of this root.
+    pub(super) fn remember_verified(&self, current: &Current) -> Result<()> {
+        let mut verified = self
+            .verified
+            .lock()
+            .map_err(|_| super::corrupt("verified generation lock is poisoned"))?;
+        verified.insert(current.generation, super::bytes::digest(&current.encode()?));
+        Ok(())
+    }
+
+    /// Forget every verified root that reclaim no longer retains.
+    pub(super) fn keep_verified(&self, keep: &std::collections::BTreeSet<u64>) -> Result<()> {
+        let mut verified = self
+            .verified
+            .lock()
+            .map_err(|_| super::corrupt("verified generation lock is poisoned"))?;
+        verified.retain(|generation, _| keep.contains(generation));
+        Ok(())
     }
 
     /// Call only after complete dependency verification or successful root barriers.

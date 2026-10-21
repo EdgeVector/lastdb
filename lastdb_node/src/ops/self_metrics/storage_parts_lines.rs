@@ -14,6 +14,12 @@ pub fn storage_parts_status_line(snapshot: &StatusSnapshot) -> String {
     let percent = parts.dependency_parts.saturating_mul(100) / parts.dependency_parts_limit.max(1);
     let maintenance = if !parts.auto_maintenance {
         "automatic maintenance off".to_string()
+    } else if !parts.maintenance_worker_alive && parts.maintenance_worker_restarts > 0 {
+        // The worker died. The supervisor restarts it, so this reads as a gap.
+        format!(
+            "maintenance worker DOWN (restarts {})",
+            parts.maintenance_worker_restarts
+        )
     } else if parts.maintenance_running {
         "maintenance running".to_string()
     } else {
@@ -37,8 +43,23 @@ pub fn storage_parts_status_line(snapshot: &StatusSnapshot) -> String {
         parts.maintenance_runs,
         parts.maintenance_failures,
     );
+    if parts.maintenance_worker_restarts > 0 && parts.maintenance_worker_alive {
+        line.push_str(&format!(
+            "; worker restarts {}",
+            parts.maintenance_worker_restarts
+        ));
+    }
+    if parts.reclaim_pending {
+        line.push_str("; old generations wait for reclaim");
+    }
     if let Some(error) = parts.maintenance_last_error.as_deref() {
         line.push_str(&format!("; last error: {error}"));
+    }
+    if let Some(error) = parts.reclaim_last_error.as_deref() {
+        line.push_str(&format!(
+            "; reclaim failing ({} failures), disk grows with each pack: {error}",
+            parts.reclaim_failures
+        ));
     }
     line
 }

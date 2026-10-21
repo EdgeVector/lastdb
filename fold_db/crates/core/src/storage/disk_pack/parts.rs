@@ -55,7 +55,19 @@ pub(super) struct PartsLedger {
     /// Wait before the first pack of a process, in seconds.
     start_delay_secs: u64,
     wake: Notify,
+    /// Set once the worker was started. A started worker that died is restarted.
     worker: AtomicBool,
+    /// True while the worker task runs. A panic clears it until the restart.
+    alive: AtomicBool,
+    worker_restarts: AtomicU64,
+    /// Old generations remain, or a reclaim waits for its next try.
+    reclaim_pending: AtomicBool,
+    /// Set by a failed reclaim, cleared by a reclaim that ran to its end. While it
+    /// is set, maintenance starts at the ceiling instead of the mark: a pack that
+    /// cannot be followed by a reclaim only adds a full copy of the live data.
+    reclaim_failing: AtomicBool,
+    reclaim_failures: AtomicU64,
+    reclaim_error: Mutex<Option<String>>,
     running: AtomicBool,
     /// Set by a failed run, cleared by a published replacement. A failing worker
     /// cannot make room, so a writer does not wait for it.
@@ -77,6 +89,7 @@ pub(super) struct RunCounts {
 
 /// Part count and maintenance state, served in the native disk status.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct NativePartsStatus {
     /// Parts the current generation receipt names.
     pub dependency_parts: u64,
@@ -99,6 +112,17 @@ pub struct NativePartsStatus {
     pub maintenance_last_records: u64,
     pub maintenance_last_millis: u64,
     pub maintenance_last_error: Option<String>,
+    /// Whether the worker task runs now. False with automatic maintenance on means
+    /// the worker died and waits for its restart.
+    pub maintenance_worker_alive: bool,
+    /// Times the supervisor restarted the worker after a panic.
+    pub maintenance_worker_restarts: u64,
+    /// Old generations wait for reclaim, or a reclaim waits for its next try.
+    pub reclaim_pending: bool,
+    pub reclaim_failures: u64,
+    /// The last reclaim error, until a reclaim ends without error. A reclaim that
+    /// cannot run leaves old generations on disk, so the disk grows with each pack.
+    pub reclaim_last_error: Option<String>,
 }
 
 impl PartsLedger {
@@ -122,6 +146,12 @@ impl PartsLedger {
             start_delay_secs: env_flag::var_or("LASTDB_AUTO_MAINTENANCE_START_DELAY_SECS", 30),
             wake: Notify::new(),
             worker: AtomicBool::new(false),
+            alive: AtomicBool::new(false),
+            worker_restarts: AtomicU64::new(0),
+            reclaim_pending: AtomicBool::new(false),
+            reclaim_failing: AtomicBool::new(false),
+            reclaim_failures: AtomicU64::new(0),
+            reclaim_error: Mutex::new(None),
             running: AtomicBool::new(false),
             failing: AtomicBool::new(false),
             runs: AtomicU64::new(0),
@@ -139,6 +169,9 @@ impl PartsLedger {
     /// is highest, below the ceiling.
     fn trigger(&self) -> u64 {
         let ceiling = MAX_DEPENDENCY_PARTS * TRIGGER_CEILING_PERCENT / 100;
+        if self.reclaim_failing.load(Relaxed) {
+            return ceiling;
+        }
         let by_records = (self.records.load(Relaxed).saturating_mul(20) as f64).sqrt() as u64;
         self.high_water
             .max(self.baseline.load(Relaxed).saturating_mul(2))
@@ -203,6 +236,29 @@ impl PartsLedger {
         self.last_millis.fetch_add(millis, Relaxed);
     }
 
+    /// A reclaim failed after the pack: the count is final, and only the disk is at risk.
+    pub(super) fn record_reclaim_failure(&self, error: &StorageError) {
+        self.reclaim_failures.fetch_add(1, Relaxed);
+        self.reclaim_failing.store(true, Relaxed);
+        *self.reclaim_error.lock().expect("parts reclaim error") = Some(error.to_string());
+    }
+
+    /// The worker task panicked. The supervisor restarts it, and a writer above the
+    /// soft limit stops waiting for it until a run succeeds.
+    pub(super) fn record_worker_panic(&self, detail: &str) {
+        self.worker_restarts.fetch_add(1, Relaxed);
+        self.failures.fetch_add(1, Relaxed);
+        self.failing.store(true, Relaxed);
+        *self.last_error.lock().expect("parts last error") =
+            Some(format!("maintenance worker panicked: {detail}"));
+    }
+
+    /// A reclaim call ended without an error.
+    pub(super) fn record_reclaim_ok(&self) {
+        self.reclaim_failing.store(false, Relaxed);
+        *self.reclaim_error.lock().expect("parts reclaim error") = None;
+    }
+
     pub(super) fn record_failure(&self, error: &StorageError) {
         self.failures.fetch_add(1, Relaxed);
         self.failing.store(true, Relaxed);
@@ -230,6 +286,15 @@ impl PartsLedger {
             maintenance_last_records: self.records.load(Relaxed),
             maintenance_last_millis: self.last_millis.load(Relaxed),
             maintenance_last_error: self.last_error.lock().expect("parts last error").clone(),
+            maintenance_worker_alive: self.alive.load(Relaxed),
+            maintenance_worker_restarts: self.worker_restarts.load(Relaxed),
+            reclaim_pending: self.reclaim_pending.load(Relaxed),
+            reclaim_failures: self.reclaim_failures.load(Relaxed),
+            reclaim_last_error: self
+                .reclaim_error
+                .lock()
+                .expect("parts reclaim error")
+                .clone(),
         }
     }
 }

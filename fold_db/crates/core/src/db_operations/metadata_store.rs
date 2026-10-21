@@ -100,7 +100,14 @@ impl MetadataStore {
         self.metadata_store
             .put_item(key, value)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("metadata put {key}: {e}")))
+            .map_err(|error| match error {
+                // A capacity refusal keeps its type. The author-clock queue and the
+                // HTTP layer answer it with a retry hint, not as an invalid payload.
+                StorageError::WriteResourceLimit { detail } => {
+                    SchemaError::WriteResourceLimit { detail }
+                }
+                other => SchemaError::InvalidData(format!("metadata put {key}: {other}")),
+            })
     }
 
     /// Point-put one JSON value and flush the metadata namespace before return.

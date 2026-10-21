@@ -23,7 +23,9 @@ impl ClockCoverage {
     ) -> AuthorClockPersistBarrier {
         let mut current = self.current.lock().expect("native author-clock coverage");
         if let Some((reserved, barrier)) = &*current {
-            if state.physical_nanos <= reserved.physical_nanos
+            // A refused reservation is not durable, so it covers nothing.
+            if !barrier.refused()
+                && state.physical_nanos <= reserved.physical_nanos
                 && state.logical_counter <= reserved.logical_counter
             {
                 return barrier.clone();

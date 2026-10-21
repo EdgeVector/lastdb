@@ -22,7 +22,9 @@ A native runtime read uses a typed capability from its exclusive writer.
 The call registers under the read-view lock and performs no file access for that protection.
 The capability retains the operating-system writer lease through the last read scope.
 A separate process cannot acquire the writer lease while that call exists.
-An atomic local gate makes internal reclaim defer while any such call exists.
+An atomic local gate counts the active calls for each generation.
+Reclaim does not defer for them: it keeps every generation that an active call holds, with its whole closure.
+A call therefore finds every file that its own receipt names, and a tight loop of reads cannot starve reclaim.
 The gate also refuses new holds during reclaim and refuses roots below its retained generation floor.
 Standalone reads keep the cross-process `LIFETIME_LOCK` protocol.
 
@@ -71,7 +73,9 @@ No reservation takes credit for later file removal.
 ## Reclaim
 
 Reclaim requires a complete journal checkpoint and the lifetime feature bit.
-It verifies the full closure of `CURRENT`, named references, and generations inside the grace period.
+It verifies the full closure of `CURRENT`, named references, generations that active local reads hold, and generations inside the grace period.
+The writer lease verifies each retained generation once; a later call reads its receipt only, so a drain of many calls does not open every part again.
+The retained generations can name at most 262,144 parts. A home above that bound stops reclaim with an error that says so and that nothing was deleted; release stale references to resume it.
 The default grace period is 24 hours.
 It never infers release from a reference expiry.
 It removes only exact obsolete paths recorded by old generation receipts.
@@ -80,7 +84,9 @@ It refuses symlink namespaces.
 
 Old receipt directories move atomically into an owned retirement namespace after their dependencies no longer need retention.
 A later call can finish an interrupted receipt cleanup.
-Unknown files and failed private outputs remain retained; this command does not invent ownership for them.
+Reclaim removes only a receipt that is provably unfinished (see `docs/lastdb-storage-parts.md`).
+Any other unreadable receipt, unknown file, or failed private output stops reclaim with an error that names the directory, and the directory stays; this command does not invent ownership for them.
+The sweep of part files that no receipt names is a separate step. It removes those files after a minimum age.
 
 ## Product commands
 
@@ -108,7 +114,8 @@ New writes wait; this path has no incremental job or wall-clock work limit.
 The long pack copy permits reads from the old root.
 After publication, the runtime takes the read-view write lock and installs the new root.
 It then attempts reclaim before it releases that lock.
-Older active calls retain their generation holds and can defer deletion.
+Older active calls keep their generations: reclaim retains each held generation and deletes nothing in its closure.
+Another process that holds the shared lifetime lock still defers reclaim.
 New calls acquire their generation hold before they release the view read lock.
 Thus no call can capture a root after its files retire.
 

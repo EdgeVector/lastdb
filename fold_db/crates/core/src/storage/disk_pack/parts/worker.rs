@@ -1,20 +1,38 @@
 //! The single task that runs maintenance when the part count passes its mark.
+//!
+//! The worker is a loop over bounded steps. A pack has priority: it runs whenever
+//! the count passes the trigger, even while old generations wait for reclaim or
+//! a reclaim waits for its next try. Reclaim, the drain of old generations, and
+//! the orphan sweep run only when no pack is due. Each step holds the write gate
+//! for a bounded time, so a waiting writer runs between two steps.
 
 use super::*;
+use std::time::{Duration, Instant};
 use tracing::Instrument;
 
-/// Longest pause between two failed maintenance attempts.
+/// Longest pause between two failed packs.
 const MAX_BACKOFF_SECS: u64 = 60;
-/// Retries of a reclaim that active reads deferred. The waits grow from 1 s to 30 s,
-/// so the worker keeps trying for about 20 minutes before it gives up until its next run.
+/// Tries of a reclaim that another process deferred. The waits grow from 1 s to 30 s,
+/// so the worker keeps trying for about 20 minutes before it waits for the next pack.
 const RECLAIM_RETRIES: u32 = 40;
-/// Old generations one reclaim call retires. A call plans from their receipts,
-/// so the bound also bounds the call's reads.
-const RECLAIM_SLICE_GENERATIONS: usize = 32;
+/// Old generations that the reclaim step of a pack retires.
+const PACK_SLICE_GENERATIONS: usize = 32;
+/// Old generations that a drain call retires at first, and its bounds. After a call
+/// the size follows the call time, so a drain of thousands of generations does not
+/// pay the directory syncs of a call for each 32, and a call stays near the target.
+const DRAIN_SLICE_START: usize = 32;
+const DRAIN_SLICE_MIN: usize = 8;
+const DRAIN_SLICE_MAX: usize = 1024;
+const DRAIN_TARGET_MILLIS: u64 = 2_000;
+/// Waits between two failed reclaim calls: they start at 30 s and double to 15 minutes.
+const RECLAIM_FAILURE_MIN_SECS: u64 = 30;
+const RECLAIM_FAILURE_MAX_SECS: u64 = 900;
+/// Longest wait before a restart of a worker that panicked.
+const RESTART_MAX_SECS: u64 = 60;
 
 impl PackRuntime {
-    /// Start the single maintenance worker on first use. A runtime that opened
-    /// above the trigger starts its first run here.
+    /// Start the maintenance worker on first use. A runtime that opened above the
+    /// trigger starts its first run here. A supervisor restarts the worker after a panic.
     pub(in crate::storage::disk_pack) fn ensure_parts_worker(self: &Arc<Self>) {
         if !self.parts.auto
             || self.parts.worker.load(Relaxed)
@@ -25,7 +43,7 @@ impl PackRuntime {
         let ledger = Arc::clone(&self.parts);
         let runtime = Arc::downgrade(self);
         tokio::spawn(
-            parts_worker(ledger, runtime).instrument(tracing::info_span!("native_parts_worker")),
+            supervise(ledger, runtime).instrument(tracing::info_span!("native_parts_supervisor")),
         );
         if self.parts.wants_maintenance() {
             self.parts.wake.notify_one();
@@ -42,13 +60,13 @@ impl PackRuntime {
         if !ledger.auto || !ledger.over_soft_limit() {
             return;
         }
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
         while ledger.over_soft_limit()
             && !ledger.failing.load(Relaxed)
             && tokio::time::Instant::now() < deadline
         {
             ledger.wake.notify_one();
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
 
@@ -61,32 +79,188 @@ impl PackRuntime {
     }
 }
 
-async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
-    let mut failures = 0u32;
-    // A stop or a crash can leave old generations from an earlier run. Retire them
-    // now, a slice at a time, instead of waiting for the next high-water run.
-    if let Some(strong) = runtime.upgrade() {
-        if let Ok(report) = run_once(&strong, &ledger, true).await {
-            if finish_reclaim(&strong, &ledger, report).await {
-                sweep_orphans(&strong, &ledger).await;
-            }
+/// Runs the worker and starts it again after a panic. A panic would otherwise end
+/// the task for good, with the ledger still reporting a worker and every writer
+/// above the soft limit waiting a minute for it.
+async fn supervise(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
+    let mut restarts = 0u32;
+    loop {
+        let runs = ledger.runs.load(Relaxed);
+        ledger.alive.store(true, Relaxed);
+        let task = tokio::spawn(
+            parts_worker(Arc::clone(&ledger), runtime.clone())
+                .instrument(tracing::info_span!("native_parts_worker")),
+        );
+        let outcome = task.await;
+        ledger.alive.store(false, Relaxed);
+        ledger.running.store(false, Relaxed);
+        let error = match outcome {
+            // The runtime is gone, or the process shuts down.
+            Ok(()) => return,
+            Err(error) if error.is_cancelled() => return,
+            Err(error) => error,
+        };
+        let detail = panic_detail(error);
+        tracing::error!(%detail, "native storage maintenance worker panicked; restarting");
+        ledger.record_worker_panic(&detail);
+        if ledger.runs.load(Relaxed) > runs {
+            restarts = 0;
+        }
+        restarts = restarts.saturating_add(1);
+        let pause = (1u64 << restarts.min(6)).min(RESTART_MAX_SECS);
+        tokio::time::sleep(Duration::from_secs(pause)).await;
+        if runtime.strong_count() == 0 {
+            return;
+        }
+        // Writers above the soft limit wait for a run, so the restart starts one.
+        ledger.wake.notify_one();
+    }
+}
+
+fn panic_detail(error: tokio::task::JoinError) -> String {
+    let payload = error.into_panic();
+    payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-text panic".to_string())
+}
+
+/// What the worker still owes the home after a pack or a drain call.
+struct Debt {
+    /// When the next reclaim call is due. `None`: no old generation waits.
+    reclaim_at: Option<Instant>,
+    deferrals: u32,
+    failures: u32,
+    slice: usize,
+    /// The orphan sweep is due once no old generation waits. A crash can leave
+    /// part files that no receipt names, so each process sweeps once after its drain.
+    sweep: bool,
+    sweep_deferrals: u32,
+    sweep_at: Instant,
+}
+
+impl Debt {
+    /// A stop or a crash can leave old generations from an earlier run.
+    fn at_start() -> Self {
+        Self {
+            reclaim_at: Some(Instant::now()),
+            deferrals: 0,
+            failures: 0,
+            slice: DRAIN_SLICE_START,
+            sweep: true,
+            sweep_deferrals: 0,
+            sweep_at: Instant::now(),
         }
     }
-    let mut booting = true;
-    loop {
-        ledger.wake.notified().await;
-        if std::mem::take(&mut booting) && !ledger.over_soft_limit() {
-            // Let the node finish its own start before the first pack holds the gate.
-            // A home above the soft limit cannot take a start-up write, so it does not wait.
-            tokio::time::sleep(std::time::Duration::from_secs(ledger.start_delay_secs)).await;
+
+    /// Time to the next step that is not a pack. `None` waits for a wake.
+    fn wait(&self) -> Option<Duration> {
+        let now = Instant::now();
+        let at = match (self.reclaim_at, self.sweep.then_some(self.sweep_at)) {
+            (Some(reclaim), _) => reclaim,
+            (None, Some(sweep)) => sweep,
+            (None, None) => return None,
+        };
+        Some(at.saturating_duration_since(now))
+    }
+
+    fn reclaim_due(&self) -> bool {
+        self.reclaim_at.is_some_and(|at| at <= Instant::now())
+    }
+
+    /// The sweep follows the drain: it waits while any old generation waits.
+    fn sweep_due(&self) -> bool {
+        self.reclaim_at.is_none() && self.sweep && self.sweep_at <= Instant::now()
+    }
+
+    /// Record the result of a pack or a drain call.
+    fn after_call(&mut self, report: &NativeMaintenanceReport, pack: bool) {
+        if report.reclaim_error.is_some() {
+            self.failed();
+        } else if report.reclaim_deferred {
+            self.deferred();
+        } else if report.reclaim_remaining && report.files_removed == 0 {
+            // Old generations remain and the call removed nothing: a repeat would
+            // do the same work again. Wait like a failed call instead of looping.
+            tracing::warn!("native storage reclaim made no progress; it waits before its next try");
+            self.failed();
+        } else {
+            self.failures = 0;
+            self.deferrals = 0;
+            self.reclaim_at = report.reclaim_remaining.then(Instant::now);
         }
-        while ledger.wants_maintenance() {
-            let Some(strong) = runtime.upgrade() else {
-                return;
-            };
-            match run_once(&strong, &ledger, false).await {
+        if !pack && !report.reclaim_deferred && report.reclaim_error.is_none() {
+            self.adapt(report.reclaim_millis);
+        }
+    }
+
+    /// A deferral means that another process holds the home for a read or a backup.
+    /// No pack waits for it, and the retries wait on a timer.
+    fn deferred(&mut self) {
+        if self.deferrals >= RECLAIM_RETRIES {
+            tracing::warn!("native storage reclaim stayed deferred; it waits for the next pack");
+            self.reclaim_at = None;
+            self.deferrals = 0;
+            return;
+        }
+        let pause = (1u64 << self.deferrals.min(5)).min(30);
+        self.deferrals += 1;
+        self.reclaim_at = Some(Instant::now() + Duration::from_secs(pause));
+    }
+
+    /// A failed reclaim repeats on a long back-off. The named error stays in the
+    /// status, and the trigger of the next pack rises while it fails.
+    fn failed(&mut self) {
+        let pause = RECLAIM_FAILURE_MIN_SECS
+            .saturating_mul(1u64 << self.failures.min(5))
+            .min(RECLAIM_FAILURE_MAX_SECS);
+        self.failures = self.failures.saturating_add(1);
+        self.reclaim_at = Some(Instant::now() + Duration::from_secs(pause));
+    }
+
+    fn adapt(&mut self, millis: u64) {
+        if millis < DRAIN_TARGET_MILLIS / 2 {
+            self.slice = (self.slice * 2).min(DRAIN_SLICE_MAX);
+        } else if millis > DRAIN_TARGET_MILLIS * 2 {
+            self.slice = (self.slice / 2).max(DRAIN_SLICE_MIN);
+        }
+    }
+}
+
+async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
+    let mut debt = Debt::at_start();
+    let mut pack_failures = 0u32;
+    let mut booting = true;
+    // A pack that did not shrink the count waits for the next write.
+    let mut held = false;
+    loop {
+        let pack_due = !held && ledger.wants_maintenance();
+        if !pack_due && !debt.reclaim_due() && !debt.sweep_due() {
+            if let Some(pause) = debt.wait() {
+                tokio::select! {
+                    () = ledger.wake.notified() => held = false,
+                    () = tokio::time::sleep(pause) => {}
+                }
+            } else {
+                ledger.wake.notified().await;
+                held = false;
+            }
+            continue;
+        }
+        let Some(strong) = runtime.upgrade() else {
+            return;
+        };
+        if std::mem::take(&mut booting) {
+            // Let the node finish its own start before the first step holds the gate.
+            // A home above the soft limit cannot take a start-up write, so it does not wait.
+            boot_delay(&ledger).await;
+            continue;
+        }
+        if pack_due {
+            match run_once(&strong, &ledger, Call::Pack).await {
                 Ok(report) => {
-                    failures = 0;
+                    pack_failures = 0;
                     tracing::info!(
                         parts_before = report.parts_before,
                         parts_after = report.parts_after,
@@ -95,22 +269,57 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
                         reclaim_millis = report.reclaim_millis,
                         "native storage maintenance reached the dependency high-water mark"
                     );
-                    let shrank = report.parts_after < report.parts_before;
-                    finish_reclaim(&strong, &ledger, report).await;
-                    if !shrank {
-                        break;
-                    }
+                    held = report.parts_after >= report.parts_before;
+                    debt.after_call(&report, true);
                 }
                 Err(error) => {
-                    failures = failures.saturating_add(1);
-                    tracing::warn!(%error, failures, "native storage maintenance failed");
-                    let pause = 1u64 << failures.min(6);
-                    tokio::time::sleep(std::time::Duration::from_secs(pause.min(MAX_BACKOFF_SECS)))
-                        .await;
+                    pack_failures = pack_failures.saturating_add(1);
+                    tracing::warn!(%error, failures = pack_failures, "native storage maintenance failed");
+                    let pause = 1u64 << pack_failures.min(6);
+                    tokio::time::sleep(Duration::from_secs(pause.min(MAX_BACKOFF_SECS))).await;
                 }
             }
+        } else if debt.reclaim_due() {
+            let slice = debt.slice;
+            match run_once(&strong, &ledger, Call::Drain(slice)).await {
+                Ok(report) => {
+                    ledger.add_run_millis(report.reclaim_millis);
+                    debt.after_call(&report, false);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "native storage reclaim failed");
+                    debt.failed();
+                }
+            }
+        } else {
+            sweep_orphans(&strong, &ledger, &mut debt).await;
         }
+        ledger
+            .reclaim_pending
+            .store(debt.reclaim_at.is_some(), Relaxed);
+        // A step ends, and a writer that waited for the gate runs before the next step.
+        tokio::task::yield_now().await;
     }
+}
+
+/// Wait before the first step of a process. A write that takes the count over the
+/// soft limit ends the wait: that write cannot proceed without a pack.
+async fn boot_delay(ledger: &PartsLedger) {
+    let deadline = Instant::now() + Duration::from_secs(ledger.start_delay_secs);
+    while !ledger.over_soft_limit() {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        tokio::time::sleep(left.min(Duration::from_secs(1))).await;
+    }
+}
+
+enum Call {
+    /// Pack the live set, then retire a first slice of old generations.
+    Pack,
+    /// Retire old generations only, at most this many.
+    Drain(usize),
 }
 
 /// One bounded maintenance call. Each call holds the write gate and the view
@@ -118,83 +327,54 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
 async fn run_once(
     runtime: &Arc<PackRuntime>,
     ledger: &PartsLedger,
-    reclaim_only: bool,
+    call: Call,
 ) -> StorageResult<NativeMaintenanceReport> {
     ledger.running.store(true, Relaxed);
+    let (reclaim_only, generations) = match call {
+        Call::Pack => (false, PACK_SLICE_GENERATIONS),
+        Call::Drain(generations) => (true, generations),
+    };
     let options = NativeMaintenanceOptions {
         dry_run: false,
         reclaim_only,
         grace_ms: Some(ledger.grace_ms),
         report_usage: false,
-        reclaim_generations: Some(RECLAIM_SLICE_GENERATIONS),
+        reclaim_generations: Some(generations),
     };
-    let result = runtime.maintain_native(options).await;
+    let result = runtime.maintain_native_for_worker(options).await;
     ledger.running.store(false, Relaxed);
     result
 }
 
-/// The replacement is already published. Retire the old generations that the
-/// first call left, a slice at a time, and repeat a reclaim that active reads
-/// deferred until the read ends.
-async fn finish_reclaim(
-    runtime: &Arc<PackRuntime>,
-    ledger: &PartsLedger,
-    mut report: NativeMaintenanceReport,
-) -> bool {
-    let mut deferrals = 0u32;
-    loop {
-        if report.reclaim_deferred {
-            if deferrals >= RECLAIM_RETRIES {
-                tracing::warn!("native storage reclaim stayed deferred by active reads");
-                return false;
-            }
-            let pause = (1u64 << deferrals).min(30);
-            deferrals += 1;
-            tokio::time::sleep(std::time::Duration::from_secs(pause)).await;
-        } else if report.reclaim_remaining {
-            tokio::task::yield_now().await;
-        } else {
-            return true;
-        }
-        match run_once(runtime, ledger, true).await {
-            Ok(next) => {
-                ledger.add_run_millis(next.reclaim_millis);
-                report = next;
-            }
-            Err(error) => {
-                tracing::warn!(%error, "native storage reclaim failed");
-                return false;
-            }
-        }
-    }
-}
-
 /// A crash can leave output files that no receipt names. Remove those older than
 /// `LASTDB_ORPHAN_MIN_AGE_MS` (default ten minutes), or the grace when that is longer.
-/// Active reads defer the sweep, so it repeats like a deferred reclaim.
-async fn sweep_orphans(runtime: &Arc<PackRuntime>, ledger: &PartsLedger) {
+/// Another process that holds the home defers the sweep, so it repeats on a timer.
+async fn sweep_orphans(runtime: &Arc<PackRuntime>, ledger: &PartsLedger, debt: &mut Debt) {
     let min_age = ledger.grace_ms.max(ledger.orphan_min_age_ms);
-    for attempt in 0..RECLAIM_RETRIES {
-        match runtime.sweep_orphans_native(min_age).await {
-            Ok((_, _, true)) => {
-                let pause = (1u64 << attempt.min(5)).min(30);
-                tokio::time::sleep(std::time::Duration::from_secs(pause)).await;
-            }
-            Ok((files, bytes, false)) => {
-                if files > 0 {
-                    tracing::info!(
-                        files,
-                        bytes,
-                        "native storage removed unreferenced part files"
-                    );
-                }
+    match runtime.sweep_orphans_native(min_age).await {
+        Ok((_, _, true)) => {
+            if debt.sweep_deferrals >= RECLAIM_RETRIES {
+                tracing::warn!("native storage orphan sweep stayed deferred");
+                debt.sweep = false;
                 return;
             }
-            Err(error) => {
-                tracing::warn!(%error, "native storage orphan sweep failed");
-                return;
+            let pause = (1u64 << debt.sweep_deferrals.min(5)).min(30);
+            debt.sweep_deferrals += 1;
+            debt.sweep_at = Instant::now() + Duration::from_secs(pause);
+        }
+        Ok((files, bytes, false)) => {
+            if files > 0 {
+                tracing::info!(
+                    files,
+                    bytes,
+                    "native storage removed unreferenced part files"
+                );
             }
+            debt.sweep = false;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "native storage orphan sweep failed");
+            debt.sweep = false;
         }
     }
-    tracing::warn!("native storage orphan sweep stayed deferred by active reads");
 }

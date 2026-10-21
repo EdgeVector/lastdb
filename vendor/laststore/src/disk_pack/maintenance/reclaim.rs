@@ -12,6 +12,22 @@ use unfinished::{at_generation, remove_unfinished};
 
 const MAX_RETAINED_PARTS: usize = 262_144;
 
+/// The generations that must stay name too many parts for one reclaim to plan.
+/// The error says what keeps them. Nothing was deleted, so the home is safe and
+/// only grows until the references end.
+fn retained_parts_limit(
+    retained: &BTreeSet<u64>,
+    references: usize,
+    local_reads: usize,
+) -> crate::Error {
+    crate::Error::Config(format!(
+        "disk-pack reclaim: the {} retained generations ({references} durable references, \
+         {local_reads} held by active reads) name more than {MAX_RETAINED_PARTS} parts; \
+         release stale backup or recovery references to resume reclaim; nothing was deleted",
+        retained.len()
+    ))
+}
+
 mod orphans;
 mod scan;
 pub(in crate::disk_pack) use orphans::sweep_orphans_locked;
@@ -58,7 +74,8 @@ pub(in crate::disk_pack) fn reclaim_locked(
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     }
-    let Some(_local) = lock.exclude_local_reads(&current)? else {
+    // An active local read does not defer reclaim: its generation stays retained.
+    let Some(local) = lock.exclude_local_reads(&current)? else {
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     };
@@ -77,6 +94,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
+    retained.extend(local.held().iter().copied());
     let mut generations = generations(root, policy.max_files, &retained)?;
     generations.sort_unstable();
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
@@ -88,17 +106,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
             retained.insert(*number);
         }
     }
-    let mut live = BTreeSet::new();
-    for number in &retained {
-        let held = at_generation(generation::load_current(root, *number), root, *number)?;
-        let generation = at_generation(generation::verify(root, &held), root, *number)?;
-        for coordinate in generation.coordinates {
-            live.insert(coordinate);
-            if live.len() > MAX_RETAINED_PARTS {
-                return Err(crate::disk_pack::resource());
-            }
-        }
-    }
+    let live = live_parts(lock, &retained, references.len(), local.held().len())?;
     let scan = scan_old(root, generations, &retained, &live, policy, cutoff)?;
     receipt.reclaim_remaining = scan.remaining;
     let (old, candidates) = (scan.old, scan.candidates);
@@ -118,6 +126,39 @@ pub(in crate::disk_pack) fn reclaim_locked(
     };
     plan.apply(root, policy, &live, &mut receipt, &mut dirty)?;
     Ok(receipt)
+}
+
+/// The parts that the retained generations name.
+///
+/// Every part of a retained generation is checked once per lease. A later call
+/// reads its receipt only, so a drain of many calls does not open every part of
+/// the current generation again for each call.
+fn live_parts(
+    lock: &WriteLock,
+    retained: &BTreeSet<u64>,
+    references: usize,
+    local_reads: usize,
+) -> Result<BTreeSet<Coordinate>> {
+    let root = lock.root();
+    let mut live = BTreeSet::new();
+    for number in retained {
+        let held = at_generation(generation::load_current(root, *number), root, *number)?;
+        let generation = if lock.verified(&held)? {
+            at_generation(generation::read_receipt(root, &held), root, *number)?
+        } else {
+            let verified = at_generation(generation::verify(root, &held), root, *number)?;
+            lock.remember_verified(&held)?;
+            verified
+        };
+        for coordinate in generation.coordinates {
+            live.insert(coordinate);
+            if live.len() > MAX_RETAINED_PARTS {
+                return Err(retained_parts_limit(retained, references, local_reads));
+            }
+        }
+    }
+    lock.keep_verified(retained)?;
+    Ok(live)
 }
 
 /// A validated plan: exact part files to remove, then the receipts that list them.
