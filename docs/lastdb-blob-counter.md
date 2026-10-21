@@ -128,6 +128,16 @@ the head. The review measured 16 blobs a minute after 9,800 deletions.
   synthetic home) gives a shorter slice, one dwell, between one second and one
   hour. A synthetic home that changed such a dwell between two starts shows
   `queued=false` for an entry that an earlier start wrote.
+- **A home that an older build wrote with a dwell from 120 s to 3,599 s.** The older
+  build chose a slice of one dwell for such a node. This build names the entry of a
+  blob under a slice of one hour, so it does not find the older entry by its computed
+  key. `queued` is false for each blob that waits, and `lastdb db verify-refs` reports
+  `zero_blob_without_queue_entry` for it (7 faults for 7 waiting blobs in a test home).
+  The pass still reads the older bucket through the directory, and it deletes the blob
+  when it is due: after that the fault is gone (0 faults in the test). An offline
+  `recount --execute` writes the entry again under the new key and clears the fault at
+  once (7 entries restored, 0 faults); the older entries stay. A fresh home, and a home
+  with the default dwell (3,600 s), are not affected.
 - **Two key families**, `bref:v3:q` for the entries and `bref:v3:d` for the
   directory. Neither holds a NUL, and neither is a prefix of the other or of the
   counter family `bref:v3:c:`. The entries have no scope: a blob is global.
@@ -220,15 +230,18 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    `blocked * (100 - duty) / duty`, where `blocked` is that time and the duty share
    is 10 percent by default (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100): writers wait for
    the pass about a tenth of the time. The rest is at least 25 ms
-   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. When no other task wrote
-   since the last chunk (`WriterWatch`), the rest protects nobody and it is the
-   minimum rest: a node that does nothing else deletes about 30 to 45 blobs a second. The
-   first write of another task ends that, and the next rest is the full one: with a
-   writer present the pass deletes about 5 blobs a second. A long rest ends early
-   when no other task has written for two seconds. Set
-   `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a large backlog faster when writers
-   are present, and accept that they wait longer. The node logs the time, the blocked
-   time and the rest of each chunk at debug level (`lastdbd::blob_dwell`).
+   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. The rest is the minimum rest
+   only when no other task opened a write scope for a quiet period
+   (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default; `WriterWatch`): the rest then
+   protects nobody, and a node that does nothing else deletes about 30 to 45 blobs
+   a second. A write scope of another task ends that, and for the whole quiet period
+   every rest is the full one. With four writers that write all the time the pass
+   deleted 20 to 28 blobs a second on a RAM disk (main: 13 to 17). A long rest ends
+   early only when the quiet period has passed. The watch sees write scopes only (see the section Pacing in
+   `docs/lastdb-time-queue.md`). Set `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a
+   large backlog faster when writers are present, and accept that they wait longer.
+   The node logs the time, the blocked time and the rest of each chunk at debug
+   level (`lastdbd::blob_dwell`).
 
 The gate is never held across chunks, and the read of the queue takes no gate. A
 pass runs at most 2,048 steps. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The

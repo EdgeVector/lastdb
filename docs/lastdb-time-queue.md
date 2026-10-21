@@ -211,38 +211,96 @@ time of every write scope the step opens in its own task. The steps of the reten
 janitor (`release_step`, `drain_step`, `net_step`) and of the dwell pass
 (`blob_dwell_step`, `blob_dwell_net_step`) return it in `blocked`.
 
-The rest protects the writers, so it is needed only when a writer is there. A
+The rest protects the writers, so the user needs it only when a writer is there. A
 `WriterWatch` counts the write scopes that the process opens and takes off the ones
-that the step opened. When no other task opened a write scope since the last step,
-the rest is the minimum rest, and the user goes on at once. The first write scope of
-another task ends that: the next rest is the full one. A full rest ends early
-(`QuietRest`) when no other task has opened a write scope for two seconds, so a
-backlog does not wait out a rest of 20 s after the writers went away.
+that the user opened itself. It remembers the time of the last write scope of another
+task. For a quiet period after that time, every rest is the full rest. The quiet period
+is `LASTDB_MAINTENANCE_QUIET_SECS` (60 s by default; 0 means that only the step that
+saw the write counts). The rest is the minimum rest only when no other task opened a
+write scope for the whole period. A long rest ends early only when the period has
+passed, so a backlog does not wait out a rest of 20 s after the writers went away.
 
-Measured on a synthetic home, default knobs, with the recipes of the S3 and S5
-proofs (the janitor drains 3,960 conflict records of a 200-field schema, the dwell
-pass deletes 2,000 blobs that are all due at once), the node of each build run at the
-same time:
+The period is long on purpose. A writer that writes once every few seconds is not a
+load, but each of its writes that meets a sealed batch waits for a flush (0.3 to
+1 s). If the user went on at once between two writes of such a writer, nearly every
+write of it would meet a batch. So one write scope of another task keeps the user
+in the paced mode for the whole period.
 
-| | rest by the wall time of the step (before) | rest by the time writers wait, no other writer |
+What the watch sees: only write scopes (`transaction/request.rs`). A caller that takes
+the write gate without a scope is not seen: `PackRuntime::mutate` outside a scope,
+native maintenance (`maintain_native`), and the creation of the current key format at
+start. A request that opens a write scope counts, also when it writes little: the seed
+of a schema, `lastdb db inventory` (after its first seconds), and `lastdb db verify-refs`
+(it opens one empty write scope at the start of each run, to order the run after the
+writes in flight) do. A read and `lastdb status` do not. A task of the node itself that
+opens a write scope (the blob dwell pass and the janitor see each other) counts as
+another writer.
+
+Measured on synthetic homes with the default knobs. In each test the nodes ran at the
+same time on one host: main before this change, this change with the drain on, and
+this change with the drain off. A test writer sent queued writes and timed each one.
+The p50 and p95 are of the pooled samples of 3 sets.
+
+**No other writer.** After the quiet period the user rests the minimum rest, and its
+speed is the speed of its flush. The janitor drained 21 to 26 records a second (a
+200-field schema, 32 records in each batch) against 4.5 for the rest by wall time.
+The dwell pass deleted 27 to 44 blobs a second against 4.7 to 5.2. The flush of a
+batch took 0.5 to 2.2 s, depending on what else the host did.
+
+**A writer that comes and goes** (one write every 3 s for 40 s, quiet period 60 s).
+The janitor drained 26 records a second before the writer, 1.6 a second while the
+writer wrote (rests of 14 s), 2.7 a second for the rest of the quiet period, and
+24 a second after it. With a quiet period of 20 s the figures were 26, 1.6, 3.2 and 21.
+
+**One sparse writer** (one queued write every 3 s, a backlog that lasts the whole
+window of 120 s for the janitor and 90 s for the pass). The time of one write in ms,
+p50 / p95:
+
+| | main, drain on | this change, drain on | this change, drain off |
+|---|---|---|---|
+| Janitor, RAM disk | 32 / 44 | 32 / 42 | 29 / 40 |
+| Janitor, system disk | 319 / 908 | 370 / 1,421 | 336 / 586 |
+| Dwell pass, RAM disk | 31 / 42 | 33 / 43 | 32 / 43 |
+| Dwell pass, system disk | 323 / 649 | 294 / 926 | 347 / 485 |
+
+On the RAM disk the drain costs a sparse writer nothing that the test can see (p50
++10 percent and p95 +7 percent for the janitor, +5 and 0 for the pass). On the system
+disk the p50 is within the noise of the host (the same build gave 211 to 400 ms from
+one set to the next). The p95 is about twice as high as with the drain off, for main
+and for this change alike: the drain keeps writers waiting a tenth of the time, so about
+one write in ten meets a sealed batch and waits for its flush (0.5 to 2 s on that disk).
+The drain speed in the same runs was the same as main (janitor: 3.3 to 3.9 records a
+second for main and 3.6 to 3.9 for this change on the system disk, 7.0 to 7.7 and 6.5
+to 7.4 on the RAM disk). A smaller `..._DUTY_PCT` lowers that share and slows the
+drain. Without the quiet period, a writer of this kind found the user at full speed
+between two writes, and nearly every write of it met a sealed batch.
+
+**Four continuous writers.** With the drain on, this change drains faster than main
+and costs the writers about the same:
+
+| | main, drain on | this change, drain on |
 |---|---|---|
-| Janitor, records a second | 4.5 to 4.6 | 14 to 25 (3.1 to 5.5 times) |
-| Dwell pass, blobs a second | 4.7 to 5.2 | 27 to 44 (5.2 to 9.3 times) |
+| Janitor, records a second, RAM disk | 2.7 to 6.4 | 8.5 to 11.9 (1.9 to 3.1 times) |
+| Dwell pass, blobs a second, RAM disk | 12.8 to 16.6 | 20.5 to 28.2 (1.6 to 1.7 times) |
+| Janitor, records a second, busy system disk | 2.1 to 3.2 | 2.4 to 3.2 (equal) |
+| Writer p50 against drain off, janitor / pass, RAM disk | 0 / +2 percent | +2 / -2 percent |
+| Writer p95 against drain off, janitor / pass, RAM disk | +4 / +1 percent | +3 / +9 percent |
+| Writer p95 against drain off, janitor, busy system disk | +24 percent | +30 percent |
 
-The speed at rest is the speed of the flush, and the flush of a batch took 0.5 to 2.2 s
-on this host, depending on what else the host did. With a writer present the pass is
-paced as before: a dwell pass with writers deleted about 5 blobs a second, and a
-janitor with a 5-writes-a-second writer rested 18 to 25 s after each batch (a batch
-blocked the writers for 2 to 3 s then) and went back to the minimum rest 2 s after
-the writer stopped.
+The factor is above 1 because the
+meter counts the time that a batch holds the gate and waits for its flush, and it leaves
+out the wait for the gate itself. With writers that keep the gate busy, the rest is then
+shorter than the cost to the writers. Another run on a quiet disk, with fewer nodes at the
+same time, gave 2.1 to 2.5 times for both users (janitor 24 to 27 against 10.6 to 15.1
+records a second, pass 29 to 30 against 12 to 14.5 blobs a second). On a busy disk the
+factor is 1.
 
 Why not the hold of the gate alone: that was tried first (a rest of 0.1 to 0.3 s).
 It drained 9 to 11 times as fast, and it raised the median latency of a test writer
 by 33 to 60 percent while the janitor released records (3 pairs of nodes, one with
 the janitor and one without, on the same host; the same test gave a median change of
-+5 percent, from -2 to +18 percent, for the wall-time rest, and +5 percent, from +1
-to +25 percent, for the rest described here). The flush is the larger part of the
-time that the writers wait, and the gate hold leaves it out.
++5 percent, from -2 to +18 percent, for the wall-time rest). The flush is the larger
+part of the time that the writers wait, and the gate hold leaves it out.
 
 ## Failure
 
@@ -317,7 +375,13 @@ What the net does not cover:
   its own queue entry is due one window after the erase at the latest, and the
   ordinary lane releases it. A marker older than that has nothing left to speed
   up: the janitor deletes it without a drain (the log says `dropped drain markers
-  older than the retention window`). Two faults remain out of reach, and both
+  older than the retention window`). The marker records the window of the node
+  that wrote it (`window_nanos`), and the janitor uses the longer of that window
+  and its own. A shorter `LASTDB_CONFLICT_RETENTION_SECS` at a later start does
+  not drop a marker early: the records of its slot were written under the old
+  window and are due at that time, and the drain releases them sooner. A marker
+  from an older build has no recorded window. The janitor does not delete it for
+  its age; it drains it. Two faults remain out of reach, and both
   hold no reference: a marker bucket that lost its row while the janitor was
   stopped for longer than a window, and a marker the janitor could not see.
 - A bucket that holds only deleted keys is not a fault, and the net leaves it.

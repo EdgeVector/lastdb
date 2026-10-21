@@ -188,8 +188,9 @@ A record ends in two ways, and both use the same release:
    time the batch kept writers waiting: its hold of the write gate and, because the
    batch seals the write queue, the wait until it is durable
    (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10: writers wait for the janitor a
-   tenth of the time; at least 25 ms and at most 30 s). When no other task wrote since
-   the last batch, the rest protects nobody and it is the minimum rest
+   tenth of the time; at least 25 ms and at most 30 s). When no other task opened a
+   write scope for a quiet period (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default),
+   the rest protects nobody and it is the minimum rest
    (`docs/lastdb-time-queue.md`, section Pacing). The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.

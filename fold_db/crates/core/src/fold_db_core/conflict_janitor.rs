@@ -52,7 +52,8 @@
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_CONFLICT_JANITOR_MS` | Interval between wakes. Zero turns the janitor off. Default 60000. |
-//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of time, in percent, that the janitor may keep writers waiting (1 to 100): the rest after a batch is `blocked * (100 - duty) / duty` for the time the batch blocked writers (the hold of the write gate and the wait for the flush), when another writer is there. Default 10. |
+//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of time, in percent, that the janitor may keep writers waiting (1 to 100): the rest after a batch is `blocked * (100 - duty) / duty` for the time the batch blocked writers (the hold of the write gate and the wait for the flush), while a writer is there. Default 10. |
+//! | `LASTDB_MAINTENANCE_QUIET_SECS` | Seconds without a write scope of another task after which the janitor (and the blob dwell pass) rests the minimum rest. A write scope of another task inside that period keeps every rest the full one. Default 60. |
 //! | `LASTDB_CONFLICT_RETENTION_SECS` | The retention window. Default 30 days. |
 //! | `LASTDB_CONFLICT_JANITOR_NET_SECS` | Seconds between two sweeps of the safety net of the queue (0 turns it off). Default 3600. |
 
