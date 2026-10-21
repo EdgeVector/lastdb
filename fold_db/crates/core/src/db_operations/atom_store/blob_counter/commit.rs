@@ -146,6 +146,13 @@ impl AtomStore {
         &self,
         blobs: &[String],
     ) -> Result<Vec<BlobCounterView>, SchemaError> {
+        // The three reads see one committed root. A dwell chunk deletes the row,
+        // the counter and the queue entry in one batch, so one root shows all of
+        // them or none of them.
+        self.atom_read_scope(self.read_blob_views(blobs)).await
+    }
+
+    async fn read_blob_views(&self, blobs: &[String]) -> Result<Vec<BlobCounterView>, SchemaError> {
         let refs: Vec<&str> = blobs.iter().map(String::as_str).collect();
         let counters = self.read_blob_counters(&refs).await?;
         let queue = self.blob_events.queue();
