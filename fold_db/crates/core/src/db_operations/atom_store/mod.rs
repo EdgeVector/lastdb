@@ -68,7 +68,7 @@ pub(crate) use molecule_drain::{
     valid_candidate_key as valid_drain_candidate_key, DrainCursor, DrainLimits,
     OutcomeKind as DrainOutcomeKind,
 };
-pub use molecule_drain::{MoleculeDrainReport, RefusedMolecule};
+pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;

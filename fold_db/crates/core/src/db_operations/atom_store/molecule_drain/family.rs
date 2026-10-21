@@ -27,7 +27,6 @@ use crate::atom::molecule_key_codec::{
     header_key, molecule_generation_delete_prefix, molecule_generation_pointer_key,
     molecule_record_prefix, MOLECULE_GENERATION_RECORD_PREFIX,
 };
-use crate::db_operations::atom_store::molecule_ref_edges::{molecule_target, MOLECULE_REF_PREFIX};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -106,23 +105,11 @@ impl AtomStore {
             .await?
             .pop()
             .flatten();
-        let prefix = build_storage_key(
-            scope,
-            &format!("{MOLECULE_REF_PREFIX}{}\0", molecule_target(molecule)),
-        );
-        let (start, end) = crate::kind_partition::exact_prefix_bounds(&prefix);
-        let found = self
-            .main_store
-            .inner()
-            .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
-            .await
-            .map_err(|error| {
-                SchemaError::InvalidData(format!("read molecule binding records: {error}"))
-            })?;
+        let binding_records = self.binding_record_present(molecule, scope).await?;
         Ok(MoleculeReads {
             header,
             bindings,
-            binding_records: !found.is_empty(),
+            binding_records,
         })
     }
 }

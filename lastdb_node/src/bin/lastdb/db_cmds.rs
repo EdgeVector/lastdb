@@ -32,6 +32,9 @@ pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;
+#[path = "db_molecule_drain_cmds.rs"]
+mod db_molecule_drain_cmds;
+pub(crate) use db_molecule_drain_cmds::*;
 #[path = "db_verify_refs_cmds.rs"]
 mod db_verify_refs_cmds;
 pub(crate) use db_verify_refs_cmds::*;

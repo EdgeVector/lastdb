@@ -73,14 +73,23 @@ impl Candidate {
 
     /// The key and the value of the row, for the batch that writes it.
     pub(crate) fn row(&self) -> (Vec<u8>, Vec<u8>) {
-        let value = CandidateRow {
-            version: 1,
-            since_ms: crate::clock::unix_millis(),
-        };
         (
             self.key().into_bytes(),
-            serde_json::to_vec(&value).unwrap_or_default(),
+            serde_json::to_vec(&Self::row_value()).unwrap_or_default(),
         )
+    }
+
+    /// The key and the JSON value of the row, for a planner batch.
+    pub(crate) fn row_json(&self) -> (String, serde_json::Value) {
+        (self.key(), Self::row_value())
+    }
+
+    fn row_value() -> serde_json::Value {
+        serde_json::to_value(CandidateRow {
+            version: 1,
+            since_ms: crate::clock::unix_millis(),
+        })
+        .unwrap_or_default()
     }
 }
 

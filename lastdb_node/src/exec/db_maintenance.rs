@@ -3,6 +3,7 @@
 use super::*;
 
 mod gc;
+mod molecule_drain;
 mod molecule_map_candidates;
 mod molecule_map_repair;
 mod pin_log;
@@ -13,6 +14,7 @@ mod seal;
 mod verify_refs;
 
 pub(super) use gc::*;
+pub(super) use molecule_drain::*;
 use molecule_map_candidates::*;
 pub(super) use molecule_map_repair::*;
 pub(super) use pin_log::*;

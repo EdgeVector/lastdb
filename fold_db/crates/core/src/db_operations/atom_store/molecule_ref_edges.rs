@@ -131,6 +131,29 @@ pub struct MoleculeRefLookup {
 }
 
 impl AtomStore {
+    /// Whether the molecule has at least one binding record in the scope: a range
+    /// read of at most one row under one hash.
+    pub(super) async fn binding_record_present(
+        &self,
+        molecule_uuid: &str,
+        storage_prefix: Option<&str>,
+    ) -> Result<bool, SchemaError> {
+        let prefix = build_storage_key(
+            storage_prefix,
+            &format!("{MOLECULE_REF_PREFIX}{}\0", molecule_target(molecule_uuid)),
+        );
+        let (start, end) = crate::kind_partition::exact_prefix_bounds(&prefix);
+        let found = self
+            .main_store
+            .inner()
+            .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
+            .await
+            .map_err(|error| {
+                SchemaError::InvalidData(format!("read molecule binding records: {error}"))
+            })?;
+        Ok(!found.is_empty())
+    }
+
     /// Read one molecule's binding records (one range read under one hash) and
     /// compare their number with the `bindings` counter.
     pub async fn molecule_ref_edges_for_molecule(

@@ -36,7 +36,8 @@ pub use admin_db::{
 };
 pub use atom_store::{
     AtomCounterReport, AtomCounterView, AtomStore, ConflictRetentionReport, MoleculeData,
-    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    MoleculeDrainReport, MoleculeDrainVerdict, RecountOptions, RecountReport, VerifyReport,
+    VerifyRequest, VerifySummary, WalkStats,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{

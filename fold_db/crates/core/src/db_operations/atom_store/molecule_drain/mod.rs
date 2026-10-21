@@ -27,6 +27,7 @@
 
 mod candidate;
 mod cursor;
+mod enqueue;
 mod family;
 mod judge;
 mod state;
@@ -34,6 +35,7 @@ mod step;
 
 pub(crate) use candidate::{valid_candidate_key, Candidate};
 pub(crate) use cursor::DrainCursor;
+pub use enqueue::MoleculeDrainVerdict;
 pub(crate) use state::DrainState;
 pub use state::{MoleculeDrainReport, RefusedMolecule};
 pub(crate) use step::{DrainLimits, OutcomeKind};
@@ -73,6 +75,11 @@ impl AtomStore {
         if queued.is_err() {
             signal.notify_one();
         }
+    }
+
+    /// Tell the drain task to read the candidate list now.
+    pub fn wake_molecule_drain(&self) {
+        self.molecule_drain.wake_signal().notify_one();
     }
 
     /// The wake signal, for the task.

@@ -120,6 +120,7 @@ impl CounterEvents {
                 .cloned()
                 .collect(),
             verify_refs: None,
+            molecule_drain: None,
         }
     }
 }
@@ -146,4 +147,8 @@ pub struct AtomCounterReport {
     /// it is empty after a restart. `None` when the daemon predates the field.
     #[serde(default)]
     pub verify_refs: Option<super::VerifySummary>,
+    /// The molecule drain: candidates, molecules removed, and the molecules it
+    /// refused. Memory only. `None` when the daemon predates the field.
+    #[serde(default)]
+    pub molecule_drain: Option<crate::db_operations::MoleculeDrainReport>,
 }

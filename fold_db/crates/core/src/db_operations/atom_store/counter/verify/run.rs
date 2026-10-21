@@ -59,6 +59,9 @@ impl AtomStore {
                 .unwrap_or(DEFAULT_PAUSE_MS)
                 .min(MAX_PAUSE_MS),
         );
+        if request.cursor.is_none() {
+            Self::validate_scope(request.scope.as_deref())?;
+        }
         let mut guard = self
             .counter_verify()
             .checkout(&request, || new_run(&request))?;

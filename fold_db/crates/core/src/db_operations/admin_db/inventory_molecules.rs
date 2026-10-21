@@ -11,10 +11,13 @@ use crate::atom::molecule_key_codec::{molecule_uuid_from_storage_key, MH_PREFIX}
 use crate::db_operations::atom_store::{counts_of_header, MoleculeBindings, RangeWalk};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How many droppable molecule ids the report names.
 const DROPPABLE_SAMPLE: usize = 20;
+
+/// The hash of the candidate rows of the molecule drain.
+const DRAIN_CANDIDATE_PREFIX: &str = "mref:v1:d\0";
 
 /// What one inventory walk found about the molecule counters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -43,6 +46,25 @@ pub struct MoleculeCounterTotals {
     /// The first droppable molecules, by uuid.
     #[serde(default)]
     pub droppable_sample: Vec<String>,
+    /// Headers whose counters are all zero and that still have a binding record
+    /// with no counter. A fault: the drain refuses them.
+    #[serde(default)]
+    pub binding_record_without_counter: u64,
+    /// Headers with tip records, no binding counter and no binding record: the
+    /// keys of a molecule that nothing names. The drain erases them once the
+    /// molecule is a candidate (`lastdb db molecule-drain --molecule`).
+    #[serde(default)]
+    pub unbound_with_tips: u64,
+    /// The first of them, by uuid.
+    #[serde(default)]
+    pub unbound_sample: Vec<String>,
+    /// Candidate rows of the molecule drain, over every scope. Counted in the
+    /// personal scope walk only.
+    #[serde(default)]
+    pub drain_candidates: u64,
+    /// Molecules the drain removed since the daemon started (memory only).
+    #[serde(default)]
+    pub drained_since_start: u64,
 }
 
 impl AtomStore {
@@ -71,8 +93,15 @@ impl AtomStore {
         .await?;
         let record_prefix = build_storage_key(storage_prefix, "mref:v1:e:");
         let mut records = 0u64;
-        self.fold_inventory_rows(&record_prefix, "molecule binding records", |_, _| {
+        let mut with_records: HashSet<String> = HashSet::new();
+        self.fold_inventory_rows(&record_prefix, "molecule binding records", |key, _| {
             records += 1;
+            if let Some(target) = key
+                .strip_prefix(record_prefix.as_str())
+                .and_then(|rest| rest.split('\0').next())
+            {
+                with_records.insert(target.to_string());
+            }
         })
         .await?;
         totals.binding_records = records;
@@ -81,9 +110,22 @@ impl AtomStore {
             let Some(molecule) = molecule_uuid_from_storage_key(key) else {
                 return;
             };
-            fold_header(&mut totals, &bound, molecule, value);
+            fold_header(&mut totals, (&bound, &with_records), molecule, value);
         })
         .await?;
+        if storage_prefix.is_none() {
+            let mut candidates = 0u64;
+            self.fold_inventory_rows(
+                DRAIN_CANDIDATE_PREFIX,
+                "molecule drain candidates",
+                |_, _| {
+                    candidates += 1;
+                },
+            )
+            .await?;
+            totals.drain_candidates = candidates;
+        }
+        totals.drained_since_start = self.drain_state().snapshot().drained;
         Ok(totals)
     }
 }
@@ -91,7 +133,7 @@ impl AtomStore {
 /// Fold one header into the totals.
 fn fold_header(
     totals: &mut MoleculeCounterTotals,
-    bound: &HashMap<String, MoleculeBindings>,
+    (bound, with_records): (&HashMap<String, MoleculeBindings>, &HashSet<String>),
     molecule: &str,
     value: &[u8],
 ) {
@@ -112,8 +154,18 @@ fn fold_header(
     }
     totals.slots_total = totals.slots_total.saturating_add(view.slots);
     totals.records_total = totals.records_total.saturating_add(view.records);
+    let has_records = with_records.contains(&target);
     match view.state.as_str() {
-        "live" => totals.live += 1,
+        "live" => {
+            totals.live += 1;
+            if view.bindings == 0 && !has_records {
+                totals.unbound_with_tips += 1;
+                if totals.unbound_sample.len() < DROPPABLE_SAMPLE {
+                    totals.unbound_sample.push(molecule.to_string());
+                }
+            }
+        }
+        "droppable" if has_records => totals.binding_record_without_counter += 1,
         "droppable" => {
             totals.droppable += 1;
             if totals.droppable_sample.len() < DROPPABLE_SAMPLE {

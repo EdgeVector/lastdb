@@ -180,6 +180,19 @@ fn print_atom_counters(counters: &Value) {
         u64_of(counters, "refs_total")
     );
     println!("  largest count:          {}", u64_of(counters, "max_refs"));
+    println!(
+        "  binding record, no counter: {} (a fault: the drain refuses them)",
+        u64_of(counters, "binding_record_without_counter")
+    );
+    println!(
+        "  unbound with tips:      {} (the drain erases them once queued)",
+        u64_of(counters, "unbound_with_tips")
+    );
+    println!(
+        "  drain candidates:       {} (molecules removed since the daemon started: {})",
+        u64_of(counters, "drain_candidates"),
+        u64_of(counters, "drained_since_start")
+    );
     println!("  suspect:                {}", u64_of(counters, "suspect"));
     println!(
         "  zero, not suspect:      {}",
