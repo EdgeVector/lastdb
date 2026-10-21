@@ -25,7 +25,8 @@ pub(super) struct HeaderRow {
 /// A page of the headers phase.
 pub(super) struct HeadersPage {
     pub rows: usize,
-    pub last_key: Option<Vec<u8>>,
+    /// The last key the read examined, or `None` when the range ended.
+    pub resume: Option<Vec<u8>>,
     pub scan_unsealed: u64,
     pub headers: Vec<HeaderRow>,
 }
@@ -41,7 +42,8 @@ pub(super) struct CounterRow {
 /// A page of the bindings phase.
 pub(super) struct BindingsPage {
     pub rows: usize,
-    pub last_key: Option<Vec<u8>>,
+    /// The last key the read examined, or `None` when the range ended.
+    pub resume: Option<Vec<u8>>,
     pub scan_unsealed: u64,
     pub point_unsealed: u64,
     pub counters: Vec<CounterRow>,
@@ -50,7 +52,8 @@ pub(super) struct BindingsPage {
 /// A page of the binding records phase.
 pub(super) struct BindingRecordsPage {
     pub rows: usize,
-    pub last_key: Option<Vec<u8>>,
+    /// The last key the read examined, or `None` when the range ended.
+    pub resume: Option<Vec<u8>>,
     pub scan_unsealed: u64,
     pub point_unsealed: u64,
     /// The molecule tokens of the page that have no `bindings` counter.
@@ -69,10 +72,12 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<HeadersPage, SchemaError> {
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw().inner().scan_range_yielding(&start, &end, asked),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             let mut headers = Vec::with_capacity(rows.len());
             for (key, value) in &rows {
                 let key = String::from_utf8_lossy(key);
@@ -87,7 +92,7 @@ impl AtomStore {
             }
             Ok(HeadersPage {
                 rows: rows.len(),
-                last_key: rows.last().map(|(key, _)| key.clone()),
+                resume,
                 scan_unsealed,
                 headers,
             })
@@ -104,10 +109,12 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<BindingsPage, SchemaError> {
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw().inner().scan_range_yielding(&start, &end, asked),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             let mut counters = Vec::with_capacity(rows.len());
             let mut point_unsealed = 0;
             for (key, value) in &rows {
@@ -140,7 +147,7 @@ impl AtomStore {
             }
             Ok(BindingsPage {
                 rows: rows.len(),
-                last_key: rows.last().map(|(key, _)| key.clone()),
+                resume,
                 scan_unsealed,
                 point_unsealed,
                 counters,
@@ -157,10 +164,12 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<BindingRecordsPage, SchemaError> {
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw().inner().scan_range_yielding(&start, &end, asked),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             let tokens: BTreeSet<String> = rows
                 .iter()
                 .filter_map(|(key, _)| {
@@ -184,7 +193,7 @@ impl AtomStore {
                 .collect();
             Ok(BindingRecordsPage {
                 rows: rows.len(),
-                last_key: rows.last().map(|(key, _)| key.clone()),
+                resume,
                 scan_unsealed,
                 point_unsealed,
                 without_counter,

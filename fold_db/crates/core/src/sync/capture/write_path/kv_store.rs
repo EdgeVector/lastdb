@@ -1,6 +1,7 @@
 //! `KvStore` wrapper that records physical writes for the mutation log.
 
 use super::*;
+use crate::storage::traits::YieldedScan;
 
 pub(super) struct MutationLogCaptureKvStore {
     pub(super) inner: Arc<dyn KvStore>,
@@ -135,6 +136,15 @@ impl KvStore for MutationLogCaptureKvStore {
         limit: usize,
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         self.inner.scan_range_paged(start, end, limit).await
+    }
+
+    async fn scan_range_yielding(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> StorageResult<YieldedScan> {
+        self.inner.scan_range_yielding(start, end, limit).await
     }
 
     async fn max_key_u64_after_marker(

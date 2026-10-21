@@ -8,7 +8,7 @@ use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{Run, StepGuard};
 use super::totals::{digest, Watch};
 use crate::db_operations::atom_store::counter::scan::CounterRead;
-use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress, RangeWalk};
+use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use std::time::{Duration, Instant};
 
@@ -139,35 +139,25 @@ impl AtomStore {
         match page {
             Ok(Page::Referenced(page)) => {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => apply_referenced(run, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
+                run.walk
+                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                apply_referenced(run, page);
             }
-            Ok(Page::Suspects(page)) => apply_suspects(run, &page)?,
+            Ok(Page::Suspects(page)) => apply_suspects(run, &page),
             Ok(Page::Atoms(page)) => {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => apply_atoms(run, watch, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
+                run.walk
+                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                apply_atoms(run, watch, page);
             }
             Err(SchemaError::ReadResourceLimit { .. }) => {
                 // The read hit the limit of one call. Ask for fewer rows or a
                 // narrower key range, in a new read scope.
                 run.report.page_retries += 1;
                 if !run.walk.read_too_big() {
-                    return Err(run.walk.failure(SchemaError::ReadResourceLimit {
+                    return Err(SchemaError::ReadResourceLimit {
                         detail: "a key range is too dense to read in pieces".into(),
-                    }));
+                    });
                 }
             }
             Err(error) => return Err(error),

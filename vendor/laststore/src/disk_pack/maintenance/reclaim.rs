@@ -192,8 +192,11 @@ fn remove_unfinished(path: &Path) -> Result<bool> {
     }
     let page = PAGE_BYTES as u64;
     let present: u64 = parts.iter().map(|(_, length)| length / page).sum();
-    if present > 0 && declared_pages(&path.join("part-00000000"))?.is_none_or(|n| n <= present) {
-        return Ok(false);
+    if present > 0 {
+        match declared_pages(&path.join("part-00000000"))? {
+            Some(pages) if pages > present => {}
+            _ => return Ok(false),
+        }
     }
     std::fs::remove_dir_all(path)?;
     durability::sync_directory(&File::open(path.parent().expect("generation parent"))?)?;

@@ -58,12 +58,18 @@ pub struct RangeRecord {
     pub version: MutationVersion,
 }
 
-/// A bounded page. A short successful page always exhausts the requested range.
+/// A bounded page. A short successful page always exhausts the requested range,
+/// unless `resume` is set.
 pub struct RangePage {
     /// Ordered live records; tombstones count as work but do not appear here.
     pub records: Vec<RangeRecord>,
     /// True only after all configured group cursors reach the exact upper bound.
     pub exhausted: bool,
+    /// Set only by [`HashRangeCursor::next_page_yielding`]. The call ran out of
+    /// key budget in a run of tombstones. Every key of the range up to and
+    /// including this key was examined and none of them is live, so the next
+    /// call continues at the least key above it. `records` is empty then.
+    pub resume: Option<Vec<u8>>,
 }
 
 struct GroupCursor {
@@ -178,6 +184,19 @@ impl HashRangeCursor<'_> {
     /// Continue only with the original held call. Budget failure poisons this cursor.
     /// An error never returns a short successful page or an exhausted result.
     pub fn next_page(&mut self, limit: usize) -> Result<RangePage> {
+        self.next(limit, false)
+    }
+
+    /// Like [`Self::next_page`], but a key budget that runs out inside a run of
+    /// tombstones is not an error. The page is then empty and `resume` names the
+    /// last tombstone examined, so a caller walks a range of dead keys one call
+    /// at a time with no failed read. Any other budget failure, and a failure
+    /// after a live record was selected, still returns the error.
+    pub fn next_page_yielding(&mut self, limit: usize) -> Result<RangePage> {
+        self.next(limit, true)
+    }
+
+    fn next(&mut self, limit: usize, yielding: bool) -> Result<RangePage> {
         if self.failed {
             return Err(corrupt("range cursor requires a fresh call after an error"));
         }
@@ -187,12 +206,12 @@ impl HashRangeCursor<'_> {
             ));
         }
         self.failed = true;
-        let result = self.page(limit)?;
+        let result = self.page(limit, yielding)?;
         self.failed = false;
         Ok(result)
     }
 
-    fn page(&mut self, limit: usize) -> Result<RangePage> {
+    fn page(&mut self, limit: usize, yielding: bool) -> Result<RangePage> {
         self.call.charge(
             (limit
                 * (std::mem::size_of::<RangeRecord>() + std::mem::size_of::<(String, Location)>()))
@@ -203,8 +222,21 @@ impl HashRangeCursor<'_> {
             .try_reserve_exact(limit)
             .map_err(|_| super::resource())?;
         let mut exhausted = false;
+        let mut last_dead: Option<Vec<u8>> = None;
         while selected_records.len() < limit {
-            self.fill_pending()?;
+            match self.fill_pending() {
+                Err(crate::Error::ReadBudgetExceeded)
+                    if yielding && selected_records.is_empty() && last_dead.is_some() =>
+                {
+                    self.failed = false;
+                    return Ok(RangePage {
+                        records: Vec::new(),
+                        exhausted: false,
+                        resume: last_dead,
+                    });
+                }
+                other => other?,
+            }
             let selected = self
                 .groups
                 .iter()
@@ -228,6 +260,9 @@ impl HashRangeCursor<'_> {
                 ));
             }
             if location.source == Source::Tombstone {
+                if yielding && selected_records.is_empty() {
+                    last_dead = Some(key);
+                }
                 continue;
             }
             let key =
@@ -246,7 +281,11 @@ impl HashRangeCursor<'_> {
                 version: location.version,
             })
             .collect();
-        Ok(RangePage { records, exhausted })
+        Ok(RangePage {
+            records,
+            exhausted,
+            resume: None,
+        })
     }
 
     fn fill_pending(&mut self) -> Result<()> {

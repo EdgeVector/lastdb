@@ -2,6 +2,7 @@
 
 use super::fill::PagedSource;
 use super::*;
+use crate::storage::traits::YieldedScan;
 
 #[async_trait]
 impl KvStore for EncryptingKvStore {
@@ -95,6 +96,22 @@ impl KvStore for EncryptingKvStore {
         // is dropped and the page is refilled, so a short page is the range end.
         self.scan_paged_filled(PagedSource::Range(start, end), limit)
             .await
+    }
+
+    /// The inner store names where the next read continues, from its raw rows,
+    /// so a row dropped for want of an envelope does not change it.
+    async fn scan_range_yielding(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> StorageResult<YieldedScan> {
+        let raw = self.inner.scan_range_yielding(start, end, limit).await?;
+        let rows = self.decrypt_rows(raw.rows).await?;
+        Ok(YieldedScan {
+            rows,
+            resume: raw.resume,
+        })
     }
 
     async fn max_key_u64_after_marker(

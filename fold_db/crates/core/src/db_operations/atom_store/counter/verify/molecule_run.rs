@@ -6,7 +6,7 @@ use super::molecule_pages::{BindingRecordsPage, BindingsPage, HeadersPage};
 use super::report::{Kind, Phase};
 use super::state::{Run, StepGuard};
 use super::totals::{digest, Watch};
-use crate::db_operations::atom_store::{counts_of_header, unsealed_run_error, AtomStore, Progress};
+use crate::db_operations::atom_store::{counts_of_header, AtomStore};
 use crate::schema::SchemaError;
 
 /// What one page of a molecule phase gave.
@@ -21,18 +21,18 @@ impl MoleculePage {
     /// row, and the last key.
     fn shape(&self) -> (usize, u64, u64, Option<Vec<u8>>) {
         match self {
-            Self::Headers(page) => (page.rows, page.scan_unsealed, 0, page.last_key.clone()),
+            Self::Headers(page) => (page.rows, page.scan_unsealed, 0, page.resume.clone()),
             Self::Bindings(page) => (
                 page.rows,
                 page.scan_unsealed,
                 page.point_unsealed,
-                page.last_key.clone(),
+                page.resume.clone(),
             ),
             Self::Records(page) => (
                 page.rows,
                 page.scan_unsealed,
                 page.point_unsealed,
-                page.last_key.clone(),
+                page.resume.clone(),
             ),
         }
     }
@@ -66,23 +66,18 @@ impl AtomStore {
         };
         match read {
             Ok(page) => {
-                let (rows, scan_unsealed, point_unsealed, last_key) = page.shape();
+                let (rows, scan_unsealed, point_unsealed, resume) = page.shape();
                 run.note_unsealed(scan_unsealed + point_unsealed);
-                match run
-                    .walk
-                    .finish_read(rows, scan_unsealed, last_key.as_deref())
-                {
-                    Progress::Moved => apply_page(run, watch, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
+                run.walk
+                    .finish_yield(rows, scan_unsealed, resume.as_deref());
+                apply_page(run, watch, page);
             }
             Err(SchemaError::ReadResourceLimit { .. }) => {
                 run.report.page_retries += 1;
                 if !run.walk.read_too_big() {
-                    return Err(run.walk.failure(SchemaError::ReadResourceLimit {
+                    return Err(SchemaError::ReadResourceLimit {
                         detail: "a key range is too dense to read in pieces".into(),
-                    }));
+                    });
                 }
             }
             Err(error) => return Err(error),

@@ -1,5 +1,5 @@
 use super::super::laststore::{native_routing, LastStoreKvStore};
-use super::super::traits::{ExecutionModel, FlushBehavior, KvMutation};
+use super::super::traits::{ExecutionModel, FlushBehavior, KvMutation, YieldedScan};
 use super::*;
 
 impl PackKvStore {
@@ -249,6 +249,16 @@ impl KvStore for PackKvStore {
         limit: usize,
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         self.range_rows(start, end, limit, false).await
+    }
+
+    async fn scan_range_yielding(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> StorageResult<YieldedScan> {
+        let (rows, resume) = self.range_rows_yielding(start, end, limit).await?;
+        Ok(YieldedScan { rows, resume })
     }
 
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {

@@ -232,6 +232,27 @@ pub trait KvStore: Send + Sync {
         Ok(rows)
     }
 
+    /// Scan up to `limit` rows of `start..end` and name where to continue.
+    ///
+    /// For a walk over a range that holds many deleted keys. A backend whose
+    /// reads have a key budget may stop in a run of deleted keys: it then
+    /// returns the rows it has and `resume`, the last key it examined, in place
+    /// of a read-limit error. A page that is short does not end the range;
+    /// `resume` is `None` only at the end of the range. The default reads as
+    /// [`Self::scan_range_paged`] and names the last row of a full page.
+    async fn scan_range_yielding(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> StorageResult<YieldedScan> {
+        let rows = self.scan_range_paged(start, end, limit).await?;
+        let resume = (limit > 0 && rows.len() >= limit)
+            .then(|| rows.last().map(|(key, _)| key.clone()))
+            .flatten();
+        Ok(YieldedScan { rows, resume })
+    }
+
     /// Scan a range while bounding physical shard/group resolution.
     ///
     /// Product queries must use the globally ordered range methods above.
@@ -247,38 +268,7 @@ pub trait KvStore: Send + Sync {
         limit: usize,
         max_handles: usize,
     ) -> StorageResult<PhysicalScanPage> {
-        if limit == 0 || max_handles == 0 || start >= end {
-            return Ok(PhysicalScanPage {
-                next_cursor: cursor.cloned(),
-                ..Default::default()
-            });
-        }
-        let resume = cursor
-            .and_then(|position| position.after_key.as_deref())
-            .unwrap_or(start);
-        // `scan_range_paged` includes its start key. A resume page therefore
-        // needs one slot for that duplicate plus one slot for lookahead.
-        let lookahead = limit
-            .saturating_add(1)
-            .saturating_add(usize::from(cursor.is_some()));
-        let mut rows = self.scan_range_paged(resume, end, lookahead).await?;
-        if let Some(after) = cursor.and_then(|position| position.after_key.as_deref()) {
-            rows.retain(|(key, _)| key.as_slice() != after);
-        }
-        let more_remaining = rows.len() > limit;
-        rows.truncate(limit);
-        let handle = PhysicalScanCursor::default();
-        let next_cursor = more_remaining.then(|| PhysicalScanCursor {
-            after_key: rows.last().map(|(key, _)| key.clone()),
-            ..handle.clone()
-        });
-        Ok(PhysicalScanPage {
-            row_handle: (!rows.is_empty()).then_some(handle),
-            rows,
-            next_cursor,
-            handles_visited: 1,
-            cold_shard_loads: 0,
-        })
+        scan::keyset_physical_page(self, start, end, cursor, limit, max_handles).await
     }
 
     /// Scan keys with a given prefix, tolerating per-row read failures.

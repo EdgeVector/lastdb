@@ -4,7 +4,7 @@ use laststore::disk_pack::home::HomeRead;
 use laststore::disk_pack::{HashRangeCursor, RangeBounds};
 use std::collections::VecDeque;
 
-type NativeRows = Vec<(String, Vec<u8>)>;
+pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
 
 impl PackKvStore {
     pub(super) async fn prefix_rows(
@@ -168,7 +168,7 @@ fn text_upper(prefix: &str) -> Option<String> {
     None
 }
 
-fn cursor<'a>(
+pub(super) fn cursor<'a>(
     call: &'a mut HomeRead,
     collection: &str,
     start: &[u8],
