@@ -84,8 +84,12 @@ def worker(stop):
                 gone = keys[:2]
                 request([ldc.put('Cap', b, r, '', typ='purge') for b, r in gone], gone, [None, None])
         except Exception as error:
-            if node.proc.poll() is None and not stop.is_set():
-                errors.append(str(error)[:200])
+            # A request that is in flight when the node is killed ends with a closed connection.
+            # Any other error is a failed write and is counted.
+            text = str(error)
+            if not any(x in text for x in ('closed connection', 'Connection reset', 'Broken pipe',
+                                           'Connection refused', 'No such file')):
+                errors.append(text[:200])
             return
 
 

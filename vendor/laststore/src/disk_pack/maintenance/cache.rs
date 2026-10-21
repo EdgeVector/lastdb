@@ -15,8 +15,10 @@
 //! length, and its SHA-256.
 //!
 //! Memory is bounded by the constants below, not by the home:
-//! `MAP_PAGES` pages of 16 KiB (64 MiB), `BLOCKS` blocks of 4 KiB (1 MiB),
-//! `PARTS` part records of about 200 bytes (6 MiB), and `FILES` descriptors.
+//! `MAP_PAGES` block-map pages of 16 KiB (64 MiB, reached only by a home with that many
+//! batches), `BLOCKS` blocks of 4 KiB (1 MiB), `PARTS` part records of about 200 bytes
+//! (6 MiB), and `FILES` descriptors. The pages of trees are dropped every
+//! `TREE_SWEEP_RECORDS` records.
 
 use crate::disk_pack::block_plan::BlockId;
 use crate::disk_pack::call::Buffer;
@@ -34,6 +36,10 @@ const MAP_PAGES: usize = 4096;
 const BLOCKS: usize = 256;
 /// Verified part headers kept between calls.
 const PARTS: usize = 32_768;
+/// Records between two sweeps that drop the pages of trees. A key-order walk reads each
+/// tree page once, so keeping them only costs memory. The sweep is a scan of the kept
+/// pages, so it runs every few records and not after each one.
+const TREE_SWEEP_RECORDS: u32 = 256;
 /// Open part files kept between calls. The operating system limit on open files
 /// can be as low as 256 for a service, so the pool stays small.
 const FILES: usize = 64;
@@ -43,6 +49,7 @@ pub(super) struct PackCaches {
     blocks: HashMap<BlockId, Arc<Buffer>>,
     parts: HashMap<PathBuf, (u64, u64)>,
     files: CallFiles,
+    since_sweep: u32,
 }
 
 impl PackCaches {
@@ -52,6 +59,7 @@ impl PackCaches {
             blocks: HashMap::new(),
             parts: HashMap::new(),
             files: CallFiles::with_capacity(FILES),
+            since_sweep: 0,
         }
     }
 
@@ -77,7 +85,9 @@ impl PackCaches {
             files,
             ..
         } = call;
-        if pages.len() > MAP_PAGES {
+        self.since_sweep += 1;
+        if self.since_sweep >= TREE_SWEEP_RECORDS || pages.len() > MAP_PAGES {
+            self.since_sweep = 0;
             // Tree pages are read once in a key-order walk. Block maps are the hot set.
             pages.retain(|_, page| page.kind() == 5);
             if pages.len() > MAP_PAGES {

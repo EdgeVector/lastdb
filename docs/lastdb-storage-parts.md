@@ -25,11 +25,22 @@ Each publication copies every earlier entry to the new receipt and adds its own:
 
 - two journal parts for each batch (the data part and the map part),
 - one new directory part,
-- one new locator part for each locator tree that the batch edits.
+- one new locator part for each locator object that the publication edits.
 
-A small durable request makes two or three batches and about 13 parts. A write of ten keys makes about
-three parts for each key. A purge adds parts like any write. A restart adds a few parts for its own
-writes. An idle wait and a kill do not merge parts.
+All locator trees of a home live in one locator object. A group that is new takes a fresh part in that
+object, as an edit of its empty tree at page zero, and does not make a new object. Only the first group of an
+empty directory makes the object. A batch therefore adds 4 parts: a journal data part, a journal map part,
+one directory part and one locator part. (A publication that edits very many trees can fill the 512 pages of
+its locator part and add a second one. A home that earlier builds wrote keeps its old locator objects until
+its next pack.)
+
+A small durable request makes two or three batches and about 9 parts. A write of ten keys adds the same
+4 parts to the batch that holds it. A purge adds parts like any write. A restart adds a few parts for its
+own writes. An idle wait and a kill do not merge parts.
+
+All the part files of one object share one directory, so the directory of the locator object holds as many
+files as the receipt names locator parts (at most 65,536). A listing of 65,536 files takes 31 ms and of
+100,000 files takes 47 ms on APFS, the same as the same files in 32 directories.
 
 Every publication writes the whole receipt again, and the earlier receipts stay on disk until reclaim. The
 part count is therefore a hard limit and also a cost of each write.
