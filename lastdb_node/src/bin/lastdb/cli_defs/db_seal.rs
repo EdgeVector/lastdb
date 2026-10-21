@@ -91,6 +91,10 @@ pub(crate) enum DbSealCommand {
         /// Drop the durable checkpoint and start at the first key.
         #[arg(long)]
         restart: bool,
+        /// Repeat the call until the collection is done, from the durable
+        /// checkpoint, and print the progress of each call to stderr.
+        #[arg(long, requires = "execute")]
+        all: bool,
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,

@@ -170,6 +170,38 @@ impl KvStore for PackKvStore {
         .await
     }
 
+    /// One transaction: read every key, then delete the keys that match in one
+    /// commit. The compare and the delete sit in the same scope as the single
+    /// key compare-and-swap above.
+    async fn compare_and_delete_many(
+        &self,
+        items: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> StorageResult<Vec<bool>> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        transaction::scope(Some(Arc::clone(&self.runtime)), async {
+            let keys = items.iter().map(|(key, _)| key.clone()).collect();
+            let current = self.values(keys).await?;
+            let matched: Vec<bool> = items
+                .iter()
+                .zip(&current)
+                .map(|((_, expected), found)| found.as_deref() == Some(expected.as_slice()))
+                .collect();
+            let deletes: Vec<_> = items
+                .iter()
+                .zip(&matched)
+                .filter(|(_, matched)| **matched)
+                .map(|((key, _), _)| KvMutation::delete(key.clone()))
+                .collect();
+            if !deletes.is_empty() {
+                self.change(deletes).await?;
+            }
+            Ok(matched)
+        })
+        .await
+    }
+
     async fn delete(&self, key: &[u8]) -> StorageResult<bool> {
         transaction::scope(Some(Arc::clone(&self.runtime)), async {
             if self.get(key).await?.is_none() {

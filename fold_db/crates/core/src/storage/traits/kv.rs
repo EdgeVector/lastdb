@@ -53,6 +53,24 @@ pub trait KvStore: Send + Sync {
         )))
     }
 
+    /// Delete every key whose current raw value is exactly the value given
+    /// with it. Returns, in input order, whether each key was deleted.
+    ///
+    /// The batched counterpart of [`Self::compare_and_swap`] with `new = None`:
+    /// a key whose value differs is left alone and reports `false`. The
+    /// default compares and deletes one key at a time. A backend whose commit
+    /// is costly should override it to commit the matching keys together.
+    async fn compare_and_delete_many(
+        &self,
+        items: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> StorageResult<Vec<bool>> {
+        let mut deleted = Vec::with_capacity(items.len());
+        for (key, expected) in items {
+            deleted.push(self.compare_and_swap(&key, &expected, None).await?);
+        }
+        Ok(deleted)
+    }
+
     /// Delete a key
     async fn delete(&self, key: &[u8]) -> StorageResult<bool>;
 
