@@ -59,8 +59,8 @@ impl CoreWarmSet {
         self.share_model_atom(&molecule, &mut value);
         self.track_atom(&value.atom);
         let slot = self.slots.get(id).expect("warm core slot");
-        // A clean read keeps no owned copy: the tip lives in the molecule and
-        // the atom in `slot.atom`, which `retained_values` hands to holders.
+        // A clean read keeps no owned copy: the tip lives in the slot and the
+        // atom in `slot.atom`, which `retained_values` hands to holders.
         // An identical prepared value keeps its owner and reservation.
         let owned = slot
             .owned

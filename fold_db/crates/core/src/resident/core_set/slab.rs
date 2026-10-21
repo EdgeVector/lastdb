@@ -4,8 +4,12 @@
 //! unused. Measured 2026-10-20: 9,000 warm slots sat in a 16,384-entry vector,
 //! about 1.1 MB of empty entries for 3,000 records. Fixed chunks bound the
 //! unused part to one chunk. Freed ids are reused before the table grows.
+//!
+//! The gauge charges entries, not chunks, and chunks stay after a purge. So
+//! each table holds up to one uncharged partial chunk: about 0.5 MB for the
+//! three tables together (a slot chunk is about 300 KB with the inline tip).
 
-/// Entries per chunk. One chunk of slot entries is about 160 KB.
+/// Entries per chunk.
 const CHUNK: usize = 1024;
 
 pub(super) struct Slab<T> {
@@ -47,8 +51,12 @@ impl<T> Slab<T> {
         });
         let (chunk, at) = split(id);
         while self.chunks.len() <= chunk {
-            self.chunks
-                .push(new_chunk().expect("core table chunk allocation"));
+            // Out of memory aborts, as `Vec::push` did. A panic here would
+            // poison the warm set lock for every later caller.
+            let fresh = new_chunk().unwrap_or_else(|_| {
+                std::alloc::handle_alloc_error(std::alloc::Layout::new::<[Option<T>; CHUNK]>())
+            });
+            self.chunks.push(fresh);
         }
         self.chunks[chunk][at] = Some(value);
         id
