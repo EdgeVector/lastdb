@@ -44,6 +44,7 @@ mod repair;
 mod report;
 mod rows;
 mod slots;
+mod split;
 mod steps;
 mod window;
 
