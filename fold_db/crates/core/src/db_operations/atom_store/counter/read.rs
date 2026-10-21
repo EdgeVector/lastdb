@@ -33,6 +33,8 @@ pub struct AtomCounterView {
 pub(super) struct Offer {
     pub atom: Atom,
     pub blobs: Vec<String>,
+    /// Meter size of the body, stored on the new counter.
+    pub size: Option<super::AtomSize>,
     /// The molecule whose key bundle seals the body in an org scope.
     pub bundle_molecule: Option<String>,
 }
@@ -291,6 +293,7 @@ fn offer_of(
 ) -> Offer {
     Offer {
         blobs: crate::atom::file_pointer::blob_refs_of_atom(atom.content(), atom.metadata()),
+        size: super::AtomSize::of(atom),
         bundle_molecule: scope.and_then(|_| {
             seal.map(str::to_string)
                 .or_else(|| first_molecule_naming(atom.uuid(), tips))

@@ -25,6 +25,13 @@ pub enum Phase {
     Bindings,
     /// Binding records: each has a `bindings` counter.
     BindingRecords,
+    /// The retention queue: every entry it holds, in the buckets of the
+    /// directory and in the slices that the directory does not list. A bucket
+    /// that holds entries and has no directory row is a fault.
+    Queue,
+    /// The conflict records whose id no queue entry names, read again. A record
+    /// that is still there is a fault: the janitor never releases it.
+    Suspects,
     /// Blob counters (personal run only): each counter alone. See `blobs.rs`.
     Blobs,
     /// The queue of blobs at zero (personal run only): each entry against its
@@ -54,6 +61,8 @@ pub(crate) enum Kind {
     SuspectCounter,
     TipWithoutBody,
     RecordWithoutBody,
+    RecordWithoutQueueEntry,
+    QueueEntryWithoutDirectory,
     UnreadableTip,
     UnreadableRecord,
     UnreadableCounter,
@@ -110,6 +119,8 @@ impl Kind {
             Self::SuspectCounter => "suspect_counter",
             Self::TipWithoutBody => "tip_without_body",
             Self::RecordWithoutBody => "record_without_body",
+            Self::RecordWithoutQueueEntry => "record_without_queue_entry",
+            Self::QueueEntryWithoutDirectory => "queue_entry_without_directory",
             Self::UnreadableTip => "unreadable_tip",
             Self::UnreadableRecord => "unreadable_record",
             Self::UnreadableCounter => "unreadable_counter",
@@ -163,6 +174,17 @@ pub struct Mismatches {
     pub tip_without_body: u64,
     /// A conflict record names an atom that has no body.
     pub record_without_body: u64,
+    /// No queue entry can be reached from a conflict record: its slot
+    /// directory entry is missing, does not decode, or names a queue entry that
+    /// is missing. The janitor never releases such a record. `recount
+    /// --execute` writes its rows again.
+    #[serde(default)]
+    pub record_without_queue_entry: u64,
+    /// A queue entry sits in a bucket that the directory of the queue does not
+    /// list, so the janitor never finds it. The safety net of the janitor, or
+    /// `recount --execute`, writes the row again.
+    #[serde(default)]
+    pub queue_entry_without_directory: u64,
     pub unreadable_tip: u64,
     pub unreadable_record: u64,
     pub unreadable_counter: u64,
@@ -199,6 +221,8 @@ impl Mismatches {
             Kind::SuspectCounter => &mut self.suspect_counter,
             Kind::TipWithoutBody => &mut self.tip_without_body,
             Kind::RecordWithoutBody => &mut self.record_without_body,
+            Kind::RecordWithoutQueueEntry => &mut self.record_without_queue_entry,
+            Kind::QueueEntryWithoutDirectory => &mut self.queue_entry_without_directory,
             Kind::UnreadableTip => &mut self.unreadable_tip,
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
@@ -219,6 +243,8 @@ impl Mismatches {
             + self.suspect_counter
             + self.tip_without_body
             + self.record_without_body
+            + self.record_without_queue_entry
+            + self.queue_entry_without_directory
             + self.unreadable_tip
             + self.unreadable_record
             + self.unreadable_counter
@@ -292,6 +318,9 @@ pub struct VerifyReport {
     /// Binding records the run read.
     #[serde(default)]
     pub binding_records_read: u64,
+    /// Entries the queue phase read (records and drain markers).
+    #[serde(default)]
+    pub queue_entries_read: u64,
     /// Blob counters the blobs phase read.
     #[serde(default)]
     pub blob_counters_read: u64,

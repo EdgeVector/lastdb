@@ -8,8 +8,8 @@ use super::report::Phase;
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{counter_range, BlobQueue};
 use crate::db_operations::atom_store::counter::scan::{
-    family_range, record_holders, record_molecules, tip_holders, tip_molecules, CounterRead,
-    Family, PairRead,
+    family_range, record_holders, record_ids, record_molecules, tip_holders, tip_molecules,
+    CounterRead, Family, PairRead,
 };
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -44,6 +44,18 @@ pub(super) struct ReferencedPage {
     pub blobs: Vec<BlobListed>,
     /// Rows of the page for each molecule (tips, or counted conflict records).
     pub molecules: BTreeMap<String, u32>,
+    /// The ids of the counted records of the page (the records phase only): the
+    /// first 128 bits of the id that the queue keys name.
+    pub record_ids: Vec<u128>,
+}
+
+/// A page of the suspects phase: the keys of the counted records whose id no
+/// queue entry names.
+pub(super) struct SuspectsPage {
+    pub rows: usize,
+    pub last_key: Option<Vec<u8>>,
+    pub scan_unsealed: u64,
+    pub keys: Vec<String>,
 }
 
 /// A page of the atoms phase.
@@ -63,14 +75,14 @@ pub(super) struct AtomsPage {
 pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>, Vec<u8>)> {
     let family = match phase {
         Phase::Tips => Family::Tips,
-        Phase::Records => Family::Records,
+        Phase::Records | Phase::Suspects => Family::Records,
         Phase::Atoms => Family::Atoms,
         Phase::Headers => Family::Headers,
         Phase::Bindings => Family::BindingCounters,
         Phase::BindingRecords => Family::BindingRecords,
         Phase::Blobs => return Some(counter_range()),
         Phase::BlobQueue => return Some(BlobQueue::entries_range()),
-        Phase::Done => return None,
+        Phase::Queue | Phase::Done => return None,
     };
     Some(family_range(family, scope))
 }
@@ -103,6 +115,10 @@ impl AtomStore {
                 Phase::Records => record_molecules(&rows),
                 _ => tip_molecules(&rows),
             };
+            let record_ids = match phase {
+                Phase::Records => record_ids(&rows),
+                _ => Vec::new(),
+            };
             let (atoms, point_unsealed) =
                 count_unsealed_discards(self.read_atoms_of(holders, scope)).await;
             let blobs = self.read_blob_listed(blob_lists).await?;
@@ -116,6 +132,7 @@ impl AtomStore {
                 atoms: atoms?,
                 blobs,
                 molecules,
+                record_ids,
             })
         })
         .await
@@ -140,6 +157,35 @@ impl AtomStore {
                 atom,
             })
             .collect())
+    }
+
+    /// Read one page of the conflict records, and keep the keys of the counted
+    /// records whose id is in `suspects`.
+    pub(super) async fn read_suspects_page(
+        &self,
+        suspects: &std::collections::HashSet<u128>,
+        (start, end, asked): Request,
+    ) -> Result<SuspectsPage, SchemaError> {
+        let (rows, scan_unsealed) =
+            count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked)).await;
+        let rows = rows.map_err(SchemaError::from)?;
+        let keys = rows
+            .iter()
+            .map(|(key, _)| String::from_utf8_lossy(key).into_owned())
+            .filter(|key| {
+                crate::db_operations::atom_store::conflict_record::is_counted_record_key(key)
+            })
+            .filter(|key| {
+                crate::db_operations::atom_store::record_digest(key)
+                    .is_some_and(|digest| suspects.contains(&digest))
+            })
+            .collect();
+        Ok(SuspectsPage {
+            rows: rows.len(),
+            last_key: rows.last().map(|(key, _)| key.clone()),
+            scan_unsealed,
+            keys,
+        })
     }
 
     /// Read one page of the `atom:` range and pair each atom's body and counter

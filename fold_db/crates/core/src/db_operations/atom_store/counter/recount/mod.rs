@@ -25,6 +25,7 @@ mod apply;
 mod blobs;
 mod decide;
 mod report;
+mod retention;
 
 pub use report::{Change, RecountOptions, RecountReport};
 
@@ -124,6 +125,11 @@ impl AtomStore {
         // An atom that tips or records name and that has neither a body nor a
         // counter never came up in the walk of the atoms.
         report.lost_bodies += tally.len() as u64;
+        // The retention rows of the records do not depend on the shard: one pass
+        // over the records of the scope checks them.
+        if pass.index == 0 {
+            self.recount_retention(pass.scope, execute, report).await?;
+        }
         Ok(())
     }
 

@@ -5,7 +5,7 @@
 //! reads nothing and writes nothing, so a reviewer can check the arithmetic
 //! against the invariants of the parent module without the store code.
 
-use super::AtomCounter;
+use super::{AtomCounter, AtomSize};
 
 /// What the stored state shows before the batch.
 pub(super) struct AtomBefore {
@@ -26,7 +26,10 @@ pub(super) enum AtomPlan {
     Create(AtomCounter),
     /// The count reached zero. The batch deletes the body, the counter, and the
     /// blob references that the counter lists.
-    Delete { blobs: Vec<String> },
+    Delete {
+        blobs: Vec<String>,
+        size: Option<AtomSize>,
+    },
     /// The counter disagrees with the removal. The batch writes the counter
     /// with `suspect` and keeps the body.
     Suspect(AtomCounter, SuspectKind),
@@ -47,6 +50,7 @@ pub(super) enum SuspectKind {
 /// A body the batch brings for an atom, with its blob references.
 pub(super) struct BodyOffer<'a> {
     pub blobs: &'a [String],
+    pub size: Option<AtomSize>,
 }
 
 /// Why a plan cannot proceed.
@@ -90,11 +94,14 @@ fn plan_new(
         // mark the counter, so no later removal can reach zero and delete.
         let blobs = body.map_or_else(Vec::new, |body| body.blobs.to_vec());
         let mut counter = AtomCounter::new(add, blobs);
+        counter.size = body.and_then(|body| body.size);
         counter.suspect = true;
         return Ok(AtomPlan::Suspect(counter, SuspectKind::CounterAbsent));
     }
     if let Some(body) = body {
-        return Ok(AtomPlan::Create(AtomCounter::new(add, body.blobs.to_vec())));
+        let mut counter = AtomCounter::new(add, body.blobs.to_vec());
+        counter.size = body.size;
+        return Ok(AtomPlan::Create(counter));
     }
     Err(PlanError::NoBody)
 }
@@ -133,6 +140,7 @@ fn lower(counter: &AtomCounter, remove: u64) -> AtomPlan {
     if refs == 0 && !counter.suspect {
         return AtomPlan::Delete {
             blobs: counter.blobs.clone(),
+            size: counter.size,
         };
     }
     AtomPlan::SetCounter(AtomCounter {

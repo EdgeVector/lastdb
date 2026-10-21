@@ -185,6 +185,14 @@ fn print_report(
         report.lost_bodies
     );
     println!(
+        "  retention queue: {} entries read; {} records without a queue entry, {} entries in a bucket without a directory row; repaired: {} records, {} buckets",
+        report.queue_entries_read,
+        report.records_without_queue_entry,
+        report.queue_entries_without_directory,
+        report.retention_records_repaired,
+        report.retention_buckets_repaired
+    );
+    println!(
         "  {} operations in {} batches, {} ms; range reads: {} calls, {} retried with fewer rows, {} narrowed",
         report.operations,
         report.batches,

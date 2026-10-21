@@ -66,6 +66,7 @@ mod molecule_pages;
 mod molecule_report;
 mod molecule_run;
 mod pages;
+mod queue;
 mod report;
 mod run;
 mod state;

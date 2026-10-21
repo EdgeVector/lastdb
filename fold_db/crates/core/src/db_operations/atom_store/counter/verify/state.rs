@@ -6,6 +6,7 @@ use super::report::{
     VerifySummary,
 };
 use super::totals::{lock, Tally, Watch};
+use crate::db_operations::atom_store::time_queue::QueueSurvey;
 use crate::db_operations::atom_store::{RangeWalk, WalkStats};
 use crate::schema::SchemaError;
 use std::collections::HashSet;
@@ -31,6 +32,17 @@ pub(super) struct Run {
     /// Molecules whose header the run has read.
     pub headers_seen: HashSet<u128>,
     pub reported_below: HashSet<u128>,
+    /// The ids of the counted records (first 128 bits), over the second phase.
+    pub record_ids: HashSet<u128>,
+    /// False when the run met more records than `max_atoms`: the ids are a
+    /// part, and the queue phase judges nothing.
+    pub ids_complete: bool,
+    /// The most ids the run keeps.
+    pub max_ids: usize,
+    /// The survey of the retention queue, while the queue phase runs.
+    pub survey: Option<QueueSurvey>,
+    /// Ids of records that no queue entry names, for the last phase.
+    pub suspects: HashSet<u128>,
     pub report: VerifyReport,
     pub page_rows: usize,
     started: Instant,
@@ -53,6 +65,11 @@ impl Run {
             molecule_records: Tally::new(max_atoms),
             headers_seen: HashSet::new(),
             reported_below: HashSet::new(),
+            record_ids: HashSet::new(),
+            ids_complete: true,
+            max_ids: max_atoms,
+            survey: None,
+            suspects: HashSet::new(),
             report: VerifyReport {
                 run_id: id,
                 scope: request.scope.clone(),
@@ -71,6 +88,7 @@ impl Run {
                 headers_read: 0,
                 binding_counters_read: 0,
                 binding_records_read: 0,
+                queue_entries_read: 0,
                 blob_counters_read: 0,
                 blob_queue_read: 0,
                 page_retries: 0,

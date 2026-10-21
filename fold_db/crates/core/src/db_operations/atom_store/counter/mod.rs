@@ -48,7 +48,8 @@ mod scan;
 mod verify;
 
 pub(crate) use commit::{
-    GuardedDelete, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
+    GuardedDelete, PreviousTip, RecordRefs, ReleaseRequest, TipChange, TipChangeSet, TipCommit,
+    TipDebit,
 };
 pub use molecule::counts_of_header;
 pub use molecule_plan::{MoleculeCounts, MoleculeFault};
@@ -68,7 +69,7 @@ pub const ATOM_COUNTER_VERSION: u8 = 1;
 /// One counter record, at `atom:{uuid}\0c` in the `atoms` collection.
 ///
 /// The record stays small: the count, the blob references of the body (so a
-/// delete needs no body read), and the `suspect` flag.
+/// delete needs no body read), the body size, and the `suspect` flag.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AtomCounter {
     #[serde(rename = "v")]
@@ -77,6 +78,12 @@ pub struct AtomCounter {
     /// Blob references of the atom body, set when the body is created.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blobs: Vec<String>,
+    /// Size of the body, set when the body is created. The planner reads the
+    /// counter of every atom a tip leaves, so the keep-small meters learn the
+    /// old size there and keep no per-key state. `None` when a recount wrote
+    /// the counter or the body names a blob without its size.
+    #[serde(rename = "sz", default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<AtomSize>,
     /// A planner found a count that disagrees with a removal. The body stays,
     /// whatever the count says, until an operator repairs the counter.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -95,7 +102,35 @@ impl AtomCounter {
             version: ATOM_COUNTER_VERSION,
             refs,
             blobs,
+            size: None,
             suspect: false,
         }
+    }
+}
+
+/// Logical bytes of one atom body and the logical bytes of the blobs it names,
+/// as the keep-small meters count them. Stored as a two-number array.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AtomSize(pub u64, pub u64);
+
+impl AtomSize {
+    /// The meter size of `atom`, or `None` when it names a blob without the
+    /// blob's size (the meters then fail closed).
+    #[must_use]
+    pub fn of(atom: &crate::atom::Atom) -> Option<Self> {
+        let blob =
+            crate::atom::file_pointer::blob_logical_bytes_of_atom(atom.content(), atom.metadata())?;
+        let logical = serde_json::to_vec(atom).map_or(0, |bytes| bytes.len() as u64);
+        Some(Self(logical, blob))
+    }
+
+    #[must_use]
+    pub const fn atom_bytes(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn blob_bytes(self) -> u64 {
+        self.1
     }
 }

@@ -11,7 +11,9 @@ mod commit;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::counter::TipDebit;
 use super::{AtomStore, KeepSmallHardEraseTotals};
+use crate::db_operations::MoleculeTipCounterSource;
 use crate::schema::SchemaError;
 
 const JOURNAL_PREFIX: &str = "keep_small:hard_erase_journal:";
@@ -41,8 +43,8 @@ struct HardEraseJournalRow {
 #[derive(Debug, Clone)]
 pub(crate) struct KeepSmallHardErasePlan {
     atom_debits: Vec<(String, String, u64)>,
-    /// `(tip storage key, resolved schema, bytes)`.
-    tip_debits: Vec<(String, String, u64)>,
+    /// `(tip storage key, resolved schema, bytes, removed atom size)`.
+    tip_debits: Vec<(String, String, u64, Option<MoleculeTipCounterSource>)>,
     delta: KeepSmallHardEraseTotals,
 }
 
@@ -114,7 +116,7 @@ impl AtomStore {
         &self,
         fallback_schema: &str,
         atom_debits: &[(String, String, u64)],
-        tip_debits: &[(String, u64)],
+        tip_debits: &[TipDebit],
     ) -> Result<KeepSmallHardErasePlan, SchemaError> {
         let mut totals = KeepSmallHardEraseTotals::default();
         for (schema, _, bytes) in atom_debits {
@@ -130,7 +132,7 @@ impl AtomStore {
             })?;
         }
         let mut resolved_tips = Vec::with_capacity(tip_debits.len());
-        for (key, bytes) in tip_debits {
+        for (key, bytes, source) in tip_debits {
             let molecule_uuid =
                 crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(key);
             let schema = molecule_uuid
@@ -145,7 +147,7 @@ impl AtomStore {
                     SchemaError::InvalidData("hard-erase tip count debit overflow".to_string())
                 })?;
             }
-            resolved_tips.push((key.clone(), schema, *bytes));
+            resolved_tips.push((key.clone(), schema, *bytes, source.clone()));
         }
         Ok(KeepSmallHardErasePlan {
             atom_debits: atom_debits.to_vec(),
@@ -278,15 +280,18 @@ impl AtomStore {
                 self.keep_small.record_atom_delete(schema, *bytes);
             }
         }
-        for (key, schema, bytes) in &plan.tip_debits {
+        for (key, schema, bytes, source) in &plan.tip_debits {
             let molecule_uuid =
                 crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(key);
             if *bytes > 0 {
                 self.keep_small
                     .record_tip_put(Some(schema.as_str()), 0, *bytes);
                 if let Some(molecule_uuid) = molecule_uuid {
-                    self.keep_small
-                        .record_molecule_tip_delete(molecule_uuid, key, *bytes);
+                    self.keep_small.record_molecule_tip_delete(
+                        molecule_uuid,
+                        source.as_ref(),
+                        *bytes,
+                    );
                 }
             }
             self.keep_small.forget_key(key);

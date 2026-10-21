@@ -34,6 +34,12 @@ pub(super) fn record_id(history_key: &str) -> String {
     )
 }
 
+/// The first 128 bits of the id of a record, as the queue keys name it. The
+/// verifier and the recount compare it with `TimeQueue::entry_digest`.
+pub(crate) fn record_digest(history_key: &str) -> Option<u128> {
+    crate::db_operations::atom_store::time_queue::digest_of_id(&record_id(history_key))
+}
+
 /// The identity of the drain marker of one slot.
 pub(super) fn drain_id(dir_prefix: &str) -> String {
     record_id(&format!("drain:{dir_prefix}"))

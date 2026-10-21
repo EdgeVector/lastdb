@@ -30,9 +30,13 @@
 //! reader and the same retirement, and adds its own entry value and release.
 
 mod keys;
+mod net;
 mod reader;
 mod retire;
 mod stats;
+mod survey;
 
+pub(crate) use keys::digest_of_id;
 pub(crate) use keys::TimeQueue;
 pub(crate) use reader::{DuePage, QueueReader};
+pub(crate) use survey::QueueSurvey;
