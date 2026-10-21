@@ -6,6 +6,7 @@
 //! copy of the path strings. `core_path` rebuilds the strings when a caller
 //! needs a `CorePath` back.
 
+use super::slab::Slab;
 use super::tables::{slab_insert, SlotTable};
 use super::*;
 use hashbrown::HashTable;
@@ -24,8 +25,7 @@ struct PathEntry {
 pub(super) struct PathTable {
     index: HashTable<PathId>,
     hasher: RandomState,
-    entries: Vec<Option<PathEntry>>,
-    free: Vec<PathId>,
+    entries: Slab<PathEntry>,
     len: usize,
     names: NameTable,
 }
@@ -41,7 +41,7 @@ impl PathTable {
         let entries = &self.entries;
         self.index
             .find(hash, |id| {
-                entries[*id as usize].as_ref().is_some_and(|entry| {
+                entries.get(*id).is_some_and(|entry| {
                     entry.state.slot == slot && entry.schema == schema && entry.field == field
                 })
             })
@@ -49,11 +49,11 @@ impl PathTable {
     }
 
     pub(super) fn state(&self, id: PathId) -> Option<&PathState> {
-        Some(&self.entries.get(id as usize)?.as_ref()?.state)
+        Some(&self.entries.get(id)?.state)
     }
 
     pub(super) fn state_mut(&mut self, id: PathId) -> Option<&mut PathState> {
-        Some(&mut self.entries.get_mut(id as usize)?.as_mut()?.state)
+        Some(&mut self.entries.get_mut(id)?.state)
     }
 
     pub(super) fn len(&self) -> usize {
@@ -61,17 +61,13 @@ impl PathTable {
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = (PathId, &PathState)> {
-        self.entries
-            .iter()
-            .enumerate()
-            .filter_map(|(id, entry)| Some((id as PathId, &entry.as_ref()?.state)))
+        self.entries.iter().map(|(id, entry)| (id, &entry.state))
     }
 
     pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = (PathId, &mut PathState)> {
         self.entries
             .iter_mut()
-            .enumerate()
-            .filter_map(|(id, entry)| Some((id as PathId, &mut entry.as_mut()?.state)))
+            .map(|(id, entry)| (id, &mut entry.state))
     }
 
     /// Add a path that is not warm. `state.slot` must be the slot of `path`.
@@ -84,7 +80,7 @@ impl PathTable {
         let hash = self
             .hasher
             .hash_one((entry.state.slot, entry.schema, entry.field));
-        let id = slab_insert(&mut self.entries, &mut self.free, entry);
+        let id = self.entries.insert(entry);
         let (entries, hasher) = (&self.entries, &self.hasher);
         self.index
             .insert_unique(hash, id, |id| entry_hash(hasher, entries, *id));
@@ -93,13 +89,12 @@ impl PathTable {
     }
 
     pub(super) fn remove(&mut self, id: PathId) -> Option<PathState> {
-        self.entries.get(id as usize)?.as_ref()?;
+        self.entries.get(id)?;
         let hash = entry_hash(&self.hasher, &self.entries, id);
         if let Ok(found) = self.index.find_entry(hash, |candidate| *candidate == id) {
             found.remove();
         }
-        let entry = self.entries[id as usize].take()?;
-        self.free.push(id);
+        let entry = self.entries.take(id)?;
         self.len -= 1;
         self.names.release(entry.schema);
         self.names.release(entry.field);
@@ -107,8 +102,8 @@ impl PathTable {
     }
 }
 
-fn entry_hash(hasher: &RandomState, entries: &[Option<PathEntry>], id: PathId) -> u64 {
-    let entry = entries[id as usize].as_ref().expect("indexed core path");
+fn entry_hash(hasher: &RandomState, entries: &Slab<PathEntry>, id: PathId) -> u64 {
+    let entry = entries.get(id).expect("indexed core path");
     hasher.hash_one((entry.state.slot, entry.schema, entry.field))
 }
 

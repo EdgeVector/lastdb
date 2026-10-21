@@ -6,6 +6,7 @@
 //! keys live in `source_keys`, path names in `path_table`.
 
 use super::path_table::PathId;
+use super::slab::Slab;
 use super::*;
 use hashbrown::HashTable;
 use smallvec::SmallVec;
@@ -22,6 +23,10 @@ pub(super) struct SlotEntry {
     /// Distinct invalidation sources, at most `MAX_SLOT_SOURCES`.
     pub(super) sources: SmallVec<[SourceId; 8]>,
     pub(super) atom: Option<Arc<SharedAtom>>,
+    /// The current tip of this key and its key metadata. The warm set keeps
+    /// no second molecule copy; the slot is the only owner of the tip.
+    pub(super) tip: Option<AtomEntry>,
+    pub(super) metadata: Option<Box<KeyMetadata>>,
     pub(super) owned: Option<Arc<model::CoreModelSlot>>,
     /// Heap of the current molecule tip, charged once for all alias paths.
     pub(super) tip_charge: usize,
@@ -31,8 +36,7 @@ pub(super) struct SlotEntry {
 pub(super) struct SlotTable {
     index: HashTable<SlotId>,
     hasher: RandomState,
-    entries: Vec<Option<SlotEntry>>,
-    free: Vec<SlotId>,
+    entries: Slab<SlotEntry>,
     /// Canonical molecule names shared by every slot key, with slot counts.
     names: HashMap<MoleculeKey, usize>,
 }
@@ -58,7 +62,7 @@ impl SlotTable {
         let entries = &self.entries;
         self.index
             .find(digest, |id| {
-                entries[*id as usize].as_ref().is_some_and(|entry| {
+                entries.get(*id).is_some_and(|entry| {
                     let key = &entry.key;
                     key.molecule.scope.as_deref() == scope
                         && key.molecule.molecule.as_ref() == molecule
@@ -70,18 +74,20 @@ impl SlotTable {
     }
 
     pub(super) fn get(&self, id: SlotId) -> Option<&SlotEntry> {
-        self.entries.get(id as usize)?.as_ref()
+        self.entries.get(id)
     }
 
     pub(super) fn get_mut(&mut self, id: SlotId) -> Option<&mut SlotEntry> {
-        self.entries.get_mut(id as usize)?.as_mut()
+        self.entries.get_mut(id)
+    }
+
+    /// Molecules with at least one warm slot.
+    pub(super) fn molecule_count(&self) -> usize {
+        self.names.len()
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = (SlotId, &SlotEntry)> {
-        self.entries
-            .iter()
-            .enumerate()
-            .filter_map(|(id, entry)| Some((id as SlotId, entry.as_ref()?)))
+        self.entries.iter()
     }
 
     /// Add a slot without owners. The caller adds the first owner at once.
@@ -96,10 +102,12 @@ impl SlotTable {
             owners: SmallVec::new(),
             sources: SmallVec::new(),
             atom: None,
+            tip: None,
+            metadata: None,
             owned: None,
             tip_charge: 0,
         };
-        let id = slab_insert(&mut self.entries, &mut self.free, entry);
+        let id = self.entries.insert(entry);
         let (entries, hasher) = (&self.entries, &self.hasher);
         self.index
             .insert_unique(digest, id, |id| entry_hash(hasher, entries, *id));
@@ -107,14 +115,13 @@ impl SlotTable {
     }
 
     pub(super) fn remove(&mut self, id: SlotId) {
-        let Some(entry) = self.entries.get_mut(id as usize).and_then(Option::take) else {
+        let Some(entry) = self.entries.take(id) else {
             return;
         };
         let digest = key_hash(&self.hasher, &entry.key);
         if let Ok(found) = self.index.find_entry(digest, |candidate| *candidate == id) {
             found.remove();
         }
-        self.free.push(id);
         let unused = self
             .names
             .get_mut(&entry.key.molecule)
@@ -132,9 +139,6 @@ impl SlotTable {
         self.index
             .try_reserve(additional, |id| entry_hash(hasher, entries, *id))
             .map_err(|_| super::model::capacity())?;
-        self.free
-            .try_reserve(additional)
-            .map_err(|_| super::model::capacity())?;
         self.entries
             .try_reserve(additional)
             .map_err(|_| super::model::capacity())
@@ -150,14 +154,8 @@ fn key_hash(hasher: &RandomState, key: &SlotKey) -> u64 {
     ))
 }
 
-fn entry_hash(hasher: &RandomState, entries: &[Option<SlotEntry>], id: SlotId) -> u64 {
-    key_hash(
-        hasher,
-        &entries[id as usize]
-            .as_ref()
-            .expect("indexed core slot")
-            .key,
-    )
+fn entry_hash(hasher: &RandomState, entries: &Slab<SlotEntry>, id: SlotId) -> u64 {
+    key_hash(hasher, &entries.get(id).expect("indexed core slot").key)
 }
 
 /// Reuse a freed id before growing the table.

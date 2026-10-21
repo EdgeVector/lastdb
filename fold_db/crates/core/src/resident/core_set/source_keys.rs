@@ -5,7 +5,8 @@
 //! key in hex (`rdel:v2:6d6b3a…`), and molecule keys carry hex ids, so the
 //! packed form stores each long lowercase hex run as raw bytes.
 
-use super::tables::{slab_insert, SlotId};
+use super::slab::Slab;
+use super::tables::SlotId;
 use super::*;
 use hashbrown::HashTable;
 use std::hash::{BuildHasher, RandomState};
@@ -94,8 +95,7 @@ pub(super) struct SourceEntry {
 pub(super) struct SourceTable {
     index: HashTable<SourceId>,
     hasher: RandomState,
-    entries: Vec<Option<SourceEntry>>,
-    free: Vec<SourceId>,
+    entries: Slab<SourceEntry>,
 }
 
 /// Lazily packed forms of one lookup, so a probe packs at most once.
@@ -145,15 +145,15 @@ impl SourceTable {
         let entries = &self.entries;
         self.index
             .find(hash, |id| {
-                entries[*id as usize]
-                    .as_ref()
+                entries
+                    .get(*id)
                     .is_some_and(|entry| entry.hash == hash && probe.matches(&entry.key))
             })
             .copied()
     }
 
     pub(super) fn get(&self, id: SourceId) -> Option<&SourceEntry> {
-        self.entries.get(id as usize)?.as_ref()
+        self.entries.get(id)
     }
 
     pub(super) fn coordinates(&self, id: SourceId) -> (String, String) {
@@ -186,7 +186,7 @@ impl SourceTable {
             hash,
             slots: IdSet::One(slot),
         };
-        let id = slab_insert(&mut self.entries, &mut self.free, entry);
+        let id = self.entries.insert(entry);
         let entries = &self.entries;
         self.index
             .insert_unique(hash, id, |id| entry_hash(entries, *id));
@@ -215,11 +215,7 @@ impl SourceTable {
     }
 
     pub(super) fn link(&mut self, source: SourceId, slot: SlotId) {
-        if let Some(entry) = self
-            .entries
-            .get_mut(source as usize)
-            .and_then(Option::as_mut)
-        {
+        if let Some(entry) = self.entries.get_mut(source) {
             entry.slots.insert(slot);
         }
     }
@@ -227,15 +223,14 @@ impl SourceTable {
     /// Remove one link. Returns the charged key length of the source when
     /// this was its last slot and the source left the table.
     pub(super) fn unlink(&mut self, source: SourceId, slot: SlotId) -> Option<usize> {
-        let entry = self.entries.get_mut(source as usize)?.as_mut()?;
+        let entry = self.entries.get_mut(source)?;
         if !entry.slots.remove(slot) {
             return None;
         }
-        let entry = self.entries[source as usize].take()?;
+        let entry = self.entries.take(source)?;
         if let Ok(found) = self.index.find_entry(entry.hash, |id| *id == source) {
             found.remove();
         }
-        self.free.push(source);
         Some(charged_len(&entry.key))
     }
 
@@ -244,18 +239,14 @@ impl SourceTable {
         self.index
             .try_reserve(additional, |id| entry_hash(entries, *id))
             .map_err(|_| super::model::capacity())?;
-        self.free
+        self.entries
             .try_reserve(additional)
-            .and_then(|_| self.entries.try_reserve(additional))
             .map_err(|_| super::model::capacity())
     }
 }
 
-fn entry_hash(entries: &[Option<SourceEntry>], id: SourceId) -> u64 {
-    entries[id as usize]
-        .as_ref()
-        .expect("indexed core source")
-        .hash
+fn entry_hash(entries: &Slab<SourceEntry>, id: SourceId) -> u64 {
+    entries.get(id).expect("indexed core source").hash
 }
 
 fn coordinates(stored: &StoredKey) -> (String, String) {
