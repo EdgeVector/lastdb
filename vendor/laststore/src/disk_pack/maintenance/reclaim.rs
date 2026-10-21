@@ -1,7 +1,10 @@
 use super::{MaintenanceReceipt, SpacePolicy};
+use crate::disk_pack::bytes::{u64_at, verify_checksum};
 use crate::disk_pack::dependency::Coordinate;
 use crate::disk_pack::write_lock::WriteLock;
-use crate::disk_pack::{artifact, corrupt, generation, lifetime, Current, FEATURE_FILE_LIFETIME};
+use crate::disk_pack::{
+    artifact, corrupt, generation, lifetime, Current, FEATURE_FILE_LIFETIME, PAGE_BYTES,
+};
 use crate::{durability, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -42,7 +45,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
-    let generations = generations(root, policy.max_files)?;
+    let generations = generations(root, policy.max_files, &retained)?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
     for number in &generations {
@@ -129,7 +132,7 @@ fn validate_roots(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
+fn generations(root: &Path, max_files: usize, published: &BTreeSet<u64>) -> Result<Vec<u64>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(root.join("generations"))? {
         let entry = entry?;
@@ -146,7 +149,7 @@ fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
             .and_then(|name| name.parse::<u64>().ok())
             .filter(|number| *number > 0)
             .ok_or_else(|| corrupt("invalid generation directory"))?;
-        if remove_unstarted(&entry.path())? {
+        if !published.contains(&number) && remove_unfinished(&entry.path())? {
             continue;
         }
         out.push(number);
@@ -154,33 +157,58 @@ fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
     Ok(out)
 }
 
-/// Remove a generation directory whose receipt was never begun.
+/// Remove a generation directory whose receipt its writer never finished.
 ///
-/// A writer creates `generations/<n>` and then writes the receipt pages into it.
-/// A kill between the two leaves a directory with no part file, or with part
-/// files that hold no byte. A publication syncs the finished receipt before any
-/// CURRENT names it, so such a directory was never published and holds no data.
-/// A directory with any other content is not touched: it fails as before.
-fn remove_unstarted(path: &Path) -> Result<bool> {
+/// A writer creates `generations/<n>` and then appends the receipt pages, one
+/// write for each page, and syncs the part files last. A publication names a
+/// generation only after that. A kill in between leaves a directory with no
+/// part file, an empty part file, a torn first page, or fewer pages than the
+/// first page declares. None of them was ever published, so none holds data.
+/// The caller passes only generations that CURRENT and the references do not
+/// name. A directory with any other content, or a first page that does not
+/// verify, is not judged here: it fails as before.
+fn remove_unfinished(path: &Path) -> Result<bool> {
     let mut parts = Vec::new();
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
-        let is_part = entry.file_name().to_str().is_some_and(|name| {
-            name.strip_prefix("part-").is_some_and(|hex| {
-                hex.len() == 8 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-        });
-        if !is_part || !entry.file_type()?.is_file() || entry.metadata()?.len() != 0 {
+        let index = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_prefix("part-"))
+            .filter(|hex| hex.len() == 8)
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok());
+        let (Some(index), true) = (index, entry.file_type()?.is_file()) else {
             return Ok(false);
-        }
-        parts.push(entry.path());
+        };
+        parts.push((index, entry.metadata()?.len()));
     }
-    for part in parts {
-        std::fs::remove_file(part)?;
+    parts.sort_unstable();
+    if parts
+        .iter()
+        .map(|(index, _)| *index)
+        .ne(0..parts.len() as u32)
+    {
+        return Ok(false);
     }
-    std::fs::remove_dir(path)?;
+    let page = PAGE_BYTES as u64;
+    let present: u64 = parts.iter().map(|(_, length)| length / page).sum();
+    if present > 0 && declared_pages(&path.join("part-00000000"))?.is_none_or(|n| n <= present) {
+        return Ok(false);
+    }
+    std::fs::remove_dir_all(path)?;
     durability::sync_directory(&File::open(path.parent().expect("generation parent"))?)?;
     Ok(true)
+}
+
+/// The page count a receipt declares in its first page, when that page verifies.
+fn declared_pages(first_part: &Path) -> Result<Option<u64>> {
+    use std::io::Read;
+    let mut bytes = vec![0; PAGE_BYTES];
+    File::open(first_part)?.read_exact(&mut bytes)?;
+    if &bytes[..8] != b"LDPAGE1\0" || verify_checksum(&bytes, 80).is_err() {
+        return Ok(None);
+    }
+    Ok(Some(u64_at(&bytes, 72)))
 }
 
 fn removable(
