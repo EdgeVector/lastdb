@@ -245,19 +245,17 @@ impl AtomStore {
         rows: &[(Vec<u8>, Vec<u8>)],
     ) -> Vec<ReleaseRequest> {
         rows.iter()
-            .filter_map(
-                |(key, value)| match serde_json::from_slice::<RetentionEntry>(value) {
-                    Ok(entry) => Some(entry.request()),
-                    Err(_) => {
-                        tracing::error!(
-                            key = %String::from_utf8_lossy(key),
-                            "slot directory entry does not decode"
-                        );
-                        self.retention_state().note_undecodable();
-                        None
-                    }
-                },
-            )
+            .filter_map(|(key, value)| {
+                let Ok(entry) = serde_json::from_slice::<RetentionEntry>(value) else {
+                    tracing::error!(
+                        key = %String::from_utf8_lossy(key),
+                        "slot directory entry does not decode"
+                    );
+                    self.retention_state().note_undecodable();
+                    return None;
+                };
+                Some(entry.request())
+            })
             .collect()
     }
 
