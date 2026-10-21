@@ -209,8 +209,11 @@ is at least 25 ms and at most 30 s. With 10 percent, writers wait for the user a
 a tenth of the time. The page reads before the gate block nobody and are not part of
 it. `storage::disk_pack::transaction::blocked::measure` runs a step and adds up the
 time of every write scope the step opens in its own task. The steps of the retention
-janitor (`release_step`, `drain_step`, `net_step`) and of the dwell pass
-(`blob_dwell_step`, `blob_dwell_net_step`) return it in `blocked`.
+janitor (`release_step`, `drain_step`, `net_step`), of the dwell pass
+(`blob_dwell_step`, `blob_dwell_net_step`) and of the molecule drain
+(`molecule_drain_step`, `docs/lastdb-molecule-drain.md`) return it in `blocked`. The three
+users share the meter, the watch, the quiet period and the rest (`conflict_janitor_pace.rs`).
+The drain keeps its own duty knob (`LASTDB_MOLECULE_DRAIN_DUTY_PCT`, 10 percent).
 
 The rest protects the writers, so the user needs it only when a writer is there. A
 `WriterWatch` counts the write scopes that the process opens and takes off the ones
@@ -230,12 +233,19 @@ in the paced mode for the whole period.
 What the watch sees: only write scopes (`transaction/request.rs`). A caller that takes
 the write gate without a scope is not seen: `PackRuntime::mutate` outside a scope,
 native maintenance (`maintain_native`), and the creation of the current key format at
-start. A request that opens a write scope counts, also when it writes little: the seed
-of a schema, `lastdb db inventory` (after its first seconds), and `lastdb db verify-refs`
-(it opens one empty write scope at the start of each run, to order the run after the
-writes in flight) do. A read and `lastdb status` do not. A task of the node itself that
-opens a write scope (the blob dwell pass and the janitor see each other) counts as
-another writer.
+start. A write scope that stages a write counts, also when it writes little: the seed
+of a schema and `lastdb db inventory` (it writes its attribution rows) do. A write scope
+that stages nothing does not count. `lastdb db verify-refs` opens one such scope at the
+start of each run, to order the run after the writes in flight. It counted as a writer
+before, and a poll of it every 30 s kept the user in the paced mode for ever (the molecule
+drain on a system disk, a poll every 30 s: 24 and 36 tips a second, 418 and 279 s for 10,000
+tips, against 87 and 111 tips a second, 115 and 90 s, with the empty scope left out; the same
+drain with no poll: 81 to 102). A scope counts when it ends, and only if it staged something
+(`transaction/request.rs`, `blocked::opened`). A read, `lastdb status`, `lastdb liveness
+explain` and a `lastdb db molecule-drain` call that names no molecule open no write scope at
+all (a poll of each of them every 30 s left the drain at its idle speed). A task of the node
+itself that opens a write scope (the blob dwell pass, the janitor and the drain see each
+other) counts as another writer.
 
 Measured on synthetic homes with the default knobs. In each test the nodes ran at the
 same time on one host: main before this change, this change with the drain on, and
@@ -302,6 +312,55 @@ by 33 to 60 percent while the janitor released records (3 pairs of nodes, one wi
 the janitor and one without, on the same host; the same test gave a median change of
 +5 percent, from -2 to +18 percent, for the wall-time rest). The flush is the larger
 part of the time that the writers wait, and the gate hold leaves it out.
+
+**The molecule drain** (`docs/lastdb-molecule-drain.md`) uses the same meter, watch, quiet
+period and rest as the janitor and the pass. It rested for a share of the wall time of each step
+before. Measured on synthetic homes with the default knobs: a clone of one home with a schema of
+2,500 keys (10,000 tips) dropped, the build before and the build after at the same time on one host,
+3 pairs for each case (a schema of 10,000 keys, 40,000 tips, for the sparse writer on the RAM disk).
+
+| Tips a second | before | after |
+|---|---|---|
+| No other writer, RAM disk (28 to 38 s) | 261 to 283 | 330 to 354 |
+| No other writer, system disk | 14 to 20 (487 to 717 s) | 81 to 102 (98 to 124 s) |
+| 4 continuous writers, RAM disk | 40 to 46 (217 to 252 s) | 216 to 219 (46 s) |
+| 4 continuous writers, busy system disk | 8 to 13 (one of 3 not done in 1,200 s) | 14 to 21 (478 to 726 s) |
+| One sparse writer, RAM disk | 298 to 303 | 364 to 378 |
+| One sparse writer, system disk | 48 to 84 | 76 to 100 |
+
+The drop that makes the candidates is a write scope of another task, so the first 60 s of a drain
+with no other writer go at the paced speed (38 to 50 tips a second on the system disk) and the rest
+at full speed (120 to 240). With four continuous writers the drain is 5 times as fast on the RAM
+disk and the writers wait the same: the p50 of a test writer with the drain on was 106 to 116 ms
+against 101 to 124 ms before the drop (3 pairs), and the p95 672 to 1,123 ms against 705 to 1,337 ms.
+On the busy system disk (a write took 3 to 5 s there, whatever the drain did) the p50 was 3,898 to
+5,324 ms against 3,237 to 4,483 ms.
+
+One sparse writer, one write every 3 s, from the start; the drain began after 150 s and the
+writer went on for 150 s after it ended. The time of one write in ms, p50 / p95 (the range of 3
+pairs):
+
+| | before the drop | drain on | after the drain |
+|---|---|---|---|
+| RAM disk, before build | 38 to 46 / 52 to 74 | 42 to 47 / 53 to 136 | 42 to 52 / 45 to 72 |
+| RAM disk, after build | 38 to 47 / 53 to 157 | 42 to 48 / 86 to 130 | 42 to 52 / 46 to 69 |
+| System disk, before build | 458 to 482 / 495 to 757 | 482 to 729 / 758 to 1,561 | 436 to 592 / 514 to 839 |
+| System disk, after build | 450 to 462 / 498 to 719 | 472 to 636 / 937 to 1,380 | 478 to 602 / 737 to 1,296 |
+
+On the RAM disk the p50 with the drain on is within the noise of the writer without it (the two
+windows without the drain differ by as much). The p95 is higher with the drain on, for both builds:
+about one write in ten meets a sealed batch. On the system disk the p50 moved by +2 to +41 percent
+(before build: +1 to +59) while the windows without the drain differed by up to 30 percent from
+each other, and the p95 was about twice as high, for both builds. The drain does not change what a
+sparse writer sees compared with the build before.
+
+A poll of a read-only verb every 30 s (drain of 10,000 tips on the system disk, no other writer, 1
+pair for each verb, the build with the pacing change but with empty scopes counted against the
+final build): `lastdb db verify-refs` kept the first build at 24 and 36 tips a second (418 and 279
+s) and the final build at 87 and 111 (115 and 90 s). `lastdb status`, `lastdb liveness explain` and
+`lastdb db molecule-drain` (no molecule) left both builds at full speed after the first 60 s (318 to
+544 tips a second), so they open no write scope at all. `lastdb db inventory` kept both builds at 58
+to 62 tips a second, because it writes rows and counts as a writer.
 
 ## Failure
 
@@ -372,17 +431,28 @@ What the net does not cover:
   entry. The old entry stays as a row that no directory lists: it holds no
   reference, so it is garbage and not a leak of atoms.
 - A drain marker is not older than one lifetime, so the range above covers it for
-  its whole life. Every record of an erased slot was written before the erase, so
-  its own queue entry is due one window after the erase at the latest, and the
-  ordinary lane releases it. A marker older than that has nothing left to speed
-  up: the janitor deletes it without a drain (the log says `dropped drain markers
-  older than the retention window`). The marker records the window of the node
-  that wrote it (`window_nanos`), and the janitor uses the longer of that window
-  and its own. A shorter `LASTDB_CONFLICT_RETENTION_SECS` at a later start does
-  not drop a marker early: the records of its slot were written under the old
-  window and are due at that time, and the drain releases them sooner. A marker
-  from an older build has no recorded window. The janitor does not delete it for
-  its age; it drains it. Two faults remain out of reach, and both
+  its whole life. Every record of an erased slot has its own queue entry, due one
+  window after the record was written (the window of the node at that time), so each
+  record ends at most that window after its own write, and the ordinary lane releases
+  it. The marker only makes the janitor release the records of the slot sooner. A
+  marker older than its lifetime is deleted without a drain (the log says `dropped
+  drain markers older than the retention window`). The marker records the window of
+  the node that wrote it (`window_nanos`), and the janitor uses the longer of that
+  window and its own. A shorter `LASTDB_CONFLICT_RETENTION_SECS` at a later start does
+  not drop a marker that an earlier start wrote. **The order that is not covered:**
+  the window is cut first (from 120 s to 30 s, for example) and the purge comes
+  after it. The marker then records the new, short window, and the janitor deletes
+  it when it is older than that, also when it has not drained it yet (a backlog of
+  markers that the janitor reaches under its duty pacing). The records of the slot
+  were written under the old window. They end with their own queue entries, up to the
+  old window after their write, and not at once. A review measured it with a window cut
+  from 120 s to 30 s and 1,480 markers: the janitor dropped the markers and the
+  records ended about 92 s after the purge (before S8b the markers drained at once).
+  Nothing is kept longer than the old window. This is a known limit and it is not fixed
+  here: the marker would need the latest expiry of the records of its slot, and an erase
+  reads only a part of them (at most 100 records and 256 slots). A marker from an
+  older build has no recorded window. The janitor does not delete it for its age; it
+  drains it. Two faults remain out of reach, and both
   hold no reference: a marker bucket that lost its row while the janitor was
   stopped for longer than a window, and a marker the janitor could not see.
 - A bucket that holds only deleted keys is not a fault, and the net leaves it.
