@@ -1,7 +1,7 @@
 //! The driver of the verifier: steps with a page budget and a time budget.
 
 use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
-use super::pages::{phase_range, AtomsPage, ReferencedPage};
+use super::pages::{phase_range, AtomsPage, ReferencedPage, SuspectsPage};
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{Run, StepGuard};
 use super::totals::{digest, Watch};
@@ -24,6 +24,7 @@ const DEFAULT_MAX_ATOMS: usize = 1_000_000;
 enum Page {
     Referenced(ReferencedPage),
     Atoms(AtomsPage),
+    Suspects(SuspectsPage),
 }
 
 impl AtomStore {
@@ -93,6 +94,9 @@ impl AtomStore {
         if guard.run().phase.reads_molecules() && !guard.run().walk.done() {
             return self.verify_molecule_page(guard).await;
         }
+        if guard.run().phase == Phase::Queue {
+            return self.verify_queue_page(guard).await;
+        }
         let (run, watch) = guard.split();
         if run.walk.done() {
             next_phase(run);
@@ -112,7 +116,17 @@ impl AtomStore {
                 .read_referenced_page(run.phase, scope.as_deref(), request)
                 .await
                 .map(Page::Referenced),
-            Phase::Headers | Phase::Bindings | Phase::BindingRecords | Phase::Done => return Ok(()),
+            Phase::Suspects => {
+                let suspects = std::mem::take(&mut run.suspects);
+                let page = self.read_suspects_page(&suspects, request).await;
+                run.suspects = suspects;
+                page.map(Page::Suspects)
+            }
+            Phase::Headers
+            | Phase::Bindings
+            | Phase::BindingRecords
+            | Phase::Queue
+            | Phase::Done => return Ok(()),
         };
         match page {
             Ok(Page::Referenced(page)) => {
@@ -122,6 +136,27 @@ impl AtomStore {
                     .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
                 {
                     Progress::Moved => apply_referenced(run, page),
+                    Progress::Widened => run.report.page_retries += 1,
+                    Progress::Stuck => return Err(unsealed_run_error()),
+                }
+            }
+            Ok(Page::Suspects(page)) => {
+                run.note_unsealed(page.scan_unsealed);
+                match run
+                    .walk
+                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
+                {
+                    Progress::Moved => {
+                        run.report.pages += 1;
+                        for key in &page.keys {
+                            run.note_fault(
+                                Kind::RecordWithoutQueueEntry,
+                                key,
+                                "no queue entry names this record (its entry was deleted, or never written)"
+                                    .into(),
+                            );
+                        }
+                    }
                     Progress::Widened => run.report.page_retries += 1,
                     Progress::Stuck => return Err(unsealed_run_error()),
                 }
@@ -177,7 +212,9 @@ fn next_phase(run: &mut Run) {
         Phase::Atoms => Phase::Headers,
         Phase::Headers => Phase::Bindings,
         Phase::Bindings => Phase::BindingRecords,
-        Phase::BindingRecords | Phase::Done => Phase::Done,
+        Phase::BindingRecords => Phase::Queue,
+        // The queue phase ends in `finish_queue`, which picks the next phase.
+        Phase::Queue | Phase::Suspects | Phase::Done => Phase::Done,
     };
     if run.phase == Phase::Bindings {
         super::molecule_run::finish_headers(run);
@@ -234,6 +271,13 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
     match holder {
         Holder::Tip => run.report.tips_read += page.rows as u64,
         Holder::Record => run.report.records_read += page.rows as u64,
+    }
+    for id in &page.record_ids {
+        if run.record_ids.len() >= run.max_ids {
+            run.ids_complete = false;
+            break;
+        }
+        run.record_ids.insert(*id);
     }
     for key in &page.unreadable_keys {
         run.note_fault(unreadable_kind, key, "the row does not decode".into());

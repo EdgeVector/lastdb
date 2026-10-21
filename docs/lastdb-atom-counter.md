@@ -203,6 +203,14 @@ A record ends in two ways, and both use the same release:
    wakes the cursors of the live buckets start again the same way, in case the
    clock stepped back. Neither reads a bucket that the directory dropped.
 
+   The queue has a safety net. A bucket that holds live entries and has no
+   directory row is never listed, so its records would stay for ever. At its
+   start, and then once in `LASTDB_CONFLICT_JANITOR_NET_SECS` seconds (3,600;
+   zero turns it off), the janitor probes the slices that can hold a live entry
+   (by arithmetic, no scan) and writes the missing row again. The status shows
+   the sweeps and `buckets repaired`. See `docs/lastdb-time-queue.md`
+   ("The safety net").
+
    A page of drain markers needs no write gate and costs no batch: the janitor
    keeps the markers it reads as pending drains (at most 1,024).
 
@@ -225,6 +233,13 @@ the delete-on-zero rule above. A release of a row that is gone lowers nothing,
 and a row that does not decode is kept with its references and counted
 (`undecodable_rows`). Only a row that `is_counted_record_key` accepts can be
 released.
+
+`lastdb db verify-refs` surveys the queue (phase `queue`) and reports
+`queue_entry_without_directory` (entries in a bucket that the directory does not
+list) and `record_without_queue_entry` (a conflict record that no queue entry
+names, read again before it is reported). `lastdb db recount --execute` (a
+stopped home) writes the missing rows again through the planner: the row of a
+bucket, or a queue entry that expires one window from now.
 
 `lastdb status` shows the window, the janitor's last run, the queue depth (up to
 1,000 entries) and the number of buckets, the slot drains that wait, the failed
@@ -374,6 +389,8 @@ Faults, by name:
 | `suspect_counter` | a counter has the `suspect` flag |
 | `tip_without_body` | a tip names an atom that has no body (a lost body) |
 | `record_without_body` | a conflict record names an atom that has no body |
+| `record_without_queue_entry` | no queue entry can be reached from a conflict record: its slot directory entry is missing, does not decode, or names a queue entry that is missing (the janitor never releases the record) |
+| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it) |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
 | `unconfirmed_count_mismatch` | not a fault: see below |
 

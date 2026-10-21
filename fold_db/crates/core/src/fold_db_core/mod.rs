@@ -11,6 +11,7 @@
 //! - [`sync_coordinator`] — cloud sync lifecycle (`cloud-sync` feature)
 
 pub mod conflict_janitor;
+pub mod conflict_janitor_policy;
 pub mod factory;
 pub mod fold_db;
 pub mod mutation_flush;
@@ -26,9 +27,10 @@ pub mod sync_coordinator;
 pub use query::QueryExecutor;
 pub use query::{HashRangeWatch, HashRangeWatchBounds, HashRangeWatchError, HashRangeWatchEvent};
 
-pub use conflict_janitor::{
-    BackgroundConflictJanitorTask, ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV,
-    CONFLICT_JANITOR_MS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
+pub use conflict_janitor::BackgroundConflictJanitorTask;
+pub use conflict_janitor_policy::{
+    ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV, CONFLICT_JANITOR_MS_ENV,
+    CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
 pub use mutation_flush::{
     mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,

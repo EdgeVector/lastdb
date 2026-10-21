@@ -77,6 +77,24 @@ pub struct RecountReport {
     pub bodies_deleted: u64,
     /// Atoms that tips or records name and that have no body. Nothing can repair them.
     pub lost_bodies: u64,
+    /// Entries the recount read in the retention queue (records and drain markers).
+    #[serde(default)]
+    pub queue_entries_read: u64,
+    /// Records that no queue entry names (`record_without_queue_entry`). With
+    /// `--execute` each gets a queue entry that expires one window from now, and
+    /// the directory row of its bucket.
+    #[serde(default)]
+    pub records_without_queue_entry: u64,
+    /// Queue entries whose bucket the directory does not list
+    /// (`queue_entry_without_directory`). With `--execute` the row is written.
+    #[serde(default)]
+    pub queue_entries_without_directory: u64,
+    /// Records that got their rows back.
+    #[serde(default)]
+    pub retention_records_repaired: u64,
+    /// Buckets that got their directory row back.
+    #[serde(default)]
+    pub retention_buckets_repaired: u64,
     /// Records written or deleted, in batches.
     pub operations: u64,
     pub batches: u64,
@@ -87,7 +105,8 @@ pub struct RecountReport {
 }
 
 impl RecountReport {
-    /// The number of atoms whose counter or body the recount changes.
+    /// The number of changes the recount makes (or would make): counters and
+    /// bodies of atoms, and retention rows of records.
     #[must_use]
     pub fn changed(&self) -> u64 {
         self.created
@@ -97,5 +116,7 @@ impl RecountReport {
             + self.rewritten
             + self.counters_deleted
             + self.bodies_deleted
+            + self.records_without_queue_entry
+            + self.queue_entries_without_directory
     }
 }

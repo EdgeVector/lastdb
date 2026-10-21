@@ -239,7 +239,7 @@ fn show_last(socket: &Path, json_only: bool) -> Result<(), String> {
 }
 
 /// The fault kinds, in the order the report prints them.
-const KINDS: [&str; 25] = [
+const KINDS: [&str; 27] = [
     "counter_below_tips",
     "counter_above_tips",
     "body_without_counter",
@@ -248,6 +248,8 @@ const KINDS: [&str; 25] = [
     "suspect_counter",
     "tip_without_body",
     "record_without_body",
+    "record_without_queue_entry",
+    "queue_entry_without_directory",
     "unreadable_tip",
     "unreadable_record",
     "unreadable_counter",
@@ -295,6 +297,10 @@ fn print_report(report: &Value, complete: bool) {
             u64_of(report, "headers_read"),
             u64_of(report, "binding_counters_read"),
             u64_of(report, "binding_records_read")
+        );
+        println!(
+            "  retention queue: {} entries read",
+            u64_of(report, "queue_entries_read")
         );
         println!(
             "  totals: {} atoms, complete: {}, touched by writers: {}",

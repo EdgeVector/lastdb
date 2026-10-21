@@ -13,6 +13,12 @@ pub(crate) enum DbOfflineCommand {
     /// no record names. It does not repair an atom that tips name and that has
     /// no body (a lost body).
     ///
+    /// It also checks the retention rows of each conflict record. A record
+    /// that no queue entry reaches (`record_without_queue_entry`) gets a queue
+    /// entry that expires one window from now, its slot directory entry and
+    /// the directory row of the bucket. A queue entry whose bucket has no
+    /// directory row (`queue_entry_without_directory`) gets the row.
+    ///
     /// Default is a dry run that reports every change. `--execute` writes the
     /// changes in whole batches. It is safe to run again: a second run changes
     /// nothing. It writes nothing while a tip or conflict row does not decode.

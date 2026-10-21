@@ -40,13 +40,15 @@ mod drain;
 mod entry;
 mod keys;
 mod page;
+mod repair;
 mod report;
 mod rows;
 mod slots;
 mod steps;
 
+pub(crate) use keys::record_digest;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
 pub(crate) use rows::RecordSlot;
 pub(crate) use slots::SlotReleases;
-pub(crate) use steps::{Lane, RetentionCursor};
+pub(crate) use steps::{Lane, RetentionCursor, StepOutcome};
