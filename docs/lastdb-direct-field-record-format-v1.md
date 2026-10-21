@@ -1048,7 +1048,7 @@ New bytes above override only the explicitly named fields and namespaces.
 - [Journal markers](../vendor/laststore/src/disk_pack/journal/marker.rs).
 - [Journal boundaries](../vendor/laststore/src/disk_pack/journal/tail.rs).
 - [Original and effective mutation UUIDs](../fold_db/crates/core/src/sync/mutation_intent.rs).
-- [Address-bound atom references](../fold_db/crates/core/src/db_operations/atom_store/atom_ref_edges.rs).
+- [Atom counters and references](lastdb-atom-counter.md).
 - [Existing payload and receipt coordinates](../vendor/laststore/src/disk_pack/dependency.rs).
 - [Existing receipt shape](../vendor/laststore/src/disk_pack/generation.rs).
 - [Access requirement](lastdb-access-complexity-requirements.md).

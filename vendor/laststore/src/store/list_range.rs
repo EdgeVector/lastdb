@@ -31,13 +31,9 @@ impl LastStore {
     /// That is not a rare race. `LogicalMainLastStoreKvStore::converging_deletes`
     /// makes **every write a deleter** on a home that still holds
     /// migration-era legacy rows, so ordinary mutation traffic shortens pages.
-    /// The consequence is worst in
-    /// `DbOperations::collect_referenced_atom_uuids`, where a truncated walk
-    /// does not mean "reclaimed less" but "did not see the references that keep
-    /// live atom bodies alive": `gc-atoms` then treats every atom named only
-    /// past the truncation point as an orphan and deletes the bodies of live
-    /// records. It had never fired only because `gc-atoms` had never finished a
-    /// pass on a real home — which is precisely what the paging work is for.
+    /// The consequence is worst in a walk that reads a short page as the end of
+    /// its range (a verifier, a recount, a reader of a queue): a truncated walk
+    /// does not mean "read less" but "did not see the rest of the range".
     ///
     /// So the page is refilled from the key listing until it is full or the
     /// listing runs dry. Callers keep their `rows.len() < limit` test and it is

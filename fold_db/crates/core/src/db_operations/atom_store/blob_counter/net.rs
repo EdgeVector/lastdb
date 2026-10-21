@@ -28,6 +28,7 @@ use super::dwell::DwellCursor;
 use super::{blob_dwell_millis, BlobQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::transaction::blocked::measure;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -64,6 +65,10 @@ pub struct NetStep {
     /// Buckets that held a live entry and had no directory row, and are
     /// registered again.
     pub repaired: u64,
+    /// How long the chunk kept writers waiting (zero when it repaired nothing).
+    pub blocked: Duration,
+    /// Write scopes the chunk opened.
+    pub scopes: u64,
 }
 
 impl DwellCursor {
@@ -84,6 +89,20 @@ impl AtomStore {
     /// row. A new sweep starts when the net is on and its time has come. `None`
     /// means no sweep is due. The registration is a batch of the planner.
     pub async fn blob_dwell_net_step(
+        &self,
+        cursor: &mut DwellCursor,
+    ) -> Result<Option<NetStep>, SchemaError> {
+        let (step, cost) = measure(self.sweep_blob_chunk(cursor)).await;
+        Ok(step?.map(|step| NetStep {
+            blocked: cost.blocked,
+            scopes: cost.scopes,
+            ..step
+        }))
+    }
+
+    /// The work of [`Self::blob_dwell_net_step`], without the measure of the time
+    /// it blocks writers.
+    async fn sweep_blob_chunk(
         &self,
         cursor: &mut DwellCursor,
     ) -> Result<Option<NetStep>, SchemaError> {
@@ -128,6 +147,8 @@ impl AtomStore {
         Ok(Some(NetStep {
             probed: chunk.probed,
             repaired,
+            blocked: Duration::ZERO,
+            scopes: 0,
         }))
     }
 }

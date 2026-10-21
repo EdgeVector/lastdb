@@ -3,6 +3,11 @@
 > Current format notice, 2026-10-19: The code accepts only the current key format.
 > The older conversion commands and fallback reads in this document are removed.
 > Create a fresh home. No migration runs.
+>
+> Removed since this text was written (history below, not current): the atom
+> locators (`atom_locators`, `aloc:`), the atom reverse edges (`atom_ref_edges_v2`,
+> `aref:`), the `gc-atoms` verb and `rekey-atom-partition-prefix`. The atom counter
+> is the only authority for an atom body (`docs/lastdb-atom-counter.md`).
 
 Historical July 29 layout proposal. The [current memory and disk design](lastdb-rehydrate.md)
 and [native cutover results](proofs/core-clarity-20261018/RESULTS.md) supersede its dual-read and migration plan.

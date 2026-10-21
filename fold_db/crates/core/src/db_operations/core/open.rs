@@ -291,7 +291,7 @@ impl DbOperations {
             if runtime.fresh_initialization_pending()
                 && atoms.fresh_native_initialization_needed().await?
             {
-                atoms.initialize_current_reference_proofs().await?;
+                atoms.initialize_key_format().await?;
             }
             atoms.require_current_key_format().await
         })

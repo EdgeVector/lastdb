@@ -45,11 +45,10 @@ impl LastStore {
     /// end-of-data, so under a concurrent deleter they stopped early — silently
     /// and mid-range. An earlier version of this note called that harmless
     /// because "fold_db's own callers pass `after: None` and page by `limit`
-    /// rather than by cursor". **That was wrong**: the GC plane walks
-    /// (`for_each_row_under_prefix`, the `gc-atoms` atom walk,
-    /// `rekey_atoms_to_partition_prefix`) are all cursor loops over
-    /// `scan_range_paged`, and a truncated reference walk makes `gc-atoms`
-    /// delete live atom bodies rather than merely reclaim less.
+    /// rather than by cursor". **That was wrong**: the walks of the verifier,
+    /// the recount and the queue readers are all cursor loops over
+    /// `scan_range_paged`, and a truncated walk stops early rather than reading
+    /// less.
     ///
     /// So the refill now lives one level up, in [`Self::list_range_paged`] and
     /// [`Self::list_prefix_paged`], which top a short page back up from the key

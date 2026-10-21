@@ -12,48 +12,18 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
     "keep_small",
 ];
 
-/// Current main-key classes rebuilt by logical mutation replay, or local GC
-/// bookkeeping. These skips do not apply to complete snapshot photographs.
+/// Current main-key classes rebuilt by logical mutation replay, or kept only on
+/// the node that wrote them. These skips do not apply to complete snapshot
+/// photographs.
 ///
 /// Do **not** add `atom:` or protein prefixes here without their own written
 /// contract. Atoms and proteins are primary values. The one exception is the
 /// atom counter record (`atom:{uuid}\0c`), which `capture_should_skip_key`
 /// skips by its tag, because the planner rebuilds it on every node.
 pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
-    "mref:v1:",
-    "bref:v3:",
-    "mk:",
-    "rdel:v2:",
-    "mgp:v1:",
-    "mgr:v1:",
-    "mgd:v1:",
-    "mh:",
-    "gcatoms-meta:",
-    "gcatoms-probe-ref:",
-    "gcatoms-probe-tv-skip:",
-    "peer-apply:",
-    "crq:",
-    "crb:",
-    "crs:",
+    "mref:v1:", "bref:v3:", "mk:", "rdel:v2:", "mgp:v1:", "mgr:v1:", "mgd:v1:", "mh:", "crq:",
+    "crb:", "crs:",
 ];
-
-pub(crate) const NODE_LOCAL_GC_SCRATCH_PREFIXES: &[&str] = &[
-    "gcatoms-meta:",
-    "gcatoms-probe-ref:",
-    "gcatoms-probe-tv-skip:",
-    "peer-apply:",
-];
-
-/// The restoring node writes its own peer history and GC checkpoints.
-pub(crate) fn is_node_local_gc_scratch_key(key: &[u8]) -> bool {
-    let Ok(key) = std::str::from_utf8(key) else {
-        return false;
-    };
-    let base = crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base)| base);
-    NODE_LOCAL_GC_SCRATCH_PREFIXES
-        .iter()
-        .any(|prefix| crate::kind_partition::colon_prefix_matches(base, prefix))
-}
 
 /// Physical collections whose current keys are omitted from mutation capture.
 /// Full backups retain every current reference directory and completeness key.
@@ -140,19 +110,8 @@ pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
 
 fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -> bool {
     match prefix {
-        "mk:"
-        | "rdel:v2:"
-        | "mgp:v1:"
-        | "mgr:v1:"
-        | "mgd:v1:"
-        | "mh:"
-        | "gcatoms-meta:"
-        | "gcatoms-probe-ref:"
-        | "gcatoms-probe-tv-skip:"
-        | "crq:"
-        | "crb:"
-        | "crs:"
-        | "peer-apply:" => namespace == "tips",
+        "mk:" | "rdel:v2:" | "mgp:v1:" | "mgr:v1:" | "mgd:v1:" | "mh:" | "crq:" | "crb:"
+        | "crs:" => namespace == "tips",
         "mref:v1:" => namespace == "molecule_ref_edges",
         "bref:v3:" => namespace == "atoms",
         _ => false,

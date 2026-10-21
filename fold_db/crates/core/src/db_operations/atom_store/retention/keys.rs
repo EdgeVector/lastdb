@@ -22,6 +22,17 @@ pub(super) const QUEUE_ENTRIES: &str = "crq:v1";
 pub(super) const QUEUE_DIRECTORY: &str = "crb:v1";
 const DIR_FAMILY: &str = "crs:v1:";
 
+/// The layout of the queue for entries that live `window_nanos`.
+pub(crate) fn queue_for_window(
+    window_nanos: u64,
+) -> crate::db_operations::atom_store::time_queue::TimeQueue {
+    crate::db_operations::atom_store::time_queue::TimeQueue::for_window(
+        QUEUE_ENTRIES,
+        QUEUE_DIRECTORY,
+        window_nanos,
+    )
+}
+
 /// The identity of one record: the SHA-256 of its history key, in hex.
 pub(super) fn record_id(history_key: &str) -> String {
     use std::fmt::Write;

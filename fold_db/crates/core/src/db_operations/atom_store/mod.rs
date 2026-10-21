@@ -21,7 +21,7 @@
 //! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
 //! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
 //!   binding records and the molecule counters
-//! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
+//! - [`key_format`] — the key format marker of a new empty home
 //! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
 mod atoms;
@@ -34,10 +34,10 @@ mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
 mod filter;
-mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
+mod key_format;
 mod locks;
 mod molecule_bindings;
 mod molecule_counters;
@@ -49,6 +49,7 @@ mod retired_intent_retention;
 mod schema_keys;
 mod time_queue;
 mod types;
+mod writer_watch;
 
 pub(crate) use atoms::SealedAtom;
 pub use blob_counter::{
@@ -63,9 +64,9 @@ pub use counter::{
     RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
 pub(crate) use filter::SchemaKeyMembership;
-pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
+pub(crate) use key_format::CURRENT_NATIVE_INITIALIZATION_KEYS;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub(crate) use molecule_drain::{
@@ -86,6 +87,7 @@ pub(crate) use types::{
     ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
     MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
 };
+pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
 use crate::storage::{
     traits::{KvStore, NamespacedStore},

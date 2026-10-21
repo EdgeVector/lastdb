@@ -6,8 +6,7 @@ impl SyncCoordinator {
     /// Every sweep in [`crate::sync::capture::PlaneCompactor`] used to run only
     /// inside `SyncEngine::do_sync`. A node booted without `cloud_sync.json`
     /// has no engine and therefore compacted nothing: `tips` and `atoms` grew
-    /// with no automatic byte-return path at all, while `gc-atoms` — which does
-    /// have a local cadence — kept stepping and made the growth look tended.
+    /// with no automatic byte-return path at all.
     ///
     /// This timer does not wait for a sync cycle, exactly like
     /// the cloud sync loop. Idempotent: a second call is a

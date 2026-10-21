@@ -8,15 +8,16 @@
 //! the due blobs in chunks. A chunk takes the native write gate for its own
 //! reads and its one batch, and the gate is free between chunks. The pass takes the local mutation admission per chunk, as the
 //! TTL sweep does, so a backup cut never starts inside a chunk. After each chunk
-//! the pass rests for a share of the chunk time (`pace.rs`: duty 10 percent by
-//! default), so a writer waits for at most one small chunk and then runs free.
+//! the pass rests for a share of the time the chunk kept writers waiting
+//! (`pace.rs`: duty 10 percent by default), so a writer waits for at most one
+//! chunk and its flush and then runs free.
 //!
 //! The dwell is `LASTDB_BLOB_DWELL_SECS` (one hour by default, 120 s at least
 //! unless `LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV=1`). Kill switch for the pass:
 //! `LASTDB_BLOB_DWELL_PASS=0`. Default **on**. With the pass off no blob leaves
 //! the store, and the queue grows until the pass runs again.
 
-use fold_db::db_operations::DwellCursor;
+use fold_db::db_operations::{DwellCursor, WriterWatch};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tracing::Instrument;
@@ -88,12 +89,34 @@ pub async fn run_pass(
     shutdown: &AtomicBool,
     cursor: &mut DwellCursor,
 ) -> Result<(), String> {
+    // The watch remembers the last write of another task from one pass to the next.
+    let mut watch = WATCH
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+        .unwrap_or_default();
+    let result = run_steps(host, shutdown, cursor, &mut watch).await;
+    *WATCH
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(watch);
+    result
+}
+
+/// The writer watch of the dwell pass. At most one pass runs at a time.
+static WATCH: std::sync::Mutex<Option<WriterWatch>> = std::sync::Mutex::new(None);
+
+async fn run_steps(
+    host: &Host,
+    shutdown: &AtomicBool,
+    cursor: &mut DwellCursor,
+    watch: &mut WriterWatch,
+) -> Result<(), String> {
     let atoms = host.db.db_ops().atoms();
     let pace = Pace::from_env();
     let failed = |error: fold_db::schema::SchemaError| error.to_string();
     atoms.blob_dwell_begin(cursor).await.map_err(failed)?;
     cursor.set_net_every(pace::net_every_from_env());
-    if sweep_net(host, shutdown, cursor, &pace).await > 0 {
+    if sweep_net(host, shutdown, cursor, &pace, watch).await > 0 {
         // A bucket that the net registered again is in the directory now.
         atoms.blob_dwell_refresh(cursor).await.map_err(failed)?;
     }
@@ -114,23 +137,26 @@ pub async fn run_pass(
             Some(Err(error)) => return Err(failed(error)),
         };
         let took = started.elapsed();
-        let pause = pace.pause_after(took);
+        let pause = pace.pause_after(step.blocked, watch.writer_present(step.scopes));
         tracing::debug!(
             target: "lastdbd::blob_dwell",
             chunk = step.handled(),
             retired = step.retired,
             buckets = cursor.buckets(),
             took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+            blocked_us = u64::try_from(step.blocked.as_micros()).unwrap_or(u64::MAX),
             rest_ms = u64::try_from(pause.as_millis()).unwrap_or(u64::MAX),
             "blob dwell chunk done; resting"
         );
-        rest(pause, shutdown).await;
+        rest(pause, shutdown, watch).await;
     }
     Ok(())
 }
 
-/// Rest between two chunks, in short slices so that a shutdown ends it at once.
-async fn rest(pause: Duration, shutdown: &AtomicBool) {
+/// Rest between two chunks, in short slices so that a shutdown ends it at once. A
+/// long rest ends early when no other task has opened a write scope within the
+/// quiet period (`WriterWatch::rest_may_end`): the writers went away.
+async fn rest(pause: Duration, shutdown: &AtomicBool, watch: &mut WriterWatch) {
     const SLICE: Duration = Duration::from_millis(250);
     let end = Instant::now() + pause;
     loop {
@@ -142,6 +168,9 @@ async fn rest(pause: Duration, shutdown: &AtomicBool) {
             return;
         }
         tokio::time::sleep(left.min(SLICE)).await;
+        if left > SLICE && watch.rest_may_end() {
+            return;
+        }
     }
 }
 
@@ -153,6 +182,7 @@ async fn sweep_net(
     shutdown: &AtomicBool,
     cursor: &mut DwellCursor,
     pace: &Pace,
+    watch: &mut WriterWatch,
 ) -> u64 {
     let atoms = host.db.db_ops().atoms();
     let mut repaired = 0;
@@ -170,9 +200,15 @@ async fn sweep_net(
                     probed = step.probed,
                     repaired = step.repaired,
                     took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    blocked_us = u64::try_from(step.blocked.as_micros()).unwrap_or(u64::MAX),
                     "blob dwell net chunk"
                 );
-                rest(pace.pause_after(started.elapsed()), shutdown).await;
+                rest(
+                    pace.pause_after(step.blocked, watch.writer_present(step.scopes)),
+                    shutdown,
+                    watch,
+                )
+                .await;
             }
             // No sweep is due, or local writes are paused for a retained cloud
             // source.

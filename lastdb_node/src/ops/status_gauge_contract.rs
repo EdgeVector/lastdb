@@ -16,9 +16,9 @@ use std::collections::HashMap;
 
 use super::gauge::Gauge;
 use super::self_metrics::{
-    AtomRefEdgeHealth, BackupProgressHealth, BackupStorageHealth, BuildHealth, CodecPolicyHealth,
-    DurabilityHealth, FileBlobHealth, IntegrityHealth, LimitsHealth, LogStreamHealth,
-    MemoryBudgetHealth, MemoryGuardMetric, QosHealth, ReadCostHealth, ResidentHealth,
+    BackupProgressHealth, BackupStorageHealth, BuildHealth, CodecPolicyHealth, DurabilityHealth,
+    FileBlobHealth, IntegrityHealth, LimitsHealth, LogStreamHealth, MemoryBudgetHealth,
+    MemoryGuardMetric, MoleculeEdgeHealth, QosHealth, ReadCostHealth, ResidentHealth,
     SamplerStatus, StatusSnapshot, SyncHealth, UdsPoolHealth, WatchersHealth,
 };
 use crate::request_telemetry::RequestTelemetrySnapshot;
@@ -234,8 +234,8 @@ fn collect_integrity(out: &mut Vec<GaugeContractEntry>, i: &IntegrityHealth) {
     );
 }
 
-fn collect_atom_ref_edges(out: &mut Vec<GaugeContractEntry>, a: &AtomRefEdgeHealth) {
-    push_gauge(out, "atom_ref_edges.molecule_bytes", &a.molecule_bytes);
+fn collect_molecule_edges(out: &mut Vec<GaugeContractEntry>, m: &MoleculeEdgeHealth) {
+    push_gauge(out, "molecule_edges.bytes", &m.bytes);
 }
 
 fn collect_file_blob(out: &mut Vec<GaugeContractEntry>, f: &FileBlobHealth) {
@@ -474,7 +474,7 @@ pub fn gauge_contract(snapshot: &StatusSnapshot) -> StatusGaugeContract {
     }
     collect_resident(&mut gauges, &snapshot.resident);
     collect_integrity(&mut gauges, &snapshot.integrity);
-    collect_atom_ref_edges(&mut gauges, &snapshot.atom_ref_edges);
+    collect_molecule_edges(&mut gauges, &snapshot.molecule_edges);
     collect_file_blob(&mut gauges, &snapshot.file_blob);
     if snapshot.at_rest_compression.is_some() {
         collect_at_rest_compression(&mut gauges, snapshot.process_start_ts);
@@ -623,7 +623,7 @@ fn default_status_snapshot(
         resident: ResidentHealth::default(),
         build: BuildHealth::default(),
         integrity: IntegrityHealth::default(),
-        atom_ref_edges: AtomRefEdgeHealth::default(),
+        molecule_edges: MoleculeEdgeHealth::default(),
         file_blob: FileBlobHealth::default(),
         purge_stats: HashMap::new(),
         local_retention: crate::self_metrics::LocalRetentionHealth::default(),

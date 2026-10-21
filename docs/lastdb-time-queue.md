@@ -52,7 +52,9 @@ A page of live entries does not bound a read call. The key space bounds it.
 - The directory is one hash. It has one row for each bucket that holds, or held,
   an entry. A row is small.
 - The slice is a choice of the user of the queue. `TimeQueue::for_window` takes
-  a 64th of the entry lifetime, between one second and one hour.
+  a 64th of the entry lifetime, between one second and one hour. The blob queue
+  uses one hour for every dwell at or above its floor (`TimeQueue::with_slice`),
+  so the key of an entry does not depend on a knob.
 
 ## Writers
 
@@ -189,6 +191,117 @@ The janitor holds at most 1,024 pending drains. A marker that finds no room stay
 in its bucket. The cursor of the bucket stays at it, and the bucket waits for a
 second before it is read again. Memory does not grow with the number of markers.
 
+## Pacing
+
+A user of the queue deletes in batches, and each batch is durable work that seals
+the write queue. A writer that arrives while a batch is open waits for the write
+gate. And when the batch has the gate no more, the writer still waits in
+`PackRuntime::enter_prepare` until the batch is durable. So the time that a batch
+keeps writers waiting is its hold of the gate (8 to 30 ms) plus its flush. The
+flush costs about 15 to 20 ms for each released record: 0.5 to 1 s for a batch of
+32, and it grows with the batch, so a larger batch does not release more in the same
+time and freezes the writers for longer.
+
+The user rests after each batch for `blocked * (100 - duty) / duty`, where `blocked`
+is that time and `duty` is a share of the time in percent (10 by default). The rest
+is at least 25 ms and at most 30 s. With 10 percent, writers wait for the user about
+a tenth of the time. The page reads before the gate block nobody and are not part of
+it. `storage::disk_pack::transaction::blocked::measure` runs a step and adds up the
+time of every write scope the step opens in its own task. The steps of the retention
+janitor (`release_step`, `drain_step`, `net_step`) and of the dwell pass
+(`blob_dwell_step`, `blob_dwell_net_step`) return it in `blocked`.
+
+The rest protects the writers, so the user needs it only when a writer is there. A
+`WriterWatch` counts the write scopes that the process opens and takes off the ones
+that the user opened itself. It remembers the time of the last write scope of another
+task. For a quiet period after that time, every rest is the full rest. The quiet period
+is `LASTDB_MAINTENANCE_QUIET_SECS` (60 s by default; 0 means that only the step that
+saw the write counts). The rest is the minimum rest only when no other task opened a
+write scope for the whole period. A long rest ends early only when the period has
+passed, so a backlog does not wait out a rest of 20 s after the writers went away.
+
+The period is long on purpose. A writer that writes once every few seconds is not a
+load, but each of its writes that meets a sealed batch waits for a flush (0.3 to
+1 s). If the user went on at once between two writes of such a writer, nearly every
+write of it would meet a batch. So one write scope of another task keeps the user
+in the paced mode for the whole period.
+
+What the watch sees: only write scopes (`transaction/request.rs`). A caller that takes
+the write gate without a scope is not seen: `PackRuntime::mutate` outside a scope,
+native maintenance (`maintain_native`), and the creation of the current key format at
+start. A request that opens a write scope counts, also when it writes little: the seed
+of a schema, `lastdb db inventory` (after its first seconds), and `lastdb db verify-refs`
+(it opens one empty write scope at the start of each run, to order the run after the
+writes in flight) do. A read and `lastdb status` do not. A task of the node itself that
+opens a write scope (the blob dwell pass and the janitor see each other) counts as
+another writer.
+
+Measured on synthetic homes with the default knobs. In each test the nodes ran at the
+same time on one host: main before this change, this change with the drain on, and
+this change with the drain off. A test writer sent queued writes and timed each one.
+The p50 and p95 are of the pooled samples of 3 sets.
+
+**No other writer.** After the quiet period the user rests the minimum rest, and its
+speed is the speed of its flush. The janitor drained 21 to 26 records a second (a
+200-field schema, 32 records in each batch) against 4.5 for the rest by wall time.
+The dwell pass deleted 27 to 44 blobs a second against 4.7 to 5.2. The flush of a
+batch took 0.5 to 2.2 s, depending on what else the host did.
+
+**A writer that comes and goes** (one write every 3 s for 40 s, quiet period 60 s).
+The janitor drained 26 records a second before the writer, 1.6 a second while the
+writer wrote (rests of 14 s), 2.7 a second for the rest of the quiet period, and
+24 a second after it. With a quiet period of 20 s the figures were 26, 1.6, 3.2 and 21.
+
+**One sparse writer** (one queued write every 3 s, a backlog that lasts the whole
+window of 120 s for the janitor and 90 s for the pass). The time of one write in ms,
+p50 / p95:
+
+| | main, drain on | this change, drain on | this change, drain off |
+|---|---|---|---|
+| Janitor, RAM disk | 32 / 44 | 32 / 42 | 29 / 40 |
+| Janitor, system disk | 319 / 908 | 370 / 1,421 | 336 / 586 |
+| Dwell pass, RAM disk | 31 / 42 | 33 / 43 | 32 / 43 |
+| Dwell pass, system disk | 323 / 649 | 294 / 926 | 347 / 485 |
+
+On the RAM disk the drain costs a sparse writer nothing that the test can see (p50
++10 percent and p95 +7 percent for the janitor, +5 and 0 for the pass). On the system
+disk the p50 is within the noise of the host (the same build gave 211 to 400 ms from
+one set to the next). The p95 is about twice as high as with the drain off, for main
+and for this change alike: the drain keeps writers waiting a tenth of the time, so about
+one write in ten meets a sealed batch and waits for its flush (0.5 to 2 s on that disk).
+The drain speed in the same runs was the same as main (janitor: 3.3 to 3.9 records a
+second for main and 3.6 to 3.9 for this change on the system disk, 7.0 to 7.7 and 6.5
+to 7.4 on the RAM disk). A smaller `..._DUTY_PCT` lowers that share and slows the
+drain. Without the quiet period, a writer of this kind found the user at full speed
+between two writes, and nearly every write of it met a sealed batch.
+
+**Four continuous writers.** With the drain on, this change drains faster than main
+and costs the writers about the same:
+
+| | main, drain on | this change, drain on |
+|---|---|---|
+| Janitor, records a second, RAM disk | 2.7 to 6.4 | 8.5 to 11.9 (1.9 to 3.1 times) |
+| Dwell pass, blobs a second, RAM disk | 12.8 to 16.6 | 20.5 to 28.2 (1.6 to 1.7 times) |
+| Janitor, records a second, busy system disk | 2.1 to 3.2 | 2.4 to 3.2 (equal) |
+| Writer p50 against drain off, janitor / pass, RAM disk | 0 / +2 percent | +2 / -2 percent |
+| Writer p95 against drain off, janitor / pass, RAM disk | +4 / +1 percent | +3 / +9 percent |
+| Writer p95 against drain off, janitor, busy system disk | +24 percent | +30 percent |
+
+The factor is above 1 because the
+meter counts the time that a batch holds the gate and waits for its flush, and it leaves
+out the wait for the gate itself. With writers that keep the gate busy, the rest is then
+shorter than the cost to the writers. Another run on a quiet disk, with fewer nodes at the
+same time, gave 2.1 to 2.5 times for both users (janitor 24 to 27 against 10.6 to 15.1
+records a second, pass 29 to 30 against 12 to 14.5 blobs a second). On a busy disk the
+factor is 1.
+
+Why not the hold of the gate alone: that was tried first (a rest of 0.1 to 0.3 s).
+It drained 9 to 11 times as fast, and it raised the median latency of a test writer
+by 33 to 60 percent while the janitor released records (3 pairs of nodes, one with
+the janitor and one without, on the same host; the same test gave a median change of
++5 percent, from -2 to +18 percent, for the wall-time rest). The flush is the larger
+part of the time that the writers wait, and the gate hold leaves it out.
+
 ## Failure
 
 A wake that ends with an error does not retry at once. The wait doubles with each
@@ -243,19 +356,34 @@ What the net does not cover:
   of the lifetime the old slices do not line up with the new ones, and the net
   does not probe them. Their rows are listed by the directory as before.
 - A process with another lifetime than the node that wrote the entries. The slice
-  follows `LASTDB_CONFLICT_RETENTION_SECS`. `recount` and a `verify-refs` that
-  runs in another process than the daemon (the CLI reads the daemon, so
-  `verify-refs` uses the daemon's slice; `recount` is a process of its own) must
-  run with the same value, or the slices they list do not line up with the
-  buckets. The default is the same in both.
+  follows `LASTDB_CONFLICT_RETENTION_SECS`. `verify-refs` asks the daemon, so it
+  uses the daemon's slice. `recount` is a process of its own, and the janitor
+  records the window of the node in one row (`crb:v1\0params`, once at its start
+  and when the window changes). The recount reads that row and uses the recorded
+  window and slice for its survey and its repair, and it prints a note when its own
+  `LASTDB_CONFLICT_RETENTION_SECS` differs. A home whose janitor never ran has no
+  row, and the recount then uses its own environment.
 - A bucket older than one lifetime and one slice. The net looks back one lifetime
   (a node that was down for longer than that, with a row lost on top, is rare),
   and the survey of `verify-refs` and `recount` uses the same range. Such a
   bucket is not found as a bucket. A conflict record in it shows as
   `record_without_queue_entry`, and `recount --execute` gives it a new queue
-  entry that expires one window from now. The old entry stays as a row that no
-  directory lists: it holds no reference, so it is garbage and not a leak of
-  atoms.
+  entry. The old entry stays as a row that no directory lists: it holds no
+  reference, so it is garbage and not a leak of atoms.
+- A drain marker is not older than one lifetime, so the range above covers it for
+  its whole life. Every record of an erased slot was written before the erase, so
+  its own queue entry is due one window after the erase at the latest, and the
+  ordinary lane releases it. A marker older than that has nothing left to speed
+  up: the janitor deletes it without a drain (the log says `dropped drain markers
+  older than the retention window`). The marker records the window of the node
+  that wrote it (`window_nanos`), and the janitor uses the longer of that window
+  and its own. A shorter `LASTDB_CONFLICT_RETENTION_SECS` at a later start does
+  not drop a marker early: the records of its slot were written under the old
+  window and are due at that time, and the drain releases them sooner. A marker
+  from an older build has no recorded window. The janitor does not delete it for
+  its age; it drains it. Two faults remain out of reach, and both
+  hold no reference: a marker bucket that lost its row while the janitor was
+  stopped for longer than a window, and a marker the janitor could not see.
 - A bucket that holds only deleted keys is not a fault, and the net leaves it.
 
 ## What can go wrong and what catches it
@@ -269,7 +397,7 @@ queue.
 | A writer adds an entry without the row (code outside `TimeQueue::rows`). | The entry and the row are one `TimeQueue::rows` call, in the batch of the work, through the planner. The writer lint finds a writer that bypasses the planner. | `verify-refs`: `queue_entry_without_directory` for a record entry. The net counts `buckets_repaired`. | The net registers the bucket within one sweep. `recount --execute` writes the row. |
 | A crash between the write of the entry and the write of the row. | Excluded: one batch holds both, and a crash keeps whole batches. | (not possible) | |
 | A retirement races a writer: the reader decided that the bucket was empty, and a writer added an entry. | Every entry rewrites the row with a new token, and the retirement is a guarded delete that compares the raw bytes in the write gate. A writer that came after the reader read the row changes the token, so the delete leaves the row. | As above, if the guard were wrong. | As above. |
-| An external delete of the row, or a partial restore that brought the entries and not the row. | Nothing in the queue can prevent it. | `verify-refs` (a record whose queue entry has no row) and the net (any entry, also a drain marker). | The net, and `recount --execute`. |
+| An external delete of the row, or a partial restore that brought the entries and not the row. | Nothing in the queue can prevent it. | `verify-refs` (a record whose queue entry has no row) and the net (any entry, also a drain marker, which lives at most one window). | The net, and `recount --execute`. |
 
 A fifth, quieter fault belongs to the same chain. A conflict record whose queue
 entry is missing is never released by the janitor, because the janitor finds
@@ -304,11 +432,16 @@ The status line `Verify refs` shows `queue_rows` (the sum of the two kinds).
 
 `lastdb db recount --execute` (a stopped home) surveys the queue, walks the
 records once for each scope, and writes the missing rows again through the
-planner: a bucket gets its row; a record gets a new queue entry that expires one
-window from now (the original expiry is not known) and the row of its bucket. The
-new entry has no slot directory entry of its own, for the reason above; a slot
-directory entry that the record still has stays. A second run finds nothing to
-change.
+planner: a bucket gets its row; a record gets its queue entry back and the row of
+its bucket. The slot directory entry of the record, when it still exists, holds
+the whole original entry (the queue key, the slot key, the creation time), so one
+walk of the slot directory finds it and the entry goes back at its own key, with
+the slot directory entry named: the release of the record then deletes that slot
+directory entry too, and a record past its window is released at once. A record
+with no slot directory entry gets an entry that expires one window from now (the
+original expiry is not known), with no slot directory entry of its own, for the
+reason above. The window is the one that the node recorded. A second run finds
+nothing to change.
 
 ## Limits
 

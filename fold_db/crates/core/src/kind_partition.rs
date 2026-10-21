@@ -4,14 +4,7 @@
 //! No reader substitutes another key spelling.
 
 /// Kinds whose flat keys use `kind\0rest`.
-pub const KIND_PARTITION_KINDS: &[&str] = &[
-    "gcatoms-probe-ref",
-    "schemaidx",
-    "conflict",
-    "history",
-    "dellog",
-    "atom",
-];
+pub const KIND_PARTITION_KINDS: &[&str] = &["schemaidx", "conflict", "history", "dellog", "atom"];
 
 /// The partition separator LastStore hashes on.
 pub const KIND_PARTITION_SEP: char = '\0';

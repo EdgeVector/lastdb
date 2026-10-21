@@ -83,10 +83,7 @@ pub(super) async fn build_snapshot(
         resident,
         build: BuildHealth::current(),
         integrity: integrity_health(host),
-        atom_ref_edges: host
-            .self_metrics
-            .atom_ref_edge_health()
-            .unwrap_or_else(|| configured_atom_ref_edge_health(host)),
+        molecule_edges: configured_molecule_edge_health(host),
         file_blob: file_blob_health(host).await,
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host

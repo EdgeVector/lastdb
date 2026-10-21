@@ -161,7 +161,9 @@ A record ends in two ways, and both use the same release:
    entry). A drain does not hold back the due records of the queue: the janitor
    alternates a few drain batches with a few batches of due records. A protein
    key move is not an erase and releases nothing. `purge_capped_slots` in the
-   status counts the slots that got a marker.
+   status counts the slots that got a marker. A marker lives at most one window:
+   every record of the slot has its own queue entry, due one window after the
+   erase at the latest, so the janitor deletes an older marker without a drain.
 
    The reads of the erase run in the write gate. A read passes the deleted
    directory keys of its slot, and the gate allows 40,000 keys for the request. A
@@ -182,9 +184,14 @@ A record ends in two ways, and both use the same release:
    read before the walk, so an entry that a writer added after the walk keeps the
    bucket. The deleted keys of a retired bucket are never read again. The gate is
    free between pages, and the janitor
-   rests after each batch for `took * (100 - duty) / duty`
-   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10), because the flush of a
-   release batch shares the disk with the writers. The window is
+   rests after each batch for `blocked * (100 - duty) / duty`, where `blocked` is the
+   time the batch kept writers waiting: its hold of the write gate and, because the
+   batch seals the write queue, the wait until it is durable
+   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10: writers wait for the janitor a
+   tenth of the time; at least 25 ms and at most 30 s). When no other task opened a
+   write scope for a quiet period (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default),
+   the rest protects nobody and it is the minimum rest
+   (`docs/lastdb-time-queue.md`, section Pacing). The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.
 
@@ -241,7 +248,10 @@ released.
 list) and `record_without_queue_entry` (a conflict record that no queue entry
 names, read again before it is reported). `lastdb db recount --execute` (a
 stopped home) writes the missing rows again through the planner: the row of a
-bucket, or a queue entry that expires one window from now.
+bucket, or the queue entry of a record. The entry goes back at its own key, with
+its slot directory entry, when the record still has that entry; otherwise it
+expires one window from now. The recount uses the window that the janitor recorded
+(`crb:v1\0params`), not its own environment (`docs/lastdb-time-queue.md`).
 
 `lastdb status` shows the window, the janitor's last run, the queue depth (up to
 1,000 entries) and the number of buckets, the slot drains that wait, the failed
@@ -250,11 +260,12 @@ from the directory. The entries are counted with bounded range walks, which pass
 deleted keys, so a queue that holds many deleted keys still shows its depth. A
 bucket that cannot be read makes the depth a lower bound (shown as `N+`). `lastdb
 db inventory` has the classes `retention_queue`, `retention_bucket_directory` and
-`retention_directory`.
+`retention_directory`. The class `retention_bucket_directory` also counts the row
+that records the window of the node (`crb:v1\0params`).
 
 Not done in this step: the conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
 when it finds a conflict row gone. The keep-small meters are not debited when a
-release deletes rows or atoms (the old reaper did not debit them either).
+release deletes rows or atoms (the removed atom reaper did not debit them either).
 
 ## Memory acknowledgement
 

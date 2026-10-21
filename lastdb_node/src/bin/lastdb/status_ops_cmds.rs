@@ -214,8 +214,8 @@ pub(super) fn status_json(
 /// `residue:` carries only what the plane map CLASSIFIED as residue. Collections
 /// the map does not recognize get their own `unattributed:` line, which says so.
 /// Folding them into `residue:` — what this printed until 2026-09-06 — reported
-/// `atom_ref_edges_v2`, 936.7 MiB of live atom reverse edges, as reclaimable
-/// migration leftovers on the primary. `lastdb db inventory` already named them
+/// a 936.7 MiB collection of live data as reclaimable migration leftovers on
+/// the primary. `lastdb db inventory` already named them
 /// `UNKNOWN active planes`; `status` is the command operators actually run.
 pub(super) fn plane_sot_spotlight_lines(
     breakdown: &fold_db::mini_cutover::PlaneBreakdown,

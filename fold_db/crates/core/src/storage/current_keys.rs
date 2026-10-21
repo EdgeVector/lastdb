@@ -24,6 +24,10 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
             | "idx"
             | "aloc"
             | "aref"
+            | "gcatoms-meta"
+            | "gcatoms-probe-ref"
+            | "gcatoms-probe-tv-skip"
+            | "peer-apply"
     ) {
         return Err(unsupported("retired key family"));
     }
@@ -89,9 +93,10 @@ fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
                         .is_some_and(|(at, id)| digits(at, 20) && !id.is_empty())
             }),
         // `crb:v1\0{bucket:020}`
+        // `crb:v1\0params` records the window of the node
         "crb" => key
             .strip_prefix("crb:v1\0")
-            .is_some_and(|bucket| digits(bucket, 20)),
+            .is_some_and(|bucket| digits(bucket, 20) || bucket == "params"),
         "crs" => key
             .strip_prefix("crs:v1:")
             .and_then(|rest| rest.split_once('\0'))

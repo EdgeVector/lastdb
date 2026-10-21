@@ -47,7 +47,7 @@ pub const RESEAL_DEFAULT_MAX_SECS: u64 = 45;
 pub const RESEAL_PAGE_ROWS: usize = 256;
 
 /// Physical handles resolved per inner page. One handle keeps shard loads
-/// bounded the same way `gc-atoms` prune does.
+/// bounded.
 pub const RESEAL_PAGE_HANDLES: usize = 1;
 
 /// Required envelope policy for one reseal pass.

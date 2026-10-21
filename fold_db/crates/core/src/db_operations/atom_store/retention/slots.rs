@@ -276,6 +276,7 @@ impl AtomStore {
             slot: slot.to_string(),
             queue: queue.entry_key(now, &id),
             erased_at: now,
+            window_nanos: self.retention_state().window_nanos(),
         };
         let value = serde_json::to_value(&marker).map_err(|error| {
             SchemaError::InvalidData(format!("serialize drain marker: {error}"))

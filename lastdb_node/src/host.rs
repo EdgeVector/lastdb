@@ -103,8 +103,6 @@ pub struct Host {
     /// threads while [`Self::qos`] still reports the node idle. Sized to half
     /// the worker pool by [`Host::attach_uds_workers`].
     pub watch_gate: Arc<crate::watch_gate::WatchGate>,
-    /// Single-flight state for the bounded atom reverse-edge migration.
-    pub(crate) atom_ref_health: Arc<crate::atom_ref_health::AtomRefHealthRuntime>,
     /// One owner resume job can run while the durable marker keeps cloud Off.
     pub(crate) primary_resume_job_running: Arc<std::sync::atomic::AtomicBool>,
     /// This process's own boot identity (pid/build/start_ts/restart_cause),
@@ -414,7 +412,7 @@ mod boot;
 impl Host {
     /// True while a node task can still write after the sampler stops.
     pub fn background_writes_in_flight(&self) -> bool {
-        self.self_metrics.background_writes_in_flight() || self.atom_ref_health.in_flight()
+        self.self_metrics.background_writes_in_flight()
     }
     /// Boot the minimal host under `home` (the node-home directory; data
     /// lives at `<home>/data`).
@@ -493,7 +491,6 @@ impl Host {
             ),
             change_feed_queue,
             watch_gate: crate::watch_gate::WatchGate::shared_from_env(),
-            atom_ref_health: Arc::new(crate::atom_ref_health::AtomRefHealthRuntime::default()),
             primary_resume_job_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             own_boot_identity: OnceLock::new(),
             proof_replay_engine,

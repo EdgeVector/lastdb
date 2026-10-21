@@ -5,7 +5,6 @@
 //! operations surface. The crate root re-exports each module to keep existing
 //! binary and test call sites stable while new code can use `lastdb_node::ops`.
 
-pub mod atom_ref_health;
 pub mod blob_dwell;
 pub mod crash_attribution;
 pub mod crash_telemetry;

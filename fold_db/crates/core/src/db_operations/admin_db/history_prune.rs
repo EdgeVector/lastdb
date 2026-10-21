@@ -73,10 +73,10 @@ impl AtomStore {
     ///   and atoms remain; time-travel / `as_of` over deleted events is gone.
     /// - **`keep_last_per_key >= 1`**: keep the newest N events per field key.
     ///
-    /// Does **not** delete current tips or atoms (safe; may leave orphan atoms
-    /// until a later GC). Does **not** select a conflict row (see
-    /// [`keeps_conflicting_write`]): those rows, and the loser atoms their
-    /// edges keep alive, stay.
+    /// Does **not** delete current tips or atoms (an atom stays while a tip or a
+    /// conflict record names it: the atom counter). Does **not** select a
+    /// conflict row (see [`keeps_conflicting_write`]): those rows, and the loser
+    /// atoms their references keep alive, stay.
     pub async fn clear_mutation_history(
         &self,
         schema_field_molecules: &[(String, Vec<String>)],

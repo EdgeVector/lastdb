@@ -82,8 +82,17 @@ no row it
 - makes `lastdb liveness explain blob` say `referenced_row_missing`;
 - makes `lastdb db verify-refs` report `blob_counter_without_blob`.
 
-`lastdb db recount` lists such blobs as `blob rows missing`. It cannot restore the
-bytes. The fix is to upload the file again and write the atom again.
+`lastdb db recount` lists such blobs as `blob rows missing`. The JSON key is
+`blobs.rows_missing`, with the first ten blobs in `blobs.missing_row_samples`. The
+same object is also `recount.blobs` in the full report under the key `recount`. It
+cannot restore the bytes. The fix is to upload the file again and write
+the atom again.
+
+`late_references` in `lastdb status`, like every figure of the `Blob counters` line,
+comes from the status snapshot that the sampler publishes (every
+`LASTDB_SELF_METRICS_SAMPLE_SECS`, 60 s by default). A late reference shows there at
+the next sampler tick, up to one tick after the write. The explain route and
+`verify-refs` read the store at the time of the call and are exact.
 
 ## Records
 
@@ -112,10 +121,23 @@ the head. The review measured 16 blobs a minute after 9,800 deletions.
   (`zero_since_ms * 1,000,000`). The dwell is not in the key: the reader asks for
   the entries older than `now - dwell`. A change of `LASTDB_BLOB_DWELL_SECS`
   between two starts then needs no rewrite of the queue, and the cancel of a dwell
-  can always name the key from the counter.
-- **A bucket is a slice of time**: the dwell, between one second and one hour
-  (`TimeQueue::for_window` with a window of 64 dwells). With the default dwell a
-  bucket is one hour, so the directory gets 24 rows a day.
+  and the check of `queued` can always name the key from the counter.
+- **A bucket is a slice of time of one hour** for every dwell the node accepts (at
+  least 120 s), so the directory gets 24 rows a day and the key of an entry does
+  not depend on the dwell. Only a dwell below the floor (the dev knob of a
+  synthetic home) gives a shorter slice, one dwell, between one second and one
+  hour. A synthetic home that changed such a dwell between two starts shows
+  `queued=false` for an entry that an earlier start wrote.
+- **A home that an older build wrote with a dwell from 120 s to 3,599 s.** The older
+  build chose a slice of one dwell for such a node. This build names the entry of a
+  blob under a slice of one hour, so it does not find the older entry by its computed
+  key. `queued` is false for each blob that waits, and `lastdb db verify-refs` reports
+  `zero_blob_without_queue_entry` for it (7 faults for 7 waiting blobs in a test home).
+  The pass still reads the older bucket through the directory, and it deletes the blob
+  when it is due: after that the fault is gone (0 faults in the test). An offline
+  `recount --execute` writes the entry again under the new key and clears the fault at
+  once (7 entries restored, 0 faults); the older entries stay. A fresh home, and a home
+  with the default dwell (3,600 s), are not affected.
 - **Two key families**, `bref:v3:q` for the entries and `bref:v3:d` for the
   directory. Neither holds a NUL, and neither is a prefix of the other or of the
   counter family `bref:v3:c:`. The entries have no scope: a blob is global.
@@ -202,20 +224,24 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    does not decode is deleted alone too, and the blob and the counter stay: nothing
    can say that the count is zero (the verifier reports the counter);
 5. releases the gate, and **rests**. A step that finds a bucket done retires it
-   (a batch of one guarded delete) and rests the same way. The rest after a chunk is
-   `took * (100 - duty) / duty`, with a duty share of 10 percent by default
-   (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100), at least 25 ms
-   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. A chunk that took 30 ms is
-   followed by a rest of 270 ms. A writer then waits for one small chunk and runs
-   free in the rest. The next chunk takes the gate again. The time of a chunk is the
-   time of the whole call, which includes the wait for the local mutation admission
-   and for the batch to be accepted. The gate is held for 1 to 15 ms of it, but a
-   chunk took 0.2 s to 1 s on a busy host, so a chunk of 29 blobs and its rest took
-   about 9 s: the pass then deletes about 200 blobs a minute. That is the price of
-   leaving the writers alone. Set
-   `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a large backlog faster. The node logs
-   the time and the rest of each chunk at debug level
-   (`lastdbd::blob_dwell`).
+   (a batch of one guarded delete) and rests the same way. A chunk seals the write
+   queue, so a writer that arrives meanwhile waits for the hold of the gate and then
+   for the flush of the chunk (about 0.4 to 1 s). The rest after a chunk is
+   `blocked * (100 - duty) / duty`, where `blocked` is that time and the duty share
+   is 10 percent by default (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100): writers wait for
+   the pass about a tenth of the time. The rest is at least 25 ms
+   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. The rest is the minimum rest
+   only when no other task opened a write scope for a quiet period
+   (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default; `WriterWatch`): the rest then
+   protects nobody, and a node that does nothing else deletes about 30 to 45 blobs
+   a second. A write scope of another task ends that, and for the whole quiet period
+   every rest is the full one. With four writers that write all the time the pass
+   deleted 20 to 28 blobs a second on a RAM disk (main: 13 to 17). A long rest ends
+   early only when the quiet period has passed. The watch sees write scopes only (see the section Pacing in
+   `docs/lastdb-time-queue.md`). Set `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a
+   large backlog faster when writers are present, and accept that they wait longer.
+   The node logs the time, the blocked time and the rest of each chunk at debug
+   level (`lastdbd::blob_dwell`).
 
 The gate is never held across chunks, and the read of the queue takes no gate. A
 pass runs at most 2,048 steps. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The
@@ -275,9 +301,9 @@ The slices that can hold a live entry of the blob queue are few. An entry has th
 time of its `zero_since` (never later than now) and stays until its dwell is over, so
 a live entry lies at most one dwell and one slice before now. The generic list
 covers one dwell and one slice before now and the same after it. The slice of the
-blob queue is one dwell (one hour by default), so a sweep probes **about five slices**
-with the default dwell: five reads of directory rows, and one bounded range read for
-each slice without a row. An entry that is older than one dwell and one slice is out
+blob queue is one hour, so a sweep probes **about five slices** with the default
+dwell: five reads of directory rows, and one bounded range read for each slice
+without a row. An entry that is older than one dwell and one slice is out
 of the net's reach (the pass was off for more than a dwell, or the node was down).
 `verify-refs` reads every bucket of the queue, whatever its age, and finds those.
 
@@ -373,7 +399,8 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
   the directory (24 each day with the default dwell). No read passes them again, but
   a restart of the node walks each live bucket and the directory from their start
   with bounded reads, which cost one read call for every 10,000 deleted keys.
-  `lastdb db compact --collection atoms` returns them.
+  `lastdb db compact --execute` (the whole native home; a named collection is refused)
+  returns them.
 - The clock of the dwell ignores a forward excursion beyond a quarter of the dwell
   only (see "The clock of the dwell"). A smaller forward jump ends dwells early by its
   size.
