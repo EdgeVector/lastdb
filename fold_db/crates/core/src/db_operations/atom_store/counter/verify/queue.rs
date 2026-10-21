@@ -5,7 +5,7 @@ use super::pages::{phase_range, SuspectsPage};
 use super::report::{Kind, Phase};
 use super::state::{Run, StepGuard};
 use crate::db_operations::atom_store::time_queue::QueueSurvey;
-use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress, RangeWalk};
+use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 
 impl AtomStore {
@@ -106,25 +106,16 @@ impl AtomStore {
 }
 
 /// Judge a page of the suspects phase: each record on it has no queue entry.
-pub(super) fn apply_suspects(run: &mut Run, page: &SuspectsPage) -> Result<(), SchemaError> {
+pub(super) fn apply_suspects(run: &mut Run, page: &SuspectsPage) {
     run.note_unsealed(page.scan_unsealed);
-    match run
-        .walk
-        .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-    {
-        Progress::Moved => {
-            run.report.pages += 1;
-            for key in &page.keys {
-                run.note_fault(
-                    Kind::RecordWithoutQueueEntry,
-                    key,
-                    "no queue entry names this record (its entry was deleted, or never written)"
-                        .into(),
-                );
-            }
-        }
-        Progress::Widened => run.report.page_retries += 1,
-        Progress::Stuck => return Err(unsealed_run_error()),
+    run.walk
+        .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+    run.report.pages += 1;
+    for key in &page.keys {
+        run.note_fault(
+            Kind::RecordWithoutQueueEntry,
+            key,
+            "no queue entry names this record (its entry was deleted, or never written)".into(),
+        );
     }
-    Ok(())
 }

@@ -159,9 +159,10 @@ pub struct DbInventory {
     /// Molecule counter totals: slots, records and bindings, joined per molecule.
     #[serde(default)]
     pub molecule_counters: super::MoleculeCounterTotals,
-    /// The range reads this inventory made. A read that hit the read budget of
-    /// one call was retried with fewer rows or a narrower key range; `shrinks`
-    /// and `splits` count those cases (many deleted keys in a range).
+    /// The range reads this inventory made. A read that used its key budget in a
+    /// run of deleted keys went on above the last key it examined (`skips`). A
+    /// read that hit another budget of one call was retried with fewer rows or a
+    /// narrower key range (`shrinks` and `splits`).
     #[serde(default)]
     pub scan: crate::db_operations::atom_store::WalkStats,
     /// Attribution ledger summary: object counts by class (schema/retention/

@@ -40,6 +40,7 @@ impl WriteLock {
         } else {
             super::conversion_fence::refuse_pending(&root)?;
         }
+        sweep_unfinished_publications(&root);
         let current = artifact::current(&root)?;
         if current.required_features & super::FEATURE_OBJECT_METADATA == 0 {
             return Err(crate::Error::Config(
@@ -75,5 +76,33 @@ impl WriteLock {
             .map_err(|_| super::corrupt("verified writer root lock is poisoned"))?;
         *checked = Some(super::bytes::digest(&current.encode()?));
         Ok(())
+    }
+}
+
+/// Temporary files a publication writes in the root before it renames them.
+const PUBLICATION_TEMPORARIES: [&str; 2] = ["CURRENT.pending-", "TAIL.pending-"];
+
+/// Remove the temporary files that a writer killed inside a publication left.
+///
+/// A publication writes `CURRENT` or `JOURNAL_TAIL` to a `.pending-<uuid>` file
+/// and renames it over the target. Only the holder of this lock publishes, so
+/// when the lock is held every such file is the leftover of a dead writer. No
+/// recovery state names them, and each kill inside a publication would leave
+/// one more. The sweep is best effort: a file that stays is only waste.
+fn sweep_unfinished_publications(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let leftover = name.to_str().is_some_and(|name| {
+            PUBLICATION_TEMPORARIES.iter().any(|prefix| {
+                name.strip_prefix(prefix)
+                    .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+            })
+        });
+        if leftover && entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }

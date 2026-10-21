@@ -56,8 +56,9 @@ pub(crate) fn print_inventory_human(inventory: &Value) {
     if let Some(scan) = inventory.get("scan") {
         println!();
         println!(
-            "Range reads: {} calls, {} retried with fewer rows, {} narrowed (many deleted keys in a range)",
+            "Range reads: {} calls, {} went on above a run of deleted keys, {} retried with fewer rows, {} narrowed",
             u64_of(scan, "calls"),
+            u64_of(scan, "skips"),
             u64_of(scan, "shrinks"),
             u64_of(scan, "splits")
         );

@@ -8,7 +8,9 @@ use super::candidate::Candidate;
 use super::family::closing_keys;
 use super::judge::{judge, Refusal, Verdict};
 use crate::atom::molecule_key_codec::decode_hash_range;
-use crate::db_operations::atom_store::counter::{TipChange, TipChangeSet, TipCommit};
+use crate::db_operations::atom_store::counter::{
+    ReleaseRequest, TipChange, TipChangeSet, TipCommit,
+};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
@@ -122,6 +124,34 @@ impl AtomStore {
                 })
                 .await?;
             Ok(Batch::Ran(commit))
+        })
+        .await
+    }
+
+    /// Release a page of the kept conflict records that the slot directory of the
+    /// molecule names. The planner reads each history row inside the gate, lowers
+    /// the references of the atoms it names (an atom at zero goes by the
+    /// delete-on-zero rule), lowers `records`, and deletes the record, its conflict
+    /// row, its directory entry and its queue entry in this one batch. This is the
+    /// release that a client purge does for the slots it removes.
+    pub(super) async fn release_records_batch(
+        &self,
+        candidate: &Candidate,
+        releases: Vec<ReleaseRequest>,
+    ) -> Result<Batch<u64>, SchemaError> {
+        self.in_background_scope(async {
+            match self.decide(candidate, Need::Keys).await? {
+                Gate::Go => {}
+                gate => return Ok(Batch::Stopped(gate)),
+            }
+            let commit = self
+                .commit_tip_changes(TipChangeSet {
+                    scope: candidate.scope.as_deref(),
+                    releases,
+                    ..TipChangeSet::default()
+                })
+                .await?;
+            Ok(Batch::Ran(commit.records_released))
         })
         .await
     }

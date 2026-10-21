@@ -36,13 +36,16 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
             }
         }
     };
+    // A scope in the body is checked as it is: an empty or blank value is an error.
+    if let Err(error) = fold_db::db_operations::AtomStore::validate_scope(body.scope.as_deref()) {
+        return error_response(400, &error.to_string(), ctx);
+    }
     let atoms = host.db.db_ops().atoms();
     let verdict = if body.molecule.trim().is_empty() {
         None
     } else {
-        let scope = body.scope.as_deref().filter(|scope| !scope.is_empty());
         match atoms
-            .molecule_drain_enqueue(scope, body.molecule.trim())
+            .molecule_drain_enqueue(body.scope.as_deref(), body.molecule.trim())
             .await
         {
             Ok(verdict) => Some(verdict),
@@ -55,7 +58,9 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
             }
         }
     };
-    atoms.wake_molecule_drain();
+    // A call that names no molecule only reports. It does not wake the task: a wake
+    // ends the back-off of a failed wake, and a poller would cancel it. Queueing a
+    // molecule wakes the task after its batch commits (`molecule_drain_enqueue`).
     // The durable candidate rows, counted up to 10,000 with bounded reads.
     let (candidates, capped) = atoms
         .molecule_drain_candidates(10_000)

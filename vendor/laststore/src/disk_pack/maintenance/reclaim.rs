@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::Path;
 
+mod unfinished;
+use unfinished::{at_generation, remove_unfinished};
+
 const MAX_RETAINED_PARTS: usize = 262_144;
 
 /// Reclaim only exact old-receipt paths, after a complete plan and all safety checks.
@@ -42,18 +45,20 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
-    let generations = generations(root, policy.max_files)?;
+    let generations = generations(root, policy.max_files, &retained)?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
     for number in &generations {
-        if generation::load_current(root, *number)?.published_ms > cutoff {
+        if at_generation(generation::load_current(root, *number), root, *number)?.published_ms
+            > cutoff
+        {
             retained.insert(*number);
         }
     }
     let mut live = BTreeSet::new();
     for number in &retained {
-        let held = generation::load_current(root, *number)?;
-        let generation = generation::verify(root, &held)?;
+        let held = at_generation(generation::load_current(root, *number), root, *number)?;
+        let generation = at_generation(generation::verify(root, &held), root, *number)?;
         for coordinate in generation.coordinates {
             live.insert(coordinate);
             if live.len() > MAX_RETAINED_PARTS {
@@ -67,11 +72,11 @@ pub(in crate::disk_pack) fn reclaim_locked(
         if retained.contains(&number) {
             continue;
         }
-        let held = generation::load_current(root, number)?;
+        let held = at_generation(generation::load_current(root, number), root, number)?;
         if held.published_ms > cutoff {
             continue;
         }
-        let generation = generation::read_receipt(root, &held)?;
+        let generation = at_generation(generation::read_receipt(root, &held), root, number)?;
         for coordinate in &generation.coordinates {
             if !live.contains(coordinate) {
                 candidates.insert(*coordinate, coordinate.path(root)?);
@@ -98,7 +103,8 @@ pub(in crate::disk_pack) fn reclaim_locked(
         remove_empty_parents(root, &path)?;
     }
     for held in old {
-        let generation = generation::read_receipt(root, &held)?;
+        let generation =
+            at_generation(generation::read_receipt(root, &held), root, held.generation)?;
         if generation.coordinates.iter().any(|coordinate| {
             !live.contains(coordinate) && coordinate.path(root).map_or(true, |path| path.exists())
         }) {
@@ -129,7 +135,7 @@ fn validate_roots(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
+fn generations(root: &Path, max_files: usize, published: &BTreeSet<u64>) -> Result<Vec<u64>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(root.join("generations"))? {
         let entry = entry?;
@@ -146,6 +152,9 @@ fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
             .and_then(|name| name.parse::<u64>().ok())
             .filter(|number| *number > 0)
             .ok_or_else(|| corrupt("invalid generation directory"))?;
+        if !published.contains(&number) && remove_unfinished(&entry.path())? {
+            continue;
+        }
         out.push(number);
     }
     Ok(out)

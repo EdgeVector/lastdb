@@ -57,7 +57,7 @@ pub use blob_counter::{
     DwellStep, NetStep, DWELL_CHUNK,
 };
 pub use bounded_range::WalkStats;
-pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};
+pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,

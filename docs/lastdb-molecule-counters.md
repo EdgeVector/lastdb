@@ -82,6 +82,14 @@ gone lowers nothing. An erase reads the header of each molecule it touches and
 looks for kept records only in a molecule whose `records` is above zero (or whose
 header cannot be trusted: `suspect`, or no counters).
 
+The molecule drain releases the kept records of a dead molecule itself, from the slot
+directory of the molecule, and does not wait for the janitor (see
+`docs/lastdb-molecule-drain.md`, "Kept conflict records"). A schema that was dropped with
+kept conflict records can be installed again within minutes, not after the retention
+window. An install that meets a molecule the drain still works on answers `409`; the body
+names the reason (`draining`, `waiting_for_conflict_records`, `drain_task_off`) and the
+response has a `Retry-After`.
+
 ## Underflow
 
 A removal can ask for more slots or records than the counter holds, and a header can
@@ -131,3 +139,8 @@ record without a counter. The verifier writes nothing.
   members, the delete-ledger rows and the search entries of the erased keys stay.
 - The schema drop reads the whole database catalog with `list_entries` (a scan of a small
   table that has one row for each database and schema).
+- A molecule whose `records` counter names kept conflict records that no slot directory entry
+  names (the counter and the directory differ) is not released by any drain step. The records
+  end with their own retention window, and the drain waits for them. Such a molecule does not
+  block an install. A molecule recount (a later step) is the repair.
+

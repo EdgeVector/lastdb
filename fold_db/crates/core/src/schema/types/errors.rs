@@ -163,10 +163,13 @@ pub enum SchemaError {
     CaptureQueueFull {
         waited_ms: u64,
     },
-    /// An install was refused: the molecule drain still removes the keys of an
-    /// earlier schema of this name. Nothing changed; a retry later works (`409`).
+    /// An install was refused (`409`): the molecule drain still removes the keys
+    /// of an earlier schema of this name. Nothing changed. `reason` is `draining`,
+    /// `waiting_for_conflict_records` or `drain_task_off`.
     SchemaBeingDropped {
         schema: String,
+        reason: String,
+        molecules: u64,
     },
 }
 
@@ -242,11 +245,9 @@ impl fmt::Display for SchemaError {
                  not land and nothing already stored was lost. This is transient \
                  backpressure from the capture worker — retry the same write"
             ),
-            Self::SchemaBeingDropped { schema } => write!(
-                f,
-                "schema '{schema}' is still being dropped; retry the install after the \
-                 molecule drain has finished (`lastdb status` shows its progress)"
-            ),
+            Self::SchemaBeingDropped { schema, reason, molecules } => {
+                f.write_str(&super::being_dropped::message(schema, reason, *molecules))
+            }
         }
     }
 }

@@ -4,7 +4,7 @@
 use super::blobs::{apply_blobs, apply_queue};
 use super::report::Phase;
 use super::state::StepGuard;
-use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress};
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 
 impl AtomStore {
@@ -22,38 +22,28 @@ impl AtomStore {
         let outcome = if run.phase == Phase::Blobs {
             self.read_blobs_page(request).await.map(|page| {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                let moved =
-                    run.walk
-                        .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref());
-                if moved == Progress::Moved {
-                    apply_blobs(run, page);
-                }
-                moved
+                run.walk
+                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                apply_blobs(run, page);
             })
         } else {
             self.read_queue_page(request).await.map(|page| {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                let moved =
-                    run.walk
-                        .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref());
-                if moved == Progress::Moved {
-                    apply_queue(run, page);
-                }
-                moved
+                run.walk
+                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                apply_queue(run, page);
             })
         };
         match outcome {
-            Ok(Progress::Moved) => {}
-            Ok(Progress::Widened) => run.report.page_retries += 1,
-            Ok(Progress::Stuck) => return Err(unsealed_run_error()),
+            Ok(()) => {}
             Err(SchemaError::ReadResourceLimit { .. }) => {
                 // The read hit the limit of one call. Ask for fewer rows or a
                 // narrower key range, in a new read scope.
                 run.report.page_retries += 1;
                 if !run.walk.read_too_big() {
-                    return Err(run.walk.failure(SchemaError::ReadResourceLimit {
+                    return Err(SchemaError::ReadResourceLimit {
                         detail: "a key range is too dense to read in pieces".into(),
-                    }));
+                    });
                 }
             }
             Err(error) => return Err(error),

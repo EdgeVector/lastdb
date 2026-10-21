@@ -3,7 +3,7 @@
 //! so all of them see one committed root.
 
 use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
-use super::pages::Request;
+use super::pages::{Request, VERIFY_KEYS_PER_ROW};
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{
     blob_counter_key, blob_counter_key_of_id, BlobRead,
@@ -64,11 +64,14 @@ impl AtomStore {
     ) -> Result<BlobsPage, SchemaError> {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
-            let last_key = rows.last().map(|(key, _)| key.clone());
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             let counters: Vec<BlobRead> = rows
                 .iter()
                 .map(|(_, value)| BlobRead::parse(Some(value)))
@@ -134,7 +137,7 @@ impl AtomStore {
             }
             Ok(BlobsPage {
                 rows: rows.len(),
-                last_key,
+                resume,
                 scan_unsealed,
                 point_unsealed,
                 entries,
@@ -150,11 +153,14 @@ impl AtomStore {
     ) -> Result<QueuePage, SchemaError> {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
-            let last_key = rows.last().map(|(key, _)| key.clone());
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             // The buckets of the page against the directory, at the same root.
             let mut buckets: BTreeMap<u64, (u64, String)> = BTreeMap::new();
             for (key, _) in &rows {
@@ -209,7 +215,7 @@ impl AtomStore {
                 .collect();
             Ok(QueuePage {
                 rows: rows.len(),
-                last_key,
+                resume,
                 scan_unsealed,
                 point_unsealed,
                 entries,

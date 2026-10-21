@@ -12,6 +12,8 @@ pub struct HostError {
     pub status: u16,
     pub message: String,
     structured_body: Option<Value>,
+    /// Seconds for the `Retry-After` header, when a retry later can work.
+    retry_after_secs: Option<u64>,
 }
 
 impl HostError {
@@ -21,6 +23,7 @@ impl HostError {
             status,
             message: message.into(),
             structured_body: None,
+            retry_after_secs: None,
         }
     }
 
@@ -35,7 +38,15 @@ impl HostError {
             status,
             message: message.into(),
             structured_body: Some(body),
+            retry_after_secs: None,
         }
+    }
+
+    /// Add a `Retry-After` header of `secs` seconds to the response.
+    #[must_use]
+    pub fn with_retry_after(mut self, secs: u64) -> Self {
+        self.retry_after_secs = Some(secs);
+        self
     }
 
     /// A `500` — always rendered content-free, so its message never leaks
@@ -72,17 +83,32 @@ impl From<FoldDbError> for HostError {
 
 /// The status of a schema error with no arm of its own. An install that the molecule
 /// drain refuses (the keys of the earlier schema of this name are still being removed)
-/// changed nothing and works later: `409`. Every other error is a `400`.
+/// changed nothing and works later: `409`, with the reason, the number of molecules
+/// and a `Retry-After`. Every other error is a `400`.
 fn unlisted_schema_error(err: &SchemaError) -> HostError {
-    match err {
-        SchemaError::SchemaBeingDropped { schema } => HostError::new(
-            409,
-            serde_json::json!({"ok": false, "error": "schema_being_dropped", "schema": schema,
-                "retryable": true, "message": err.to_string()})
-            .to_string(),
-        ),
-        other => HostError::new(400, other.to_string()),
-    }
+    let SchemaError::SchemaBeingDropped {
+        schema,
+        reason,
+        molecules,
+    } = err
+    else {
+        return HostError::new(400, err.to_string());
+    };
+    // The drain and the janitor wake about once a minute. A drain task that is off
+    // needs an operator, so the wait is long.
+    let retry_after = match reason.as_str() {
+        "draining" => 30,
+        "waiting_for_conflict_records" => 60,
+        _ => 3600,
+    };
+    HostError::structured(
+        409,
+        err.to_string(),
+        serde_json::json!({"ok": false, "error": "schema_being_dropped", "schema": schema,
+            "reason": reason, "molecules": molecules, "retryable": reason != "drain_task_off",
+            "retry_after_seconds": retry_after, "message": err.to_string()}),
+    )
+    .with_retry_after(retry_after)
 }
 
 impl From<SchemaError> for HostError {
@@ -242,9 +268,13 @@ pub fn render(result: Result<Value, HostError>, ctx: &AccessContext) -> UdsRespo
                     e.message
                 );
             }
-            match e.structured_body.as_ref() {
+            let response = match e.structured_body.as_ref() {
                 Some(body) => owner_json_or_content_free(e.status, body, ctx),
                 None => owner_or_content_free(e.status, &e.message, ctx),
+            };
+            match e.retry_after_secs {
+                Some(secs) => response.with_header("Retry-After", secs.to_string()),
+                None => response,
             }
         }
     }

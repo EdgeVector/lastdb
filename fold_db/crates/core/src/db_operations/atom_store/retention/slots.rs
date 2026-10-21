@@ -237,6 +237,28 @@ impl AtomStore {
 }
 
 impl AtomStore {
+    /// The release requests for rows of the slot directory of a molecule (any
+    /// slot). A row that does not decode names nothing to release: it is counted
+    /// and its record stays until its own window ends.
+    pub(crate) fn directory_release_requests(
+        &self,
+        rows: &[(Vec<u8>, Vec<u8>)],
+    ) -> Vec<ReleaseRequest> {
+        rows.iter()
+            .filter_map(|(key, value)| {
+                let Ok(entry) = serde_json::from_slice::<RetentionEntry>(value) else {
+                    tracing::error!(
+                        key = %String::from_utf8_lossy(key),
+                        "slot directory entry does not decode"
+                    );
+                    self.retention_state().note_undecodable();
+                    return None;
+                };
+                Some(entry.request())
+            })
+            .collect()
+    }
+
     /// The rows of the drain marker of one erased slot, due now: the marker in
     /// the bucket of now, and the directory row of that bucket.
     fn drain_marker_rows(

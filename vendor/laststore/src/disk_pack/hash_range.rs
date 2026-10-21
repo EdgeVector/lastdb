@@ -58,12 +58,19 @@ pub struct RangeRecord {
     pub version: MutationVersion,
 }
 
-/// A bounded page. A short successful page always exhausts the requested range.
+/// A bounded page. A short successful page always exhausts the requested range,
+/// unless `resume` is set.
 pub struct RangePage {
     /// Ordered live records; tombstones count as work but do not appear here.
     pub records: Vec<RangeRecord>,
     /// True only after all configured group cursors reach the exact upper bound.
     pub exhausted: bool,
+    /// Set only by [`HashRangeCursor::next_page_yielding`]. The call stopped
+    /// before the page was full, because the key budget ran out or was about to.
+    /// Every key of the range up to and including this key was examined, and
+    /// `records` holds the live ones among them. The next call continues at the
+    /// least key above it.
+    pub resume: Option<Vec<u8>>,
 }
 
 struct GroupCursor {
@@ -178,6 +185,30 @@ impl HashRangeCursor<'_> {
     /// Continue only with the original held call. Budget failure poisons this cursor.
     /// An error never returns a short successful page or an exhausted result.
     pub fn next_page(&mut self, limit: usize) -> Result<RangePage> {
+        self.next(limit, None)
+    }
+
+    /// Like [`Self::next_page`], but a key budget that runs out before the page
+    /// is full is not an error once a key was examined. The page holds the live
+    /// records found so far (it can hold none) and `resume` names the last key
+    /// examined, so a caller walks a range of deleted keys one call at a time
+    /// with no failed read, and a range of live rows between deleted keys loses
+    /// no row. `held_rows` is the number of rows the caller already holds from
+    /// this call: the cursor stops while the call still has the keys that the
+    /// caller needs to read the counters, bodies and blob counters of those rows
+    /// and of this page: `keys_per_row` for each row. With `keys_per_row` of
+    /// zero, or with no row held or selected, it uses the whole budget. A budget
+    /// failure before any key was examined still returns the error.
+    pub fn next_page_yielding(
+        &mut self,
+        limit: usize,
+        held_rows: usize,
+        keys_per_row: usize,
+    ) -> Result<RangePage> {
+        self.next(limit, Some((held_rows, keys_per_row)))
+    }
+
+    fn next(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RangePage> {
         if self.failed {
             return Err(corrupt("range cursor requires a fresh call after an error"));
         }
@@ -187,12 +218,12 @@ impl HashRangeCursor<'_> {
             ));
         }
         self.failed = true;
-        let result = self.page(limit)?;
+        let result = self.page(limit, yielding)?;
         self.failed = false;
         Ok(result)
     }
 
-    fn page(&mut self, limit: usize) -> Result<RangePage> {
+    fn page(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RangePage> {
         self.call.charge(
             (limit
                 * (std::mem::size_of::<RangeRecord>() + std::mem::size_of::<(String, Location)>()))
@@ -203,8 +234,30 @@ impl HashRangeCursor<'_> {
             .try_reserve_exact(limit)
             .map_err(|_| super::resource())?;
         let mut exhausted = false;
+        let mut resume: Option<Vec<u8>> = None;
+        // The last key taken is a tombstone when `last_dead` is set, and the
+        // last selected record otherwise.
+        let mut last_dead: Option<Vec<u8>> = None;
         while selected_records.len() < limit {
-            self.fill_pending()?;
+            if let Some((held, keys_per_row)) = yielding {
+                let rows = held + selected_records.len();
+                if rows > 0 && keys_per_row > 0 && self.low_on_keys(rows, keys_per_row) {
+                    resume = Self::last_taken(&last_dead, &selected_records);
+                    if resume.is_some() {
+                        break;
+                    }
+                }
+            }
+            match self.fill_pending() {
+                Err(crate::Error::ReadBudgetExceeded) if yielding.is_some() => {
+                    resume = Self::last_taken(&last_dead, &selected_records);
+                    if resume.is_none() {
+                        return Err(crate::Error::ReadBudgetExceeded);
+                    }
+                    break;
+                }
+                other => other?,
+            }
             let selected = self
                 .groups
                 .iter()
@@ -228,10 +281,14 @@ impl HashRangeCursor<'_> {
                 ));
             }
             if location.source == Source::Tombstone {
+                if yielding.is_some() {
+                    last_dead = Some(key);
+                }
                 continue;
             }
             let key =
                 String::from_utf8(key).map_err(|_| corrupt("range storage key is not UTF-8"))?;
+            last_dead = None;
             selected_records.push((key, location));
         }
         let bodies = self
@@ -246,7 +303,25 @@ impl HashRangeCursor<'_> {
                 version: location.version,
             })
             .collect();
-        Ok(RangePage { records, exhausted })
+        Ok(RangePage {
+            records,
+            exhausted,
+            resume,
+        })
+    }
+
+    /// True when the call has too few keys left to read `keys_per_row` keys for
+    /// each of `rows` rows after the next fill, which can examine one key in each group.
+    fn low_on_keys(&self, rows: usize, keys_per_row: usize) -> bool {
+        let needed = (self.groups.len() + keys_per_row.saturating_mul(rows) + 16) as u64;
+        self.call.costs.examined_keys.saturating_add(needed) > self.call.budget.keys
+    }
+
+    /// The last key a page took: its last tombstone, or else its last record.
+    fn last_taken(last_dead: &Option<Vec<u8>>, selected: &[(String, Location)]) -> Option<Vec<u8>> {
+        last_dead
+            .clone()
+            .or_else(|| selected.last().map(|(key, _)| key.clone().into_bytes()))
     }
 
     fn fill_pending(&mut self) -> Result<()> {

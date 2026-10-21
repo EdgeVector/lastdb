@@ -15,6 +15,10 @@ use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::BTreeMap;
 
+/// The keys that a page read keeps for the reads it makes for each row it gets:
+/// the counter and the body of an atom, a blob counter, a binding record.
+pub(super) const VERIFY_KEYS_PER_ROW: usize = 4;
+
 /// A read the walk asked for: start, end and the number of rows.
 pub(super) type Request = (Vec<u8>, Vec<u8>, usize);
 
@@ -30,7 +34,8 @@ pub(super) struct AtomRead {
 /// A page of the tips or records phase.
 pub(super) struct ReferencedPage {
     pub rows: usize,
-    pub last_key: Option<Vec<u8>>,
+    /// The last key the read examined, or `None` when the range ended.
+    pub resume: Option<Vec<u8>>,
     /// Rows the scan dropped for want of an at-rest envelope. They count toward
     /// a full page.
     pub scan_unsealed: u64,
@@ -53,7 +58,8 @@ pub(super) struct ReferencedPage {
 /// queue entry names.
 pub(super) struct SuspectsPage {
     pub rows: usize,
-    pub last_key: Option<Vec<u8>>,
+    /// The last key the read examined, or `None` when the range ended.
+    pub resume: Option<Vec<u8>>,
     pub scan_unsealed: u64,
     pub keys: Vec<String>,
 }
@@ -61,7 +67,8 @@ pub(super) struct SuspectsPage {
 /// A page of the atoms phase.
 pub(super) struct AtomsPage {
     pub rows: usize,
-    pub last_key: Option<Vec<u8>>,
+    /// The last key the read examined, or `None` when the range ended.
+    pub resume: Option<Vec<u8>>,
     pub scan_unsealed: u64,
     pub point_unsealed: u64,
     /// Keys under `atom:` that are neither a body nor a counter record.
@@ -97,11 +104,14 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<ReferencedPage, SchemaError> {
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
-            let last_key = rows.last().map(|(key, _)| key.clone());
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             let (holders, bad) = match phase {
                 Phase::Records => record_holders(&rows),
                 _ => tip_holders(&rows),
@@ -124,7 +134,7 @@ impl AtomStore {
             let blobs = self.read_blob_listed(blob_lists).await?;
             Ok(ReferencedPage {
                 rows: rows.len(),
-                last_key,
+                resume,
                 scan_unsealed,
                 point_unsealed,
                 unreadable: bad.total,
@@ -166,9 +176,14 @@ impl AtomStore {
         suspects: &std::collections::HashSet<u128>,
         (start, end, asked): Request,
     ) -> Result<SuspectsPage, SchemaError> {
-        let (rows, scan_unsealed) =
-            count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked)).await;
-        let rows = rows.map_err(SchemaError::from)?;
+        let (scan, scan_unsealed) = count_unsealed_discards(
+            self.raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
+        )
+        .await;
+        let scan = scan.map_err(SchemaError::from)?;
+        let (rows, resume) = (scan.rows, scan.resume);
         let keys = rows
             .iter()
             .map(|(key, _)| String::from_utf8_lossy(key).into_owned())
@@ -182,7 +197,7 @@ impl AtomStore {
             .collect();
         Ok(SuspectsPage {
             rows: rows.len(),
-            last_key: rows.last().map(|(key, _)| key.clone()),
+            resume,
             scan_unsealed,
             keys,
         })
@@ -196,16 +211,19 @@ impl AtomStore {
         (start, end, asked): Request,
     ) -> Result<AtomsPage, SchemaError> {
         self.atom_read_scope(async {
-            let (rows, scan_unsealed) =
-                count_unsealed_discards(self.raw().inner().scan_range_paged(&start, &end, asked))
-                    .await;
-            let rows = rows.map_err(SchemaError::from)?;
-            let last_key = rows.last().map(|(key, _)| key.clone());
+            let (scan, scan_unsealed) = count_unsealed_discards(
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
+            )
+            .await;
+            let scan = scan.map_err(SchemaError::from)?;
+            let (rows, resume) = (scan.rows, scan.resume);
             let paired = self.pair_rows(&rows, &start, scope).await?;
             let blobs = self.read_blob_listed(blobs_of_pairs(&paired.pairs)).await?;
             Ok(AtomsPage {
                 rows: rows.len(),
-                last_key,
+                resume,
                 scan_unsealed,
                 point_unsealed: paired.unsealed,
                 foreign: paired.foreign,

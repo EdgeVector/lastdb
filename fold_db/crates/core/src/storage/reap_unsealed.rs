@@ -156,6 +156,21 @@ impl ReapUnsealedReport {
     }
 }
 
+impl ReapUnsealedReport {
+    /// Add the counts of the next chunk of the same call, and take its position.
+    pub fn absorb(&mut self, next: Self) {
+        self.rows_scanned += next.rows_scanned;
+        self.rows_sealed += next.rows_sealed;
+        self.rows_unsealed += next.rows_unsealed;
+        self.rows_removed += next.rows_removed;
+        self.rows_cas_skipped += next.rows_cas_skipped;
+        self.bytes_reclaimed += next.bytes_reclaimed;
+        self.more_remaining = next.more_remaining;
+        self.next_cursor = next.next_cursor;
+        self.measured_at = next.measured_at;
+    }
+}
+
 /// Metadata key for one plane's checkpoint.
 #[must_use]
 pub fn reap_checkpoint_key(collection: &str) -> String {
