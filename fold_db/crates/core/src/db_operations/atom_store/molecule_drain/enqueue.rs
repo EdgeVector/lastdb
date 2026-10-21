@@ -76,6 +76,25 @@ impl AtomStore {
     }
 }
 
+impl AtomStore {
+    /// The candidate rows now, counted up to `cap` with bounded range reads (a
+    /// deleted key does not make the read fail). The second value is true when the
+    /// count stopped at the cap.
+    pub async fn molecule_drain_candidates(&self, cap: usize) -> Result<(u64, bool), SchemaError> {
+        let (start, end) = super::candidate::list_bounds();
+        let mut walk = crate::db_operations::atom_store::RangeWalk::new(&start, &end, 256);
+        let mut count = 0u64;
+        while !walk.done() {
+            let step = self.walk_step(&mut walk).await?;
+            count += step.rows.len() as u64;
+            if count >= cap as u64 {
+                return Ok((count, true));
+            }
+        }
+        Ok((count, false))
+    }
+}
+
 fn report(candidate: &Candidate, verdict: Verdict, queued: bool) -> MoleculeDrainVerdict {
     let (state, slots, records, refusal) = match verdict {
         Verdict::Dead { slots, records } => ("dead", slots, records, None),

@@ -56,9 +56,19 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
         }
     };
     atoms.wake_molecule_drain();
+    // The durable candidate rows, counted up to 10,000 with bounded reads.
+    let (candidates, capped) = atoms
+        .molecule_drain_candidates(10_000)
+        .await
+        .unwrap_or((0, false));
     json_ok(&envelope(
         &serde_json::json!({
-            "molecule_drain": { "report": atoms.molecule_drain_report(), "verdict": verdict }
+            "molecule_drain": {
+                "report": atoms.molecule_drain_report(),
+                "verdict": verdict,
+                "candidate_rows": candidates,
+                "candidate_rows_capped": capped,
+            }
         }),
         ctx.user_id.as_str(),
     ))

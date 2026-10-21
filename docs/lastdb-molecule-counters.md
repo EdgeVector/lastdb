@@ -3,8 +3,9 @@
 ## Contract
 
 Every molecule in a storage scope has three counters. A molecule may go only
-when all three are zero and none is `suspect`. No other structure allows a drop
-and no other structure blocks one.
+when all three are zero, none is `suspect`, and no binding record exists (a
+binding record with a zero or absent counter is a fault, not a dead molecule).
+No other structure allows a drop and no other structure blocks one.
 
 | Counter | Counts | Where it lives |
 |---|---|---|
@@ -15,8 +16,7 @@ and no other structure blocks one.
 `{target}` is the hex SHA-256 of the molecule uuid. A scope adds its prefix before
 the key, as for every other record.
 
-The drain that removes a dead molecule is a later step (S7). This step makes the
-counters exact and shows them.
+The drain that removes a dead molecule is step S7: `docs/lastdb-molecule-drain.md`.
 
 ## Why `bindings` is not in the header
 
@@ -62,6 +62,7 @@ Writers of a binding record:
 |---|---|---|
 | `store_schema`, `drop_schema` (`db_operations/schema_operations.rs`) | a schema is stored or dropped | personal |
 | `protein_add_member_in_scope` (`protein/ops.rs`) | a protein gets a member | personal |
+| `protein_release_members` (`protein/ops/release.rs`) | a schema drop or a changed schema leaves a molecule that only a protein names; the protein lets it go | personal |
 | `bind_catalog_molecules`, `unbind_catalog_molecules` (`catalog_bindings.rs`) | a catalog row is written or deleted | the instance of the row |
 
 The catalog row and its binding records are written in one batch by the share route,
@@ -93,7 +94,7 @@ cloud replay, which is off) reads as `suspect` at its next planner change.
 
 - `lastdb liveness explain molecule <uuid> [--scope PREFIX]` (and
   `POST /api/storage/liveness/explain` with class `molecule`, `id` or `ids`, and
-  `scope`) returns the three counters, the state (`live`, `droppable`, `suspect`,
+  `scope`) returns the three counters, the state (`live`, `droppable`, `suspect`, `mismatch`,
   `absent`) and, for one id, the binding records.
 - `lastdb db inventory` has a `Molecule counters` block: headers, slots, records,
   bindings, binding records, live, droppable, suspect, and the first droppable
@@ -111,8 +112,9 @@ record without a counter. The verifier writes nothing.
 
 ## Known limits
 
-- A protein member binding is never removed (a protein has no removal), so a molecule
-  that a protein names never reaches `bindings = 0`.
+- A protein member binding goes only when a schema drop (or a changed schema) leaves a
+  molecule that only a protein names (`protein_release_members`). A protein member of a
+  molecule that a schema or a catalog still names stays.
 - Cloud replay and restore write headers and binding records that bypass the planner.
   Cloud sync is off in this build.
 - A crash between the share route's domain grant and its batch leaves a domain grant

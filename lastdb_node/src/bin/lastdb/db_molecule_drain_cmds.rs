@@ -75,6 +75,19 @@ fn print_drain(drain: &Value) {
         return;
     };
     println!(
+        "Candidate rows (durable): {}{}",
+        u64_of(drain, "candidate_rows"),
+        if drain
+            .get("candidate_rows_capped")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            "+"
+        } else {
+            ""
+        }
+    );
+    println!(
         "Drain: pending {} parked {} (waiting for kept records {}, refused {}); drained {} molecules; tips erased {}; atom bodies deleted {}; other rows {}; batches {}; rebound {}",
         u64_of(report, "pending"),
         u64_of(report, "parked"),
