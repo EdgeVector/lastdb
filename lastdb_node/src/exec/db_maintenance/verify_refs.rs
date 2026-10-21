@@ -27,6 +27,13 @@ pub(in crate::exec) async fn execute_db_verify_refs_route(
             }
         }
     };
+    if request.cursor.is_none() {
+        if let Err(error) =
+            fold_db::db_operations::AtomStore::validate_scope(request.scope.as_deref())
+        {
+            return error_response(400, &error.to_string(), ctx);
+        }
+    }
     match host.db.verify_refs_step(request).await {
         Ok(report) => json_ok(&envelope(
             &serde_json::json!({ "verify_refs": report }),

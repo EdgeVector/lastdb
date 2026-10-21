@@ -56,6 +56,9 @@ pub(super) async fn execute_liveness_explain_route(
         .map(str::trim)
         .filter(|scope| !scope.is_empty())
         .or(ctx.storage_prefix.as_deref());
+    if let Err(error) = fold_db::db_operations::AtomStore::validate_scope(scope) {
+        return error_response(400, &error.to_string(), ctx);
+    }
     if class == "atom" {
         return explain_atoms(host, ctx, scope, id, request.ids).await;
     }

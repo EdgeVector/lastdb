@@ -26,6 +26,7 @@ mod local_file_blobs;
 mod maintenance_admission;
 mod provenance;
 mod schema_api;
+mod schema_drop;
 mod sync;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;
@@ -60,6 +61,8 @@ pub struct FoldDB {
     pub(crate) background_protein_reaper: super::protein_reaper::BackgroundProteinReaperTask,
     /// Periodic release of kept conflict records. See [`super::conflict_janitor`].
     pub(crate) background_conflict_janitor: super::conflict_janitor::BackgroundConflictJanitorTask,
+    /// Paced removal of dead molecules. See [`super::molecule_drain`].
+    pub(crate) background_molecule_drain: super::molecule_drain::BackgroundMoleculeDrainTask,
     /// Owns local maintenance cadences and their shared packing lock.
     /// The optional cloud engine is absent during the native cutover.
     sync_coordinator: SyncCoordinator,
@@ -87,6 +90,7 @@ impl Drop for FoldDB {
         self.mutation_manager.persist_lanes().stop();
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
+        self.background_molecule_drain.stop();
         // Abort the background sync task to prevent tokio panic:
         // "Cannot drop a runtime in a context where blocking is not allowed"
         self.sync_coordinator.abort_task();

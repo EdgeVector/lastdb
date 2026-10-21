@@ -246,10 +246,38 @@ fn print_molecule_counters(counters: &Value) {
         "  headers without counters: {}",
         u64_of(counters, "counters_unset")
     );
-    if let Some(sample) = array_of(counters, "droppable_sample") {
-        for molecule in sample.iter().filter_map(|item| item.as_str()).take(5) {
-            println!("    droppable: {molecule}");
-        }
+    println!(
+        "  binding record, no counter: {} (a fault: the drain refuses them)",
+        u64_of(counters, "binding_record_without_counter")
+    );
+    println!(
+        "  unbound with tips:      {} (queue one with `lastdb db molecule-drain --molecule=<uuid>`)",
+        u64_of(counters, "unbound_with_tips")
+    );
+    println!(
+        "  drain candidates:       {} (molecules removed since the daemon started: {})",
+        u64_of(counters, "drain_candidates"),
+        u64_of(counters, "drained_since_start")
+    );
+    print_sample(counters, "droppable_sample", "droppable");
+    print_sample(counters, "unbound_sample", "unbound with tips");
+}
+
+/// The first molecules of a sample, as many as a screen holds. The JSON report holds
+/// the whole sample (`--json`).
+fn print_sample(counters: &Value, field: &str, label: &str) {
+    const SHOWN: usize = 20;
+    let Some(sample) = array_of(counters, field) else {
+        return;
+    };
+    for molecule in sample.iter().filter_map(|item| item.as_str()).take(SHOWN) {
+        println!("    {label}: {molecule}");
+    }
+    if sample.len() > SHOWN {
+        println!(
+            "    ... {} more in the sample (--json lists all)",
+            sample.len() - SHOWN
+        );
     }
 }
 

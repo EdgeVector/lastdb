@@ -32,6 +32,36 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "mref:v1:n:{M} — bindings counter of a molecule",
     ),
     (
+        "molecule_drain_candidate",
+        "mref:v1:d\0",
+        "mref:v1:d\0{scope}\0{M} — a molecule that lost its last binding; the drain removes it and deletes the row",
+    ),
+    (
+        "molecule_generation_delete",
+        "mgd:v1:",
+        "mgd:v1:{M}:… — one generation delete marker for each slot an erase removed",
+    ),
+    (
+        "molecule_generation_record",
+        "mgr:v1:",
+        "mgr:v1:{M}:{generation}:… — immutable generation slot records",
+    ),
+    (
+        "molecule_generation_pointer",
+        "mgp:v1:",
+        "mgp:v1:{M} — the active generation of a molecule",
+    ),
+    (
+        "delete_barrier",
+        "rdel:v2:",
+        "rdel:v2:{hex of mk key} — the order of a Delete for one tip key",
+    ),
+    (
+        "conflict_index",
+        "mcc:",
+        "mcc:{M} — ids of the kept conflict records of a molecule",
+    ),
+    (
         "conflict",
         "conflict\0",
         "conflict:… — merge conflict records",

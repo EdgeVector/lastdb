@@ -70,6 +70,21 @@ impl From<FoldDbError> for HostError {
     }
 }
 
+/// The status of a schema error with no arm of its own. An install that the molecule
+/// drain refuses (the keys of the earlier schema of this name are still being removed)
+/// changed nothing and works later: `409`. Every other error is a `400`.
+fn unlisted_schema_error(err: &SchemaError) -> HostError {
+    match err {
+        SchemaError::SchemaBeingDropped { schema } => HostError::new(
+            409,
+            serde_json::json!({"ok": false, "error": "schema_being_dropped", "schema": schema,
+                "retryable": true, "message": err.to_string()})
+            .to_string(),
+        ),
+        other => HostError::new(400, other.to_string()),
+    }
+}
+
 impl From<SchemaError> for HostError {
     fn from(err: SchemaError) -> Self {
         match &err {
@@ -161,7 +176,7 @@ impl From<SchemaError> for HostError {
                     .unwrap_or_else(|| serde_json::json!({}))
                     .to_string(),
             ),
-            other => Self::new(400, other.to_string()),
+            other => unlisted_schema_error(other),
         }
     }
 }
