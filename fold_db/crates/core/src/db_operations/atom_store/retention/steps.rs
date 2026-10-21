@@ -299,7 +299,15 @@ impl AtomStore {
         }
         let take = cursor.net.todo.len().min(NET_CHUNK_SLICES);
         let slices: Vec<u64> = cursor.net.todo.iter().take(take).copied().collect();
-        let chunk = cursor.queue.mend_slices(self, &slices, now_nanos).await?;
+        let chunk = match cursor.queue.mend_slices(self, &slices, now_nanos).await {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                // Drop the sweep. The next one starts at the next time of the
+                // schedule, so a failing net does not read again at once.
+                cursor.net.todo.clear();
+                return Err(error);
+            }
+        };
         cursor.net.todo.drain(..take);
         for bucket in &chunk.unlisted {
             tracing::warn!(

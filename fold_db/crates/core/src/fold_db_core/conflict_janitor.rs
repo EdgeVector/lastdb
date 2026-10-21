@@ -30,6 +30,12 @@
 //! start again from the start of their buckets, in case the node clock stepped
 //! back. A bucket that the directory dropped is not read again.
 //!
+//! The janitor also runs the safety net of the queue (`TimeQueue::mend_slices`)
+//! at its start and then once in `LASTDB_CONFLICT_JANITOR_NET_SECS`: it probes
+//! the slices that can hold a live entry, by arithmetic, and registers a bucket
+//! that holds entries and has no directory row again. A sweep is chunks of 16
+//! slices, each paced like a batch, at the start of a wake.
+//!
 //! A wake that ends with an error (the storage refused a write, a read failed)
 //! makes the janitor wait longer before the next wake: the wait doubles with
 //! each wake in a row that fails, from the interval (at least one second) up to
@@ -41,6 +47,7 @@
 //! | `LASTDB_CONFLICT_JANITOR_MS` | Interval between wakes. Zero turns the janitor off. Default 60000. |
 //! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of wall time, in percent, that release batches may take (1 to 100). Default 10. |
 //! | `LASTDB_CONFLICT_RETENTION_SECS` | The retention window. Default 30 days. |
+//! | `LASTDB_CONFLICT_JANITOR_NET_SECS` | Seconds between two sweeps of the safety net of the queue (0 turns it off). Default 3600. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -338,7 +345,14 @@ async fn run_wake(
             }
             Ok(None) => break,
             Err(failure) => {
-                wake.fail(&failure);
+                // A failed sweep ends. It does not hold back the janitor: the
+                // release of due records goes on, and the next sweep comes at
+                // its time.
+                tracing::warn!(
+                    target: "fold_node::database",
+                    error = %failure,
+                    "conflict janitor net sweep failed"
+                );
                 break;
             }
         }

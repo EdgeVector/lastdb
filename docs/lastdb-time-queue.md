@@ -242,9 +242,20 @@ What the net does not cover:
   bucket. The net covers the slicing of the current lifetime only. After a change
   of the lifetime the old slices do not line up with the new ones, and the net
   does not probe them. Their rows are listed by the directory as before.
-- A bucket older than one lifetime. Entries that wait for longer than a lifetime
-  and lost their row are found by `verify-refs` (for the records that name them)
-  and `recount`, not by the net.
+- A process with another lifetime than the node that wrote the entries. The slice
+  follows `LASTDB_CONFLICT_RETENTION_SECS`. `recount` and a `verify-refs` that
+  runs in another process than the daemon (the CLI reads the daemon, so
+  `verify-refs` uses the daemon's slice; `recount` is a process of its own) must
+  run with the same value, or the slices they list do not line up with the
+  buckets. The default is the same in both.
+- A bucket older than one lifetime and one slice. The net looks back one lifetime
+  (a node that was down for longer than that, with a row lost on top, is rare),
+  and the survey of `verify-refs` and `recount` uses the same range. Such a
+  bucket is not found as a bucket. A conflict record in it shows as
+  `record_without_queue_entry`, and `recount --execute` gives it a new queue
+  entry that expires one window from now. The old entry stays as a row that no
+  directory lists: it holds no reference, so it is garbage and not a leak of
+  atoms.
 - A bucket that holds only deleted keys is not a fault, and the net leaves it.
 
 ## What can go wrong and what catches it
@@ -268,28 +279,36 @@ again (see below). The net cannot find it: there is no entry to probe.
 
 ### `verify-refs` and `recount`
 
-For each counted conflict record that the records phase reads, the verifier
-checks the chain by key, at the root of its page:
+The verifier cannot read the queue entry of a record by key. The key holds the
+expiry, and the record does not. The slot directory entry names the queue entry,
+but the key of the slot directory entry needs the storage form of the key of the
+record, and that needs the key codec of its molecule, which a node loads with
+its schema. A verifier that derived the key from the record gave wrong answers
+on a node that had just started. So the verifier and the recount compare sets.
 
-1. the slot directory entry at the key that the molecule, the slot and the id of
-   the record give (the expiry is not in the record, so the queue entry cannot be
-   read without it);
-2. the queue entry that the slot directory entry names;
-3. the directory row of the bucket in the key of that queue entry.
+- The records phase keeps the id of each counted conflict record (the first 128
+  bits of the id that the queue keys name; 16 bytes each, at most `--max-atoms`).
+- A `queue` phase surveys the queue (`time_queue/survey.rs`). It reads the
+  directory, walks the entries of every listed bucket, and also walks the slices
+  that the arithmetic lists, have no row, and hold a live key. It keeps the id of
+  each entry. A bucket that holds entries and has no row after the survey read
+  its row again is a fault: each of its entries is a
+  `queue_entry_without_directory`.
+- A record whose id no entry has is a suspect. A last phase (`suspects`) reads
+  the suspects again. A record that is still there is a
+  `record_without_queue_entry`. A record that a release deleted in the meantime
+  is gone, and is not reported. A record that was written after the records
+  phase is not a suspect. So a writer cannot cause a finding.
 
-A record whose slot directory entry is missing, does not decode, or names a
-queue entry that is missing is a `record_without_queue_entry`. A queue entry
-whose bucket has no row is a `queue_entry_without_directory`. The reads are in
-the read scope of the page, so a committed root shows them whole: a record is
-written with its rows, a release deletes them together, and a retirement keeps
-the row of a bucket that holds an entry. No writer can explain a finding. The
-status line `Verify refs` shows `queue_rows` (the sum of the two).
+The status line `Verify refs` shows `queue_rows` (the sum of the two kinds).
 
-`lastdb db recount --execute` (a stopped home) walks the records once for each
-scope and writes the missing rows again through the planner. A record gets a new
-queue entry that expires one window from now (the original expiry is not known),
-its slot directory entry and the row of the new bucket. A queue entry whose
-bucket has no row gets the row. A second run finds nothing to change.
+`lastdb db recount --execute` (a stopped home) surveys the queue, walks the
+records once for each scope, and writes the missing rows again through the
+planner: a bucket gets its row; a record gets a new queue entry that expires one
+window from now (the original expiry is not known) and the row of its bucket. The
+new entry has no slot directory entry of its own, for the reason above; a slot
+directory entry that the record still has stays. A second run finds nothing to
+change.
 
 ## Limits
 
@@ -330,9 +349,10 @@ the safety net and the size count as they are. It provides:
    that checks its unfinished long work before it asks for a retirement token.
 5. A call of the net (`TimeQueue::net_slices` and `TimeQueue::mend_slices`) from
    its janitor, once at the start and then now and then.
-6. A check in the verifier and a repair in the recount for the chain from its
-   work item to its queue entry and the row of the bucket
-   (`retention/check.rs`, `retention/repair.rs`).
+6. A survey of its queue in the verifier and the recount (`QueueSurvey`, used
+   from `counter/verify/run.rs` and `counter/recount/retention.rs`), the ids of
+   its work items to compare with the entries, and a repair that writes the
+   missing rows again (`retention/repair.rs`).
 7. The key family names in the key validation (`storage/current_keys.rs`),
    the cutover classes (`mini_cutover/main_keys.rs`), the capture skip list
    (`sync/policy.rs`) and the inventory classes.
