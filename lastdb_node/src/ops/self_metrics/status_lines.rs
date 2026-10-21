@@ -340,7 +340,7 @@ fn leading_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         node_home_line(snapshot),
         data_dir_line(snapshot),
         log_streams_line(&snapshot.logs),
-        atom_ref_edge_status_line(&snapshot.atom_ref_edges),
+        molecule_edge_status_line(&snapshot.molecule_edges),
         at_rest_compression_status_line(snapshot.at_rest_compression.as_ref()),
         recoverability_status_line(snapshot.sampled_at, &snapshot.sync, &snapshot.durability),
         sync_status_line(snapshot.sampled_at, &snapshot.sync),
@@ -414,15 +414,12 @@ pub fn status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     lines
 }
 
-pub(super) fn atom_ref_edge_status_line(health: &AtomRefEdgeHealth) -> String {
+pub(super) fn molecule_edge_status_line(health: &MoleculeEdgeHealth) -> String {
     let bytes = |gauge: &Gauge| match gauge.value {
         Availability::Measured(value) => format_bytes(value),
         Availability::Unavailable(_) => "unavailable".to_string(),
     };
-    format!(
-        "Liveness edges: molecule_bytes={}",
-        bytes(&health.molecule_bytes),
-    )
+    format!("Molecule edges: bytes={}", bytes(&health.bytes))
 }
 
 /// At-rest compression effectiveness since this daemon process started.

@@ -1,4 +1,4 @@
-//! Key format marker of a constructor-proven empty home.
+//! The key format marker of a new empty home.
 //!
 //! The atom counter makes atom bodies the only authority for atom references,
 //! and the molecule counters and the blob counters do the same for molecules and
@@ -65,7 +65,7 @@ impl AtomStore {
         if values.iter().all(Option::is_none) {
             return Ok(true);
         }
-        let proofs = current_reference_proofs()?;
+        let proofs = current_key_format_rows()?;
         if proofs.iter().zip(&values).any(|(proof, stored)| {
             let KvMutation::Put { value, .. } = proof else {
                 unreachable!("initialization proofs only contain puts");
@@ -79,10 +79,10 @@ impl AtomStore {
         Ok(false)
     }
 
-    pub(crate) async fn initialize_current_reference_proofs(&self) -> Result<(), StorageError> {
+    pub(crate) async fn initialize_key_format(&self) -> Result<(), StorageError> {
         self.main_store
             .inner()
-            .batch_mutate(current_reference_proofs()?)
+            .batch_mutate(current_key_format_rows()?)
             .await
     }
 
@@ -103,8 +103,8 @@ impl AtomStore {
     }
 }
 
-/// The proof rows in the order of [`CURRENT_NATIVE_INITIALIZATION_KEYS`].
-fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
+/// The rows of the key format marker, in the order of [`CURRENT_NATIVE_INITIALIZATION_KEYS`].
+fn current_key_format_rows() -> Result<Vec<KvMutation>, StorageError> {
     Ok(vec![KvMutation::put(
         AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(),
         KEY_FORMAT,

@@ -73,7 +73,7 @@ pub const COMPACT_ALLOWLIST: &[&str] = &[
 /// Execute rewrites every live row. If Cloud Sync is on, the owner compact
 /// command pauses it for the rewrite and restores it afterwards so backup
 /// upload and mutation-log capture do not race the segment swap. Capture-free
-/// allowlist entries (`sync_pin_log`, `atom_locators`, …) do not need this.
+/// allowlist entries (`sync_pin_log`, …) do not need this.
 /// The named captured exceptions `tips` and `metadata` also do not: their
 /// owner physical-compact path is regression-proven capture-neutral through
 /// `MutationLogCaptureNamespacedStore::compact_collection`.

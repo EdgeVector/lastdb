@@ -57,9 +57,6 @@ impl SyncEngine {
         if self.skip_org_scoped_replay_key(namespace, &final_key, target, entry.seq) {
             return Ok(());
         }
-        if crate::sync::policy::is_node_local_gc_scratch_key(&final_key) {
-            return Ok(());
-        }
         if std::str::from_utf8(&final_key)
             .ok()
             .and_then(Self::physical_molecule_uuid)
@@ -159,7 +156,6 @@ impl SyncEngine {
         }
         decoded.retain(|final_key| {
             !self.skip_org_scoped_replay_key(namespace, final_key, target, entry.seq)
-                && !crate::sync::policy::is_node_local_gc_scratch_key(final_key)
         });
         if decoded.iter().any(|key| {
             std::str::from_utf8(key)

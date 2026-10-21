@@ -15,13 +15,7 @@ use std::path::Path;
 ///
 /// Atoms and `cas_blobs` are absent on purpose. Atom rewrite needs a
 /// retirement receipt. Blob identity is a backup record.
-const HELPER_COLLECTIONS: &[&str] = &[
-    "molecule_ref_edges",
-    "keep_small",
-    "schema_index",
-    "atom_locators",
-    "atom_ref_edges_v2",
-];
+const HELPER_COLLECTIONS: &[&str] = &["molecule_ref_edges", "keep_small", "schema_index"];
 
 /// Counts from one maintenance pass.
 #[derive(Debug, Clone, PartialEq, Eq)]

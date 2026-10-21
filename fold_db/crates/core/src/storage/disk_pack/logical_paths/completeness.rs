@@ -84,8 +84,8 @@ pub(super) fn covers(
             .any(|kind| crate::kind_partition::rest_of(raw, kind).is_some())
         {
             // The typed model supplies current membership. These rows only
-            // track update order or rebuildable liveness/GC bookkeeping.
-            return ["mref", "bref", "gcatoms-probe-ref"]
+            // track update order or rebuildable liveness bookkeeping.
+            return ["mref", "bref"]
                 .into_iter()
                 .any(|kind| crate::kind_partition::rest_of(raw, kind).is_some());
         }

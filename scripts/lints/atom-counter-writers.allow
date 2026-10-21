@@ -161,5 +161,5 @@ lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_rollback_
 
 lastdb_node/src/cloud_purge_adoption_org/queues.rs|copy_peer_subscriptions|-|peer subscription rows
 
-fold_db/crates/core/src/db_operations/atom_store/fresh_home_edges.rs|initialize_current_reference_proofs|-|key format marker of a constructor-proven empty home
+fold_db/crates/core/src/db_operations/atom_store/key_format.rs|initialize_key_format|-|key format marker of a new empty home
 fold_db/crates/core/src/sync/snapshot/restore_scan/files.rs|merge_missing|-|photograph restore: adds node-global file rows (cas_blob) that are missing; no tip, record, atom or counter

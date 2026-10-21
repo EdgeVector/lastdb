@@ -76,8 +76,8 @@ pub(crate) enum DbReclaimCommand {
     ///
     /// Default is dry-run (no sidecar write). `--execute` stamps groups that
     /// still have a verified local atom chunk. Missing groups are not stamped.
-    /// Skips while a backup cut is held. Owner `compact --collection atoms
-    /// --execute` rewrites ~3.6 GiB and is not this one-shot.
+    /// Skips while a backup cut is held. Owner `compact --execute` rewrites
+    /// the whole home and is not this one-shot.
     StampPurgedAtomRetirements {
         /// Actually write pending_shas (without this flag, report only).
         #[arg(long)]

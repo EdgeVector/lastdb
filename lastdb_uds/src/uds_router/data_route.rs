@@ -313,8 +313,8 @@ pub enum DataRoute {
     /// installed schemas from catalog metadata and molecule counters.
     /// OWNER socket only; this route never scans atoms.
     SchemaStorageReport,
-    /// `POST /api/storage/liveness/explain` — point-read one target's active
-    /// reverse-edge partition and fail-closed completeness state.
+    /// `POST /api/storage/liveness/explain` — point-read the counter of one
+    /// atom, molecule or blob, and its queue state.
     LivenessExplain,
     /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
     /// OWNER socket only. Body: `{schema?, keep_last?, dry_run?}`.
@@ -351,7 +351,7 @@ pub enum DataRoute {
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
     /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
-    /// trail (purge + gc-atoms), oldest first. Query: `?limit=N` (0/absent =
+    /// trail (purge, delete and delete-converge), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,

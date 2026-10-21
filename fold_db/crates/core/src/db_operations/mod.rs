@@ -53,8 +53,7 @@ pub use db_catalog_store::{
 };
 pub use delete_ledger::{
     key_fingerprint, AtomDeleteLedgerEntry, DeleteLedgerHandle, ATOM_DELETE_LEDGER_PREFIX,
-    LEDGER_VERB_DELETE, LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_GC_ATOMS, LEDGER_VERB_PURGE,
-    LEDGER_VERB_REPAIR_TIPS,
+    LEDGER_VERB_DELETE, LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_PURGE,
 };
 pub use keep_small::{
     atom_histogram, keep_small_schema_shard_key, AtomHistogram, KeepSmallHardEraseDebit,

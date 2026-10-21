@@ -303,7 +303,7 @@ impl MutationManager {
         }
     }
 
-    /// Make new capture roots visible to atom GC before the router admits work.
+    /// Record the capture engine before the router admits work.
     pub(crate) fn set_capture_engine_metadata(
         &self,
         engine: std::sync::Arc<crate::sync::SyncEngine>,

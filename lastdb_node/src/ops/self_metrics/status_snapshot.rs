@@ -166,13 +166,10 @@ pub struct StatusSnapshot {
     /// pointed at an atom that would not resolve.
     #[serde(default)]
     pub integrity: IntegrityHealth,
-    /// Atom reverse-edge cutover bytes and audit gauges.
-    ///
-    /// Physical bytes are exact collection gauges. Count-derived fields stay
-    /// unavailable until a bounded audit or backfill publishes them. Status
-    /// never scans either edge plane.
+    /// The bytes of the molecule binding records. An exact collection gauge,
+    /// read from file metadata. Status never scans the plane.
     #[serde(default)]
-    pub atom_ref_edges: AtomRefEdgeHealth,
+    pub molecule_edges: MoleculeEdgeHealth,
     /// File-blob durability: fetches the remote CAS proved absent, split by
     /// whether this node had recorded those bytes as uploaded.
     #[serde(default)]

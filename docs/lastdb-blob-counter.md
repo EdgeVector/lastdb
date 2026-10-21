@@ -374,7 +374,8 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
   the directory (24 each day with the default dwell). No read passes them again, but
   a restart of the node walks each live bucket and the directory from their start
   with bounded reads, which cost one read call for every 10,000 deleted keys.
-  `lastdb db compact --collection atoms` returns them.
+  `lastdb db compact --execute` (the whole native home; a named collection is refused)
+  returns them.
 - The clock of the dwell ignores a forward excursion beyond a quarter of the dwell
   only (see "The clock of the dwell"). A smaller forward jump ends dwells early by its
   size.

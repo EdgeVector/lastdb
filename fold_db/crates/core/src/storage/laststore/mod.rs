@@ -347,7 +347,7 @@ impl LastStoreKvStore {
         // bounded by the number that actually vanished, and the id listing
         // above is done once either way. See `LastStore::list_range_paged` for
         // the same invariant on the range path, and for what a truncated
-        // `gc-atoms` reference walk costs.
+        // walk costs.
         let mut out: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
         let mut remaining = ids.into_iter();
         while out.len() < limit {

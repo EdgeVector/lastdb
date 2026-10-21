@@ -58,13 +58,6 @@ pub(super) async fn restore_namespace(
         let mut items = Vec::with_capacity(chunk.len());
         for (key, value) in chunk {
             let key = key.clone();
-            // Node-local rows never travel in a snapshot: the peer-apply row
-            // (the restoring node writes its own `seen` after the install) and
-            // the `gcatoms-*` probe checkpoints and markers, which describe the
-            // lap of the node that wrote them and must not steer this one.
-            if crate::sync::policy::is_node_local_gc_scratch_key(&key) {
-                continue;
-            }
             match mode {
                 RestoreMode::Personal if is_org_scoped_key_bytes(&key) => {
                     report.org_skipped = report.org_skipped.saturating_add(1);
@@ -136,7 +129,6 @@ pub(super) async fn collect_snapshot_namespaces(
             SnapshotNamespaceMode::All => namespace_rows(kv.as_ref())
                 .await?
                 .into_iter()
-                .filter(|(k, _)| !crate::sync::policy::is_node_local_gc_scratch_key(k))
                 .map(|(k, v)| SnapshotEntry {
                     key: BASE64.encode(&k),
                     value: BASE64.encode(&v),

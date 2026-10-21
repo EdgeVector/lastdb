@@ -3,8 +3,8 @@
 //! Every automatic byte-return sweep in this file used to be a
 //! [`crate::sync::engine::SyncEngine`] method reachable only from
 //! `SyncEngine::do_sync`. A node booted without `cloud_sync.json` has no
-//! engine, so it ran none of them: `gc-atoms` stepped, `tips` and `atoms` grew,
-//! and the only byte-return path was an operator typing
+//! engine, so it ran none of them: `tips` and `atoms` grew, and the only
+//! byte-return path was an operator typing
 //! `lastdb db compact --collection <plane> --execute`. Measured 2026-09-07 on a
 //! `lastdb-dev` clone (brain
 //! `papercut-lastdb-local-only-node-has-no-automatic-compaction-sweep`).
@@ -13,8 +13,7 @@
 //! and the status map — not a cloud target, not credentials, and not a sync
 //! cycle. [`PlaneCompactor`] owns exactly those four things, so
 //! [`crate::fold_db_core::sync_coordinator::SyncCoordinator`] can step the same
-//! cadence with `engine: None`, the same shape `start_automatic_gc_atoms`
-//! already uses.
+//! cadence with `engine: None`.
 //!
 //! There is one implementation. `SyncEngine` holds an `Arc<PlaneCompactor>` and
 //! its `maybe_compact_*` methods delegate to it, sharing the *same*

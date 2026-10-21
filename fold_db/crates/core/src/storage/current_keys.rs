@@ -24,6 +24,10 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
             | "idx"
             | "aloc"
             | "aref"
+            | "gcatoms-meta"
+            | "gcatoms-probe-ref"
+            | "gcatoms-probe-tv-skip"
+            | "peer-apply"
     ) {
         return Err(unsupported("retired key family"));
     }

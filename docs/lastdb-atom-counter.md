@@ -255,7 +255,7 @@ db inventory` has the classes `retention_queue`, `retention_bucket_directory` an
 
 Not done in this step: the conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
 when it finds a conflict row gone. The keep-small meters are not debited when a
-release deletes rows or atoms (the old reaper did not debit them either).
+release deletes rows or atoms (the removed atom reaper did not debit them either).
 
 ## Memory acknowledgement
 
