@@ -9,7 +9,7 @@
 //! the same checks.
 
 use super::candidate::Candidate;
-use super::judge::{judge, Verdict};
+use super::judge::{judge, Refusal, Verdict};
 use crate::db_operations::atom_store::counter::TipChangeSet;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
@@ -59,7 +59,11 @@ impl AtomStore {
         let candidate = Candidate::new(scope, molecule);
         let verdict = self
             .in_write_scope(async {
-                let verdict = judge(&self.read_molecule_reads(&candidate).await?);
+                let mut verdict = judge(&self.read_molecule_reads(&candidate).await?);
+                if verdict == Verdict::Absent && self.tip_present(&candidate).await? {
+                    // Tip records and no header: the molecule has no counters.
+                    verdict = Verdict::Refused(Refusal::CountersUnset);
+                }
                 let queue = matches!(verdict, Verdict::Dead { .. } | Verdict::Refused(_));
                 if queue {
                     self.commit_tip_changes(TipChangeSet {

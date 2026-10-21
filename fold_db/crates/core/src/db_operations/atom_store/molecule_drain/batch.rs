@@ -55,6 +55,12 @@ impl AtomStore {
                 Ok(Gate::Rebound)
             }
             Verdict::Absent => {
+                // No header and no counter: nothing authorizes a removal. If tip
+                // records exist anyway, the molecule has no counters at all: report
+                // it and keep the candidate.
+                if self.tip_present(candidate).await? {
+                    return Ok(Gate::Refused(Refusal::CountersUnset));
+                }
                 self.drop_candidate_row(candidate).await?;
                 Ok(Gate::Absent)
             }
