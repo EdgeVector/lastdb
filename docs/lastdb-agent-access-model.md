@@ -1,23 +1,20 @@
 # LastDB access model for agents
 
-> **READ FIRST — LastDB access (can't miss):** Before any schema, query, mutation, dual-write, or heal:
-> `brain get concepts-lastdb-agent-access-model`
-> · `docs/lastdb-agent-access-model.md` (this workspace)
-> · **Requirement:** `docs/lastdb-access-complexity-requirements.md` · `brain get requirement-lastdb-access-complexity`
-> · public: https://thelastdb.com/docs/agent-access-model
-> · https://thelastdb.com/llms.txt
+> **READ FIRST — LastDB access (can't miss):** Before any schema, query, mutation, dual-write, or heal, read this file.
+> Then `docs/lastdb-canonical-model.md` (the canonical model), `docs/lastdb-access-complexity-requirements.md`
+> (the complexity law), and, for data that grows or is large, the Shape rules below.
+> Public: https://thelastdb.com/docs/agent-access-model · https://thelastdb.com/llms.txt
 
 **Won't-undo:** LastDB is **Dynamo-style NoSQL with access-pattern design**, not SQL.
 
 | Durable homes | |
 |---|---|
-| **Canonical model (umbrella)** | `docs/lastdb-canonical-model.md` · `concepts-lastdb-canonical-model` |
-| **Core logical memory and native disk** | `docs/lastdb-rehydrate.md` · `concepts-lastdb-rehydrate` |
-| **Requirement (complexity + no scan)** | `docs/lastdb-access-complexity-requirements.md` · `requirement-lastdb-access-complexity` |
-| Brain concept | `brain get concepts-lastdb-agent-access-model` |
-| Workspace | `docs/lastdb-agent-access-model.md` (this file) |
+| **Canonical model (umbrella)** | `docs/lastdb-canonical-model.md` |
+| **Core logical memory and native disk** | `docs/lastdb-rehydrate.md` |
+| **Requirement (complexity + no scan)** | `docs/lastdb-access-complexity-requirements.md` |
+| **Atom lifecycle (counters, delete, purge, TTL)** | `docs/lastdb-atom-counter.md` · `docs/lastdb-ttl-sweep.md` |
+| This file | `docs/lastdb-agent-access-model.md` |
 | Public | https://thelastdb.com/docs/agent-access-model · https://thelastdb.com/llms.txt |
-| Deep internals | `docs/lastdb-storage-schema-to-atoms.html` |
 
 **Audience:** every agent that reads or writes LastDB Mini (`lastdbd` on `~/.lastdb/data/folddb.sock`), fkanban/kanban, brain/fbrain, lastgit metadata, situations, etc.
 
@@ -70,8 +67,7 @@ If you already know Dynamo access-pattern design, you already know 80% of how to
 under **different keys**, Mini binds shared field identities into proteins and
 propagates new mutations by folding sibling tips to the **same atom**. Apps do
 **not** reach into proteins and should not dual-write those payload fields after
-bind. Guide: fold `docs/app-developers-multi-key-proteins.md` · brain
-`concepts-lastdb-protein-write-fold`.
+bind. The write fold is described in `docs/lastdb-canonical-model.md`, section 2.
 
 ---
 
@@ -82,12 +78,25 @@ You do **not** need the full engine lecture for day-to-day CRUD. Minimum:
 1. **Schema** — names fields and the supported logical key type: `Hash` or `HashRange`. Older template metadata can retain other forms.
 2. **Field** — each field has its own **molecule** (tip index): “for this key, which atom is current?” Same key coordinates `(hash[, range])` across fields assemble a logical row at read time.
 3. **Atom** — immutable, content-addressed field value (`atom:{uuid}`).
-   **Size fence:** each atom's content is hard-capped (default **256 KiB** serialized JSON; env `LASTDB_MAX_ATOM_CONTENT_BYTES`, absolute max 1 MiB). Many small fields may be packed into one atom up to the fence. A list or log that grows is one record per entry in a HashRange schema. Atoms are **not** a blob store — packs/files go in file-blob/CAS with a pointer. See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md`.
+   **Size fence:** each atom's content is hard-capped (default **256 KiB** serialized JSON; env `LASTDB_MAX_ATOM_CONTENT_BYTES`, absolute max 1 MiB). Many small fields may be packed into one atom up to the fence. A list or log that grows is one record per entry in a HashRange schema. Atoms are **not** a blob store — packs/files go in file-blob/CAS with a pointer. See `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` and the Shape rules below.
+   **Lifecycle:** every atom has a counter of the tips and kept conflict records that name it. The batch that takes the counter to zero deletes the body. A rewrite keeps no older version, and the home has no history or `as_of` read.
 4. **Query** — resolve tips for the keys you care about, batch-fetch atoms, zip fields into the JSON the API returns.
 
 Multi-field “rows” (a Card with title+body+column) are **co-keyed at read time**, not one physical row blob.
 
-Deeper: open `docs/lastdb-storage-schema-to-atoms.html` (encryption layers, `mk:` keys, ENC).
+Deeper: `docs/lastdb-atom-counter.md` (the records and the write path), `docs/lastdb-rehydrate.md` (memory and disk).
+
+### Shape rules
+
+Pick the shape of your data before you write the schema. The node enforces the ceiling; it cannot fix a bad shape.
+
+1. **Data that grows without bound is one record per entry** in a HashRange schema. The hash is the partition (an owner, a day) and the range is the entry key. Never rewrite one growing document on every append: each write re-encrypts the whole document, and it fails at the ceiling.
+2. **Large opaque write-once bytes go to a file blob** (files, packs, images, PDFs, base64 of any of those). The atom holds a pointer (hash, size, media type). Upload the blob first and write the atom that names it soon after: a blob that nothing references is deleted after a dwell of one hour (`docs/lastdb-blob-counter.md`).
+3. **Everything else is one atom, up to 256 KiB**, with its small fields packed. Conflict is per atom, so packing couples the fate of the fields: do not pack facts that different devices write independently.
+4. **A TTL needs a time-sortable key.** A schema declares its retention in the app manifest. The range key must start with 20 digits of unix seconds, zero-padded. Use a day-slice hash for a log. The policy must exist before the first write: a Hash or Single schema tracks only writes after the policy exists and has no backfill. A TTL deletes records for good (`docs/app-manifest-retention.md`, `docs/lastdb-ttl-sweep.md`).
+5. **A lease, a claim or a counter that several writers change needs compare-and-set.** Put `expected` on the mutation (`Absent`, `Value` or `ContentHash`). It is atomic on one node. Across devices last-write-wins decides, and the loser is kept as a conflict record, so run such state on one device. A node that does not know `expected` can ignore it: check the node before you claim a lease.
+
+There is no history, no scan and no sequence of older versions to fall back on. Design the key for the read.
 
 ---
 
@@ -99,10 +108,11 @@ Deeper: open `docs/lastdb-storage-schema-to-atoms.html` (encryption layers, `mk:
 |--------|-----|
 | Load one card / brain record by slug | **HashKey** on the primary schema (`Card`, Concept, …) via CLI `show` / `get` — **O(1)** |
 | List a board / column | **BoardCards** HashRange: hash = board, optional range prefix = `column#` — **O(log M)** for that board; via `kanban list` / `list --column` |
-| Point update | Mutate **primary** fields; prefer protein fold for shared fields; dual-write only a thin projection (prefer `kanban` / `fkanban` / `brain` over raw multi-schema surgery) |
+| Point update | Mutate **primary** fields; prefer protein fold for shared fields; dual-write only a thin projection (prefer the product CLI over raw multi-schema surgery) |
+| Remove data | `Delete` (writes a barrier), `Purge` (hard erase, no barrier), or a manifest TTL. The atom counter frees each body whose last reference goes, in the same batch. Send at most the number of keys that the 400 error names. See `docs/lastdb-atom-counter.md` |
 | Another list shape | New keyed Hash/HashRange schema — protein fold for shared fields; dual-write only a thin projection; never scan |
 | Read several independent things from **different schemas** | **`POST /api/queries/batch`** — `{"queries":[<`/api/query` body>, …]}`, up to 64, replies in request order with one `status` per item. Not a join: items cannot use each other's results. Within one schema use `HashRangeKeys`. See `docs/designs/lastdb-query-batch-route.md` |
-| Health / load | `lastdb status` (exit 0 iff the owner socket answers `/health`) + socket `/api/status` request_ops; playbook `sop-lastdb-request-ops-telemetry` |
+| Health / load | `lastdb status` (exit 0 iff the owner socket answers `/health`) + socket `/api/status` request_ops; `lastdb ops` (`docs/lastdb-ops-telemetry.md`) |
 | Am I compatible with this node? | `GET /api/version` (both sockets, no state) → `{ok, api_version, build, capabilities, instance_id}`. Compare the `api_version` your client was built against; `/health` carries the same `api_version`. A `400 {"kind":"unknown_key"}` on a data route means the node does not know a key you sent — the client is newer than the node; upgrade the node (`brew upgrade lastdb`), do not rewrite the request. The key itself is never echoed (I4) |
 
 ### Don't
@@ -110,6 +120,9 @@ Deeper: open `docs/lastdb-storage-schema-to-atoms.html` (encryption layers, `mk:
 | Anti-pattern | Why |
 |--------------|-----|
 | Full scan as list | **Not supported**; not Dynamo Query; historical node meltdowns |
+| Rewrite one growing document on every append | Each write re-encrypts the whole document and fails at 256 KiB. One record per entry |
+| Read an atom body by id and expect it to follow your last write | `GET /api/atom/{id}` is 404 once the last reference is gone. After a `queued` acknowledgement the old body of a replaced atom can stay readable until the flush (measured 0.14 to 0.43 s). Read by key |
+| Rely on an older version or a history read | A rewrite keeps no older version. There is no `as_of` read |
 | Field-equality filter like `{ column: "todo" }` as if SQL WHERE | Filters are key-shaped only; fake filters 400 or force client fallbacks |
 | Cross-partition range without hash | Same class as scan — design a hash that partitions the list |
 | N+1 point-get every slug after a bad list | Load storms |
@@ -197,7 +210,7 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 1. **Open before parse** — never feed `ENC:…` to `serde_json`. Column-1 deserialize errors usually mean ciphertext hit JSON.
 2. Assume product keys are **blind+OPE** unless you deliberately set plain for tests.
 3. Do not enable `LASTDB_ATOM_CONTENT_STRICT=1` on a home until atom content is re-sealed (or dual-read is intentional).
-4. Depth: `fold_db/docs/DESIGN_OPERATION_TRINITY.md` · brain `project-operation-trinity` · `concepts-lastdb-enc-clean-model` (today vs target).
+4. Depth: `fold_db/docs/DESIGN_OPERATION_TRINITY.md` (today vs target).
 
 ---
 
@@ -222,15 +235,15 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 
 | What | Where |
 |------|--------|
-| **Canonical model (schema→field→molecule→atom→file, proteins)** | `docs/lastdb-canonical-model.md` · `concepts-lastdb-canonical-model` |
-| **rehydrate (resident-first miss path)** | `docs/lastdb-rehydrate.md` · `concepts-lastdb-rehydrate` |
-| **Access complexity requirement** | `docs/lastdb-access-complexity-requirements.md` · `requirement-lastdb-access-complexity` |
-| This concept (brain) | `concepts-lastdb-agent-access-model` |
-| Storage depth (HTML) | `docs/lastdb-storage-schema-to-atoms.html` |
-| ENC clean model | `concepts-lastdb-enc-clean-model` · this file §8 |
-| Ops telemetry | `sop-lastdb-request-ops-telemetry` |
-| Safe Mini upgrade | `sop-lastdb-safe-upgrade` / skill `lastdb-safe-upgrade` |
-| Repo / workspace map | `concepts-edgevector-repo-layout` |
+| **Canonical model (schema→field→molecule→atom→file, proteins)** | `docs/lastdb-canonical-model.md` |
+| **rehydrate (resident-first miss path)** | `docs/lastdb-rehydrate.md` |
+| **Access complexity requirement** | `docs/lastdb-access-complexity-requirements.md` |
+| **Atom counter, delete, purge, crash states** | `docs/lastdb-atom-counter.md` |
+| **TTL sweep and manifest retention** | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
+| **Atom size ceiling** | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
+| ENC model | this file §8 |
+| Ops telemetry | `docs/lastdb-ops-telemetry.md` |
+| Safe Mini upgrade | skill `lastdb-safe-upgrade` |
 
 ---
 
