@@ -112,6 +112,7 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
+        self.wait_for_part_room().await;
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
@@ -170,7 +171,10 @@ impl PackRuntime {
             Some(previous) => writer.reserve_mutation_extension(&previous.reservation, &operations),
             None => writer.reserve_mutation(&operations),
         }
-        .map_err(map)?;
+        .map_err(|error| {
+            self.note_capacity_refusal(&error);
+            map(error)
+        })?;
         let physical_bytes = reservation.quote().physical_bytes();
         let space = match previous {
             Some(previous) => previous
@@ -229,7 +233,11 @@ impl PackRuntime {
         let mut writer = self.journal.lock().expect("native journal owner");
         let result = writer.commit_mutation(operations, accepted_ms, reservation);
         let publication = match result {
-            Ok(publication) => publication,
+            Ok(publication) => {
+                self.parts
+                    .observe(publication.dependency_parts, &publication.current);
+                publication
+            }
             Err(error) => {
                 self.failed.store(true, Ordering::Release);
                 *self.failed_write.lock().expect("native failed write owner") = Some(space);

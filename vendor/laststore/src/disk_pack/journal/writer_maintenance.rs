@@ -23,8 +23,20 @@ impl JournalWriter {
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.publish()?;
         self.poisoned = true;
-        let (current, receipt) = crate::disk_pack::maintenance::compact_locked(&self.lock, policy)?;
+        let packed = crate::disk_pack::maintenance::compact_locked(&self.lock, policy);
+        let (current, receipt) = match packed {
+            Ok(packed) => packed,
+            Err(error) => {
+                // One atomic rename publishes the replacement, after every output
+                // barrier. A CURRENT that still names this root means the failed
+                // output is unreferenced, so the writer keeps admitting work.
+                let disk = crate::disk_pack::artifact::current(&self.root);
+                self.poisoned = !disk.is_ok_and(|disk| disk == self.current);
+                return Err(error);
+            }
+        };
         self.current = current;
+        self.dependencies = receipt.parts_after;
         self.poisoned = false;
         Ok(receipt)
     }
@@ -33,6 +45,13 @@ impl JournalWriter {
     pub fn reclaim(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.publish()?;
         crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)
+    }
+
+    /// Remove part files that no receipt names, such as the output of a publication
+    /// or a compaction that a crash interrupted. Files younger than `policy.grace_ms` stay.
+    pub fn reclaim_orphans(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
+        self.publish()?;
+        crate::disk_pack::maintenance::sweep_orphans_locked(&self.lock, policy)
     }
 
     /// Reserve all native output bytes while this handle owns the writer lease.

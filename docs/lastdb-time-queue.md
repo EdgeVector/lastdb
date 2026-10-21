@@ -319,18 +319,14 @@ change.
   such requests, also with no release at all. The queue adds rows to such a
   request but no read. Replay batches (a mutation log that brings many records
   at once) were not run, so their margin is not shown.
-- After many SIGKILL rounds a home can reach the storage limit of 65,536
-  dependency parts for one publication (`dependency capacity`), and writes
-  block. This is a limit of the storage, not of the queue. The janitor adds to
-  the number of publications: every release batch and every retirement is a
-  durable batch. Measured: each durable batch makes one generation with one part
-  (390 and 398 generations in two runs of 55 s with the janitor on, 398 and 392
-  with it off; the janitor ran 4 and 5 batches in them, and the writers made the
-  rest). At 32 records for a batch, 100,000 released records are about 3,100
-  batches and so about 3,100 parts until the storage merges parts. The limit was
-  not reached and the point where the storage merges parts was not measured, so
-  it is not known whether a long janitor run can feed it. A queue should keep
-  its release batch large and its duty share low.
+- The storage limits one publication to 65,536 dependency parts (`dependency
+  capacity`; see `docs/lastdb-disk-file-lifetime.md`). A durable batch adds
+  about 5 to 13 parts, and nothing merged them: a home refused writes after
+  about 20,000 to 22,000 mutations in a row, with or without a queue. This is a
+  limit of the storage, not of the queue. The node now runs maintenance when
+  the count passes 4,096 parts, so the janitor and the retirements no longer
+  feed the limit. Every publication still writes the whole receipt, so a queue
+  should keep its release batch large and its duty share low.
 - The directory is one hash. A retired bucket leaves one deleted key there. With
   one-hour slices that is 24 each day. A restart walks the directory from its
   start with bounded reads, so the deleted keys cost reads, not a failure.

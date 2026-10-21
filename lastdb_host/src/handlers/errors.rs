@@ -150,7 +150,9 @@ impl From<SchemaError> for HostError {
             ),
             SchemaError::WriteResourceLimit { detail } => Self::new(
                 503,
-                serde_json::json!({"error":"write_resource_limit","retryable":true,"message":detail}).to_string(),
+                serde_json::json!({"error":"write_resource_limit","retryable":true,
+                    "retry_after_secs":2,"message":detail})
+                .to_string(),
             ),
             schema_err @ SchemaError::StorageFull { .. } => Self::new(
                 507,

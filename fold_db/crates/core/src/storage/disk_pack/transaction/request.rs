@@ -60,6 +60,7 @@ where
         Reply::Background => Some(std::time::Duration::from_millis(500)),
         Reply::Durable => None,
     };
+    runtime.wait_for_part_room().await;
     let gate = runtime.enter_prepare().await;
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));

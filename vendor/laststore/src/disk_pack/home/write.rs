@@ -122,6 +122,14 @@ impl HomeJournal {
         self.writer.reclaim(policy)
     }
 
+    /// Remove part files that no receipt names; files younger than the grace period stay.
+    pub fn reclaim_orphans(
+        &mut self,
+        policy: &crate::disk_pack::maintenance::SpacePolicy,
+    ) -> Result<crate::disk_pack::maintenance::MaintenanceReceipt> {
+        self.writer.reclaim_orphans(policy)
+    }
+
     /// Reserve all native output bytes under the same exclusive writer lease.
     pub fn reserve_space(
         &self,
@@ -134,6 +142,16 @@ impl HomeJournal {
     /// Last complete readable directory boundary.
     pub fn current(&self) -> &Current {
         self.writer.current()
+    }
+
+    /// Dependency parts named by the receipt of `current` (limit: `MAX_DEPENDENCY_PARTS`).
+    pub fn dependency_parts(&self) -> u64 {
+        self.writer.dependency_parts()
+    }
+
+    /// True when a failed publication or maintenance requires a new writer.
+    pub fn is_poisoned(&self) -> bool {
+        self.writer.is_poisoned()
     }
 
     /// Own journal capacity before the batch transfers its stored bodies.
