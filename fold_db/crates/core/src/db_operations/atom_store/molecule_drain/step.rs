@@ -10,13 +10,19 @@
 //! Order of a molecule, and why a crash at any point resumes:
 //!
 //! 1. **Tips.** A page of `mk:{M}:` keys goes through the planner: the tip
-//!    deletes, the atom counters and the delete of a body at zero, `slots`, and the
-//!    kept conflict records of the slots, all in one batch. A crash keeps whole
-//!    batches, so the next walk finds the keys that are left.
-//! 2. **Rows.** Pages of the rows that carry no count (generation markers,
+//!    deletes, the atom counters and the delete of a body at zero, `slots`, and up
+//!    to a cap of the kept conflict records of the slots, all in one batch. A crash
+//!    keeps whole batches, so the next walk finds the keys that are left.
+//! 2. **Records.** A page of the slot directory of the molecule (`crs:v1:{M}\0`)
+//!    goes to the planner as release requests: the history row of each record, its
+//!    conflict row, its directory and queue entries, the atom references it holds
+//!    (an atom at zero goes by delete-on-zero) and `records`. The tip batches left a
+//!    janitor marker for the slots with more records than their cap; this phase does
+//!    not wait for the janitor, so the drain ends with the janitor off too.
+//! 3. **Rows.** Pages of the rows that carry no count (generation markers,
 //!    generation records, delete barriers) are deleted. The batch needs `slots`
 //!    and `records` at zero in the gate.
-//! 3. **Finish.** One batch deletes the generation pointer, the conflict id list,
+//! 4. **Finish.** One batch deletes the generation pointer, the conflict id list,
 //!    the header and the candidate row. The header goes in the last batch, so a
 //!    molecule that a crash leaves half removed still has its header and its
 //!    zero counters. It reads as dead and the candidate row is still there, so
@@ -24,9 +30,10 @@
 
 use super::batch::{Batch, Gate};
 use super::candidate::Candidate;
-use super::cursor::{row_walk, tip_walk, Active, DrainCursor, ParkWhy, Phase};
+use super::cursor::{records_walk, row_walk, tip_walk, Active, DrainCursor, ParkWhy, Phase};
 use super::family::{closing_keys, row_prefixes};
 use super::judge::Refusal;
+use crate::db_operations::atom_store::retention::RELEASE_RECORD_CAP;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 
@@ -57,6 +64,8 @@ impl DrainLimits {
 pub(crate) enum OutcomeKind {
     /// A batch erased tip records.
     Erased { tips: u64, atoms_deleted: u64 },
+    /// A batch released kept conflict records.
+    Released { records: u64 },
     /// A batch deleted rows that carry no count.
     Removed { rows: u64 },
     /// The final batch removed the molecule.
@@ -161,7 +170,7 @@ impl AtomStore {
             Phase::Tips(walk) => {
                 let keys = self.next_keys(walk, limits.tips).await?;
                 if keys.is_empty() {
-                    active.phase = rows_phase(&candidate, 0, limits);
+                    active.phase = Phase::Records(records_walk(&candidate, RELEASE_RECORD_CAP));
                     return Ok(Move::Continue);
                 }
                 active.found_tips += keys.len() as u64;
@@ -174,6 +183,28 @@ impl AtomStore {
                             tips,
                             atoms_deleted,
                         }))
+                    }
+                    Batch::Stopped(gate) => Ok(self.stopped(gate)),
+                }
+            }
+            Phase::Records(walk) => {
+                // The tip phase released up to a cap of records with the tips it
+                // erased and left a marker for the rest. The drain does not wait
+                // for the janitor: it releases what the directory still names.
+                let rows = self.next_rows(walk, RELEASE_RECORD_CAP).await?;
+                if rows.is_empty() {
+                    active.phase = rows_phase(&candidate, 0, limits);
+                    return Ok(Move::Continue);
+                }
+                let releases = self.directory_release_requests(&rows);
+                if releases.is_empty() {
+                    return Ok(Move::Continue);
+                }
+                match self.release_records_batch(&candidate, releases).await? {
+                    Batch::Ran(records) => {
+                        self.drain_state().note_batch(0, 0, 0);
+                        self.drain_state().note_records(records);
+                        Ok(Move::Batch(OutcomeKind::Released { records }))
                     }
                     Batch::Stopped(gate) => Ok(self.stopped(gate)),
                 }
@@ -233,13 +264,22 @@ impl AtomStore {
         walk: &mut RangeWalk,
         want: usize,
     ) -> Result<Vec<Vec<u8>>, SchemaError> {
-        let mut keys = Vec::new();
-        while keys.len() < want && !walk.done() {
-            walk.set_limit(want - keys.len());
-            let step = self.walk_step(walk).await?;
-            keys.extend(step.rows.into_iter().map(|(key, _)| key));
+        let rows = self.next_rows(walk, want).await?;
+        Ok(rows.into_iter().map(|(key, _)| key).collect())
+    }
+
+    /// The next rows of a walk, up to `want`. Empty only when the walk is done.
+    async fn next_rows(
+        &self,
+        walk: &mut RangeWalk,
+        want: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
+        let mut rows = Vec::new();
+        while rows.len() < want && !walk.done() {
+            walk.set_limit(want - rows.len());
+            rows.extend(self.walk_step(walk).await?.rows);
         }
-        Ok(keys)
+        Ok(rows)
     }
 }
 

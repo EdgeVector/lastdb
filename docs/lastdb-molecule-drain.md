@@ -66,7 +66,8 @@ again inside the gate, and decides from those reads (`judge.rs`):
 
 | Phase | Batch | Needs inside the gate |
 |---|---|---|
-| Tips | a page of `mk:{M}:` keys through the atom counter planner: tip deletes, atom counters lowered, bodies deleted at zero, `slots` lowered, kept conflict records of the slots released | dead (`slots` may be above zero) |
+| Tips | a page of `mk:{M}:` keys through the atom counter planner: tip deletes, atom counters lowered, bodies deleted at zero, `slots` lowered, up to 100 kept conflict records of the slots released (a janitor marker for the slots with more) | dead (`slots` may be above zero) |
+| Records | a page (up to 100) of the slot directory of the molecule (`crs:v1:{M}\0...`) as release requests: the history row of each kept conflict record, its conflict row, directory and queue entries, the atom references it holds (an atom at zero goes by delete-on-zero), and `records` | dead |
 | Rows | a page of `mgd:v1:{M}:`, then `mgr:v1:{M}:`, then `rdel:v2:` (delete barriers of the tip keys of `M`) | dead, `slots` = 0, `records` = 0 |
 | Finish | `mgp:v1:{M}`, `mcc:{M}`, the header `mh:{M}`, and the candidate row | the same |
 
@@ -82,7 +83,7 @@ What the gate decides:
 | a `suspect` header or counter, a header without counters, a binding record with no counter | **refused**: nothing is deleted. The candidate stays and the status names it. |
 | tip records and no header | **refused** (`counters_unset`): the molecule has no counters at all. |
 | a pass of the tip phase found no key, and the gate still counts `slots` | **refused** (`slots_without_tips`): the counter is above the rows. No walk can lower it, so the step stops instead of looping. |
-| dead, `slots` = 0, `records` above zero | **waiting**: kept conflict records still name the molecule. The janitor ends them. The drain looks again in a minute. |
+| dead, `slots` = 0, `records` above zero in a row or finish batch | **waiting**: kept conflict records still name the molecule, but the slot directory names none (the records phase released all it names). The records end with their own window. The drain looks again in a minute. |
 | dead, `slots` above zero in a row or finish batch | a tip appeared: back to the tip phase |
 | dead, all zero | the batch runs |
 
@@ -130,6 +131,19 @@ the tip count of keys in a batch (at most 2048). A step that fails does not hold
 the other candidates: the molecule goes to the back of the line and the wake ends.
 A wake that ends with an error doubles the wait before the next one, up to ten minutes.
 
+### Kept conflict records
+
+A dropped schema can have kept conflict records on its keys (the losers of a conflict
+stay for the retention window, 30 days by default). The drain releases them as a client
+purge or delete would: the tip batch releases up to 100 records of the slots it erases and
+leaves a janitor marker for the slots with more, and the records phase then releases all that
+the slot directory of the molecule still names, 100 in a batch. So the molecules reach
+`records` = 0 and drain within minutes, and the janitor is not needed (it can be off:
+`LASTDB_CONFLICT_JANITOR_MS=0`). A loser atom goes by delete-on-zero when its last reference
+goes. A record that the slot directory does not name (a count that differs from the
+directory) is not released by any drain step. It ends with its own window, and the molecule
+waits.
+
 ### Cost to writers
 
 A write that shares time with a drain batch waits longer than a write that does not.
@@ -156,7 +170,9 @@ disk space waits for it. At this duty the drain erased 55 to 100 tips a second i
   the state `mismatch`.
 - `lastdb db molecule-drain [--molecule M] [--scope S]` queues a named molecule and prints
   its verdict (`dead`, `bound`, `refused`, `absent`) and the report. It exits non-zero for a
-  refused molecule. `POST /api/db/molecule-drain` is the same.
+  refused molecule. `POST /api/db/molecule-drain` is the same. A call with no molecule only
+  reports: it does not wake the task, so a poller does not end the back-off of a failed wake.
+  Queueing a molecule wakes the task after the batch commits.
 - `lastdb db verify-refs` stays clean after a drain: a molecule with no header and no tip
   has nothing to compare.
 
@@ -175,10 +191,16 @@ replace the single hash without a change to the drain steps.
 
 - **An install of a schema whose molecules are still draining is refused.** `store_schema`
   fails with `SchemaBeingDropped`, and the HTTP layer answers `409` with
-  `schema_being_dropped` ("schema is still being dropped; retry") when a molecule that
-  the install would bind has a candidate row and reads dead (checked on
-  `POST /api/schemas/seed-system`). Nothing changes. The
-  install works after the drain has finished. A molecule that a counter fault keeps from
+  `schema_being_dropped` and a `Retry-After` header when a molecule that the install would
+  bind has a candidate row and reads dead (checked on `POST /api/schemas/seed-system`).
+  Nothing changes. The body says what the install waits for in `reason`, with the number of
+  molecules in `molecules`: `draining` (the drain erases keys, retry after 30 s),
+  `waiting_for_conflict_records` (no tip is left and the slot directory still names kept
+  records that the drain releases, retry after 60 s), or `drain_task_off` (the task is off,
+  `LASTDB_MOLECULE_DRAIN_MS=0`: nothing erases the keys until an operator sets the knob above
+  0 and restarts the node; `Retry-After` is 3600 and `retryable` is false). A molecule whose
+  only remains are kept records that no directory entry names does not block an install.
+  The install works after the drain has finished. A molecule that a counter fault keeps from
   the drain (refused) does not block an install: the install binds it again and the
   drain drops its candidate row. A catalog row put for a schema in a database scope has
   no such check: the put binds the molecules of that scope again, and the drain stops
@@ -210,10 +232,10 @@ replace the single hash without a change to the drain steps.
   the hygiene enumeration of the catalog (a scan of one row for each database and
   schema). `drop_schemas_owned_by_with_bindings` reads it once for each schema. The call
   is not on a data path. A catalog read by schema name is a later step.
-- **A scope that a verb names is the personal scope or exactly 64 lowercase hex
-  characters.** `db verify-refs`, `db recount`, `liveness explain` and `db molecule-drain`
-  refuse any other value with a 400 (a catalog instance id of another shape cannot be
-  named, also with `--all-scopes`).
+- **A scope that a verb names is the personal scope (leave the value out) or exactly 64
+  lowercase hex characters.** `db verify-refs`, `db recount`, `liveness explain` and
+  `db molecule-drain` refuse any other value, an empty value and a blank value too, with a
+  400 (a catalog instance id of another shape cannot be named, also with `--all-scopes`).
 - **The failed-wake back-off ends on new work.** A wake that fails doubles the wait up to
   ten minutes. A new drop, or a molecule named by hand, ends the wait. A batch that hit the
   read limit is halved, and it doubles back after 5 wakes that did work and had no read limit.
