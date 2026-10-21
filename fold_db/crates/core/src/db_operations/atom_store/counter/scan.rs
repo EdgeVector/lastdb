@@ -142,6 +142,16 @@ pub(super) fn record_molecules(rows: &[(Vec<u8>, Vec<u8>)]) -> BTreeMap<String, 
     molecules
 }
 
+/// The ids of the counted conflict records of a page: the first 128 bits of the
+/// id that the queue keys name.
+pub(super) fn record_ids(rows: &[(Vec<u8>, Vec<u8>)]) -> Vec<u128> {
+    rows.iter()
+        .map(|(key, _)| String::from_utf8_lossy(key))
+        .filter(|key| is_counted_record_key(key))
+        .filter_map(|key| crate::db_operations::atom_store::record_digest(&key))
+        .collect()
+}
+
 /// The conflict records of a page, counted by the atoms they hold. A history
 /// row that no recorder wrote as a counted record holds no reference.
 pub(super) fn record_holders(rows: &[(Vec<u8>, Vec<u8>)]) -> (BTreeMap<String, u32>, Unreadable) {

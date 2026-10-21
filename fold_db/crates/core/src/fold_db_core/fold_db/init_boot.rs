@@ -93,6 +93,30 @@ impl FoldDB {
         }
     }
 
+    /// The janitor that releases kept conflict records at the end of their
+    /// retention window. See `super::super::conflict_janitor`.
+    pub(super) fn start_conflict_janitor(
+        db_ops: &Arc<DbOperations>,
+    ) -> super::super::conflict_janitor::BackgroundConflictJanitorTask {
+        let policy = super::super::conflict_janitor_policy::ConflictJanitorPolicy::from_env();
+        info!(
+            target: "fold_node::database",
+            janitor_ms = ?policy.interval.map(|d| d.as_millis() as u64),
+            duty_pct = policy.duty_pct,
+            net_secs = ?policy.net_every.map(|d| d.as_secs()),
+            "conflict retention janitor policy"
+        );
+        match policy.interval {
+            Some(interval) => super::super::conflict_janitor::BackgroundConflictJanitorTask::spawn(
+                Arc::clone(db_ops),
+                interval,
+                policy.duty_pct,
+                policy.net_every,
+            ),
+            None => super::super::conflict_janitor::BackgroundConflictJanitorTask::disabled(),
+        }
+    }
+
     pub(super) fn start_sync_coordinator(db_ops: &Arc<DbOperations>) -> SyncCoordinator {
         let coordinator = SyncCoordinator::new();
         // Plane self-compaction is not a cloud feature. Start it here,

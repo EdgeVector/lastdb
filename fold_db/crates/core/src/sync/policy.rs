@@ -32,6 +32,9 @@ pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
     "gcatoms-probe-ref:",
     "gcatoms-probe-tv-skip:",
     "peer-apply:",
+    "crq:",
+    "crb:",
+    "crs:",
 ];
 
 pub(crate) const NODE_LOCAL_GC_SCRATCH_PREFIXES: &[&str] = &[
@@ -148,6 +151,9 @@ fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -
         | "gcatoms-meta:"
         | "gcatoms-probe-ref:"
         | "gcatoms-probe-tv-skip:"
+        | "crq:"
+        | "crb:"
+        | "crs:"
         | "peer-apply:" => namespace == "tips",
         "mref:v1:" => namespace == "molecule_ref_edges",
         "bref:v2:" => namespace == "blob_ref_edges",

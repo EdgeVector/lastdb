@@ -10,6 +10,8 @@
 //! - [`helpers`] — pure key/order/page-index helpers + schema index codec
 //! - [`construct`] — `AtomStore` constructors and builder hooks
 //! - [`counter`] — the atom counter planner: the only writer of tips, bodies and counters
+//! - [`retention`] — queue, slot directory and release of kept conflict records
+//! - [`time_queue`] — the time-bucketed queue layout, reader and retirement
 //! - [`codec`] — atom body encode/decode and storage-key reads
 //! - [`molecules`] — per-key molecule store/load/delete
 //! - [`filter`] — filtered loads + page index
@@ -40,8 +42,10 @@ mod molecule_bindings;
 mod molecule_counters;
 mod molecule_ref_edges;
 mod molecules;
+mod retention;
 mod retired_intent_retention;
 mod schema_keys;
+mod time_queue;
 mod types;
 
 pub(crate) use atoms::SealedAtom;
@@ -61,6 +65,8 @@ pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
+pub use retention::ConflictRetentionReport;
+pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };
@@ -210,6 +216,8 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// The retention window of kept conflict records and the janitor report.
+    retention: Arc<retention::RetentionState>,
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,
@@ -240,6 +248,11 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The retention window and the report of kept conflict records.
+    pub(crate) fn retention_state(&self) -> &retention::RetentionState {
+        &self.retention
     }
 
     /// The verifier state: the run in progress, the last result, the watch.

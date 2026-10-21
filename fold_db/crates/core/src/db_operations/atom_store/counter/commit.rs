@@ -10,6 +10,7 @@ use super::build::build_mutations;
 use super::molecule::molecule_changes;
 use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
+use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
 use super::AtomSize;
 use crate::atom::{molecule_key_codec, Atom};
@@ -31,12 +32,37 @@ pub(crate) struct RecordRefs {
     pub key: String,
     /// The distinct atoms that the record names.
     pub atoms: Vec<String>,
+    /// Rows that only a new record writes: its retention queue entry and its
+    /// slot directory entry. A repeat of a decision writes none of them.
+    pub new_rows: Vec<(String, Value)>,
     /// The molecule the record belongs to. When the record is new, the planner
-    /// raises `records` in the header of this molecule, in the same batch.
+    /// raises `records` in the header of this molecule, in the same batch. A
+    /// release of the record lowers it in the batch of the release.
     pub molecule: String,
 }
 
+/// One kept record to release. The planner reads the history row at `history`
+/// in the write gate, lowers one reference for each distinct atom the row
+/// names, lowers `records` of the molecule that the row names, and deletes the
+/// row and `deletes` in the same batch.
+pub(crate) struct ReleaseRequest {
+    /// The full storage key of the history row that holds the references.
+    pub history: String,
+    /// The other rows of the record (conflict row, directory entry, queue
+    /// entry). They go with the history row, or when it is already gone.
+    pub deletes: Vec<Vec<u8>>,
+}
+
+/// A delete that runs only while the key still holds the value the caller read.
+/// The planner reads the key in the write gate. A key that holds other bytes, or
+/// none, is left alone.
+pub(crate) struct GuardedDelete {
+    pub key: Vec<u8>,
+    pub expected: Vec<u8>,
+}
+
 /// Everything one planner run needs.
+#[derive(Default)]
 pub(crate) struct TipChangeSet<'a> {
     pub scope: Option<&'a str>,
     pub tips: Vec<TipChange>,
@@ -49,10 +75,16 @@ pub(crate) struct TipChangeSet<'a> {
     /// Conflict records written by this run. The planner adds one reference per
     /// distinct atom for each record that is new.
     pub records: Vec<RecordRefs>,
+    /// Conflict records this run releases (a purge of their key, or the end of
+    /// their retention window). See `records.rs`.
+    pub releases: Vec<ReleaseRequest>,
     /// Other rows of the same batch: molecule headers, order log, record rows.
     pub rows: Vec<(String, Value)>,
     /// Other keys that the same batch deletes.
     pub deletes: Vec<Vec<u8>>,
+    /// Keys that the batch deletes only if they still hold the bytes read
+    /// before (the retirement of a queue bucket).
+    pub guarded_deletes: Vec<GuardedDelete>,
 }
 
 /// Where the planner finds a body for an atom that is new in the scope.
@@ -93,6 +125,8 @@ pub(crate) struct TipCommit {
     pub created: Vec<Atom>,
     /// Atoms whose count reached zero. The run deleted their bodies.
     pub deleted: Vec<DeletedAtom>,
+    /// History rows of conflict records this run released.
+    pub records_released: u64,
     /// Counter faults: an underflow, an absent counter, or a dangling removal.
     pub counter_events: u64,
     /// The old tip of each changed key that had one. A changed key that is
@@ -105,6 +139,8 @@ pub(crate) struct TipCommit {
     /// Each molecule header row the run wrote, with its old and new length,
     /// read under the scoped key.
     pub headers: Vec<super::molecule::HeaderChange>,
+    /// Guarded deletes that found the expected bytes and deleted the key.
+    pub guarded_deleted: u64,
 }
 
 impl TipCommit {
@@ -112,10 +148,12 @@ impl TipCommit {
     pub(crate) fn absorb(&mut self, other: Self) {
         self.created.extend(other.created);
         self.deleted.extend(other.deleted);
+        self.records_released += other.records_released;
         self.counter_events += other.counter_events;
         self.previous.extend(other.previous);
         self.atom_sizes.extend(other.atom_sizes);
         self.headers.extend(other.headers);
+        self.guarded_deleted += other.guarded_deleted;
     }
 }
 
@@ -136,15 +174,29 @@ impl AtomStore {
             bodies,
             body_source,
             records,
+            releases,
             rows,
             deletes,
+            guarded_deletes,
         } = set;
         let tips = collapse_tips(tips);
+        let records = dedupe_records(records);
         let old = self.read_old_tips(&tips).await?;
         let new_records = self.read_new_records(&records).await?;
+        let released = self.read_released_records(releases).await?;
         self.note_touched_atoms(&tips, &old, (&records, &new_records));
-        let deltas = ref_deltas(&tips, &old, &records, &new_records);
-        let changes = molecule_changes(&tips, &old, &records, &new_records);
+        self.note_released_atoms(&released);
+        let mut deltas = ref_deltas(&tips, &old, &records, &new_records);
+        released.lower(&mut deltas);
+        let mut changes = molecule_changes(&tips, &old, &records, &new_records);
+        released.lower_molecules(&mut changes);
+        let rows = with_new_record_rows(rows, &records, &new_records);
+        let records_released = released.count();
+        let mut deletes = deletes;
+        deletes.extend(released.into_deletes());
+        let guarded = self.guarded_delete_keys(guarded_deletes).await?;
+        let guarded_deleted = guarded.len() as u64;
+        deletes.extend(guarded);
         let before = self.read_counters(&deltas, scope).await?;
         let sources = BodySources {
             bodies,
@@ -162,6 +214,8 @@ impl AtomStore {
         commit.previous = previous;
         commit.atom_sizes = atom_sizes;
         commit.headers = molecule_run.headers;
+        commit.records_released = records_released;
+        commit.guarded_deleted = guarded_deleted;
         for (molecule, fault) in molecule_run.faults {
             self.counter_report().note_molecule(&molecule, fault);
             commit.counter_events += 1;
