@@ -12,6 +12,7 @@ use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
+use super::AtomSize;
 use crate::atom::{molecule_key_codec, Atom};
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
 use crate::schema::SchemaError;
@@ -97,6 +98,24 @@ pub(super) struct BodySources<'a> {
 pub(crate) struct DeletedAtom {
     pub uuid: String,
     pub blobs: Vec<String>,
+    /// The size its counter held, for the keep-small meters.
+    pub size: Option<AtomSize>,
+}
+
+/// The keep-small debit of one removed tip: its storage key, its stored row
+/// length, and its atom's size when the commit knew it.
+pub(crate) type TipDebit = (
+    String,
+    u64,
+    Option<crate::db_operations::MoleculeTipCounterSource>,
+);
+
+/// The tip a changed key held before the run, read inside the write gate.
+#[derive(Debug, Clone)]
+pub(crate) struct PreviousTip {
+    /// Length of the stored tip record, as the keep-small meters count rows.
+    pub row_bytes: u64,
+    pub atom_uuid: String,
 }
 
 /// What a planner run did, for reports and meters.
@@ -110,6 +129,16 @@ pub(crate) struct TipCommit {
     pub records_released: u64,
     /// Counter faults: an underflow, an absent counter, or a dangling removal.
     pub counter_events: u64,
+    /// The old tip of each changed key that had one. A changed key that is
+    /// not here had no tip. The keep-small meters subtract these values, so
+    /// they keep no per-key state.
+    pub previous: HashMap<String, PreviousTip>,
+    /// The size of each atom whose count changed, from its counter or from
+    /// the body this run created. An atom whose counter has no size is absent.
+    pub atom_sizes: HashMap<String, AtomSize>,
+    /// Each molecule header row the run wrote, with its old and new length,
+    /// read under the scoped key.
+    pub headers: Vec<super::molecule::HeaderChange>,
     /// Guarded deletes that found the expected bytes and deleted the key.
     pub guarded_deleted: u64,
 }
@@ -121,6 +150,9 @@ impl TipCommit {
         self.deleted.extend(other.deleted);
         self.records_released += other.records_released;
         self.counter_events += other.counter_events;
+        self.previous.extend(other.previous);
+        self.atom_sizes.extend(other.atom_sizes);
+        self.headers.extend(other.headers);
         self.guarded_deleted += other.guarded_deleted;
     }
 }
@@ -175,8 +207,13 @@ impl AtomStore {
             .await?;
         let plans = plan_all(&deltas, &before, &offers)?;
         let (rows, molecule_run) = self.apply_molecule_counters(scope, &changes, rows).await?;
+        let previous = previous_tips(&old);
+        let atom_sizes = atom_sizes(&before, &offers);
         let (mutations, mut commit) =
             build_mutations(self, scope, &tips, &old, (rows, deletes), plans, offers).await?;
+        commit.previous = previous;
+        commit.atom_sizes = atom_sizes;
+        commit.headers = molecule_run.headers;
         commit.records_released = records_released;
         commit.guarded_deleted = guarded_deleted;
         for (molecule, fault) in molecule_run.faults {
@@ -255,6 +292,41 @@ impl AtomStore {
     }
 }
 
+/// The old tip of each changed key.
+fn previous_tips(old: &HashMap<String, PerKeyRecord>) -> HashMap<String, PreviousTip> {
+    old.iter()
+        .map(|(key, record)| {
+            let row_bytes =
+                crate::db_operations::keep_small::molecule_counter_row_bytes(record).unwrap_or(0);
+            (
+                key.clone(),
+                PreviousTip {
+                    row_bytes,
+                    atom_uuid: record.entry.atom_uuid.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// The known size of each atom whose count changes: the body this run
+/// creates, else the size its counter holds.
+fn atom_sizes(
+    before: &HashMap<String, AtomBefore>,
+    offers: &HashMap<String, super::read::Offer>,
+) -> HashMap<String, AtomSize> {
+    let mut sizes: HashMap<String, AtomSize> = before
+        .iter()
+        .filter_map(|(atom, state)| Some((atom.clone(), state.counter.as_ref()?.size?)))
+        .collect();
+    for (atom, offer) in offers {
+        if let Some(size) = offer.size {
+            sizes.insert(atom.clone(), size);
+        }
+    }
+    sizes
+}
+
 /// Keep the last change of each tip key, in key order.
 fn collapse_tips(tips: Vec<TipChange>) -> BTreeMap<String, Option<PerKeyRecord>> {
     let mut out = BTreeMap::new();
@@ -302,6 +374,7 @@ fn plan_all(
         let state = before.get(atom).expect("every delta atom has a state");
         let offer = offers.get(atom).map(|offer| BodyOffer {
             blobs: offer.blobs.as_slice(),
+            size: offer.size,
         });
         let plan = plan_atom(state, *delta, offer.as_ref()).map_err(|error| match error {
             PlanError::NoBody => SchemaError::InvalidData(format!(

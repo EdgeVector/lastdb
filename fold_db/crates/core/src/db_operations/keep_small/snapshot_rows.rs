@@ -21,10 +21,6 @@ pub struct KeepSmallSnapshot {
     #[serde(default)]
     pub molecule_counter_sources_complete: bool,
     #[serde(default)]
-    pub molecule_tip_sources: HashMap<String, MoleculeTipCounterSource>,
-    #[serde(default)]
-    pub molecule_key_bytes: HashMap<String, u64>,
-    #[serde(default)]
     pub molecule_schema: HashMap<String, String>,
     /// `Some(true)` only when the shutdown flush wrote this snapshot and no
     /// process has booted on the home since. Every other writer — the
@@ -65,10 +61,6 @@ pub struct KeepSmallSchemaShard {
     pub schema: Option<SchemaMeter>,
     #[serde(default)]
     pub molecules: HashMap<String, MoleculeStorageCounter>,
-    #[serde(default)]
-    pub molecule_tip_sources: HashMap<String, MoleculeTipCounterSource>,
-    #[serde(default)]
-    pub molecule_key_bytes: HashMap<String, u64>,
     #[serde(default)]
     pub molecule_schema: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -61,22 +61,6 @@ impl KeepSmallSnapshot {
             }
         }
         let molecule_schema = std::mem::take(&mut self.molecule_schema);
-        for (key, source) in self.molecule_tip_sources.drain() {
-            let owner = schema_owner_for_store_key(&key, &molecule_schema);
-            if emit(&owner) {
-                take_bucket(&mut buckets, &owner)
-                    .molecule_tip_sources
-                    .insert(key, source);
-            }
-        }
-        for (key, bytes) in self.molecule_key_bytes.drain() {
-            let owner = schema_owner_for_store_key(&key, &molecule_schema);
-            if emit(&owner) {
-                take_bucket(&mut buckets, &owner)
-                    .molecule_key_bytes
-                    .insert(key, bytes);
-            }
-        }
         for (molecule, schema) in molecule_schema {
             let owner = if schema.is_empty() {
                 KEEP_SMALL_UNATTRIBUTED_SCHEMA.to_string()
@@ -114,8 +98,6 @@ impl KeepSmallSnapshot {
             self.trust.schemas.insert(name, trust);
         }
         self.molecules.extend(shard.molecules);
-        self.molecule_tip_sources.extend(shard.molecule_tip_sources);
-        self.molecule_key_bytes.extend(shard.molecule_key_bytes);
         self.molecule_schema.extend(shard.molecule_schema);
     }
 }
@@ -145,11 +127,11 @@ pub struct KeepSmallMeters {
     molecule_counters_complete: AtomicBool,
     /// Atom uuid → (schema, atom bytes, blob bytes, complete, body put credited).
     pending_atoms: Mutex<HashMap<String, PendingAtomContribution>>,
-    /// Last written size per store key. Used so tip rewrite accounting does
-    /// not have to GET the live tip (those GETs are observable).
-    last_key_bytes: Mutex<HashMap<String, u64>>,
-    /// tip key → (atom uuid, logical atom bytes) of the last accounted tip.
-    last_tip_atom: Mutex<HashMap<String, MoleculeTipCounterSource>>,
+    // No per-key state. The tip planner reads the old tip of every changed key
+    // and the size of its atom (from the atom counter) inside the write gate,
+    // and passes them in (`TipCommit::previous`). A per-key map here held one
+    // entry for each tip key of the home, outside the warm set limit
+    // (measured 2026-10-20: about 2.6 KB for each new record).
     /// molecule uuid → owning schema, learned from tip puts.
     ///
     /// A molecule belongs to exactly one field of one schema, so its tip and
@@ -201,8 +183,6 @@ impl Default for KeepSmallMeters {
             molecules: Mutex::new(HashMap::new()),
             molecule_counters_complete: AtomicBool::new(true),
             pending_atoms: Mutex::new(HashMap::new()),
-            last_key_bytes: Mutex::new(HashMap::new()),
-            last_tip_atom: Mutex::new(HashMap::new()),
             molecule_schema: Mutex::new(HashMap::new()),
             hydrate_missed: AtomicBool::new(false),
             stale_after_unclean_stop: AtomicBool::new(false),

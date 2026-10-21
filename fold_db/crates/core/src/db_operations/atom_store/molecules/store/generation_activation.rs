@@ -57,22 +57,22 @@ impl AtomStore {
         )])
     }
 
-    /// Append the tip records to `items`; returns the tip record items.
+    /// Append the tip records to `items`.
     fn append_activation_tip_items(
         items: &mut Vec<(String, Value)>,
         records: &[(String, PerKeyRecord)],
         storage_prefix: Option<&str>,
-    ) -> Result<Vec<(String, Value)>, SchemaError> {
+    ) -> Result<(), SchemaError> {
         let tip_items = Self::tip_record_items(records, storage_prefix)?;
         // Transition mirror for existing bounded maintenance readers.
         // LEGACY-SUNSET: class=residue remove after every `mk:` maintenance
         // reader resolves the selected generation and one release dwell shows
         // zero direct-base fallbacks.
-        items.extend(tip_items.clone());
-        Ok(tip_items)
+        items.extend(tip_items);
+        Ok(())
     }
 
-    pub(in super::super) async fn prepare_molecule_generation_activation(
+    pub(in super::super) fn prepare_molecule_generation_activation(
         &self,
         molecule_uuid: &str,
         data: &MoleculeData,
@@ -88,16 +88,12 @@ impl AtomStore {
         };
 
         let mut items = Self::activation_structural_items(molecule_uuid, &header, storage_prefix)?;
-        let tip_items = Self::append_activation_tip_items(&mut items, &records, storage_prefix)?;
+        Self::append_activation_tip_items(&mut items, &records, storage_prefix)?;
 
         refuse_legacy_ref_blob_store_items(&items)?;
-        self.account_keep_small_items(&tip_items);
-        self.account_keep_small_items(&items);
-        // Debounced persist only — never `flush_keep_small` on a write path.
-        // The 2026-09-21 primary restart loop came from a per-write flush
-        // here: every activation re-appended the whole per-molecule counter
-        // map (~7 MB) into one `metadata` hash group, ~16 GB/hour.
-        let _ = self.persist_keep_small().await;
+        // No accounting here: these items reach the activation commit as
+        // `activation_items`, and the meters count them there, against the old
+        // tips that commit reads.
         Ok(super::super::PreparedMoleculeGenerationActivation {
             molecule_uuid: molecule_uuid.to_string(),
             prepared: generation_cut,
@@ -120,16 +116,13 @@ impl AtomStore {
     ) -> Result<(), SchemaError> {
         let mut activations = Vec::with_capacity(molecules.len());
         for (molecule_uuid, data, generation_cut) in molecules {
-            activations.push(
-                self.prepare_molecule_generation_activation(
-                    &molecule_uuid,
-                    &data,
-                    storage_prefix,
-                    domain,
-                    generation_cut,
-                )
-                .await?,
-            );
+            activations.push(self.prepare_molecule_generation_activation(
+                &molecule_uuid,
+                &data,
+                storage_prefix,
+                domain,
+                generation_cut,
+            )?);
         }
         self.activate_prepared_molecule_generations(activations, bodies, storage_prefix)
             .await

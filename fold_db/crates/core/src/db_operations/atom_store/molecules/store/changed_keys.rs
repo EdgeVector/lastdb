@@ -1,16 +1,28 @@
 use super::*;
+use crate::db_operations::atom_store::counter::TipCommit;
+use crate::db_operations::keep_small::MoleculeTipCounterSource;
 
 impl AtomStore {
     /// Incremental budget/churn: tip bytes + bookkeeping + live-replace correction.
     ///
-    /// Meter from the accepted source items without extra store reads.
+    /// Meter from the accepted source items without extra store reads. The
+    /// old state comes from the commit: `commit.previous` holds the old tip of
+    /// each changed key that had one, read by the planner inside the write
+    /// gate, and `commit.atom_sizes` the size of each atom whose count
+    /// changed. Header rows come from `commit.headers`: the planner merges the
+    /// counters into each header and reads the stored row under its scoped
+    /// key, so the meter counts the bytes it writes in each scope.
     ///
     /// Two passes on purpose. Pass one binds each molecule to the schema that
     /// owns it, using the atom the tip points at; pass two meters. A batch
     /// emits its header and other rows in whatever order the caller built
     /// them, so a single pass would attribute a molecule's tip and drop the
     /// rows that were built before it.
-    pub(in super::super) fn account_keep_small_items(&self, items: &[(String, Value)]) {
+    pub(in super::super) fn account_keep_small_items(
+        &self,
+        items: &[(String, Value)],
+        commit: &TipCommit,
+    ) {
         for (key, value) in items {
             if !key.contains("mk:") {
                 continue;
@@ -38,59 +50,99 @@ impl AtomStore {
             // `contains("mord:")` / `contains("moc:")` test missed the
             // kind-anchored `mord\0` / `moc\0` rows (52 bytes on the
             // measured source shape).
-            let Some((row, row_molecule)) = molecule_key_codec::molecule_counter_row(key) else {
+            // Header rows are metered from `commit.headers` below.
+            let Some((molecule_key_codec::MoleculeCounterRow::Tip, row_molecule)) =
+                molecule_key_codec::molecule_counter_row(key)
+            else {
                 continue;
             };
             let new_bytes =
                 crate::db_operations::keep_small::molecule_counter_row_bytes(value).unwrap_or(0);
-            let prev_bytes = self.keep_small.last_key_bytes(key);
-            let is_tip = row == molecule_key_codec::MoleculeCounterRow::Tip;
-            // Structural rows carry no schema name. The molecule they belong
-            // to does, so the owner is honest rather than inferred.
+            // Tip rows carry no schema name. The molecule they belong to
+            // does, so the owner is honest rather than inferred.
             let schema = self.keep_small.molecule_schema(row_molecule);
-            if is_tip {
-                if let Some(new_uuid) = value
-                    .get("entry")
-                    .and_then(|e| e.get("atom_uuid"))
-                    .and_then(|v| v.as_str())
-                {
-                    let old_source = self.keep_small.last_tip_atom(key);
-                    if let Some(old) = old_source.as_ref() {
-                        if old.atom_uuid != new_uuid {
-                            self.keep_small
-                                .replace_live_atom(new_uuid, old.atom_value_bytes);
-                        }
-                    }
-                    let contribution = self.keep_small.known_atom_contribution(new_uuid);
-                    let (atom_bytes, blob_bytes) = contribution.unwrap_or_default();
-                    if contribution.is_none() {
-                        self.keep_small.mark_molecule_counters_incomplete();
-                    }
-                    self.keep_small
-                        .remember_tip_atom(key, new_uuid, atom_bytes, blob_bytes);
-                    self.keep_small.record_molecule_tip_put(
-                        row_molecule,
-                        atom_bytes,
-                        blob_bytes,
-                        old_source.as_ref(),
-                        new_bytes,
-                        prev_bytes,
-                    );
-                }
-                self.keep_small
-                    .record_tip_put(schema.as_deref(), new_bytes, prev_bytes);
-                self.keep_small.remember_key_bytes(key, new_bytes);
-            } else {
-                self.keep_small
-                    .record_bookkeeping_put(schema.as_deref(), new_bytes, prev_bytes);
-                self.keep_small.record_molecule_bookkeeping_put(
-                    row_molecule,
-                    new_bytes,
-                    prev_bytes,
-                );
-                self.keep_small.remember_key_bytes(key, new_bytes);
+            let old = commit.previous.get(key);
+            let prev_bytes = old.map_or(0, |old| old.row_bytes);
+            if let Some(new_uuid) = value
+                .get("entry")
+                .and_then(|e| e.get("atom_uuid"))
+                .and_then(|v| v.as_str())
+            {
+                self.account_tip_atom(row_molecule, old, new_uuid, commit, new_bytes, prev_bytes);
             }
+            self.keep_small
+                .record_tip_put(schema.as_deref(), new_bytes, prev_bytes);
         }
+        for header in &commit.headers {
+            let schema = self.keep_small.molecule_schema(&header.molecule);
+            self.keep_small.record_bookkeeping_put(
+                schema.as_deref(),
+                header.new_bytes,
+                header.old_bytes,
+            );
+            self.keep_small.record_molecule_bookkeeping_put(
+                &header.molecule,
+                header.new_bytes,
+                header.old_bytes,
+            );
+        }
+    }
+
+    /// Meter the atom side of one tip put: the new atom's contribution, and
+    /// the old atom's when the key leaves it.
+    fn account_tip_atom(
+        &self,
+        molecule: &str,
+        old: Option<&crate::db_operations::atom_store::counter::PreviousTip>,
+        new_uuid: &str,
+        commit: &TipCommit,
+        new_bytes: u64,
+        prev_bytes: u64,
+    ) {
+        let meters = &self.keep_small;
+        if let Some(old) = old.filter(|old| old.atom_uuid == new_uuid) {
+            // Same atom: its contribution does not change. Only the row moves.
+            let unchanged = MoleculeTipCounterSource {
+                atom_uuid: old.atom_uuid.clone(),
+                ..MoleculeTipCounterSource::default()
+            };
+            meters.record_molecule_tip_put(molecule, 0, 0, Some(&unchanged), new_bytes, prev_bytes);
+            return;
+        }
+        let known = |atom: &str| {
+            meters.known_atom_contribution(atom).or_else(|| {
+                commit
+                    .atom_sizes
+                    .get(atom)
+                    .map(|size| (size.atom_bytes(), size.blob_bytes()))
+            })
+        };
+        let contribution = known(new_uuid);
+        if contribution.is_none() {
+            meters.mark_molecule_counters_incomplete();
+        }
+        let (atom_bytes, blob_bytes) = contribution.unwrap_or_default();
+        // An old atom whose net count does not change (another tip of the
+        // batch gains it) has no counter read; the batch's bodies list it.
+        let old_source = old.and_then(|old| {
+            let (atom_value_bytes, blob_reference_bytes) = known(&old.atom_uuid)?;
+            Some(MoleculeTipCounterSource {
+                atom_uuid: old.atom_uuid.clone(),
+                atom_value_bytes,
+                blob_reference_bytes,
+            })
+        });
+        if let Some(source) = old_source.as_ref() {
+            meters.replace_live_atom(new_uuid, source.atom_value_bytes);
+        }
+        meters.record_molecule_tip_put(
+            molecule,
+            atom_bytes,
+            blob_bytes,
+            old_source.as_ref(),
+            new_bytes,
+            prev_bytes,
+        );
     }
 
     /// Persist changed keys for several molecules through one durable batch.
@@ -188,7 +240,7 @@ impl AtomStore {
         // The storage counter describes acknowledged source rows. Account only
         // after the ordered batch succeeds, so a failed write cannot create a
         // false complete value.
-        self.account_keep_small_items(&accounted);
+        self.account_keep_small_items(&accounted, &commit);
         self.keep_small
             .settle_pending_atoms(bodies.iter().map(|(atom, _)| atom.uuid()));
         // Debounced persist only. A per-write `flush_keep_small` wrote the
