@@ -114,6 +114,7 @@ impl FoldDB {
         self.background_flush.stop().await;
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
+        self.background_molecule_drain.stop();
         // Drain accepted persist-lane work FIRST, while admission stays open.
         // The capture wait and the final sync below can take many seconds,
         // and a supervisor can SIGKILL the process before they finish (the

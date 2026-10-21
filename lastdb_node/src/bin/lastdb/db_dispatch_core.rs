@@ -45,6 +45,11 @@ pub(super) fn db_inspect_command(
                 max_atoms,
             },
         ),
+        DbInspectCommand::MoleculeDrain {
+            molecule,
+            scope,
+            json,
+        } => db_molecule_drain(socket, molecule.as_deref(), scope.as_deref(), json),
         DbInspectCommand::UnresolvedAtoms { json } => db_unresolved_atoms(socket, json),
         DbInspectCommand::MoleculeKeys {
             molecule,

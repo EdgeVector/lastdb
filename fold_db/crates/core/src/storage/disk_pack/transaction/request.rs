@@ -138,7 +138,10 @@ impl BatchShape {
             return shape;
         }
         for operation in operations {
+            // A key of a database scope or a share starts with the scope. The
+            // structural family follows it.
             let key = operation.key.as_str();
+            let key = super::super::super::current_keys::source_key(key).unwrap_or(key);
             let put = operation.body.is_some();
             let slot = if key.starts_with("mk:") {
                 if put {
