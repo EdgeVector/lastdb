@@ -109,7 +109,9 @@ impl From<SchemaError> for MutationIntentReplayError {
     fn from(error: SchemaError) -> Self {
         let cause = match &error {
             SchemaError::NotFound(_) => ReplayCause::SchemaNotFound,
-            SchemaError::Blocked(_) => ReplayCause::SchemaBlocked,
+            SchemaError::Blocked(_) | SchemaError::SchemaBeingDropped { .. } => {
+                ReplayCause::SchemaBlocked
+            }
             SchemaError::InvalidField(_) => ReplayCause::InvalidField,
             SchemaError::InvalidPermission(_) => ReplayCause::InvalidPermission,
             SchemaError::InvalidTransform(_) => ReplayCause::InvalidTransform,

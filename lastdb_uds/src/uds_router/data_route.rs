@@ -302,6 +302,12 @@ pub enum DataRoute {
     /// database catalog names, besides the personal scope. OWNER socket only.
     /// Reads the catalog, not the data.
     DbVerifyRefsScopes,
+    /// `POST /api/db/molecule-drain` — name one molecule to the drain and read
+    /// the drain report. OWNER socket only. Body: `{molecule?, scope?}`. With a
+    /// molecule it reads the counters inside the write gate and queues the
+    /// molecule when it is dead or refused; it deletes nothing. The drain task
+    /// does the removal in bounded batches.
+    DbMoleculeDrain,
     /// `GET /api/db/schemas` — atom-only per-schema logical storage.
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
     /// order-log / tip-format walks) but still a heavy admin scan.

@@ -41,6 +41,7 @@ mod key_format;
 mod locks;
 mod molecule_bindings;
 mod molecule_counters;
+mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod retention;
@@ -68,6 +69,11 @@ pub use helpers::retired_index_reclaim_prefixes;
 pub(crate) use key_format::CURRENT_NATIVE_INITIALIZATION_KEYS;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
+pub(crate) use molecule_drain::{
+    valid_candidate_key as valid_drain_candidate_key, DrainCursor, DrainLimits,
+    OutcomeKind as DrainOutcomeKind,
+};
+pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
@@ -229,6 +235,8 @@ pub struct AtomStore {
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,
+    /// The report and the wake signal of the molecule drain. Memory only.
+    molecule_drain: Arc<molecule_drain::DrainState>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The

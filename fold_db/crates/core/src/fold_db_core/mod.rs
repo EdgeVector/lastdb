@@ -15,6 +15,7 @@ mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
 pub mod factory;
 pub mod fold_db;
+pub mod molecule_drain;
 pub mod mutation_flush;
 pub mod orchestration;
 pub mod pending_task_tracker;
@@ -33,6 +34,7 @@ pub use conflict_janitor_policy::{
     ConflictJanitorPolicy, CONFLICT_JANITOR_DUTY_PCT_ENV, CONFLICT_JANITOR_MS_ENV,
     CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
+pub use molecule_drain::{BackgroundMoleculeDrainTask, MoleculeDrainPolicy};
 pub use mutation_flush::{
     mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,
     DEFAULT_BACKGROUND_FLUSH_MS, MUTATION_SYNC_FLUSH_ENV,

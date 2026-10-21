@@ -61,6 +61,10 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
             "recount requires a native LastDB node home (data/laststore-pack-node-v1)".into(),
         );
     }
+    for scope in &args.scopes {
+        fold_db::db_operations::AtomStore::validate_scope(Some(scope))
+            .map_err(|e| e.to_string())?;
+    }
     let (preflight, _lock) = preflight_stopped_home(args.home, &store_root)?;
     let mut scopes = vec![None];
     scopes.extend(args.scopes.iter().cloned().map(Some));

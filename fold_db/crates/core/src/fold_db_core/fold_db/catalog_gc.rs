@@ -1,7 +1,7 @@
 use crate::db_operations::search_index::{IndexChange, IndexChangeBatch, IndexChangeKind};
 use crate::db_operations::{
-    drop_prefixed_rows_for_instance, referenced_instance_ids, SchemaRecordKeysRequest,
-    UNPREFIXED_INSTANCE_ID,
+    drop_prefixed_rows_for_instance, referenced_instance_ids, DbCatalogEntry,
+    SchemaRecordKeysRequest, UNPREFIXED_INSTANCE_ID,
 };
 use crate::error::FoldDbResult;
 use crate::schema::types::{KeyValue, Schema, SchemaError};
@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use super::FoldDB;
+
+/// Catalog rows of one schema that a schema drop removes in one native batch. A row
+/// costs about two operations for each field of the schema.
+const CATALOG_ROWS_PER_BATCH: usize = 64;
 
 /// Result of deleting one catalog membership and reclaiming a zero-ref instance.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -87,6 +91,73 @@ impl FoldDB {
             reclaimed_wraps: 0,
             search_tombstones: reclaim.search_tombstones,
         })
+    }
+
+    /// Remove every catalog row of `schema_name` with the bindings of the row, and
+    /// reclaim no instance. This is the catalog step of a schema drop. The molecule
+    /// drain erases the keys of an instance once its last binding is gone, in small
+    /// batches. The reclaim of `delete_catalog_membership` would delete the whole
+    /// instance in one native request, and a large instance is over the budget of
+    /// one request (the drop would then fail).
+    ///
+    /// Up to `CATALOG_ROWS_PER_BATCH` rows go in one native batch. A failure leaves
+    /// the rows of the later groups in place, and the schema installed, so the drop
+    /// can run again. Returns the number of rows removed.
+    pub(super) async fn delete_catalog_rows_for_drop(
+        &self,
+        schema_name: &str,
+    ) -> FoldDbResult<usize> {
+        let rows: Vec<_> = self
+            .db_ops()
+            .db_catalog()
+            .list_entries()
+            .await
+            .map_err(SchemaError::from)?
+            .into_iter()
+            .filter(|entry| entry.schema_name == schema_name)
+            .collect();
+        let mut removed = 0;
+        for group in rows.chunks(CATALOG_ROWS_PER_BATCH) {
+            removed += self
+                .db_ops()
+                .atoms()
+                .in_write_scope(self.delete_catalog_rows_in_scope(schema_name, group))
+                .await?;
+        }
+        Ok(removed)
+    }
+
+    async fn delete_catalog_rows_in_scope(
+        &self,
+        schema_name: &str,
+        rows: &[DbCatalogEntry],
+    ) -> Result<usize, SchemaError> {
+        let catalog = self.db_ops().db_catalog();
+        let schema = self.schema_manager().get_schema_metadata(schema_name)?;
+        let mut removed = 0;
+        for row in rows {
+            let existing = catalog.get(&row.db_locator, schema_name).await?;
+            let storage_prefix = existing.and_then(|entry| entry.instance_id);
+            let _molecule_guards = self
+                .lock_schema_molecules(schema.as_ref(), storage_prefix.as_deref())
+                .await;
+            if !catalog.delete(&row.db_locator, schema_name).await? {
+                continue;
+            }
+            removed += 1;
+            if let Some(schema) = schema.as_ref() {
+                self.db_ops()
+                    .atoms()
+                    .unbind_catalog_molecules(
+                        &row.db_locator,
+                        schema_name,
+                        schema,
+                        storage_prefix.as_deref(),
+                    )
+                    .await?;
+            }
+        }
+        Ok(removed)
     }
 
     /// Take the commit lock of every molecule the schema owns, in sorted

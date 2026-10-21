@@ -48,6 +48,9 @@ pub(super) async fn dispatch_core(
         DataRoute::DbVerifyRefsScopes => {
             heap_route_ctx_host!(execute_db_verify_refs_scopes_route, ctx, host).await
         }
+        DataRoute::DbMoleculeDrain => {
+            heap_route!(execute_db_molecule_drain_route, req, ctx, host).await
+        }
         DataRoute::SchemaStorage => execute_schema_storage_route(req, ctx, host),
         DataRoute::SchemaStorageReport => execute_schema_storage_report_route(ctx, host),
         DataRoute::LivenessExplain => {

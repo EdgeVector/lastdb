@@ -52,6 +52,7 @@ pub(super) async fn explain_molecules(
                         "suspect": view.suspect,
                         "state": view.state,
                         "droppable": view.droppable(),
+                        "binding_records_present": view.binding_records,
                     });
                     if let Some(lookup) = &lookup {
                         row["binding_records_agree"] = lookup.complete.into();
