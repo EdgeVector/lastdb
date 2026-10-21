@@ -235,7 +235,7 @@ fn print_blob_step(report: &RecountReport) {
         blobs.counters_read
     );
     println!(
-        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted, {} restored",
+        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted, {} restored, {} directory rows restored",
         blobs.unchanged,
         blobs.created,
         blobs.raised,
@@ -245,7 +245,8 @@ fn print_blob_step(report: &RecountReport) {
         blobs.dwell_started,
         blobs.queue_read,
         blobs.queue_deleted,
-        blobs.queue_restored
+        blobs.queue_restored,
+        blobs.directory_rows_restored
     );
     if blobs.rows_missing > 0 {
         println!(

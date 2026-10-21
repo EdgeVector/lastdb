@@ -63,6 +63,16 @@ pub(super) struct QueueEntry {
     pub counter: BlobRead,
 }
 
+/// A bucket of the blob queue that holds entries on a page and has no directory
+/// row, read at the same root.
+pub(super) struct UnlistedBucket {
+    pub bucket: u64,
+    /// Entries of the bucket on this page.
+    pub entries: u64,
+    /// The key of the first of them.
+    pub sample: String,
+}
+
 /// A page of the queue phase.
 pub(super) struct QueuePage {
     pub rows: usize,
@@ -70,6 +80,7 @@ pub(super) struct QueuePage {
     pub scan_unsealed: u64,
     pub point_unsealed: u64,
     pub entries: Vec<QueueEntry>,
+    pub unlisted: Vec<UnlistedBucket>,
 }
 
 fn finding(kind: Kind, detail: String) -> Finding {
@@ -134,7 +145,7 @@ pub(super) fn judge_counter(counter: &BlobRead, queued: bool, row_missing: bool)
     }
     if counter.zero_since.is_some() && !queued {
         out.push(finding(
-            Kind::BlobUnqueued,
+            Kind::ZeroBlobWithoutQueueEntry,
             "counter has a zero_since and the queue has no entry for it".into(),
         ));
     }
@@ -234,6 +245,17 @@ pub(super) fn apply_blobs(run: &mut Run, page: BlobsPage) {
 /// Judge a page of queue entries.
 pub(super) fn apply_queue(run: &mut Run, page: QueuePage) {
     run.report.pages += 1;
+    for bucket in &page.unlisted {
+        run.note_faults(
+            Kind::QueueEntryWithoutDirectory,
+            &bucket.sample.replace('\0', "\\0"),
+            format!(
+                "bucket {} of the blob queue holds {} entries on this page and the directory of the queue has no row for it: the dwell pass never lists it",
+                bucket.bucket, bucket.entries
+            ),
+            bucket.entries,
+        );
+    }
     run.report.blob_queue_read += page.entries.len() as u64;
     for entry in page.entries {
         if let Some(finding) = judge_queue_entry(entry.zero_since, &entry.counter) {

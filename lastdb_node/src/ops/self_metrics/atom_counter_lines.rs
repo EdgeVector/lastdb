@@ -134,6 +134,12 @@ pub fn blob_counter_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
         report.dwell_secs,
         report.dwell_passes,
     );
+    if report.net_sweeps > 0 {
+        head.push_str(&format!(
+            " net_sweeps={} buckets_repaired={}",
+            report.net_sweeps, report.buckets_repaired
+        ));
+    }
     if report.pass_failures > 0 {
         head.push_str(&format!(
             " pass_failures={} last_error={:?} retry_in={}s",

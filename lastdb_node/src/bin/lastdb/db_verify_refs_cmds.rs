@@ -258,7 +258,7 @@ const KINDS: [&str; 36] = [
     "blob_counter_below_refs",
     "blob_zero_without_dwell",
     "blob_dwell_with_refs",
-    "blob_unqueued",
+    "zero_blob_without_queue_entry",
     "blob_stale_queue_entry",
     "blob_suspect",
     "unreadable_blob_counter",

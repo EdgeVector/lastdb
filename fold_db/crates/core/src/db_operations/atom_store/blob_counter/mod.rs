@@ -41,15 +41,18 @@ mod commit;
 mod deltas;
 mod dwell;
 mod dwell_chunk;
+mod net;
 mod plan;
 mod queue;
 mod recount;
+mod recount_queue;
 mod recount_report;
 mod report;
 mod stats;
 
 pub(crate) use deltas::{blobs_of_tip_row, BlobDeltas};
 pub use dwell::{DwellCursor, DwellStep, DWELL_CHUNK};
+pub use net::NetStep;
 pub(crate) use queue::BlobQueue;
 pub use recount_report::BlobRecountReport;
 pub(crate) use report::BlobEvents;

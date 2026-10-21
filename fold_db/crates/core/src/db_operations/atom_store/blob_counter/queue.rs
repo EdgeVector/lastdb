@@ -82,19 +82,28 @@ impl BlobQueue {
     }
 
     /// The two rows that the batch of a new entry writes: the entry, and the
-    /// directory row of its bucket with a new token.
+    /// directory row of its bucket with a new token. The planner takes them as
+    /// rows of its batch (`TipChangeSet::rows`).
+    pub(crate) fn put_rows(
+        &self,
+        zero_since_ms: u64,
+        blob_ref: &str,
+    ) -> Vec<(String, serde_json::Value)> {
+        self.queue.rows(
+            Self::nanos(zero_since_ms),
+            &blob_id(blob_ref),
+            &json!({ "blob": blob_ref }),
+        )
+    }
+
+    /// The same two rows as mutations, for the writers that stage mutations.
     pub(crate) fn put_mutations(
         &self,
         zero_since_ms: u64,
         blob_ref: &str,
     ) -> Result<Vec<KvMutation>, SchemaError> {
-        let id = blob_id(blob_ref);
-        let rows = self.queue.rows(
-            Self::nanos(zero_since_ms),
-            &id,
-            &json!({ "blob": blob_ref }),
-        );
-        rows.into_iter()
+        self.put_rows(zero_since_ms, blob_ref)
+            .into_iter()
             .map(|(key, value)| {
                 serde_json::to_vec(&value)
                     .map(|bytes| KvMutation::put(key.into_bytes(), bytes))

@@ -25,7 +25,10 @@ use crate::host::Host;
 
 mod pace;
 use pace::Pace;
-pub use pace::{BLOB_DWELL_CHUNK_ENV, BLOB_DWELL_DUTY_PCT_ENV, BLOB_DWELL_MIN_PAUSE_MS_ENV};
+pub use pace::{
+    BLOB_DWELL_CHUNK_ENV, BLOB_DWELL_DUTY_PCT_ENV, BLOB_DWELL_MIN_PAUSE_MS_ENV,
+    BLOB_DWELL_NET_SECS_ENV,
+};
 
 /// Default-on kill switch. Off only for the explicit falsey values.
 pub const BLOB_DWELL_PASS_ENV: &str = "LASTDB_BLOB_DWELL_PASS";
@@ -89,6 +92,11 @@ pub async fn run_pass(
     let pace = Pace::from_env();
     let failed = |error: fold_db::schema::SchemaError| error.to_string();
     atoms.blob_dwell_begin(cursor).await.map_err(failed)?;
+    cursor.set_net_every(pace::net_every_from_env());
+    if sweep_net(host, shutdown, cursor, &pace).await > 0 {
+        // A bucket that the net registered again is in the directory now.
+        atoms.blob_dwell_refresh(cursor).await.map_err(failed)?;
+    }
     for number in 0..MAX_STEPS_PER_PASS {
         if shutdown.load(Ordering::Acquire) {
             return Ok(());
@@ -134,5 +142,49 @@ async fn rest(pause: Duration, shutdown: &AtomicBool) {
             return;
         }
         tokio::time::sleep(left.min(SLICE)).await;
+    }
+}
+
+/// The sweeps of the safety net that are due: chunks of slices, each paced like a
+/// step. Returns the number of buckets that the net registered again. A sweep that
+/// fails ends; it does not fail the pass, and the next sweep comes at its time.
+async fn sweep_net(
+    host: &Host,
+    shutdown: &AtomicBool,
+    cursor: &mut DwellCursor,
+    pace: &Pace,
+) -> u64 {
+    let atoms = host.db.db_ops().atoms();
+    let mut repaired = 0;
+    loop {
+        if shutdown.load(Ordering::Acquire) {
+            return repaired;
+        }
+        let started = Instant::now();
+        let step = atoms.blob_dwell_net_step(cursor);
+        match crate::maintenance_write_gate::run(host, step).await {
+            Some(Ok(Some(step))) => {
+                repaired += step.repaired;
+                tracing::debug!(
+                    target: "lastdbd::blob_dwell",
+                    probed = step.probed,
+                    repaired = step.repaired,
+                    took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "blob dwell net chunk"
+                );
+                rest(pace.pause_after(started.elapsed()), shutdown).await;
+            }
+            // No sweep is due, or local writes are paused for a retained cloud
+            // source.
+            Some(Ok(None)) | None => return repaired,
+            Some(Err(error)) => {
+                tracing::warn!(
+                    target: "lastdbd::blob_dwell",
+                    error = %error,
+                    "blob dwell net sweep failed"
+                );
+                return repaired;
+            }
+        }
     }
 }

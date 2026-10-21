@@ -2,7 +2,7 @@
 //! the blobs that hold references. Every read of a page runs in one read scope,
 //! so all of them see one committed root.
 
-use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage};
+use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
 use super::pages::Request;
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{
@@ -155,6 +155,38 @@ impl AtomStore {
                     .await;
             let rows = rows.map_err(SchemaError::from)?;
             let last_key = rows.last().map(|(key, _)| key.clone());
+            // The buckets of the page against the directory, at the same root.
+            let mut buckets: BTreeMap<u64, (u64, String)> = BTreeMap::new();
+            for (key, _) in &rows {
+                let key = String::from_utf8_lossy(key).into_owned();
+                if let Some(bucket) = queue.layout().entry_bucket(&key) {
+                    let held = buckets.entry(bucket).or_insert((0, key));
+                    held.0 += 1;
+                }
+            }
+            let directory: Vec<Vec<u8>> = buckets
+                .keys()
+                .map(|bucket| queue.layout().directory_key(*bucket).into_bytes())
+                .collect();
+            let listed = if directory.is_empty() {
+                Vec::new()
+            } else {
+                self.raw()
+                    .inner()
+                    .exists_many(directory)
+                    .await
+                    .map_err(SchemaError::from)?
+            };
+            let unlisted: Vec<UnlistedBucket> = buckets
+                .into_iter()
+                .zip(listed)
+                .filter(|(_, listed)| !*listed)
+                .map(|((bucket, (entries, sample)), _)| UnlistedBucket {
+                    bucket,
+                    entries,
+                    sample,
+                })
+                .collect();
             let parsed: Vec<(u64, String)> = rows
                 .iter()
                 .filter_map(|(key, _)| queue.parse_entry(key))
@@ -181,6 +213,7 @@ impl AtomStore {
                 scan_unsealed,
                 point_unsealed,
                 entries,
+                unlisted,
             })
         })
         .await

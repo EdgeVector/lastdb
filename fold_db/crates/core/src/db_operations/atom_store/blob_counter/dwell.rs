@@ -52,6 +52,8 @@ pub struct DwellCursor {
     /// Buckets in which a step handled the head of a page and left the rest of
     /// it for the next step. A bucket in this set is not retired.
     partial: BTreeSet<u64>,
+    /// The schedule of the safety net (`net.rs`).
+    pub(super) net: super::net::BlobNet,
 }
 
 impl DwellCursor {
@@ -62,6 +64,7 @@ impl DwellCursor {
             page,
             passes: 0,
             partial: BTreeSet::new(),
+            net: super::net::BlobNet::new(),
         }
     }
 

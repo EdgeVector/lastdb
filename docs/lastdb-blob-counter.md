@@ -272,7 +272,7 @@ expects `3`. The design has no migration.
 without a write gate. For the page of every atom counter and tip it reads the
 counters of the blobs they name at the same root, and reports `blob_counter_missing`
 and `blob_counter_below_refs`. The personal run then walks the counters
-(`blob_suspect`, `blob_zero_without_dwell`, `blob_dwell_with_refs`, `blob_unqueued`,
+(`blob_suspect`, `blob_zero_without_dwell`, `blob_dwell_with_refs`, `zero_blob_without_queue_entry`,
 `unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`). For each counter
 that holds references it also reads the blob row at the same root and reports
 `blob_counter_without_blob` when the row is missing (a counter at zero is not asked:

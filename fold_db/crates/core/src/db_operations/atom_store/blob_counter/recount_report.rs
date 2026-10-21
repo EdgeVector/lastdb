@@ -42,6 +42,9 @@ pub struct BlobRecountReport {
     /// A counter with a `zero_since` had no queue entry. The entry is put.
     #[serde(default)]
     pub queue_restored: u64,
+    /// A bucket held queue entries and had no directory row. The row is put.
+    #[serde(default)]
+    pub directory_rows_restored: u64,
     pub operations: u64,
     pub batches: u64,
     pub notes: Vec<String>,

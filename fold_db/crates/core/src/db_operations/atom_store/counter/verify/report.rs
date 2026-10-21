@@ -84,7 +84,7 @@ pub(crate) enum Kind {
     BlobCounterBelowRefs,
     BlobZeroWithoutDwell,
     BlobDwellWithRefs,
-    BlobUnqueued,
+    ZeroBlobWithoutQueueEntry,
     BlobStaleQueueEntry,
     BlobSuspect,
     UnreadableBlobCounter,
@@ -100,7 +100,7 @@ impl Kind {
                 | Self::BlobCounterBelowRefs
                 | Self::BlobZeroWithoutDwell
                 | Self::BlobDwellWithRefs
-                | Self::BlobUnqueued
+                | Self::ZeroBlobWithoutQueueEntry
                 | Self::BlobStaleQueueEntry
                 | Self::BlobSuspect
                 | Self::UnreadableBlobCounter
@@ -142,7 +142,7 @@ impl Kind {
             Self::BlobCounterBelowRefs => "blob_counter_below_refs",
             Self::BlobZeroWithoutDwell => "blob_zero_without_dwell",
             Self::BlobDwellWithRefs => "blob_dwell_with_refs",
-            Self::BlobUnqueued => "blob_unqueued",
+            Self::ZeroBlobWithoutQueueEntry => "zero_blob_without_queue_entry",
             Self::BlobStaleQueueEntry => "blob_stale_queue_entry",
             Self::BlobSuspect => "blob_suspect",
             Self::UnreadableBlobCounter => "unreadable_blob_counter",

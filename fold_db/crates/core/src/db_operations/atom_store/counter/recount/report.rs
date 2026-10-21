@@ -133,6 +133,7 @@ impl RecountReport {
             + self.blobs.dwell_started
             + self.blobs.queue_deleted
             + self.blobs.queue_restored
+            + self.blobs.directory_rows_restored
             + self.records_without_queue_entry
             + self.queue_entries_without_directory
     }

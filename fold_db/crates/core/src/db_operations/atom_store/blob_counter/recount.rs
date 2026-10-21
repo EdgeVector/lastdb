@@ -16,13 +16,15 @@
 //! nothing references starts its dwell, so the dwell pass reclaims it.
 //!
 //! After the counters, the queue is checked: an entry that no counter at zero
-//! backs is deleted.
+//! backs is deleted; a counter in its dwell with no entry gets its entry back; a
+//! bucket whose entries stay and that has no directory row gets the row back. The
+//! two repairs that write rows go through the planner (`recount_queue.rs`).
 
 use super::{BlobCounter, BlobQueue, BlobRead};
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use super::recount_report::BlobRecountReport;
 
@@ -183,6 +185,9 @@ impl AtomStore {
         let queue = self.blob_events.queue();
         let mut pending = Vec::new();
         let mut referenced: Vec<String> = Vec::new();
+        // Counters in their dwell whose queue entry is missing: written again at
+        // the end, through the planner (`recount_queue.rs`).
+        let mut restore: Vec<(String, u64)> = Vec::new();
         let (start, end) = super::counter_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         while !walk.done() {
@@ -221,7 +226,7 @@ impl AtomStore {
                     self.flush_blob_batch(&mut pending, execute, report).await?;
                 }
             }
-            self.restore_queue_entries(&queue, &in_dwell, &mut pending, report)
+            self.find_missing_entries(&queue, &in_dwell, &mut restore, report)
                 .await?;
             self.note_missing_rows(&mut referenced, report).await?;
         }
@@ -240,6 +245,8 @@ impl AtomStore {
             }
         }
         self.flush_blob_batch(&mut pending, execute, report).await?;
+        self.write_blob_queue_rows(&queue, &restore, execute)
+            .await?;
         self.note_missing_rows(&mut referenced, report).await?;
         if report.rows_missing > 0 {
             report.notes.push(format!(
@@ -282,12 +289,12 @@ impl AtomStore {
     }
 
     /// A counter that keeps its `zero_since` must have its queue entry, or the
-    /// dwell pass never sees the blob. Put the entry that is missing.
-    async fn restore_queue_entries(
+    /// dwell pass never sees the blob. Find the entries that are missing.
+    async fn find_missing_entries(
         &self,
         queue: &BlobQueue,
         in_dwell: &[(String, u64)],
-        pending: &mut Vec<KvMutation>,
+        restore: &mut Vec<(String, u64)>,
         report: &mut BlobRecountReport,
     ) -> Result<(), SchemaError> {
         if in_dwell.is_empty() {
@@ -306,7 +313,7 @@ impl AtomStore {
         for ((blob, at), present) in in_dwell.iter().zip(found) {
             if !present {
                 report.queue_restored += 1;
-                pending.extend(queue.put_mutations(*at, blob)?);
+                restore.push((blob.clone(), *at));
             }
         }
         Ok(())
@@ -324,6 +331,8 @@ impl AtomStore {
         let (start, end) = BlobQueue::entries_range();
         let mut walk = RangeWalk::new(&start, &end, PAGE_ROWS);
         let mut pending = Vec::new();
+        // Buckets of the entries that stay: each needs its directory row.
+        let mut kept: BTreeSet<u64> = BTreeSet::new();
         while !walk.done() {
             let step = self.walk_step(&mut walk).await?;
             let entries: Vec<(Vec<u8>, u64, String)> = step
@@ -344,7 +353,12 @@ impl AtomStore {
                 let backed = counter.counter().is_some_and(|counter| {
                     counter.refs == 0 && !counter.suspect && counter.zero_since == Some(at)
                 });
-                if !backed {
+                if backed {
+                    let bucket = std::str::from_utf8(&key)
+                        .ok()
+                        .and_then(|key| queue.layout().entry_bucket(key));
+                    kept.extend(bucket);
+                } else {
                     report.queue_deleted += 1;
                     pending.push(KvMutation::delete(key));
                 }
@@ -353,6 +367,8 @@ impl AtomStore {
                 }
             }
         }
-        self.flush_blob_batch(&mut pending, execute, report).await
+        self.flush_blob_batch(&mut pending, execute, report).await?;
+        self.check_blob_directory(&queue, &kept, execute, report)
+            .await
     }
 }

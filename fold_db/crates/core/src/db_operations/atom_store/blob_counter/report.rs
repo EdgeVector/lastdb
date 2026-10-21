@@ -32,6 +32,8 @@ pub(crate) struct BlobEvents {
     dangling_removals: AtomicU64,
     late_references: AtomicU64,
     unreadable_counters: AtomicU64,
+    net_sweeps: AtomicU64,
+    buckets_repaired: AtomicU64,
     blobs_deleted: AtomicU64,
     stale_entries: AtomicU64,
     passes: AtomicU64,
@@ -132,6 +134,17 @@ impl BlobEvents {
         self.stale_entries.fetch_add(stale, Ordering::Relaxed);
     }
 
+    /// The safety net of the queue started a sweep of the slices.
+    pub(super) fn note_net_sweep(&self) {
+        self.net_sweeps.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The safety net registered `buckets` again: they held live entries and had
+    /// no directory row.
+    pub(super) fn note_buckets_repaired(&self, buckets: u64) {
+        self.buckets_repaired.fetch_add(buckets, Ordering::Relaxed);
+    }
+
     /// A dwell pass began.
     pub(super) fn note_pass(&self, now: u64) {
         self.passes.fetch_add(1, Ordering::Relaxed);
@@ -197,6 +210,8 @@ impl BlobEvents {
             dangling_removals: self.dangling_removals.load(Ordering::Relaxed),
             late_references: self.late_references.load(Ordering::Relaxed),
             unreadable_counters: self.unreadable_counters.load(Ordering::Relaxed),
+            net_sweeps: self.net_sweeps.load(Ordering::Relaxed),
+            buckets_repaired: self.buckets_repaired.load(Ordering::Relaxed),
             dwell_passes: self.passes.load(Ordering::Relaxed),
             pass_failures: self.failures.load(Ordering::Relaxed),
             last_error: self
@@ -245,6 +260,14 @@ pub struct BlobCounterReport {
     /// pass skipped it.
     #[serde(default)]
     pub unreadable_counters: u64,
+    /// Sweeps of the safety net of the queue since the node started.
+    #[serde(default)]
+    pub net_sweeps: u64,
+    /// Buckets that the safety net registered again: they held live entries and
+    /// had no directory row. A count above zero means something wrote or deleted
+    /// queue rows outside the queue.
+    #[serde(default)]
+    pub buckets_repaired: u64,
     pub dwell_passes: u64,
     /// Passes in a row that ended with an error. The next pass waits longer.
     #[serde(default)]

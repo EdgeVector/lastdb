@@ -416,7 +416,7 @@ Faults, by name:
 | `blob_counter_below_refs` | a blob counter holds fewer references than the atom counters or tips of one page that name the blob |
 | `blob_zero_without_dwell` | a blob counter holds zero, is not `suspect`, and has no `zero_since` |
 | `blob_dwell_with_refs` | a blob counter holds references and has a `zero_since` |
-| `blob_unqueued` | a blob counter has a `zero_since` and the queue has no entry for it |
+| `zero_blob_without_queue_entry` | a blob counter has a `zero_since` and the queue has no entry for it |
 | `blob_stale_queue_entry` | a queue entry names a counter that is absent, has references, is `suspect`, or has another `zero_since` |
 | `blob_suspect` | a blob counter has the `suspect` flag |
 | `unreadable_blob_counter` | a blob counter does not decode, or its blob does not match its key |

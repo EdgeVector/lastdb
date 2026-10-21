@@ -20,9 +20,10 @@ pub struct BlobMismatches {
     /// A blob counter holds references and has a `zero_since`.
     #[serde(default)]
     pub blob_dwell_with_refs: u64,
-    /// A blob counter has a `zero_since` and the queue has no entry for it.
+    /// A blob counter has a `zero_since` and the queue has no entry for it: the
+    /// dwell pass never reads the blob, so it is never deleted.
     #[serde(default)]
-    pub blob_unqueued: u64,
+    pub zero_blob_without_queue_entry: u64,
     /// A queue entry names a counter that is absent, has references, is
     /// `suspect`, or has another `zero_since`.
     #[serde(default)]
@@ -47,7 +48,7 @@ impl BlobMismatches {
             Kind::BlobCounterBelowRefs => &mut self.blob_counter_below_refs,
             Kind::BlobZeroWithoutDwell => &mut self.blob_zero_without_dwell,
             Kind::BlobDwellWithRefs => &mut self.blob_dwell_with_refs,
-            Kind::BlobUnqueued => &mut self.blob_unqueued,
+            Kind::ZeroBlobWithoutQueueEntry => &mut self.zero_blob_without_queue_entry,
             Kind::BlobStaleQueueEntry => &mut self.blob_stale_queue_entry,
             Kind::BlobSuspect => &mut self.blob_suspect,
             Kind::UnreadableBlobCounter => &mut self.unreadable_blob_counter,
@@ -63,7 +64,7 @@ impl BlobMismatches {
             + self.blob_counter_below_refs
             + self.blob_zero_without_dwell
             + self.blob_dwell_with_refs
-            + self.blob_unqueued
+            + self.zero_blob_without_queue_entry
             + self.blob_stale_queue_entry
             + self.blob_suspect
             + self.unreadable_blob_counter
