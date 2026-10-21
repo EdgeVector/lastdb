@@ -1,0 +1,88 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 1.4161465830000002,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.015358957999999978,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/lints/lint-atom-counter-writers.py"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 2.0646245,
+    "stdout": "lint-atom-counter-writers: OK (103 writer functions, 100 allow lines)\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/lints/lint-diff-fn-size.py",
+      "--base",
+      "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+      "--head",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 1.1628445829999996,
+    "stdout": "Function size check passed.\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/lints/lint-diff-file-size.py",
+      "--base",
+      "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+      "--head",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.3545904999999996,
+    "stdout": "File size check passed (66 changed file(s) examined).\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/lints/lint-diff-new-allows.py",
+      "--base",
+      "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+      "--head",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.04704587500000024,
+    "stdout": "allow check passed: 0 added, 0 removed\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "bash",
+      "scripts/lints/lint-no-write-path-syncing-store.sh"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 0.20531070799999984,
+    "stdout": "lint-no-write-path-syncing-store: ok\n",
+    "stderr": ""
+  }
+]

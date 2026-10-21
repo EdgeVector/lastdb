@@ -1,0 +1,28 @@
+{
+  "state": "release_verified",
+  "head_at_capture": "544d5ed3a1894d7e688801de982867bdb95b9c89",
+  "tree_at_capture": "2010a26b1fcdcb9cb86cfb2764ed8aaf7d357530",
+  "source_input_count": 1838,
+  "source_inventory_sha256": "30e9580ce552edbf223d0a49f6b00b217f5449e4574f85c5f7b146b921b5557a",
+  "binary_sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8",
+  "final_verification": {
+    "binary_sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8",
+    "binary_sha256_matches": true,
+    "checked_utc": "2026-10-21T04:11:26.040782+00:00",
+    "host_settings_match": true,
+    "passed": true,
+    "previous_attempt_identities_match": true,
+    "prior_identity_matches": true,
+    "removed_prior_inputs_match": true,
+    "source_input_count": 1838,
+    "source_mismatches": []
+  },
+  "full_identity_sha256": "c92c0ddc2ba7f5a035f4cb39d90da2833334b8cfc6c879bf5613e34e66fbb486",
+  "portable_full_identity": "source-inventory.json.gz",
+  "portable_full_identity_sha256": "054633ce591ab41b8f0b796d77b8cab77ac0586b4791491934a3166bc85a3347",
+  "actual_build_ledger": "build-checks.json",
+  "build_lock_timeout_seconds": 3600,
+  "comparison_role": "Candidate release compared with the before release from20b40c6b.",
+  "notes": "The unchanged identity helper embeds a historical600second command template; actual commands use3600. Both snapshots include folddb_profile/environments.json.",
+  "historical_template_notes": "The unchanged helper embeds historical prior-role text and a600second lock command. This task compares the actual before/after binaries in comparison.json and uses3600second lock commands in its build receipts."
+}

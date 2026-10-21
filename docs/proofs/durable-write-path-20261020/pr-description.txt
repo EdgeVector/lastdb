@@ -1,0 +1,19 @@
+Default writes can return before the data reaches local disk. Every native request now waits for its disk sequence. The rule also covers default and queued caller inputs. The explicit durable-delete cloud policy remains separate.
+
+Removed obsolete memory acknowledgement controls, repeated namespace flushes, redundant receipt guards, and full-body copies used only for JSON size. Private preparation, memory reservations, active read owners, clock order, and aggregate phase boundaries remain intact. This change adds no migration or storage format change.
+
+Validation passes:
+
+- Broad workspace and off-lane Clippy, the normal release build, formatting, and function, file, and atom-counter checks.
+- Fresh ordinary API checks for 628 mutations and 29 required reads without file access.
+- Default, queued, and durable inputs; mixed verbs; repeated keys; Delete; absent-key Delete; and complete values after normal reopen.
+
+No tests or existing database homes are used. The primary and cloud configuration remain unchanged.
+
+This PR stays a draft because performance remains unresolved. Four alternating runs compare both releases with explicit durable requests, fresh generated data, Hash and HashRange, and batches of 1, 32, and 128. They contain 20,608 measured mutations. The candidate records 13–60 percent lower aggregate throughput. Compiler and other database jobs overlap these shared-host runs. These results establish no speed gain or isolated throughput maximum. The optional broader follow-on is interrupted and retained as partial evidence.
+
+The same focused runs include 120 repeated reads. All return the expected values with no file reads. Median single-key reads are 0.29 to 0.27 ms for Hash and 0.26 to 0.34 ms for exact HashRange. The read timer includes JSON decode. These are shared-host observations, not isolated source-effect estimates.
+
+Next, expose native file-barrier counts and time, then locate the delay. One disk opportunity is to save data and its change notice in one native commit. A smaller memory opportunity releases temporary owners after clean publication. Both changes must preserve active read owners and dirty snapshots.
+
+Source identities, parsed request and reply certificates, exact measurement definitions, earlier failed attempts, and cleanup receipts are in docs/proofs/durable-write-path-20261020.

@@ -1,0 +1,16 @@
+[
+  {
+    "utc": "2026-10-21T03:58:48.660477+00:00",
+    "phase": "baseline-main-matrix",
+    "note": "A separate synthetic lastdbd job uses the disk outside our performance lock. Do not treat rates as isolated host maxima.",
+    "processes": "18281     1    09:19:57   0.0  63440 /Users/tomtang/.lastdb/bin-with-upload-cap/lastdbd\n30803 30800       11:06  10.7 311968 /private/tmp/claude-501/-Users-tomtang-code-edgevector/08234a0f-dd72-4875-a226-d1b1b3e6cf80/scratchpad/s5build/bin_m12/lastdbd\n33078 33069       09:41  29.5 494640 /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tlszx5q9/program-lastdbd",
+    "memory": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     4311.\nPages active:                                 739982.\nPages inactive:                               833402.\nPages speculative:                              2887.\nPages throttled:                                   0.\nPages wired down:                             203652.\nPages purgeable:                                6421.\n\"Translation faults\":                     7890086154.\nPages copy-on-write:                      1471635663.\nPages zero filled:                        3856046217.\nPages reactivated:                          57880449.\nPages purged:                               11852572.\nFile-backed pages:                            750396.\nAnonymous pages:                              825875.\nPages stored in compressor:                  1492639.\nPages occupied by compressor:                 515128.\nDecompressions:                             22594816.\nCompressions:                               31245055.\nPageins:                                   133103138.\nPageouts:                                     266956.\nSwapins:                                           0.\nSwapouts:                                          0.\n",
+    "hardware": "38654705664\nApple M4 Max\n"
+  },
+  {
+    "utc": "2026-10-21T04:04:36.585322+00:00",
+    "phase": "baseline-late-matrix",
+    "note": "The competing synthetic node PID30803 exits before this observation. The main matrix spans two host conditions and is not a reliable source-effect comparison.",
+    "processes": "18281     1    09:25:45   0.0  64080 /Users/tomtang/.lastdb/bin-with-upload-cap/lastdbd\n75476 33069       00:18  82.7 265856 /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.tlszx5q9/program-lastdbd"
+  }
+]

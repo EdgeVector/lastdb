@@ -1,0 +1,26 @@
+{
+  "complete": true,
+  "successful_write_requests": 18,
+  "logical_mutations": 628,
+  "required_zero_file_reads": 29,
+  "all_required_zero_file_reads_pass": true,
+  "node_sessions": 5,
+  "normal_reopen": true,
+  "caller_modes": [
+    "omitted",
+    "queued",
+    "durable"
+  ],
+  "actual_mode": "durable",
+  "other_checks": [
+    "Mixed verbs and repeated-key updates",
+    "Absent exact and range-prefix delete",
+    "HTTP400 empty-batch refusal, including its existing plain response",
+    "Complete values and key membership after reopen"
+  ],
+  "previous_contract_attempt": "The collector expected JSON for an existing plain HTTP400 refusal. The corrected collector accepts that refusal. The earlier failed result is preserved.",
+  "limitations": [
+    "No stable caller-UUID replay route exists in this API; idempotency is source-reviewed only.",
+    "No crash, power-loss or cloud proof is claimed."
+  ]
+}

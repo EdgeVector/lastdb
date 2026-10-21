@@ -1,0 +1,27 @@
+{
+  "state": "release_verified",
+  "head_at_capture": "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+  "tree_at_capture": "b5982206711d7debe9b6013e70796d0491e5c2d3",
+  "source_input_count": 1837,
+  "source_inventory_sha256": "6ba2556104ac3df6ceb583560d0172f2afd3524092cba1c3975f6345fdad742f",
+  "binary_sha256": "8870525cfd2859ccb51fc309dd3a0898d856f441b081ac642bbb396b089eb9f9",
+  "final_verification": {
+    "binary_sha256": "8870525cfd2859ccb51fc309dd3a0898d856f441b081ac642bbb396b089eb9f9",
+    "binary_sha256_matches": true,
+    "checked_utc": "2026-10-21T03:40:27.077256+00:00",
+    "host_settings_match": true,
+    "passed": true,
+    "previous_attempt_identities_match": true,
+    "prior_identity_matches": true,
+    "removed_prior_inputs_match": true,
+    "source_input_count": 1837,
+    "source_mismatches": []
+  },
+  "full_identity_sha256": "890fd4c19e3cfeea6f36797d64a69658d7619fa23b87d5ad75823825fd80ddaf",
+  "portable_full_identity": "source-inventory.json.gz",
+  "portable_full_identity_sha256": "998ba96bea65fc5f6735c9c8146c1d1e25f11007a6b2ac95d9edfa58ac472ad6",
+  "actual_build_ledger": "build.json",
+  "build_lock_timeout_seconds": 3600,
+  "comparison_role": "before",
+  "notes": "The unchanged identity helper embeds a historical600second command template; actual commands use3600. Both snapshots include folddb_profile/environments.json."
+}

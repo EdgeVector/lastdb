@@ -1,0 +1,36 @@
+{
+  "source_commit": "544d5ed3a1894d7e688801de982867bdb95b9c89",
+  "reviewed_by": [
+    "mutation_contract_round9",
+    "memory_contract_round9",
+    "query_contract_round9"
+  ],
+  "correctness": "No source-review blocker. Native ordinary/nested, empty/idempotent, mixed erasure and aggregate paths retain mandatory disk completion; private reservations, held read owners, clock order, aggregate phases and explicit cloud policy remain.",
+  "json_size": "Independent review confirms the same compact serde JSON byte counts and caller error mappings without full-body measurement buffers.",
+  "performance": "The focused ABBA result is slower in this environment. No speed gain or causal attribution is accepted. Full HTTP time is the valid before/after metric; receipt ack now includes the formerly external clock barrier. Native status lacks per-file durable-barrier counts/time; compiler and a separate synthetic node overlap parts of the measurements.",
+  "next_small_memory_change": "Publish a committed write in the ordinary clean read representation and release unnecessary prepared current-slot ownership. Preserve old read/snapshot owners and dirty/background publication. Explicitly clear existing ownership after admission.",
+  "next_disk_change": "Stage data and the change-feed event in one native transaction. Current post-success feed needs a separate commit and has a tip-before-gate lock order; do not call it under the current data gate without redesigning this order. Publish sequence/cache/broadcast only after commit.",
+  "telemetry_gap": "prepare_clean admission refusals do not increment the dirty-model refused count; zero there does not prove no clean fallback.",
+  "limits": "No primary/archive, migration, cloud, crash/power-loss proof or test suite.",
+  "independent_evidence_review": {
+    "reviewer": "query_contract_round9",
+    "result": "No factual correction. All six pooled rates and deltas recompute from original cells. Source and binary labels agree.",
+    "focused_mutations": 20608,
+    "focused_write_calls": 384,
+    "contract_mutations": 628,
+    "required_zero_file_reads": 29,
+    "contract_read_observations": 83,
+    "limits_confirmed": [
+      "HTTP timer boundary",
+      "Shared-host interference",
+      "Partial broad run",
+      "Collector failures",
+      "No crash or cloud proof"
+    ],
+    "unchanged_focused_aggregate": {
+      "path": "focused/summary.json.gz",
+      "uncompressed_sha256": "f26d9ae58e039cf98337ae3fb87333ddcddf695e82f9b0da6eaa703d89da6082",
+      "uncompressed_bytes": 2268672
+    }
+  }
+}

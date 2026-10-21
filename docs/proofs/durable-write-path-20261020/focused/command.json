@@ -1,0 +1,78 @@
+{
+  "after": {
+    "bytes": 66558224,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8",
+    "source_commit": "544d5ed3a1894d7e688801de982867bdb95b9c89"
+  },
+  "arguments": {
+    "after_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "after_source": "544d5ed3a1894d7e688801de982867bdb95b9c89",
+    "before_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oy2apa8l/program-lastdbd",
+    "before_source": "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+    "output": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused"
+  },
+  "before": {
+    "bytes": 66623296,
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oy2apa8l/program-lastdbd",
+    "sha256": "8870525cfd2859ccb51fc309dd3a0898d856f441b081ac642bbb396b089eb9f9",
+    "source_commit": "20b40c6b836901adb887ac25d3c49fc234f7dd96"
+  },
+  "benchmark_sha256": "45679a3e8f871b0691ec3c514d514d759850adcf9c6c29e148e606deda1ba10c",
+  "command": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused.py",
+    "--before-binary",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oy2apa8l/program-lastdbd",
+    "--after-binary",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "--before-source",
+    "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+    "--after-source",
+    "544d5ed3a1894d7e688801de982867bdb95b9c89",
+    "--output",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused"
+  ],
+  "cwd": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016",
+  "matrix": [
+    [
+      0,
+      1,
+      1,
+      1024,
+      8
+    ],
+    [
+      8,
+      32,
+      1,
+      1024,
+      8
+    ],
+    [
+      264,
+      128,
+      1,
+      1024,
+      8
+    ]
+  ],
+  "matrix_columns": [
+    "offset",
+    "batch",
+    "writers",
+    "body_bytes",
+    "requests"
+  ],
+  "order": [
+    "before-r1",
+    "after-r1",
+    "after-r2",
+    "before-r2"
+  ],
+  "records_per_schema": 1288,
+  "scope": "Fixed offsets and order in every run; only benchmark.matrix is replaced. Both geometries keep create, update, full value checks and normal reopen. The benchmark owns timed HTTP boundaries; host observations are outside them. No quiet-host or hardware-cold claim.",
+  "shell_command": "/Library/Developer/CommandLineTools/usr/bin/python3 /Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused.py --before-binary /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oy2apa8l/program-lastdbd --after-binary /Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd --before-source 20b40c6b836901adb887ac25d3c49fc234f7dd96 --after-source 544d5ed3a1894d7e688801de982867bdb95b9c89 --output /Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused",
+  "started_utc": "2026-10-21T04:11:26.663133+00:00",
+  "wrapper_sha256": "994a40b0e3f1c1cb87040b445b1c3471ce34566159dc73164d39ba2b9f821a32"
+}

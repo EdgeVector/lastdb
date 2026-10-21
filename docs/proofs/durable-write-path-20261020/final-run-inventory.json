@@ -1,0 +1,16 @@
+{
+  "proof_directories": [
+    "before-r1",
+    "before-v2-r1",
+    "focused/before-r1",
+    "focused/after-r1",
+    "focused/after-r2",
+    "focused/before-r2",
+    "after-r1",
+    "contract",
+    "contract-v2"
+  ],
+  "source_identity": "after-v1/identity-summary.json",
+  "compiled_sources_unchanged": true,
+  "all_owned_node_sessions_stopped": true
+}

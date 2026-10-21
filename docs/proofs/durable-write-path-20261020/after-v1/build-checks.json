@@ -1,0 +1,52 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--lib",
+      "--bins",
+      "--locked",
+      "--exclude",
+      "generate_validated_schema_org_seeds",
+      "--exclude",
+      "schema_service_worker",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 57.154799749999995
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "generate_validated_schema_org_seeds",
+      "-p",
+      "schema_service_worker",
+      "--bins",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 18.401337000000005
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 189.74018929199997
+  }
+]

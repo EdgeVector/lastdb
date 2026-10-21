@@ -1,0 +1,34 @@
+[
+  {
+    "command": [
+      "python3",
+      "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused.py",
+      "--before-binary",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oy2apa8l/program-lastdbd",
+      "--after-binary",
+      "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+      "--before-source",
+      "20b40c6b836901adb887ac25d3c49fc234f7dd96",
+      "--after-source",
+      "544d5ed3a1894d7e688801de982867bdb95b9c89",
+      "--output",
+      "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/focused"
+    ],
+    "exit_code": 0
+  },
+  {
+    "command": [
+      "python3",
+      "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/benchmark.py",
+      "--binary",
+      "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+      "--output",
+      "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/after-r1",
+      "--variant",
+      "after-r1",
+      "--source-commit",
+      "544d5ed3a1894d7e688801de982867bdb95b9c89"
+    ],
+    "exit_code": -2
+  }
+]

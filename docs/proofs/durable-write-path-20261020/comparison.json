@@ -1,0 +1,812 @@
+{
+  "status": "Complete paired comparison and ordinary contract checks. Candidate remains unmerged because the slower observed performance is not resolved.",
+  "hardware": {
+    "model": "Apple M4 Max",
+    "memory_bytes": 38654705664
+  },
+  "before": {
+    "bytes": 66623296,
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.oy2apa8l/program-lastdbd",
+    "sha256": "8870525cfd2859ccb51fc309dd3a0898d856f441b081ac642bbb396b089eb9f9",
+    "source_commit": "20b40c6b836901adb887ac25d3c49fc234f7dd96"
+  },
+  "after": {
+    "bytes": 66558224,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8",
+    "source_commit": "544d5ed3a1894d7e688801de982867bdb95b9c89"
+  },
+  "design": {
+    "order": [
+      "before-r1",
+      "after-r1",
+      "after-r2",
+      "before-r2"
+    ],
+    "fields_per_record": 4,
+    "body_bytes": 1024,
+    "requests_per_cell": 8,
+    "repetitions_per_source": 2,
+    "all_requests_explicitly_durable": true,
+    "total_measured_mutations": 20608,
+    "transport": "Ordinary Mini HTTP over private Unix sockets",
+    "write_timer": "Prepared request bytes to complete response bytes; JSON decode, proof capture, status calls and compression excluded",
+    "rate": "Sum of successful logical mutations divided by sum of nonoverlapping per-cell first-send to last-response windows",
+    "data": "Fresh generated homes, fixed keys and deterministic high-entropy ASCII bodies. All keys checked after each create/update phase and normal process reopen."
+  },
+  "limitations": [
+    "Concurrent external compiler/database activity occurs in preserved host snapshots. These are observed shared-host rates, not isolated maxima or causal source-effect estimates.",
+    "The focused candidate is slower on these rates; no performance improvement is accepted.",
+    "The receipt ack timing boundary changes because the native entry now owns the author-clock wait. HTTP elapsed is the valid cross-version metric.",
+    "Process reopen does not clear the operating-system file cache.",
+    "Normal reopen does not establish crash or power-loss behavior.",
+    "No primary, archive, existing home, migration or cloud data is used."
+  ],
+  "table": [
+    {
+      "geometry": "hash",
+      "records_per_request": 1,
+      "writers": 1,
+      "body_bytes": 1024,
+      "before": {
+        "writes_per_second": 3.1304668525742865,
+        "records": 32,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          2.4663545560950912,
+          3.8228825083652436
+        ]
+      },
+      "after": {
+        "writes_per_second": 2.20538217008597,
+        "records": 32,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          1.7147928488376223,
+          3.3774691146281355
+        ]
+      },
+      "observed_after_vs_before_percent": -29.551013508658897
+    },
+    {
+      "geometry": "hash",
+      "records_per_request": 32,
+      "writers": 1,
+      "body_bytes": 1024,
+      "before": {
+        "writes_per_second": 51.07515380679917,
+        "records": 1024,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          27.595759968785117,
+          77.67833711616973
+        ]
+      },
+      "after": {
+        "writes_per_second": 44.558232725998785,
+        "records": 1024,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          38.95468945534828,
+          73.44405031185747
+        ]
+      },
+      "observed_after_vs_before_percent": -12.759474216077349
+    },
+    {
+      "geometry": "hash",
+      "records_per_request": 128,
+      "writers": 1,
+      "body_bytes": 1024,
+      "before": {
+        "writes_per_second": 160.29640721110167,
+        "records": 4096,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          126.70281918213466,
+          196.43956330189803
+        ]
+      },
+      "after": {
+        "writes_per_second": 63.689267609516236,
+        "records": 4096,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          53.7086743282599,
+          73.3040483784144
+        ]
+      },
+      "observed_after_vs_before_percent": -60.26781341041478
+    },
+    {
+      "geometry": "hashrange",
+      "records_per_request": 1,
+      "writers": 1,
+      "body_bytes": 1024,
+      "before": {
+        "writes_per_second": 2.663480089962912,
+        "records": 32,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          1.9800116786484339,
+          3.448256786669138
+        ]
+      },
+      "after": {
+        "writes_per_second": 1.7281741511335145,
+        "records": 32,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          1.6443005254057927,
+          1.7862455574069043
+        ]
+      },
+      "observed_after_vs_before_percent": -35.115935063829276
+    },
+    {
+      "geometry": "hashrange",
+      "records_per_request": 32,
+      "writers": 1,
+      "body_bytes": 1024,
+      "before": {
+        "writes_per_second": 58.58918892224931,
+        "records": 1024,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          44.84179288055185,
+          69.09327247045867
+        ]
+      },
+      "after": {
+        "writes_per_second": 30.685395618466412,
+        "records": 1024,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          26.630598386715207,
+          36.24659628443717
+        ]
+      },
+      "observed_after_vs_before_percent": -47.62618124106921
+    },
+    {
+      "geometry": "hashrange",
+      "records_per_request": 128,
+      "writers": 1,
+      "body_bytes": 1024,
+      "before": {
+        "writes_per_second": 102.05676640320189,
+        "records": 4096,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          75.8480081838075,
+          135.18459809419048
+        ]
+      },
+      "after": {
+        "writes_per_second": 74.87470369103772,
+        "records": 4096,
+        "http_requests": 32,
+        "run_cell_rate_range": [
+          61.90662801966544,
+          130.4140600238671
+        ]
+      },
+      "observed_after_vs_before_percent": -26.63425823700345
+    }
+  ],
+  "cells": [
+    {
+      "variant": "before-r1",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 2370660042,
+      "writes_per_second": 3.3745876077831998,
+      "median_http_ms": 286.80316600000003,
+      "p95_http_ms": 385.80075,
+      "frontier_delta": 17
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 2515142042,
+      "writes_per_second": 3.1807348715933874,
+      "median_http_ms": 292.438063,
+      "p95_http_ms": 441.369583,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 2092661750,
+      "writes_per_second": 3.8228825083652436,
+      "median_http_ms": 250.9754375,
+      "p95_http_ms": 365.716125,
+      "frontier_delta": 17
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 3243653667,
+      "writes_per_second": 2.4663545560950912,
+      "median_http_ms": 334.510563,
+      "p95_http_ms": 710.190334,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 4534438584,
+      "writes_per_second": 1.7642757425866151,
+      "median_http_ms": 529.719459,
+      "p95_http_ms": 832.372083,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 4665286542,
+      "writes_per_second": 1.7147928488376223,
+      "median_http_ms": 605.196917,
+      "p95_http_ms": 820.1245,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 2941594167,
+      "writes_per_second": 2.719613769209653,
+      "median_http_ms": 341.919354,
+      "p95_http_ms": 481.873875,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hash",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 2368637500,
+      "writes_per_second": 3.3774691146281355,
+      "median_http_ms": 268.3527085,
+      "p95_http_ms": 407.795375,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 3295642125,
+      "writes_per_second": 77.67833711616973,
+      "median_http_ms": 386.721729,
+      "p95_http_ms": 603.902542,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 3420713875,
+      "writes_per_second": 74.83817979368415,
+      "median_http_ms": 400.553709,
+      "p95_http_ms": 510.985333,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 9276787459,
+      "writes_per_second": 27.595759968785117,
+      "median_http_ms": 1053.2555625,
+      "p95_http_ms": 2089.653458,
+      "frontier_delta": 22
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 4055743792,
+      "writes_per_second": 63.12035797353937,
+      "median_http_ms": 524.5759795,
+      "p95_http_ms": 711.824917,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 6361561833,
+      "writes_per_second": 40.2416901258468,
+      "median_http_ms": 827.302333,
+      "p95_http_ms": 1087.585,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 6571737667,
+      "writes_per_second": 38.95468945534828,
+      "median_http_ms": 831.1705205000001,
+      "p95_http_ms": 1146.288125,
+      "frontier_delta": 21
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 3485646542,
+      "writes_per_second": 73.44405031185747,
+      "median_http_ms": 429.83877099999995,
+      "p95_http_ms": 570.198667,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hash",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 6562216750,
+      "writes_per_second": 39.01120760755121,
+      "median_http_ms": 438.985979,
+      "p95_http_ms": 2716.405542,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 5440801250,
+      "writes_per_second": 188.20757328711466,
+      "median_http_ms": 707.7057915,
+      "p95_http_ms": 834.672334,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 6817158250,
+      "writes_per_second": 150.2092165749563,
+      "median_http_ms": 842.3151455,
+      "p95_http_ms": 1042.86025,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 5212799208,
+      "writes_per_second": 196.43956330189803,
+      "median_http_ms": 665.8786875000001,
+      "p95_http_ms": 779.400125,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 8081903833,
+      "writes_per_second": 126.70281918213466,
+      "median_http_ms": 877.4632704999999,
+      "p95_http_ms": 1678.26625,
+      "frontier_delta": 21
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 13969214834,
+      "writes_per_second": 73.3040483784144,
+      "median_http_ms": 1746.7229795,
+      "p95_http_ms": 2040.75275,
+      "frontier_delta": 24
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 16796216083,
+      "writes_per_second": 60.96611254224241,
+      "median_http_ms": 2148.469354,
+      "p95_http_ms": 2627.267291,
+      "frontier_delta": 23
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 19065821542,
+      "writes_per_second": 53.7086743282599,
+      "median_http_ms": 2188.3946035,
+      "p95_http_ms": 3338.288709,
+      "frontier_delta": 24
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hash",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 14480995958,
+      "writes_per_second": 70.71336826347866,
+      "median_http_ms": 1723.146271,
+      "p95_http_ms": 2540.563875,
+      "frontier_delta": 23
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 2741514583,
+      "writes_per_second": 2.918095001065329,
+      "median_http_ms": 315.8085,
+      "p95_http_ms": 524.313417,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 2320012834,
+      "writes_per_second": 3.448256786669138,
+      "median_http_ms": 287.127292,
+      "p95_http_ms": 381.917,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 4040380209,
+      "writes_per_second": 1.9800116786484339,
+      "median_http_ms": 516.2613335,
+      "p95_http_ms": 756.042542,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 2912449125,
+      "writes_per_second": 2.74682909697178,
+      "median_http_ms": 339.9035,
+      "p95_http_ms": 497.94875,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 4478667542,
+      "writes_per_second": 1.7862455574069043,
+      "median_http_ms": 567.2175,
+      "p95_http_ms": 761.89275,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 4865290667,
+      "writes_per_second": 1.6443005254057927,
+      "median_http_ms": 586.1363329999999,
+      "p95_http_ms": 848.721417,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "create",
+      "records": 8,
+      "wall_ns": 4548705791,
+      "writes_per_second": 1.7587420175269806,
+      "median_http_ms": 505.415354,
+      "p95_http_ms": 802.6375,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hashrange",
+      "batch": 1,
+      "verb": "update",
+      "records": 8,
+      "wall_ns": 4623988375,
+      "writes_per_second": 1.7301081558190552,
+      "median_http_ms": 558.2992085,
+      "p95_http_ms": 830.907792,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 3705136417,
+      "writes_per_second": 69.09327247045867,
+      "median_http_ms": 420.301646,
+      "p95_http_ms": 573.682417,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 3788715583,
+      "writes_per_second": 67.56907305174192,
+      "median_http_ms": 450.5735835,
+      "p95_http_ms": 662.201417,
+      "frontier_delta": 18
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 4274815209,
+      "writes_per_second": 59.88562954979418,
+      "median_http_ms": 522.793521,
+      "p95_http_ms": 685.273709,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 5708959958,
+      "writes_per_second": 44.84179288055185,
+      "median_http_ms": 742.0177495,
+      "p95_http_ms": 1025.089875,
+      "frontier_delta": 19
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 8473473917,
+      "writes_per_second": 30.21192990119403,
+      "median_http_ms": 1059.9677495,
+      "p95_http_ms": 1241.047958,
+      "frontier_delta": 22
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 9613002167,
+      "writes_per_second": 26.630598386715207,
+      "median_http_ms": 1316.7334375,
+      "p95_http_ms": 1655.913125,
+      "frontier_delta": 22
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "create",
+      "records": 256,
+      "wall_ns": 7062732125,
+      "writes_per_second": 36.24659628443717,
+      "median_http_ms": 802.8128335,
+      "p95_http_ms": 1410.547166,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hashrange",
+      "batch": 32,
+      "verb": "update",
+      "records": 256,
+      "wall_ns": 8221715625,
+      "writes_per_second": 31.13705358788787,
+      "median_http_ms": 976.5574165,
+      "p95_http_ms": 1642.133625,
+      "frontier_delta": 22
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 13500684125,
+      "writes_per_second": 75.8480081838075,
+      "median_http_ms": 1540.0136040000002,
+      "p95_http_ms": 3242.608083,
+      "frontier_delta": 21
+    },
+    {
+      "variant": "before-r1",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 9297114708,
+      "writes_per_second": 110.14169795268486,
+      "median_http_ms": 1060.055479,
+      "p95_http_ms": 1890.451875,
+      "frontier_delta": 21
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 9761900292,
+      "writes_per_second": 104.89760900745738,
+      "median_http_ms": 1200.103167,
+      "p95_http_ms": 2124.09125,
+      "frontier_delta": 22
+    },
+    {
+      "variant": "before-r2",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 7574827417,
+      "writes_per_second": 135.18459809419048,
+      "median_http_ms": 893.2722505,
+      "p95_http_ms": 1252.9425,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 16016084959,
+      "writes_per_second": 63.93572478051688,
+      "median_http_ms": 1900.348917,
+      "p95_http_ms": 3368.439625,
+      "frontier_delta": 24
+    },
+    {
+      "variant": "after-r1",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 7851914125,
+      "writes_per_second": 130.4140600238671,
+      "median_http_ms": 837.4490625000001,
+      "p95_http_ms": 1670.69175,
+      "frontier_delta": 20
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "create",
+      "records": 1024,
+      "wall_ns": 16541039833,
+      "writes_per_second": 61.90662801966544,
+      "median_http_ms": 2178.1441455,
+      "p95_http_ms": 2533.868,
+      "frontier_delta": 24
+    },
+    {
+      "variant": "after-r2",
+      "geometry": "hashrange",
+      "batch": 128,
+      "verb": "update",
+      "records": 1024,
+      "wall_ns": 14295685083,
+      "writes_per_second": 71.6300054215457,
+      "median_http_ms": 1748.804229,
+      "p95_http_ms": 2450.982375,
+      "frontier_delta": 23
+    }
+  ],
+  "next": {
+    "immediate": "Batch32\u2013128 input mutations per request while retaining disk-before-ack.",
+    "small_memory": "Install completed writes in the same clean record form as fetched records and release unneeded temporary owners. Preserve active read and dirty snapshot owners.",
+    "disk": "Prepare change-feed event and source data inside one native commit. Resolve feed tip/gate lock order and post-commit publication first.",
+    "diagnostic": "Expose existing native durable-file-barrier count/time, then repeat on an isolated host."
+  },
+  "ordinary_contract": {
+    "complete": true,
+    "successful_write_requests": 18,
+    "logical_mutations": 628,
+    "required_zero_file_reads": 29,
+    "all_required_zero_file_reads_pass": true,
+    "node_sessions": 5,
+    "normal_reopen": true,
+    "caller_modes": [
+      "omitted",
+      "queued",
+      "durable"
+    ],
+    "actual_mode": "durable",
+    "other_checks": [
+      "Mixed verbs and repeated-key updates",
+      "Absent exact and range-prefix delete",
+      "HTTP400 empty-batch refusal, including its existing plain response",
+      "Complete values and key membership after reopen"
+    ],
+    "previous_contract_attempt": "The collector expected JSON for an existing plain HTTP400 refusal. The corrected collector accepts that refusal. The earlier failed result is preserved.",
+    "limitations": [
+      "No stable caller-UUID replay route exists in this API; idempotency is source-reviewed only.",
+      "No crash, power-loss or cloud proof is claimed."
+    ]
+  },
+  "broader_runs": {
+    "before": "before-v2-r1/result.json: complete32cells,14848logicalwrites",
+    "after": "after-r1/result.json:16completeHashcells; optionalfollow-oninterruptedbyoperatoramidexternaldiskload. Not an accepted paired source-effect comparison.",
+    "failed_initial_before": "before-r1/result.json: observation asserted all writes stay warm despite separate metadata admission cap. The corrected benchmark records actual file work."
+  }
+}

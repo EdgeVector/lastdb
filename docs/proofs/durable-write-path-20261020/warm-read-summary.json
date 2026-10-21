@@ -1,0 +1,95 @@
+{
+  "scope": "Supplement from the same four focused runs, not a separately isolated benchmark.",
+  "selection": {
+    "operation": "core-owned-read",
+    "phase_prefix": "values-after-reopen-repeat-"
+  },
+  "timer": "Existing range_profile.Node.call elapsed: prepared JSON request send through complete response and JSON decode. Read receipt decode and later value checks excluded.",
+  "queries": {
+    "hash": "One HashKey per record; 32 records use one batch of 32 queries.",
+    "hashrange": "One HashRangeKeys exact-key query for 1 or 32 keys. These are not interval queries."
+  },
+  "fields_per_record": 4,
+  "body_bytes": 1024,
+  "rows": [
+    {
+      "source": "after",
+      "geometry": "hash",
+      "records_per_request": 1,
+      "read_requests": 10,
+      "median_ms": 0.266833,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "after",
+      "geometry": "hash",
+      "records_per_request": 32,
+      "read_requests": 20,
+      "median_ms": 3.395271,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "after",
+      "geometry": "hashrange",
+      "records_per_request": 1,
+      "read_requests": 10,
+      "median_ms": 0.335542,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "after",
+      "geometry": "hashrange",
+      "records_per_request": 32,
+      "read_requests": 20,
+      "median_ms": 3.512354,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "before",
+      "geometry": "hash",
+      "records_per_request": 1,
+      "read_requests": 10,
+      "median_ms": 0.289979,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "before",
+      "geometry": "hash",
+      "records_per_request": 32,
+      "read_requests": 20,
+      "median_ms": 3.125438,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "before",
+      "geometry": "hashrange",
+      "records_per_request": 1,
+      "read_requests": 10,
+      "median_ms": 0.2639995,
+      "file_read_calls": 0,
+      "all_values_match": true
+    },
+    {
+      "source": "before",
+      "geometry": "hashrange",
+      "records_per_request": 32,
+      "read_requests": 20,
+      "median_ms": 3.3504585000000002,
+      "file_read_calls": 0,
+      "all_values_match": true
+    }
+  ],
+  "limitations": [
+    "Same shared-host activity as write comparison. No causal speed claim.",
+    "Repeated read observations after one normal reopen; process-cold reads are excluded.",
+    "The operating-system cache is uncontrolled.",
+    "Width32 pools two distinct generated key sets, selected from the batch32 and batch128 write cells."
+  ],
+  "independent_review": "query_contract_round9 recomputed all8medians, counts, file-read work and query/timer semantics from portable originals."
+}

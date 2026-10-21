@@ -1,0 +1,137 @@
+{
+  "complete_result": {
+    "complete": false,
+    "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+    "workflow": "ordinary-durable-contract"
+  },
+  "content_hash_contract": "Sorted compact parsed JSON, ASCII escapes, UTF-8; not original HTTP bytes or original JSON lexical bytes.",
+  "driver_helpers": {
+    "core-clarity-20261018/default_node.py": {
+      "bytes": 2682,
+      "sha256": "dbccdb86e1a712cdf69a82fbfe0dedcea6d82ac05659b8c7a5950b04eb55df1b"
+    },
+    "core-memory-state-20261018/api.py": {
+      "bytes": 7337,
+      "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+    },
+    "core-owned-writes-20261018/logical.py": {
+      "bytes": 8763,
+      "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+    },
+    "durable-write-path-20261020/benchmark.py": {
+      "bytes": 10427,
+      "sha256": "45679a3e8f871b0691ec3c514d514d759850adcf9c6c29e148e606deda1ba10c"
+    },
+    "durable-write-path-20261020/focused.py": {
+      "bytes": 6515,
+      "sha256": "994a40b0e3f1c1cb87040b445b1c3471ce34566159dc73164d39ba2b9f821a32"
+    },
+    "durable-write-path-20261020/pack_receipts.py": {
+      "bytes": 9691,
+      "sha256": "e095bbf8bd2976481401e86b9efda0cd6dae35c83af6904bcedb513190a3419c"
+    },
+    "graph-first-20261017/drivers/ownership.py": {
+      "bytes": 794,
+      "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+    },
+    "graph-first-20261017/drivers/range_profile.py": {
+      "bytes": 19493,
+      "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+    },
+    "schema-preload-product-20261017/measure.py": {
+      "bytes": 23399,
+      "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+    }
+  },
+  "format": "lastdb-benchmark-parsed-receipts-v1",
+  "inputs_identity": {
+    "bytes": 1259,
+    "sha256": "e629bb3f7ae1fe77ea39e187815ceb423e2de30ce22013180998ed1ab51f66f3"
+  },
+  "operation_counts": {
+    "core-owned-concurrent-cohort": 3,
+    "core-owned-prime-scope": 1,
+    "core-owned-queue-drained": 6,
+    "core-owned-read": 79,
+    "core-owned-replacement-scope": 1,
+    "core-owned-write": 12,
+    "default-native-format": 4,
+    "flush": 6,
+    "native-status": 18,
+    "owned-node-start": 4,
+    "owned-node-stop": 4,
+    "refusal": 1,
+    "request": 127
+  },
+  "original_gzip": {
+    "bytes": 3005158,
+    "sha256": "6e0ab179ec7a540b95a9ded4fa8dc70a7a13380256db26cdcc29746dd7d6a376"
+  },
+  "portable_archive": {
+    "bytes": 64991,
+    "part_max_bytes": 921600,
+    "parts": [
+      {
+        "bytes": 64991,
+        "path": "receipts.jsonl.gz.part-001",
+        "sha256": "4a3f632de59b245c801b26e140fc6765f0ab5693e0bdecdcdb9a1b5ddcb1e14d"
+      }
+    ],
+    "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+    "sha256": "4a3f632de59b245c801b26e140fc6765f0ab5693e0bdecdcdb9a1b5ddcb1e14d"
+  },
+  "portable_jsonl": {
+    "bytes": 1052691,
+    "sha256": "374bd7768c18c4e8355a9e69a89c82d1b9a8208a17c604938feb46a12adf7599"
+  },
+  "preserved_fields": "All fields outside top-level request/result stay intact. Certificates retain response controls, statuses, costs and frontiers. Full local raw and original gzip files remain unchanged.",
+  "raw": {
+    "bytes": 9151268,
+    "sha256": "3daf2d1ae5a7af7d1c8818f54326a468e0e78c47d381eb8c477cd6fe7e290783"
+  },
+  "receipt_directory": "contract",
+  "result_identity": {
+    "bytes": 127,
+    "sha256": "314b9a459f7038618aece0ee02104d1b0acd4359473e70f709f5018d057564df"
+  },
+  "rows": 266,
+  "source_inputs": {
+    "binary_sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8",
+    "body_bytes": 1024,
+    "candidate_policy": {},
+    "concurrent_keys_per_query": 4,
+    "concurrent_queries": 2,
+    "counts": [
+      32
+    ],
+    "driver_sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81",
+    "filesystem_cache": "uncontrolled; normal process reopen does not flush the OS cache",
+    "hashes": 2,
+    "imports": {
+      "ownership.py": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb",
+      "range_profile.py": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+    },
+    "load_start": [
+      8.91552734375,
+      9.412109375,
+      8.8759765625
+    ],
+    "owner_uid": 501,
+    "path_cap": 10000,
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "range_bytes": 54,
+    "range_recipe": "todo#8-digit position#40-byte generated slug",
+    "read_rounds": 5,
+    "reads_only": false,
+    "records_per_hash": 64,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ed57ul9e",
+    "run_id": "d5ac45a5cec649e2875b6d75d1a50544",
+    "schema": "SchemaPreloadProduct",
+    "seed_batch": 32,
+    "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "source_commit": "544d5ed3a1894d7e688801de982867bdb95b9c89",
+    "started_utc": "2026-10-21T04:31:50.824583+00:00",
+    "total_seed_records": 128,
+    "variant": "contract"
+  }
+}

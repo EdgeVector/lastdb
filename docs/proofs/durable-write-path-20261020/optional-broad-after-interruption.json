@@ -1,0 +1,9 @@
+{
+  "utc": "2026-10-21T04:29:22.449170+00:00",
+  "pid": 60584,
+  "command": "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python /Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/benchmark.py --binary /Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd --output /Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/durable-write-path-20261020/after-r1 --variant after-r1 --source-commit 544d5ed3a1894d7e688801de982867bdb95b9c89",
+  "signal": "SIGINT",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.guaz_8ce",
+  "reason": "The four complete alternating comparison runs already cover both sources and geometries. The optional broad follow-on overlaps external heavy I/O and is not accepted as a source-effect benchmark. Stop it normally, preserve its partial result, then run contract checks.",
+  "is_product_failure": false
+}
