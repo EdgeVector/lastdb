@@ -346,17 +346,19 @@ release the kept conflict records of the slots they remove. See
 
 ## Reads and acknowledgement
 
-- A write that asks for a memory acknowledgement (`durability: queued`) returns when
-  its batch is accepted in memory, before the flush (at most 500 ms later). The batch
-  holds the tips, the counters and the bodies of the request, so a crash before the
-  flush loses the whole batch and leaves the earlier consistent state. A request that
-  asks for `durability: durable` returns after the flush.
+- The receipt of a write says `durability: queued` when the write was acknowledged from
+  memory, and `durability: durable` when it waited for the flush. A default create or
+  update is `queued`: it returns when its batch is accepted in memory, before the flush
+  (at most 500 ms later). A delete, a purge, a replay, and a write that memory admission
+  refuses are `durable`. The batch of a write holds the tips, the counters and the bodies
+  of the request, so a crash before the flush loses the whole batch and leaves the
+  earlier consistent state.
 - A query by key shows the new value as soon as the batch is accepted.
   `GET /api/atom/{id}` reads a body by id and does not go through a tip. After a
   `queued` write it can return 200 with the old body of a replaced atom until the
   flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement, median
-  0.26 s, in 20 rounds on a synthetic home). After a `durable` write it returns 404
-  at once.
+  0.26 s, in 20 rounds on a synthetic home). After a `durable` write (a delete or a
+  purge) it returns 404 at once.
 - `POST /api/storage/liveness/explain` (`lastdb liveness explain atom|molecule|blob`)
   returns the counters. For an atom it returns `refs`, `suspect`, `blobs`,
   `body_present` and a state: `live`, `suspect`, `inconsistent` or `absent`. One
@@ -365,7 +367,7 @@ release the kept conflict records of the slots they remove. See
 - A batch that has no early publication seals the write queue. Every later writer then
   waits until that batch is durable, though the gate is already free. The batches of
   the janitor, the dwell pass and the drain have no early publication, and neither has
-  a request with `durability: durable`. This is why the janitor and the dwell pass pace
+  a `durable` request. This is why the janitor and the dwell pass pace
   by the time writers wait, and not by the hold of the gate alone.
 
 ## Checking and repair
