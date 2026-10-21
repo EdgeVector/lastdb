@@ -1,0 +1,167 @@
+{
+  "source_commit": "a583590a8ab49b2ae1f3d9f8f4946d167d15f807",
+  "binary_sha256": "e1460cae8b54f1bd3bfe1c6e40f18bb679b8e15c9bec72de38524887fc00d112",
+  "build_profile": "dev, unoptimized, debug info disabled",
+  "operational_scope": "Fresh generated home; owner Unix socket; local system-seed schema; Cloud Off; no primary data or archive access.",
+  "environment": {
+    "RUST_MIN_STACK": "67108864",
+    "LASTDB_UDS_WORKERS": "2",
+    "LASTDB_MUTATION_SYNC_FLUSH": "0",
+    "LASTDB_BACKGROUND_FLUSH_MS": "0",
+    "LASTDB_RESIDENT_PERSIST_MS": "30000"
+  },
+  "receipts": {
+    "create": {
+      "ok": true,
+      "durability": "durable",
+      "operations": {
+        "created": 1,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 1,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 588897,
+        "gate_wait": 0,
+        "prepare": 13143,
+        "publish": 0
+      },
+      "http_seconds": 1.02218
+    },
+    "update": {
+      "ok": true,
+      "durability": "durable",
+      "operations": {
+        "created": 0,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 1,
+        "updated": 1
+      },
+      "resident_stages_us": {
+        "ack": 660019,
+        "gate_wait": 0,
+        "prepare": 22373,
+        "publish": 0
+      },
+      "http_seconds": 1.018839
+    },
+    "batch": {
+      "ok": true,
+      "durability": "durable",
+      "operations": {
+        "created": 3,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 3,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 926559,
+        "gate_wait": 0,
+        "prepare": 18834,
+        "publish": 0
+      },
+      "http_seconds": 1.378917
+    },
+    "delete": {
+      "ok": true,
+      "durability": "durable",
+      "operations": {
+        "created": 0,
+        "deleted": 1,
+        "no_op": 0,
+        "total": 1,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 0,
+        "gate_wait": 0,
+        "prepare": 0,
+        "publish": 0
+      },
+      "http_seconds": 1.372472
+    }
+  },
+  "reads_after_sigkill_and_reopen": {
+    "update": {
+      "ok": true,
+      "returned_count": 1,
+      "records": [
+        {
+          "bucket": "demo",
+          "id": "a",
+          "value": "two"
+        }
+      ]
+    },
+    "batch": {
+      "ok": true,
+      "returned_count": 4,
+      "records": [
+        {
+          "bucket": "demo",
+          "id": "a",
+          "value": "two"
+        },
+        {
+          "bucket": "demo",
+          "id": "b",
+          "value": "batch-b"
+        },
+        {
+          "bucket": "demo",
+          "id": "c",
+          "value": "batch-c"
+        },
+        {
+          "bucket": "demo",
+          "id": "d",
+          "value": "batch-d"
+        }
+      ]
+    },
+    "delete": {
+      "ok": true,
+      "returned_count": 3,
+      "records": [
+        {
+          "bucket": "demo",
+          "id": "b",
+          "value": "batch-b"
+        },
+        {
+          "bucket": "demo",
+          "id": "c",
+          "value": "batch-c"
+        },
+        {
+          "bucket": "demo",
+          "id": "d",
+          "value": "batch-d"
+        }
+      ]
+    }
+  },
+  "final_native_status": {
+    "generation": 74,
+    "frontier": 34,
+    "accepted_batches": 0,
+    "accepted_sequence": 1,
+    "completed_sequence": 1,
+    "writer_failed": false,
+    "core_warm_dirty": 0
+  },
+  "process_control": {
+    "sigkill_after_successful_ack": 3,
+    "final_daemon_exit_code": 0,
+    "explicit_flush_requests": 0
+  },
+  "initial_attempt": "The debug daemon exceeded its default 8 MiB worker stack on the first mutation, before any successful mutation ack. The later operations used 64 MiB stacks.",
+  "cleanup": {
+    "all_owned_daemons_exited": true,
+    "owned_temporary_home_removed": true,
+    "product_receipts_preserved": true
+  }
+}
