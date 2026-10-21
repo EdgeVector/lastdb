@@ -1,6 +1,7 @@
 pub mod aggregate;
 pub mod aggregate_state;
 pub mod author_clock;
+mod being_dropped;
 pub mod cas;
 pub mod data_classification;
 pub mod declarative_schemas;

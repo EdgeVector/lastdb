@@ -78,11 +78,6 @@ impl AtomStore {
         }
     }
 
-    /// Tell the drain task to read the candidate list now.
-    pub fn wake_molecule_drain(&self) {
-        self.molecule_drain.wake_signal().notify_one();
-    }
-
     /// The wake signal, for the task.
     pub(crate) fn drain_wake_signal(&self) -> Arc<tokio::sync::Notify> {
         self.molecule_drain.wake_signal()

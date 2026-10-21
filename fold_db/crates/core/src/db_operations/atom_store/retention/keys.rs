@@ -75,6 +75,12 @@ pub(super) fn dir_key(
     )
 }
 
+/// The prefix of every directory entry of one molecule in one scope: the whole
+/// directory of the molecule, all its slots, is one hash.
+pub(crate) fn molecule_dir_prefix(scope: Option<&str>, molecule: &str) -> String {
+    build_storage_key(scope, &format!("{DIR_FAMILY}{molecule}\0"))
+}
+
 /// The full storage key of the `mk:` record of one slot.
 pub(super) fn slot_key(scope: Option<&str>, molecule: &str, hash: &str, range: &str) -> String {
     build_storage_key(scope, &hash_range_record_key(molecule, hash, range))

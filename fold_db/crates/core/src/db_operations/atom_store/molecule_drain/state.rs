@@ -44,6 +44,10 @@ pub struct MoleculeDrainReport {
     pub rows_removed: u64,
     /// Atom bodies deleted by the counter when the drain lowered it to zero.
     pub atoms_deleted: u64,
+    /// Kept conflict records the drain released (the records phase), besides the
+    /// records that the tip batches released with the tips.
+    #[serde(default)]
+    pub records_released: u64,
     /// Batches the drain wrote.
     pub batches: u64,
     /// Candidates the drain dropped because the molecule was bound again.
@@ -69,6 +73,7 @@ pub(crate) struct DrainState {
     tips_erased: AtomicU64,
     rows_removed: AtomicU64,
     atoms_deleted: AtomicU64,
+    records_released: AtomicU64,
     batches: AtomicU64,
     rebound: AtomicU64,
     consecutive_failures: AtomicU64,
@@ -84,6 +89,11 @@ impl DrainState {
         Arc::clone(&self.wake)
     }
 
+    /// True when no drain task runs: the interval was never set.
+    pub(crate) fn task_is_off(&self) -> bool {
+        self.interval_ms.load(Ordering::Relaxed) == 0
+    }
+
     pub(crate) fn set_interval_ms(&self, interval_ms: u64) {
         self.interval_ms.store(interval_ms, Ordering::Relaxed);
     }
@@ -95,6 +105,11 @@ impl DrainState {
         self.rows_removed.fetch_add(rows, Ordering::Relaxed);
         self.atoms_deleted
             .fetch_add(atoms_deleted, Ordering::Relaxed);
+    }
+
+    /// Kept conflict records released by the records phase.
+    pub(crate) fn note_records(&self, records: u64) {
+        self.records_released.fetch_add(records, Ordering::Relaxed);
     }
 
     pub(crate) fn note_drained(&self) {
@@ -156,6 +171,7 @@ impl DrainState {
             tips_erased: self.tips_erased.load(Ordering::Relaxed),
             rows_removed: self.rows_removed.load(Ordering::Relaxed),
             atoms_deleted: self.atoms_deleted.load(Ordering::Relaxed),
+            records_released: self.records_released.load(Ordering::Relaxed),
             batches: self.batches.load(Ordering::Relaxed),
             rebound: self.rebound.load(Ordering::Relaxed),
             consecutive_failures: self.consecutive_failures.load(Ordering::Relaxed),

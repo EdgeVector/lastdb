@@ -99,13 +99,14 @@ fn molecule_drain_line(report: &fold_db::db_operations::AtomCounterReport) -> St
         format!("task every {} ms", drain.interval_ms)
     };
     let mut line = format!(
-        "Molecule drain: {task}; pending {} (waiting for kept records {}, refused {}); drained {} molecules since the daemon started ({} tips erased, {} atom bodies deleted, {} other rows, {} batches); candidates dropped because the molecule was bound again {}",
+        "Molecule drain: {task}; pending {} (waiting for kept records {}, refused {}); drained {} molecules since the daemon started ({} tips erased, {} atom bodies deleted, {} kept conflict records released, {} other rows, {} batches); candidates dropped because the molecule was bound again {}",
         drain.pending + drain.parked,
         drain.waiting_records,
         drain.refused,
         drain.drained,
         drain.tips_erased,
         drain.atoms_deleted,
+        drain.records_released,
         drain.rows_removed,
         drain.batches,
         drain.rebound,

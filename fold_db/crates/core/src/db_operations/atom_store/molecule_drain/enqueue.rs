@@ -31,6 +31,15 @@ pub struct MoleculeDrainVerdict {
     pub queued: bool,
 }
 
+/// The molecules an install would bind that the drain still removes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DrainingMolecules {
+    /// Molecules whose tips, rows or header the drain still erases.
+    pub erasing: u64,
+    /// Molecules with no tip that wait for the drain to release kept conflict records.
+    pub waiting_records: u64,
+}
+
 impl AtomStore {
     /// Check the scope that a verb names. The only scopes a verb may name are the
     /// personal scope (no value) and a database scope: exactly 64 lowercase hex
@@ -99,34 +108,62 @@ impl AtomStore {
     /// molecule again would stop the drain with part of the keys erased, so the
     /// install is refused (`SchemaError::SchemaBeingDropped`). The caller holds the
     /// write gate, so a batch of the drain cannot run between this read and the
-    /// bind. A refused molecule (a counter fault) is not on the list: the drain does
-    /// not remove it. One bounded range read for each molecule, all at once.
+    /// bind. A refused molecule (a counter fault) is not counted: the drain does not
+    /// remove it. A molecule that has no tip and only kept conflict records that
+    /// the slot directory does not name is not counted either: no drain step
+    /// releases them, and they end with their own window. One bounded range read
+    /// for each molecule, all at once.
     pub(crate) async fn molecules_draining(
         &self,
         scope: Option<&str>,
         molecules: &[String],
-    ) -> Result<Vec<String>, SchemaError> {
+    ) -> Result<DrainingMolecules, SchemaError> {
         let checks = molecules.iter().map(|molecule| async move {
             let candidate = Candidate::new(scope, molecule);
-            let (start, end) = crate::kind_partition::exact_prefix_bounds(&candidate.key());
-            let mut walk = crate::db_operations::atom_store::RangeWalk::new(
-                start.as_bytes(),
-                end.as_bytes(),
-                1,
-            );
-            if self.walk_step(&mut walk).await?.rows.is_empty() {
-                return Ok::<bool, SchemaError>(false);
+            if !self.rows_under(&candidate.key()).await? {
+                return Ok::<Option<bool>, SchemaError>(None);
             }
             let reads = self.read_molecule_reads(&candidate).await?;
-            Ok(matches!(judge(&reads), Verdict::Dead { .. }))
+            let Verdict::Dead { slots, records } = judge(&reads) else {
+                return Ok(None);
+            };
+            if slots > 0 || records == 0 {
+                return Ok(Some(false));
+            }
+            // Only kept records are left: count the molecule while the directory
+            // names a record that the drain will release.
+            Ok(self
+                .rows_under(&super::family::records_prefix(&candidate))
+                .await?
+                .then_some(true))
         });
-        let dead = futures::future::try_join_all(checks).await?;
-        Ok(molecules
-            .iter()
-            .zip(dead)
-            .filter(|(_, dead)| *dead)
-            .map(|(molecule, _)| molecule.clone())
-            .collect())
+        let mut found = DrainingMolecules::default();
+        for kind in futures::future::try_join_all(checks)
+            .await?
+            .into_iter()
+            .flatten()
+        {
+            if kind {
+                found.waiting_records += 1;
+            } else {
+                found.erasing += 1;
+            }
+        }
+        Ok(found)
+    }
+
+    /// Whether at least one row begins with `prefix`: a range read of one row.
+    async fn rows_under(&self, prefix: &str) -> Result<bool, SchemaError> {
+        let (start, end) = crate::kind_partition::exact_prefix_bounds(prefix);
+        let mut walk =
+            crate::db_operations::atom_store::RangeWalk::new(start.as_bytes(), end.as_bytes(), 1);
+        Ok(!self.walk_step(&mut walk).await?.rows.is_empty())
+    }
+
+    /// Whether the drain task is off (`LASTDB_MOLECULE_DRAIN_MS=0`): nothing erases
+    /// the keys of a dropped schema then.
+    pub(crate) fn drain_task_is_off(&self) -> bool {
+        self.drain_state().task_is_off()
     }
 
     /// The candidate rows now, counted up to `cap` with bounded range reads (a

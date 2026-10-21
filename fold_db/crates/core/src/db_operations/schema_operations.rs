@@ -110,17 +110,25 @@ impl DbOperations {
             .collect();
         added.sort();
         added.dedup();
-        if added.is_empty()
-            || self
-                .atoms()
-                .molecules_draining(None, &added)
-                .await?
-                .is_empty()
-        {
+        if added.is_empty() {
             return Ok(());
         }
+        let found = self.atoms().molecules_draining(None, &added).await?;
+        let molecules = found.erasing + found.waiting_records;
+        if molecules == 0 {
+            return Ok(());
+        }
+        let reason = if self.atoms().drain_task_is_off() {
+            "drain_task_off"
+        } else if found.erasing > 0 {
+            "draining"
+        } else {
+            "waiting_for_conflict_records"
+        };
         Err(SchemaError::SchemaBeingDropped {
             schema: schema_name.to_string(),
+            reason: reason.to_string(),
+            molecules,
         })
     }
 

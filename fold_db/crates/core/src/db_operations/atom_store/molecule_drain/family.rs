@@ -56,6 +56,15 @@ pub(super) fn tip_prefix(candidate: &Candidate) -> String {
     )
 }
 
+/// The prefix of the slot directory of the molecule in its scope: one entry for
+/// each kept conflict record (`crs:v1:{M}\0...`).
+pub(super) fn records_prefix(candidate: &Candidate) -> String {
+    crate::db_operations::atom_store::retention::molecule_dir_prefix(
+        candidate.scope.as_deref(),
+        &candidate.molecule,
+    )
+}
+
 /// The prefix of the delete barriers (`rdel:v2:`) of the tip keys of a molecule.
 /// A barrier key spells the bytes of its tip key in hex, so the hex of the tip
 /// prefix is a prefix of every barrier of the molecule.

@@ -50,15 +50,13 @@ pub(super) async fn execute_liveness_explain_route(
             ctx,
         );
     }
-    let scope = request
-        .scope
-        .as_deref()
-        .map(str::trim)
-        .filter(|scope| !scope.is_empty())
-        .or(ctx.storage_prefix.as_deref());
-    if let Err(error) = fold_db::db_operations::AtomStore::validate_scope(scope) {
+    // A scope in the request is checked as it is: an empty or blank value is an
+    // error, not the personal scope (leave the value out for that).
+    if let Err(error) = fold_db::db_operations::AtomStore::validate_scope(request.scope.as_deref())
+    {
         return error_response(400, &error.to_string(), ctx);
     }
+    let scope = request.scope.as_deref().or(ctx.storage_prefix.as_deref());
     if class == "atom" {
         return explain_atoms(host, ctx, scope, id, request.ids).await;
     }

@@ -9,7 +9,7 @@
 //! the candidate list. The deleted keys it passes again cost reads, never writes.
 
 use super::candidate::{list_bounds, Candidate};
-use super::family::{row_prefixes, tip_prefix};
+use super::family::{records_prefix, row_prefixes, tip_prefix};
 use super::judge::Refusal;
 use crate::db_operations::atom_store::RangeWalk;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -42,6 +42,9 @@ struct Parked {
 pub(super) enum Phase {
     /// Erase the tip records, a page at a time.
     Tips(RangeWalk),
+    /// Release the kept conflict records that the slot directory of the molecule
+    /// still names, a page at a time.
+    Records(RangeWalk),
     /// Delete the rows of the family that carry no count, one prefix at a time.
     Rows { index: usize, walk: RangeWalk },
     /// The final batch.
@@ -72,6 +75,11 @@ impl Active {
 /// A walk over the tip records of the molecule.
 pub(super) fn tip_walk(candidate: &Candidate, rows: usize) -> RangeWalk {
     prefix_walk(&tip_prefix(candidate), rows)
+}
+
+/// A walk over the slot directory of the molecule.
+pub(super) fn records_walk(candidate: &Candidate, rows: usize) -> RangeWalk {
+    prefix_walk(&records_prefix(candidate), rows)
 }
 
 /// A walk over the rows of the `index`th prefix of the family.
