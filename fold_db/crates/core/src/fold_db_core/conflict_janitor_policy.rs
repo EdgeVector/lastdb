@@ -12,7 +12,8 @@ pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
 /// A release batch holds the native write gate and seals the write queue, so a
 /// writer that meets the batch waits for its hold and for its flush. The janitor
 /// rests after each batch for `blocked * (100 - duty) / duty`, where `blocked` is
-/// the time the batch kept writers waiting.
+/// the time the batch kept writers waiting. The rest applies when another task
+/// writes; a janitor that has the node to itself rests the minimum (25 ms).
 pub const CONFLICT_JANITOR_DUTY_PCT_ENV: &str = "LASTDB_CONFLICT_JANITOR_DUTY_PCT";
 /// Default duty share: 10 percent of the time.
 pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 10;
