@@ -3,6 +3,10 @@ use crate::disk_pack::{artifact, corrupt, Current, DirectoryEntry, Location, Sou
 use crate::Result;
 use std::path::Path;
 
+/// Most live records one compaction quotes across the home. The quote and the copy each
+/// walk every record, so a larger home makes a longer hold of the write gate, not a failure.
+const MAX_HOME_RECORDS: u64 = 67_108_864;
+
 /// Worst-case uncompressed output, calculated from exact live locator entries.
 /// Compression can never reduce this reservation and then enlarge its output beyond it.
 pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
@@ -24,7 +28,7 @@ pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
         add(&mut bytes, 128 * 1024 + key.len() as u64)?;
         while let Some((key, value)) = cursor.next(&mut call)? {
             records += 1;
-            if records > 1_000_000 {
+            if records > MAX_HOME_RECORDS {
                 return Err(crate::disk_pack::resource());
             }
             let location = Location::decode_for_current(&value, current)?;

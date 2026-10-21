@@ -17,6 +17,7 @@ pub(crate) mod logical_paths;
 mod maintenance;
 mod memory;
 mod namespace_delete;
+mod parts;
 mod queue;
 mod read;
 mod rows;
@@ -30,6 +31,7 @@ pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
 pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
+pub use parts::NativePartsStatus;
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
@@ -60,6 +62,7 @@ pub struct PackRuntime {
     // Failed journal publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
     space_policy: laststore::disk_pack::maintenance::SpacePolicy,
+    parts: Arc<parts::PartsLedger>,
 }
 
 /// All namespaces on one native disk home.
@@ -128,6 +131,7 @@ impl PackNamespacedStore {
         let journal = home.journal().map_err(map)?;
         let read_lease = journal.read_lease();
         let current = journal.current().clone();
+        let parts = parts::PartsLedger::from_env(journal.dependency_parts(), &current);
         let metrics = Arc::new(PersistLaneMetrics::new());
         Ok(Self {
             runtime: Arc::new(PackRuntime {
@@ -154,6 +158,7 @@ impl PackNamespacedStore {
                 node_home,
                 failed_write: Mutex::new(None),
                 space_policy,
+                parts,
             }),
         })
     }

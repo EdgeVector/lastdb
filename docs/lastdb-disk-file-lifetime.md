@@ -54,7 +54,7 @@ Each hash group retains its separate locator tree.
 
 The writer publishes the complete replacement receipt before it publishes `CURRENT`.
 It keeps the existing 65,536 dependency-part limit.
-The compaction quote permits at most 65,536 collection/hash-group coordinates and one million records across the home.
+The compaction quote permits at most 65,536 collection/hash-group coordinates and 67,108,864 records across the home.
 It retains one cursor path and one record stream, with a 64 KiB copy buffer.
 No product full-read query is added.
 
@@ -116,3 +116,54 @@ The ordinary cap-disabled space check uses filesystem capacity and active ticket
 It does not enumerate files for each write.
 An explicitly enabled whole-home cap still uses a bounded census.
 A configured cap therefore adds file-inventory work to each reservation.
+
+## Dependency parts and automatic maintenance
+
+Each published generation has one receipt. The receipt names every file part that the generation needs.
+It holds at most `MAX_DEPENDENCY_PARTS` entries (65,536).
+A publication carries all earlier entries forward and adds its own:
+two journal parts for each batch (data and map), one fresh directory part,
+and one fresh locator part for each locator tree that the batch edits.
+Only compaction removes an entry from a later receipt.
+A restart, an idle wait, and a SIGKILL do not merge parts; a restart adds a few parts for its own writes.
+A small durable request makes two or three batches and about 13 parts. A write of ten keys makes about three parts for each key.
+A writer that reaches the limit refuses the write with `dependency capacity`.
+
+Every publication writes the whole receipt again (80 bytes for each part, twice for each batch),
+and the previous receipts stay on disk until reclaim. The count is therefore a hard limit and a write cost.
+
+The native runtime keeps the count after each publication and runs maintenance (pack, then reclaim) when it passes a high-water mark.
+Writers wait on the write gate while maintenance runs, so a writer meets the hard limit only when maintenance fails.
+Above 90% of the limit a new write also waits for the worker, for at most one minute, before its own admission.
+The pack step copies every live record again, so its cost grows with the live set and with the number of hash groups that hold data; it is the longest hold of the gate.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `LASTDB_DEPENDENCY_HIGH_WATER` | 4096 | Parts at which maintenance starts. At most 75% of the limit. |
+| `LASTDB_AUTO_MAINTENANCE` | on | `0` or `false` turns the worker off. |
+| `LASTDB_AUTO_MAINTENANCE_GRACE_MS` | 0 | Grace for the reclaim of an automatic run. |
+| `LASTDB_ORPHAN_MIN_AGE_MS` | 600000 | Youngest unreferenced part file that the sweep removes. |
+| `LASTDB_AUTO_MAINTENANCE_START_DELAY_SECS` | 30 | Wait before the first pack of a process. |
+
+The trigger rises to twice the parts that the last run left, so a home with a large live set does not loop.
+It also rises with the square root of twenty times the records that the last run copied (14,000 parts for ten million records),
+because a larger home costs more to pack and so packs less often.
+The first pack of a process waits 30 seconds unless the count is above 90% of the limit, so a restart is not blocked behind it.
+The pack step holds the write gate. Reclaim then runs in slices of 32 old generations, oldest first,
+and the worker releases the gate between slices, so writers and readers run while old receipts retire.
+The worker also runs this reclaim when it starts, so a stop or a crash in the middle of a drain does not leave old receipts until the next run.
+A reclaim that active reads defer is retried after 1, 2, 4, 8, 16 and then every 30 seconds, for about 20 minutes.
+Reclaim removes only a generation directory that is provably unfinished (empty, or a partial receipt whose first page declares more pages than are present); a complete receipt under another number, an unknown file and a gap in the part numbers stop it with an error that names the directory.
+When its drain ends, the worker sweeps part files that no receipt names, such as the output of a publication or a compaction that a crash interrupted.
+The sweep removes only files older than `LASTDB_ORPHAN_MIN_AGE_MS` (default ten minutes), and it stops without a removal if any receipt is unreadable.
+A failed run backs off for 2 to 60 seconds and keeps the writer healthy when `CURRENT` still names the old root.
+A home that already sits at the limit starts, waits for the pack step, and accepts writes when it ends; the first start can take as long as one pack step.
+
+`lastdb status` shows the count, the limit, the trigger, the peak and the last run on the `Storage parts` line.
+`GET /api/db/native-status` returns the same fields under `native_disk.parts`.
+A write that the limit refuses returns 503 `write_resource_limit` with `retry_after_secs`, and wakes the worker.
+
+Reclaim syncs each changed directory once after a phase, and not once for each removed file.
+A phase ends with its barrier before the next phase starts, so a receipt never leaves the live set before the removals that it lists are durable.
+A crash between phases leaves unreferenced files, which a later reclaim can still remove through the retired receipts.
+

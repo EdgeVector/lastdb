@@ -1,7 +1,7 @@
 //! Native whole-home maintenance through the existing node owner boundary.
 
 use super::*;
-use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePolicy};
+use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePolicy, SpaceUsage};
 
 /// Explicit native maintenance options. Preview is the default at the node route.
 #[derive(Clone, Copy, Debug)]
@@ -12,6 +12,12 @@ pub struct NativeMaintenanceOptions {
     pub reclaim_only: bool,
     /// An explicit grace override; None keeps the product's 24-hour default.
     pub grace_ms: Option<u64>,
+    /// Measure the native root before and after. The measure walks every file,
+    /// so the automatic high-water run leaves it off.
+    pub report_usage: bool,
+    /// Most old generations one reclaim retires, oldest first. `None` reclaims all
+    /// of them under one hold; a bounded call lets writers in between calls.
+    pub reclaim_generations: Option<usize>,
 }
 
 /// Physical whole-home result. Logical records, atom versions, and keys do not change.
@@ -34,6 +40,11 @@ pub struct NativeMaintenanceReport {
     pub files_removed: u64,
     pub bytes_removed: u64,
     pub reclaim_deferred: bool,
+    /// Old generations remain after a bounded reclaim.
+    pub reclaim_remaining: bool,
+    /// Milliseconds in the pack step and in the reclaim step.
+    pub pack_millis: u64,
+    pub reclaim_millis: u64,
 }
 
 impl PackRuntime {
@@ -75,19 +86,40 @@ impl PackRuntime {
         }
         let policy = SpacePolicy {
             grace_ms: options.grace_ms.unwrap_or(86_400_000),
+            reclaim_generations: options.reclaim_generations.unwrap_or(usize::MAX),
             ..self.space_policy.clone()
         };
-        let before = space_usage(self.home.path(), policy.max_files).map_err(map)?;
+        let usage = |home: &std::path::Path| match options.report_usage {
+            true => space_usage(home, policy.max_files).map_err(map),
+            false => Ok(SpaceUsage::default()),
+        };
+        let before = usage(self.home.path())?;
         let mut writer = self.journal.lock().expect("native journal owner");
         let mut receipt = MaintenanceReceipt::default();
+        let (mut pack_millis, mut reclaim_millis) = (0, 0);
         if !options.dry_run && !options.reclaim_only {
+            let started = std::time::Instant::now();
             receipt = match writer.pack(&policy) {
                 Ok(receipt) => receipt,
                 Err(error) => {
-                    self.failed.store(true, Ordering::Release);
-                    return Err(map(error));
+                    // A failure before the replacement is published leaves the
+                    // writer healthy; only a poisoned writer needs a restart.
+                    if writer.is_poisoned() {
+                        self.failed.store(true, Ordering::Release);
+                    }
+                    let error = map(error);
+                    self.parts.record_failure(&error);
+                    return Err(error);
                 }
             };
+            pack_millis = millis_since(started);
+            // The replacement is published: the count is final even if reclaim fails.
+            let run = parts::RunCounts {
+                parts_before: receipt.parts_before,
+                parts_after: receipt.parts_after,
+                records: receipt.records_copied + receipt.tombstones_copied,
+            };
+            self.parts.record_run(&run, pack_millis, writer.current());
         }
         // All older calls already hold their own generation. New calls take the
         // view read lock before their lifetime hold, so no retired view can escape.
@@ -99,15 +131,25 @@ impl PackRuntime {
         }
         view.current = writer.current().clone();
         if !options.dry_run {
-            let reclaimed = writer.reclaim(&policy).map_err(map)?;
+            let started = std::time::Instant::now();
+            let reclaimed = writer.reclaim(&policy).map_err(|error| {
+                let error = map(error);
+                self.parts.record_failure(&error);
+                error
+            })?;
             receipt.files_removed = reclaimed.files_removed;
             receipt.bytes_removed = reclaimed.bytes_removed;
             receipt.reclaim_deferred = reclaimed.reclaim_deferred;
+            receipt.reclaim_remaining = reclaimed.reclaim_remaining;
             view.current = writer.current().clone();
+            reclaim_millis = millis_since(started);
+            if !options.reclaim_only {
+                self.parts.add_run_millis(reclaim_millis);
+            }
         }
         let current = view.current.clone();
         drop(view);
-        let after = space_usage(self.home.path(), policy.max_files).map_err(map)?;
+        let after = usage(self.home.path())?;
         Ok(NativeMaintenanceReport {
             dry_run: options.dry_run,
             executed: !options.dry_run,
@@ -126,6 +168,13 @@ impl PackRuntime {
             files_removed: receipt.files_removed,
             bytes_removed: receipt.bytes_removed,
             reclaim_deferred: receipt.reclaim_deferred,
+            reclaim_remaining: receipt.reclaim_remaining,
+            pack_millis,
+            reclaim_millis,
         })
     }
+}
+
+fn millis_since(started: std::time::Instant) -> u64 {
+    started.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }
