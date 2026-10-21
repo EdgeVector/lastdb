@@ -33,8 +33,7 @@ pub use conflict_janitor_policy::{
     CONFLICT_JANITOR_NET_SECS_ENV, DEFAULT_CONFLICT_JANITOR_DUTY_PCT, DEFAULT_CONFLICT_JANITOR_MS,
 };
 pub use mutation_flush::{
-    mutation_sync_flush_enabled, BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV,
-    DEFAULT_BACKGROUND_FLUSH_MS, MUTATION_SYNC_FLUSH_ENV,
+    BackgroundFlushTask, MutationFlushPolicy, BACKGROUND_FLUSH_MS_ENV, DEFAULT_BACKGROUND_FLUSH_MS,
 };
 pub use mutation_manager::{MutationManager, PurgeStats};
 pub use protein_reaper::{

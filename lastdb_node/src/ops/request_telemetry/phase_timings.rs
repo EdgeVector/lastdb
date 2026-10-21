@@ -227,8 +227,8 @@ pub struct PhaseTimings {
     /// Mutation: storing the idempotency record for the applied batch.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub persist_idempotency_us: u64,
-    /// Store flush. Near zero on default builds (background flusher);
-    /// meaningful only under synchronous-flush configurations.
+    /// Explicit store flush work. Native mutation disk-sequence waits stay
+    /// inside Apply; the response duration includes that wait.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub flush_us: u64,
     /// Mutation: cloud-sync mutation-log capture on the request path —

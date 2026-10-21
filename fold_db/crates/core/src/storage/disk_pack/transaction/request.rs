@@ -5,29 +5,18 @@ use crate::storage::laststore::LastStoreKvStore;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Reply {
-    Memory,
     Durable,
     Background,
 }
 
 pub(crate) async fn request_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
-    memory_ack: bool,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
 {
-    scope(
-        runtime,
-        if memory_ack {
-            Reply::Memory
-        } else {
-            Reply::Durable
-        },
-        future,
-    )
-    .await
+    scope(runtime, Reply::Durable, future).await
 }
 
 /// Return after durability; unreserved work seals the current collection window.
@@ -56,7 +45,6 @@ where
         return future.await;
     }
     let delay = match reply {
-        Reply::Memory => Some(super::super::space::memory_flush_delay()?),
         Reply::Background => Some(std::time::Duration::from_millis(500)),
         Reply::Durable => None,
     };
@@ -77,13 +65,10 @@ where
     let result = result??;
     if pending.is_empty()? {
         // Preserve an explicit durability fence without adding an empty batch.
-        let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);
-        let target = durable.then(|| runtime.seal_queue());
+        let target = runtime.seal_queue();
         drop(gate);
         note_gate_hold(held_from, 0, 0, &BatchShape::default());
-        if let Some(target) = target {
-            runtime.wait_for_queue(target).await?;
-        }
+        runtime.wait_for_queue(target).await?;
         return Ok(result);
     }
     let operations = pending.freeze_operations();
@@ -98,14 +83,11 @@ where
         LastStoreKvStore::run_blocking(move || Ok((owner.prepare_queued(operations)?, gate)))
             .await?;
     let delay = protect_paths(&runtime, &pending, delay)?;
-    let wait = reply != Reply::Memory || delay.is_none();
     // Publication, ownership transfer and worker creation contain no await.
     let sequence = runtime.accept_queued(pending, prepared, delay)?;
     drop(gate);
     note_gate_hold(held_from, operations_len, sequence, &shape);
-    if wait {
-        runtime.wait_for_queue(sequence).await?;
-    }
+    runtime.wait_for_queue(sequence).await?;
     Ok(result)
 }
 

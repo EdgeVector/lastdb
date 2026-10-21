@@ -73,9 +73,6 @@ impl MutationManager {
             .iter()
             .map(|mutation| mutation.imported_written_at.is_none())
             .collect();
-        let wait_for_author_clock = mutations
-            .iter()
-            .any(|mutation| mutation.synchronous == Some(true));
         let author_clock_persist = self.prepare_mutation_author_clocks(&mut mutations)?;
         // Submit before resident apply. Each data envelope waits on a clone of
         // this barrier, so durable LWW data cannot pass its durable clock.
@@ -88,14 +85,6 @@ impl MutationManager {
             .zip(mutations.iter())
             .find(|(authored, _)| **authored)
             .map(|(_, mutation)| mutation.logical_counter);
-        // A synchronous receipt includes the author clock. Persist it before
-        // data, so a process loss cannot reopen below a durable LWW value.
-        // A later data failure leaves a harmless counter gap.
-        if wait_for_author_clock {
-            if let Some(barrier) = &author_clock_barrier {
-                barrier.wait().await?;
-            }
-        }
         let result = {
             {
                 let envelopes = self.encode_capture_envelopes(&mutations, storage_prefix);

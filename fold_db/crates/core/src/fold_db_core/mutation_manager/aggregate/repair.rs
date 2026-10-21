@@ -492,7 +492,6 @@ impl MutationManager {
             MutationType::Update,
         );
         summary.aggregate_derived_internal = true;
-        summary.synchronous = Some(true);
         let clock = self.prepare_mutation_author_clocks(std::slice::from_mut(&mut summary))?;
         let revision = summary.logical_counter;
         if let Some((reservation, state)) = clock {
@@ -502,7 +501,7 @@ impl MutationManager {
             self.write_mutations_batch_inner(vec![summary], storage_prefix, WriteOrigin::Request),
         )
         .await;
-        let mut receipt = Self::require_durable_receipt(result?, "repair summary")?;
+        let mut receipt = result?;
         receipt.revision = Some(revision);
         let grant = AggregateRepairGrant {
             version: 1,

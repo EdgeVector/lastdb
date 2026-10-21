@@ -278,7 +278,6 @@ impl MutationManager {
                 MutationType::Update,
             );
             invalidation.aggregate_derived_internal = true;
-            invalidation.synchronous = Some(true);
             invalidations.push(invalidation);
             invalidated_guards.push(guard);
         }
@@ -299,10 +298,8 @@ impl MutationManager {
         if let Some((reservation, state)) = invalidation_clock {
             reservation.submit_and_wait(state).await?;
         }
-        let result = self
-            .write_mutations_batch_inner(invalidations, storage_prefix, WriteOrigin::Replay)
-            .await;
-        Self::require_durable_receipt(result?, "ordinary source invalidation")?;
+        self.write_mutations_batch_inner(invalidations, storage_prefix, WriteOrigin::Replay)
+            .await?;
         for guard in &invalidated_guards {
             let grant_key = Self::aggregate_repair_grant_key(
                 storage_prefix,

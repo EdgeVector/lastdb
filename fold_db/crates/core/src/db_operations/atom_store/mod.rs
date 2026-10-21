@@ -171,10 +171,10 @@ pub struct AtomStore {
     /// Exact durable-tip locks. These make the read/compare/put winner rule
     /// atomic per `mk:` row without coupling writes to different slots.
     tip_commit_locks: ExactTipLocks,
-    /// Exact memory-publication locks. A normal Put does not wait for a durable flush.
+    /// Exact tip-publication locks within the native request's private preparation.
     tip_publication_locks: ExactTipLocks,
-    /// A normal Delete enters this map before its memory ack. Peer replay and
-    /// delayed local flushes consult it under the exact tip commit lock.
+    /// A Delete enters this map during preparation. Peer replay and accepted
+    /// disk work consult it under the exact tip commit lock.
     pending_delete_barriers: Arc<
         std::sync::Mutex<
             std::collections::HashMap<String, crate::atom::delete_barrier::DeleteBarrier>,

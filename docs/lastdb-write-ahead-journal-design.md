@@ -1,5 +1,10 @@
 # Write-ahead journal for the store: design and the decision not to build it yet
 
+Policy update, 2026-10-20: the memory-ack policy below is superseded.
+Every successful local mutation request now waits for its native disk sequence before the ack.
+Earlier measurements below describe their recorded sources and remain unchanged.
+See the [current memory and disk contract](lastdb-rehydrate.md#write-and-flush).
+
 Status (2026-10-13): design for Tom's review. Nothing here is built. The result
 of the design work is a decision order: do the group reduction first, run
 Experiment 0, and build the journal only if the numbers still ask for it. Made by

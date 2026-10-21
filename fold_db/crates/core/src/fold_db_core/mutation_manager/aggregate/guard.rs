@@ -22,11 +22,8 @@ impl MutationManager {
         if let Some((reservation, state)) = clock {
             reservation.submit_and_wait(state).await?;
         }
-        let result = self
-            .write_mutations_batch_inner(invalidations, storage_prefix, origin)
-            .await;
-        let receipt = Self::require_durable_receipt(result?, "invalidation")?;
-        let _ = receipt;
+        self.write_mutations_batch_inner(invalidations, storage_prefix, origin)
+            .await?;
         self.verify_guard_invalidation_markers(guards, token, storage_prefix)
             .await?;
         self.delete_guard_grants(guards, storage_prefix).await?;
@@ -109,7 +106,6 @@ impl MutationManager {
                 MutationType::Update,
             );
             invalidation.aggregate_derived_internal = true;
-            invalidation.synchronous = Some(true);
             invalidations.push(invalidation);
         }
         Ok(invalidations)

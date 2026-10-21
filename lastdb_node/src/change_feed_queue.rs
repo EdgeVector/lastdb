@@ -1,8 +1,8 @@
 //! Bounded ordered persistence for app change-feed hints.
 //!
 //! Product requests enter the accepted order before their feed jobs. The feed
-//! is a later coordination projection, so its durable result must not delay a
-//! memory acknowledgement. Native jobs can share the product flush deadline.
+//! is a later coordination projection; it does not extend the local mutation
+//! durability guarantee. Native feed jobs can share a disk collection window.
 //! A caller reserves one bounded queue slot before product commit. A full or
 //! closed queue therefore rejects before any product state changes.
 

@@ -47,7 +47,6 @@ impl MutationManager {
                 MutationType::Update,
             );
             member.aggregate_derived_internal = true;
-            member.synchronous = Some(true);
             let mut summary_values: HashMap<String, serde_json::Value> = next_summary
                 .into_iter()
                 .map(|(field, value)| (field, serde_json::Value::from(value)))
@@ -65,7 +64,6 @@ impl MutationManager {
                 MutationType::Update,
             );
             summary.aggregate_derived_internal = true;
-            summary.synchronous = Some(true);
             let mut derived_owned = vec![member, summary];
             derived_clock = self.prepare_mutation_author_clocks(&mut derived_owned)?;
             data_mutations.extend(derived_owned);
@@ -87,7 +85,7 @@ impl MutationManager {
             .write_mutations_batch_inner(data_mutations, ctx.storage_prefix, ctx.origin)
             .await;
         match data_result {
-            Ok(receipt) => Self::require_durable_receipt(receipt, "data generation"),
+            Ok(receipt) => Ok(receipt),
             Err(error) => {
                 // A flush failure can follow resident publication. Persist the
                 // invalid marker again and retain the matching reservations.
@@ -157,16 +155,13 @@ impl MutationManager {
             MutationType::Update,
         );
         marker.aggregate_derived_internal = true;
-        marker.synchronous = Some(true);
         let marker_clock =
             self.prepare_mutation_author_clocks(std::slice::from_mut(&mut marker))?;
         if let Some((reservation, state)) = marker_clock {
             reservation.submit_and_wait(state).await?;
         }
-        let marker_result = self
-            .write_mutations_batch_inner(vec![marker], ctx.storage_prefix, WriteOrigin::Replay)
-            .await;
-        Self::require_durable_receipt(marker_result?, "valid marker")?;
+        self.write_mutations_batch_inner(vec![marker], ctx.storage_prefix, WriteOrigin::Replay)
+            .await?;
         Ok(())
     }
 }

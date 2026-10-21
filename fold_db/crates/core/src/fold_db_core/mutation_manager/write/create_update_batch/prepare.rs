@@ -4,20 +4,14 @@ use super::*;
 
 impl MutationManager {
     /// Receipt for a batch whose every mutation the idempotency filter
-    /// recognised as already applied.
-    pub(in crate::fold_db_core::mutation_manager::write) async fn finish_all_duplicate_batch(
-        &self,
+    /// recognised as already applied. The enclosing native request completed
+    /// its disk fence before this helper runs.
+    pub(in crate::fold_db_core::mutation_manager::write) fn finish_all_duplicate_batch(
         already_seen_ids: Vec<String>,
-        force_durable: bool,
         timing_breakdown: &HashMap<&str, std::time::Duration>,
         start_time: std::time::Instant,
         mut stages: ResidentCommitStages,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        if force_durable {
-            self.db_ops.flush().await.map_err(|error| {
-                SchemaError::InvalidData(format!("forced durable duplicate flush failed: {error}"))
-            })?;
-        }
+    ) -> ResidentCommitReceipt {
         tracing::info!(
             "All {} mutations were idempotency duplicates, skipping processing",
             already_seen_ids.len()
@@ -41,15 +35,15 @@ impl MutationManager {
         };
         stages.ack_us = crate::request_phases::duration_us(start_time.elapsed());
         Self::report_resident_commit_counts(&operations);
-        Ok(ResidentCommitReceipt {
+        ResidentCommitReceipt {
             mutation_ids: already_seen_ids,
             revision: None,
             operations,
-            durability: Self::commit_durability(force_durable),
+            durability: ResidentDurability::Durable,
             cloud: None,
             stages,
             touched_group_ids: crate::durable_flush::current_touched_groups(),
-        })
+        }
     }
 
     /// Phase 0.5b: Compare-and-set gate (same-node atomicity).

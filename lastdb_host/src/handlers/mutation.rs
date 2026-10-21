@@ -114,7 +114,6 @@ pub async fn execute_mutation<H: HostNode>(
         fields_and_values: &fields_and_values,
         mutation_type,
         source_file_name: &source_file_name,
-        durability,
         expected: &expected,
         must_exist,
         aggregate_set: &aggregate_set,
@@ -252,7 +251,7 @@ fn empty_delete_response() -> Value {
         "convergence_pending": false,
         "revision": Value::Null,
         "operations": operations_json(&operations),
-        "durability": ResidentDurability::Queued.as_str(),
+        "durability": ResidentDurability::Durable.as_str(),
         "resident_stages_us": stages_json(&stages),
         "touched_group_ids": [],
         "size": 0
@@ -265,7 +264,6 @@ struct MutationTemplate<'a> {
     fields_and_values: &'a HashMap<String, Value>,
     mutation_type: MutationType,
     source_file_name: &'a Option<String>,
-    durability: MutationDurability,
     expected: &'a Option<fold_db::schema::types::cas::CasExpectation>,
     must_exist: Option<bool>,
     aggregate_set: &'a Option<AggregateSet>,
@@ -288,9 +286,6 @@ fn build_mutations<H: HostNode>(
                 tpl.mutation_type,
             );
             mutation.source_file_name.clone_from(tpl.source_file_name);
-            if tpl.durability.waits_for_persist() {
-                mutation.synchronous = Some(true);
-            }
             let mutation = match tpl.expected.clone() {
                 Some(expectation) => mutation.with_expected(expectation),
                 None => mutation,
@@ -355,10 +350,5 @@ async fn write_mutation_receipt<H: HostNode>(
         }
     })?;
 
-    let receipt = if aggregate_write {
-        require_durable_aggregate_receipt(receipt, "Aggregate set")?
-    } else {
-        receipt
-    };
     Ok((receipt, aggregate_write))
 }

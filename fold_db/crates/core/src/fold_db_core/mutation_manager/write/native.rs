@@ -29,15 +29,12 @@ impl MutationManager {
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let committed = self.commit_native_request(request, &mut state).await?;
         if committed.mutation_ids.is_empty() {
-            return self
-                .finish_all_duplicate_batch(
-                    committed.already_seen_ids,
-                    state.force_durable,
-                    &state.timing_breakdown,
-                    start,
-                    state.stages,
-                )
-                .await;
+            return Ok(Self::finish_all_duplicate_batch(
+                committed.already_seen_ids,
+                &state.timing_breakdown,
+                start,
+                state.stages,
+            ));
         }
         Ok(Self::build_commit_receipt(
             committed.already_seen_ids,
@@ -58,71 +55,66 @@ impl MutationManager {
         if let Some(clock) = request.author_clock {
             clock.wait().await?;
         }
-        let memory_ack =
-            !state.force_durable && !crate::fold_db_core::mutation_sync_flush_enabled();
-        let committed =
-            transaction::request_scope(Some(Arc::clone(&request.runtime)), memory_ack, async {
-                request
-                    .runtime
-                    .record_read_stage("request-start", request.mutations.len());
-                // Compare once inside the exclusive native gate. A prior
-                // request can commit while this request waits to enter it.
-                let started = std::time::Instant::now();
-                let (already_seen_ids, mutations, hashes) = self
-                    .filter_idempotent_mutations(request.mutations, request.storage_prefix)
-                    .await?;
-                Self::add_timing(
-                    &mut state.timing_breakdown,
-                    "idempotency_check",
-                    started.elapsed(),
-                );
-                let mutation_ids = mutations
-                    .iter()
-                    .map(|mutation| mutation.uuid.clone())
-                    .collect();
-                request
-                    .runtime
-                    .record_read_stage("idempotency-done", mutations.len());
-                if mutations.is_empty() {
-                    return Ok::<_, SchemaError>(NativeCommit {
-                        already_seen_ids,
-                        mutation_ids,
-                    });
-                }
-                self.check_batch_preconditions(&mutations, request.storage_prefix)
-                    .await?;
-                request
-                    .runtime
-                    .record_read_stage("conditions-done", mutations.len());
-                // Keep the private multi-schema stage behind one future
-                // allocation instead of expanding it in every host caller.
-                let delta_count = self
-                    .stage_grouped_deltas(
-                        mutations,
-                        hashes,
-                        request.storage_prefix,
-                        &mut state.timing_breakdown,
-                        &mut state.stages,
-                        &request.runtime,
-                    )
-                    .boxed()
-                    .await?;
-                request
-                    .runtime
-                    .record_read_stage("stored-stages-done", delta_count);
-                self.reserve_native_core_memory(&request.runtime)?;
-                Ok::<_, SchemaError>(NativeCommit {
+        let committed = transaction::request_scope(Some(Arc::clone(&request.runtime)), async {
+            request
+                .runtime
+                .record_read_stage("request-start", request.mutations.len());
+            // Compare once inside the exclusive native gate. A prior
+            // request can commit while this request waits to enter it.
+            let started = std::time::Instant::now();
+            let (already_seen_ids, mutations, hashes) = self
+                .filter_idempotent_mutations(request.mutations, request.storage_prefix)
+                .await?;
+            Self::add_timing(
+                &mut state.timing_breakdown,
+                "idempotency_check",
+                started.elapsed(),
+            );
+            let mutation_ids = mutations
+                .iter()
+                .map(|mutation| mutation.uuid.clone())
+                .collect();
+            request
+                .runtime
+                .record_read_stage("idempotency-done", mutations.len());
+            if mutations.is_empty() {
+                return Ok::<_, SchemaError>(NativeCommit {
                     already_seen_ids,
                     mutation_ids,
-                })
+                });
+            }
+            self.check_batch_preconditions(&mutations, request.storage_prefix)
+                .await?;
+            request
+                .runtime
+                .record_read_stage("conditions-done", mutations.len());
+            // Keep the private multi-schema stage behind one future
+            // allocation instead of expanding it in every host caller.
+            let delta_count = self
+                .stage_grouped_deltas(
+                    mutations,
+                    hashes,
+                    request.storage_prefix,
+                    &mut state.timing_breakdown,
+                    &mut state.stages,
+                    &request.runtime,
+                )
+                .boxed()
+                .await?;
+            request
+                .runtime
+                .record_read_stage("stored-stages-done", delta_count);
+            self.reserve_native_core_memory(&request.runtime)?;
+            Ok::<_, SchemaError>(NativeCommit {
+                already_seen_ids,
+                mutation_ids,
             })
-            .await?;
+        })
+        .await?;
         if committed.mutation_ids.is_empty() {
             return Ok(committed);
         }
         crate::sync::capture::mark_logical_commit_published();
-        self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
-            .await?;
         Ok(committed)
     }
 

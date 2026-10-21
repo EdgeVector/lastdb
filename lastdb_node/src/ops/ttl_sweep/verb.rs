@@ -59,14 +59,6 @@ impl SweepVerb {
             Self::Purge => MutationType::Purge,
         }
     }
-
-    /// A plain delete acknowledges after its resident tombstone, and the
-    /// persist lane erases later. The sweep waits for the lane, so a batch is
-    /// done when the call returns and the pacing sees the real batch time. A
-    /// purge always waits.
-    pub(super) fn waits_for_lane(self) -> bool {
-        self == Self::Delete
-    }
 }
 
 /// Log one warning, at the first sampler tick, when the node environment names

@@ -1,5 +1,10 @@
 # Current core memory and historical convergence record
 
+Policy update, 2026-10-20: the memory-ack policy below is superseded.
+Every successful local mutation request now waits for its native disk sequence before the ack.
+Earlier measurements below describe their recorded sources and remain unchanged.
+See the [current memory and disk contract](lastdb-rehydrate.md#write-and-flush).
+
 Status, 2026-10-18: the native packed engine is the sole logical engine.
 The core model owns current schemas, molecules, keys, tips, confirmed absence, and atom values.
 The recency list selects logical records for purge without a second set of values.

@@ -36,18 +36,6 @@ impl MutationManager {
         format!("{:x}", hasher.finalize())
     }
 
-    pub(super) fn require_durable_receipt(
-        receipt: ResidentCommitReceipt,
-        phase: &str,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        if receipt.durability != ResidentDurability::Durable {
-            return Err(SchemaError::InvalidData(format!(
-                "aggregate {phase} returned a queued receipt"
-            )));
-        }
-        Ok(receipt)
-    }
-
     pub(super) fn aggregate_named_lock(&self, key: String) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self
             .aggregate_locks

@@ -237,7 +237,6 @@ impl MutationManager {
         );
         // Current selected tips must certify this candidate's association
         // before removal. The caller's presence condition stays on its key.
-        reverse.synchronous = erasure.synchronous;
         reverse.erase_tips_before_nanos = erasure.erase_tips_before_nanos;
         if erasure.mutation_type == MutationType::Delete {
             // Both molecule keys describe one signed source Delete.

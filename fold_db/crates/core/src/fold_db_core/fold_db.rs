@@ -53,7 +53,7 @@ pub struct FoldDB {
     pub(crate) mutation_manager: Arc<MutationManager>,
     /// Tracker for pending background tasks
     pub(crate) pending_tasks: Arc<super::pending_task_tracker::PendingTaskTracker>,
-    /// Periodic storage flusher (memory-first mutation durability).
+    /// Periodic storage barrier for internal background work.
     /// See [`super::mutation_flush`].
     pub(crate) background_flush: super::mutation_flush::BackgroundFlushTask,
     /// Periodic orphan `protein:` reaper. See [`super::protein_reaper`].

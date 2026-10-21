@@ -56,7 +56,7 @@ pub const DEFAULT_RSS_LIMIT_MB: u64 = 16384;
 /// before the defer window is hard-latched closed.
 ///
 /// A 1–2 MiB jitter against a tight ceiling (Sentry RUST-3M: 12290 vs 12288)
-/// must not permanently disable memory acknowledgments. Only a real runaway — at least this
+/// must not permanently disable write reservations. Only a real runaway — at least this
 /// fraction, and not less than [`FOOTPRINT_HARD_OVERRUN_MIN_BYTES`] — latches.
 pub const FOOTPRINT_HARD_OVERRUN_FRACTION: f64 = 0.05;
 

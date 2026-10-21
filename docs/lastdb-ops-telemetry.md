@@ -87,9 +87,10 @@ requests carried a phase breakdown at all.
 
 Zero-hide applies on both axes: phases that measured zero are omitted from
 each row, and the table is absent entirely when nothing reported phases.
-Flush in particular stays near zero on default builds (background flusher;
-sync only under `LASTDB_MUTATION_SYNC_FLUSH=1`), so a visible `flush=0` would
-read as broken instrumentation rather than a measurement.
+`flush` records a separate explicit storage barrier when a caller measures one.
+The native mutation disk-sequence wait stays within `apply`.
+Every successful local mutation receipt includes that wait.
+An absent `flush` field does not mean that the write skips disk completion.
 
 Proof sequence for "where did my slow write spend its time":
 

@@ -106,7 +106,6 @@ impl PackNamespacedStore {
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
         }
-        space::validate_resident_policy()?;
         let node_home = initialization::NodeHome::open(path, &space_policy)?;
         Self::open_physical(&path.join("disk-pack"), Some(node_home))
     }
@@ -122,7 +121,6 @@ impl PackNamespacedStore {
         node_home: Option<initialization::NodeHome>,
     ) -> StorageResult<Self> {
         let space_policy = space::policy_from_env()?;
-        space::validate_resident_policy()?;
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let journal = home.journal().map_err(map)?;
         let read_lease = journal.read_lease();

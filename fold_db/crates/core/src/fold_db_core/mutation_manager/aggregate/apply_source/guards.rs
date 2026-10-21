@@ -196,11 +196,8 @@ impl MutationManager {
         )
         .await?;
         source.aggregate_set = None;
-        source.synchronous = Some(true);
-        let receipt = self
-            .write_mutations_batch_inner(vec![source], prefix, ctx.origin)
-            .await?;
-        Self::require_durable_receipt(receipt, "losing replay")
+        self.write_mutations_batch_inner(vec![source], prefix, ctx.origin)
+            .await
     }
 
     pub(super) fn plan_publish(ctx: &ApplyCtx<'_>, gs: &GuardState) -> PublishPlan {

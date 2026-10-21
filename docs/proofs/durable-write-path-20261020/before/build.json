@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "elapsed_seconds": 277.590397875,
+  "exit_code": 0
+}

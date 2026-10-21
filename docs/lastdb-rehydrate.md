@@ -144,8 +144,8 @@ An empty hash is valid for both initial key preload and later changes to the com
 1. Validate the batch and its current preconditions under the native write gate.
 2. Prepare the complete logical changes and their disk output.
 3. Reserve their memory and disk work before publication.
-4. Publish the complete core change, then send the permitted ack.
-5. Flush the prepared bytes through the one native disk queue.
+4. Commit the prepared bytes through the one native disk queue.
+5. Publish the complete core change, then send the durable ack.
 
 A successful batch returns one accepted input mutation ID per caller input, in caller order.
 Delete, Purge, and idempotent repeats follow the same rule.
@@ -213,7 +213,7 @@ File cleanup checks current accepted writes and deletes file blobs inside bounde
 The check and deletion share the same scope, including writes that still await flush.
 Single and batch requests carry the declared source file name through the same write pipeline.
 Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
-Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
+Every successful local mutation request waits for its disk sequence before the ack.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
 
 User Delete resolves the current related molecule keys inside the same native write boundary as their removal.
@@ -246,8 +246,10 @@ Stored record keys require valid decoding. Aggregate guards and portable imports
 A read limit also returns a refusal. Neither refusal causes an endless delete retry.
 Temporary memory or queue pressure retains its retry behavior.
 
-The native flush delay is at most 500 ms. `LASTDB_RESIDENT_PERSIST_MS` can select a delay from 1 to 500 ms.
-A crash can lose a write that received an ack before its flush.
+Internal background work can share a disk collection window of at most 500 ms.
+An ordinary mutation request seals its sequence and waits for disk completion.
+The retired memory-ack settings do not select another receipt policy.
+The ack covers local disk completion. Cloud publication remains a separate request policy.
 Write reservations, core metadata, schema definitions, and complete keys have separate allowances.
 Their limits do not define one whole-process memory cap.
 

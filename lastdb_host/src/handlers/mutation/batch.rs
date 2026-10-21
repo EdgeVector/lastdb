@@ -185,9 +185,6 @@ async fn prepare_batch_item<H: HostNode>(
         mutation_type,
     );
     mutation.source_file_name = source_file_name;
-    if durability.waits_for_persist() {
-        mutation.synchronous = Some(true);
-    }
     let mutation = match expected {
         Some(expectation) => mutation.with_expected(expectation),
         None => mutation,

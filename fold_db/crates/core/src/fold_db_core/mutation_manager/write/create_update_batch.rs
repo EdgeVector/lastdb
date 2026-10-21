@@ -5,20 +5,10 @@ use super::*;
 mod prepare;
 
 /// Mutable state threaded through the phases of one batch write.
+#[derive(Default)]
 pub(super) struct BatchState {
-    pub(super) force_durable: bool,
     pub(super) timing_breakdown: std::collections::HashMap<&'static str, std::time::Duration>,
     pub(super) stages: ResidentCommitStages,
-}
-
-impl BatchState {
-    fn new(force_durable: bool) -> Self {
-        Self {
-            force_durable,
-            timing_breakdown: std::collections::HashMap::new(),
-            stages: ResidentCommitStages::default(),
-        }
-    }
 }
 
 impl MutationManager {
@@ -26,18 +16,11 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        require_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         if mutations.is_empty() {
             return Ok(ResidentCommitReceipt::empty());
         }
-        // Replay and synchronous requests wait for complete durability.
-        // Each backend owns its publication and failure boundary.
-        let force_durable = require_durable
-            || mutations
-                .iter()
-                .any(|mutation| mutation.synchronous == Some(true));
         let operations = Self::count_requested_operations(&mutations);
 
         self.reject_derived_and_blocked(&mutations)?;
@@ -47,7 +30,7 @@ impl MutationManager {
         Self::log_batch_start(mutations.len());
 
         let start_time = std::time::Instant::now();
-        let state = BatchState::new(force_durable);
+        let state = BatchState::default();
         let runtime = self
             .db_ops
             .namespaced_store()
@@ -116,10 +99,8 @@ impl MutationManager {
         state: BatchState,
     ) -> ResidentCommitReceipt {
         let BatchState {
-            force_durable,
             timing_breakdown,
             mut stages,
-            ..
         } = state;
         let total_time = start_time.elapsed();
         stages.gate_wait_us = 0;
@@ -153,20 +134,10 @@ impl MutationManager {
             // around it.
             revision: None,
             operations,
-            // Queued permits a later flush. Explicit durability waits for disk;
-            // admission can also choose disk-first when it cannot retain bytes.
-            durability: Self::commit_durability(force_durable),
+            durability: ResidentDurability::Durable,
             cloud: None,
             stages,
             touched_group_ids: crate::durable_flush::current_touched_groups(),
-        }
-    }
-
-    fn commit_durability(force_durable: bool) -> ResidentDurability {
-        if force_durable {
-            ResidentDurability::Durable
-        } else {
-            ResidentDurability::Queued
         }
     }
 
@@ -196,29 +167,18 @@ impl MutationManager {
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
-        require_durable: bool,
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         // One log for the request and the persist lane. A nested call keeps it.
         if crate::durable_flush::current().is_some() {
             return self
-                .write_create_update_batch_in_log(
-                    mutations,
-                    storage_prefix,
-                    require_durable,
-                    author_clock_barrier,
-                )
+                .write_create_update_batch_in_log(mutations, storage_prefix, author_clock_barrier)
                 .await;
         }
         let log = crate::durable_flush::BatchPlacementLog::shared();
         crate::durable_flush::scope(
             log,
-            self.write_create_update_batch_in_log(
-                mutations,
-                storage_prefix,
-                require_durable,
-                author_clock_barrier,
-            ),
+            self.write_create_update_batch_in_log(mutations, storage_prefix, author_clock_barrier),
         )
         .await
     }

@@ -44,7 +44,7 @@ impl AtomStore {
             if !seen.insert(atom.uuid()) {
                 continue;
             }
-            let logical = serde_json::to_vec(atom).map_or(0, |bytes| bytes.len() as u64);
+            let logical = crate::json_size::encoded_len(atom).map_or(0, |bytes| bytes as u64);
             let blob_bytes = crate::atom::file_pointer::blob_logical_bytes_of_atom(
                 atom.content(),
                 atom.metadata(),

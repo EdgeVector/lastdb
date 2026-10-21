@@ -48,7 +48,6 @@ pub async fn execute_aggregate_finalize<H: HostNode>(
                 mapped
             }
         })?;
-    let receipt = require_durable_aggregate_receipt(receipt, "Aggregate finalize")?;
 
     Ok(serde_json::json!({
         "success": true,
@@ -107,7 +106,7 @@ pub async fn execute_aggregate_repair<H: HostNode>(
                 mapped
             }
         })?;
-    let receipt = require_durable_aggregate_receipt(repaired.receipt, "Aggregate repair")?;
+    let receipt = repaired.receipt;
 
     Ok(serde_json::json!({
         "receipt": {

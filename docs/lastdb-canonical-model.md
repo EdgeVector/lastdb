@@ -225,12 +225,14 @@ These call lifetimes do not provide an old-value query or stored atom history.
 The private disk queue retains prepared bytes until flush. Ordinary reads cannot query that queue.
 The native journal supports recovery of stored writes. It does not replace the current logical memory state.
 The local capture router remains, but no cloud engine attaches during this cutover.
-A logical write can send an ack before flush when the complete change fits its allowances.
-Explicit durable requests and unsupported internal file changes finish on disk before success.
+Every successful local mutation request finishes on disk before the ack.
+Both `queued` and `durable` request inputs receive this local durability guarantee.
+Explicit `durable` remains required for the optional cloud-publication request policy.
+Unsupported internal file changes also finish on disk before success.
 An internal file change clears affected core records before a later call can use them.
 
 Native reads and writes always use the core model. No old memory mode flag selects that route.
-`LASTDB_RESIDENT_PERSIST_MS` sets the native flush delay, from 1 to 500 ms.
+Internal background work can share a disk collection window of at most 500 ms.
 The record cap, definition allowance, selected-key allowance, and write allowance cover separate owners.
 They do not define one whole-process memory cap.
 

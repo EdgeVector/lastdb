@@ -40,16 +40,12 @@
 
 /// Whether the acknowledgment claims disk.
 ///
-/// The default write path acknowledges after the resident commit and lets the
-/// per-schema FIFO lane write the envelope afterwards, so the honest answer is
-/// [`Self::Queued`]. A caller that waited for the local persist token gets
-/// [`Self::Durable`]. Design law §4.8: the response states the durability state
-/// separately rather than letting `success` imply it.
+/// Native mutations return only after their complete local disk commit. A
+/// requested minimum does not weaken that guarantee. Cloud publication and
+/// background convergence remain separate from local durability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResidentDurability {
-    /// The envelope is on the persist lane; disk has not been waited for.
-    Queued,
-    /// The local persist token completed before this receipt was returned.
+    /// The complete local disk commit finished before this receipt returned.
     Durable,
 }
 
@@ -59,7 +55,6 @@ impl ResidentDurability {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Queued => "queued",
             Self::Durable => "durable",
         }
     }
@@ -248,7 +243,7 @@ impl ResidentCommitReceipt {
             mutation_ids: Vec::new(),
             revision: None,
             operations: ResidentCommitOperations::default(),
-            durability: ResidentDurability::Queued,
+            durability: ResidentDurability::Durable,
             cloud: None,
             stages: ResidentCommitStages::default(),
             touched_group_ids: Vec::new(),

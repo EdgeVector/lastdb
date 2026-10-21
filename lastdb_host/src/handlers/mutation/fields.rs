@@ -185,18 +185,6 @@ pub(in super::super) fn resolve_aggregate_set_schema_names<H: HostNode>(
     Ok(aggregate)
 }
 
-pub(in super::super) fn require_durable_aggregate_receipt(
-    receipt: ResidentCommitReceipt,
-    operation: &str,
-) -> Result<ResidentCommitReceipt, HostError> {
-    if receipt.durability != ResidentDurability::Durable {
-        return Err(HostError::internal(format!(
-            "{operation} returned a queued receipt"
-        )));
-    }
-    Ok(receipt)
-}
-
 pub(in super::super) fn source_mutation_id(
     receipt: &ResidentCommitReceipt,
 ) -> Result<String, HostError> {

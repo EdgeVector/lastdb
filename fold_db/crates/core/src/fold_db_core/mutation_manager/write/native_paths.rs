@@ -149,9 +149,8 @@ impl MutationManager {
         for ((target, _), atom) in targets.into_iter().zip(certified) {
             let Some(atom) = atom else { return Ok(None) };
             bytes = bytes.saturating_add(
-                serde_json::to_vec(atom.atom.as_ref())
-                    .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-                    .len(),
+                crate::json_size::encoded_len(atom.atom.as_ref())
+                    .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
             );
             if bytes > 128 * 1024 * 1024 {
                 return Ok(None);

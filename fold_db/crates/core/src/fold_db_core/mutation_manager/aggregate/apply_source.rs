@@ -178,7 +178,6 @@ impl MutationManager {
         }
 
         source.aggregate_set = None;
-        source.synchronous = Some(true);
         let (data_mutations, derived_clock) =
             self.build_data_mutations(source, &ctx, &incoming, apply, &summary.guard_token)?;
         let data_receipt = self

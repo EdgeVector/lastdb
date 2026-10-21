@@ -337,7 +337,7 @@ pub(crate) async fn scope<T, E>(
 where
     E: From<StorageError>,
 {
-    request_scope(runtime, false, future).await
+    request_scope(runtime, future).await
 }
 
 /// Keep the request's shutdown/defer resource with its complete stored batch.

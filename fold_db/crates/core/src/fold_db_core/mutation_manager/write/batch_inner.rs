@@ -78,7 +78,6 @@ impl MutationManager {
             );
             let mut receipt = ResidentCommitReceipt::empty();
             receipt.operations.deleted = erased;
-            receipt.durability = ResidentDurability::Durable;
             receipt.touched_group_ids = crate::durable_flush::current_touched_groups();
             return Ok(receipt);
         }
@@ -93,13 +92,8 @@ impl MutationManager {
                 )
                 .await;
         }
-        self.write_create_update_batch_async(
-            mutations,
-            storage_prefix,
-            matches!(origin, WriteOrigin::Replay),
-            author_clock_barrier,
-        )
-        .await
+        self.write_create_update_batch_async(mutations, storage_prefix, author_clock_barrier)
+            .await
     }
 
     /// Reject mutations that target aggregate-owned schemas or ask for
@@ -168,7 +162,6 @@ impl MutationManager {
             .write_create_update_batch_async(
                 mutations,
                 storage_prefix,
-                matches!(origin, WriteOrigin::Replay),
                 author_clock_barrier.clone(),
             )
             .await?;
@@ -179,17 +172,8 @@ impl MutationManager {
             deleted: erased,
             ..Default::default()
         });
-        // Every erase can be spared. Cover the earlier writes explicitly
-        // before upgrading the whole mixed request's durability receipt.
-        let runtime = self
-            .db_ops
-            .namespaced_store()
-            .disk_pack_runtime()
-            .ok_or_else(|| {
-                SchemaError::InvalidData("logical writes require native disk storage".into())
-            })?;
-        runtime.flush_native().await?;
-        receipt.durability = ResidentDurability::Durable;
+        // Create/update and every erasure already wait for their own disk
+        // completion, including absent or spared erasure targets.
         crate::request_phases::add_counter(
             crate::request_phases::RequestCounter::ResidentOperations,
             erased,

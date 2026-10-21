@@ -8,8 +8,8 @@
 //! the record that flips.
 //!
 //! The key is addressable by the target molecule, so the schema-field sources of
-//! one molecule are one range read under one hash. The memory-acknowledgement
-//! path reads them to name every schema that shares a molecule.
+//! one molecule are one range read under one hash. Native logical publication
+//! reads them to name every schema that shares a molecule.
 
 use super::AtomStore;
 use crate::hex::hex_lower;

@@ -150,15 +150,13 @@ impl FoldDB {
             let mutations: Vec<Mutation> = page
                 .iter()
                 .map(|key_value| {
-                    let mut mutation = Mutation::new(
+                    Mutation::new(
                         schema_name.to_string(),
                         HashMap::new(),
                         key_value.clone(),
                         "lastdb-hashrange-key-field-repair".to_string(),
                         MutationType::Update,
-                    );
-                    mutation.synchronous = Some(true);
-                    mutation
+                    )
                 })
                 .collect();
             self.mutation_manager

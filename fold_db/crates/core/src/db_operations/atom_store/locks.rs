@@ -126,8 +126,8 @@ impl AtomStore {
     /// Serialize foreground Put and Delete publication for exact tip rows.
     ///
     /// A caller that needs both lock families takes the durable commit locks
-    /// first. A normal Put takes only these short publication locks and sends
-    /// its memory ack without waiting for the background disk flush.
+    /// first. A normal Put takes these short publication locks during private
+    /// preparation; its request waits for the native disk sequence before ack.
     pub(crate) async fn lock_tip_publications(
         &self,
         storage_keys: &[String],

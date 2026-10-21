@@ -1,4 +1,4 @@
-//! Public write entry points, batch pipeline orchestration, timing, finalize.
+//! Public write entry points and durable batch orchestration.
 
 use std::collections::{HashMap, HashSet};
 
@@ -214,48 +214,6 @@ impl MutationManager {
                 )));
             }
         }
-        Ok(())
-    }
-
-    /// Finalizes the batch with an optional durability flush.
-    ///
-    /// **Default (sled-like):** skip the barrier here. Puts are already in
-    /// LastStore memory buffers; the process background flusher
-    /// (see [`crate::fold_db_core::mutation_flush`]) and `FoldDB::shutdown`
-    /// own whole-store F_FULLFSYNC. `force_durable` or
-    /// `LASTDB_MUTATION_SYNC_FLUSH=1` syncs only the groups this batch wrote.
-    pub(super) async fn finalize_batch(
-        &self,
-        timing_breakdown: &mut HashMap<&str, std::time::Duration>,
-        force_durable: bool,
-    ) -> Result<(), SchemaError> {
-        let flush_required = force_durable || crate::fold_db_core::mutation_sync_flush_enabled();
-        if flush_required {
-            let flush_start = std::time::Instant::now();
-            tracing::debug!("Flushing written groups after batch mutations");
-            let written = crate::durable_flush::current_written_keys();
-            self.db_ops.flush_dirty_scope(&written).await.map_err(|e| {
-                tracing::error!(
-                    "Failed to flush written groups after batch mutations: {}",
-                    e
-                );
-                e
-            })?;
-            tracing::debug!("Database flushed in {:?}", flush_start.elapsed());
-            // Timed only when a flush actually ran: a skipped flush must not
-            // book its branch check + debug log as ~1µs of "flush" on every
-            // mutation — the phase telemetry hides absent phases, and this is
-            // what keeps the default build's flush column honestly absent.
-            Self::add_timing(timing_breakdown, "flush", flush_start.elapsed());
-        } else {
-            // Memory-first: mutation is visible in-process; durable shortly via
-            // background flusher / shutdown / LastStore max_dirty group-commit.
-            tracing::debug!(
-                "Skipping sync flush after batch mutations (deferred durability; \
-                 set LASTDB_MUTATION_SYNC_FLUSH=1 for per-mutation fsync)"
-            );
-        }
-
         Ok(())
     }
 

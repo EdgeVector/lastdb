@@ -25,7 +25,6 @@ pub struct Mutation {
     pub key_value: KeyValue,
     pub pub_key: String,
     pub mutation_type: MutationType,
-    pub synchronous: Option<bool>,
     /// Optional source filename for atoms created from file uploads
     pub source_file_name: Option<String>,
     /// Per-key metadata is part of the signed mutation, not the atom UUID.
@@ -145,7 +144,6 @@ impl Mutation {
             key_value,
             pub_key,
             mutation_type,
-            synchronous: None,
             source_file_name: None,
             metadata: None,
             provenance: None,

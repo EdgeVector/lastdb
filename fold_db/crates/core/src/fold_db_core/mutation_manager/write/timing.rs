@@ -62,9 +62,6 @@ impl MutationManager {
     ///   `tracing::debug!` line below — which a running node cannot enable
     ///   (`papercut-lastdb-no-runtime-log-level-toggle`), so on the one node
     ///   whose numbers matter the decomposition was measured and unreadable.
-    /// - **flush** — the optional durability flush; ~0 unless
-    ///   `LASTDB_MUTATION_SYNC_FLUSH=1`, and a truncated-to-zero value stays
-    ///   unset so operator surfaces hide the column.
     /// - **apply** — the RESIDUAL: everything the batch spent that no other
     ///   named bucket claims. Every step this function measures into
     ///   `timing_breakdown` now has its own phase (see below), so a non-zero
@@ -125,7 +122,6 @@ impl MutationManager {
         let mut persist_molecules = std::time::Duration::ZERO;
         let mut persist_schema = std::time::Duration::ZERO;
         let mut persist_idempotency = std::time::Duration::ZERO;
-        let mut flush = std::time::Duration::ZERO;
         let mut restore_molecules = std::time::Duration::ZERO;
         let mut schema_reload = std::time::Duration::ZERO;
         let mut protein_sibling_fold = std::time::Duration::ZERO;
@@ -143,7 +139,6 @@ impl MutationManager {
                 "  - write_molecules_batch" => persist_molecules += *elapsed,
                 "schema_store" => persist_schema += *elapsed,
                 "idempotency_store" => persist_idempotency += *elapsed,
-                "flush" => flush += *elapsed,
                 "  - restore_molecules" => restore_molecules += *elapsed,
                 "schema_reload" => schema_reload += *elapsed,
                 "  - protein_sibling_fold" => protein_sibling_fold += *elapsed,
@@ -188,7 +183,6 @@ impl MutationManager {
         let apply = total_time
             .saturating_sub(persist)
             .saturating_sub(persist_named)
-            .saturating_sub(flush)
             .saturating_sub(molecule_lock_wait)
             .saturating_sub(named_other);
 
@@ -207,7 +201,6 @@ impl MutationManager {
         add_phase(RequestPhase::PersistMolecules, persist_molecules);
         add_phase(RequestPhase::PersistSchema, persist_schema);
         add_phase(RequestPhase::PersistIdempotency, persist_idempotency);
-        add_phase(RequestPhase::Flush, flush);
     }
 
     /// Log a sorted timing breakdown for batch mutation phases.

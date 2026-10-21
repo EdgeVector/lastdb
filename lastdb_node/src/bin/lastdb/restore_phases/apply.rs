@@ -274,8 +274,6 @@ impl Apply<'_> {
         report: &mut LastStoreCloudRestoreReport,
         frontier: &fold_db::sync::snapshot_log::Frontier,
     ) -> Phase<()> {
-        // Restore requires the explicit per-batch durability boundary.
-        std::env::set_var("LASTDB_MUTATION_SYNC_FLUSH", "1");
         if let Some(progress) = self.progress {
             progress.phase(fold_db::sync::engine::RestorePhase::OpenDatabase);
         }

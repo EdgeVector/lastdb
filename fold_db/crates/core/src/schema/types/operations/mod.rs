@@ -308,26 +308,20 @@ impl MutationConvergence {
     }
 }
 
-/// The local persistence guarantee that a mutation request requires before
-/// the node returns its receipt.
+/// The caller's minimum local persistence requirement.
 ///
-/// Durability is independent from [`MutationConvergence`]. A durable request
-/// waits for local mutation state to persist, but it does not drain unrelated
-/// background convergence work.
+/// The node upgrades both inputs to a durable receipt: every successful local
+/// mutation waits for its disk sequence before response. This does not drain
+/// unrelated background convergence work. Explicit `durable` remains distinct
+/// for request policies such as the optional cloud-publication wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MutationDurability {
-    /// Persist local mutation state before the node returns a durable receipt.
+    /// Explicitly require local disk completion before response.
     Durable,
-    /// Accept the normal queued receipt without a persistence barrier.
+    /// Accept the node's default guarantee, currently upgraded to local durability.
     #[default]
     Queued,
-}
-
-impl MutationDurability {
-    pub fn waits_for_persist(self) -> bool {
-        matches!(self, Self::Durable)
-    }
 }
 
 /// Optional off-box publication wait for one durable delete.
@@ -365,9 +359,10 @@ pub enum Operation {
         /// background work drained before the response.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         convergence: Option<MutationConvergence>,
-        /// Optional local persistence policy. Defaults to `queued`. Pass
-        /// `durable` to require a local-storage receipt before the
-        /// response. This policy does not change convergence behavior.
+        /// Optional minimum local persistence policy; defaults to `queued`.
+        /// Both inputs receive local disk completion before response. Explicit
+        /// `durable` also enables the durable-delete cloud request policy.
+        /// This field does not change convergence behavior.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         durability: Option<MutationDurability>,
         /// Optional exact off-box publication wait. The owner mutation route

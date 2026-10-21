@@ -79,7 +79,6 @@ async fn purge_keys(
                 host.public_key(),
                 verb.mutation_type(),
             );
-            mutation.synchronous = verb.waits_for_lane().then_some(true);
             mutation = mutation.with_erase_caller(verb.caller());
             if let Some(nanos) = tip_cutoff_nanos {
                 mutation = mutation.with_erase_tips_before_nanos(nanos);
