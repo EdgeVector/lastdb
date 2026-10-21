@@ -194,23 +194,17 @@ The same commit retires the prior tip's reference. A reference that the current 
 A present key-metadata record supplies all its optional fields. An omitted member clears that value.
 Only the absence of the entire key-metadata record permits atom creation metadata as a fallback.
 Current key metadata can reference a file blob independently of the immutable atom metadata.
-Each tip owns the protection for its current metadata references.
-Replacement and deletion change that protection with the selected tip.
-All databases on the node share the file blob store.
-The protection uses the exact database scope of each source.
+Each tip that carries file metadata is one reference to its blob, and so is each atom counter that lists the blob.
+The blob counter changes in the same batch as the tip or the atom counter that holds the reference.
+All databases on the node share the file blob store, and one blob counter counts the references of every scope.
+A scope drop lowers the blob counters that its tips and atom counters held, in the same batch as the rows.
 
-File cleanup requires a completion proof for atom references and current tip metadata references.
-A fresh native home creates that proof with the current key format marker in one private write.
-Each file reference has a node-wide target and an exact source record in its database scope.
-Database deletion removes the target and its source record together.
-Current backups keep these records and proofs.
-A scoped restore uses the exact source records to restore their targets.
+File cleanup uses the blob counter and a dwell (`docs/lastdb-blob-counter.md`).
+A blob whose counter reaches zero waits one hour by default, because an upload comes before the atom that names it.
+The dwell pass then reads the counter again inside a native write scope and deletes the blob row, its counter and its queue entry in one batch.
+A reference that arrives during the dwell cancels the delete.
 A personal restore keeps existing node-wide file bytes and their encryption metadata.
 It adds only files that are absent from the node.
-This rule covers both local file stores. Normal file cleanup removes unused files after its reference checks.
-
-File cleanup checks current accepted writes and deletes file blobs inside bounded native write scopes.
-The check and deletion share the same scope, including writes that still await flush.
 Single and batch requests carry the declared source file name through the same write pipeline.
 Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
 Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
@@ -223,17 +217,16 @@ The worker checks the caller's conditions before it prepares any deletion.
 The current field atoms supply the values for those checks and related keys.
 Source and related deletions enter one disk commit, including each schema's cleanup work.
 Search receives the deletion after that commit.
-Both Delete forms remove tips and keep shared atom bodies. The `must_exist` option checks the caller's key before removal.
+Both Delete forms remove tips. The atom counter frees an atom body only when its last reference goes, so shared atom bodies stay. The `must_exist` option checks the caller's key before removal.
 Delete crosses Hash and HashRange layouts only for complete records with the same field names and canonical field identities.
 Partial membership records keep their separate deletion boundary.
 The explicit Purge route retains its separate destructive rules.
 Delete and Purge check the caller's conditions in the same database scope as the removal.
-Both Purge paths check shared references after removal of the target tips.
-A failed reference check stops publication before atom removal.
-Reference data uses the selected database scope. Its completion proof covers the whole home and uses unprefixed markers.
-A missing completion proof refuses atom removal. An older reference store cannot replace that proof.
-The atom liveness report reads the current exact reference count. A missing or inexact count remains unknown.
-The report does not reconstruct atom references from retired JSON records or invent an empty reference list.
+Delete and Purge give every tip change to the atom counter planner. The planner lowers one reference for each removed tip and deletes each body whose count reaches exactly zero in the same batch (`docs/lastdb-atom-counter.md`).
+A counter that is absent, or lower than the removal, keeps the body and marks the counter `suspect`. The request does not fail for it.
+Counters use the selected database scope.
+The atom liveness report reads the counter of each named atom: its count, its `suspect` flag, and whether the body exists.
+The report cannot list the referrers of an atom, because the counter holds a number and no list.
 This diagnostic accepts the default owner scope. It refuses named database handles because it lacks a schema for their alias lookup.
 An optional peer key without scalar coordinates receives no related deletion.
 The caller's addressed record remains eligible for deletion.
