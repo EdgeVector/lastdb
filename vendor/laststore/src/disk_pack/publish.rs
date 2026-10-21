@@ -185,7 +185,8 @@ impl Publisher<'_> {
                 if changes.len() > self.proposed.batch_operation_limit() {
                     return Err(corrupt("invalid new locator change count"));
                 }
-                self.locators.create(&changes)?
+                self.locators
+                    .create(&mut call, self.directory.root(), &changes)?
             };
             let value = DirectoryEntry {
                 group,
