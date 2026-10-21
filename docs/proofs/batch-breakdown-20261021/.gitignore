@@ -1,0 +1,6 @@
+# Exact gzip archives preserve these large local originals byte for byte.
+/existing_result.json
+/profile_result_v1.json
+/sealed-originals.json
+/profile-r[12]/result.json
+/profile-r[12]/run/result.json

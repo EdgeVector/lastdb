@@ -1,0 +1,313 @@
+{
+  "accepted_valid": true,
+  "actual_runtime_filter": {
+    "directive": "warn,fold_db::write_gate=debug",
+    "installed": true,
+    "previous": "info"
+  },
+  "binary_sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55",
+  "checks": {
+    "actual_runtime_filter_receipt": true,
+    "all_fields_values_and_membership_assertions": true,
+    "fresh_after_request_snapshots": true,
+    "immediate_and_reopened_notice_keys_ids_flags_and_order": true,
+    "independent_keyed_query_body_hashes": true,
+    "independent_write_body_hashes": true,
+    "mach_timebase_and_process_identity": true,
+    "normal_node_stops": true,
+    "normal_reopen_full_key_coverage": true,
+    "private_binary_binding": true,
+    "source_and_helper_bindings": true,
+    "unique_populated_request_phases": true,
+    "write_ids_and_counts": true
+  },
+  "cpu_milliseconds": {
+    "system": 1847.4205416666668,
+    "user": 4382.1435
+  },
+  "cpu_raw_totals": {
+    "reads": 618496,
+    "system": 44338093,
+    "user": 105171444,
+    "writes": 262868992
+  },
+  "cpu_scope": "All node threads, including sampler work, in resource brackets slightly wider than HTTP. Raw times use Mach units. Byte counters are process totals.",
+  "derived_analysis_review": {
+    "accepted_valid": true,
+    "action_cells_checked": 12,
+    "all_http_cpu_stage_gate_distributions_match": true,
+    "archive_fallback_review": {
+      "accepted_valid": true,
+      "all_prior_measurement_fields_unchanged": true,
+      "compressed_sha256": "0dc7fcef1c3a33c7ee9ea7223091bfd6ee2bd070bf2c3cf9da27a821e3a00c8e",
+      "manifest": {
+        "bytes": 813,
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/run/portable/node-log-00/manifest.json",
+        "sha256": "559bbb12c5c31155e4f8a1c807be8c9ead11594270ed6c6d5f89253465b618f2"
+      },
+      "manifest_and_parts_checked": true,
+      "original_log_bytes_reproduced": true,
+      "parts": [
+        {
+          "bytes": 3198,
+          "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/run/portable/node-log-00/payload.gz.part-001",
+          "sha256": "0dc7fcef1c3a33c7ee9ea7223091bfd6ee2bd070bf2c3cf9da27a821e3a00c8e"
+        }
+      ],
+      "raw_bytes": 26916,
+      "raw_sha256": "5f817a8618567b27a918a78740af7017d7f269d21f5c79233f18a449d8c63bea",
+      "report_bytes_unchanged": true,
+      "verification_scope": "Archive bytes reproduce the original independently checked gate log. No product call or new measurement ran."
+    },
+    "artifacts": {
+      "profile_analyze.py": {
+        "bytes": 24985,
+        "sha256": "7fe364e43f12db3ee231152ad9af679542171c3de433d18d179abe0070ecc067"
+      },
+      "profile_report.md": {
+        "bytes": 3697,
+        "sha256": "9c38a429224cc547ee7d49c66b0459a1f94208d3363af4182d2d424a6c752b07"
+      },
+      "profile_result.json": {
+        "bytes": 276179,
+        "sha256": "52d3ca62537179a7df6b19c4b7470c0012ed96a3a2e74952d5f1659e1304ce1d"
+      }
+    },
+    "gate_log_sha256": "5f817a8618567b27a918a78740af7017d7f269d21f5c79233f18a449d8c63bea",
+    "initial_analysis_snapshots": {
+      "profile_analyze_v1.py": {
+        "bytes": 22424,
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_analyze_v1.py",
+        "sha256": "36925969e7b4f2378ed42d699347960015cea4b7e54b9991894ad9611f5994a3"
+      },
+      "profile_report_v1.md": {
+        "bytes": 3697,
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_report_v1.md",
+        "sha256": "9c38a429224cc547ee7d49c66b0459a1f94208d3363af4182d2d424a6c752b07"
+      },
+      "profile_result_v1.json": {
+        "bytes": 274588,
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_result_v1.json",
+        "sha256": "5f3047f49cd05a70186a62a672b6df1894905e12b302e0f88f8c6bec993a4dbd"
+      }
+    },
+    "phase_fields_and_observed_denominators_match": true,
+    "pooled_groups_checked": 6,
+    "process_barrier_totals_and_means_match": true,
+    "report_claim_limits_match": true,
+    "stored_operations_at_batch_128": {
+      "create": 1542,
+      "update": 1797
+    },
+    "unique_final_gate_associations": 36
+  },
+  "failed_v1": {
+    "accepted_valid": false,
+    "complete": false,
+    "cpu_metadata_valid": false,
+    "optional_runtime_filter_activated": false,
+    "original_evidence": {
+      "bytes": 104450,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r1/result.json",
+      "sha256": "d59ebd3de4d5b911e255896f0fa1a63860b71d9a49a1507197d03755700b5f7b"
+    },
+    "reason": "The verification query expected 483 keys with a 256-record limit. The run stopped normally."
+  },
+  "helper_identities_checked": 14,
+  "mach_timebase_info": {
+    "denom": 3,
+    "numer": 125
+  },
+  "native_barrier_deltas": {
+    "data_file_calls": 1012,
+    "data_file_micros": 4232296,
+    "directory_calls": 1615,
+    "directory_micros": 7016631,
+    "sidecar_file_calls": 0,
+    "sidecar_file_micros": 0
+  },
+  "native_barrier_scope": "Process-wide completed barrier attempts across the native status brackets, wider than HTTP. Elapsed sums can overlap threads.",
+  "node_sessions": [
+    {
+      "exit_code": 0,
+      "forced_kill": false,
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.onrw6ch1/b/h",
+      "pid": 25867
+    },
+    {
+      "exit_code": 0,
+      "forced_kill": false,
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.onrw6ch1/b/h",
+      "pid": 32692
+    }
+  ],
+  "origin_main_at_capture": "c70e6fdc7810bb6291a2564ad8157d7938de0494",
+  "original_evidence": {
+    "command.json": {
+      "bytes": 6884,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/command.json",
+      "sha256": "4057aa77fd1ee6cb44ea9fecdbf90a50a81fc093b16b48180253202921d4fe22"
+    },
+    "result.json": {
+      "bytes": 103371,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/result.json",
+      "sha256": "2e995a8a2ef929a95baf73dd3bedcd9fd221deea878edde97d13ab036cfe36a8"
+    },
+    "run/inputs.json": {
+      "bytes": 2754,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/run/inputs.json",
+      "sha256": "95abf8ac8233cf8936bc094dab62f487e01bf5117aec445df70a6a22aa8f2265"
+    },
+    "run/receipts.jsonl": {
+      "bytes": 7336600,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/run/receipts.jsonl",
+      "sha256": "67dbc673a111a1d484e0c76c054a668c5b647a42e0d92609105668b7dab575b5"
+    }
+  },
+  "private_binary": {
+    "bytes": 67623168,
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.onrw6ch1/program-lastdbd",
+    "sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55"
+  },
+  "proof_limits": [
+    "This is a candidate-only diagnostic on a small fresh database with concurrent host work. It supplies no before/after or hardware capacity claim.",
+    "The one-second sampler and debug output can alter the workload. Calls have status and resource checks between them.",
+    "A request phase is elapsed time, not CPU time. Apply includes native admission, author-clock and disk waits plus unnamed work.",
+    "Response bodies are compact hashes and selected fields. Full-field equality follows the recorded successful assertions in the frozen helper; this audit does not reconstruct discarded raw response values.",
+    "Normal stop and reopen do not prove crash or power-loss behavior. The OS file cache stays uncontrolled.",
+    "Three samples per verb and cell cannot support a stable tail-latency estimate.",
+    "This review does not authorize cleanup and does not inspect the primary or its archive."
+  ],
+  "reviewed_utc": "2026-10-21T21:47:03.235800+00:00",
+  "snapshot_freshness": [
+    {
+      "latest_included_completion_ms": 1792618964968,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-10",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-13",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-7"
+      ],
+      "sampled_at_seconds": 1792618965
+    },
+    {
+      "latest_included_completion_ms": 1792618966769,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-23",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-26",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-29"
+      ],
+      "sampled_at_seconds": 1792618966
+    },
+    {
+      "latest_included_completion_ms": 1792618968267,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-36",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-39",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-42"
+      ],
+      "sampled_at_seconds": 1792618968
+    },
+    {
+      "latest_included_completion_ms": 1792618970142,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-51",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-54",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-57"
+      ],
+      "sampled_at_seconds": 1792618970
+    },
+    {
+      "latest_included_completion_ms": 1792618973198,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-67",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-70",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-73"
+      ],
+      "sampled_at_seconds": 1792618973
+    },
+    {
+      "latest_included_completion_ms": 1792618976551,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-88",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-91",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-94"
+      ],
+      "sampled_at_seconds": 1792618976
+    },
+    {
+      "latest_included_completion_ms": 1792618978281,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-109",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-112",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-115"
+      ],
+      "sampled_at_seconds": 1792618978
+    },
+    {
+      "latest_included_completion_ms": 1792618979959,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-131",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-134",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-137"
+      ],
+      "sampled_at_seconds": 1792618980
+    },
+    {
+      "latest_included_completion_ms": 1792618982574,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-154",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-157",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-160"
+      ],
+      "sampled_at_seconds": 1792618982
+    },
+    {
+      "latest_included_completion_ms": 1792618984742,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-175",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-178",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-181"
+      ],
+      "sampled_at_seconds": 1792618984
+    },
+    {
+      "latest_included_completion_ms": 1792618986388,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-195",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-198",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-201"
+      ],
+      "sampled_at_seconds": 1792618986
+    },
+    {
+      "latest_included_completion_ms": 1792618989113,
+      "requested_ids": [
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-217",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-220",
+        "atomic-notice-8da56bd0efa04a02a05d090910e5d04b-223"
+      ],
+      "sampled_at_seconds": 1792618989
+    }
+  ],
+  "source_inputs_rechecked": 1888,
+  "source_inventory_sha256": "ab963097823d00484fae09b9fc7b026d4f00dd71a96da49958f45c30bf9b6f4b",
+  "source_manifest": {
+    "bytes": 353903,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-main-v2/source-identity.json",
+    "sha256": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff"
+  },
+  "totals": {
+    "accepted_mutations": 1932,
+    "cell_snapshots": 12,
+    "geometries": 2,
+    "keyed_read_calls": 88,
+    "matched_unique_phase_samples": 36,
+    "normal_node_sessions": 2,
+    "original_and_reopened_notice_observations": 3864,
+    "records_per_schema": 483,
+    "samples_per_cell": 3,
+    "unique_notice_ids": 1932,
+    "write_calls": 36
+  },
+  "version": 1
+}

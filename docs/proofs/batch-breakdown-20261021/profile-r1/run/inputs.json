@@ -1,0 +1,72 @@
+{
+  "binary_sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55",
+  "body_bytes": 1024,
+  "driver_sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81",
+  "environment": {
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "BatchProfileHashrange",
+    "LASTDB_SELF_METRICS_LOG": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iuazx6at/b/h/logs/profile-vitals.jsonl",
+    "LASTDB_SELF_METRICS_RETENTION_DRAIN": "0",
+    "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
+    "LASTDB_SELF_METRICS_TO_DB": "0"
+  },
+  "fields": [
+    "bucket",
+    "id",
+    "title",
+    "body"
+  ],
+  "filesystem_cache": "uncontrolled; normal process reopen does not flush the OS cache",
+  "imports": {
+    "ownership.py": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb",
+    "range_profile.py": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+  },
+  "load_start": [
+    4.22900390625,
+    3.6708984375,
+    2.92041015625
+  ],
+  "owner_uid": 501,
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "reads_only": false,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iuazx6at",
+  "run_id": "242b387a3e2c43e795b0339cf5fe9408",
+  "samples_per_verb_geometry_batch": 3,
+  "schemas": [
+    "BatchProfileHash",
+    "BatchProfileHashrange"
+  ],
+  "source_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+  "source_commit": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff",
+  "source_identity": {
+    "binary_sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55",
+    "bytes": 353903,
+    "head": "0bd1441526809faedfc54812ffd434e1b67f0b38",
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-main-v2/source-identity.json",
+    "sha256": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff",
+    "source_input_count": 1888,
+    "source_inventory_sha256": "ab963097823d00484fae09b9fc7b026d4f00dd71a96da49958f45c30bf9b6f4b",
+    "state": "release_verified"
+  },
+  "started_utc": "2026-10-21T21:39:12.083164+00:00",
+  "timing_scope": "Candidate-only diagnostic, one caller, small fresh database.",
+  "unused_imported_helper_metadata": {
+    "candidate_policy": {},
+    "concurrent_keys_per_query": 1,
+    "concurrent_queries": 2,
+    "counts": [
+      1,
+      32,
+      128
+    ],
+    "hashes": 2,
+    "path_cap": 10000,
+    "range_bytes": 54,
+    "range_recipe": "todo#8-digit position#40-byte generated slug",
+    "read_rounds": 1,
+    "records_per_hash": 483,
+    "schema": "SchemaPreloadProduct",
+    "seed_batch": 3,
+    "total_seed_records": 966
+  },
+  "variant": "batch-profile"
+}

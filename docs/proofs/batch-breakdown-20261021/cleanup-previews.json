@@ -1,0 +1,44 @@
+{
+  "complete": true,
+  "outcomes": [
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r1/run",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iuazx6at",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iuazx6at (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iuazx6at",
+      "startup_gate_refusal": false
+    },
+    {
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/run",
+      "result": {
+        "command": [
+          "/Users/tomtang/.local/bin/lastdb-dev",
+          "reclaim",
+          "--home",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.onrw6ch1",
+          "--exact-home",
+          "--dry-run"
+        ],
+        "exit_code": 0,
+        "root_exists_after_preview": true,
+        "stderr": "",
+        "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.onrw6ch1 (released exact synthetic seed)\n"
+      },
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.onrw6ch1",
+      "startup_gate_refusal": false
+    }
+  ],
+  "scope": "Exact supported reclaim only. The startup refusal is not described as a normal session."
+}

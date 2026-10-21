@@ -1,0 +1,121 @@
+{
+  "binary": {
+    "bytes": 67623168,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/target/release/lastdbd",
+    "sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55"
+  },
+  "body_bytes": 1024,
+  "clock_units": "HTTP elapsed_ns in nanoseconds; request phase *_us in microseconds; process CPU counters in nanoseconds.",
+  "command": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_run.py",
+    "--binary",
+    "target/release/lastdbd",
+    "--source",
+    "docs/proofs/atomic-change-feed-20261021/after-main-v2/source-identity.json",
+    "--output",
+    "docs/proofs/batch-breakdown-20261021/profile-r1",
+    "--samples",
+    "3"
+  ],
+  "environment": {
+    "LASTDB_SCHEMA_PRELOAD_SCHEMAS": "BatchProfileHashrange",
+    "LASTDB_SELF_METRICS_LOG": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.iuazx6at/b/h/logs/profile-vitals.jsonl",
+    "LASTDB_SELF_METRICS_RETENTION_DRAIN": "0",
+    "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
+    "LASTDB_SELF_METRICS_TO_DB": "0"
+  },
+  "fields": [
+    "bucket",
+    "id",
+    "title",
+    "body"
+  ],
+  "helpers": {
+    "bench_cells.py": {
+      "bytes": 8806,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/bench_cells.py",
+      "sha256": "0b2502e579a8b4652cec8635a7b594b9cc9848cd970a6ac152347188b0061dc1"
+    },
+    "docs/proofs/atomic-change-feed-20261021/bench_cells.py": {
+      "bytes": 8806,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/bench_cells.py",
+      "sha256": "0b2502e579a8b4652cec8635a7b594b9cc9848cd970a6ac152347188b0061dc1"
+    },
+    "docs/proofs/atomic-change-feed-20261021/bench_notices.py": {
+      "bytes": 3853,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/bench_notices.py",
+      "sha256": "16683bd999776c9c4e794858189b57ebc32e7b612b53239a8cb657c0634fe2aa"
+    },
+    "docs/proofs/atomic-change-feed-20261021/bench_support.py": {
+      "bytes": 8826,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/bench_support.py",
+      "sha256": "54b1b826735d9730552daea5ebf29d018233efe8a08ad26471ca6608e39cc45e"
+    },
+    "docs/proofs/atomic-change-feed-20261021/benchmark.py": {
+      "bytes": 9232,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/benchmark.py",
+      "sha256": "2bd9f40932e0f1f73680b4a666f151a9bdd4643ce711a5792c2a8121113fc03d"
+    },
+    "docs/proofs/atomic-change-feed-20261021/quiet_host.py": {
+      "bytes": 16907,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/quiet_host.py",
+      "sha256": "ac6c19f25f017e9587a2e95c3a022b0ebb921cfe1f9e6efcf097e426bf58918a"
+    },
+    "docs/proofs/core-clarity-20261018/default_node.py": {
+      "bytes": 2682,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-clarity-20261018/default_node.py",
+      "sha256": "dbccdb86e1a712cdf69a82fbfe0dedcea6d82ac05659b8c7a5950b04eb55df1b"
+    },
+    "docs/proofs/core-memory-state-20261018/api.py": {
+      "bytes": 7337,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-memory-state-20261018/api.py",
+      "sha256": "defbbf73ea9d6ebf1aa8ae4013237b79c78ffcbeda4656059ba839d5e1c025f8"
+    },
+    "docs/proofs/core-owned-writes-20261018/logical.py": {
+      "bytes": 8763,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/core-owned-writes-20261018/logical.py",
+      "sha256": "3f7c9f6734811e6a912db2e56253c6edb2f2070b50dffce5f2b0837f27b749c6"
+    },
+    "docs/proofs/graph-first-20261017/drivers/ownership.py": {
+      "bytes": 794,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/graph-first-20261017/drivers/ownership.py",
+      "sha256": "d064d157ffb06cfef3523d2ed6ee3fccc1af164c8825cce4e71ba1e0605c1eeb"
+    },
+    "docs/proofs/graph-first-20261017/drivers/range_profile.py": {
+      "bytes": 19493,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/graph-first-20261017/drivers/range_profile.py",
+      "sha256": "daa055446f7bc71adde7091346f1d110ee32b72b7c59a801fd5278fbad826f2b"
+    },
+    "docs/proofs/schema-preload-product-20261017/measure.py": {
+      "bytes": 23399,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/schema-preload-product-20261017/measure.py",
+      "sha256": "41b156b440ba7a4b7c96cb5679f96512f0480768cadb56b55798e77ba0ec7b81"
+    },
+    "operation_context.py": {
+      "bytes": 7748,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operation_context.py",
+      "sha256": "82c620a0a976cd08e6c4ddb404d533170359aeca0e41fa489aaedd2c39eec97d"
+    },
+    "profile_run.py": {
+      "bytes": 9511,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_run.py",
+      "sha256": "93f4dec344f2c9ad1c736eccb916a3c43b544910ca134fcc0023f851c2873aa1"
+    }
+  },
+  "runtime_log_filter": "warn,fold_db::write_gate=debug",
+  "samples_per_verb_geometry_batch": 3,
+  "scope": "Candidate-only phase diagnosis on a small fresh database. Concurrent host; no before/after or hardware-capacity claim.",
+  "source": {
+    "binary_sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55",
+    "bytes": 353903,
+    "head": "0bd1441526809faedfc54812ffd434e1b67f0b38",
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-main-v2/source-identity.json",
+    "sha256": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff",
+    "source_input_count": 1888,
+    "source_inventory_sha256": "ab963097823d00484fae09b9fc7b026d4f00dd71a96da49958f45c30bf9b6f4b",
+    "state": "release_verified"
+  },
+  "timing": "Prepared JSON send through complete response bytes; preparation/verification/status polling is outside HTTP timing.",
+  "writers": 1
+}

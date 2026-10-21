@@ -1,0 +1,142 @@
+{
+  "accepted_valid": true,
+  "binary_sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55",
+  "checks": {
+    "every_derived_write_delta_matches_raw_process_counters": true,
+    "process_births_match_inside_each_resource_bracket": true,
+    "six_groups_have_six_calls_each": true,
+    "supplied_body_field_bytes_follow_accepted_changes_times_1024": true,
+    "write_counters_never_regress": true
+  },
+  "evidence": {
+    "analysis_result": {
+      "bytes": 276179,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_result.json",
+      "sha256": "52d3ca62537179a7df6b19c4b7470c0012ed96a3a2e74952d5f1659e1304ce1d"
+    },
+    "command": {
+      "bytes": 6884,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/command.json",
+      "sha256": "4057aa77fd1ee6cb44ea9fecdbf90a50a81fc093b16b48180253202921d4fe22"
+    },
+    "raw_receipts": {
+      "bytes": 7336600,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile-r2/run/receipts.jsonl",
+      "sha256": "67dbc673a111a1d484e0c76c054a668c5b647a42e0d92609105668b7dab575b5"
+    }
+  },
+  "groups": [
+    {
+      "geometry": "hash",
+      "http_calls": 6,
+      "maximum_write_mib_per_call": 0.5234375,
+      "mean_write_bytes_exact": {
+        "denominator": 6,
+        "numerator": 2674688
+      },
+      "mean_write_bytes_per_call": 445781.3333333333,
+      "mean_write_mib_per_call": 0.4251302083333333,
+      "minimum_write_mib_per_call": 0.36328125,
+      "node_write_counter_delta_bytes": 2674688,
+      "node_write_counter_delta_mib": 2.55078125,
+      "records_per_call": 1
+    },
+    {
+      "geometry": "hash",
+      "http_calls": 6,
+      "maximum_write_mib_per_call": 5.68359375,
+      "mean_write_bytes_exact": {
+        "denominator": 6,
+        "numerator": 33361920
+      },
+      "mean_write_bytes_per_call": 5560320.0,
+      "mean_write_mib_per_call": 5.302734375,
+      "minimum_write_mib_per_call": 4.93359375,
+      "node_write_counter_delta_bytes": 33361920,
+      "node_write_counter_delta_mib": 31.81640625,
+      "records_per_call": 32
+    },
+    {
+      "geometry": "hash",
+      "http_calls": 6,
+      "maximum_write_mib_per_call": 19.234375,
+      "mean_write_bytes_exact": {
+        "denominator": 6,
+        "numerator": 113889280
+      },
+      "mean_write_bytes_per_call": 18981546.666666668,
+      "mean_write_mib_per_call": 18.102213541666668,
+      "minimum_write_mib_per_call": 17.10546875,
+      "node_write_counter_delta_bytes": 113889280,
+      "node_write_counter_delta_mib": 108.61328125,
+      "records_per_call": 128
+    },
+    {
+      "geometry": "hashrange",
+      "http_calls": 6,
+      "maximum_write_mib_per_call": 0.82421875,
+      "mean_write_bytes_exact": {
+        "denominator": 6,
+        "numerator": 4280320
+      },
+      "mean_write_bytes_per_call": 713386.6666666666,
+      "mean_write_mib_per_call": 0.6803385416666666,
+      "minimum_write_mib_per_call": 0.609375,
+      "node_write_counter_delta_bytes": 4280320,
+      "node_write_counter_delta_mib": 4.08203125,
+      "records_per_call": 1
+    },
+    {
+      "geometry": "hashrange",
+      "http_calls": 6,
+      "maximum_write_mib_per_call": 4.84765625,
+      "mean_write_bytes_exact": {
+        "denominator": 6,
+        "numerator": 28446720
+      },
+      "mean_write_bytes_per_call": 4741120.0,
+      "mean_write_mib_per_call": 4.521484375,
+      "minimum_write_mib_per_call": 4.171875,
+      "node_write_counter_delta_bytes": 28446720,
+      "node_write_counter_delta_mib": 27.12890625,
+      "records_per_call": 32
+    },
+    {
+      "geometry": "hashrange",
+      "http_calls": 6,
+      "maximum_write_mib_per_call": 13.76171875,
+      "mean_write_bytes_exact": {
+        "denominator": 6,
+        "numerator": 80216064
+      },
+      "mean_write_bytes_per_call": 13369344.0,
+      "mean_write_mib_per_call": 12.75,
+      "minimum_write_mib_per_call": 11.85546875,
+      "node_write_counter_delta_bytes": 80216064,
+      "node_write_counter_delta_mib": 76.5,
+      "records_per_call": 128
+    }
+  ],
+  "reviewed_utc": "2026-10-21T21:59:07.673791+00:00",
+  "scope": "Independent arithmetic check of OS node-process write-byte counters in the accepted candidate-only profile. No new product operation or measurement ran.",
+  "scope_limits": [
+    "The counter describes OS-accounted bytes for this node process in resource brackets around each HTTP call. Those brackets extend slightly beyond the client HTTP interval.",
+    "All node threads share the counter. Other node work, such as logs, metadata, journals, clock operations, and sampler activity, can contribute bytes.",
+    "The counter does not identify exclusive request I/O, unique physical device bytes, file growth, write-call count, or disk-sync call count.",
+    "The supplied 1.88671875 MiB counts the body field for every accepted change. Keys, other fields, request encoding, and storage metadata are additional.",
+    "Do not describe the ratio as pure payload amplification. The two quantities have different scopes.",
+    "This candidate-only diagnostic uses a small fresh synthetic database on a shared host. It supplies no before/after gain or machine-capacity estimate.",
+    "The size is a useful clue for further review of file work. It does not identify which files contribute the bytes or prove a performance bottleneck."
+  ],
+  "source_manifest_sha256": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff",
+  "totals": {
+    "accepted_changes": 1932,
+    "body_field_bytes_per_change": 1024,
+    "http_calls": 36,
+    "node_write_counter_delta_bytes": 262868992,
+    "node_write_counter_delta_mib": 250.69140625,
+    "supplied_body_field_bytes": 1978368,
+    "supplied_body_field_mib": 1.88671875
+  },
+  "version": 1
+}

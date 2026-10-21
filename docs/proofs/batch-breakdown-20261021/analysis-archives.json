@@ -1,0 +1,48 @@
+{
+  "all_gzip_streams_exactly_verified": true,
+  "archives": [
+    {
+      "gzip": {
+        "bytes": 41302,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 41302,
+            "path": "payload.gz.part-001",
+            "sha256": "000abb1d8c54cb0c270c8e5688c886f6b13f14302605ef9b75eaab6cf6ab89c4"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "000abb1d8c54cb0c270c8e5688c886f6b13f14302605ef9b75eaab6cf6ab89c4"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/portable-analysis/existing_result-json/manifest.json",
+      "raw": {
+        "bytes": 334878,
+        "sha256": "d82e589051671e92ba6c1fab98b2249c22b757e09e2ae3646bb777795f67d607"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/existing_result.json"
+    },
+    {
+      "gzip": {
+        "bytes": 24686,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 24686,
+            "path": "payload.gz.part-001",
+            "sha256": "97d76a77de0928a47832df7a0c51a04cbe14718b0d3f01f1a08833e73c8cb5be"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "97d76a77de0928a47832df7a0c51a04cbe14718b0d3f01f1a08833e73c8cb5be"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/portable-analysis/profile_result_v1-json/manifest.json",
+      "raw": {
+        "bytes": 274588,
+        "sha256": "5f3047f49cd05a70186a62a672b6df1894905e12b302e0f88f8c6bec993a4dbd"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_result_v1.json"
+    }
+  ],
+  "scope": "Exact complete derived JSON files; originals remain locally available. No value, ID or timestamp is changed."
+}

@@ -1,0 +1,64 @@
+{
+  "body_value_bytes_total": 1978368,
+  "calls": 36,
+  "groups": [
+    {
+      "calls": 6,
+      "geometry": "hash",
+      "node_write_MiB_per_call": 0.4251302083333333,
+      "node_write_bytes_per_call": 445781.3333333333,
+      "node_write_bytes_total": 2674688,
+      "records_per_call": 1
+    },
+    {
+      "calls": 6,
+      "geometry": "hash",
+      "node_write_MiB_per_call": 5.302734375,
+      "node_write_bytes_per_call": 5560320.0,
+      "node_write_bytes_total": 33361920,
+      "records_per_call": 32
+    },
+    {
+      "calls": 6,
+      "geometry": "hash",
+      "node_write_MiB_per_call": 18.102213541666668,
+      "node_write_bytes_per_call": 18981546.666666668,
+      "node_write_bytes_total": 113889280,
+      "records_per_call": 128
+    },
+    {
+      "calls": 6,
+      "geometry": "hashrange",
+      "node_write_MiB_per_call": 0.6803385416666666,
+      "node_write_bytes_per_call": 713386.6666666666,
+      "node_write_bytes_total": 4280320,
+      "records_per_call": 1
+    },
+    {
+      "calls": 6,
+      "geometry": "hashrange",
+      "node_write_MiB_per_call": 4.521484375,
+      "node_write_bytes_per_call": 4741120.0,
+      "node_write_bytes_total": 28446720,
+      "records_per_call": 32
+    },
+    {
+      "calls": 6,
+      "geometry": "hashrange",
+      "node_write_MiB_per_call": 12.75,
+      "node_write_bytes_per_call": 13369344.0,
+      "node_write_bytes_total": 80216064,
+      "records_per_call": 128
+    }
+  ],
+  "limit": "The payload figure counts only body fields. This is not an exclusive client I/O or pure payload amplification ratio.",
+  "logical_changes": 1932,
+  "node_write_bytes_total": 262868992,
+  "scope": "All node threads inside resource-counter brackets slightly wider than HTTP; metadata, logs and background node work are included.",
+  "source": {
+    "bytes": 276179,
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/batch-breakdown-20261021/profile_result.json",
+    "sha256": "52d3ca62537179a7df6b19c4b7470c0012ed96a3a2e74952d5f1659e1304ce1d"
+  },
+  "unit": "MiB is 1048576 bytes. Values are deltas of the node-process write-byte counter."
+}
