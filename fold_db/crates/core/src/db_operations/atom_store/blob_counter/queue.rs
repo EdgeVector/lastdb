@@ -15,8 +15,13 @@
 //! The time of an entry is the `zero_since` of its counter, not its due time. The
 //! dwell is a property of the reader: it asks for the entries older than
 //! `now - dwell`. A change of `LASTDB_BLOB_DWELL_SECS` between two starts then
-//! needs no rewrite of the queue, and the key of an entry never depends on a
-//! knob (the cancel of a dwell can always name the key from the counter).
+//! needs no rewrite of the queue. The slice of a bucket is one hour for every
+//! dwell the node accepts (at least [`super::BLOB_DWELL_FLOOR_SECS`]), so the key
+//! of an entry does not depend on the dwell, and the cancel of a dwell and the
+//! check of `queued` can always name the key from the counter. Only a dwell below
+//! the floor (the dev knob of a synthetic home) gives a shorter slice, which
+//! follows the dwell: a home that changed such a dwell between two starts shows
+//! `queued=false` for an entry that an earlier start wrote.
 //!
 //! The key families are `bref:v3:q` and `bref:v3:d`. Neither holds a NUL, and
 //! neither is a prefix of the other or of the counter family `bref:v3:c:`.
@@ -33,8 +38,6 @@ const ENTRIES: &str = "bref:v3:q";
 const DIRECTORY: &str = "bref:v3:d";
 /// Nanoseconds in a millisecond.
 const NANOS_PER_MILLI: u64 = 1_000_000;
-/// `TimeQueue::for_window` takes a 64th of the window for the slice.
-const SLICES_PER_DWELL: u64 = 64;
 
 /// The layout of the blob queue. A value holds names and a number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,20 +46,24 @@ pub(crate) struct BlobQueue {
 }
 
 impl BlobQueue {
-    /// The queue for a dwell of `dwell_ms`: slices of one dwell, between one second
-    /// and one hour. `TimeQueue::for_window` takes a 64th of the window of its
-    /// entries. An entry of this queue waits for its dwell, but the entries of
-    /// one slice are a few buckets of work, and a short slice would only make the
-    /// directory grow: with the default dwell a slice is one hour and the
-    /// directory gets 24 rows a day.
+    /// The queue for a dwell of `dwell_ms`. The slice is one hour for a dwell at
+    /// or above the floor of the node: the entries of one slice are a few buckets
+    /// of work, a short slice would only make the directory grow (24 rows a day
+    /// with an hour), and a slice that follows the dwell would give an entry a key
+    /// that depends on the knob. A dwell below the floor (the dev knob) gets a
+    /// slice of one dwell, between one second and one hour, so a short proof ends
+    /// its buckets soon.
     pub(crate) fn for_dwell(dwell_ms: u64) -> Self {
+        let slice_ms = if dwell_ms >= super::BLOB_DWELL_FLOOR_SECS * 1000 {
+            u64::MAX
+        } else {
+            dwell_ms
+        };
         Self {
-            queue: TimeQueue::for_window(
+            queue: TimeQueue::with_slice(
                 ENTRIES,
                 DIRECTORY,
-                dwell_ms
-                    .saturating_mul(NANOS_PER_MILLI)
-                    .saturating_mul(SLICES_PER_DWELL),
+                slice_ms.saturating_mul(NANOS_PER_MILLI),
             ),
         }
     }

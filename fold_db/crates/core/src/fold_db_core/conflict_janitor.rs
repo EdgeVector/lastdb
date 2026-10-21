@@ -113,6 +113,15 @@ impl BackgroundConflictJanitorTask {
             let mut ticker = tokio::time::interval(interval);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
+            // The offline recount reads the window from this row. A failed write
+            // does not stop the janitor: the recount then uses its own window.
+            if let Err(failure) = db_ops.atoms().record_retention_window().await {
+                tracing::warn!(
+                    target: "fold_node::database",
+                    error = %failure,
+                    "conflict janitor could not record the retention window"
+                );
+            }
             let mut cursor = db_ops.atoms().retention_cursor();
             cursor.set_net_every(net_every);
             let mut wakes = 0u64;

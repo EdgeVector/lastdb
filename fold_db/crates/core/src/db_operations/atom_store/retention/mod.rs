@@ -45,8 +45,10 @@ mod report;
 mod rows;
 mod slots;
 mod steps;
+mod window;
 
-pub(crate) use keys::record_digest;
+pub(crate) use keys::{queue_for_window, record_digest};
+pub(crate) use repair::RepairWindow;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
 pub(crate) use rows::RecordSlot;

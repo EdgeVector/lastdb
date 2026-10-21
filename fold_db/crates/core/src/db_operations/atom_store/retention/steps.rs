@@ -226,13 +226,21 @@ impl AtomStore {
                     }
                     continue;
                 }
-                let (records, markers) = self.split_due_rows(&page);
+                let (records, markers, expired) = self.split_due_rows(&page, now_nanos);
                 let refused = cursor.register(markers);
-                let outcome = if records.is_empty() {
+                let outcome = if records.is_empty() && expired.is_empty() {
                     ReleaseOutcome::default()
                 } else {
-                    self.release_due_records(&records, now_nanos).await?
+                    self.release_due_records(&records, &expired, now_nanos)
+                        .await?
                 };
+                if !expired.is_empty() {
+                    tracing::info!(
+                        target: "fold_node::database",
+                        markers = expired.len(),
+                        "conflict janitor dropped drain markers older than the retention window"
+                    );
+                }
                 let stays = refused.is_some();
                 match refused {
                     None => cursor.reader.finish(page),
@@ -242,7 +250,10 @@ impl AtomStore {
                         now_nanos.saturating_add(RETRY_NANOS),
                     ),
                 }
-                if !records.is_empty() || marker_pages >= MARKER_PAGES_PER_STEP {
+                if !records.is_empty()
+                    || !expired.is_empty()
+                    || marker_pages >= MARKER_PAGES_PER_STEP
+                {
                     return Ok(Some(StepOutcome {
                         lane: Lane::Ordinary,
                         released: outcome.released,
@@ -260,13 +271,27 @@ impl AtomStore {
         Ok(None)
     }
 
-    /// The keys of the record entries of a page, and its drain markers. An entry
-    /// that does not decode, or whose key has no readable expiry, is counted and
-    /// left alone: the cursor moves past it, and the entry stays.
-    fn split_due_rows(&self, page: &DuePage) -> (Vec<String>, Vec<DrainMarker>) {
+    /// The keys of the record entries of a page, its drain markers, and the keys
+    /// of the markers that are too old to drain. An entry that does not decode,
+    /// or whose key has no readable expiry, is counted and left alone: the cursor
+    /// moves past it, and the entry stays.
+    ///
+    /// A marker lives at most one retention window. Every record of an erased slot
+    /// was written before the erase, so its own queue entry is due one window after
+    /// the erase at the latest, and the ordinary lane releases it. A marker that is
+    /// older than that has nothing left to speed up. The janitor deletes it without
+    /// a drain, so no marker outlives the range that the safety net probes (one
+    /// window and one slice before now).
+    fn split_due_rows(
+        &self,
+        page: &DuePage,
+        now_nanos: u64,
+    ) -> (Vec<String>, Vec<DrainMarker>, Vec<String>) {
         let queue = self.retention_state().queue();
+        let window = self.retention_state().window_nanos();
         let mut records = Vec::new();
         let mut markers = Vec::new();
+        let mut expired = Vec::new();
         for (key, value) in &page.rows {
             if queue.entry_expiry(key).is_none() {
                 tracing::error!(%key, "retention queue key has no readable expiry");
@@ -275,6 +300,11 @@ impl AtomStore {
             }
             match QueueValue::decode(value) {
                 Ok(QueueValue::Record(_)) => records.push(key.clone()),
+                Ok(QueueValue::Drain(marker))
+                    if marker.erased_at.saturating_add(window) < now_nanos =>
+                {
+                    expired.push(key.clone());
+                }
                 Ok(QueueValue::Drain(marker)) => markers.push(marker),
                 Err(error) => {
                     tracing::error!(%key, %error, "retention queue entry does not decode");
@@ -282,7 +312,7 @@ impl AtomStore {
                 }
             }
         }
-        (records, markers)
+        (records, markers, expired)
     }
 
     /// One chunk of the safety net: probe the next slices of the sweep, and

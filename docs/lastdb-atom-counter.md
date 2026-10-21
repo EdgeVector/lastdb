@@ -161,7 +161,9 @@ A record ends in two ways, and both use the same release:
    entry). A drain does not hold back the due records of the queue: the janitor
    alternates a few drain batches with a few batches of due records. A protein
    key move is not an erase and releases nothing. `purge_capped_slots` in the
-   status counts the slots that got a marker.
+   status counts the slots that got a marker. A marker lives at most one window:
+   every record of the slot has its own queue entry, due one window after the
+   erase at the latest, so the janitor deletes an older marker without a drain.
 
    The reads of the erase run in the write gate. A read passes the deleted
    directory keys of its slot, and the gate allows 40,000 keys for the request. A
@@ -242,7 +244,10 @@ released.
 list) and `record_without_queue_entry` (a conflict record that no queue entry
 names, read again before it is reported). `lastdb db recount --execute` (a
 stopped home) writes the missing rows again through the planner: the row of a
-bucket, or a queue entry that expires one window from now.
+bucket, or the queue entry of a record. The entry goes back at its own key, with
+its slot directory entry, when the record still has that entry; otherwise it
+expires one window from now. The recount uses the window that the janitor recorded
+(`crb:v1\0params`), not its own environment (`docs/lastdb-time-queue.md`).
 
 `lastdb status` shows the window, the janitor's last run, the queue depth (up to
 1,000 entries) and the number of buckets, the slot drains that wait, the failed

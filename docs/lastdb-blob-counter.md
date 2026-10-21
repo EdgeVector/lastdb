@@ -82,8 +82,17 @@ no row it
 - makes `lastdb liveness explain blob` say `referenced_row_missing`;
 - makes `lastdb db verify-refs` report `blob_counter_without_blob`.
 
-`lastdb db recount` lists such blobs as `blob rows missing`. It cannot restore the
-bytes. The fix is to upload the file again and write the atom again.
+`lastdb db recount` lists such blobs as `blob rows missing` (the JSON key is
+`recount.blobs.rows_missing`, with the first ten blobs in
+`recount.blobs.missing_row_samples`; the report is under the key `recount` of the
+output). It cannot restore the bytes. The fix is to upload the file again and write
+the atom again.
+
+`late_references` in `lastdb status`, like every figure of the `Blob counters` line,
+comes from the status snapshot that the sampler publishes (every
+`LASTDB_SELF_METRICS_SAMPLE_SECS`, 60 s by default). A late reference shows there at
+the next sampler tick, up to one tick after the write. The explain route and
+`verify-refs` read the store at the time of the call and are exact.
 
 ## Records
 
@@ -112,10 +121,13 @@ the head. The review measured 16 blobs a minute after 9,800 deletions.
   (`zero_since_ms * 1,000,000`). The dwell is not in the key: the reader asks for
   the entries older than `now - dwell`. A change of `LASTDB_BLOB_DWELL_SECS`
   between two starts then needs no rewrite of the queue, and the cancel of a dwell
-  can always name the key from the counter.
-- **A bucket is a slice of time**: the dwell, between one second and one hour
-  (`TimeQueue::for_window` with a window of 64 dwells). With the default dwell a
-  bucket is one hour, so the directory gets 24 rows a day.
+  and the check of `queued` can always name the key from the counter.
+- **A bucket is a slice of time of one hour** for every dwell the node accepts (at
+  least 120 s), so the directory gets 24 rows a day and the key of an entry does
+  not depend on the dwell. Only a dwell below the floor (the dev knob of a
+  synthetic home) gives a shorter slice, one dwell, between one second and one
+  hour. A synthetic home that changed such a dwell between two starts shows
+  `queued=false` for an entry that an earlier start wrote.
 - **Two key families**, `bref:v3:q` for the entries and `bref:v3:d` for the
   directory. Neither holds a NUL, and neither is a prefix of the other or of the
   counter family `bref:v3:c:`. The entries have no scope: a blob is global.
@@ -276,9 +288,9 @@ The slices that can hold a live entry of the blob queue are few. An entry has th
 time of its `zero_since` (never later than now) and stays until its dwell is over, so
 a live entry lies at most one dwell and one slice before now. The generic list
 covers one dwell and one slice before now and the same after it. The slice of the
-blob queue is one dwell (one hour by default), so a sweep probes **about five slices**
-with the default dwell: five reads of directory rows, and one bounded range read for
-each slice without a row. An entry that is older than one dwell and one slice is out
+blob queue is one hour, so a sweep probes **about five slices** with the default
+dwell: five reads of directory rows, and one bounded range read for each slice
+without a row. An entry that is older than one dwell and one slice is out
 of the net's reach (the pass was off for more than a dwell, or the node was down).
 `verify-refs` reads every bucket of the queue, whatever its age, and finds those.
 

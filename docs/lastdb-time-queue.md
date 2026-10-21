@@ -52,7 +52,9 @@ A page of live entries does not bound a read call. The key space bounds it.
 - The directory is one hash. It has one row for each bucket that holds, or held,
   an entry. A row is small.
 - The slice is a choice of the user of the queue. `TimeQueue::for_window` takes
-  a 64th of the entry lifetime, between one second and one hour.
+  a 64th of the entry lifetime, between one second and one hour. The blob queue
+  uses one hour for every dwell at or above its floor (`TimeQueue::with_slice`),
+  so the key of an entry does not depend on a knob.
 
 ## Writers
 
@@ -243,19 +245,28 @@ What the net does not cover:
   of the lifetime the old slices do not line up with the new ones, and the net
   does not probe them. Their rows are listed by the directory as before.
 - A process with another lifetime than the node that wrote the entries. The slice
-  follows `LASTDB_CONFLICT_RETENTION_SECS`. `recount` and a `verify-refs` that
-  runs in another process than the daemon (the CLI reads the daemon, so
-  `verify-refs` uses the daemon's slice; `recount` is a process of its own) must
-  run with the same value, or the slices they list do not line up with the
-  buckets. The default is the same in both.
+  follows `LASTDB_CONFLICT_RETENTION_SECS`. `verify-refs` asks the daemon, so it
+  uses the daemon's slice. `recount` is a process of its own, and the janitor
+  records the window of the node in one row (`crb:v1\0params`, once at its start
+  and when the window changes). The recount reads that row and uses the recorded
+  window and slice for its survey and its repair, and it prints a note when its own
+  `LASTDB_CONFLICT_RETENTION_SECS` differs. A home whose janitor never ran has no
+  row, and the recount then uses its own environment.
 - A bucket older than one lifetime and one slice. The net looks back one lifetime
   (a node that was down for longer than that, with a row lost on top, is rare),
   and the survey of `verify-refs` and `recount` uses the same range. Such a
   bucket is not found as a bucket. A conflict record in it shows as
   `record_without_queue_entry`, and `recount --execute` gives it a new queue
-  entry that expires one window from now. The old entry stays as a row that no
-  directory lists: it holds no reference, so it is garbage and not a leak of
-  atoms.
+  entry. The old entry stays as a row that no directory lists: it holds no
+  reference, so it is garbage and not a leak of atoms.
+- A drain marker is not older than one lifetime, so the range above covers it for
+  its whole life. Every record of an erased slot was written before the erase, so
+  its own queue entry is due one window after the erase at the latest, and the
+  ordinary lane releases it. A marker older than that has nothing left to speed
+  up: the janitor deletes it without a drain (the log says `dropped drain markers
+  older than the retention window`). Two faults remain out of reach, and both
+  hold no reference: a marker bucket that lost its row while the janitor was
+  stopped for longer than a window, and a marker the janitor could not see.
 - A bucket that holds only deleted keys is not a fault, and the net leaves it.
 
 ## What can go wrong and what catches it
@@ -269,7 +280,7 @@ queue.
 | A writer adds an entry without the row (code outside `TimeQueue::rows`). | The entry and the row are one `TimeQueue::rows` call, in the batch of the work, through the planner. The writer lint finds a writer that bypasses the planner. | `verify-refs`: `queue_entry_without_directory` for a record entry. The net counts `buckets_repaired`. | The net registers the bucket within one sweep. `recount --execute` writes the row. |
 | A crash between the write of the entry and the write of the row. | Excluded: one batch holds both, and a crash keeps whole batches. | (not possible) | |
 | A retirement races a writer: the reader decided that the bucket was empty, and a writer added an entry. | Every entry rewrites the row with a new token, and the retirement is a guarded delete that compares the raw bytes in the write gate. A writer that came after the reader read the row changes the token, so the delete leaves the row. | As above, if the guard were wrong. | As above. |
-| An external delete of the row, or a partial restore that brought the entries and not the row. | Nothing in the queue can prevent it. | `verify-refs` (a record whose queue entry has no row) and the net (any entry, also a drain marker). | The net, and `recount --execute`. |
+| An external delete of the row, or a partial restore that brought the entries and not the row. | Nothing in the queue can prevent it. | `verify-refs` (a record whose queue entry has no row) and the net (any entry, also a drain marker, which lives at most one window). | The net, and `recount --execute`. |
 
 A fifth, quieter fault belongs to the same chain. A conflict record whose queue
 entry is missing is never released by the janitor, because the janitor finds
@@ -304,11 +315,16 @@ The status line `Verify refs` shows `queue_rows` (the sum of the two kinds).
 
 `lastdb db recount --execute` (a stopped home) surveys the queue, walks the
 records once for each scope, and writes the missing rows again through the
-planner: a bucket gets its row; a record gets a new queue entry that expires one
-window from now (the original expiry is not known) and the row of its bucket. The
-new entry has no slot directory entry of its own, for the reason above; a slot
-directory entry that the record still has stays. A second run finds nothing to
-change.
+planner: a bucket gets its row; a record gets its queue entry back and the row of
+its bucket. The slot directory entry of the record, when it still exists, holds
+the whole original entry (the queue key, the slot key, the creation time), so one
+walk of the slot directory finds it and the entry goes back at its own key, with
+the slot directory entry named: the release of the record then deletes that slot
+directory entry too, and a record past its window is released at once. A record
+with no slot directory entry gets an entry that expires one window from now (the
+original expiry is not known), with no slot directory entry of its own, for the
+reason above. The window is the one that the node recorded. A second run finds
+nothing to change.
 
 ## Limits
 

@@ -62,6 +62,20 @@ impl TimeQueue {
         Self::new(entries, directory, slice)
     }
 
+    /// A queue with slices of `slice_nanos`, held between one second and one
+    /// hour.
+    pub(crate) fn with_slice(
+        entries: &'static str,
+        directory: &'static str,
+        slice_nanos: u64,
+    ) -> Self {
+        Self::new(
+            entries,
+            directory,
+            slice_nanos.clamp(MIN_SLICE_NANOS, MAX_SLICE_NANOS),
+        )
+    }
+
     /// The start of the slice that holds `expires`.
     pub(crate) fn bucket_of(&self, expires: u64) -> u64 {
         expires - expires % self.slice_nanos
@@ -118,6 +132,19 @@ impl TimeQueue {
             (self.entry_key(expires, id), value.clone()),
             self.directory_row(bucket, &format!("{expires:020}:{id}")),
         ]
+    }
+
+    /// The two rows of an entry whose key is known (a repair that puts an entry
+    /// back at its own key): the entry, and the directory row of the bucket that
+    /// its key names, with a token that names the entry. `None` when the key is
+    /// not the key of an entry of this queue.
+    pub(crate) fn rows_for_key(&self, key: &str, value: &Value) -> Option<Vec<(String, Value)>> {
+        let (bucket, expires) = self.parse_entry(key)?;
+        let id = key.rsplit(':').next()?;
+        Some(vec![
+            (key.to_string(), value.clone()),
+            self.directory_row(bucket, &format!("{expires:020}:{id}")),
+        ])
     }
 
     /// The expiry and the bucket in the key of an entry.
