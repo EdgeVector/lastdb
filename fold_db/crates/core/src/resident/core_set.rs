@@ -16,6 +16,7 @@ mod lifecycle;
 mod memory;
 mod model;
 mod path_table;
+mod slab;
 mod source_keys;
 mod sources;
 mod tables;

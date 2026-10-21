@@ -6,7 +6,6 @@
 //! purges clean records against this byte charge.
 
 use super::SlotKey;
-use crate::atom::provenance::Provenance;
 use crate::atom::{Atom, AtomEntry, KeyMetadata};
 use serde_json::Value;
 
