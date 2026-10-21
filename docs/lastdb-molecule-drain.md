@@ -43,9 +43,9 @@ The paths that unbind:
 
 A **crash between the drop and the drain** loses nothing. The candidate row is part
 of the batch that unbinds, and that batch also holds the schema record, so the drop,
-the unbind and the candidate rows are all durable or all absent (24 SIGKILL rounds
-across the commit of a drop under write load found only these two states). After a restart the task reads the candidate list from its start. That is
-one bounded range read under one hash. No scan runs.
+the unbind and the candidate rows are all durable or all absent (40 SIGKILL rounds
+across the commit of a drop under write load found only these two states). After a restart the task
+reads the candidate list from its start. That is one bounded range read under one hash. No scan runs.
 
 A molecule that lost its last binding before this step existed has no candidate.
 `lastdb db inventory` counts such molecules (`unbound with tips`), and
@@ -113,7 +113,7 @@ spent. After each batch it rests for `took * (100 - duty) / duty`.
 | Variable | Meaning | Default |
 |---|---|---|
 | `LASTDB_MOLECULE_DRAIN_MS` | wake interval, 0 turns the task off | 30000 |
-| `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | share of wall time that batches may take | 25 |
+| `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | share of wall time that batches may take | 10 |
 | `LASTDB_MOLECULE_DRAIN_TIPS` | tip records in one batch, 1 to 512; a batch that hits the read limit halves the size | 256 |
 | `LASTDB_MOLECULE_DRAIN_BATCHES` | batches in one wake | 1024 |
 
@@ -122,6 +122,19 @@ A tip costs at most three operations in a batch (the tip, the counter, the body)
 the tip count of keys in a batch (at most 2048). A step that fails does not hold back
 the other candidates: the molecule goes to the back of the line and the wake ends.
 A wake that ends with an error doubles the wait before the next one, up to ten minutes.
+
+### Cost to writers
+
+A write that shares time with a drain batch waits longer than a write that does not.
+Measured on a loaded host, with 4 writers that wrote as fast as the node answered
+(the median latency was about 110 ms): the median of a write that overlapped a batch was
+1.4 to 1.8 times the median of the writes in the same window that did not. The hold of
+the write gate is not the cause: a batch of 256 tips holds it for 30 ms at the median
+and 70 ms at most. The duty share sets how many writes meet a batch (36 percent of the
+writes at a duty of 25, 14 percent at a duty of 10). A smaller `LASTDB_MOLECULE_DRAIN_TIPS`
+gives shorter batches and a smaller penalty for the writes that meet one (1.4 times at 64
+tips), and a slower drain. The default duty is 10 percent for this reason: the schema is
+already gone when the drain runs, and only disk space waits for it.
 
 ## Show verbs
 

@@ -17,7 +17,7 @@
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_MOLECULE_DRAIN_MS` | Interval between wakes. Zero turns the task off. Default 30000. |
-//! | `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | The share of wall time, in percent, that batches may take (1 to 100). Default 25. |
+//! | `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | The share of wall time, in percent, that batches may take (1 to 100). Default 10. |
 //! | `LASTDB_MOLECULE_DRAIN_TIPS` | Tip records one batch erases, at most (1 to 512). Default 256. A batch that hits the read limit halves the size. |
 //! | `LASTDB_MOLECULE_DRAIN_BATCHES` | Batches one wake runs, at most. Default 1024. |
 
@@ -36,8 +36,10 @@ pub const MOLECULE_DRAIN_MS_ENV: &str = "LASTDB_MOLECULE_DRAIN_MS";
 pub const DEFAULT_MOLECULE_DRAIN_MS: u64 = 30_000;
 /// Env: the share of wall time, in percent, that batches may take.
 pub const MOLECULE_DRAIN_DUTY_PCT_ENV: &str = "LASTDB_MOLECULE_DRAIN_DUTY_PCT";
-/// Default duty share: 25 percent.
-pub const DEFAULT_MOLECULE_DRAIN_DUTY_PCT: u64 = 25;
+/// Default duty share: 10 percent. A write that shares time with a drain batch waits
+/// longer, so the default keeps the share of such writes small. The drain is not urgent:
+/// the schema is already gone, and only the disk space waits.
+pub const DEFAULT_MOLECULE_DRAIN_DUTY_PCT: u64 = 10;
 /// Env: tip records one batch erases, at most.
 pub const MOLECULE_DRAIN_TIPS_ENV: &str = "LASTDB_MOLECULE_DRAIN_TIPS";
 /// Default tip records in a batch.
