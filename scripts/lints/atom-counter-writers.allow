@@ -1,11 +1,14 @@
 # Writer boundary of the atom counter. Format: path|function|families|reason
-# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · M molecule header counters and the bindings counter · - none of these
+# families: T tip (mk:) · C conflict/history rows · B atom body · N atom counter · M molecule header counters and the bindings counter · R blob counter and blob queue · - none of these
 # One line for each function that the lint finds. The lint fails on a function that is missing,
 # on a function that names a family the line does not list, and on a line that no function matches.
 # `*` as the function is for the planner module only.
 
 fold_db/crates/core/src/db_operations/atom_store/counter/build.rs|*|T C B N|the planner: the only writer of tips, bodies, counters and conflict references inside a write scope
 fold_db/crates/core/src/db_operations/atom_store/counter/commit.rs|*|T C B N M|the planner: its one batch_mutate joins the pending batch of the request; the molecule counters in the header rows of the batch come from counter/molecule.rs
+fold_db/crates/core/src/db_operations/atom_store/blob_counter/commit.rs|*|R|the blob planner: blob counters and queue entries change in the batch of the atom counters (counter/build.rs), or in the request scope of a blob row put
+fold_db/crates/core/src/db_operations/atom_store/blob_counter/dwell_chunk.rs|*|R|the dwell chunk: reads the counter again in the write gate, then deletes the blob row, the counter and the queue entry in one batch (the retirement of a bucket is the guarded delete of the planner)
+fold_db/crates/core/src/db_operations/atom_store/blob_counter/recount.rs|*|R|the blob step of the offline recount: writes the exact blob counters and deletes stale queue entries on a stopped home, in whole batches
 fold_db/crates/core/src/db_operations/atom_store/molecule_bindings.rs|flip_molecule_bindings|M|the one writer of binding records and of the bindings counter: both change in one batch inside the write gate, from the state of the records
 
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/apply.rs|plan_decision|B N|offline recount (`lastdb db recount` on a stopped home, the one scan the design keeps): writes the exact counter, deletes a counter that has no body, and deletes a body that no tip and no counted record names; no gate and no writer exist while it runs; only the offline command calls it
@@ -40,8 +43,6 @@ fold_db/crates/core/src/db_operations/conflict_operations.rs|write_home_conflict
 fold_db/crates/core/src/db_operations/delete_ledger.rs|begin_delete_ledger_row|-|hard-delete audit rows
 fold_db/crates/core/src/db_operations/delete_ledger.rs|commit_delete_ledger_row|-|hard-delete audit rows
 
-fold_db/crates/core/src/db_operations/file_blob_gc/sweep.rs|delete_candidates|-|file blob rows (step S5 removes the sweep)
-fold_db/crates/core/src/db_operations/file_blob_gc/sweep.rs|stamp_resident_row|-|file blob rows (step S5 removes the sweep)
 
 fold_db/crates/core/src/fold_db_core/factory/boot.rs|assert_or_establish_at_rest_key_proof|-|at-rest key proof sentinel
 
@@ -160,10 +161,5 @@ lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_rollback_
 
 lastdb_node/src/cloud_purge_adoption_org/queues.rs|copy_peer_subscriptions|-|peer subscription rows
 
-fold_db/crates/core/src/db_operations/atom_store/blob_ref_edges/tips.rs|replace|T|builds the blob-root mutations of a tip record; the planner puts them in the batch of the tip
-fold_db/crates/core/src/db_operations/atom_store/fresh_home_edges.rs|initialize_current_reference_proofs|-|key format marker and the two completeness proofs of a constructor-proven empty home
-fold_db/crates/core/src/sync/snapshot/restore_scan/blob_roots.rs|clear_existing|-|photograph restore: removes the rows of the restore scope before the install; counters travel with their bodies in the photograph
-fold_db/crates/core/src/sync/snapshot/restore_scan/blob_roots.rs|prepare_incoming|-|photograph restore: installs blob-root target rows before the sources
-fold_db/crates/core/src/sync/snapshot/restore_scan/proofs.rs|begin_reference_restore|-|photograph restore: withdraws the completeness proofs
-fold_db/crates/core/src/sync/snapshot/restore_scan/proofs.rs|finish_reference_restore|-|photograph restore: publishes the completeness proofs after the sources are durable
+fold_db/crates/core/src/db_operations/atom_store/fresh_home_edges.rs|initialize_current_reference_proofs|-|key format marker of a constructor-proven empty home
 fold_db/crates/core/src/sync/snapshot/restore_scan/files.rs|merge_missing|-|photograph restore: adds node-global file rows (cas_blob) that are missing; no tip, record, atom or counter

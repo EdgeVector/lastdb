@@ -7,10 +7,10 @@ the number of tip records and conflict records that name the atom. The counter
 is the only authority for the life of a body. No other structure allows a
 delete. No other structure blocks one.
 
-A batch that lowers the count to exactly zero deletes the body, the counter,
-and the blob references of the body in the same batch as the last tip change.
-A body exists if and only if its counter exists. A counter never holds zero,
-except a counter with the `suspect` flag.
+A batch that lowers the count to exactly zero deletes the body and the counter,
+and lowers the blob counters that the counter lists, in the same batch as the
+last tip change. A body exists if and only if its counter exists. A counter never
+holds zero, except a counter with the `suspect` flag.
 
 ## Records
 
@@ -22,10 +22,12 @@ except a counter with the `suspect` flag.
 The first NUL ends the hash. The body and the counter of one atom share one
 hash group. A storage scope adds its prefix before the key.
 
-Blob roots (`bref:v2`) have two sources. A body names the blobs in its counter.
-A tip record that carries file metadata names its own blob. The planner changes
-the roots of both in the batch of the change: the root of an old tip record goes
-and the root of a new tip record comes in the same batch as the tip.
+Blob references have two sources. A body names the blobs in its counter. A tip
+record that carries file metadata names its own blob. The planner changes the
+blob counters of both in the batch of the change: a created atom counter raises
+the counters of its blobs, a deleted one lowers them, and an old tip record lowers
+and a new tip record raises the counters of the blobs that their metadata names.
+The contract of the blob counters is in `docs/lastdb-blob-counter.md`.
 
 The counter is JSON: `{"v":1,"refs":N,"blobs":[...],"suspect":false}`.
 `blobs` lists the blob references of the body, so a delete needs no body read.
@@ -331,9 +333,9 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
   list the referrers: the counter holds a number, not a list.
 - Molecule counters (`slots`, `records`, `bindings`) are in
   `docs/lastdb-molecule-counters.md`. The verifier checks them in three more phases.
-- `lastdb status` has an `Atom counters` line, a `Verify refs` line and a `Molecule drain`
-  line (`docs/lastdb-molecule-drain.md`). The status is a snapshot that the sampler
-  publishes every 60 s.
+- `lastdb status` has an `Atom counters` line, a `Verify refs` line, a `Blob counters` line
+  (`docs/lastdb-blob-counter.md`) and a `Molecule drain` line (`docs/lastdb-molecule-drain.md`).
+  The status is a snapshot that the sampler publishes every 60 s.
   `lastdb db inventory` has an `Atom counters` block.
   - `Atom counters` counts the planner events since this process started:
     `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`,
@@ -360,7 +362,9 @@ result in memory, so a restart clears it. The source check
 `scripts/lints/lint-atom-counter-writers.py` lists no writer in
 `counter/verify/`, so the verifier has no write call to a store.
 
-It reads in three phases, each in pages with a cursor:
+It reads in three phases for the atoms, three more for the molecule counters
+(`docs/lastdb-molecule-counters.md`), and two more for the blob counters on the
+personal run (`docs/lastdb-blob-counter.md`), each in pages with a cursor:
 
 1. Tip records (`mk:`): the atom of each tip has a body, and its counter is not
    below the tips of the page.
@@ -372,6 +376,21 @@ It reads in three phases, each in pages with a cursor:
 3. Body and counter records of atoms (`atom:`): body and counter exist
    together, no counter holds zero, no counter is `suspect`, and the counter
    equals the totals of phases 1 and 2.
+4. to 6. The molecule headers, the `bindings` counters and the binding records.
+7. Blob counters (personal run only): each counter alone. A counter is
+   `suspect`, holds zero with no `zero_since`, holds references and has a
+   `zero_since`, or has a `zero_since` and no queue entry.
+8. The blob queue (personal run only): each entry has a counter at zero with the
+   same `zero_since`. The phase walks the entries of all buckets with one bounded
+   range walk (an admin walk; the dwell pass never does that, it walks one bucket
+   at a time from the directory). It does not check the directory against the
+   entries; the generic check of the time queue does (follow-up).
+
+Phases 1 and 3 also read the blob counter of every blob that the tips or the atom
+counters of a page name. A counter that is absent, or below the number of holders
+in the page, is a fault. A counter above its holders is not found by a run,
+because the blob counters are global and a run checks one scope. The recount finds
+it.
 
 A step reads pages until it has used `max_pages` (default 64) or `max_ms`
 (default 3,000), pauses `pause_ms` (default 2) after each page, and returns a
@@ -392,8 +411,17 @@ Faults, by name:
 | `tip_without_body` | a tip names an atom that has no body (a lost body) |
 | `record_without_body` | a conflict record names an atom that has no body |
 | `record_without_queue_entry` | no queue entry can be reached from a conflict record: its slot directory entry is missing, does not decode, or names a queue entry that is missing (the janitor never releases the record) |
-| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it) |
+| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it; for the blob queue the dwell pass never finds it, and the blob phase reads every bucket of that queue) |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
+| `blob_counter_missing` | an atom counter or a tip names a blob that has no counter |
+| `blob_counter_below_refs` | a blob counter holds fewer references than the atom counters or tips of one page that name the blob |
+| `blob_zero_without_dwell` | a blob counter holds zero, is not `suspect`, and has no `zero_since` |
+| `blob_dwell_with_refs` | a blob counter holds references and has a `zero_since` |
+| `zero_blob_without_queue_entry` | a blob counter has a `zero_since` and the queue has no entry for it |
+| `blob_stale_queue_entry` | a queue entry names a counter that is absent, has references, is `suspect`, or has another `zero_since` |
+| `blob_suspect` | a blob counter has the `suspect` flag |
+| `unreadable_blob_counter` | a blob counter does not decode, or its blob does not match its key |
+| `blob_counter_without_blob` | a blob counter holds references and the store has no blob row for it |
 | `unconfirmed_count_mismatch` | not a fault: see below |
 
 A kind is a fact about one atom, and an atom can show more than one. For
@@ -519,6 +547,26 @@ records and holds one Nth of the atoms in memory in each pass.
 `scripts/lints/atom-counter-writers.allow` lists the two functions that write
 (`recount/apply.rs`) with the reason.
 
+The recount also checks the blob counters (`blobs` in the report). It counts, for
+each blob, the atom counters that list it and the live tips that name it in the
+listed scopes, and compares the count with the blob counter:
+
+| Found | The default (raise only) | With `--blobs-exact` (needs `--all-scopes`) |
+|---|---|---|
+| counter below the count | raises it | raises it |
+| counter missing, blob named | makes it | makes it |
+| counter above the count | nothing | lowers it |
+| counter `suspect` | nothing | clears the flag when the count is exact |
+| blob with a counter and no reference | nothing | starts its dwell (the dwell pass reclaims it) |
+| counter with a `zero_since` and no queue entry | puts the entry | puts the entry |
+| queue entry that no counter at zero backs | deletes it | deletes it |
+| blob with references and no blob row | lists it (`rows_missing`) | lists it |
+
+The blob counters are global, and a recount lists scopes. A scope that is missing
+makes the count too low, and a too low counter loses a blob. So only
+`--blobs-exact` lowers a counter, and it asks for `--all-scopes`. List every scope
+of the home: a scope that holds data and has no catalog entry needs `--scope`.
+
 After a recount, start the daemon and run `lastdb db verify-refs` (with
 `--all-scopes` when you recounted other scopes). It must find
 no fault except the lost bodies. Purge the keys of a lost body to remove them.
@@ -560,6 +608,5 @@ refuses the home. This build refuses a home without the bit.
 
 Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
-- S5: blob counters replace the blob edges and the file blob sweep.
 - S7 is built: `docs/lastdb-molecule-drain.md`.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.

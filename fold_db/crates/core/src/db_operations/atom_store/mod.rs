@@ -18,13 +18,14 @@
 //! - [`atoms`] — atom CRUD, history, schema listing
 //! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
-//! - [`blob_ref_edges`] — blob roots; [`molecule_ref_edges`], [`molecule_bindings`],
-//!   [`molecule_counters`] — molecule binding records and the molecule counters
+//! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
+//! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
+//!   binding records and the molecule counters
 //! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
 //! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
 mod atoms;
-mod blob_ref_edges;
+pub(crate) mod blob_counter;
 mod bounded_range;
 mod catalog_bindings;
 mod codec;
@@ -50,7 +51,10 @@ mod time_queue;
 mod types;
 
 pub(crate) use atoms::SealedAtom;
-pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
+pub use blob_counter::{
+    BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
+    DwellStep, NetStep, DWELL_CHUNK,
+};
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
@@ -222,6 +226,8 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// Totals, the last queue reading and recent faults of the blob counters.
+    blob_events: Arc<blob_counter::BlobEvents>,
     /// The retention window of kept conflict records and the janitor report.
     retention: Arc<retention::RetentionState>,
     /// The verifier: the run in progress, the last result and the watch of
@@ -256,6 +262,12 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The blob counter report: totals, the queue reading of the last dwell pass.
+    #[must_use]
+    pub fn blob_counter_report(&self) -> BlobCounterReport {
+        self.blob_events.snapshot()
     }
 
     /// The retention window and the report of kept conflict records.

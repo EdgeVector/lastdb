@@ -12,7 +12,7 @@ pub(crate) enum DbReclaimCommand {
     ///
     /// Current collections: schemas, schema_states, schema_index, tips,
     /// metadata, idempotency, change_feed, sync_pin_log, sync_capture_reexport,
-    /// keep_small, atoms, blob_ref_edges, proteins and cas_blobs.
+    /// keep_small, atoms, proteins and cas_blobs.
     Compact {
         /// One collection (e.g. `schemas`). Omit with `--all` (or omit both)
         /// to compact every allowlisted plane except `cas_blobs`.
@@ -47,21 +47,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         execute: bool,
         /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// GC: delete local file-blob rows no live atom references.
-    ///
-    /// The reclaim path for the sealed bytes a purge orphans: purge destroys
-    /// the `$lastdb_file` pointer but blobs are shared across records, so
-    /// only this reachability sweep may remove the rows (`cas_blobs` +
-    /// resident `cas_blob:`). Undated rows are stamped on the first pass and
-    /// become reclaimable on a later one. Cloud tiers (B2/R2) are untouched.
-    ///
-    /// Default is dry-run. Pass `--execute` to apply.
-    GcFileBlobs {
-        #[arg(long)]
-        execute: bool,
         #[arg(long)]
         json: bool,
     },

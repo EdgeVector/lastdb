@@ -105,9 +105,7 @@ pub fn classify_collection_plane(name: &str) -> CollectionPlaneRole {
 
     match bare {
         // Current local reference, schema and storage-meter helpers.
-        "schema_index" | "blob_ref_edges" | "attribution_ledger" | "keep_small" => {
-            CollectionPlaneRole::Indexes
-        }
+        "schema_index" | "attribution_ledger" | "keep_small" => CollectionPlaneRole::Indexes,
 
         // ── Cold / sync (K13 Phase-1 same root) ──────────────────────────
         "sync_capture"

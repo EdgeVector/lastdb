@@ -57,6 +57,10 @@
 //! compare counters with totals, and it says so in the report. A run that no
 //! step touched for ten minutes is dropped.
 
+mod blob_pages;
+mod blob_report;
+mod blob_run;
+mod blobs;
 mod check;
 mod molecule_judge;
 mod molecule_pages;
@@ -67,6 +71,7 @@ mod queue;
 mod report;
 mod run;
 mod state;
+mod summary;
 mod totals;
 
 pub use report::{VerifyReport, VerifyRequest, VerifySummary};

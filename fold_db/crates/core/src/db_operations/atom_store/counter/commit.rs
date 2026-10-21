@@ -275,7 +275,9 @@ impl AtomStore {
     }
 
     /// A native store commits one batch only inside a request scope.
-    fn require_atomic_scope(&self) -> Result<(), SchemaError> {
+    pub(in crate::db_operations::atom_store) fn require_atomic_scope(
+        &self,
+    ) -> Result<(), SchemaError> {
         let Some(runtime) = self
             .namespaced_store
             .as_ref()

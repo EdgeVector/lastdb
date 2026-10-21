@@ -1,5 +1,6 @@
 //! The request and the result of a verify step.
 
+use super::blob_report::BlobMismatches;
 use super::molecule_report::MoleculeMismatches;
 use crate::db_operations::atom_store::WalkStats;
 use chrono::{DateTime, Utc};
@@ -31,6 +32,11 @@ pub enum Phase {
     /// The conflict records whose id no queue entry names, read again. A record
     /// that is still there is a fault: the janitor never releases it.
     Suspects,
+    /// Blob counters (personal run only): each counter alone. See `blobs.rs`.
+    Blobs,
+    /// The queue of blobs at zero (personal run only): each entry against its
+    /// counter.
+    BlobQueue,
     /// The run is complete.
     Done,
 }
@@ -74,9 +80,34 @@ pub(crate) enum Kind {
     ZeroBindingsCounter,
     SuspectBindings,
     UnreadableBindings,
+    BlobCounterMissing,
+    BlobCounterBelowRefs,
+    BlobZeroWithoutDwell,
+    BlobDwellWithRefs,
+    ZeroBlobWithoutQueueEntry,
+    BlobStaleQueueEntry,
+    BlobSuspect,
+    UnreadableBlobCounter,
+    BlobCounterWithoutBlob,
 }
 
 impl Kind {
+    /// The kinds of the blob counter phases.
+    pub(super) fn is_blob(self) -> bool {
+        matches!(
+            self,
+            Self::BlobCounterMissing
+                | Self::BlobCounterBelowRefs
+                | Self::BlobZeroWithoutDwell
+                | Self::BlobDwellWithRefs
+                | Self::ZeroBlobWithoutQueueEntry
+                | Self::BlobStaleQueueEntry
+                | Self::BlobSuspect
+                | Self::UnreadableBlobCounter
+                | Self::BlobCounterWithoutBlob
+        )
+    }
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::CounterBelowTips => "counter_below_tips",
@@ -107,6 +138,15 @@ impl Kind {
             Self::ZeroBindingsCounter => "zero_bindings_counter",
             Self::SuspectBindings => "suspect_bindings",
             Self::UnreadableBindings => "unreadable_bindings",
+            Self::BlobCounterMissing => "blob_counter_missing",
+            Self::BlobCounterBelowRefs => "blob_counter_below_refs",
+            Self::BlobZeroWithoutDwell => "blob_zero_without_dwell",
+            Self::BlobDwellWithRefs => "blob_dwell_with_refs",
+            Self::ZeroBlobWithoutQueueEntry => "zero_blob_without_queue_entry",
+            Self::BlobStaleQueueEntry => "blob_stale_queue_entry",
+            Self::BlobSuspect => "blob_suspect",
+            Self::UnreadableBlobCounter => "unreadable_blob_counter",
+            Self::BlobCounterWithoutBlob => "blob_counter_without_blob",
         }
     }
 }
@@ -156,6 +196,9 @@ pub struct Mismatches {
     /// The molecule counter faults (headers, `bindings` counters, binding records).
     #[serde(flatten)]
     pub molecule: MoleculeMismatches,
+    /// The blob counter faults (counters, queue). See `blob_report.rs`.
+    #[serde(flatten)]
+    pub blob: BlobMismatches,
 }
 
 impl Mismatches {
@@ -184,6 +227,7 @@ impl Mismatches {
             Kind::UnreadableRecord => &mut self.unreadable_record,
             Kind::UnreadableCounter => &mut self.unreadable_counter,
             Kind::UnsealedRows => &mut self.unsealed_rows,
+            kind if kind.is_blob() => self.blob.slot(kind),
             _ => self.molecule.slot(kind),
         }
     }
@@ -206,6 +250,7 @@ impl Mismatches {
             + self.unreadable_counter
             + self.unsealed_rows
             + self.molecule.total()
+            + self.blob.total()
     }
 }
 
@@ -276,6 +321,12 @@ pub struct VerifyReport {
     /// Entries the queue phase read (records and drain markers).
     #[serde(default)]
     pub queue_entries_read: u64,
+    /// Blob counters the blobs phase read.
+    #[serde(default)]
+    pub blob_counters_read: u64,
+    /// Queue entries the blob queue phase read.
+    #[serde(default)]
+    pub blob_queue_read: u64,
     /// Pages read again because a read hit the read limit of one call.
     pub page_retries: u64,
     pub range_reads: WalkStats,
@@ -295,79 +346,4 @@ pub struct VerifyReport {
     pub notes: Vec<String>,
 }
 
-/// What `lastdb status` shows of the verifier.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerifySummary {
-    /// The last complete run. `None` since the daemon started, if none finished.
-    pub last: Option<VerifyLast>,
-    /// A run that is not complete.
-    pub running: Option<VerifyProgress>,
-}
-
-/// The result of the last complete run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerifyLast {
-    pub run_id: String,
-    pub finished_at: DateTime<Utc>,
-    pub scope: Option<String>,
-    pub pages: u64,
-    pub steps: u64,
-    pub elapsed_ms: u64,
-    pub mismatches: Mismatches,
-    pub mismatches_total: u64,
-    pub suspect_atoms: u64,
-    pub tally_complete: bool,
-    /// Tips the run read. Zero in a scope that holds data means a wrong scope.
-    #[serde(default)]
-    pub tips_read: u64,
-    /// The rest of what the run read and counted. `lastdb db verify-refs --last`
-    /// prints the same lines as the run did, so it needs the same numbers.
-    #[serde(default)]
-    pub records_read: u64,
-    #[serde(default)]
-    pub counters_read: u64,
-    #[serde(default)]
-    pub bodies_read: u64,
-    /// Pages read again because a read hit the read limit of one call.
-    #[serde(default)]
-    pub page_retries: u64,
-    /// Atoms the totals of the first two phases hold.
-    #[serde(default)]
-    pub tally_atoms: u64,
-    /// Atoms that writers changed while the run read.
-    #[serde(default)]
-    pub touched_atoms: u64,
-}
-
-/// A run in progress.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerifyProgress {
-    pub run_id: String,
-    pub phase: Phase,
-    pub pages: u64,
-    pub started_at: DateTime<Utc>,
-}
-
-impl VerifyReport {
-    pub(crate) fn last(&self) -> Option<VerifyLast> {
-        Some(VerifyLast {
-            run_id: self.run_id.clone(),
-            finished_at: self.finished_at?,
-            scope: self.scope.clone(),
-            pages: self.pages,
-            steps: self.steps,
-            elapsed_ms: self.elapsed_ms,
-            mismatches: self.mismatches,
-            mismatches_total: self.mismatches_total,
-            suspect_atoms: self.suspect_atoms,
-            tally_complete: self.tally_complete,
-            tips_read: self.tips_read,
-            records_read: self.records_read,
-            counters_read: self.counters_read,
-            bodies_read: self.bodies_read,
-            page_retries: self.page_retries,
-            tally_atoms: self.tally_atoms,
-            touched_atoms: self.touched_atoms,
-        })
-    }
-}
+pub use super::summary::{VerifyLast, VerifyProgress, VerifySummary};

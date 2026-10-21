@@ -3,8 +3,10 @@
 //! at one committed root. Nothing here takes the write gate and nothing here
 //! writes.
 
+use super::blobs::{blobs_of_pairs, blobs_of_tips, BlobListed};
 use super::report::Phase;
 use crate::crypto::count_unsealed_discards;
+use crate::db_operations::atom_store::blob_counter::{counter_range, BlobQueue};
 use crate::db_operations::atom_store::counter::scan::{
     family_range, record_holders, record_ids, record_molecules, tip_holders, tip_molecules,
     CounterRead, Family, PairRead,
@@ -38,6 +40,8 @@ pub(super) struct ReferencedPage {
     pub unreadable: u64,
     pub unreadable_keys: Vec<String>,
     pub atoms: Vec<AtomRead>,
+    /// The blobs that the tips of the page name in their metadata (tips phase).
+    pub blobs: Vec<BlobListed>,
     /// Rows of the page for each molecule (tips, or counted conflict records).
     pub molecules: BTreeMap<String, u32>,
     /// The ids of the counted records of the page (the records phase only): the
@@ -63,6 +67,8 @@ pub(super) struct AtomsPage {
     /// Keys under `atom:` that are neither a body nor a counter record.
     pub foreign: u64,
     pub pairs: Vec<PairRead>,
+    /// The blobs that the atom counters of the page list.
+    pub blobs: Vec<BlobListed>,
 }
 
 /// Where each phase reads: the start and the exclusive end of its range.
@@ -74,6 +80,8 @@ pub(super) fn phase_range(phase: Phase, scope: Option<&str>) -> Option<(Vec<u8>,
         Phase::Headers => Family::Headers,
         Phase::Bindings => Family::BindingCounters,
         Phase::BindingRecords => Family::BindingRecords,
+        Phase::Blobs => return Some(counter_range()),
+        Phase::BlobQueue => return Some(BlobQueue::entries_range()),
         Phase::Queue | Phase::Done => return None,
     };
     Some(family_range(family, scope))
@@ -98,6 +106,11 @@ impl AtomStore {
                 Phase::Records => record_holders(&rows),
                 _ => tip_holders(&rows),
             };
+            let blob_lists = if matches!(phase, Phase::Tips) {
+                blobs_of_tips(&rows)
+            } else {
+                BTreeMap::new()
+            };
             let molecules = match phase {
                 Phase::Records => record_molecules(&rows),
                 _ => tip_molecules(&rows),
@@ -108,6 +121,7 @@ impl AtomStore {
             };
             let (atoms, point_unsealed) =
                 count_unsealed_discards(self.read_atoms_of(holders, scope)).await;
+            let blobs = self.read_blob_listed(blob_lists).await?;
             Ok(ReferencedPage {
                 rows: rows.len(),
                 last_key,
@@ -116,6 +130,7 @@ impl AtomStore {
                 unreadable: bad.total,
                 unreadable_keys: bad.keys,
                 atoms: atoms?,
+                blobs,
                 molecules,
                 record_ids,
             })
@@ -187,6 +202,7 @@ impl AtomStore {
             let rows = rows.map_err(SchemaError::from)?;
             let last_key = rows.last().map(|(key, _)| key.clone());
             let paired = self.pair_rows(&rows, &start, scope).await?;
+            let blobs = self.read_blob_listed(blobs_of_pairs(&paired.pairs)).await?;
             Ok(AtomsPage {
                 rows: rows.len(),
                 last_key,
@@ -194,6 +210,7 @@ impl AtomStore {
                 point_unsealed: paired.unsealed,
                 foreign: paired.foreign,
                 pairs: paired.pairs,
+                blobs,
             })
         })
         .await

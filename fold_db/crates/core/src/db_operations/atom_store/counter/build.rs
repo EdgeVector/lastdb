@@ -1,9 +1,12 @@
 //! Turn the plans of one planner run into the mutations of one batch.
 //!
-//! The order inside the batch: bodies and their blob references, counters, the
-//! blob references of tip records, tip records and other rows, and then every
-//! delete. A batch is atomic, so the order only fixes which write wins when two
-//! operations name one key.
+//! The order inside the batch: bodies, counters, the blob counters, tip records
+//! and other rows, and then every delete. A batch is atomic, so the order only
+//! fixes which write wins when two operations name one key.
+//!
+//! The blob counters change in this batch too. A created atom counter that lists
+//! a blob raises the blob counter, a deleted one lowers it, and a tip record that
+//! names a blob in its metadata raises it, a replaced or removed one lowers it.
 
 use super::commit::DeletedAtom;
 use super::plan::{AtomPlan, SuspectKind};
@@ -11,8 +14,8 @@ use super::read::Offer;
 use super::report::CounterEvent;
 use super::{AtomCounter, TipCommit};
 use crate::atom::atom_key_codec;
-use crate::db_operations::atom_store::blob_ref_edges::TipBlobChanges;
-use crate::db_operations::atom_store::{AtomStore, BlobRefEdge, PerKeyRecord};
+use crate::db_operations::atom_store::blob_counter::BlobDeltas;
+use crate::db_operations::atom_store::{AtomStore, PerKeyRecord};
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -32,6 +35,7 @@ pub(super) async fn build_mutations(
     let mut commit = TipCommit::default();
     let mut puts = Vec::new();
     let mut removals = Vec::new();
+    let mut blob_deltas = BlobDeltas::default();
     for (atom, plan) in plans {
         let event = match plan {
             AtomPlan::Unchanged => None,
@@ -44,11 +48,13 @@ pub(super) async fn build_mutations(
                     .remove(&atom)
                     .expect("a created atom has an offered body");
                 puts.extend(create_puts(store, scope, &atom, &counter, &offer).await?);
+                blob_deltas.atom_counter_created(&counter.blobs);
                 commit.created.push(offer.atom);
                 Some(CounterEvent::Created)
             }
             AtomPlan::Delete { blobs, size } => {
-                removals.extend(delete_removals(scope, &atom, &blobs));
+                removals.extend(delete_removals(scope, &atom));
+                blob_deltas.atom_counter_deleted(&blobs);
                 commit.deleted.push(DeletedAtom {
                     uuid: atom.clone(),
                     blobs,
@@ -58,6 +64,11 @@ pub(super) async fn build_mutations(
             }
             AtomPlan::Suspect(counter, kind) => {
                 puts.push(counter_put(scope, &atom, &counter)?);
+                if kind == SuspectKind::CounterAbsent {
+                    // The new counter lists blobs that the lost counter may
+                    // have counted. Counting them again can only leak.
+                    blob_deltas.atom_counter_created(&counter.blobs);
+                }
                 Some(match kind {
                     SuspectKind::Underflow => CounterEvent::Underflow,
                     SuspectKind::CounterAbsent => CounterEvent::CounterAbsent,
@@ -70,15 +81,13 @@ pub(super) async fn build_mutations(
             commit.note_fault(&event);
         }
     }
-    // A tip record that carries file metadata names a blob. The blob roots of
+    // A tip record that carries file metadata names a blob. The blob counters of
     // the old and the new record change in the same batch as the record.
-    let mut tip_blobs = TipBlobChanges::default();
     for (key, new) in tips {
-        tip_blobs.replace(key, scope, old_tips.get(key), new.as_ref())?;
+        blob_deltas.tip_replaced(old_tips.get(key), new.as_ref());
     }
-    puts.extend(tip_blobs.puts);
-    removals.extend(tip_blobs.deletes);
     let mut mutations = puts;
+    mutations.extend(store.blob_counter_mutations(blob_deltas).await?);
     for (key, new) in tips {
         match new {
             Some(record) => mutations.push(KvMutation::put(
@@ -111,7 +120,7 @@ fn counter_put(
     ))
 }
 
-/// Body, blob references, and counter of an atom that is new in the scope.
+/// Body and counter of an atom that is new in the scope.
 async fn create_puts(
     store: &AtomStore,
     scope: Option<&str>,
@@ -127,27 +136,18 @@ async fn create_puts(
         build_storage_key(scope, &atom_key_codec::body_key(atom)).into_bytes(),
         body,
     )];
-    for blob in &counter.blobs {
-        for (key, value) in BlobRefEdge::atom(atom, blob, scope).put_rows()? {
-            puts.push(KvMutation::put(key, value));
-        }
-    }
     puts.push(counter_put(scope, atom, counter)?);
     Ok(puts)
 }
 
-/// Body, counter, and blob references of an atom whose count reached zero.
-fn delete_removals(scope: Option<&str>, atom: &str, blobs: &[String]) -> Vec<KvMutation> {
-    let mut removals = vec![
+/// Body and counter of an atom whose count reached zero.
+fn delete_removals(scope: Option<&str>, atom: &str) -> Vec<KvMutation> {
+    vec![
         KvMutation::delete(
             build_storage_key(scope, &atom_key_codec::counter_key(atom)).into_bytes(),
         ),
         KvMutation::delete(build_storage_key(scope, &atom_key_codec::body_key(atom)).into_bytes()),
-    ];
-    for blob in blobs {
-        removals.extend(BlobRefEdge::atom(atom, blob, scope).delete_mutations());
-    }
-    removals
+    ]
 }
 
 fn to_bytes<T: serde::Serialize>(value: &T, what: &str) -> Result<Vec<u8>, SchemaError> {

@@ -78,8 +78,11 @@ impl FoldDB {
     ///   copy; see [`blob_cas::put_blob_sealed_under_dek_dedup_in_ops`].
     /// - A blob over [`local_file_blob_max_bytes`] is refused.
     ///
-    /// No record is written. The row is unreferenced until the caller writes
-    /// the pointer, and `gc-file-blobs` will not reclaim it for at least 300 s.
+    /// No record is written. The put registers the upload with the blob counter,
+    /// in the same native request as the row. The blob has no reference until the
+    /// caller writes the pointer, so it stays for the dwell
+    /// (`LASTDB_BLOB_DWELL_SECS`, one hour by default). The dwell pass deletes it
+    /// after that if no atom has named it.
     pub async fn put_local_file_blob(
         &self,
         plaintext: &[u8],
