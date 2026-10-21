@@ -146,9 +146,41 @@ fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
             .and_then(|name| name.parse::<u64>().ok())
             .filter(|number| *number > 0)
             .ok_or_else(|| corrupt("invalid generation directory"))?;
+        if remove_unstarted(&entry.path())? {
+            continue;
+        }
         out.push(number);
     }
     Ok(out)
+}
+
+/// Remove a generation directory whose receipt was never begun.
+///
+/// A writer creates `generations/<n>` and then writes the receipt pages into it.
+/// A kill between the two leaves a directory with no part file, or with part
+/// files that hold no byte. A publication syncs the finished receipt before any
+/// CURRENT names it, so such a directory was never published and holds no data.
+/// A directory with any other content is not touched: it fails as before.
+fn remove_unstarted(path: &Path) -> Result<bool> {
+    let mut parts = Vec::new();
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let is_part = entry.file_name().to_str().is_some_and(|name| {
+            name.strip_prefix("part-").is_some_and(|hex| {
+                hex.len() == 8 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        });
+        if !is_part || !entry.file_type()?.is_file() || entry.metadata()?.len() != 0 {
+            return Ok(false);
+        }
+        parts.push(entry.path());
+    }
+    for part in parts {
+        std::fs::remove_file(part)?;
+    }
+    std::fs::remove_dir(path)?;
+    durability::sync_directory(&File::open(path.parent().expect("generation parent"))?)?;
+    Ok(true)
 }
 
 fn removable(
