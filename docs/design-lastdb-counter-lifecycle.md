@@ -482,7 +482,13 @@ The estimate of section 13 undercounted the operations and the reads (see the ch
 | Fails at | about 2,400 rows | no size limit from the schema. Limit from K·F: one request holds up to 16,384 operations (4,096 on an older home). A purge fits 553 keys of 6 fields or 138 keys of 24 fields (168 and 42 on an older home). A delete fits 511 and 128 (135 and 33). |
 | Schema purge barrier | 0.72 to 1.07 s per batch | **none** |
 | Gate hold per batch | not measured | reads of about 200 keys plus staging. Expected under 300 ms. Target under 1 s. |
-| Writers during the sweep | other schema: longest 5.1 s | one gate hold plus the flush wait, which is outside the gate |
+| Writers during the sweep | other schema: longest 5.1 s | one gate hold plus the flush wait, which is outside the gate (see the correction below) |
+
+**Correction (section 20).** The flush wait is outside the gate, but it is not outside the wait of other writers.
+A batch with no early publication seals the write queue, and every later writer waits in the queue until that batch
+is durable, though the gate is free. The sweep batches, the janitor, the dwell pass and the drain are such batches.
+So the time that a batch keeps writers waiting is its gate hold plus its flush, and the pacing of those tasks has to
+count both.
 
 What lock or barrier remains and why:
 
