@@ -12,5 +12,10 @@
   ],
   "source_identity": "after-v1/identity-summary.json",
   "compiled_sources_unchanged": true,
-  "all_owned_node_sessions_stopped": true
+  "all_owned_node_sessions_stopped": true,
+  "cleanup_complete": true,
+  "synthetic_roots_removed": 9,
+  "cleanup_receipt": "cleanup-execute.json",
+  "draft_pr": "https://github.com/EdgeVector/lastdb/pull/254",
+  "merged": false
 }
