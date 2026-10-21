@@ -132,7 +132,7 @@ impl HashRangeQueryProcessor {
                 continue;
             }
             let writer = {
-                let pk = rec.entry.writer_pubkey.clone();
+                let pk = rec.entry.writer_pubkey().to_string();
                 if pk.is_empty() {
                     None
                 } else {

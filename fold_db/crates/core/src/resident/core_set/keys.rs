@@ -6,30 +6,18 @@ impl CoreWarmSet {
     pub(crate) fn attach_keys(&mut self, domain: Arc<CoreKeyDomain>) {
         let identity = domain.identity();
         let key = MoleculeKey::new(identity.scope.as_deref(), &identity.molecule);
-        let model = self
-            .molecules
-            .entry(key)
-            .or_insert_with(|| MoleculeHashRange::with_partial_uuid(identity.molecule.clone()));
-        model.attach_core_keys(domain);
+        self.key_domains.insert(key, domain);
     }
 
     pub(crate) fn key_lease(&self, scope: Option<&str>, molecule: &str) -> Option<CoreKeyLease> {
-        self.molecules
+        self.key_domains
             .get(&MoleculeKey::new(scope, molecule))?
-            .core_keys()?
             .lease()
             .ok()
             .flatten()
     }
 
     pub(crate) fn detach_keys(&mut self, scope: Option<&str>, molecule: &str) {
-        let key = MoleculeKey::new(scope, molecule);
-        let empty = self.molecules.get_mut(&key).is_some_and(|model| {
-            model.detach_core_keys();
-            model.is_empty() && model.core_keys().is_none()
-        });
-        if empty {
-            self.molecules.remove(&key);
-        }
+        self.key_domains.remove(&MoleculeKey::new(scope, molecule));
     }
 }

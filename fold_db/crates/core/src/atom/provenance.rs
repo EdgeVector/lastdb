@@ -53,6 +53,26 @@ pub enum Provenance {
 }
 
 impl Provenance {
+    /// Heap bytes of the strings this provenance owns.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        match self {
+            Self::User {
+                pubkey, signature, ..
+            } => pubkey.capacity() + signature.capacity(),
+            Self::Derived {
+                wasm_hash,
+                input_snapshot_hash,
+                sources_merkle_root,
+                ..
+            } => {
+                wasm_hash.capacity()
+                    + input_snapshot_hash.capacity()
+                    + sources_merkle_root.capacity()
+            }
+        }
+    }
+
     /// Constructor for `User` variant with `signature_version = 1` (the only
     /// version currently defined).
     #[must_use]

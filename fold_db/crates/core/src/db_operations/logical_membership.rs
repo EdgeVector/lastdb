@@ -107,11 +107,12 @@ async fn field_values(
                 if record.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
                     return None;
                 }
+                let writer = record.entry.writer_pubkey().to_string();
                 Some((
                     key.clone(),
                     record.entry.atom_uuid,
                     record.meta,
-                    Some(record.entry.writer_pubkey),
+                    Some(writer),
                 ))
             });
             let values = fetch_atoms_with_key_metadata_async_with_prefix(

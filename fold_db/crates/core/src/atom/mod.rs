@@ -1,4 +1,5 @@
 mod atom_def;
+mod atom_entry;
 pub mod atom_key_codec;
 pub mod content_at_rest;
 pub(crate) mod delete_barrier;
@@ -18,6 +19,7 @@ pub mod size_limit;
 pub mod tombstone;
 
 pub use atom_def::Atom;
+pub use atom_entry::AtomEntry;
 pub use content_at_rest::{
     atom_content_binary_enabled, atom_row_header, open_atom_binary_row, open_atom_json,
     open_content_value, parse_atom_binary_row, seal_atom_binary_row, seal_atom_json,
@@ -88,143 +90,6 @@ pub fn lww_order_key<'a>(
         mutation_uuid,
         atom_uuid,
     )
-}
-
-fn is_zero_u8(v: &u8) -> bool {
-    *v == 0
-}
-
-fn is_zero_u64(v: &u64) -> bool {
-    *v == 0
-}
-
-/// Current atom and author identity at one molecule key.
-///
-/// Current constructors leave the optional crypto fields empty. A tip has no
-/// archived-value query or history chain. Separate `history\0` mutation events
-/// retain conflict and replay outcomes with their own atom references.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct AtomEntry {
-    pub atom_uuid: String,
-    #[serde(default)]
-    pub written_at: u64, // nanos since epoch
-    /// Durable per-device logical author counter. Zero when no counter is supplied.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub logical_counter: u64,
-    /// Mutation identity used after the author clock as a stable tie-break.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub mutation_uuid: String,
-    /// Optional base64-encoded public key. Current constructors leave it empty.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub writer_pubkey: String,
-    /// Optional base64-encoded signature. Current constructors leave it empty.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub signature: String,
-    /// Optional signature scheme version. Current constructors use zero.
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub signature_version: u8,
-    /// Optional writer provenance. Current constructors leave it absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provenance: Option<Provenance>,
-    /// Device identity for the LWW tie-break, usually the writer's public key.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub device_id: String,
-    /// Sync device that wrote this tip (the sync `writer_id` of its log
-    /// stream). Not part of the LWW order: `device_id` above is the owner key,
-    /// which own devices share. Empty means "in doubt": an old tip, a write
-    /// without a sync device id, or an import whose writer is unknown.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub origin_device: String,
-    /// Retained serialized field. Current writes leave it empty; no archived
-    /// tip reader or historical query follows this value.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub prev_tip_id: String,
-}
-
-impl AtomEntry {
-    /// Construct a current tip with the reserved link field empty.
-    #[must_use]
-    pub fn thin(atom_uuid: String, written_at: u64, device_id: String) -> Self {
-        Self::thin_with_prev(atom_uuid, written_at, device_id, String::new())
-    }
-
-    /// Construct a current tip with the supplied reserved link field.
-    #[must_use]
-    pub fn thin_with_prev(
-        atom_uuid: String,
-        written_at: u64,
-        device_id: String,
-        prev_tip_id: String,
-    ) -> Self {
-        Self {
-            atom_uuid,
-            written_at,
-            logical_counter: 0,
-            mutation_uuid: String::new(),
-            writer_pubkey: String::new(),
-            signature: String::new(),
-            signature_version: 0,
-            provenance: None,
-            device_id,
-            origin_device: String::new(),
-            prev_tip_id,
-        }
-    }
-
-    /// Construct a current tip with a signed mutation author identity.
-    #[must_use]
-    pub fn thin_with_author(
-        atom_uuid: String,
-        written_at: u64,
-        logical_counter: u64,
-        device_id: String,
-        mutation_uuid: String,
-        prev_tip_id: String,
-    ) -> Self {
-        Self {
-            atom_uuid,
-            written_at,
-            logical_counter,
-            mutation_uuid,
-            writer_pubkey: String::new(),
-            signature: String::new(),
-            signature_version: 0,
-            provenance: None,
-            device_id,
-            origin_device: String::new(),
-            prev_tip_id,
-        }
-    }
-
-    /// Return this entry with the sync device that wrote it.
-    #[must_use]
-    pub fn with_origin_device(mut self, origin_device: String) -> Self {
-        self.origin_device = origin_device;
-        self
-    }
-
-    /// Device key used for LWW: explicit `device_id`, otherwise `writer_pubkey`.
-    #[must_use]
-    pub fn lww_device(&self) -> &str {
-        if self.device_id.is_empty() {
-            &self.writer_pubkey
-        } else {
-            &self.device_id
-        }
-    }
-
-    /// LWW tuple for this tip: origin time, author counter, device,
-    /// mutation identity, then atom identity.
-    #[must_use]
-    pub fn lww_key(&self) -> (u64, u64, &str, &str, &str) {
-        lww_order_key(
-            self.written_at,
-            self.logical_counter,
-            self.lww_device(),
-            self.mutation_uuid.as_str(),
-            self.atom_uuid.as_str(),
-        )
-    }
 }
 
 /// Returns the current time in nanoseconds since the Unix epoch.

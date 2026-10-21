@@ -142,8 +142,8 @@ impl FieldVariant {
                     &key,
                     &rec.entry.atom_uuid,
                 )?;
-                let writer =
-                    (!rec.entry.writer_pubkey.is_empty()).then_some(rec.entry.writer_pubkey);
+                let writer = (!rec.entry.writer_pubkey().is_empty())
+                    .then(|| rec.entry.writer_pubkey().to_string());
                 Ok((key, rec.entry.atom_uuid, rec.meta, writer))
             })
             .collect::<Result<Vec<_>, SchemaError>>()?;

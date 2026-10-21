@@ -52,7 +52,7 @@ impl AtomStore {
         // LWW-skip when a newer sibling tip already won.
         if scope.honor_tip_lww {
             let writer = if tip.device_id.is_empty() {
-                tip.writer_pubkey.clone()
+                tip.writer_pubkey().to_string()
             } else {
                 tip.device_id.clone()
             };
@@ -63,7 +63,7 @@ impl AtomStore {
                     atom_uuid: tip.atom_uuid.clone(),
                     device_id: writer,
                     origin_device: tip.origin_device.clone(),
-                    writer_pubkey: tip.writer_pubkey.clone(),
+                    writer_pubkey: tip.writer_pubkey().to_string(),
                     written_at: Some(tip.written_at),
                     logical_counter: tip.logical_counter,
                     mutation_uuid: tip.mutation_uuid.clone(),

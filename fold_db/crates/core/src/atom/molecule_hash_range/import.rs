@@ -86,19 +86,21 @@ impl MoleculeHashRange {
         } else {
             None
         };
-        let entry = AtomEntry {
-            atom_uuid: tip.atom_uuid,
+        let mut entry = AtomEntry::thin_with_author(
+            tip.atom_uuid,
             written_at,
-            logical_counter: tip.logical_counter,
-            mutation_uuid: tip.mutation_uuid,
-            writer_pubkey: tip.writer_pubkey,
-            signature: tip.signature,
-            signature_version: tip.signature_version,
+            tip.logical_counter,
+            tip.device_id,
+            tip.mutation_uuid,
+            String::new(),
+        )
+        .with_origin_device(tip.origin_device);
+        entry.set_signer(
+            tip.writer_pubkey,
+            tip.signature,
+            tip.signature_version,
             provenance,
-            device_id: tip.device_id,
-            origin_device: tip.origin_device,
-            prev_tip_id: String::new(),
-        };
+        );
         let mut replaced = None;
         if let Some(existing) = self.get_atom_entry(&hash_value, &range_value) {
             let incoming_wins = crate::atom::incoming_wins_lww(entry.lww_key(), existing.lww_key());
