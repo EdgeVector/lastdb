@@ -1,8 +1,9 @@
 # The time-bucketed queue
 
 A queue of entries that become due at a time. A reader releases the entries
-that are due, oldest first, and each release deletes its entry. The first user is
-the retention queue of kept conflict records (`docs/lastdb-atom-counter.md`).
+that are due, oldest first, and each release deletes its entry. Two queues use it:
+the retention queue of kept conflict records (`docs/lastdb-atom-counter.md`) and the
+dwell queue of file blobs at zero references (`docs/lastdb-blob-counter.md`).
 Another queue with the same needs takes the same contract.
 
 Code: `fold_db/crates/core/src/db_operations/atom_store/time_queue/`.
@@ -389,8 +390,8 @@ What the net does not cover:
 ## What can go wrong and what catches it
 
 The directory row of a bucket can be missing in four ways. Each has a
-prevention, a detection and a repair. S5 inherits all of them when it adopts the
-queue.
+prevention, a detection and a repair. The dwell queue of the file blobs inherits
+all of them.
 
 | Way | Prevented by | Detected by | Healed by |
 |---|---|---|---|
@@ -472,8 +473,8 @@ nothing to change.
 
 ## What the next user provides
 
-The blob queue (or another queue) takes the layout, the reader, the retirement,
-the safety net and the size count as they are. It provides:
+A new queue takes the layout, the reader, the retirement, the safety net and the size
+count as they are (the blob dwell queue already does). It provides:
 
 1. A `TimeQueue` value: the two family names and the slice. The families are its
    own (see "Writers").
