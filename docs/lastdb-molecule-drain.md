@@ -128,13 +128,13 @@ A wake that ends with an error doubles the wait before the next one, up to ten m
 A write that shares time with a drain batch waits longer than a write that does not.
 Measured on a loaded host, with 4 writers that wrote as fast as the node answered
 (the median latency was about 110 ms): the median of a write that overlapped a batch was
-1.4 to 1.8 times the median of the writes in the same window that did not. The hold of
+1.3 to 1.8 times the median of the writes in the same window that did not. The hold of
 the write gate is not the cause: a batch of 256 tips holds it for 30 ms at the median
-and 70 ms at most. The duty share sets how many writes meet a batch (36 percent of the
-writes at a duty of 25, 14 percent at a duty of 10). A smaller `LASTDB_MOLECULE_DRAIN_TIPS`
-gives shorter batches and a smaller penalty for the writes that meet one (1.4 times at 64
-tips), and a slower drain. The default duty is 10 percent for this reason: the schema is
-already gone when the drain runs, and only disk space waits for it.
+and 70 ms at most. The duty share sets how many writes meet a batch (36 to 38 percent of
+the writes at a duty of 25, 13 to 19 percent at a duty of 10). The penalty for a write that
+meets a batch did not change in a clear way with the batch size (64 to 256 tips). The default
+duty is 10 percent for this reason: the schema is already gone when the drain runs, and only
+disk space waits for it. At this duty the drain erased 55 to 100 tips a second in the same runs.
 
 ## Show verbs
 
