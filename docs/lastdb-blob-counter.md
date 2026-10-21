@@ -234,6 +234,14 @@ aggregate for the whole request, so a request with thousands of writes that name
 blobs can reach it earlier than a request that names none. The request then fails
 with the read limit error and changes nothing.
 
+The same holds for the 16,384 storage operations of one native mutation. A write
+costs about 8 operations in the atom planner, and a write that names a new blob adds
+one more (the blob counter; an upload adds the queue entry and the directory row
+too). Measured on a synthetic home: a request of 1,980 plain writes fits, a request
+of 1,800 writes that each name a distinct blob fits, and 1,900 do not (`complete
+native mutation exceeds 16384 storage operations`, retryable, nothing changes). A
+client splits such a request.
+
 The reads and the batches stay small on purpose. A read call of the walk asks for
 a page of one chunk (32 keys by default) and is cut in two when it meets the
 read budget. The real budget
