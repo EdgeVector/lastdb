@@ -8,9 +8,10 @@ fn history_row_bytes(storage_key: &str, ev: &MutationEvent) -> u64 {
 }
 
 /// True for a history row that keeps a conflicting write: a merge-conflict
-/// event, a conflict loser, or an imported Put kept out of the tip. Tom's rule
-/// (2026-10-13): when two devices write the same key, each write stays. A
-/// history clear never selects such a row, and its loser atom keeps its edge.
+/// event, a conflict loser, or an imported Put kept out of the tip. The rule
+/// of 2026-10-13: when two devices write the same key, each write stays. A
+/// history clear never selects such a row, and its loser atom keeps its counted
+/// reference.
 fn keeps_conflicting_write(ev: &MutationEvent) -> bool {
     ev.is_conflict
         || ev.conflict_loser_atom.is_some()

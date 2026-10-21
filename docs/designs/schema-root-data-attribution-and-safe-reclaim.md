@@ -1,20 +1,15 @@
 # Schema-root data attribution and safe reclaim
 
-> **SUPERSEDED 2026-09-27 (Tom).** Reference counting replaces the
-> schema-root copy-only walk below as the primary atom garbage-collection
-> mechanism. Brain: `decision-2026-09-27-lastdb-atom-refcount-gc-approved`,
-> `decision-2026-09-27-lastdb-schema-root-attribution-retired-for-refcount`.
-> This document is not withdrawn — the reachability walk it describes
-> becomes a periodic AUDIT that checks the reference-count candidate list
-> against true reachability, not the terminal gate. See kanban card
-> `lastdb-refcount-audit-harness-repurpose`. The rest of this document
-> describes the original, now-superseded design and stays as reference —
-> the twelve reclaim-safety rules, the migration-phase table, and the
-> acceptance-proof checklist below still inform the audit's design.
+> **SUPERSEDED.** The atom counter is the only authority for the life of an atom
+> body, a molecule and a file blob (`docs/lastdb-atom-counter.md`,
+> `docs/design-lastdb-counter-lifecycle.md`). No reachability walk, audit, candidate
+> queue or grace window takes part in a delete. This document describes the original
+> schema-root attribution design and stays as history. Its reclaim-safety rules and its
+> acceptance checklist are not an active plan.
 
 | Field | Value |
 |---|---|
-| Status | Superseded 2026-09-27 — kept as design reference for the audit path |
+| Status | Superseded — kept as history |
 | Date | 2026-09-21 |
 | Scope | LastDB Mini owner maintenance |
 | Canonical model | `docs/lastdb-canonical-model.md` |

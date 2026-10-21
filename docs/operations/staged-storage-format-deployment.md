@@ -549,7 +549,7 @@ If any safe stop condition is not met, **do not proceed to the next stage**. Ins
 | LastDB ideal storage shape | `docs/lastdb-ideal-storage-shape.md` |
 | Backup and restore procedures | `docs/cloud-backup-gc-jobs.md` |
 | Canonical model | `docs/lastdb-canonical-model.md` |
-| Safe upgrade guide | `docs/lastdb-safe-upgrade.md` (if available) |
+| Safe upgrade cutover guard | `scripts/lastdbd/safe-upgrade-cutover-guard.sh` |
 
 ---
 

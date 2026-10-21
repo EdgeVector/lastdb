@@ -1,13 +1,13 @@
 # Counter lifecycle
 
-**Written 2026-10-19 · Status: step S1 is built in this repository (see `docs/lastdb-atom-counter.md`). Steps S2 to S8 are proposed. Sections 13 and 14 were estimates; the S1 numbers are in the pull request that added this file and in section 13.1.**
+**Written 2026-10-19 · Status: all steps are built and merged (S1 to S8b, see section 20). Sections 1 to 19 are the plan as it was written, with its estimates and its first-person voice. Section 20 says what was built and where the build differs. For current behavior read `docs/lastdb-atom-counter.md` and the pages it links.**
 
 > Design decisions of 2026-10-19:
 > (1) The counter alone decides whether an atom and a molecule can be purged.
-> (2) The next primary starts as a fresh database. No migration. No support for a home that an older build made.
+> (2) The next production home starts as a fresh database. No migration. No support for a home that an older build made.
 > (3) An atom stays at or below 256 KiB.
 > (4) The default TTL sweep verb is `purge` (hard erase). It must be fast. It must not stall writers.
-> (5) The database keeps every conflicting write (recorder M1, lastdb#179). A kept loser stays protected until the retention janitor (step S4 of the multi-device conflicts design) releases it.
+> (5) The database keeps every conflicting write (recorder M1, lastdb#179). A kept loser stays protected until the retention janitor (step S4 of the multi-device conflicts design, which is not part of this repository) releases it.
 
 Base of every fact: `EdgeVector/lastdb` `origin/main` at `fadd60ab` (after PRs #212 to #221). Paths without a prefix are under `fold_db/crates/core/src`. Runs used a `dev-release` build of that commit on fresh synthetic homes in `$TMPDIR`, `EXEMEM_ENV=dev`. No primary data was touched.
 
@@ -100,7 +100,7 @@ Rebuild paths. The header of `atom_ref_edges.rs:1-7` says `mk:` tips and `tv:` r
 | Audit (probe lap, `admin_db/gc_atoms_probe.rs:18`) | A second proof that no tip names the atom, because the count and the tip were separate writes with no durable order. It walks every tip, tv, history, conflict and atom record with a physical scan. | **No.** The batch is atomic. The audit is the one full scan in the system. A verifier that only reports replaces it (section 7). |
 | Pending hold / "fold marker" (`aref:pending:v1:`) | The window of a catalog add between its holds and its count batch. Its only writer is the catalog add (`catalog_refs.rs:141-147`). After #221 no protein fold writes one (`persist/sibling.rs`, `deferred_job.rs:113`). | **No.** Catalog binding becomes one counter change (section 12). |
 | Packing lock, backup cut hold (`fold_db/sync/status.rs:204-234`) | The legacy chunk backup and its packing. It returns false with no sync engine. | **No for native.** A native backup holds a complete root with a durable reference (`disk_pack/backup.rs:11-43`). It does not depend on atom deletes. |
-| Peer-apply interlock (`atom_store/peer_apply.rs`) | A conflict loser that no record names. | **No.** A fresh node has the recorder from its first write (decision 10). Recorder rows hold counted references. |
+| Peer-apply interlock (`atom_store/peer_apply.rs`) | A conflict loser that no record names. | **No.** A fresh node has the recorder from its first write (decision 2). Recorder rows hold counted references. |
 | Re-arm, birth rows, `settle_atom_births` | The body-then-tip order gap. | **No.** |
 | Atom stripe locks (`locks.rs:202-235`) | In-process order for read-modify-write of a count. | **No.** The gate orders everything. They also cause a lock-order risk (below). |
 
@@ -260,7 +260,7 @@ What we lose without them:
 
 **What happens to the rebuild paths and to `exact`.** `reindex.rs` (a manifest read), `reindex_v1_upgrade.rs` (the history upgrade) and `v1_drain.rs` (a v1 probe) go with the manifests (section 15). They gate nothing in the new design. The `exact` flag goes. A count is exact by I1, so a stored "inexact zero" has no meaning. The one abnormal state is the `suspect` flag on the counter record (section 5, underflow rule). It never authorizes a delete. The one rebuild left is the offline `recount` (section 7), which no gate uses.
 
-What we gain: about 290 bytes for each edge on the old primary (`status_ops_cmds.rs:222`: 936.7 MiB for 3.36 million edges), one write and one read less for each tip change, and no way for an edge and a count to disagree (defects D3, D4 and the list of defects in section 1.8).
+What we gain: about 290 bytes for each edge on a large old home (`status_ops_cmds.rs:222`: 936.7 MiB for 3.36 million edges), one write and one read less for each tip change, and no way for an edge and a count to disagree (defects D3, D4 and the list of defects in section 1.8).
 
 **Which objects get a counter?**
 
@@ -396,7 +396,7 @@ Decision 5: the database keeps every conflicting write until the retention janit
 **Recorder rows hold counted references.** M1 writes, for one pair, a history record, a conflict record, an `mcc` entry, an `hcu` event and compact edges for the atoms of the history record (`conflict_record/write.rs:46-147`, `atom_ref_edges.rs:310`). The edges are not counted today (D5). In the new design the recorder goes through the planner:
 
 - New record: `+1` for each distinct atom the history record names (`new_atom_uuid`, `old_atom_uuid`, `conflict_loser_atom`), `records+1` on the molecule header, and the record rows, in the same batch as the tip decision and the body write.
-- Repeat of the same decision: the key is a digest of the pair (M1 contract 9.4). The planner reads the history record key first. If it exists, nothing changes.
+- Repeat of the same decision: the key is a digest of the pair (the digest rule of the conflict recorder). The planner reads the history record key first. If it exists, nothing changes.
 - The loser body is written in the same batch if absent. The old "body batch, then record batch" order is gone.
 - This matches the M1 contract, which keeps both atoms of a Replaced record. Q5 asks whether to keep only the loser.
 
@@ -406,7 +406,7 @@ Decision 5: the database keeps every conflicting write until the retention janit
 
 **Q4 (accepted 2026-10-14): purge and delete of a key end the retention of its losers.** A history record has no key index today. M1 keys records by molecule, time and digest. So a purge by key cannot find the records of that key without reading the molecule's history. Design: S4 writes one **slot directory record** for each conflict record, `crs:{M}:{hash}\0{range}\0{digest}`, in the same batch. The molecule header `records` count says whether any exist. A purge reads the slot directory (one range read under one hash) only for a slot of a molecule with `records > 0`. It then releases those records in the same batch. A molecule with no records pays nothing. Without this index a purge would leave the personal data of the key in a loser atom for the whole window. That would break the erasure promise.
 
-**No more interlock.** A fresh node has the recorder from its first write (decision 10). The `peer-apply` gate and the `stranded_before_recorder` case are not needed.
+**No more interlock.** A fresh node has the recorder from its first write (decision 2). The `peer-apply` gate and the `stranded_before_recorder` case are not needed.
 
 ---
 
@@ -482,7 +482,13 @@ The estimate of section 13 undercounted the operations and the reads (see the ch
 | Fails at | about 2,400 rows | no size limit from the schema. Limit from K·F: one request holds up to 16,384 operations (4,096 on an older home). A purge fits 553 keys of 6 fields or 138 keys of 24 fields (168 and 42 on an older home). A delete fits 511 and 128 (135 and 33). |
 | Schema purge barrier | 0.72 to 1.07 s per batch | **none** |
 | Gate hold per batch | not measured | reads of about 200 keys plus staging. Expected under 300 ms. Target under 1 s. |
-| Writers during the sweep | other schema: longest 5.1 s | one gate hold plus the flush wait, which is outside the gate |
+| Writers during the sweep | other schema: longest 5.1 s | one gate hold plus the flush wait, which is outside the gate (see the correction below) |
+
+**Correction (section 20).** The flush wait is outside the gate, but it is not outside the wait of other writers.
+A batch with no early publication seals the write queue, and every later writer waits in the queue until that batch
+is durable, though the gate is free. The sweep batches, the janitor, the dwell pass and the drain are such batches.
+So the time that a batch keeps writers waiting is its gate hold plus its flush, and the pacing of those tasks has to
+count both.
 
 What lock or barrier remains and why:
 
@@ -585,6 +591,110 @@ S1 is the one large step. I could not split it, because the planner replaces the
 
 ---
 
+## 20. What was built and where it differs
+
+Sections 1 to 19 are the plan of 2026-10-19. This section records the build. All steps are merged to `main`.
+Questions Q1 to Q10 were accepted as recommended. The pages that describe current behavior are
+`docs/lastdb-atom-counter.md`, `docs/lastdb-molecule-counters.md`, `docs/lastdb-molecule-drain.md`,
+`docs/lastdb-blob-counter.md`, `docs/lastdb-time-queue.md`, `docs/lastdb-ttl-sweep.md` and
+`docs/lastdb-storage-parts.md`.
+
+### 20.1 The steps as merged
+
+The order of the merges was S1, S6, S4, S3, S5, S7, S8a, S8b.
+
+| Step | Pull requests | What it built |
+|---|---|---|
+| S1 counter and planner | #226 | Counter record per atom, one planner, delete on zero, the underflow rule, the format fence, the writer lint, purge as point reads plus one batch. It removed 32,078 lines. |
+| S6 verifier and recount | #237, #244, #245 | `lastdb db verify-refs`, offline `lastdb db recount`, bounded `lastdb db inventory`. Follow-ups fixed a livelock on a run of bad rows, `verify-refs --last`, and the status label. |
+| S4 molecule counters | #241 | `slots` and `records` in the molecule header, `bindings` beside the binding records, `liveness explain molecule`, three verifier phases. |
+| S3 conflict references | #242, #252 | Conflict records hold counted references (one per distinct atom), a slot directory, a drain marker, the retention janitor, the time-bucketed queue, and (in #252) the safety net of the queue. |
+| S5 blob counters | #243 | Blob counters, a one-hour dwell, a dwell queue on the time-bucketed queue, the key format marker `4`. |
+| S7 molecule drain | #253, #259 | A dead molecule loses its keys, its kept conflict records and its rows in bounded batches. |
+| S8a robustness | #257 | Scan loops that took a short page for the end of a range, `reap-unsealed` speed, reclaim of unfinished receipts and stale pending files. |
+| S8b polish | #258 | Pacing by the time writers wait, queue small items, stale names, a TTL check with fresh numbers. |
+| outside the plan | #246, #256 | The journal archive crash fix, and the automatic bound on the dependency parts of a native home. |
+
+S2 (remove the audit machinery) did not run as its own step. S1 removed the audit, the reaper, the candidate
+queue, the reverse edges and the interlock together with the code that needed them. S8b removed the stale names
+that were left (verbs, key families, a status gauge, comments).
+
+### 20.2 Where the build differs from the plan
+
+| Topic | Plan | Built | Why |
+|---|---|---|---|
+| `bindings` counter | In the molecule header `mh:{M}` with `slots` and `records` (sections 4 and 12) | In `mref:v1:n:{target}`, next to the binding records. `slots` and `records` stay in the header. | A bind comes before the first tip. The presence of a header means that the molecule lives at that prefix, so a bind that made the header would change what the first write does. |
+| Retention queue | One hash, `aref:cr:v1:q:{expires_at}:{digest}`, read by pages (section 10) | The time-bucketed queue: entries `crq:v1:{bucket}\0{expires}:{id}`, a directory `crb:v1\0{bucket}`, in-memory cursors, a guarded retirement of a bucket | A review found that the janitor stopped after about 6,000 releases. The deleted entries sat at the head of one hash and every read had to pass them, so a page read exceeded its budget. |
+| Safety net for the queue | None | `TimeQueue` re-registers a bucket that holds live entries and has no directory row; `verify-refs` reports `queue_entry_without_directory` and `record_without_queue_entry`; `recount` repairs both | A lost directory row hides entries for ever. |
+| Slot directory | `crs:{M}:{hash}\0{range}\0{digest}` | `crs:v1:{M}\0{esc(hash)}\0{range}\0{record_id}`, plus a drain marker, a cap of 100 released records for each erase request, and 256 slot reads | The reads of an erase run in the write gate and share its budget. The binding limit is 4,096 metadata pages, not only 10,000 keys. |
+| Format fence | "Next free required-feature bit" | Required-feature bit 128 (`FEATURE_ATOM_RECORDS`) in S1, and the key format marker `layout:v3:keys` with the value `4` in S5 | S5 changed the blob layout, so a home from before it needed its own refusal. |
+| Blob counter | A record next to the blob row, with a dwell | A counter in `atoms` at `bref:v3:c:{sha256(blob_ref)}\0c`, a queue on the time-bucketed queue, a dwell of 3,600 s with a floor of 120 s, a clock tolerance of a quarter of the dwell, and a late reference that is accepted and reported | A refusal in the planner would stop paths that bring atoms before their blob bytes. |
+| Counter record | `{v, refs, blobs, suspect}` | adds `sz`, the size of the body and of its blobs | The keep-small meters learn the old size from the counter and keep no per-key state. |
+| Size of an erase request | `3·K·F + F + K + 1` operations, 2 examined keys for each tip | At most `4·K·F` (purge) and `5·K·F` (delete) operations plus `F + 8` for each chunk, and 12 and 13 examined keys for each tip | The build measured 3.8 to 5.0 operations and 9 to 12 examined keys for each tip. The read budget is the smaller bound. |
+| Locks | No lock beyond the gate | A Delete (not a Purge) also takes the tip-commit locks of its keys | It orders the Delete against a memory delete that registered its barrier before the persist lane ran. |
+| Molecule drain | A cursor over the tips of a dead molecule, from the header | Candidate rows `mref:v1:d\0{scope}\0{molecule}` written in the batch that lowers `bindings` to zero; bounded batches through the planner; counters read again in the gate; the drain also releases kept conflict records; a schema whose molecules drain answers HTTP 409 on install | The first review found that a schema drop with a large database-scope instance failed with HTTP 500. The drop now removes only the catalog rows and bindings, and the drain erases the instance. |
+| Protein siblings of an erase | Q7: reach every sibling, also a Hash sibling | A purge and a delete reach HashRange siblings only | Not built. A sibling of another layout keeps its tip, so its atom stays. |
+| Pacing of background tasks | The duty and rest knobs stay | The janitor and the dwell pass rest for a share of the time that writers wait, with a sticky writer watch. The drain and the TTL sweep rest for a share of the batch wall time. | A background batch seals the write queue, so writers wait for its flush even though the gate is free. |
+| Storage part limit | Not in the plan | A ledger and one maintenance worker (`docs/lastdb-storage-parts.md`) | Runs of S3 and S5 stopped taking writes at the limit of 65,536 dependency parts. |
+| Body deletes and memory acknowledgement | Not discussed | The typed publication accepts the atom counter key and the body key, so a write whose old atom reaches zero keeps the memory-acknowledgement path | Without it, such a write took the disk-first path and waited about 250 ms for the flush. |
+
+### 20.3 What the reviews found
+
+| Step | Finding | Result |
+|---|---|---|
+| S1 | The order of `plan_new` could treat a write over a body without a counter as a fresh create. Body deletes did not take the memory-acknowledgement path. | Fixed before the merge. |
+| S6 | A short page was read as the end of a range, and one row with no at-rest envelope made the recount delete 900 live bodies. | Fixed before the merge. S8a fixed the cause in the scans of the encrypting store. |
+| S3 | The janitor stopped after about 6,000 releases, because the deleted entries sat at the head of one hash and every page read had to pass them. | Fixed: the time-bucketed queue. The cap of 100 released records is for the whole erase request, and a slot that still holds records gets a drain marker. |
+| S5 | The first dwell queue used one hash and fell to 16 deletes for each pass after about 10,000 deletions. A dwell of 1 s lost a race with a `queued` write. | Fixed: the time-bucketed queue, and a floor of 120 s. |
+| S7 | A schema drop failed for a large database-scope instance. A 409 on install could be permanent when kept conflict records sat on a dead molecule. | Fixed in #253 and #259. |
+| outside the plan | A SIGKILL during the journal archive left a zero-length tail file, and the next start refused it. A home stopped taking writes at about 20,000 mutations. | Fixed in #246 and #256. |
+
+### 20.4 Estimates against measurements
+
+| Quantity | Plan (sections 13 and 14) | Measured |
+|---|---|---|
+| Operations for one tip of a purge | about 3 | 3.8 to 4.0 (delete: 4.8 to 5.0) |
+| Examined keys for one tip | about 2 | 9 to 12 |
+| Hold of the write gate for one erase request | under 300 ms | 42 to 48 ms at the median, 109 to 130 ms at most |
+| One batch of 16 keys (6 fields) | 0.4 to 0.8 s | median 0.67 to 0.70 s on a quiet host, 4.15 s on a busy one |
+| TTL sweep, 2,400 rows, 2,100 expired, two writers | all keys erased | all 2,100 in 497 to 557 s (before the counter: 0 keys); 1,152 in 1,203 s on a busy host |
+| Code removed | about 11,000 lines | 32,078 lines in S1 |
+
+The measured runs used synthetic homes on a shared development host, so the load of the host is part of each result
+(`docs/lastdb-ttl-sweep.md` has the host load of each run).
+
+### 20.5 Known limits of the build
+
+- The planner cannot catch a counter that is too low by less than the removal it gets. `verify-refs` reports it and
+  `recount` repairs it.
+- A lost body (a tip names an atom that has no body) is found and never repaired.
+- Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.
+- A molecule counter fault has no repair path, and no molecule recount exists. A lost drain candidate row leaves a
+  dead molecule that only `lastdb db inventory` (`unbound_sample`) and `lastdb db molecule-drain` can find.
+- The molecule drain leaves the key bundle (`mkb:`, `mkw:`), `protein:` records without members, delete-ledger rows
+  and search entries.
+- A purge and a delete reach HashRange protein siblings only (Q7).
+- A background batch of the janitor, the dwell pass or the drain seals the write queue. Writers wait for its flush.
+- A TTL `delete` leaves two delete-barrier rows for each field of each key (about 3,170 bytes) that nothing prunes.
+  The default verb is `purge` for this reason.
+- A Hash or Single schema has no TTL backfill and tracks only writes after the policy exists.
+- A request that mixes writes with erasures runs the writes first. A delete and a write of the same key in one
+  request leave the key deleted.
+- `GET /api/atom/{id}` can return the old body of a replaced atom for about 0.25 s after a `queued` acknowledgement.
+- The key listing `GET /api/list` returns a named 503 for pages of 800 or more over 2,400 interleaved rows that have
+  no at-rest envelope.
+- The pack of the storage maintenance copies every live record. Homes above 67,108,864 records cannot pack.
+- The monotonic clock of macOS stops while the host sleeps, so a blob dwell that was stamped during a sleep can end
+  early after a restart by the length of the lag.
+
+### 20.6 What was not verified
+
+All runs used fresh synthetic homes. No run used a home of production size. Not run: live tip metadata that names a
+blob, an erase in a scoped database, cloud paths, replay of a peer mutation log, a power loss, and the org and share
+scopes.
+
+---
+
 ## Appendix A. Runs
 
 All runs: build `dev-release` of `origin/main` `fadd60ab` plus nothing, fresh homes in a temporary directory, `EXEMEM_ENV=dev`, `LASTDB_ISOLATED_COPY=1`, `lastdb --data-dir <home> status` named the home first, host load average 6 to 9 (shared host), schemas seeded with `POST /api/schemas/seed-system`, writes by `POST /api/mutations/batch`. Raw records read from a stopped home with `lastdb-disk-home` (`range`, `read`). Each node was stopped, and the homes were deleted at the end.
@@ -610,6 +720,6 @@ With `RUST_LOG=lastdb::native_read_budget=debug`, one purge of 16 keys on 1,000 
 
 ## Appendix B. Evidence index
 
-Design documents read: `docs/lastdb-atom-refcount-grace-window-gc.md`, `docs/lastdb-ttl-sweep.md`, `docs/lastdb-rehydrate.md`, `docs/lastdb-disk-journal.md`, `docs/lastdb-disk-complete-mutation-admission.md`, `docs/lastdb-disk-file-lifetime.md`, `docs/lastdb-canonical-model.md`, the multi-device conflicts design, PR 211 (open, stale, superseded by this design).
+Design documents read: `docs/lastdb-atom-refcount-grace-window-gc.md` (replaced by `docs/lastdb-atom-counter.md` in S1), `docs/lastdb-ttl-sweep.md`, `docs/lastdb-rehydrate.md`, `docs/lastdb-disk-journal.md`, `docs/lastdb-disk-complete-mutation-admission.md`, `docs/lastdb-disk-file-lifetime.md`, `docs/lastdb-canonical-model.md`, the multi-device conflicts design, PR 211 (open, stale, superseded by this design).
 
 PR 211 review findings and this design: protein sibling bodies (a sibling tip is a counted reference, 11); a gate that skipped the pending-hold and v1 edge checks (no such gates exist, 7); serial awaits per candidate (batch reads, 6); a stamp written only when a boot mints the identity (no stamps, 9).

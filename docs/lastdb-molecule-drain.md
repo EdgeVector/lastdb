@@ -218,12 +218,12 @@ replace the single hash without a change to the drain steps.
   the molecules stay with their keys. `lastdb db inventory` shows them as `unbound with
   tips` (the first 500 are listed in `unbound_sample` of the JSON report, 20 on the
   screen), and each needs `lastdb db molecule-drain --molecule=<uuid>`. A molecule recount
-  that rediscovers candidates is a later step (S8).
+  that rediscovers candidates is not built.
 - **A refused molecule has no repair path.** The drain never repairs a counter. A `suspect`
   header or `bindings` record, a header without counters, and a binding record with no
   counter stay refused and stay in the status line. A tip that something wrote outside the
   planner into a dead molecule is erased by the drain, `slots` goes below zero, and the
-  header stays `suspect` for ever. A molecule recount (S8) is the repair.
+  header stays `suspect` for ever. A molecule recount would repair it; it is not built.
 - **The drain leaves some rows.** The node-global key bundle (`mkb:`, `mkw:`), the
   `protein:` records that lost all their members (`lastdb db gc-proteins`), the `fldprot:`
   rows, the delete-ledger rows, the search index entries and the keep-small meters of the
@@ -239,12 +239,14 @@ replace the single hash without a change to the drain steps.
 - **The failed-wake back-off ends on new work.** A wake that fails doubles the wait up to
   ten minutes. A new drop, or a molecule named by hand, ends the wait. A batch that hit the
   read limit is halved, and it doubles back after 5 wakes that did work and had no read limit.
-- **Pacing follows the wall time of a step**, not the gate hold. The janitor and the blob
-  pass pace by the gate hold in a later change (S8b), and the drain follows after that change merges.
+- **Pacing follows the wall time of a step.** The drain rests for `took * (100 - duty) / duty`
+  after each batch. It does not use the writer-wait meter or the writer watch that the retention
+  janitor and the blob dwell pass use (`docs/lastdb-time-queue.md`, section Pacing). A drain
+  batch seals the write queue, so a writer that meets one waits for its flush.
 - A write that was acknowledged from memory before the drop and flushes after the drain
   finished creates a tip in a molecule with no binding and no candidate. `lastdb db inventory`
   counts it under `unbound with tips`; queue it with `lastdb db molecule-drain`.
-- The drain does not repair a counter (see above; a molecule recount is left for step S8).
+- The drain does not repair a counter (see above).
 - A catalog row put for a schema that is not installed yet binds nothing
   (`catalog_membership.rs`). Such a molecule has no binding counter. A candidate arises only from
   an unbind that finds a binding, so this gap cannot start a drain by itself.
