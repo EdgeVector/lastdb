@@ -139,3 +139,8 @@ record without a counter. The verifier writes nothing.
   members, the delete-ledger rows and the search entries of the erased keys stay.
 - The schema drop reads the whole database catalog with `list_entries` (a scan of a small
   table that has one row for each database and schema).
+- A molecule whose `records` counter names kept conflict records that no slot directory entry
+  names (the counter and the directory differ) is not released by any drain step. The records
+  end with their own retention window, and the drain waits for them. Such a molecule does not
+  block an install. A molecule recount (a later step) is the repair.
+
