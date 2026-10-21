@@ -19,6 +19,10 @@ mod coverage;
 const AUTHOR_CLOCK_QUEUE_CAPACITY: usize = 1_024;
 const AUTHOR_CLOCK_RETRY_INITIAL_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 const AUTHOR_CLOCK_RETRY_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long a capacity refusal is retried. The maintenance worker makes room in
+/// that time when it runs. After it, the waiting requests get the named error,
+/// so a node whose worker is off answers with a retry hint instead of a hang.
+const AUTHOR_CLOCK_CAPACITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub(super) struct AuthorClockPersistQueue {
     sender: tokio::sync::mpsc::Sender<AuthorClockPersistJob>,
@@ -84,15 +88,31 @@ pub(super) struct AuthorClockPersistReservation {
 /// metadata queue publishes this proof.
 #[derive(Clone)]
 pub(crate) struct AuthorClockPersistBarrier {
-    completion: tokio::sync::watch::Receiver<bool>,
+    completion: tokio::sync::watch::Receiver<ClockOutcome>,
+}
+
+/// What the metadata queue decided for one queued state.
+#[derive(Clone)]
+enum ClockOutcome {
+    Pending,
+    Durable,
+    /// The home had no part capacity for the state for the whole retry window.
+    /// The request that waits on it fails with the named capacity error. No
+    /// data work started, so the failure leaves only a counter gap.
+    Refused(String),
 }
 
 impl AuthorClockPersistBarrier {
     pub(crate) async fn wait(&self) -> Result<(), SchemaError> {
         let mut completion = self.completion.clone();
         loop {
-            if *completion.borrow_and_update() {
-                return Ok(());
+            let outcome = completion.borrow_and_update().clone();
+            match outcome {
+                ClockOutcome::Durable => return Ok(()),
+                ClockOutcome::Refused(detail) => {
+                    return Err(SchemaError::WriteResourceLimit { detail })
+                }
+                ClockOutcome::Pending => {}
             }
             completion.changed().await.map_err(|_| {
                 SchemaError::InvalidData(
@@ -100,6 +120,11 @@ impl AuthorClockPersistBarrier {
                 )
             })?;
         }
+    }
+
+    /// True when the queue refused this state. A refused barrier must not cover later requests.
+    fn refused(&self) -> bool {
+        matches!(&*self.completion.borrow(), ClockOutcome::Refused(_))
     }
 }
 
@@ -122,7 +147,7 @@ impl AuthorClockPersistReservation {
     }
 
     fn submit_uncached(self, state: MutationAuthorClockState) -> AuthorClockPersistBarrier {
-        let (completion, receiver) = tokio::sync::watch::channel(false);
+        let (completion, receiver) = tokio::sync::watch::channel(ClockOutcome::Pending);
         self.submit_inner(state, Some(completion));
         AuthorClockPersistBarrier {
             completion: receiver,
@@ -132,7 +157,7 @@ impl AuthorClockPersistReservation {
     fn submit_inner(
         self,
         state: MutationAuthorClockState,
-        completion: Option<tokio::sync::watch::Sender<bool>>,
+        completion: Option<tokio::sync::watch::Sender<ClockOutcome>>,
     ) {
         let Self {
             permit,
@@ -152,7 +177,7 @@ impl AuthorClockPersistReservation {
 struct AuthorClockPersistJob {
     state: MutationAuthorClockState,
     _pending_task: PendingTask,
-    completion: Option<tokio::sync::watch::Sender<bool>>,
+    completion: Option<tokio::sync::watch::Sender<ClockOutcome>>,
     mutation_admission: Option<crate::sync::capture::MutationAdmission>,
 }
 
@@ -198,15 +223,26 @@ async fn run_author_clock_persist_queue(
         }
         let mut delay = AUTHOR_CLOCK_RETRY_INITIAL_DELAY;
         let mut attempt = 1_u64;
+        let capacity_window_start = std::time::Instant::now();
         let mutation_admission = jobs.iter().find_map(|job| job.mutation_admission.clone());
-        loop {
+        let outcome = loop {
             let persist = persist_author_clock(&db_ops, &state_key, &high_water);
             let persist = crate::sync::capture::with_existing_mutation_admission(
                 mutation_admission.clone(),
                 persist,
             );
             match persist.await {
-                Ok(()) => break,
+                Ok(()) => break ClockOutcome::Durable,
+                Err(SchemaError::WriteResourceLimit { detail })
+                    if capacity_window_start.elapsed() >= AUTHOR_CLOCK_CAPACITY_WINDOW =>
+                {
+                    tracing::warn!(
+                        %detail,
+                        attempt,
+                        "mutation author clock refused for part capacity; failing its requests"
+                    );
+                    break ClockOutcome::Refused(detail);
+                }
                 Err(error) => {
                     tracing::error!(
                         error = %error,
@@ -219,12 +255,13 @@ async fn run_author_clock_persist_queue(
                     attempt = attempt.saturating_add(1);
                 }
             }
-        }
-        // Keep each shutdown task live until a durable high-water state covers
-        // its clock. A transient failure cannot report a false drain.
+        };
+        // A durable state covers every barrier in this batch, and a transient
+        // failure cannot report a false drain. A refused state stays in the
+        // high-water mark, so the next durable write covers it too.
         for job in jobs {
             if let Some(completion) = job.completion {
-                let _ = completion.send(true);
+                let _ = completion.send(outcome.clone());
             }
             drop(job._pending_task);
         }

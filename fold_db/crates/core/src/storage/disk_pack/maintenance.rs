@@ -42,6 +42,9 @@ pub struct NativeMaintenanceReport {
     pub reclaim_deferred: bool,
     /// Old generations remain after a bounded reclaim.
     pub reclaim_remaining: bool,
+    /// The reclaim step failed after the pack published its replacement. Only the
+    /// automatic worker sees this field set; an explicit call returns the error.
+    pub reclaim_error: Option<String>,
     /// Milliseconds in the pack step and in the reclaim step.
     pub pack_millis: u64,
     pub reclaim_millis: u64,
@@ -65,11 +68,28 @@ impl PackRuntime {
         self: &Arc<Self>,
         options: NativeMaintenanceOptions,
     ) -> StorageResult<NativeMaintenanceReport> {
+        self.maintain_native_inner(options, false).await
+    }
+
+    /// The call of the automatic worker. A reclaim error after a published pack
+    /// comes back in the report, so the worker keeps the pack result and backs off.
+    pub(super) async fn maintain_native_for_worker(
+        self: &Arc<Self>,
+        options: NativeMaintenanceOptions,
+    ) -> StorageResult<NativeMaintenanceReport> {
+        self.maintain_native_inner(options, true).await
+    }
+
+    async fn maintain_native_inner(
+        self: &Arc<Self>,
+        options: NativeMaintenanceOptions,
+        keep_pack_on_reclaim_error: bool,
+    ) -> StorageResult<NativeMaintenanceReport> {
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let _gate = gate;
-            runtime.maintain_native_blocking(options)
+            runtime.maintain_native_blocking(options, keep_pack_on_reclaim_error)
         })
         .await
     }
@@ -77,6 +97,7 @@ impl PackRuntime {
     fn maintain_native_blocking(
         &self,
         options: NativeMaintenanceOptions,
+        keep_pack_on_reclaim_error: bool,
     ) -> StorageResult<NativeMaintenanceReport> {
         self.require_initialized()?;
         if self.failed.load(Ordering::Acquire) {
@@ -130,17 +151,12 @@ impl PackRuntime {
             ));
         }
         view.current = writer.current().clone();
+        let mut reclaim_error = None;
         if !options.dry_run {
             let started = std::time::Instant::now();
-            let reclaimed = writer.reclaim(&policy).map_err(|error| {
-                let error = map(error);
-                self.parts.record_failure(&error);
-                error
-            })?;
-            receipt.files_removed = reclaimed.files_removed;
-            receipt.bytes_removed = reclaimed.bytes_removed;
-            receipt.reclaim_deferred = reclaimed.reclaim_deferred;
-            receipt.reclaim_remaining = reclaimed.reclaim_remaining;
+            // The pack is published. Only the worker keeps its result on a reclaim error.
+            let keep_pack = keep_pack_on_reclaim_error && !options.reclaim_only;
+            reclaim_error = self.note_reclaim(writer.reclaim(&policy), &mut receipt, keep_pack)?;
             view.current = writer.current().clone();
             reclaim_millis = millis_since(started);
             if !options.reclaim_only {
@@ -169,9 +185,43 @@ impl PackRuntime {
             bytes_removed: receipt.bytes_removed,
             reclaim_deferred: receipt.reclaim_deferred,
             reclaim_remaining: receipt.reclaim_remaining,
+            reclaim_error,
             pack_millis,
             reclaim_millis,
         })
+    }
+}
+
+impl PackRuntime {
+    /// Record one reclaim result in the ledger and the receipt. An error comes back as
+    /// text when the caller keeps the pack result, and as an error otherwise.
+    fn note_reclaim(
+        &self,
+        result: Result<MaintenanceReceipt, laststore::Error>,
+        receipt: &mut MaintenanceReceipt,
+        keep_pack: bool,
+    ) -> StorageResult<Option<String>> {
+        match result {
+            Ok(reclaimed) => {
+                receipt.files_removed = reclaimed.files_removed;
+                receipt.bytes_removed = reclaimed.bytes_removed;
+                receipt.reclaim_deferred = reclaimed.reclaim_deferred;
+                receipt.reclaim_remaining = reclaimed.reclaim_remaining;
+                if !reclaimed.reclaim_deferred {
+                    self.parts.record_reclaim_ok();
+                }
+                Ok(None)
+            }
+            Err(error) => {
+                let error = map(error);
+                self.parts.record_reclaim_failure(&error);
+                if keep_pack {
+                    Ok(Some(error.to_string()))
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
 }
 

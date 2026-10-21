@@ -52,6 +52,13 @@ impl PackRuntime {
         )
     }
 
+    /// The dependency-part counters now. They are atomics, so a read never waits for
+    /// maintenance. `lastdb status` overlays them on its sampled snapshot, so the
+    /// part count and the worker state are exact, not up to a sample old.
+    pub fn parts_status(&self) -> parts::NativePartsStatus {
+        self.parts.status()
+    }
+
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
         // Maintenance holds the view lock while it reclaims. A status read must
