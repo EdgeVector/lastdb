@@ -188,10 +188,7 @@ impl CoreWarmSet {
         key: &MoleculeKey,
         value: &mut CoreWarmSlot,
     ) {
-        let atom = AtomKey {
-            scope: key.scope.clone(),
-            uuid: value.atom.uuid().to_owned(),
-        };
+        let atom = AtomKey::new(key.scope.clone(), value.atom.uuid());
         if let Some(existing) = self
             .atoms
             .get(&atom)

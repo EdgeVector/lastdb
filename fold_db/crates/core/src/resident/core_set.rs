@@ -166,8 +166,24 @@ struct SlotKey {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct AtomKey {
     scope: Option<Arc<str>>,
-    uuid: String,
+    /// A hash of the atom uuid. A bucket can hold atoms of two uuids; a
+    /// lookup compares the full atom, so a collision only shares a bucket.
+    /// Measured 2026-10-20: the uuid copy and a Vec per bucket cost about
+    /// 140 bytes per warm atom.
+    uuid_hash: u64,
 }
+
+impl AtomKey {
+    fn new(scope: Option<Arc<str>>, uuid: &str) -> Self {
+        use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+        Self {
+            scope,
+            uuid_hash: BuildHasherDefault::<DefaultHasher>::default().hash_one(uuid),
+        }
+    }
+}
+
+type AtomVariants = smallvec::SmallVec<[Weak<SharedAtom>; 1]>;
 
 #[derive(Default)]
 struct PathState {
@@ -197,7 +213,7 @@ pub(crate) struct CoreWarmSet {
     key_domains: HashMap<MoleculeKey, Arc<crate::resident::core_keys::CoreKeyDomain>>,
     // A content UUID does not identify the immutable metadata of a full atom.
     // The UUID buckets share only fully equal atoms and own no retained bytes.
-    atoms: HashMap<AtomKey, Vec<Weak<SharedAtom>>>,
+    atoms: HashMap<AtomKey, AtomVariants>,
     // Interned paths. `order` and slot owner lists hold path ids.
     paths: path_table::PathTable,
     order: BTreeMap<u64, path_table::PathId>,
@@ -234,7 +250,7 @@ impl CoreWarmSet {
             paths: self.paths.len(),
             tip_only_paths,
             molecules: self.slots.molecule_count(),
-            atoms: self.atoms.values().map(Vec::len).sum(),
+            atoms: self.atoms.values().map(AtomVariants::len).sum(),
             held: self
                 .paths
                 .iter()

@@ -307,10 +307,7 @@ impl CoreWarmSet {
         let Some(slot) = self.slots.get_mut(id) else {
             return;
         };
-        let key = AtomKey {
-            scope: slot.key.molecule.scope.clone(),
-            uuid: value.uuid().to_string(),
-        };
+        let key = AtomKey::new(slot.key.molecule.scope.clone(), value.uuid());
         let variants = self.atoms.entry(key).or_default();
         variants.retain(|existing| existing.strong_count() > 0);
         let shared = variants

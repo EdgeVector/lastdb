@@ -226,10 +226,7 @@ impl CoreWarmSet {
             return;
         };
         slot.atom = None;
-        let key = AtomKey {
-            scope: slot.key.molecule.scope.clone(),
-            uuid: uuid.to_string(),
-        };
+        let key = AtomKey::new(slot.key.molecule.scope.clone(), uuid);
         let empty = self.atoms.get_mut(&key).is_some_and(|variants| {
             variants.retain(|atom| atom.strong_count() > 0);
             variants.is_empty()
