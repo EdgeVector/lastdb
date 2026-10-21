@@ -11,9 +11,12 @@
 //! page holds no write gate. Each page that has due records runs one release batch
 //! (`AtomStore::release_step`): one native write scope, one batch, and the gate
 //! is free again before the next page. The janitor rests after each batch for
-//! `took * (100 - duty) / duty` (a duty share of 10 percent by default), so the
-//! flush of a release batch leaves the disk to the writers most of the time. The
-//! janitor deletes no atom. The batch names the history rows to the planner,
+//! `held * (100 - duty) / duty`, where `held` is the time the batch held the
+//! write gate (its reads in the gate, its staging and its accept; not the wait
+//! for the flush, which comes after the gate is free). A duty share of 10 percent
+//! by default means the janitor holds the gate for a tenth of the time, and a
+//! writer that meets the gate waits for one small batch. The rest is at least
+//! 25 ms and at most 30 s. The janitor deletes no atom. The batch names the history rows to the planner,
 //! which lowers the references and deletes a body only when its count reaches
 //! zero.
 //!
@@ -45,7 +48,7 @@
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_CONFLICT_JANITOR_MS` | Interval between wakes. Zero turns the janitor off. Default 60000. |
-//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of wall time, in percent, that release batches may take (1 to 100). Default 10. |
+//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of write-gate time, in percent, that the janitor may use (1 to 100): the rest after a batch is `held * (100 - duty) / duty` for the time the batch held the gate. Default 10. |
 //! | `LASTDB_CONFLICT_RETENTION_SECS` | The retention window. Default 30 days. |
 //! | `LASTDB_CONFLICT_JANITOR_NET_SECS` | Seconds between two sweeps of the safety net of the queue (0 turns it off). Default 3600. |
 
@@ -164,10 +167,13 @@ impl Drop for BackgroundConflictJanitorTask {
     }
 }
 
-/// The rest after a release batch that took `took`.
-fn pause_after(took: Duration, duty_pct: u64) -> Duration {
-    let took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
-    Duration::from_millis(took_ms.saturating_mul(100 - duty_pct) / duty_pct)
+/// The rest after a step that held the write gate for `held`. With a duty share
+/// of `d` percent the rest is `held * (100 - d) / d`, so the gate is busy with
+/// the janitor for `d` percent of the time. The wall time of the step is not
+/// the measure: it also holds the wait for the flush, which is outside the gate.
+fn pause_after(held: Duration, duty_pct: u64) -> Duration {
+    let held_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX);
+    Duration::from_micros(held_us.saturating_mul(100 - duty_pct) / duty_pct)
         .clamp(MIN_PAUSE, MAX_PAUSE)
 }
 
@@ -217,9 +223,10 @@ async fn run_net(
                     lane = ?outcome.lane,
                     repaired = outcome.repaired,
                     took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    held_us = u64::try_from(outcome.held.as_micros()).unwrap_or(u64::MAX),
                     "conflict janitor net chunk"
                 );
-                tokio::time::sleep(pause_after(started.elapsed(), duty_pct)).await;
+                tokio::time::sleep(pause_after(outcome.held, duty_pct)).await;
             }
             Ok(None) => return true,
             Err(failure) => {
@@ -256,6 +263,7 @@ fn note_batch(
         finished = outcome.finished,
         retired = outcome.retired,
         took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+        held_us = u64::try_from(outcome.held.as_micros()).unwrap_or(u64::MAX),
         "conflict janitor batch"
     );
 }
@@ -321,7 +329,7 @@ async fn run_wake(
                 progressed = true;
                 batches += 1;
                 note_batch(atoms, cursor, &mut wake, &outcome, started.elapsed());
-                tokio::time::sleep(pause_after(started.elapsed(), duty_pct)).await;
+                tokio::time::sleep(pause_after(outcome.held, duty_pct)).await;
             }
         }
         if !progressed {

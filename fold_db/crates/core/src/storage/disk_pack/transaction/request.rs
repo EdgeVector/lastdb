@@ -187,7 +187,8 @@ impl BatchShape {
     }
 }
 
-/// Say how long a request held the write gate, for a run that reads the log.
+/// Say how long a request held the write gate, for a run that reads the log, and
+/// add the hold to the job that paces itself by it (`hold.rs`).
 /// The hold covers preparation, staging and acceptance. The durable wait comes
 /// after the gate is free and is not counted.
 fn note_gate_hold(
@@ -196,9 +197,11 @@ fn note_gate_hold(
     sequence: u64,
     shape: &BatchShape,
 ) {
+    let held = held_from.elapsed();
+    super::hold::note(held);
     tracing::debug!(
         target: "fold_db::write_gate",
-        hold_us = u64::try_from(held_from.elapsed().as_micros()).unwrap_or(u64::MAX),
+        hold_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX),
         operations,
         sequence,
         tip_puts = shape.tip_puts,

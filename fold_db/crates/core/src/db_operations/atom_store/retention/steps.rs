@@ -20,6 +20,7 @@ use super::page::{ReleaseOutcome, RELEASE_BATCH_RECORDS};
 use crate::db_operations::atom_store::time_queue::{DuePage, QueueReader, TimeQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::transaction::hold::measure;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -49,6 +50,10 @@ pub(crate) struct StepOutcome {
     pub(crate) retired: bool,
     /// Buckets that a net chunk registered again.
     pub(crate) repaired: u64,
+    /// How long the step held the native write gate. The janitor rests for a
+    /// share of this time, not of the wall time of the step, which also holds
+    /// the wait for the flush (`storage::disk_pack::transaction::hold`).
+    pub(crate) held: Duration,
 }
 
 /// Pages of drain markers that one ordinary step reads before it returns. A page
@@ -180,6 +185,16 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
+        let (step, held) = measure(self.read_and_release(cursor, now_nanos)).await;
+        Ok(step?.map(|outcome| StepOutcome { held, ..outcome }))
+    }
+
+    /// The work of [`Self::release_step`], without the measure of the gate hold.
+    async fn read_and_release(
+        &self,
+        cursor: &mut RetentionCursor,
+        now_nanos: u64,
+    ) -> Result<Option<StepOutcome>, SchemaError> {
         let mut marker_pages = 0usize;
         for bucket in cursor.reader.candidates(now_nanos) {
             loop {
@@ -282,6 +297,16 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
+        let (step, held) = measure(self.sweep_chunk(cursor, now_nanos)).await;
+        Ok(step?.map(|outcome| StepOutcome { held, ..outcome }))
+    }
+
+    /// The work of [`Self::net_step`], without the measure of the gate hold.
+    async fn sweep_chunk(
+        &self,
+        cursor: &mut RetentionCursor,
+        now_nanos: u64,
+    ) -> Result<Option<StepOutcome>, SchemaError> {
         if cursor.net.todo.is_empty() {
             let Some(every) = cursor.net.every else {
                 return Ok(None);
@@ -335,16 +360,18 @@ impl AtomStore {
         if cursor.pending.is_empty() {
             return Ok(None);
         }
+        let (batch, held) = measure(self.drain_batch(&mut cursor.pending)).await;
         let DrainOutcome {
             released,
             skipped,
             finished,
-        } = self.drain_batch(&mut cursor.pending).await?;
+        } = batch?;
         Ok(Some(StepOutcome {
             lane: Lane::Drain,
             released,
             skipped,
             finished,
+            held,
             ..StepOutcome::default()
         }))
     }

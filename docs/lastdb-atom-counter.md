@@ -182,9 +182,10 @@ A record ends in two ways, and both use the same release:
    read before the walk, so an entry that a writer added after the walk keeps the
    bucket. The deleted keys of a retired bucket are never read again. The gate is
    free between pages, and the janitor
-   rests after each batch for `took * (100 - duty) / duty`
-   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10), because the flush of a
-   release batch shares the disk with the writers. The window is
+   rests after each batch for `held * (100 - duty) / duty`, where `held` is the time
+   the batch held the write gate (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10: a
+   tenth of the gate time, at least 25 ms and at most 30 s). The wait for the flush
+   comes after the gate is free and is not part of `held`. The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.
 
