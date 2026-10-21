@@ -453,7 +453,7 @@ nothing to change.
   request but no read. Replay batches (a mutation log that brings many records
   at once) were not run, so their margin is not shown.
 - The storage limits one publication to 65,536 dependency parts (`dependency
-  capacity`; see `docs/lastdb-disk-file-lifetime.md`). A durable batch adds
+  capacity`; see `docs/lastdb-storage-parts.md`). A durable batch adds
   about 5 to 13 parts, and nothing merged them: a home refused writes after
   about 20,000 to 22,000 mutations in a row, with or without a queue. This is a
   limit of the storage, not of the queue. The node now runs maintenance when

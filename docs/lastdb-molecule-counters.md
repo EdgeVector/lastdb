@@ -118,6 +118,21 @@ compares each counter with its binding records, read at one root: a bind writes 
 in one batch, so a difference is always a fault. `binding_records` finds a binding
 record without a counter. The verifier writes nothing.
 
+Faults of these phases:
+
+| Kind | Meaning |
+|---|---|
+| `molecule_slots_above_tips`, `molecule_slots_below_tips` | a header `slots` differs from the tips of the molecule that the tip phase counted |
+| `molecule_records_above_records`, `molecule_records_below_records` | a header `records` differs from the counted conflict records of the molecule |
+| `tips_without_header` | a molecule has tips and no header |
+| `molecule_counters_unset` | a header carries no counters |
+| `suspect_molecule` | a header has the `suspect` flag |
+| `unreadable_header`, `unreadable_bindings` | a header or a `bindings` record does not decode |
+| `bindings_counter_mismatch` | a `bindings` counter differs from the number of binding records |
+| `binding_record_without_counter` | a binding record has no `bindings` counter |
+| `zero_bindings_counter` | a `bindings` counter holds zero and is not `suspect` |
+| `suspect_bindings` | a `bindings` counter has the `suspect` flag |
+
 ## Known limits
 
 - A protein member binding goes only when a schema drop (or a changed schema) leaves a
@@ -131,7 +146,7 @@ record without a counter. The verifier writes nothing.
   (`docs/lastdb-molecule-drain.md`). If the rows are lost, the molecules stay with their
   keys and no scan finds them again. `lastdb db inventory` lists the first 500 of them as
   `unbound_sample`, and `lastdb db molecule-drain --molecule=<uuid>` queues one. A molecule
-  recount that rediscovers candidates is a later step.
+  recount that rediscovers candidates is not built.
 - A molecule that is refused or `suspect` has no repair path. The drain never changes a
   counter. A tip written outside the planner into a dead molecule is erased by the drain, and
   `slots` goes below zero: the header stays `suspect`.
@@ -142,5 +157,5 @@ record without a counter. The verifier writes nothing.
 - A molecule whose `records` counter names kept conflict records that no slot directory entry
   names (the counter and the directory differ) is not released by any drain step. The records
   end with their own retention window, and the drain waits for them. Such a molecule does not
-  block an install. A molecule recount (a later step) is the repair.
+  block an install. A molecule recount would repair it; it is not built.
 
