@@ -18,7 +18,7 @@ use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const MOLECULE_REF_PREFIX: &str = "mref:v1:e:";
+pub(super) const MOLECULE_REF_PREFIX: &str = "mref:v1:e:";
 const MOLECULE_BINDINGS_PREFIX: &str = "mref:v1:n:";
 const MOLECULE_REF_DOMAIN: &[u8] = b"lastdb:molecule-ref-edge-source:v1\0";
 
@@ -105,7 +105,7 @@ impl MoleculeRefEdge {
 }
 
 /// The hex token of a molecule in the keys of its binding records.
-fn molecule_target(molecule_uuid: &str) -> String {
+pub(super) fn molecule_target(molecule_uuid: &str) -> String {
     hex_lower(Sha256::digest(molecule_uuid.as_bytes()))
 }
 

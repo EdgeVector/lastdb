@@ -70,6 +70,7 @@ impl AtomStore {
             counter_events: Arc::default(),
             retention: Arc::default(),
             counter_verify: Arc::default(),
+            molecule_drain: Arc::default(),
             range_walks: Arc::default(),
             local_origin_device: Arc::default(),
             conflict_record_epoch: Arc::default(),

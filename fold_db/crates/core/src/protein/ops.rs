@@ -13,6 +13,7 @@ use super::keys::{member_backref_key, protein_record_key};
 use super::types::{Protein, ProteinMember};
 
 mod batch;
+mod release;
 mod tip;
 pub(crate) use tip::PreparedProteinTip;
 

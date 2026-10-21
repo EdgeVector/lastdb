@@ -117,6 +117,29 @@ impl FoldDB {
         }
     }
 
+    /// The task that drains dead molecules. See `super::super::molecule_drain`.
+    pub(super) fn start_molecule_drain(
+        db_ops: &Arc<DbOperations>,
+    ) -> super::super::molecule_drain::BackgroundMoleculeDrainTask {
+        let policy = super::super::molecule_drain::MoleculeDrainPolicy::from_env();
+        info!(
+            target: "fold_node::database",
+            drain_ms = ?policy.interval.map(|d| d.as_millis() as u64),
+            duty_pct = policy.duty_pct,
+            tips = policy.tips,
+            batches = policy.batches,
+            "molecule drain policy"
+        );
+        match policy.interval {
+            Some(interval) => super::super::molecule_drain::BackgroundMoleculeDrainTask::spawn(
+                Arc::clone(db_ops),
+                policy,
+                interval,
+            ),
+            None => super::super::molecule_drain::BackgroundMoleculeDrainTask::disabled(),
+        }
+    }
+
     pub(super) fn start_sync_coordinator(db_ops: &Arc<DbOperations>) -> SyncCoordinator {
         let coordinator = SyncCoordinator::new();
         // Plane self-compaction is not a cloud feature. Start it here,

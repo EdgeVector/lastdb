@@ -134,6 +134,9 @@ fn validate_references(key: &str, family: &str) -> StorageResult<()> {
                 || key
                     .strip_prefix("mref:v1:n:")
                     .is_some_and(|target| hex_identity(target, 64))
+                || key
+                    .strip_prefix("mref:v1:d\0")
+                    .is_some_and(crate::db_operations::atom_store::valid_drain_candidate_key)
         }
         _ => true,
     };

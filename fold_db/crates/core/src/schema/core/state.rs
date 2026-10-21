@@ -217,14 +217,7 @@ impl SchemaCore {
     /// Walks the in-memory catalog (O(installed schemas)), not product rows.
     /// Returns the canonical names that were present and dropped.
     pub async fn drop_schemas_owned_by(&self, owner_app: &str) -> Result<Vec<String>, SchemaError> {
-        let names: Vec<String> = {
-            let schemas = read_map(&self.schemas, "schemas")?;
-            schemas
-                .iter()
-                .filter(|(_, schema)| schema.owner_app_id.as_deref() == Some(owner_app))
-                .map(|(name, _)| name.clone())
-                .collect()
-        };
+        let names = self.schema_names_owned_by(owner_app)?;
         let mut dropped = Vec::new();
         for name in names {
             if self.drop_schema(&name).await? {
@@ -233,6 +226,19 @@ impl SchemaCore {
         }
         dropped.sort();
         Ok(dropped)
+    }
+
+    /// The cached identities whose `owner_app_id` equals `owner_app`.
+    ///
+    /// # Errors
+    /// [`SchemaError::InvalidData`] when the in-memory catalog lock is poisoned.
+    pub fn schema_names_owned_by(&self, owner_app: &str) -> Result<Vec<String>, SchemaError> {
+        let schemas = read_map(&self.schemas, "schemas")?;
+        Ok(schemas
+            .iter()
+            .filter(|(_, schema)| schema.owner_app_id.as_deref() == Some(owner_app))
+            .map(|(name, _)| name.clone())
+            .collect())
     }
 
     async fn set_name_claim_retired(

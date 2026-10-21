@@ -1,0 +1,299 @@
+//! The paced task that drains dead molecules.
+//!
+//! A molecule that lost its last binding is a candidate (`atom_store::
+//! molecule_drain`). This task reads the candidate list, and for each candidate
+//! runs the steps of the drain, one batch at a time: a bounded page of tip
+//! records through the atom counter planner, then bounded pages of the rows that
+//! carry no count, then the final batch. Each batch is one native write scope, and
+//! it decides from the counters it reads inside the gate. The page read holds no
+//! gate. The task rests after each batch for `took * (100 - duty) / duty`, so the
+//! flush of a batch leaves the disk to the writers most of the time.
+//!
+//! The task wakes at its interval and at once when a batch lowers a `bindings`
+//! counter to zero (a schema drop, a catalog removal). It reads the candidate
+//! list from its start at each wake. A wake that ends with an error makes the task
+//! wait longer before the next wake, as the conflict janitor does.
+//!
+//! | Variable | Meaning |
+//! |----------|---------|
+//! | `LASTDB_MOLECULE_DRAIN_MS` | Interval between wakes. Zero turns the task off. Default 30000. |
+//! | `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | The share of wall time, in percent, that batches may take (1 to 100). Default 25. |
+//! | `LASTDB_MOLECULE_DRAIN_TIPS` | Tip records one batch erases, at most (1 to 1024). Default 256. |
+//! | `LASTDB_MOLECULE_DRAIN_BATCHES` | Batches one wake runs, at most. Default 1024. |
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use crate::db_operations::atom_store::{
+    AtomStore, DrainCursor, DrainLimits, DrainOutcomeKind as OutcomeKind,
+};
+use crate::db_operations::DbOperations;
+
+/// Env: interval between wakes in milliseconds (`0` = off).
+pub const MOLECULE_DRAIN_MS_ENV: &str = "LASTDB_MOLECULE_DRAIN_MS";
+/// Default interval between wakes: 30 seconds.
+pub const DEFAULT_MOLECULE_DRAIN_MS: u64 = 30_000;
+/// Env: the share of wall time, in percent, that batches may take.
+pub const MOLECULE_DRAIN_DUTY_PCT_ENV: &str = "LASTDB_MOLECULE_DRAIN_DUTY_PCT";
+/// Default duty share: 25 percent.
+pub const DEFAULT_MOLECULE_DRAIN_DUTY_PCT: u64 = 25;
+/// Env: tip records one batch erases, at most.
+pub const MOLECULE_DRAIN_TIPS_ENV: &str = "LASTDB_MOLECULE_DRAIN_TIPS";
+/// Default tip records in a batch.
+pub const DEFAULT_MOLECULE_DRAIN_TIPS: usize = 256;
+/// Env: batches one wake runs, at most.
+pub const MOLECULE_DRAIN_BATCHES_ENV: &str = "LASTDB_MOLECULE_DRAIN_BATCHES";
+/// Default batches in a wake.
+pub const DEFAULT_MOLECULE_DRAIN_BATCHES: usize = 1_024;
+
+/// The shortest rest between two batches.
+const MIN_PAUSE: Duration = Duration::from_millis(25);
+/// The longest rest between two batches.
+const MAX_PAUSE: Duration = Duration::from_secs(30);
+/// The longest wait after a wake that failed.
+const BACKOFF_MAX: Duration = Duration::from_secs(600);
+/// The shortest base of the wait after a wake that failed.
+const BACKOFF_BASE_MIN: Duration = Duration::from_secs(1);
+
+/// Resolved policy for this process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MoleculeDrainPolicy {
+    /// The interval between wakes. `None` means no drain task.
+    pub interval: Option<Duration>,
+    pub duty_pct: u64,
+    pub tips: usize,
+    pub batches: usize,
+}
+
+impl MoleculeDrainPolicy {
+    /// Parse from the environment.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            interval: parse_interval(std::env::var(MOLECULE_DRAIN_MS_ENV).ok().as_deref()),
+            duty_pct: parse_number(
+                std::env::var(MOLECULE_DRAIN_DUTY_PCT_ENV).ok().as_deref(),
+                MOLECULE_DRAIN_DUTY_PCT_ENV,
+                DEFAULT_MOLECULE_DRAIN_DUTY_PCT,
+            )
+            .clamp(1, 100),
+            tips: usize::try_from(parse_number(
+                std::env::var(MOLECULE_DRAIN_TIPS_ENV).ok().as_deref(),
+                MOLECULE_DRAIN_TIPS_ENV,
+                DEFAULT_MOLECULE_DRAIN_TIPS as u64,
+            ))
+            .unwrap_or(DEFAULT_MOLECULE_DRAIN_TIPS)
+            .clamp(1, 1_024),
+            batches: usize::try_from(parse_number(
+                std::env::var(MOLECULE_DRAIN_BATCHES_ENV).ok().as_deref(),
+                MOLECULE_DRAIN_BATCHES_ENV,
+                DEFAULT_MOLECULE_DRAIN_BATCHES as u64,
+            ))
+            .unwrap_or(DEFAULT_MOLECULE_DRAIN_BATCHES)
+            .max(1),
+        }
+    }
+}
+
+/// `LASTDB_MOLECULE_DRAIN_MS` to an interval. Unset gives the default, zero turns
+/// the task off, and an invalid value gives the default.
+fn parse_interval(raw: Option<&str>) -> Option<Duration> {
+    let default = Some(Duration::from_millis(DEFAULT_MOLECULE_DRAIN_MS));
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return default;
+    };
+    match raw.parse::<u64>() {
+        Ok(0) => None,
+        Ok(ms) => Some(Duration::from_millis(ms)),
+        Err(_) => {
+            tracing::warn!(
+                raw,
+                env = MOLECULE_DRAIN_MS_ENV,
+                "invalid molecule drain interval; using the default"
+            );
+            default
+        }
+    }
+}
+
+fn parse_number(raw: Option<&str>, env: &str, default: u64) -> u64 {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return default;
+    };
+    raw.parse::<u64>().unwrap_or_else(|_| {
+        tracing::warn!(
+            raw,
+            env,
+            default,
+            "invalid molecule drain setting; using the default"
+        );
+        default
+    })
+}
+
+/// Handle for the periodic drain task. Aborted on shutdown and on Drop.
+pub struct BackgroundMoleculeDrainTask {
+    join: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    stop: Arc<AtomicBool>,
+}
+
+impl BackgroundMoleculeDrainTask {
+    /// No-op handle when the task is off.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self {
+            join: Mutex::new(None),
+            stop: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    /// Spawn the task on the current Tokio runtime.
+    pub fn spawn(
+        db_ops: Arc<DbOperations>,
+        policy: MoleculeDrainPolicy,
+        interval: Duration,
+    ) -> Self {
+        db_ops
+            .atoms()
+            .drain_state()
+            .set_interval_ms(u64::try_from(interval.as_millis()).unwrap_or(u64::MAX));
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = Arc::clone(&stop);
+        let wake = db_ops.atoms().drain_wake_signal();
+        // lint:spawn-bare-ok process-lifetime drain loop, not request-scoped.
+        let handle = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            ticker.tick().await;
+            let mut cursor = DrainCursor::new();
+            let mut failures = 0u64;
+            let mut retry_at: Option<std::time::Instant> = None;
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    () = wake.notified() => {}
+                }
+                if stop_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                if retry_at.is_some_and(|at| std::time::Instant::now() < at) {
+                    continue;
+                }
+                cursor.restart();
+                let error = run_wake(db_ops.atoms(), &stop_flag, &mut cursor, policy).await;
+                failures = if error.is_some() { failures + 1 } else { 0 };
+                let retry_in = (failures > 0).then(|| backoff_after(failures, interval));
+                retry_at = retry_in.map(|wait| std::time::Instant::now() + wait);
+                db_ops.atoms().drain_state().note_run(
+                    error,
+                    failures,
+                    retry_in.map(|wait| u64::try_from(wait.as_millis()).unwrap_or(u64::MAX)),
+                );
+            }
+        });
+        Self {
+            join: Mutex::new(Some(handle)),
+            stop,
+        }
+    }
+
+    /// Signal the loop to exit and abort the task.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.join.lock().expect("molecule drain join lock").take() {
+            handle.abort();
+        }
+    }
+}
+
+impl Drop for BackgroundMoleculeDrainTask {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The rest after a batch that took `took`.
+fn pause_after(took: Duration, duty_pct: u64) -> Duration {
+    let took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+    Duration::from_millis(took_ms.saturating_mul(100 - duty_pct) / duty_pct)
+        .clamp(MIN_PAUSE, MAX_PAUSE)
+}
+
+/// The wait before the next wake after `failures` wakes in a row that failed.
+fn backoff_after(failures: u64, interval: Duration) -> Duration {
+    let base = interval.max(BACKOFF_BASE_MIN);
+    let shift = u32::try_from(failures.min(10)).unwrap_or(10);
+    base.saturating_mul(1 << shift).min(BACKOFF_MAX)
+}
+
+/// One wake: batches until the list is done, the batch budget is spent, or a step
+/// fails. Returns the error of the step that failed.
+async fn run_wake(
+    atoms: &AtomStore,
+    stop: &AtomicBool,
+    cursor: &mut DrainCursor,
+    policy: MoleculeDrainPolicy,
+) -> Option<String> {
+    let limits = DrainLimits::new(policy.tips);
+    let mut error = None;
+    for _ in 0..policy.batches {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let started = std::time::Instant::now();
+        match atoms.molecule_drain_step(cursor, limits).await {
+            Ok(Some(outcome)) => {
+                let wrote = note_outcome(&outcome.candidate.molecule, &outcome.kind, started);
+                atoms.drain_state().set_gauges(
+                    cursor.gauges().0,
+                    cursor.gauges().1,
+                    cursor.gauges().2,
+                );
+                if wrote {
+                    tokio::time::sleep(pause_after(started.elapsed(), policy.duty_pct)).await;
+                }
+            }
+            Ok(None) => break,
+            Err(failure) => {
+                tracing::warn!(
+                    target: "fold_node::database",
+                    error = %failure,
+                    "molecule drain stopped before its work was done"
+                );
+                error = Some(failure.to_string());
+                break;
+            }
+        }
+    }
+    let (pending, waiting, refused) = cursor.gauges();
+    atoms.drain_state().set_gauges(pending, waiting, refused);
+    atoms.drain_state().set_refused_sample(cursor.refused());
+    error
+}
+
+/// Log one step. Returns true when the step wrote a batch.
+fn note_outcome(molecule: &str, kind: &OutcomeKind, started: std::time::Instant) -> bool {
+    let took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    match kind {
+        OutcomeKind::Waiting | OutcomeKind::Refused(_) => {
+            tracing::info!(
+                target: "fold_node::database",
+                molecule,
+                outcome = ?kind,
+                "molecule drain left a molecule"
+            );
+            false
+        }
+        _ => {
+            tracing::debug!(
+                target: "fold_node::database",
+                molecule,
+                outcome = ?kind,
+                took_ms,
+                "molecule drain batch"
+            );
+            true
+        }
+    }
+}

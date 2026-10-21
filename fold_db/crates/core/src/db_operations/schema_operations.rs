@@ -82,6 +82,9 @@ impl DbOperations {
             .filter(|old| !new_edges.contains(old))
             .collect();
         self.atoms().remove_molecule_bindings(&stale, None).await?;
+        if !stale.is_empty() {
+            self.release_protein_members_of(&stale).await?;
+        }
         Ok(())
     }
 
@@ -190,7 +193,27 @@ impl DbOperations {
         self.atoms()
             .remove_molecule_bindings(&old_edges, None)
             .await?;
+        self.release_protein_members_of(&old_edges).await?;
         Ok(existed)
+    }
+
+    /// A molecule that only a protein still names is released from it, so its
+    /// `bindings` counter can reach zero and the molecule drain can take it.
+    async fn release_protein_members_of(
+        &self,
+        edges: &[MoleculeRefEdge],
+    ) -> Result<(), SchemaError> {
+        let mut molecules: Vec<String> = edges
+            .iter()
+            .map(|edge| edge.molecule_uuid.clone())
+            .collect();
+        molecules.sort();
+        molecules.dedup();
+        let atoms = self.atoms();
+        atoms
+            .with_protein_membership(atoms.protein_release_members(&molecules))
+            .await
+            .map(|_| ())
     }
 
     pub async fn get_schema_drop_receipt(
