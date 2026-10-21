@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-/// The pool never retains descriptors beyond the read call or grows with key count.
+/// An ordinary read call never retains descriptors beyond the call or grows with key count.
 const MAX_READ_HANDLES: usize = 32;
 
 struct OpenPart {
@@ -17,15 +17,36 @@ struct OpenPart {
     length: u64,
 }
 
-#[derive(Default)]
 pub(super) struct CallFiles {
-    // Front is most recently used; every access needs at most 32 comparisons.
+    // Front is most recently used; every access needs at most `capacity` comparisons.
     parts: VecDeque<OpenPart>,
+    capacity: usize,
+}
+
+impl Default for CallFiles {
+    fn default() -> Self {
+        Self::with_capacity(MAX_READ_HANDLES)
+    }
 }
 
 impl CallFiles {
+    /// A pool that keeps at most `capacity` descriptors (at least one). Maintenance
+    /// that walks the whole home asks for more than a read call uses.
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            parts: VecDeque::new(),
+            capacity: capacity.max(1),
+        }
+    }
+
     fn get(&mut self, path: &Path) -> Result<(&mut OpenPart, bool, u64)> {
-        let reused = if let Some(at) = self.parts.iter().position(|part| part.path == path) {
+        // Byte comparison: `Path` equality walks every component, which costs
+        // more than the descriptor it saves once the pool holds dozens of parts.
+        let reused = if let Some(at) = self
+            .parts
+            .iter()
+            .position(|part| part.path.as_os_str() == path.as_os_str())
+        {
             let mut part = self.parts.remove(at).expect("known call-local handle");
             // Internal writer calls can also address fresh private parts as
             // they grow. Reuse the descriptor, never a stale length bound.
@@ -34,7 +55,7 @@ impl CallFiles {
             true
         } else {
             // Close before open so even a replacement never exceeds the cap.
-            if self.parts.len() == MAX_READ_HANDLES {
+            if self.parts.len() >= self.capacity {
                 self.parts.pop_back();
             }
             let file = measured::open(path)?;
