@@ -134,19 +134,23 @@ last tip change. There is no grace window, no audit and no queue for an atom bod
 
 Delete and Purge read the tips of their keys by key, in one batch, inside the
 gate. They give every tip change to the planner and stage one batch. They take no
-schema barrier, no molecule lock and no atom lock. The cost follows the number of
-keys of the request and never the size of the schema.
+schema barrier, no molecule lock and no atom lock. A Delete also takes the tip-commit
+locks of its keys, to order itself against a memory delete that registered its
+barrier before the persist lane ran. A Purge takes none. The cost follows the number
+of keys of the request and never the size of the schema.
 
 | | Delete | Purge |
 |---|---|---|
 | Removes the tips of the key | yes | yes |
 | Frees each body whose last reference goes | yes, same batch | yes, same batch |
 | Writes a delete barrier (`rdel:v2:`) | yes, so a replayed older write cannot bring the key back | no |
-| Reaches the protein siblings of the key | yes | yes |
+| Reaches the protein siblings of the key | HashRange siblings only | HashRange siblings only |
 | Releases the kept conflict records of the key | yes | yes |
 | Leaves `mgd:v1:` markers | yes | yes |
 
-A Purge with a cutoff spares a key that has a tip written at or after the cutoff.
+A sibling of another layout keeps its tip, so its atom stays. The counter keeps the data
+safe, but the record is not erased everywhere. A Purge with a cutoff spares a key that
+has a tip written at or after the cutoff.
 `GET /api/atom/{id}` returns 404 after the last holder is gone (see Reads and
 acknowledgement for the exception after a `queued` write).
 
