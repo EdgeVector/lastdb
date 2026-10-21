@@ -174,9 +174,10 @@ replace the single hash without a change to the drain steps.
 ## Known limits
 
 - **An install of a schema whose molecules are still draining is refused.** `store_schema`
-  (and every route that installs a schema) answers `409` with
+  fails with `SchemaBeingDropped`, and the HTTP layer answers `409` with
   `schema_being_dropped` ("schema is still being dropped; retry") when a molecule that
-  the install would bind has a candidate row and reads dead. Nothing changes. The
+  the install would bind has a candidate row and reads dead (checked on
+  `POST /api/schemas/seed-system`). Nothing changes. The
   install works after the drain has finished. A molecule that a counter fault keeps from
   the drain (refused) does not block an install: the install binds it again and the
   drain drops its candidate row. A catalog row put for a schema in a database scope has
