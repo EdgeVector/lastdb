@@ -591,7 +591,7 @@ purged in five rounds): `verify-refs` took 118 s and `inventory` 130 s, with 3,2
 reads and 1,587 cuts. The cut halves the key space, and the deleted keys sit in a
 few clusters that are very narrow in it, so a cluster took about 250 cuts to find.
 Each read of an administrative range also seeks the trees of all 1,024 hash groups
-(about 2,000 pages, 20 to 250 ms), so the cost followed the number of reads.
+(400 to 2,000 pages, 20 to 450 ms), so the cost followed the number of reads.
 
 The inventory reports the counter records as their own key class
 (`atom_counter`) and not as atom content. The `atom_counters` block shows the
