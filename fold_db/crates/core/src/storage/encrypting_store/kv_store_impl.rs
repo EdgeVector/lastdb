@@ -1,5 +1,6 @@
 //! The `KvStore` trait implementation for `EncryptingKvStore`.
 
+use super::fill::PagedSource;
 use super::*;
 
 #[async_trait]
@@ -68,9 +69,10 @@ impl KvStore for EncryptingKvStore {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // prefix bound applies before decryption. Forward to the inner store's
         // paged scan so its native lazy bound (Sled) holds — we then decrypt only
-        // the page's rows, not the whole prefix.
-        let results = self.inner.scan_prefix_paged(prefix, limit).await?;
-        self.decrypt_rows(results).await
+        // the page's rows, not the whole prefix. A row with no envelope is
+        // dropped and the page is refilled, so a short page is the range end.
+        self.scan_paged_filled(PagedSource::Prefix(prefix), limit)
+            .await
     }
 
     async fn scan_range(&self, start: &[u8], end: &[u8]) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
@@ -89,9 +91,10 @@ impl KvStore for EncryptingKvStore {
     ) -> StorageResult<Vec<(Vec<u8>, Vec<u8>)>> {
         // Keys are plaintext at this layer (only values are encrypted), so the
         // range bound applies before decryption. Forward to the inner store's
-        // paged range scan so native lazy bounds hold.
-        let results = self.inner.scan_range_paged(start, end, limit).await?;
-        self.decrypt_rows(results).await
+        // paged range scan so native lazy bounds hold. A row with no envelope
+        // is dropped and the page is refilled, so a short page is the range end.
+        self.scan_paged_filled(PagedSource::Range(start, end), limit)
+            .await
     }
 
     async fn max_key_u64_after_marker(

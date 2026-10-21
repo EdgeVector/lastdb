@@ -15,12 +15,13 @@
 //! bounded calls with a cursor, and the cursor is the least key not read yet.
 //!
 //! A scan can also return fewer rows than it read. The encrypting store drops a
-//! row that has no at-rest envelope, after the row limit applied, so a short
-//! page does not mean the end of the range. The walk counts the dropped rows
-//! (`count_unsealed_discards`) and adds them to the rows it got: a page is full
-//! when the sum reaches the rows asked for. A page of dropped rows only cannot
-//! name the next key, so the walk asks for more rows from the same start. The
-//! widening is bounded (`MAX_ROWS`). A read that fails after the walk widened,
+//! row that has no at-rest envelope. Its paged scans read on past such a row
+//! (`storage/encrypting_store/fill.rs`), so a short page is the end of the
+//! range. The walk does not depend on that: it counts the dropped rows
+//! (`count_unsealed_discards`) to report them, and adds them to the rows it got:
+//! a page is full when the sum reaches the rows asked for. A page of dropped
+//! rows only cannot name the next key, so the walk asks for more rows from the
+//! same start. The widening is bounded (`MAX_ROWS`). A read that fails after the walk widened,
 //! or a page of `MAX_ROWS` dropped rows, cuts the key range in two. Fewer rows
 //! cannot help there, because a page of dropped rows names no key to continue
 //! from. Each cut makes the span smaller, so the walk always moves. A run of
