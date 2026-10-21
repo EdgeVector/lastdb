@@ -13,6 +13,11 @@ pub struct RecountOptions {
     /// Passes over the tips and records. Each pass holds the atoms of one
     /// shard of the atom ids in memory, so more passes use less memory.
     pub shards: u32,
+    /// The listed scopes are every scope of the home. The blob step may then lower
+    /// a blob counter, clear a `suspect` flag and start the dwell of a blob that
+    /// nothing references. Without it the blob step only raises counters.
+    #[serde(default)]
+    pub blobs_exact: bool,
 }
 
 impl Default for RecountOptions {
@@ -21,6 +26,7 @@ impl Default for RecountOptions {
             execute: false,
             scopes: vec![None],
             shards: 1,
+            blobs_exact: false,
         }
     }
 }
@@ -73,7 +79,7 @@ pub struct RecountReport {
     pub rewritten: u64,
     /// A counter without a body and without holders is deleted.
     pub counters_deleted: u64,
-    /// A body without holders is deleted with its counter and blob references.
+    /// A body without holders is deleted with its counter.
     pub bodies_deleted: u64,
     /// Atoms that tips or records name and that have no body. Nothing can repair them.
     pub lost_bodies: u64,
@@ -100,6 +106,9 @@ pub struct RecountReport {
     pub batches: u64,
     pub elapsed_ms: u64,
     pub range_reads: WalkStats,
+    /// The blob step: the blob counters against the atom counters and the tips.
+    #[serde(default)]
+    pub blobs: crate::db_operations::atom_store::BlobRecountReport,
     pub changes: Vec<Change>,
     pub notes: Vec<String>,
 }
@@ -116,6 +125,15 @@ impl RecountReport {
             + self.rewritten
             + self.counters_deleted
             + self.bodies_deleted
+            + self.blobs.created
+            + self.blobs.raised
+            + self.blobs.lowered
+            + self.blobs.suspect_cleared
+            + self.blobs.dwell_cancelled
+            + self.blobs.dwell_started
+            + self.blobs.queue_deleted
+            + self.blobs.queue_restored
+            + self.blobs.directory_rows_restored
             + self.records_without_queue_entry
             + self.queue_entries_without_directory
     }

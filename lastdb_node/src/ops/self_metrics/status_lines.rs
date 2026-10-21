@@ -395,6 +395,7 @@ fn trailing_status_lines(snapshot: &StatusSnapshot) -> Vec<String> {
     lines.extend(purge_stats_lines(snapshot));
     lines.extend(local_retention_lines(snapshot));
     lines.extend(atom_counter_status_lines(snapshot));
+    lines.extend(blob_counter_status_lines(snapshot));
     lines.extend(conflict_retention_status_lines(snapshot));
     lines
 }
@@ -419,13 +420,8 @@ pub(super) fn atom_ref_edge_status_line(health: &AtomRefEdgeHealth) -> String {
         Availability::Unavailable(_) => "unavailable".to_string(),
     };
     format!(
-        "Liveness edges: molecule_bytes={} blob_phase={} blob_bytes={} blob_complete={}",
+        "Liveness edges: molecule_bytes={}",
         bytes(&health.molecule_bytes),
-        health.blob_phase,
-        bytes(&health.blob_bytes),
-        health
-            .blob_complete
-            .map_or_else(|| "unknown".to_string(), |value| value.to_string()),
     )
 }
 

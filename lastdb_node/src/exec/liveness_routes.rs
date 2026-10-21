@@ -11,7 +11,7 @@ pub(super) async fn execute_liveness_explain_route(
         class: String,
         #[serde(default)]
         id: String,
-        /// Several ids in one call. The classes `atom` and `molecule` read them.
+        /// Several ids in one call. The classes `atom`, `molecule` and `blob` read them.
         #[serde(default)]
         ids: Vec<String>,
         /// Atom and molecule storage scope. Without it the request scope
@@ -38,12 +38,8 @@ pub(super) async fn execute_liveness_explain_route(
     };
     let class = request.class.trim().to_ascii_lowercase();
     let id = request.id.trim();
-    let atoms = host.db.db_ops().atoms();
     if !matches!(class.as_str(), "atom" | "molecule" | "blob") {
         return error_response(400, "class must be atom, molecule, or blob", ctx);
-    }
-    if class == "blob" && (id.is_empty() || !request.ids.is_empty()) {
-        return error_response(400, "blob liveness explain requires one id", ctx);
     }
     // A named handle can map each schema to a different storage instance.
     // This target-only diagnostic has no schema with which to resolve it.
@@ -66,30 +62,7 @@ pub(super) async fn execute_liveness_explain_route(
     if class == "molecule" {
         return explain_molecules(host, ctx, scope, id, request.ids).await;
     }
-    match atoms.blob_ref_edges_for_blob(id, None).await {
-        Ok(references) => {
-            let reclaim_state = if !references.complete {
-                "blocked_index_incomplete"
-            } else if !references.edges.is_empty() {
-                "blocked_active_edges"
-            } else {
-                "candidate"
-            };
-            let report = serde_json::json!({
-                "class": class,
-                "id": id,
-                "complete": references.complete,
-                "active_references": references.edges.len(),
-                "reclaim_state": reclaim_state,
-                "edges": references.edges,
-            });
-            json_ok(&envelope(
-                &serde_json::json!({ "liveness": report }),
-                ctx.user_id.as_str(),
-            ))
-        }
-        Err(error) => mapped_error_response("liveness explain failed", error.into(), ctx),
-    }
+    explain_blobs(host, ctx, id, request.ids).await
 }
 
 /// The counter of each named atom. An atom has no list of referrers: the
@@ -134,6 +107,69 @@ async fn explain_atoms(
                 .collect();
             json_ok(&envelope(
                 &serde_json::json!({ "liveness": { "class": "atom", "atoms": rows } }),
+                ctx.user_id.as_str(),
+            ))
+        }
+        Err(error) => mapped_error_response(
+            "liveness explain failed",
+            fold_db::error::FoldDbError::Schema(error),
+            ctx,
+        ),
+    }
+}
+
+/// The counter of each named blob. A blob counts the atom counters that list it
+/// and the live tips that name it; it has no list of referrers. A blob at zero
+/// is in its dwell until `zero_since` plus the dwell has passed.
+async fn explain_blobs(
+    host: &Host,
+    ctx: &AccessContext,
+    id: &str,
+    mut ids: Vec<String>,
+) -> UdsResponse {
+    if !id.is_empty() {
+        ids.insert(0, id.to_string());
+    }
+    ids.truncate(10_000);
+    match host.db.db_ops().atoms().blob_counter_views(&ids).await {
+        Ok(views) => {
+            let rows: Vec<serde_json::Value> = views
+                .iter()
+                .map(|view| {
+                    let state = match (view.refs, view.zero_since, view.suspect) {
+                        _ if view.unreadable => "unreadable",
+                        (Some(_), _, true) => "suspect",
+                        // Atoms name the blob and the store has no row for it: a
+                        // write named the blob after its dwell deleted it.
+                        (Some(refs), _, false) if refs > 0 && !view.row_present => {
+                            "referenced_row_missing"
+                        }
+                        (Some(refs), _, false) if refs > 0 => "referenced",
+                        (Some(_), Some(_), false) => "in_dwell",
+                        (Some(_), None, false) => "inconsistent",
+                        (None, _, _) if view.row_present => "row_without_counter",
+                        (None, _, _) => "absent",
+                    };
+                    serde_json::json!({
+                        "blob": view.blob,
+                        "refs": view.refs,
+                        "zero_since_unix_ms": view.zero_since,
+                        "suspect": view.suspect,
+                        "queued": view.queued,
+                        "row_present": view.row_present,
+                        "unreadable": view.unreadable,
+                        "state": state,
+                    })
+                })
+                .collect();
+            json_ok(&envelope(
+                &serde_json::json!({
+                    "liveness": {
+                        "class": "blob",
+                        "dwell_secs": host.db.db_ops().atoms().blob_counter_report().dwell_secs,
+                        "blobs": rows,
+                    }
+                }),
                 ctx.user_id.as_str(),
             ))
         }

@@ -107,8 +107,9 @@ fn parse_put_blob_local(
 ///
 /// WARNING: nothing here writes a record or checks that one exists. The blob is
 /// kept only while a record holds the pointer as the WHOLE value of a field of
-/// type `Any`. A pointer inside a JSON string is not a reference, so
-/// `gc-file-blobs` reclaims that blob once its row is older than 600 s.
+/// type `Any`. A pointer inside a JSON string is not a reference, so the dwell
+/// pass deletes that blob once its dwell (`LASTDB_BLOB_DWELL_SECS`, one hour by
+/// default) has passed with no reference.
 pub(super) async fn execute_db_put_blob_local_route(
     req: &UdsRequest,
     ctx: &AccessContext,

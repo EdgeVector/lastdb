@@ -29,9 +29,6 @@ pub(super) async fn dispatch_maintenance_gc(
             )
             .await
         }
-        DataRoute::DbGcFileBlobs => {
-            heap_route!(execute_db_gc_file_blobs_route, req, ctx, host).await
-        }
         DataRoute::DbGcProteins => heap_route!(execute_db_gc_proteins_route, req, ctx, host).await,
         DataRoute::DbReclaimKeepSmallSnapshot => {
             heap_route!(execute_db_reclaim_keep_small_snapshot_route, req, ctx, host).await

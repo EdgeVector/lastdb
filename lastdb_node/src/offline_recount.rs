@@ -30,6 +30,8 @@ pub struct RecountArgs<'a> {
     /// Recount each scope that the database catalog names, besides the
     /// personal scope.
     pub all_scopes: bool,
+    /// Set the blob counters to the exact count. Needs `all_scopes`.
+    pub blobs_exact: bool,
     pub shards: u32,
     pub i_know_this_is_primary: bool,
     pub json: bool,
@@ -63,6 +65,7 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         execute: args.execute,
         scopes,
         shards: args.shards.max(1),
+        blobs_exact: args.blobs_exact && args.all_scopes,
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -198,6 +201,7 @@ fn print_report(
         report.range_reads.shrinks,
         report.range_reads.splits
     );
+    print_blob_step(report);
     for change in &report.changes {
         println!(
             "  {} {} {:?} -> {:?}",
@@ -214,4 +218,44 @@ fn print_report(
         );
     }
     Ok(())
+}
+
+/// The blob step of the report.
+fn print_blob_step(report: &RecountReport) {
+    let blobs = &report.blobs;
+    if !blobs.ran {
+        return;
+    }
+    println!(
+        "  blobs ({}): {} atom counters and {} tips name {} blobs; {} counters read",
+        if blobs.exact { "exact" } else { "raise only" },
+        blobs.atom_counters_read,
+        blobs.tips_read,
+        blobs.referenced_blobs,
+        blobs.counters_read
+    );
+    println!(
+        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted, {} restored, {} directory rows restored",
+        blobs.unchanged,
+        blobs.created,
+        blobs.raised,
+        blobs.lowered,
+        blobs.suspect_cleared,
+        blobs.dwell_cancelled,
+        blobs.dwell_started,
+        blobs.queue_read,
+        blobs.queue_deleted,
+        blobs.queue_restored,
+        blobs.directory_rows_restored
+    );
+    if blobs.rows_missing > 0 {
+        println!(
+            "  blob rows missing: {} referenced blob(s), for example {}",
+            blobs.rows_missing,
+            blobs.missing_row_samples.join(", ")
+        );
+    }
+    for note in &blobs.notes {
+        println!("  note: {note}");
+    }
 }

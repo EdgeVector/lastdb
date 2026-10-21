@@ -60,7 +60,6 @@ pub const COMPACT_ALLOWLIST: &[&str] = &[
     // so ~100% of the plane is dead between compactions. Capture-free.
     "keep_small",
     "atoms",
-    "blob_ref_edges",
     // Captured SOT (~364 MiB live). Compact only under cloud isolation —
     // protein: puts are not capture-skipped (no reconstruct contract).
     "proteins",

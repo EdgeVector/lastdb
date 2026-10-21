@@ -1,20 +1,25 @@
-//! Key format marker and completeness proofs for a constructor-proven empty home.
+//! Key format marker of a constructor-proven empty home.
 //!
 //! The atom counter makes atom bodies the only authority for atom references,
-//! and the molecule counters do the same for molecules. A new home holds no blob
-//! reference, so the proof that the blob reference plane is complete is true by
-//! construction. The storage layer refuses earlier physical layouts. A native
-//! home also needs the current logical identity marker before it can serve.
+//! and the molecule counters and the blob counters do the same for molecules and
+//! for local file blobs. A new home holds no reference of any kind, so no
+//! completeness proof is stored and the format marker is the only key written.
+//! The storage layer refuses earlier physical layouts. A native home also needs
+//! the current logical identity marker before it can serve. A home from a build
+//! that kept blob reference edges has the key format `3`: it has no blob
+//! counters, so this build (key format `4`) refuses it and asks for a new empty
+//! home.
 
-use super::{AtomStore, BlobRefCompleteness, BLOB_REF_COMPLETE_KEY};
+use super::AtomStore;
 use crate::storage::{KvMutation, StorageError};
 
-const KEY_FORMAT: &[u8] = b"3";
+/// `4`: local file blobs have counters and a time-bucketed dwell queue
+/// (`bref:v3:`). Format `3` kept blob reference edges.
+const KEY_FORMAT: &[u8] = b"4";
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.
-pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] =
-    &[AtomStore::CURRENT_KEY_FORMAT_KEY, BLOB_REF_COMPLETE_KEY];
+pub(crate) const CURRENT_NATIVE_INITIALIZATION_KEYS: &[&str] = &[AtomStore::CURRENT_KEY_FORMAT_KEY];
 
 impl AtomStore {
     /// This logical format includes framed molecule identities and exact
@@ -100,10 +105,8 @@ impl AtomStore {
 
 /// The proof rows in the order of [`CURRENT_NATIVE_INITIALIZATION_KEYS`].
 fn current_reference_proofs() -> Result<Vec<KvMutation>, StorageError> {
-    let blob = serde_json::to_vec(&BlobRefCompleteness { version: 2 })
-        .map_err(|error| StorageError::SerializationError(error.to_string()))?;
-    Ok(vec![
-        KvMutation::put(AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(), KEY_FORMAT),
-        KvMutation::put(BLOB_REF_COMPLETE_KEY.as_bytes(), blob),
-    ])
+    Ok(vec![KvMutation::put(
+        AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes(),
+        KEY_FORMAT,
+    )])
 }

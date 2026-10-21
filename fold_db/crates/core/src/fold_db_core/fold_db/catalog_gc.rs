@@ -144,7 +144,8 @@ impl FoldDB {
             .namespaced_store()
             .open_namespace("main")
             .await?;
-        reclaim.rows = drop_prefixed_rows_for_instance(main.as_ref(), instance).await?;
+        reclaim.rows =
+            drop_prefixed_rows_for_instance(self.db_ops().atoms(), main.as_ref(), instance).await?;
         if let Some(batch) = search_changes.filter(|batch| !batch.changes.is_empty()) {
             self.publish_catalog_unshare_search(batch).await?;
         }

@@ -39,7 +39,7 @@ pub fn maybe_spawn_atom_ref_health_refresh(host: &std::sync::Arc<Host>) {
     tokio::spawn(
         async move {
             crate::maintenance_write_gate::run(&host, async {
-                crate::self_metrics::refresh_atom_ref_edge_health(&host).await;
+                crate::self_metrics::refresh_atom_ref_edge_health(&host);
             })
             .await;
             host.atom_ref_health.end();

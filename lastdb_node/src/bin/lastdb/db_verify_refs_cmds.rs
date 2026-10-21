@@ -239,7 +239,7 @@ fn show_last(socket: &Path, json_only: bool) -> Result<(), String> {
 }
 
 /// The fault kinds, in the order the report prints them.
-const KINDS: [&str; 27] = [
+const KINDS: [&str; 36] = [
     "counter_below_tips",
     "counter_above_tips",
     "body_without_counter",
@@ -254,6 +254,15 @@ const KINDS: [&str; 27] = [
     "unreadable_record",
     "unreadable_counter",
     "unsealed_rows",
+    "blob_counter_missing",
+    "blob_counter_below_refs",
+    "blob_zero_without_dwell",
+    "blob_dwell_with_refs",
+    "zero_blob_without_queue_entry",
+    "blob_stale_queue_entry",
+    "blob_suspect",
+    "unreadable_blob_counter",
+    "blob_counter_without_blob",
     "molecule_slots_above_tips",
     "molecule_slots_below_tips",
     "molecule_records_above_records",
@@ -301,6 +310,11 @@ fn print_report(report: &Value, complete: bool) {
         println!(
             "  retention queue: {} entries read",
             u64_of(report, "queue_entries_read")
+        );
+        println!(
+            "  blobs: {} counters, {} queue entries",
+            u64_of(report, "blob_counters_read"),
+            u64_of(report, "blob_queue_read")
         );
         println!(
             "  totals: {} atoms, complete: {}, touched by writers: {}",

@@ -9,7 +9,7 @@ use super::report::{Change, RecountReport};
 use crate::atom::atom_key_codec;
 use crate::db_operations::atom_store::counter::scan::PairRead;
 use crate::db_operations::atom_store::counter::{AtomCounter, AtomSize};
-use crate::db_operations::atom_store::{AtomStore, BlobRefEdge};
+use crate::db_operations::atom_store::AtomStore;
 use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 use crate::storage::KvMutation;
@@ -100,18 +100,10 @@ impl AtomStore {
                 why,
                 before,
             } => {
-                let from_body = blobs.is_none();
                 let (blobs, size) = match blobs {
                     Some(blobs) => (blobs, size),
                     None => self.blobs_of_body(scope, &pair.atom).await?,
                 };
-                if from_body {
-                    for blob in &blobs {
-                        for (key, value) in BlobRefEdge::atom(&pair.atom, blob, scope).put_rows()? {
-                            pending.mutations.push(KvMutation::put(key, value));
-                        }
-                    }
-                }
                 let mut counter = AtomCounter::new(refs, blobs);
                 counter.size = size;
                 pending.mutations.push(KvMutation::put(
@@ -128,11 +120,7 @@ impl AtomStore {
                 report.counters_deleted += 1;
                 note_change(report, change("delete_counter", before, None));
             }
-            Decision::DeleteAtom { blobs, before } => {
-                let blobs = match blobs {
-                    Some(blobs) => blobs,
-                    None => self.blobs_of_body(scope, &pair.atom).await?.0,
-                };
+            Decision::DeleteAtom { before } => {
                 let body_key = build_storage_key(scope, &atom_key_codec::body_key(&pair.atom));
                 pending
                     .mutations
@@ -140,11 +128,6 @@ impl AtomStore {
                 pending
                     .mutations
                     .push(KvMutation::delete(body_key.into_bytes()));
-                for blob in &blobs {
-                    pending
-                        .mutations
-                        .extend(BlobRefEdge::atom(&pair.atom, blob, scope).delete_mutations());
-                }
                 report.bodies_deleted += 1;
                 note_change(report, change("delete_atom", before, None));
             }

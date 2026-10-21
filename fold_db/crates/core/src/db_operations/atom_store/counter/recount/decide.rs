@@ -43,12 +43,9 @@ pub(super) enum Decision {
     },
     /// A counter without a body, and no tip or record names the atom.
     DeleteCounter { before: Option<u64> },
-    /// A body that no tip and no record names. Delete the body, the counter
-    /// and the blob references. `blobs` is `None` when the counter is missing.
-    DeleteAtom {
-        blobs: Option<Vec<String>>,
-        before: Option<u64>,
-    },
+    /// A body that no tip and no record names. Delete the body and the counter.
+    /// The blob counters follow in the blob pass of the recount.
+    DeleteAtom { before: Option<u64> },
     /// Tips or records name the atom and it has no body.
     LostBody,
     /// A body that nothing names, kept because a row did not decode.
@@ -72,10 +69,7 @@ pub(super) fn decide(pair: &PairRead, holders: u64, may_delete: bool) -> Decisio
         },
         (false, _) => Decision::LostBody,
         (true, 0) if !may_delete => Decision::KeepOrphan,
-        (true, 0) => Decision::DeleteAtom {
-            blobs: existing.map(|counter| counter.blobs.clone()),
-            before,
-        },
+        (true, 0) => Decision::DeleteAtom { before },
         (true, holders) => decide_exact(pair, holders, existing, before),
     }
 }

@@ -13,7 +13,6 @@ pub mod delete_ledger;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
-pub mod file_blob_gc;
 pub mod keep_small;
 pub mod lineage_index;
 pub(crate) mod logical_membership;
@@ -35,8 +34,10 @@ pub use admin_db::{
     SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
 pub use atom_store::{
-    AtomCounterReport, AtomCounterView, AtomStore, ConflictRetentionReport, MoleculeData,
+    AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
+    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData, NetStep,
     RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    DWELL_CHUNK,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
