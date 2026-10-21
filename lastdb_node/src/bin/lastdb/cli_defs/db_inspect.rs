@@ -117,7 +117,8 @@ pub(crate) enum DbInspectCommand {
     /// for a molecule that lost its last binding before the drain existed.
     /// Without `--molecule` it shows the report only.
     MoleculeDrain {
-        /// Molecule uuid to queue.
+        /// Molecule uuid to queue. Write `--molecule=UUID` when the uuid starts
+        /// with a dash.
         #[arg(long)]
         molecule: Option<String>,
         /// Storage scope prefix of the molecule (default: the personal scope).
