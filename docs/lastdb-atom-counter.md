@@ -471,6 +471,14 @@ of a range stops early with no error. Two parts of the code close this:
   belongs to that read only) to report them. The verifier, the recount and the
   inventory all use this walk.
 
+A key listing (`GET /api/list`) is not a walk: one call reads one page in one
+read scope with a budget of 10,000 keys, and each row without an envelope costs
+a key. A page that needs more fails with the named 503 `read_resource_limit` and
+the hint to ask for fewer records, and a smaller page returns every row (1,200
+keys with two such rows after each live key: pages of 500 or fewer are full, a
+page of 800 is refused). Before this change the listing stopped at the first
+dropped row and returned 17 to 43 of the 1,200 keys with no error.
+
 - The verifier reports the dropped rows as the fault `unsealed_rows` (a count of
   reads that dropped a row, with a sample that names the fix). The rest of the
   run reads on, so the other faults are not false.
@@ -576,22 +584,29 @@ The inventory walks the key classes of the home. A read call examines at most
 between two live rows can be more than the budget. Every walk of the inventory,
 and every walk of the verifier and the recount, uses the bounded range walk
 (`atom_store/bounded_range.rs`) with `scan_range_yielding`. Each read is its own
-call with its own budget. A read that uses its whole key budget in a run of
-deleted keys is not a failure: it returns no row and names the last key it
-examined, and the next read goes on above that key. A range of D deleted keys
-costs about D / 10,000 reads, with no failed read and no cut of the key range.
-A read that fails with the read limit (the page or byte budget, or a live row
-that needs more than a call) is retried with fewer rows, and then the key range
-is cut in two and the lower half is read first. The report shows the calls
-(`scan.calls`, `scan.shrinks`, `scan.splits`) and the reads that went on above a
-run of deleted keys (`scan.skips`).
+call with its own budget. A read that runs short of key budget is not a
+failure. It returns the live rows it found (it can find none) and names the last
+key it examined, and the next read goes on above that key. This holds for a run
+of deleted keys and for live rows between deleted keys. The verifier reads the
+counter and the body of each row in the same call, so its reads stop while four
+keys for each row are left; the inventory and the recount keep none. A range of
+D deleted keys therefore costs about D / 10,000 reads for the inventory and the
+recount, and a little more for the verifier, with no failed read and no cut of
+the key range. A read that fails with the read limit (the page or byte budget,
+or a live row that needs more than a call) is retried with fewer rows, and then
+the key range is cut in two and the lower half is read first. The report shows
+the calls (`scan.calls`, `scan.shrinks`, `scan.splits`) and the reads that went
+on above a run of deleted keys (`scan.skips`).
 
 Measured before the change (a home of 10,000 keys of six fields, created and
 purged in five rounds): `verify-refs` took 118 s and `inventory` 130 s, with 3,213
 reads and 1,587 cuts. The cut halves the key space, and the deleted keys sit in a
 few clusters that are very narrow in it, so a cluster took about 250 cuts to find.
 Each read of an administrative range also seeks the trees of all 1,024 hash groups
-(400 to 2,000 pages, 20 to 450 ms), so the cost followed the number of reads.
+(400 to 2,000 pages, 20 to 450 ms), so the cost followed the number of reads. A
+home with a live row before each of three clusters of 12,000, 5,000 and 40,000
+deleted keys (in `tips` and in `atoms`): `verify-refs` 164 s and `inventory` 183 s
+before; 2.9 s and 7.1 s after, with 64 reads and no cut.
 
 The inventory reports the counter records as their own key class
 (`atom_counter`) and not as atom content. The `atom_counters` block shows the

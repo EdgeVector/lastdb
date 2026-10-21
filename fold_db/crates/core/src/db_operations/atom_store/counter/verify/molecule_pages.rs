@@ -2,7 +2,7 @@
 //! rows of the range and every point read or range read for them see one
 //! committed root. Nothing here takes the write gate and nothing here writes.
 
-use super::pages::Request;
+use super::pages::{Request, VERIFY_KEYS_PER_ROW};
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::{AtomStore, MoleculeBindings};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
@@ -73,7 +73,9 @@ impl AtomStore {
     ) -> Result<HeadersPage, SchemaError> {
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;
@@ -110,7 +112,9 @@ impl AtomStore {
     ) -> Result<BindingsPage, SchemaError> {
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;
@@ -165,7 +169,9 @@ impl AtomStore {
     ) -> Result<BindingRecordsPage, SchemaError> {
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;

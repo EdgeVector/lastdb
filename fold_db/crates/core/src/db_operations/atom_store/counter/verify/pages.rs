@@ -15,6 +15,10 @@ use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use std::collections::BTreeMap;
 
+/// The keys that a page read keeps for the reads it makes for each row it gets:
+/// the counter and the body of an atom, a blob counter, a binding record.
+pub(super) const VERIFY_KEYS_PER_ROW: usize = 4;
+
 /// A read the walk asked for: start, end and the number of rows.
 pub(super) type Request = (Vec<u8>, Vec<u8>, usize);
 
@@ -101,7 +105,9 @@ impl AtomStore {
     ) -> Result<ReferencedPage, SchemaError> {
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;
@@ -170,9 +176,12 @@ impl AtomStore {
         suspects: &std::collections::HashSet<u128>,
         (start, end, asked): Request,
     ) -> Result<SuspectsPage, SchemaError> {
-        let (scan, scan_unsealed) =
-            count_unsealed_discards(self.raw().inner().scan_range_yielding(&start, &end, asked))
-                .await;
+        let (scan, scan_unsealed) = count_unsealed_discards(
+            self.raw()
+                .inner()
+                .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
+        )
+        .await;
         let scan = scan.map_err(SchemaError::from)?;
         let (rows, resume) = (scan.rows, scan.resume);
         let keys = rows
@@ -203,7 +212,9 @@ impl AtomStore {
     ) -> Result<AtomsPage, SchemaError> {
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;

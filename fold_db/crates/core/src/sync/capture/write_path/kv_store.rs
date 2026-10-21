@@ -143,8 +143,11 @@ impl KvStore for MutationLogCaptureKvStore {
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<YieldedScan> {
-        self.inner.scan_range_yielding(start, end, limit).await
+        self.inner
+            .scan_range_yielding(start, end, limit, keys_per_row)
+            .await
     }
 
     async fn max_key_u64_after_marker(

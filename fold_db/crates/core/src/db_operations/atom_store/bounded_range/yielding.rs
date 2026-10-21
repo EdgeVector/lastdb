@@ -10,9 +10,9 @@ impl RangeWalk {
     /// span ended.
     ///
     /// The read, not the page length, says where to go on. A read that found no
-    /// row, because the rows of its page were dropped or because it used its
-    /// whole key budget in a run of deleted keys, still moves the walk forward
-    /// with no failed read and no cut of the key range.
+    /// row, because the rows of its page were dropped or because it used its key
+    /// budget in a run of deleted keys, still moves the walk forward with no
+    /// failed read and no cut of the key range.
     pub(crate) fn finish_yield(&mut self, rows: usize, unsealed: u64, resume: Option<&[u8]>) {
         self.stats.calls += 1;
         self.stats.unsealed_rows += unsealed;

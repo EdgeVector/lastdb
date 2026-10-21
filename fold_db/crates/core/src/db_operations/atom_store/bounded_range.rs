@@ -15,10 +15,12 @@
 //! bounded calls with a cursor, and the cursor is the least key not read yet.
 //!
 //! A read names where the next read goes on (`KvStore::scan_range_yielding`).
-//! A full page names its last row. A read that ran out of key budget in a run of
-//! deleted keys names the last key it examined, with no row and no error, so a
-//! range of any number of deleted keys is walked one read per budget, with no
-//! failed read. The encrypting store takes the key from its raw rows, so a row
+//! A full page names its last row. A read that ran short of key budget names the
+//! last key it examined, with the live rows it found (it can find none) and no
+//! error, so a range of any number of deleted keys, with live rows between them,
+//! is walked one read per budget, with no failed read and no cut. The read keeps
+//! the keys that the caller needs to read the counters and bodies of the rows it
+//! returns. The encrypting store takes the key from its raw rows, so a row
 //! with no at-rest envelope, which reads as absent, does not change where the
 //! walk goes on. The walk counts such rows (`count_unsealed_discards`) to report
 //! them.
@@ -53,11 +55,11 @@ pub struct WalkStats {
     /// Times a key range was cut in two because fewer rows did not help.
     pub splits: u64,
     /// Reads that dropped a row with no at-rest envelope. The row reads as
-    /// absent. A row next to the end of a page can count again in the next page.
+    /// absent. Each such row counts once.
     #[serde(default)]
     pub unsealed_rows: u64,
     /// Reads that found no row and went on after the last key they examined: a
-    /// run of deleted keys that used the whole key budget of the call.
+    /// run of deleted keys that used the key budget of the call.
     #[serde(default)]
     pub skips: u64,
 }
@@ -224,7 +226,9 @@ impl AtomStore {
                 return Ok(Step::default());
             };
             let (result, dropped) = crate::crypto::count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, 0),
             )
             .await;
             unsealed += dropped;

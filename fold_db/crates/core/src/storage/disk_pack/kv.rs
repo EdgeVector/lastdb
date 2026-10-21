@@ -256,8 +256,11 @@ impl KvStore for PackKvStore {
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<YieldedScan> {
-        let (rows, resume) = self.range_rows_yielding(start, end, limit).await?;
+        let (rows, resume) = self
+            .range_rows_yielding(start, end, limit, keys_per_row)
+            .await?;
         Ok(YieldedScan { rows, resume })
     }
 

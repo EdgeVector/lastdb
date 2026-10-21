@@ -7,9 +7,10 @@ use super::*;
 impl PackKvStore {
     /// Read up to `limit` rows of `start..end`, and name where to continue.
     ///
-    /// Same rows as [`Self::range_rows`], but a call that runs out of key budget
-    /// in a run of deleted keys returns the rows it has and `resume`, the last
-    /// key it examined, instead of an error. `None` means the range ended. A
+    /// Same rows as [`Self::range_rows`], but a call that runs short of key
+    /// budget returns the rows it has and `resume`, the last key it examined,
+    /// instead of an error. It stops while `keys_per_row` keys for each row are
+    /// left, for the reads that the caller makes for those rows. `None` means the range ended. A
     /// write scope, a range over more than one collection and a range that is
     /// not UTF-8 read as `range_rows` does, and `resume` is the last row of a
     /// full page.
@@ -18,6 +19,7 @@ impl PackKvStore {
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<(Vec<(Vec<u8>, Vec<u8>)>, Option<Vec<u8>>)> {
         let collections: Vec<String> = if self.namespace == "main" {
             native_routing::range_collections(start, end)
@@ -46,8 +48,14 @@ impl PackKvStore {
         let observed = Arc::clone(&context);
         let collection = collections.into_iter().next().expect("one collection");
         let result = LastStoreKvStore::run_blocking(move || {
-            let (rows, resume) =
-                runtime.raw_rows_yielding(&context, &collection, &start, &end, limit)?;
+            let (rows, resume) = runtime.raw_rows_yielding(
+                &context,
+                &collection,
+                &start,
+                &end,
+                limit,
+                keys_per_row,
+            )?;
             let rows = rows
                 .into_iter()
                 .map(|(key, body)| Ok((native_routing::decode(&key)?, body)))
@@ -65,9 +73,8 @@ impl PackRuntime {
     /// One page of rows in `start..end` with the continuation key.
     ///
     /// `Some(key)` means continue after `key`: the page is full, or the call ran
-    /// out of key budget in a run of deleted keys (the page is then short or
-    /// empty). `None` means the range ended. A budget failure after the call
-    /// selected a live row returns the rows read so far and the last of them.
+    /// short of key budget (the page is then short or empty, and `key` is the
+    /// last key examined, deleted or live). `None` means the range ended.
     pub(super) fn raw_rows_yielding(
         &self,
         context: &Arc<read::ReadContext>,
@@ -75,8 +82,10 @@ impl PackRuntime {
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<(NativeRows, Option<String>)> {
-        let result = self.raw_rows_yielding_inner(context, collection, start, end, limit);
+        let result =
+            self.raw_rows_yielding_inner(context, collection, start, end, limit, keys_per_row);
         context.remember(&result);
         result
     }
@@ -88,6 +97,7 @@ impl PackRuntime {
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<(NativeRows, Option<String>)> {
         context.validate_owner(None)?;
         if limit > 10000 {
@@ -103,7 +113,11 @@ impl PackRuntime {
                 let last = out.last().map(|(key, _)| key.clone());
                 return Ok((out, last));
             }
-            let page = match cursor.next_page_yielding((limit - out.len()).min(128)) {
+            let page = match cursor.next_page_yielding(
+                (limit - out.len()).min(128),
+                out.len(),
+                keys_per_row,
+            ) {
                 Ok(page) => page,
                 Err(laststore::Error::ReadBudgetExceeded) if !out.is_empty() => {
                     let last = out.last().map(|(key, _)| key.clone());
@@ -111,17 +125,17 @@ impl PackRuntime {
                 }
                 Err(error) => return Err(map(error)),
             };
+            out.extend(
+                page.records
+                    .into_iter()
+                    .map(|record| (record.key, record.body)),
+            );
             if let Some(resume) = page.resume {
                 let resume = String::from_utf8(resume).map_err(|_| {
                     StorageError::InvalidOperation("range storage key is not UTF-8".into())
                 })?;
                 return Ok((out, Some(resume)));
             }
-            out.extend(
-                page.records
-                    .into_iter()
-                    .map(|record| (record.key, record.body)),
-            );
             if page.exhausted {
                 return Ok((out, None));
             }

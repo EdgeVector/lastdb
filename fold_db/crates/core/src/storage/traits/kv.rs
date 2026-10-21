@@ -235,17 +235,23 @@ pub trait KvStore: Send + Sync {
     /// Scan up to `limit` rows of `start..end` and name where to continue.
     ///
     /// For a walk over a range that holds many deleted keys. A backend whose
-    /// reads have a key budget may stop in a run of deleted keys: it then
-    /// returns the rows it has and `resume`, the last key it examined, in place
-    /// of a read-limit error. A page that is short does not end the range;
-    /// `resume` is `None` only at the end of the range. The default reads as
-    /// [`Self::scan_range_paged`] and names the last row of a full page.
+    /// reads have a key budget may stop short of `limit` rows when the budget
+    /// runs low, in a run of deleted keys or between live rows: it then returns
+    /// the rows it has and `resume`, the last key it examined, in place of a
+    /// read-limit error. `keys_per_row` says how many keys the caller reads
+    /// for each row it gets (its counters and bodies, in the same call): the
+    /// backend stops while it still has them. A page that is short does not end
+    /// the range; `resume` is `None` only at the end of the range. The default
+    /// reads as [`Self::scan_range_paged`] and names the last row of a full
+    /// page.
     async fn scan_range_yielding(
         &self,
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<YieldedScan> {
+        let _ = keys_per_row;
         let rows = self.scan_range_paged(start, end, limit).await?;
         let resume = (limit > 0 && rows.len() >= limit)
             .then(|| rows.last().map(|(key, _)| key.clone()))

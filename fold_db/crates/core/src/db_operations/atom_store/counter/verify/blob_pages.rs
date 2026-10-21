@@ -3,7 +3,7 @@
 //! so all of them see one committed root.
 
 use super::blobs::{BlobEntry, BlobListed, BlobsPage, QueueEntry, QueuePage, UnlistedBucket};
-use super::pages::Request;
+use super::pages::{Request, VERIFY_KEYS_PER_ROW};
 use crate::crypto::count_unsealed_discards;
 use crate::db_operations::atom_store::blob_counter::{
     blob_counter_key, blob_counter_key_of_id, BlobRead,
@@ -65,7 +65,9 @@ impl AtomStore {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;
@@ -152,7 +154,9 @@ impl AtomStore {
         let queue = self.blob_events.queue();
         self.atom_read_scope(async {
             let (scan, scan_unsealed) = count_unsealed_discards(
-                self.raw().inner().scan_range_yielding(&start, &end, asked),
+                self.raw()
+                    .inner()
+                    .scan_range_yielding(&start, &end, asked, VERIFY_KEYS_PER_ROW),
             )
             .await;
             let scan = scan.map_err(SchemaError::from)?;

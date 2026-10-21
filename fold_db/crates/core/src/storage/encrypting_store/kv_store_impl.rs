@@ -105,8 +105,12 @@ impl KvStore for EncryptingKvStore {
         start: &[u8],
         end: &[u8],
         limit: usize,
+        keys_per_row: usize,
     ) -> StorageResult<YieldedScan> {
-        let raw = self.inner.scan_range_yielding(start, end, limit).await?;
+        let raw = self
+            .inner
+            .scan_range_yielding(start, end, limit, keys_per_row)
+            .await?;
         let rows = self.decrypt_rows(raw.rows).await?;
         Ok(YieldedScan {
             rows,
