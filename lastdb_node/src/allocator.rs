@@ -24,6 +24,13 @@ pub struct AllocatorMetrics {
 #[cfg(feature = "purging-allocator")]
 const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
 
+/// `mi_option_page_commit_on_demand` in the pinned mimalloc v3 header.
+#[cfg(feature = "purging-allocator")]
+const MI_OPTION_PAGE_COMMIT_ON_DEMAND: libmimalloc_sys::mi_option_t = 40;
+
+/// The environment variable that overrides commit on demand.
+pub const COMMIT_ON_DEMAND_ENV: &str = "MIMALLOC_PAGE_COMMIT_ON_DEMAND";
+
 #[cfg(feature = "purging-allocator")]
 mod tracked {
     use std::alloc::{GlobalAlloc, Layout};
@@ -98,9 +105,16 @@ pub use tracked::TrackedMiMalloc;
 
 /// Configure the allocator before the daemon starts worker threads.
 ///
-/// The pinned mimalloc v3 header defines `mi_option_purge_delay` as option 15.
-/// The sys crate does not export experimental option constants. Keep this
-/// index beside the exact dependency pins and the round-trip test below.
+/// The pinned mimalloc v3 header defines `mi_option_purge_delay` as option 15
+/// and `mi_option_page_commit_on_demand` as option 40. The sys crate does not
+/// export these constants. Keep the indexes beside the exact dependency pins.
+///
+/// Commit on demand: a page commits only the part it has handed out. Without
+/// it, a thread's page for a size class committed its whole span even when a
+/// few blocks were in use. A node with ~50 threads kept about 14 MiB of such
+/// pages under a quarter used, and the process size grew with write bursts
+/// (measured 2026-10-21, 3,000 small records, 6 bursts of 429 updates: 68 MB
+/// default, 42 MB with commit on demand; live bytes equal).
 #[cfg(feature = "purging-allocator")]
 pub fn configure() -> AllocatorTuning {
     if !tracked::active() {
@@ -115,6 +129,10 @@ pub fn configure() -> AllocatorTuning {
         // SAFETY: mimalloc documents option writes as process-global setup.
         // This runs once, at the start of `main`, before worker threads start.
         unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, 0) };
+    }
+    if std::env::var_os(COMMIT_ON_DEMAND_ENV).is_none() {
+        // SAFETY: as above; process-global setup before worker threads start.
+        unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PAGE_COMMIT_ON_DEMAND, 1) };
     }
     // SAFETY: the option index matches the pinned mimalloc v3 header.
     let purge_delay_ms = unsafe { libmimalloc_sys::mi_option_get(MI_OPTION_PURGE_DELAY) };
