@@ -184,10 +184,13 @@ A record ends in two ways, and both use the same release:
    read before the walk, so an entry that a writer added after the walk keeps the
    bucket. The deleted keys of a retired bucket are never read again. The gate is
    free between pages, and the janitor
-   rests after each batch for `held * (100 - duty) / duty`, where `held` is the time
-   the batch held the write gate (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10: a
-   tenth of the gate time, at least 25 ms and at most 30 s). The wait for the flush
-   comes after the gate is free and is not part of `held`. The window is
+   rests after each batch for `blocked * (100 - duty) / duty`, where `blocked` is the
+   time the batch kept writers waiting: its hold of the write gate and, because the
+   batch seals the write queue, the wait until it is durable
+   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10: writers wait for the janitor a
+   tenth of the time; at least 25 ms and at most 30 s). When no other task wrote since
+   the last batch, the rest protects nobody and it is the minimum rest
+   (`docs/lastdb-time-queue.md`, section Pacing). The window is
    `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
    records the pair.
 
@@ -256,7 +259,8 @@ from the directory. The entries are counted with bounded range walks, which pass
 deleted keys, so a queue that holds many deleted keys still shows its depth. A
 bucket that cannot be read makes the depth a lower bound (shown as `N+`). `lastdb
 db inventory` has the classes `retention_queue`, `retention_bucket_directory` and
-`retention_directory`.
+`retention_directory`. The class `retention_bucket_directory` also counts the row
+that records the window of the node (`crb:v1\0params`).
 
 Not done in this step: the conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
 when it finds a conflict row gone. The keep-small meters are not debited when a

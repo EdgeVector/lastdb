@@ -28,7 +28,7 @@ use super::queue::BlobQueue;
 use crate::db_operations::atom_store::time_queue::QueueReader;
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::transaction::hold::measure;
+use crate::storage::disk_pack::transaction::blocked::measure;
 use std::collections::BTreeSet;
 
 /// Blobs one step deletes inside one hold of the write gate, at most. It is also
@@ -104,10 +104,14 @@ pub struct DwellStep {
     pub unreadable: u64,
     /// The step deleted the directory row of a bucket whose walk was complete.
     pub retired: bool,
-    /// How long the step held the native write gate. The node rests for a share
-    /// of this time, not of the wall time of the step, which also holds the wait
-    /// for the flush (`storage::disk_pack::transaction::hold`).
-    pub held: std::time::Duration,
+    /// How long the step kept writers waiting: the hold of the native write gate,
+    /// and for a batch that seals the queue, the wait until it is durable
+    /// (`storage::disk_pack::transaction::blocked`). The node rests for a share of
+    /// this time.
+    pub blocked: std::time::Duration,
+    /// Write scopes the step opened. The node takes them off the count of the
+    /// scopes of the process to tell whether another writer was there.
+    pub scopes: u64,
 }
 
 impl DwellStep {
@@ -160,11 +164,15 @@ impl AtomStore {
         cursor: &mut DwellCursor,
         max: usize,
     ) -> Result<Option<DwellStep>, SchemaError> {
-        let (step, held) = measure(self.read_and_delete(cursor, max)).await;
-        Ok(step?.map(|step| DwellStep { held, ..step }))
+        let (step, cost) = measure(self.read_and_delete(cursor, max)).await;
+        Ok(step?.map(|step| DwellStep {
+            blocked: cost.blocked,
+            scopes: cost.scopes,
+            ..step
+        }))
     }
 
-    /// The work of [`Self::blob_dwell_step`], without the measure of the gate hold.
+    /// The work of [`Self::blob_dwell_step`], without the measure of the time it blocks writers.
     async fn read_and_delete(
         &self,
         cursor: &mut DwellCursor,

@@ -8,16 +8,16 @@
 //! the due blobs in chunks. A chunk takes the native write gate for its own
 //! reads and its one batch, and the gate is free between chunks. The pass takes the local mutation admission per chunk, as the
 //! TTL sweep does, so a backup cut never starts inside a chunk. After each chunk
-//! the pass rests for a share of the time the chunk held the write gate
+//! the pass rests for a share of the time the chunk kept writers waiting
 //! (`pace.rs`: duty 10 percent by default), so a writer waits for at most one
-//! small chunk and then runs free.
+//! chunk and its flush and then runs free.
 //!
 //! The dwell is `LASTDB_BLOB_DWELL_SECS` (one hour by default, 120 s at least
 //! unless `LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV=1`). Kill switch for the pass:
 //! `LASTDB_BLOB_DWELL_PASS=0`. Default **on**. With the pass off no blob leaves
 //! the store, and the queue grows until the pass runs again.
 
-use fold_db::db_operations::DwellCursor;
+use fold_db::db_operations::{DwellCursor, QuietRest, WriterWatch};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tracing::Instrument;
@@ -94,7 +94,8 @@ pub async fn run_pass(
     let failed = |error: fold_db::schema::SchemaError| error.to_string();
     atoms.blob_dwell_begin(cursor).await.map_err(failed)?;
     cursor.set_net_every(pace::net_every_from_env());
-    if sweep_net(host, shutdown, cursor, &pace).await > 0 {
+    let mut watch = WriterWatch::new();
+    if sweep_net(host, shutdown, cursor, &pace, &mut watch).await > 0 {
         // A bucket that the net registered again is in the directory now.
         atoms.blob_dwell_refresh(cursor).await.map_err(failed)?;
     }
@@ -115,14 +116,14 @@ pub async fn run_pass(
             Some(Err(error)) => return Err(failed(error)),
         };
         let took = started.elapsed();
-        let pause = pace.pause_after(step.held);
+        let pause = pace.pause_after(step.blocked, watch.others_wrote(step.scopes));
         tracing::debug!(
             target: "lastdbd::blob_dwell",
             chunk = step.handled(),
             retired = step.retired,
             buckets = cursor.buckets(),
             took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
-            held_us = u64::try_from(step.held.as_micros()).unwrap_or(u64::MAX),
+            blocked_us = u64::try_from(step.blocked.as_micros()).unwrap_or(u64::MAX),
             rest_ms = u64::try_from(pause.as_millis()).unwrap_or(u64::MAX),
             "blob dwell chunk done; resting"
         );
@@ -131,9 +132,12 @@ pub async fn run_pass(
     Ok(())
 }
 
-/// Rest between two chunks, in short slices so that a shutdown ends it at once.
+/// Rest between two chunks, in short slices so that a shutdown ends it at once. A
+/// long rest ends early when no other task has opened a write scope for two
+/// seconds (`QuietRest`): the writers went away.
 async fn rest(pause: Duration, shutdown: &AtomicBool) {
     const SLICE: Duration = Duration::from_millis(250);
+    let mut watch = QuietRest::begin();
     let end = Instant::now() + pause;
     loop {
         if shutdown.load(Ordering::Acquire) {
@@ -144,6 +148,9 @@ async fn rest(pause: Duration, shutdown: &AtomicBool) {
             return;
         }
         tokio::time::sleep(left.min(SLICE)).await;
+        if left > SLICE && watch.quiet() {
+            return;
+        }
     }
 }
 
@@ -155,6 +162,7 @@ async fn sweep_net(
     shutdown: &AtomicBool,
     cursor: &mut DwellCursor,
     pace: &Pace,
+    watch: &mut WriterWatch,
 ) -> u64 {
     let atoms = host.db.db_ops().atoms();
     let mut repaired = 0;
@@ -172,10 +180,14 @@ async fn sweep_net(
                     probed = step.probed,
                     repaired = step.repaired,
                     took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    held_us = u64::try_from(step.held.as_micros()).unwrap_or(u64::MAX),
+                    blocked_us = u64::try_from(step.blocked.as_micros()).unwrap_or(u64::MAX),
                     "blob dwell net chunk"
                 );
-                rest(pace.pause_after(step.held), shutdown).await;
+                rest(
+                    pace.pause_after(step.blocked, watch.others_wrote(step.scopes)),
+                    shutdown,
+                )
+                .await;
             }
             // No sweep is due, or local writes are paused for a retained cloud
             // source.

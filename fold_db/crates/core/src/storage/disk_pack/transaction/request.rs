@@ -62,6 +62,7 @@ where
     };
     let gate = runtime.enter_prepare().await;
     let held_from = std::time::Instant::now();
+    super::blocked::opened();
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
@@ -80,9 +81,13 @@ where
         let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);
         let target = durable.then(|| runtime.seal_queue());
         drop(gate);
-        note_gate_hold(held_from, 0, 0, &BatchShape::default());
+        let hold = note_gate_hold(held_from, 0, 0, &BatchShape::default());
+        // A durable fence seals the queue, so writers wait until it is durable.
         if let Some(target) = target {
             runtime.wait_for_queue(target).await?;
+            super::blocked::note(held_from.elapsed());
+        } else {
+            super::blocked::note(hold);
         }
         return Ok(result);
     }
@@ -99,13 +104,17 @@ where
             .await?;
     let delay = protect_paths(&runtime, &pending, delay)?;
     let wait = reply != Reply::Memory || delay.is_none();
+    // A batch with no early publication seals the queue: every later writer waits
+    // in `enter_prepare` until the batch is durable, though the gate is free.
+    let sealed = delay.is_none();
     // Publication, ownership transfer and worker creation contain no await.
     let sequence = runtime.accept_queued(pending, prepared, delay)?;
     drop(gate);
-    note_gate_hold(held_from, operations_len, sequence, &shape);
+    let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     if wait {
         runtime.wait_for_queue(sequence).await?;
     }
+    super::blocked::note(if sealed { held_from.elapsed() } else { hold });
     Ok(result)
 }
 
@@ -188,17 +197,16 @@ impl BatchShape {
 }
 
 /// Say how long a request held the write gate, for a run that reads the log, and
-/// add the hold to the job that paces itself by it (`hold.rs`).
-/// The hold covers preparation, staging and acceptance. The durable wait comes
-/// after the gate is free and is not counted.
+/// return the hold. The hold covers preparation, staging and acceptance. The
+/// durable wait comes after the gate is free and is not counted here. A batch that
+/// seals the queue keeps writers waiting through that wait too (`blocked.rs`).
 fn note_gate_hold(
     held_from: std::time::Instant,
     operations: usize,
     sequence: u64,
     shape: &BatchShape,
-) {
+) -> std::time::Duration {
     let held = held_from.elapsed();
-    super::hold::note(held);
     tracing::debug!(
         target: "fold_db::write_gate",
         hold_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX),
@@ -219,6 +227,7 @@ fn note_gate_hold(
         binding_deletes = shape.binding_deletes,
         "native write gate released"
     );
+    held
 }
 
 fn protect_paths(

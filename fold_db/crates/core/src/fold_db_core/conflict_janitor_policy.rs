@@ -8,14 +8,13 @@ use std::time::Duration;
 pub const CONFLICT_JANITOR_MS_ENV: &str = "LASTDB_CONFLICT_JANITOR_MS";
 /// Default interval between wakes: one minute.
 pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
-/// Env: the share of write-gate time, in percent, that the janitor may use. A
-/// release batch holds the native write gate, and a writer that meets the gate
-/// waits for the batch. The janitor rests after each batch for
-/// `held * (100 - duty) / duty`, where `held` is the time the batch held the
-/// gate. The wait for the flush comes after the gate is free, so it is not part
-/// of `held`.
+/// Env: the share of time, in percent, that the janitor may keep writers waiting.
+/// A release batch holds the native write gate and seals the write queue, so a
+/// writer that meets the batch waits for its hold and for its flush. The janitor
+/// rests after each batch for `blocked * (100 - duty) / duty`, where `blocked` is
+/// the time the batch kept writers waiting.
 pub const CONFLICT_JANITOR_DUTY_PCT_ENV: &str = "LASTDB_CONFLICT_JANITOR_DUTY_PCT";
-/// Default duty share: 10 percent of the gate time.
+/// Default duty share: 10 percent of the time.
 pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 10;
 /// Env: seconds between two sweeps of the safety net of the queue (`0` = off).
 /// A sweep probes every slice that can hold a live entry, by arithmetic, and

@@ -193,26 +193,56 @@ second before it is read again. Memory does not grow with the number of markers.
 
 ## Pacing
 
-A user of the queue rests after each batch, so the batches take only a share of the
-write gate. The rest is `held * (100 - duty) / duty`, where `held` is the time the
-batch held the native write gate (its reads inside the gate, its staging and its
-accept), and `duty` is a share of write-gate time in percent (10 by default). A
-writer that meets the gate waits for one small batch and then runs free.
+A user of the queue deletes in batches, and each batch is durable work that seals
+the write queue. A writer that arrives while a batch is open waits for the write
+gate. And when the batch has the gate no more, the writer still waits in
+`PackRuntime::enter_prepare` until the batch is durable. So the time that a batch
+keeps writers waiting is its hold of the gate (8 to 30 ms) plus its flush. The
+flush costs about 15 to 20 ms for each released record: 0.5 to 1 s for a batch of
+32, and it grows with the batch, so a larger batch does not release more in the same
+time and freezes the writers for longer.
 
-The measure is the hold of the gate, not the wall time of the step. The wall time
-also holds the wait for the flush (about 0.5 s on a busy host), which comes after
-the gate is free and blocks no writer. A rest that followed the wall time was about
-nine times the flush wait: the retention janitor drained 4 to 7 records a second
-and the dwell pass deleted about 5 blobs a second at the default knobs. With the
-rest set by the hold, the same knobs drain about ten times as fast, and the gate is
-still busy for a tenth of the time.
+The user rests after each batch for `blocked * (100 - duty) / duty`, where `blocked`
+is that time and `duty` is a share of the time in percent (10 by default). The rest
+is at least 25 ms and at most 30 s. With 10 percent, writers wait for the user about
+a tenth of the time. The page reads before the gate block nobody and are not part of
+it. `storage::disk_pack::transaction::blocked::measure` runs a step and adds up the
+time of every write scope the step opens in its own task. The steps of the retention
+janitor (`release_step`, `drain_step`, `net_step`) and of the dwell pass
+(`blob_dwell_step`, `blob_dwell_net_step`) return it in `blocked`.
 
-`storage::disk_pack::transaction::hold::measure` runs a step and adds up the hold of
-every write scope the step opens in its own task. The steps of the retention janitor
-(`release_step`, `drain_step`, `net_step`) and of the dwell pass (`blob_dwell_step`,
-`blob_dwell_net_step`) return it in `held`. The rest is at least 25 ms and at most
-30 s. A step that opens no write scope (a read of a page, a probe that finds
-nothing) holds the gate for zero time and rests the minimum.
+The rest protects the writers, so it is needed only when a writer is there. A
+`WriterWatch` counts the write scopes that the process opens and takes off the ones
+that the step opened. When no other task opened a write scope since the last step,
+the rest is the minimum rest, and the user goes on at once. The first write scope of
+another task ends that: the next rest is the full one. A full rest ends early
+(`QuietRest`) when no other task has opened a write scope for two seconds, so a
+backlog does not wait out a rest of 20 s after the writers went away.
+
+Measured on a synthetic home, default knobs, with the recipes of the S3 and S5
+proofs (the janitor drains 3,960 conflict records of a 200-field schema, the dwell
+pass deletes 2,000 blobs that are all due at once), the node of each build run at the
+same time:
+
+| | rest by the wall time of the step (before) | rest by the time writers wait, no other writer |
+|---|---|---|
+| Janitor, records a second | 4.5 to 4.6 | 14 to 25 (3.1 to 5.5 times) |
+| Dwell pass, blobs a second | 4.7 to 5.2 | 27 to 44 (5.2 to 9.3 times) |
+
+The speed at rest is the speed of the flush, and the flush of a batch took 0.5 to 2.2 s
+on this host, depending on what else the host did. With a writer present the pass is
+paced as before: a dwell pass with writers deleted about 5 blobs a second, and a
+janitor with a 5-writes-a-second writer rested 18 to 25 s after each batch (a batch
+blocked the writers for 2 to 3 s then) and went back to the minimum rest 2 s after
+the writer stopped.
+
+Why not the hold of the gate alone: that was tried first (a rest of 0.1 to 0.3 s).
+It drained 9 to 11 times as fast, and it raised the median latency of a test writer
+by 33 to 60 percent while the janitor released records (3 pairs of nodes, one with
+the janitor and one without, on the same host; the same test gave a median change of
++5 percent, from -2 to +18 percent, for the wall-time rest, and +5 percent, from +1
+to +25 percent, for the rest described here). The flush is the larger part of the
+time that the writers wait, and the gate hold leaves it out.
 
 ## Failure
 

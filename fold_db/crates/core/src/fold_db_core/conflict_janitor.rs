@@ -11,12 +11,16 @@
 //! page holds no write gate. Each page that has due records runs one release batch
 //! (`AtomStore::release_step`): one native write scope, one batch, and the gate
 //! is free again before the next page. The janitor rests after each batch for
-//! `held * (100 - duty) / duty`, where `held` is the time the batch held the
-//! write gate (its reads in the gate, its staging and its accept; not the wait
-//! for the flush, which comes after the gate is free). A duty share of 10 percent
-//! by default means the janitor holds the gate for a tenth of the time, and a
-//! writer that meets the gate waits for one small batch. The rest is at least
-//! 25 ms and at most 30 s. The janitor deletes no atom. The batch names the history rows to the planner,
+//! `blocked * (100 - duty) / duty`, where `blocked` is the time the batch keeps
+//! writers waiting: the hold of the write gate (its reads in the gate, its staging
+//! and its accept) and, because a release batch seals the write queue, the wait
+//! until the batch is durable. The page reads before the gate block nobody and
+//! are not part of it. A duty share of 10 percent by default means writers wait
+//! for the janitor a tenth of the time. The rest is at least 25 ms and at most
+//! 30 s. When no other task opened a write scope since the last batch
+//! ([`WriterWatch`]), the rest protects nobody and it is the minimum rest, so a node
+//! with no other writer drains a backlog at the speed of its flush. The janitor
+//! deletes no atom. The batch names the history rows to the planner,
 //! which lowers the references and deletes a body only when its count reaches
 //! zero.
 //!
@@ -48,7 +52,7 @@
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_CONFLICT_JANITOR_MS` | Interval between wakes. Zero turns the janitor off. Default 60000. |
-//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of write-gate time, in percent, that the janitor may use (1 to 100): the rest after a batch is `held * (100 - duty) / duty` for the time the batch held the gate. Default 10. |
+//! | `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | The share of time, in percent, that the janitor may keep writers waiting (1 to 100): the rest after a batch is `blocked * (100 - duty) / duty` for the time the batch blocked writers (the hold of the write gate and the wait for the flush), when another writer is there. Default 10. |
 //! | `LASTDB_CONFLICT_RETENTION_SECS` | The retention window. Default 30 days. |
 //! | `LASTDB_CONFLICT_JANITOR_NET_SECS` | Seconds between two sweeps of the safety net of the queue (0 turns it off). Default 3600. |
 
@@ -56,7 +60,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::db_operations::atom_store::{AtomStore, Lane, RetentionCursor, StepOutcome};
+use super::conflict_janitor_pace::{backoff_after, rest, rest_after};
+use crate::db_operations::atom_store::{
+    AtomStore, Lane, RetentionCursor, StepOutcome, WriterWatch,
+};
 use crate::db_operations::DbOperations;
 
 /// Batches of one wake, at most. A larger backlog continues at the next wake.
@@ -65,16 +72,8 @@ const PAGES_PER_WAKE: usize = 256;
 const DRAIN_BATCHES_PER_TURN: usize = 4;
 /// Batches of due records in one turn, at most. Then the drains get a turn.
 const ORDINARY_BATCHES_PER_TURN: usize = 4;
-/// The shortest rest between two pages.
-const MIN_PAUSE: Duration = Duration::from_millis(25);
-/// The longest rest between two pages.
-const MAX_PAUSE: Duration = Duration::from_secs(30);
 /// The cursors of the live buckets start again, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
-/// The longest wait after a wake that failed.
-const BACKOFF_MAX: Duration = Duration::from_secs(600);
-/// The shortest base of the wait after a wake that failed.
-const BACKOFF_BASE_MIN: Duration = Duration::from_secs(1);
 
 /// Handle for the periodic janitor task.
 ///
@@ -176,23 +175,6 @@ impl Drop for BackgroundConflictJanitorTask {
     }
 }
 
-/// The rest after a step that held the write gate for `held`. With a duty share
-/// of `d` percent the rest is `held * (100 - d) / d`, so the gate is busy with
-/// the janitor for `d` percent of the time. The wall time of the step is not
-/// the measure: it also holds the wait for the flush, which is outside the gate.
-fn pause_after(held: Duration, duty_pct: u64) -> Duration {
-    let held_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX);
-    Duration::from_micros(held_us.saturating_mul(100 - duty_pct) / duty_pct)
-        .clamp(MIN_PAUSE, MAX_PAUSE)
-}
-
-/// The wait before the next wake after `failures` wakes in a row that failed.
-fn backoff_after(failures: u64, interval: Duration) -> Duration {
-    let base = interval.max(BACKOFF_BASE_MIN);
-    let shift = u32::try_from(failures.min(10)).unwrap_or(10);
-    base.saturating_mul(1 << shift).min(BACKOFF_MAX)
-}
-
 /// What one wake did.
 #[derive(Default)]
 struct Wake {
@@ -218,6 +200,7 @@ async fn run_net(
     stop: &AtomicBool,
     cursor: &mut RetentionCursor,
     duty_pct: u64,
+    watch: &mut WriterWatch,
 ) -> bool {
     loop {
         if stop.load(Ordering::Relaxed) {
@@ -232,10 +215,10 @@ async fn run_net(
                     lane = ?outcome.lane,
                     repaired = outcome.repaired,
                     took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    held_us = u64::try_from(outcome.held.as_micros()).unwrap_or(u64::MAX),
+                    blocked_us = u64::try_from(outcome.blocked.as_micros()).unwrap_or(u64::MAX),
                     "conflict janitor net chunk"
                 );
-                tokio::time::sleep(pause_after(outcome.held, duty_pct)).await;
+                rest(rest_after(watch, &outcome, duty_pct)).await;
             }
             Ok(None) => return true,
             Err(failure) => {
@@ -257,6 +240,7 @@ fn note_batch(
     wake: &mut Wake,
     outcome: &StepOutcome,
     took: Duration,
+    rest: Duration,
 ) {
     atoms.retention_state().note_released(outcome.released);
     atoms
@@ -272,7 +256,8 @@ fn note_batch(
         finished = outcome.finished,
         retired = outcome.retired,
         took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
-        held_us = u64::try_from(outcome.held.as_micros()).unwrap_or(u64::MAX),
+        blocked_us = u64::try_from(outcome.blocked.as_micros()).unwrap_or(u64::MAX),
+        rest_ms = u64::try_from(rest.as_millis()).unwrap_or(u64::MAX),
         "conflict janitor batch"
     );
 }
@@ -290,9 +275,10 @@ async fn run_wake(
     let mut wake = Wake::default();
     let mut ordinary_ok = true;
     let mut drain_ok = true;
+    let mut watch = WriterWatch::new();
     // The safety net sweeps the slices once in a while (a few chunks, each paced
     // like a batch). A failed sweep does not hold back the release of records.
-    if !run_net(atoms, stop, cursor, duty_pct).await {
+    if !run_net(atoms, stop, cursor, duty_pct, &mut watch).await {
         return wake;
     }
     let mut batches = 0usize;
@@ -337,8 +323,16 @@ async fn run_wake(
                 };
                 progressed = true;
                 batches += 1;
-                note_batch(atoms, cursor, &mut wake, &outcome, started.elapsed());
-                tokio::time::sleep(pause_after(outcome.held, duty_pct)).await;
+                let rest_for = rest_after(&mut watch, &outcome, duty_pct);
+                note_batch(
+                    atoms,
+                    cursor,
+                    &mut wake,
+                    &outcome,
+                    started.elapsed(),
+                    rest_for,
+                );
+                rest(rest_for).await;
             }
         }
         if !progressed {

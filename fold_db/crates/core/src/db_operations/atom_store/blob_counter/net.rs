@@ -28,7 +28,7 @@ use super::dwell::DwellCursor;
 use super::{blob_dwell_millis, BlobQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::transaction::hold::measure;
+use crate::storage::disk_pack::transaction::blocked::measure;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -65,9 +65,10 @@ pub struct NetStep {
     /// Buckets that held a live entry and had no directory row, and are
     /// registered again.
     pub repaired: u64,
-    /// How long the chunk held the native write gate (zero when it repaired
-    /// nothing).
-    pub held: Duration,
+    /// How long the chunk kept writers waiting (zero when it repaired nothing).
+    pub blocked: Duration,
+    /// Write scopes the chunk opened.
+    pub scopes: u64,
 }
 
 impl DwellCursor {
@@ -91,12 +92,16 @@ impl AtomStore {
         &self,
         cursor: &mut DwellCursor,
     ) -> Result<Option<NetStep>, SchemaError> {
-        let (step, held) = measure(self.sweep_blob_chunk(cursor)).await;
-        Ok(step?.map(|step| NetStep { held, ..step }))
+        let (step, cost) = measure(self.sweep_blob_chunk(cursor)).await;
+        Ok(step?.map(|step| NetStep {
+            blocked: cost.blocked,
+            scopes: cost.scopes,
+            ..step
+        }))
     }
 
-    /// The work of [`Self::blob_dwell_net_step`], without the measure of the gate
-    /// hold.
+    /// The work of [`Self::blob_dwell_net_step`], without the measure of the time
+    /// it blocks writers.
     async fn sweep_blob_chunk(
         &self,
         cursor: &mut DwellCursor,
@@ -142,7 +147,8 @@ impl AtomStore {
         Ok(Some(NetStep {
             probed: chunk.probed,
             repaired,
-            held: Duration::ZERO,
+            blocked: Duration::ZERO,
+            scopes: 0,
         }))
     }
 }

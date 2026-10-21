@@ -214,21 +214,21 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    does not decode is deleted alone too, and the blob and the counter stay: nothing
    can say that the count is zero (the verifier reports the counter);
 5. releases the gate, and **rests**. A step that finds a bucket done retires it
-   (a batch of one guarded delete) and rests the same way. The rest after a chunk is
-   `held * (100 - duty) / duty`, where `held` is the time the chunk held the native
-   write gate: its reads inside the gate, its staging and its accept. The duty share
-   is 10 percent by default (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100): the pass uses
-   a tenth of the gate time. The rest is at least 25 ms
-   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. A chunk that held the gate
-   for 30 ms is followed by a rest of 270 ms. A writer then waits for one small chunk
-   and runs free in the rest. The next chunk takes the gate again. The rest does not
-   follow the wall time of the call. The call also waits for the local mutation
-   admission and, after the gate is free, for the flush (about 0.6 s on a busy host),
-   and neither of those blocks a writer. A rest that followed the wall time was nine
-   times the flush wait and kept the pass to about five blobs a second.
-   Set `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a large backlog faster. The node
-   logs the time, the gate hold and the rest of each chunk at debug level
-   (`lastdbd::blob_dwell`).
+   (a batch of one guarded delete) and rests the same way. A chunk seals the write
+   queue, so a writer that arrives meanwhile waits for the hold of the gate and then
+   for the flush of the chunk (about 0.4 to 1 s). The rest after a chunk is
+   `blocked * (100 - duty) / duty`, where `blocked` is that time and the duty share
+   is 10 percent by default (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100): writers wait for
+   the pass about a tenth of the time. The rest is at least 25 ms
+   (`LASTDB_BLOB_DWELL_MIN_PAUSE_MS`) and at most 30 s. When no other task wrote
+   since the last chunk (`WriterWatch`), the rest protects nobody and it is the
+   minimum rest: a node that does nothing else deletes about 30 to 45 blobs a second. The
+   first write of another task ends that, and the next rest is the full one: with a
+   writer present the pass deletes about 5 blobs a second. A long rest ends early
+   when no other task has written for two seconds. Set
+   `LASTDB_BLOB_DWELL_DUTY_PCT` higher to drain a large backlog faster when writers
+   are present, and accept that they wait longer. The node logs the time, the blocked
+   time and the rest of each chunk at debug level (`lastdbd::blob_dwell`).
 
 The gate is never held across chunks, and the read of the queue takes no gate. A
 pass runs at most 2,048 steps. `LASTDB_BLOB_DWELL_PASS=0` turns the pass off. The

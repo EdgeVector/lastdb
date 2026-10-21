@@ -48,6 +48,7 @@ mod retired_intent_retention;
 mod schema_keys;
 mod time_queue;
 mod types;
+mod writer_watch;
 
 pub(crate) use atoms::SealedAtom;
 pub use blob_counter::{
@@ -80,6 +81,7 @@ pub(crate) use types::{
     ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
     MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
 };
+pub use writer_watch::{QuietRest, WriterWatch};
 
 use crate::storage::{
     traits::{KvStore, NamespacedStore},

@@ -20,7 +20,7 @@ use super::page::{ReleaseOutcome, RELEASE_BATCH_RECORDS};
 use crate::db_operations::atom_store::time_queue::{QueueReader, TimeQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
-use crate::storage::disk_pack::transaction::hold::measure;
+use crate::storage::disk_pack::transaction::blocked::{measure, Cost};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -50,10 +50,24 @@ pub(crate) struct StepOutcome {
     pub(crate) retired: bool,
     /// Buckets that a net chunk registered again.
     pub(crate) repaired: u64,
-    /// How long the step held the native write gate. The janitor rests for a
-    /// share of this time, not of the wall time of the step, which also holds
-    /// the wait for the flush (`storage::disk_pack::transaction::hold`).
-    pub(crate) held: Duration,
+    /// How long the step kept writers waiting: the hold of the native write gate,
+    /// and for a batch that seals the queue, the wait until it is durable
+    /// (`storage::disk_pack::transaction::blocked`). The janitor rests for a share
+    /// of this time.
+    pub(crate) blocked: Duration,
+    /// Write scopes the step opened. The janitor takes them off the count of the
+    /// scopes of the process to tell whether another writer was there.
+    pub(crate) scopes: u64,
+}
+
+impl StepOutcome {
+    fn with_cost(self, cost: Cost) -> Self {
+        Self {
+            blocked: cost.blocked,
+            scopes: cost.scopes,
+            ..self
+        }
+    }
 }
 
 /// Pages of drain markers that one ordinary step reads before it returns. A page
@@ -185,11 +199,11 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
-        let (step, held) = measure(self.read_and_release(cursor, now_nanos)).await;
-        Ok(step?.map(|outcome| StepOutcome { held, ..outcome }))
+        let (step, cost) = measure(self.read_and_release(cursor, now_nanos)).await;
+        Ok(step?.map(|outcome| outcome.with_cost(cost)))
     }
 
-    /// The work of [`Self::release_step`], without the measure of the gate hold.
+    /// The work of [`Self::release_step`], without the measure of the time it blocks writers.
     async fn read_and_release(
         &self,
         cursor: &mut RetentionCursor,
@@ -283,11 +297,11 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
-        let (step, held) = measure(self.sweep_chunk(cursor, now_nanos)).await;
-        Ok(step?.map(|outcome| StepOutcome { held, ..outcome }))
+        let (step, cost) = measure(self.sweep_chunk(cursor, now_nanos)).await;
+        Ok(step?.map(|outcome| outcome.with_cost(cost)))
     }
 
-    /// The work of [`Self::net_step`], without the measure of the gate hold.
+    /// The work of [`Self::net_step`], without the measure of the time it blocks writers.
     async fn sweep_chunk(
         &self,
         cursor: &mut RetentionCursor,
@@ -346,7 +360,7 @@ impl AtomStore {
         if cursor.pending.is_empty() {
             return Ok(None);
         }
-        let (batch, held) = measure(self.drain_batch(&mut cursor.pending)).await;
+        let (batch, cost) = measure(self.drain_batch(&mut cursor.pending)).await;
         let DrainOutcome {
             released,
             skipped,
@@ -357,7 +371,8 @@ impl AtomStore {
             released,
             skipped,
             finished,
-            held,
+            blocked: cost.blocked,
+            scopes: cost.scopes,
             ..StepOutcome::default()
         }))
     }

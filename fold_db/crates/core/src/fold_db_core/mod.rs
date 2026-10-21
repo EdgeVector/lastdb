@@ -11,6 +11,7 @@
 //! - [`sync_coordinator`] — cloud sync lifecycle (`cloud-sync` feature)
 
 pub mod conflict_janitor;
+mod conflict_janitor_pace;
 pub mod conflict_janitor_policy;
 pub mod factory;
 pub mod fold_db;
