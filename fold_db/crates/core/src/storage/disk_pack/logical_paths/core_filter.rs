@@ -126,7 +126,8 @@ fn captured_matches(
         )? {
             return Ok(None);
         }
-        let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
+        let writer = (!value.entry.writer_pubkey().is_empty())
+            .then(|| value.entry.writer_pubkey().to_string());
         matches.push((key.clone(), value.entry.atom_uuid, value.metadata, writer));
     }
     Ok(Some(matches))
@@ -191,7 +192,8 @@ fn current_matches(
         if !source::body_present(&core, path, &value.entry.atom_uuid)? {
             return Ok(None);
         }
-        let writer = (!value.entry.writer_pubkey.is_empty()).then_some(value.entry.writer_pubkey);
+        let writer = (!value.entry.writer_pubkey().is_empty())
+            .then(|| value.entry.writer_pubkey().to_string());
         matches.push((key.clone(), value.entry.atom_uuid, value.metadata, writer));
     }
     Ok(Some(matches))

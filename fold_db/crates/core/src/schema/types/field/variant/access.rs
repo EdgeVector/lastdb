@@ -72,7 +72,7 @@ impl FieldVariant {
         match &self.molecule {
             Some(m) => m
                 .get_atom_entry("", "")
-                .map(|e| e.writer_pubkey.clone())
+                .map(|e| e.writer_pubkey().to_string())
                 .filter(|pk| !pk.is_empty()),
             _ => None,
         }

@@ -94,7 +94,7 @@ impl AtomStore {
                     &atom,
                     record.entry.atom_uuid.clone(),
                     record.meta.clone(),
-                    Some(record.entry.writer_pubkey.clone()),
+                    Some(record.entry.writer_pubkey().to_string()),
                 ),
                 atom: schema.then_some(atom),
             });
@@ -158,7 +158,7 @@ fn listed_entry(key: KeyValue, record: &PerKeyRecord) -> KeyedAtomMatch {
         key,
         record.entry.atom_uuid.clone(),
         record.meta.clone(),
-        Some(record.entry.writer_pubkey.clone()),
+        Some(record.entry.writer_pubkey().to_string()),
     )
 }
 

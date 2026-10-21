@@ -65,33 +65,14 @@ pub(super) fn tip_heap_charge(
     let strings = [
         &entry.atom_uuid,
         &entry.mutation_uuid,
-        &entry.writer_pubkey,
-        &entry.signature,
         &entry.device_id,
         &entry.origin_device,
-        &entry.prev_tip_id,
     ]
     .into_iter()
     .map(String::capacity)
     .sum::<usize>();
-    let provenance = entry
-        .provenance
-        .as_ref()
-        .map_or(0, |provenance| match provenance {
-            Provenance::User {
-                pubkey, signature, ..
-            } => pubkey.capacity() + signature.capacity(),
-            Provenance::Derived {
-                wasm_hash,
-                input_snapshot_hash,
-                sources_merkle_root,
-                ..
-            } => {
-                wasm_hash.capacity()
-                    + input_snapshot_hash.capacity()
-                    + sources_merkle_root.capacity()
-            }
-        });
+    // The boxed signer part: its box, strings and provenance.
+    let provenance = entry.extra_heap_bytes();
     let metadata = metadata.map_or(0, |metadata| {
         metadata_key_bytes
             + metadata
