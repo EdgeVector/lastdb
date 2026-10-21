@@ -684,8 +684,8 @@ The measured runs used synthetic homes on a shared development host, so the load
 ### 20.6 What was not verified
 
 All runs used fresh synthetic homes. No run used a home of production size. Not run: live tip metadata that names a
-blob, an erase in a scoped database, cloud paths, replay of a peer mutation log, and a power loss. The org and share
-scopes were read in the code and checked by `verify-refs` on synthetic data only.
+blob, an erase in a scoped database, cloud paths, replay of a peer mutation log, a power loss, and the org and share
+scopes.
 
 ---
 
