@@ -37,13 +37,14 @@ The paths that unbind:
 
 | Path | What it unbinds |
 |---|---|
-| `POST /api/schemas/drop`, `FoldDB::drop_schema_and_bindings` | the database catalog rows of the schema (each row with its bindings, `delete_catalog_membership`), then the schema-field bindings and the protein members, in one batch |
+| `POST /api/schemas/drop`, `FoldDB::drop_schema_and_bindings` | first the database catalog rows of the schema (each row with its bindings, one batch for each row, `delete_catalog_membership`); then, in one batch with the schema record, the schema-field bindings and the protein members |
 | `store_schema` with a changed molecule set | the stale schema-field bindings, and the protein members of the molecules they leave |
 | `DELETE /api/db/catalog` | the catalog bindings of the row, in the scope of the row |
 
 A **crash between the drop and the drain** loses nothing. The candidate row is part
-of the batch that unbinds, so the drop and the candidate are both durable or both
-absent. After a restart the task reads the candidate list from its start. That is
+of the batch that unbinds, and that batch also holds the schema record, so the drop,
+the unbind and the candidate rows are all durable or all absent (24 SIGKILL rounds
+across the commit of a drop under write load found only these two states). After a restart the task reads the candidate list from its start. That is
 one bounded range read under one hash. No scan runs.
 
 A molecule that lost its last binding before this step existed has no candidate.
@@ -72,6 +73,8 @@ What the gate decides:
 | `bindings` above zero | **bound**: the batch deletes only the candidate row. The molecule lives again. |
 | no header, no counter, no record | **absent**: the batch deletes only the candidate row. |
 | a `suspect` header or counter, a header without counters, a binding record with no counter | **refused**: nothing is deleted. The candidate stays and the status names it. |
+| tip records and no header | **refused** (`counters_unset`): the molecule has no counters at all. |
+| a pass of the tip phase found no key, and the gate still counts `slots` | **refused** (`slots_without_tips`): the counter is above the rows. No walk can lower it, so the step stops instead of looping. |
 | dead, `slots` = 0, `records` above zero | **waiting**: kept conflict records still name the molecule. The janitor ends them. The drain looks again in a minute. |
 | dead, `slots` above zero in a row or finish batch | a tip appeared: back to the tip phase |
 | dead, all zero | the batch runs |
