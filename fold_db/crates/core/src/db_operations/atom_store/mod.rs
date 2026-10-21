@@ -66,7 +66,7 @@ pub use molecule_counters::{molecule_view, MoleculeCountersView};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
-pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor};
+pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
 pub(crate) use retired_intent_retention::{
     RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
 };

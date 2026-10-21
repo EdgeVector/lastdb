@@ -53,141 +53,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::db_operations::atom_store::{Lane, RetentionCursor};
+use crate::db_operations::atom_store::{AtomStore, Lane, RetentionCursor, StepOutcome};
 use crate::db_operations::DbOperations;
 
-/// Env: interval between janitor wakes in milliseconds (`0` = off).
-pub const CONFLICT_JANITOR_MS_ENV: &str = "LASTDB_CONFLICT_JANITOR_MS";
-/// Default interval between wakes: one minute.
-pub const DEFAULT_CONFLICT_JANITOR_MS: u64 = 60_000;
 /// Batches of one wake, at most. A larger backlog continues at the next wake.
 const PAGES_PER_WAKE: usize = 256;
 /// Batches of slot drains in one turn, at most. Then due records get a turn.
 const DRAIN_BATCHES_PER_TURN: usize = 4;
 /// Batches of due records in one turn, at most. Then the drains get a turn.
 const ORDINARY_BATCHES_PER_TURN: usize = 4;
-/// Env: the share of wall time, in percent, that the janitor may spend inside
-/// release batches. A batch deletes many keys, and its flush shares the disk
-/// with every writer. The janitor rests after each batch for
-/// `took * (100 - duty) / duty`, like the TTL sweep (`ttl_sweep/pace.rs`).
-pub const CONFLICT_JANITOR_DUTY_PCT_ENV: &str = "LASTDB_CONFLICT_JANITOR_DUTY_PCT";
-/// Default duty share: 10 percent. In a run with 700 records due at once, 25
-/// percent raised the median write latency by 9 to 46 percent while the
-/// janitor released them, and 10 percent left it unchanged within the noise.
-pub const DEFAULT_CONFLICT_JANITOR_DUTY_PCT: u64 = 10;
 /// The shortest rest between two pages.
 const MIN_PAUSE: Duration = Duration::from_millis(25);
 /// The longest rest between two pages.
 const MAX_PAUSE: Duration = Duration::from_secs(30);
-/// Env: seconds between two sweeps of the safety net of the queue (`0` = off).
-/// A sweep probes every slice that can hold a live entry, by arithmetic, and
-/// registers again a bucket that holds entries and has no directory row.
-pub const CONFLICT_JANITOR_NET_SECS_ENV: &str = "LASTDB_CONFLICT_JANITOR_NET_SECS";
-/// Default time between sweeps: one hour. The first sweep runs at the start.
-pub const DEFAULT_CONFLICT_JANITOR_NET_SECS: u64 = 3_600;
 /// The cursors of the live buckets start again, once in this many wakes.
 const FULL_PASS_EVERY: u64 = 60;
 /// The longest wait after a wake that failed.
 const BACKOFF_MAX: Duration = Duration::from_secs(600);
 /// The shortest base of the wait after a wake that failed.
 const BACKOFF_BASE_MIN: Duration = Duration::from_secs(1);
-
-/// Resolved janitor policy for this process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ConflictJanitorPolicy {
-    /// The interval between wakes. `None` means no janitor.
-    pub interval: Option<Duration>,
-    /// The share of wall time, in percent, that release batches may take.
-    pub duty_pct: u64,
-    /// The time between two sweeps of the safety net. `None` turns it off.
-    pub net_every: Option<Duration>,
-}
-
-impl ConflictJanitorPolicy {
-    /// Parse from the environment.
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            interval: parse_conflict_janitor_interval(
-                std::env::var(CONFLICT_JANITOR_MS_ENV).ok().as_deref(),
-            ),
-            duty_pct: parse_conflict_janitor_duty(
-                std::env::var(CONFLICT_JANITOR_DUTY_PCT_ENV).ok().as_deref(),
-            ),
-            net_every: parse_conflict_janitor_net(
-                std::env::var(CONFLICT_JANITOR_NET_SECS_ENV).ok().as_deref(),
-            ),
-        }
-    }
-}
-
-/// `LASTDB_CONFLICT_JANITOR_NET_SECS` to the time between two sweeps of the
-/// safety net. Unset or invalid gives the default (one hour), and zero turns the
-/// net off.
-#[must_use]
-pub fn parse_conflict_janitor_net(raw: Option<&str>) -> Option<Duration> {
-    let default = Some(Duration::from_secs(DEFAULT_CONFLICT_JANITOR_NET_SECS));
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return default;
-    };
-    match raw.parse::<u64>() {
-        Ok(0) => None,
-        Ok(secs) => Some(Duration::from_secs(secs)),
-        Err(_) => {
-            tracing::warn!(
-                raw,
-                env = CONFLICT_JANITOR_NET_SECS_ENV,
-                default_secs = DEFAULT_CONFLICT_JANITOR_NET_SECS,
-                "invalid conflict janitor net interval; using the default"
-            );
-            default
-        }
-    }
-}
-
-/// `LASTDB_CONFLICT_JANITOR_MS` to an interval. Unset gives the default, zero
-/// turns the janitor off, and an invalid value gives the default.
-#[must_use]
-pub fn parse_conflict_janitor_interval(raw: Option<&str>) -> Option<Duration> {
-    let default = Some(Duration::from_millis(DEFAULT_CONFLICT_JANITOR_MS));
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return default;
-    };
-    match raw.parse::<u64>() {
-        Ok(0) => None,
-        Ok(ms) => Some(Duration::from_millis(ms)),
-        Err(_) => {
-            tracing::warn!(
-                raw,
-                env = CONFLICT_JANITOR_MS_ENV,
-                default_ms = DEFAULT_CONFLICT_JANITOR_MS,
-                "invalid conflict janitor interval; using the default"
-            );
-            default
-        }
-    }
-}
-
-/// `LASTDB_CONFLICT_JANITOR_DUTY_PCT` to a percentage from 1 to 100. Unset or
-/// invalid gives the default, and a value outside the range is clamped.
-#[must_use]
-pub fn parse_conflict_janitor_duty(raw: Option<&str>) -> u64 {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return DEFAULT_CONFLICT_JANITOR_DUTY_PCT;
-    };
-    raw.parse::<u64>().map_or_else(
-        |_| {
-            tracing::warn!(
-                raw,
-                env = CONFLICT_JANITOR_DUTY_PCT_ENV,
-                default = DEFAULT_CONFLICT_JANITOR_DUTY_PCT,
-                "invalid conflict janitor duty share; using the default"
-            );
-            DEFAULT_CONFLICT_JANITOR_DUTY_PCT
-        },
-        |duty| duty.clamp(1, 100),
-    )
-}
 
 /// Handle for the periodic janitor task.
 ///
@@ -311,24 +195,18 @@ impl Wake {
     }
 }
 
-/// One wake: alternate slot drains and due records, batch by batch, and read the
-/// directory of the queue at the start of each turn. A lane that fails ends for
-/// this wake. The other lane goes on.
-async fn run_wake(
-    db_ops: &DbOperations,
+/// One sweep of the safety net: chunks of slices, each paced like a batch.
+/// Returns `false` when the janitor was told to stop. A failed sweep ends; it
+/// does not put the janitor in back-off, and the next sweep comes at its time.
+async fn run_net(
+    atoms: &AtomStore,
     stop: &AtomicBool,
     cursor: &mut RetentionCursor,
     duty_pct: u64,
-) -> Wake {
-    let atoms = db_ops.atoms();
-    let mut wake = Wake::default();
-    let mut ordinary_ok = true;
-    let mut drain_ok = true;
-    // The safety net sweeps the slices once in a while. A sweep is a few chunks,
-    // each paced like a batch.
+) -> bool {
     loop {
         if stop.load(Ordering::Relaxed) {
-            return wake;
+            return false;
         }
         let started = std::time::Instant::now();
         let now = atoms.retention_state().clock_nanos();
@@ -343,19 +221,62 @@ async fn run_wake(
                 );
                 tokio::time::sleep(pause_after(started.elapsed(), duty_pct)).await;
             }
-            Ok(None) => break,
+            Ok(None) => return true,
             Err(failure) => {
-                // A failed sweep ends. It does not hold back the janitor: the
-                // release of due records goes on, and the next sweep comes at
-                // its time.
                 tracing::warn!(
                     target: "fold_node::database",
                     error = %failure,
                     "conflict janitor net sweep failed"
                 );
-                break;
+                return true;
             }
         }
+    }
+}
+
+/// Note one finished batch in the status and in the wake.
+fn note_batch(
+    atoms: &AtomStore,
+    cursor: &RetentionCursor,
+    wake: &mut Wake,
+    outcome: &StepOutcome,
+    took: Duration,
+) {
+    atoms.retention_state().note_released(outcome.released);
+    atoms
+        .retention_state()
+        .set_pending_drains(cursor.pending_drains() as u64);
+    wake.released += outcome.released;
+    wake.skipped += outcome.skipped;
+    tracing::debug!(
+        target: "fold_node::database",
+        lane = ?outcome.lane,
+        released = outcome.released,
+        skipped = outcome.skipped,
+        finished = outcome.finished,
+        retired = outcome.retired,
+        took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+        "conflict janitor batch"
+    );
+}
+
+/// One wake: alternate slot drains and due records, batch by batch, and read the
+/// directory of the queue at the start of each turn. A lane that fails ends for
+/// this wake. The other lane goes on.
+async fn run_wake(
+    db_ops: &DbOperations,
+    stop: &AtomicBool,
+    cursor: &mut RetentionCursor,
+    duty_pct: u64,
+) -> Wake {
+    let atoms = db_ops.atoms();
+    let mut wake = Wake::default();
+    let mut ordinary_ok = true;
+    let mut drain_ok = true;
+    // The safety net sweeps the slices once in a while (a few chunks, each paced
+    // like a batch). A failed sweep does not hold back the release of records.
+    if !run_net(atoms, stop, cursor, duty_pct).await {
+        return wake;
     }
     let mut batches = 0usize;
     'wake: while batches < PAGES_PER_WAKE && (ordinary_ok || drain_ok) {
@@ -399,22 +320,7 @@ async fn run_wake(
                 };
                 progressed = true;
                 batches += 1;
-                atoms.retention_state().note_released(outcome.released);
-                atoms
-                    .retention_state()
-                    .set_pending_drains(cursor.pending_drains() as u64);
-                wake.released += outcome.released;
-                wake.skipped += outcome.skipped;
-                tracing::debug!(
-                    target: "fold_node::database",
-                    lane = ?outcome.lane,
-                    released = outcome.released,
-                    skipped = outcome.skipped,
-                    finished = outcome.finished,
-                    retired = outcome.retired,
-                    took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    "conflict janitor batch"
-                );
+                note_batch(atoms, cursor, &mut wake, &outcome, started.elapsed());
                 tokio::time::sleep(pause_after(started.elapsed(), duty_pct)).await;
             }
         }

@@ -323,7 +323,14 @@ change.
   dependency parts for one publication (`dependency capacity`), and writes
   block. This is a limit of the storage, not of the queue. The janitor adds to
   the number of publications: every release batch and every retirement is a
-  durable batch. [[PARTS]]
+  durable batch. Measured: each durable batch makes one generation with one part
+  (390 and 398 generations in two runs of 55 s with the janitor on, 398 and 392
+  with it off; the janitor ran 4 and 5 batches in them, and the writers made the
+  rest). At 32 records for a batch, 100,000 released records are about 3,100
+  batches and so about 3,100 parts until the storage merges parts. The limit was
+  not reached and the point where the storage merges parts was not measured, so
+  it is not known whether a long janitor run can feed it. A queue should keep
+  its release batch large and its duty share low.
 - The directory is one hash. A retired bucket leaves one deleted key there. With
   one-hour slices that is 24 each day. A restart walks the directory from its
   start with bounded reads, so the deleted keys cost reads, not a failure.

@@ -98,7 +98,7 @@ impl FoldDB {
     pub(super) fn start_conflict_janitor(
         db_ops: &Arc<DbOperations>,
     ) -> super::super::conflict_janitor::BackgroundConflictJanitorTask {
-        let policy = super::super::conflict_janitor::ConflictJanitorPolicy::from_env();
+        let policy = super::super::conflict_janitor_policy::ConflictJanitorPolicy::from_env();
         info!(
             target: "fold_node::database",
             janitor_ms = ?policy.interval.map(|d| d.as_millis() as u64),
