@@ -455,22 +455,30 @@ batches, so I1 to I4 hold at it. Therefore:
 ### Rows without an at-rest envelope
 
 A row in an encrypted collection that carries no at-rest envelope reads as
-absent (the product treats it as not written). A scan drops such a row **after**
-it applied the row limit, so a page can come back short although the range
-holds more rows. A short page is therefore not the end of a range. The range
-walk (`atom_store/bounded_range.rs`) counts the dropped rows for each read
-(`crypto::count_unsealed_discards`, a count that belongs to that read only) and
-adds them to the rows it got: a page is full when the sum reaches the rows asked
-for. When a page holds only dropped rows, it names no key to continue from, so
-the walk asks for more rows from the same start (up to 10,000 rows). A read that
-then hits the read limit, and a page of 10,000 dropped rows, **cut the key range
-in two** and read the lower half first: a smaller page would repeat the same
-reads and never move. Each cut makes the span smaller, so the walk always moves,
-also for a run of dropped rows that is longer than one read and is followed by
-many deleted keys. Cutting a tight run of keys takes about 150 reads. If 1,024
-reads in a row find no row to continue from, or the range cannot be cut, the walk
-stops with an error that names the rows without an envelope (it does not loop).
-The verifier, the recount and the inventory all use this walk.
+absent (the product treats it as not written). The encrypting store drops such a
+row **after** the inner store applied the row limit. A page of `limit` raw rows
+can therefore open to fewer rows, and a loop that takes a short page for the end
+of a range stops early with no error. Two parts of the code close this:
+
+- The paged scans of the encrypting store (`scan_range_paged`,
+  `scan_prefix_paged`) read on from the key after the last raw row until the
+  page is full or the range ends (`storage/encrypting_store/fill.rs`). A short
+  page from them is the end of the range. This covers every page loop (the key
+  listings, the keyed pages, the journal replay, the pin-log walks).
+- The range walk (`atom_store/bounded_range.rs`) reads with
+  `scan_range_yielding`. Each read names the key where the next read goes on,
+  taken from the raw rows, so a dropped row does not change it. The walk counts
+  the dropped rows of each read (`crypto::count_unsealed_discards`, a count that
+  belongs to that read only) to report them. The verifier, the recount and the
+  inventory all use this walk.
+
+A key listing (`GET /api/list`) is not a walk: one call reads one page in one
+read scope with a budget of 10,000 keys, and each row without an envelope costs
+a key. A page that needs more fails with the named 503 `read_resource_limit` and
+the hint to ask for fewer records, and a smaller page returns every row (1,200
+keys with two such rows after each live key: pages of 500 or fewer are full, a
+page of 800 is refused). Before this change the listing stopped at the first
+dropped row and returned 17 to 43 of the 1,200 keys with no error.
 
 - The verifier reports the dropped rows as the fault `unsealed_rows` (a count of
   reads that dropped a row, with a sample that names the fix). The rest of the
@@ -575,12 +583,32 @@ no fault except the lost bodies. Purge the keys of a lost body to remove them.
 
 The inventory walks the key classes of the home. A read call examines at most
 10,000 keys, and a range read counts deleted keys. After many purges, the keys
-between two live rows can be more than the budget, and an inventory then failed
-with HTTP 500 `read resource limit exceeded`. Every walk of the inventory now
-uses a bounded range walk (`atom_store/bounded_range.rs`): a read that hits the
-limit is retried with fewer rows, and then the key range is cut in two and the
-lower half is read first. Each read is its own call with its own budget. The
-report shows the calls (`scan.calls`, `scan.shrinks`, `scan.splits`).
+between two live rows can be more than the budget. Every walk of the inventory,
+and every walk of the verifier and the recount, uses the bounded range walk
+(`atom_store/bounded_range.rs`) with `scan_range_yielding`. Each read is its own
+call with its own budget. A read that runs short of key budget is not a
+failure. It returns the live rows it found (it can find none) and names the last
+key it examined, and the next read goes on above that key. This holds for a run
+of deleted keys and for live rows between deleted keys. The verifier reads the
+counter and the body of each row in the same call, so its reads stop while four
+keys for each row are left; the inventory and the recount keep none. A range of
+D deleted keys therefore costs about D / 10,000 reads for the inventory and the
+recount, and a little more for the verifier, with no failed read and no cut of
+the key range. A read that fails with the read limit (the page or byte budget,
+or a live row that needs more than a call) is retried with fewer rows, and then
+the key range is cut in two and the lower half is read first. The report shows
+the calls (`scan.calls`, `scan.shrinks`, `scan.splits`) and the reads that went
+on above a run of deleted keys (`scan.skips`).
+
+Measured before the change (a home of 10,000 keys of six fields, created and
+purged in five rounds): `verify-refs` took 118 s and `inventory` 130 s, with 3,213
+reads and 1,587 cuts. The cut halves the key space, and the deleted keys sit in a
+few clusters that are very narrow in it, so a cluster took about 250 cuts to find.
+Each read of an administrative range also seeks the trees of all 1,024 hash groups
+(400 to 2,000 pages, 20 to 450 ms), so the cost followed the number of reads. A
+home with a live row before each of three clusters of 12,000, 5,000 and 40,000
+deleted keys (in `tips` and in `atoms`): `verify-refs` 164 s and `inventory` 183 s
+before; 2.9 s and 7.1 s after, with 64 reads and no cut.
 
 The inventory reports the counter records as their own key class
 (`atom_counter`) and not as atom content. The `atom_counters` block shows the

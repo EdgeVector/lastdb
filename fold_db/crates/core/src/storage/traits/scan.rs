@@ -1,5 +1,7 @@
 //! Capability hints, partitioned-scan results and the batch mutation enum.
 
+use super::KvStore;
+use crate::storage::error::StorageResult;
 use serde::{Deserialize, Serialize};
 
 /// Describes how the backend executes operations.
@@ -123,4 +125,60 @@ pub struct PhysicalScanPage {
     pub handles_visited: u64,
     /// Cold shard loads observed during this call.
     pub cold_shard_loads: u64,
+}
+
+/// One read of a range that names where the next read continues.
+///
+/// Returned by [`KvStore::scan_range_yielding`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YieldedScan {
+    /// The rows read, in key order. It can be short or empty while the range
+    /// has not ended.
+    pub rows: Vec<(Vec<u8>, Vec<u8>)>,
+    /// The last key this read examined. The next read starts at the least key
+    /// above it. `None` means the range ended.
+    pub resume: Option<Vec<u8>>,
+}
+
+/// The default of [`KvStore::scan_range_physical_paged`]: one logical keyset page.
+pub(super) async fn keyset_physical_page<S: KvStore + ?Sized>(
+    store: &S,
+    start: &[u8],
+    end: &[u8],
+    cursor: Option<&PhysicalScanCursor>,
+    limit: usize,
+    max_handles: usize,
+) -> StorageResult<PhysicalScanPage> {
+    if limit == 0 || max_handles == 0 || start >= end {
+        return Ok(PhysicalScanPage {
+            next_cursor: cursor.cloned(),
+            ..Default::default()
+        });
+    }
+    let resume = cursor
+        .and_then(|position| position.after_key.as_deref())
+        .unwrap_or(start);
+    // `scan_range_paged` includes its start key. A resume page therefore
+    // needs one slot for that duplicate plus one slot for lookahead.
+    let lookahead = limit
+        .saturating_add(1)
+        .saturating_add(usize::from(cursor.is_some()));
+    let mut rows = store.scan_range_paged(resume, end, lookahead).await?;
+    if let Some(after) = cursor.and_then(|position| position.after_key.as_deref()) {
+        rows.retain(|(key, _)| key.as_slice() != after);
+    }
+    let more_remaining = rows.len() > limit;
+    rows.truncate(limit);
+    let handle = PhysicalScanCursor::default();
+    let next_cursor = more_remaining.then(|| PhysicalScanCursor {
+        after_key: rows.last().map(|(key, _)| key.clone()),
+        ..handle.clone()
+    });
+    Ok(PhysicalScanPage {
+        row_handle: (!rows.is_empty()).then_some(handle),
+        rows,
+        next_cursor,
+        handles_visited: 1,
+        cold_shard_loads: 0,
+    })
 }

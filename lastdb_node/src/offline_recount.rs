@@ -197,11 +197,12 @@ fn print_report(
         report.retention_buckets_repaired
     );
     println!(
-        "  {} operations in {} batches, {} ms; range reads: {} calls, {} retried with fewer rows, {} narrowed",
+        "  {} operations in {} batches, {} ms; range reads: {} calls, {} over runs of deleted keys, {} retried with fewer rows, {} narrowed",
         report.operations,
         report.batches,
         report.elapsed_ms,
         report.range_reads.calls,
+        report.range_reads.skips,
         report.range_reads.shrinks,
         report.range_reads.splits
     );

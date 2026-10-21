@@ -292,5 +292,6 @@ impl EncryptingKvStore {
     }
 }
 
+mod fill;
 mod kv_store_impl;
 mod maintenance;

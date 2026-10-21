@@ -194,9 +194,10 @@ impl EncryptingKvStore {
     /// Classifies on the envelope prefix alone and never decrypts: a sealed
     /// row is left in place whether or not it opens under this node's key,
     /// because "ours and unopenable" is not "not ours". Deletes go to the
-    /// inner store through one atomic [`KvStore::compare_and_swap`] (the raw
-    /// bytes must still match what the scan saw), so a row rewritten between
-    /// scan and delete is skipped this pass.
+    /// inner store through [`KvStore::compare_and_delete_many`], one commit for
+    /// the unsealed rows of a page (the raw bytes must still match what the
+    /// scan saw), so a row rewritten between scan and delete is skipped this
+    /// pass.
     /// Resume uses `resume`.
     pub(crate) async fn reap_unsealed_pass(
         &self,
@@ -213,6 +214,7 @@ impl EncryptingKvStore {
         // Skipping them keeps `rows_scanned` about the plane, not the pass.
         let skip_checkpoints = collection == REAP_CHECKPOINT_NAMESPACE;
         let mut cursor = resume;
+        let mut doomed: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
 
         loop {
             if reap_budget_spent(&report, max_rows, deadline) {
@@ -253,8 +255,13 @@ impl EncryptingKvStore {
                     ..page.row_handle.clone().unwrap_or_default()
                 });
 
-                self.reap_one_row(&key, &raw, options, &mut report).await?;
+                if let Some(row) = Self::classify_for_reap(key, raw, options, &mut report) {
+                    doomed.push(row);
+                }
             }
+            // One commit for the unsealed rows of the page, not one per row.
+            self.delete_unsealed_rows(std::mem::take(&mut doomed), &mut report)
+                .await?;
 
             if report.more_remaining {
                 break;
@@ -274,38 +281,52 @@ impl EncryptingKvStore {
         Ok(report)
     }
 
-    /// Classify one scanned row and, outside a dry run, delete it when it is an
-    /// unsealed row that has not changed since the scan.
-    async fn reap_one_row(
-        &self,
-        key: &[u8],
-        raw: &[u8],
+    /// Count one scanned row. Returns the row when it is an unsealed row that a
+    /// run outside a dry run must delete.
+    fn classify_for_reap(
+        key: Vec<u8>,
+        raw: Vec<u8>,
         options: &ReapUnsealedOptions,
         report: &mut ReapUnsealedReport,
-    ) -> StorageResult<()> {
-        if Self::is_encrypted_value(raw) {
+    ) -> Option<(Vec<u8>, Vec<u8>)> {
+        if Self::is_encrypted_value(&raw) {
             report.rows_sealed += 1;
-            return Ok(());
+            return None;
         }
         report.rows_unsealed += 1;
         report.bytes_reclaimed += raw.len() as u64;
+        (!options.dry_run).then_some((key, raw))
+    }
 
-        if options.dry_run {
-            return Ok(());
+    /// Delete unsealed rows, a batch at a time. A batch is one atomic
+    /// compare-and-delete: a row rewritten after the scan (for example, sealed
+    /// by a writer) is never deleted, and counts as skipped.
+    async fn delete_unsealed_rows(
+        &self,
+        mut rows: Vec<(Vec<u8>, Vec<u8>)>,
+        report: &mut ReapUnsealedReport,
+    ) -> StorageResult<()> {
+        while !rows.is_empty() {
+            let rest = rows.split_off(rows.len().min(REAP_DELETE_BATCH));
+            let sizes: Vec<u64> = rows.iter().map(|(_, raw)| raw.len() as u64).collect();
+            let deleted = self.inner.compare_and_delete_many(rows).await?;
+            for (deleted, size) in deleted.into_iter().zip(sizes) {
+                if deleted {
+                    report.rows_removed += 1;
+                } else {
+                    report.rows_cas_skipped += 1;
+                    report.rows_unsealed = report.rows_unsealed.saturating_sub(1);
+                    report.bytes_reclaimed = report.bytes_reclaimed.saturating_sub(size);
+                }
+            }
+            rows = rest;
         }
-
-        // One atomic compare-and-delete: a row rewritten after the
-        // scan (for example, sealed by a writer) is never deleted.
-        if !self.inner.compare_and_swap(key, raw, None).await? {
-            report.rows_cas_skipped += 1;
-            report.rows_unsealed = report.rows_unsealed.saturating_sub(1);
-            report.bytes_reclaimed = report.bytes_reclaimed.saturating_sub(raw.len() as u64);
-            return Ok(());
-        }
-        report.rows_removed += 1;
         Ok(())
     }
 }
+
+/// Most rows one reap commit deletes. A native commit admits 4,096 operations.
+const REAP_DELETE_BATCH: usize = 1024;
 
 /// True once the pass has scanned its row budget or run past its deadline.
 /// The deadline never stops a pass before it scans its first row.

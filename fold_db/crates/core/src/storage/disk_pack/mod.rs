@@ -20,6 +20,7 @@ mod namespace_delete;
 mod queue;
 mod read;
 mod rows;
+mod rows_yielding;
 pub(crate) mod schema_keys;
 mod space;
 pub(crate) mod transaction;
