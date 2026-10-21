@@ -225,46 +225,7 @@ impl EncryptingNamespacedStore {
         // are on disk and deletes go straight to the physical store.
         let inner = self.inner.open_namespace(&collection).await?;
         let enc_store = EncryptingKvStore::new(&collection, inner, Arc::clone(&self.crypto));
-        let mut report = enc_store
-            .reap_unsealed_pass(&collection, &options, resume)
-            .await?;
-
-        if options.dry_run {
-            report.checkpoint = Some(ReapUnsealedCheckpoint {
-                collection: collection.clone(),
-                cursor: report.next_cursor.clone(),
-                rows_scanned_total: report.rows_scanned,
-                rows_removed_total: 0,
-                bytes_reclaimed_total: 0,
-                completed: !report.more_remaining,
-                updated_at: chrono::Utc::now(),
-            });
-            return Ok(report);
-        }
-
-        let mut checkpoint = stored.unwrap_or_else(|| ReapUnsealedCheckpoint {
-            collection: collection.clone(),
-            cursor: None,
-            rows_scanned_total: 0,
-            rows_removed_total: 0,
-            bytes_reclaimed_total: 0,
-            completed: false,
-            updated_at: chrono::Utc::now(),
-        });
-        checkpoint.rows_scanned_total = checkpoint
-            .rows_scanned_total
-            .saturating_add(report.rows_scanned);
-        checkpoint.rows_removed_total = checkpoint
-            .rows_removed_total
-            .saturating_add(report.rows_removed);
-        checkpoint.bytes_reclaimed_total = checkpoint
-            .bytes_reclaimed_total
-            .saturating_add(report.bytes_reclaimed);
-        checkpoint.cursor = report.next_cursor.clone();
-        checkpoint.completed = !report.more_remaining;
-        checkpoint.updated_at = chrono::Utc::now();
-        self.store_reap_checkpoint(&checkpoint).await?;
-        report.checkpoint = Some(checkpoint);
-        Ok(report)
+        self.reap_in_chunks(&enc_store, &options, resume, stored)
+            .await
     }
 }
