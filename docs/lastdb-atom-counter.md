@@ -331,7 +331,9 @@ schema of up to about 200 fields on a fresh home and about 60 on an older home.
   list the referrers: the counter holds a number, not a list.
 - Molecule counters (`slots`, `records`, `bindings`) are in
   `docs/lastdb-molecule-counters.md`. The verifier checks them in three more phases.
-- `lastdb status` has an `Atom counters` line and a `Verify refs` line.
+- `lastdb status` has an `Atom counters` line, a `Verify refs` line and a `Molecule drain`
+  line (`docs/lastdb-molecule-drain.md`). The status is a snapshot that the sampler
+  publishes every 60 s.
   `lastdb db inventory` has an `Atom counters` block.
   - `Atom counters` counts the planner events since this process started:
     `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`,
@@ -467,7 +469,8 @@ The verifier, the recount and the inventory all use this walk.
   seen by the default run. `--all-scopes` checks the personal scope and each
   scope that the database catalog names (the catalog is small; listing it is not
   a scan of the data). A scope that holds data and has no catalog entry needs
-  `--scope`. The report, the `Verify refs` status line and the command print the
+  `--scope`. A scope name that no key can carry (for example `mk:x` or `a::b`) is
+  refused with a 400 before the run starts. The report, the `Verify refs` status line and the command print the
   scope. A run that reads 0 tips in its scope prints a warning on stderr, a note
   in the report and `WARNING` in the status line: a mistyped `--scope` reads
   nothing and finds no fault.
