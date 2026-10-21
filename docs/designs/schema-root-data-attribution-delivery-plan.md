@@ -1,22 +1,12 @@
 # Schema-root data attribution delivery plan
 
-> **SUPERSEDED 2026-09-27 (Tom).** Reference counting is now the primary
-> atom garbage-collection mechanism. Brain:
-> `decision-2026-09-27-lastdb-atom-refcount-gc-approved`,
-> `decision-2026-09-27-lastdb-schema-root-attribution-retired-for-refcount`.
-> The milestone and terminal proof card named below were retired
-> (`ms-lastdb-schema-root-attribution-measured-evidence` set to
-> `abandoned`; `lastdb-schema-root-data-attribution-proof` deleted from the
-> board). Current work is scoped under milestone
-> `ms-lastdb-atom-refcount-gc`, cards
-> `lastdb-atom-refcount-write-path-instrumentation`,
-> `lastdb-atom-refcount-grace-window-delete`, and
-> `lastdb-refcount-audit-harness-repurpose`. This plan's work slices below
-> stay as reference for anyone building the audit path.
+> **SUPERSEDED.** The atom counter is the only authority for the life of an atom body
+> (`docs/lastdb-atom-counter.md`). This plan was retired as a path to deleting atoms,
+> because no delete uses an attribution walk. It stays as history.
 
 | Field | Value |
 |---|---|
-| Status | Superseded 2026-09-27 — kept as design reference |
+| Status | Superseded — kept as history |
 | North Star | `north-star-lastdb-schema-root-data-attribution` |
 | Milestone | `lastdb-schema-root-data-attribution` (retired; see banner above) |
 | Terminal proof | `lastdb-schema-root-data-attribution-proof` (deleted from board; see banner above) |

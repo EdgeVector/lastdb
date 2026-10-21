@@ -1,7 +1,7 @@
 # App Identity — identity_hash migration notes (Lane B2a)
 
 Tracking notes for the `owner_app_id` → `identity_hash` change shipped in
-Lane B2a of [app_identity v3.1](../../exemem-workspace/docs/designs/app_identity.md).
+Lane B2a of app_identity v3.1.
 Written for the owners of the downstream lanes (B2b/B2c/B2d, C, D) who
 inherit this change.
 

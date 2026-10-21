@@ -149,7 +149,6 @@ Two different product shapes share the “second access pattern” vocabulary:
 - Shared **payload fields** share field identity and bind into **proteins**.
 - On **mutate**, the node **folds sibling tips** to the same atom — apps use one write path; both keys stay addressable.
 - History when a layout joins: node **tip backfill**, not app dual-write of every row.
-- App brief: fold `docs/app-developers-multi-key-proteins.md`.
 
 #### B. Thin denormalized projection (app dual-write)
 

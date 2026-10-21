@@ -127,8 +127,8 @@ LastDB does **not** require or promise:
 | Doc | Role |
 |-----|------|
 | `docs/lastdb-agent-access-model.md` | Agent day-to-day access model (aligned to this requirement) |
-| `docs/lastdb-storage-schema-to-atoms.html` | Storage depth (molecules, tips, atoms) |
-| Brain | `requirement-lastdb-access-complexity` · `concepts-lastdb-agent-access-model` |
+| `docs/lastdb-canonical-model.md` | The ladder: schema, field, molecule, atom, file |
+| `docs/lastdb-atom-counter.md` | The records, the write path, delete and purge |
 
 ---
 

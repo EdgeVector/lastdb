@@ -201,7 +201,7 @@ CLOCK. The author clock high-water is durable before the lane writes the data (t
 
 ## Code changes by file
 
-- Path key. W = /Users/tomtang/.fkanban/worktrees/lastdb-kanban-resident-bars-run. C = W/fold_db/crates/core/src. MM = C/fold_db_core/mutation_manager. AS = C/db_operations/atom_store. Line numbers come from the code at this worktree (commit 62b5faed). Tags [A1..A9] and [B1..B17] name the skeptic problem that the change closes.
+- Path key. W = the worktree root of that run. C = W/fold_db/crates/core/src. MM = C/fold_db_core/mutation_manager. AS = C/db_operations/atom_store. Line numbers come from the code at this worktree (commit 62b5faed). Tags [A1..A9] and [B1..B17] name the skeptic problem that the change closes.
 - STAGE 0. C/schema/types/mutation.rs: add authored_locally (serde skip, outside content_hash). MM/write/cloud_entry.rs:62-98: set it from the vector that already exists before the stamp. Also require provenance none in the blind test.
 - STAGE 0. MM/author_clock.rs:270-295: one local clock advance for each local mutation, in batch order (counter c, c+1, ...). MM/write/cloud_entry.rs:83-90: receipt revision = last counter of the batch. [A2]
 - STAGE 0. C/atom/molecule_hash_range/ops.rs (the three imported and unsigned setters) return a bool 'changed'. C/schema/types/field/variant/write.rs:133: call set_key_metadata only when the setter returns true. Fix the stale comments at MM/molecules/apply.rs:28,52,71-83 and MM/dedupe.rs:42-60,148-149. [A5]

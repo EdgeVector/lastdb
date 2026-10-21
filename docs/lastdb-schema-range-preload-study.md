@@ -31,13 +31,13 @@ Tom estimates the old home at 16–20 GB.
 A saved October 8 report records a 19.5 GiB whole home and a 12.5 GiB data directory.
 It records 6.72 GiB of tips, 2.75 GiB of atoms, and 29,273 data files.
 Its status says measured sample, not census.
-Source: [saved report, lines 350–356](/Users/tomtang/code/edgevector/docs/lastdb-local-storage-20261014/source/inv-top-level-and-constraints.json:350).
+Source: saved report, lines 350–356.
 
 That size includes files and values that a range-key preload does not need.
 It does not establish a count of distinct range keys for each schema.
 A September 26 summary's 17.16 million tips also does not establish that count.
 One record can have many field tips and several protein key layouts.
-Source: [saved tip summary](/Users/tomtang/code/edgevector/docs/lastdb-local-storage-20261014/source/inv-purge-delete-reclaim.json:653).
+Source: saved tip summary.
 
 The estimates below use explicit synthetic key counts.
 They are not a census of the old home.
@@ -61,10 +61,10 @@ A field with different membership cannot reuse another field's completeness clai
 
 Source snapshots are code evidence, not proof of the installed app state:
 
-- Brain: [RecordListEntry](/Users/tomtang/.fkanban/worktrees/brain-kanban-fix-brain-review-four-20261016/src/schemas.ts:1045), [type/slug key](/Users/tomtang/.fkanban/worktrees/brain-kanban-fix-brain-review-four-20261016/src/record-list-index.ts:30), [tag key](/Users/tomtang/.fkanban/worktrees/brain-kanban-fix-brain-review-four-20261016/src/tag-index.ts:137).
-- F-Kanban: [BoardCards fields and key](/Users/tomtang/.fkanban/worktrees/fkanban-kanban-list-head-bench-20261017/src/schemas.ts:359), [range construction](/Users/tomtang/.fkanban/worktrees/fkanban-kanban-list-head-bench-20261017/src/board-cards.ts:298), [position width](/Users/tomtang/.fkanban/worktrees/fkanban-kanban-list-head-bench-20261017/src/position_key.ts:24).
+- Brain: RecordListEntry, type/slug key, tag key.
+- F-Kanban: BoardCards fields and key, range construction, position width.
 - Routines: EdgeVector/routines commit `86c320b09f4a919754832f4c6bf05f9438547f25`, `src/publish-status.ts:449–450,1009–1015` and `src/runner.ts:103–104`.
-- LastGit: [Pack and Ref declarations](/Users/tomtang/code/edgevector/lastgit/src/client.ts:1873), commit `165d3dae614507a16b72434b4a934cff1dc5e04f`.
+- LastGit: Pack and Ref declarations, commit `165d3dae614507a16b72434b4a934cff1dc5e04f`.
 
 ## Measured memory cost
 
