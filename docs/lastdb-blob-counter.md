@@ -132,9 +132,8 @@ the head. The review measured 16 blobs a minute after 9,800 deletions.
   a retired bucket go out of reach with it.
 
 A counter has a queue entry if and only if it has a `zero_since`. The batch that
-sets or clears `zero_since` puts or deletes the entry. The generic safety net of
-the time queue (a bucket that holds entries and has no directory row) is not part
-of this PR: it comes with the follow-up of the queue.
+sets or clears `zero_since` puts or deletes the entry. What can go wrong with the
+queue, and what catches it, is in "What can go wrong with the queue" below.
 
 ## Who changes a counter
 
@@ -249,6 +248,51 @@ of one native call is 4,096 metadata pages, and one native mutation may publish 
 most 4,096 metadata pages, so a chunk (about 4 rows for each blob) stays far below
 it.
 
+## What can go wrong with the queue
+
+The writers keep two promises: an entry and the directory row of its bucket are
+written in one batch, and a retirement deletes a row only while its token is
+unchanged. So the queue itself makes none of the faults below. Something else can: a
+delete that bypassed the queue, a partial restore, a bug in the verdict "the bucket
+is empty", a disk fault. Each fault hides a blob from the dwell pass, so the blob is
+never deleted (a leak, never a loss).
+
+| What goes wrong | What the dwell pass does | What catches it | What repairs it |
+|---|---|---|---|
+| A bucket holds entries and has no directory row | Never lists the bucket, so never reads its entries | The safety net of the pass (below); `verify-refs`: `queue_entry_without_directory`; `lastdb status`: `buckets_repaired` | The net registers the bucket again, with a warn log for each bucket; `recount --execute` writes the row |
+| A counter is in its dwell (`zero_since`) and has no queue entry | Never reads the blob | `verify-refs`: `zero_blob_without_queue_entry`; `liveness explain blob`: `queued` is false | `recount --execute` writes the entry (and its directory row) at the `zero_since` of the counter. The net cannot see it: it looks for buckets that hold entries |
+| An entry names a counter that is gone, has references, is `suspect`, or has another `zero_since` (a stale entry) | Deletes the entry alone when it is due | `verify-refs`: `blob_stale_queue_entry` | The pass; or `recount --execute` |
+| A directory row has no entries | Walks the bucket, finds nothing, retires the row | Nothing needs to: it is harmless | The pass |
+
+**The safety net.** It is the generic one of the time queue (`TimeQueue::net_slices`
+and `mend_slices`, `docs/lastdb-time-queue.md`). It needs no scan: it lists, by
+arithmetic, the slices that can hold a live entry, reads the directory row of each
+by key, and for a slice with no row reads the hash once to see whether it holds a
+live key. A bucket that does is registered again with a new directory row, through
+the planner.
+
+The slices that can hold a live entry of the blob queue are few. An entry has the
+time of its `zero_since` (never later than now) and stays until its dwell is over, so
+a live entry lies at most one dwell and one slice before now. The generic list
+covers one dwell and one slice before now and the same after it. The slice of the
+blob queue is one dwell (one hour by default), so a sweep probes **about five slices**
+with the default dwell: five reads of directory rows, and one bounded range read for
+each slice without a row. An entry that is older than one dwell and one slice is out
+of the net's reach (the pass was off for more than a dwell, or the node was down).
+`verify-refs` reads every bucket of the queue, whatever its age, and finds those.
+
+The pass sweeps once at its start and then once in `LASTDB_BLOB_DWELL_NET_SECS`
+seconds (3,600 by default; 0 turns the net off). A sweep is paced like a step. After a
+sweep that registered a bucket, the pass reads the directory again at once, so the
+blobs of the bucket are deleted at their due time. `lastdb status` shows
+`net_sweeps` and `buckets_repaired`; a `buckets_repaired` above zero means that
+something wrote or deleted queue rows outside the queue.
+
+A race can count a repair that was not needed: a writer adds an entry and its row
+after the net read the row and before it read the hash. The net then registers the
+bucket with its own token, which is harmless. The proof below saw none in 8 rounds
+with kills.
+
 ## Retired-intent roots
 
 A cloud retired intent keeps permanent roots on the blobs it needs
@@ -273,7 +317,9 @@ without a write gate. For the page of every atom counter and tip it reads the
 counters of the blobs they name at the same root, and reports `blob_counter_missing`
 and `blob_counter_below_refs`. The personal run then walks the counters
 (`blob_suspect`, `blob_zero_without_dwell`, `blob_dwell_with_refs`, `zero_blob_without_queue_entry`,
-`unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`). For each counter
+`unreadable_blob_counter`) and the queue (`blob_stale_queue_entry`, and
+`queue_entry_without_directory` for an entry whose bucket has no directory row, read
+at the same root as the entry). For each counter
 that holds references it also reads the blob row at the same root and reports
 `blob_counter_without_blob` when the row is missing (a counter at zero is not asked:
 the dwell pass deletes the row and the counter together). Every check has
@@ -283,8 +329,9 @@ counters are global.
 
 `lastdb db recount` (offline) counts the references of each blob from the atom
 counters and the tips of the listed scopes. The default only raises counters, makes
-missing ones, restores a missing queue entry and deletes a queue entry that no
-counter backs. `--blobs-exact --all-scopes` also lowers a counter that is too high,
+missing ones, writes a missing queue entry and a missing directory row again (both
+through the planner, so a second run changes nothing) and deletes a queue entry that
+no counter backs. `--blobs-exact --all-scopes` also lowers a counter that is too high,
 clears `suspect`, and starts the dwell of a blob that nothing references. It also
 checks that each blob with references has its row, and lists the ones that do not
 (`rows_missing`, with the first ten). It cannot list a row that has no counter: that
@@ -297,7 +344,7 @@ needs a read of the whole `cas_blobs` plane, which holds the blob bytes.
   queue holds the entry, whether the `cas_blobs` plane holds the row, and a state:
   `referenced`, `referenced_row_missing`, `in_dwell`, `suspect`, `unreadable`,
   `absent`, `row_without_counter` or `inconsistent`. `lastdb liveness explain blob <blob_ref>` prints it.
-- `lastdb status` has a `Blob counters` line: process-lifetime totals, the size of
+- `lastdb status` has a `Blob counters` line (with `net_sweeps` and `buckets_repaired`): process-lifetime totals, the size of
   the dwell queue (`queue_depth`, up to 1,000 and `N+` when it stopped at the cap,
   and `queue_buckets`), both counted by the bucket directory with bounded reads, and
   `next_due_in`, the earliest time at which the oldest bucket can hold a due entry.

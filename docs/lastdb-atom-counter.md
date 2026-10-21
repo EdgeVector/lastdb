@@ -410,7 +410,7 @@ Faults, by name:
 | `tip_without_body` | a tip names an atom that has no body (a lost body) |
 | `record_without_body` | a conflict record names an atom that has no body |
 | `record_without_queue_entry` | no queue entry can be reached from a conflict record: its slot directory entry is missing, does not decode, or names a queue entry that is missing (the janitor never releases the record) |
-| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it) |
+| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it; for the blob queue the dwell pass never finds it, and the blob phase reads every bucket of that queue) |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
 | `blob_counter_missing` | an atom counter or a tip names a blob that has no counter |
 | `blob_counter_below_refs` | a blob counter holds fewer references than the atom counters or tips of one page that name the blob |
