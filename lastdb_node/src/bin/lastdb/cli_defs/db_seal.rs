@@ -63,7 +63,10 @@ pub(crate) enum DbSealCommand {
     /// atoms, tips, metadata, change_feed.
     /// Default is dry-run. Pass `--execute` to delete.
     /// Bounded (`--max-rows` / `--max-secs`) and resumable from a durable
-    /// checkpoint; `--progress` reports it without scanning.
+    /// checkpoint; `--progress` reports it without scanning. The unsealed rows of
+    /// each page are deleted in one commit. `--execute --all` repeats the call
+    /// from the checkpoint until the collection is done, and prints the progress
+    /// of each call.
     ///
     /// A sealed row is never touched, even one that does not open under this
     /// node's key. Every plaintext-by-policy namespace (schemas, db_catalog,
