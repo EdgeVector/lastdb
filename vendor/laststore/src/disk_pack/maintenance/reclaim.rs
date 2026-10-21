@@ -49,14 +49,16 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
     for number in &generations {
-        if generation::load_current(root, *number)?.published_ms > cutoff {
+        if at_generation(generation::load_current(root, *number), root, *number)?.published_ms
+            > cutoff
+        {
             retained.insert(*number);
         }
     }
     let mut live = BTreeSet::new();
     for number in &retained {
-        let held = generation::load_current(root, *number)?;
-        let generation = generation::verify(root, &held)?;
+        let held = at_generation(generation::load_current(root, *number), root, *number)?;
+        let generation = at_generation(generation::verify(root, &held), root, *number)?;
         for coordinate in generation.coordinates {
             live.insert(coordinate);
             if live.len() > MAX_RETAINED_PARTS {
@@ -70,11 +72,11 @@ pub(in crate::disk_pack) fn reclaim_locked(
         if retained.contains(&number) {
             continue;
         }
-        let held = generation::load_current(root, number)?;
+        let held = at_generation(generation::load_current(root, number), root, number)?;
         if held.published_ms > cutoff {
             continue;
         }
-        let generation = generation::read_receipt(root, &held)?;
+        let generation = at_generation(generation::read_receipt(root, &held), root, number)?;
         for coordinate in &generation.coordinates {
             if !live.contains(coordinate) {
                 candidates.insert(*coordinate, coordinate.path(root)?);
@@ -101,7 +103,8 @@ pub(in crate::disk_pack) fn reclaim_locked(
         remove_empty_parents(root, &path)?;
     }
     for held in old {
-        let generation = generation::read_receipt(root, &held)?;
+        let generation =
+            at_generation(generation::read_receipt(root, &held), root, held.generation)?;
         if generation.coordinates.iter().any(|coordinate| {
             !live.contains(coordinate) && coordinate.path(root).map_or(true, |path| path.exists())
         }) {
@@ -165,8 +168,10 @@ fn generations(root: &Path, max_files: usize, published: &BTreeSet<u64>) -> Resu
 /// part file, an empty part file, a torn first page, or fewer pages than the
 /// first page declares. None of them was ever published, so none holds data.
 /// The caller passes only generations that CURRENT and the references do not
-/// name. A directory with any other content, or a first page that does not
-/// verify, is not judged here: it fails as before.
+/// name. A directory with any other content, a gap in its part numbers, or a
+/// first page that does not verify is left in place, and reclaim stops with an
+/// error that names the directory and the reason. A complete receipt is read as
+/// a published one.
 fn remove_unfinished(path: &Path) -> Result<bool> {
     let mut parts = Vec::new();
     for entry in std::fs::read_dir(path)? {
@@ -178,7 +183,13 @@ fn remove_unfinished(path: &Path) -> Result<bool> {
             .filter(|hex| hex.len() == 8)
             .and_then(|hex| u32::from_str_radix(hex, 16).ok());
         let (Some(index), true) = (index, entry.file_type()?.is_file()) else {
-            return Ok(false);
+            return Err(unreadable(
+                path,
+                &format!(
+                    "holds `{}`, which is not a receipt part file; reclaim leaves it for an operator",
+                    entry.file_name().to_string_lossy()
+                ),
+            ));
         };
         parts.push((index, entry.metadata()?.len()));
     }
@@ -188,19 +199,55 @@ fn remove_unfinished(path: &Path) -> Result<bool> {
         .map(|(index, _)| *index)
         .ne(0..parts.len() as u32)
     {
-        return Ok(false);
+        return Err(unreadable(
+            path,
+            "its receipt part files have a gap in their numbers; reclaim leaves it for an operator",
+        ));
     }
     let page = PAGE_BYTES as u64;
     let present: u64 = parts.iter().map(|(_, length)| length / page).sum();
     if present > 0 {
         match declared_pages(&path.join("part-00000000"))? {
             Some(pages) if pages > present => {}
-            _ => return Ok(false),
+            Some(_) => return Ok(false),
+            None => {
+                return Err(unreadable(
+                    path,
+                    "its first receipt page does not verify; reclaim leaves it for an operator",
+                ))
+            }
         }
     }
     std::fs::remove_dir_all(path)?;
     durability::sync_directory(&File::open(path.parent().expect("generation parent"))?)?;
     Ok(true)
+}
+
+/// The error for a generation directory that reclaim cannot judge: it names the
+/// directory and the reason.
+fn unreadable(path: &Path, reason: &str) -> crate::Error {
+    crate::Error::Corrupt(format!(
+        "disk-pack v1: generation directory {}: {reason}",
+        path.display()
+    ))
+}
+
+/// Name the generation and its receipt directory in the error of a receipt read,
+/// and keep the kind of the error.
+fn at_generation<T>(result: Result<T>, root: &Path, number: u64) -> Result<T> {
+    result.map_err(|error| {
+        let place = root.join("generations").join(number.to_string());
+        match error {
+            crate::Error::Io(io) => crate::Error::Io(std::io::Error::new(
+                io.kind(),
+                format!("generation receipt {}: {io}", place.display()),
+            )),
+            crate::Error::Corrupt(reason) => {
+                crate::Error::Corrupt(format!("generation receipt {}: {reason}", place.display()))
+            }
+            other => other,
+        }
+    })
 }
 
 /// The page count a receipt declares in its first page, when that page verifies.
