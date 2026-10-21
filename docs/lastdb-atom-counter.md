@@ -558,5 +558,5 @@ refuses the home. This build refuses a home without the bit.
 Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
 
 - S5: blob counters replace the blob edges and the file blob sweep.
-- S7: a resumable drain of a dead molecule.
+- S7 is built: `docs/lastdb-molecule-drain.md`.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.

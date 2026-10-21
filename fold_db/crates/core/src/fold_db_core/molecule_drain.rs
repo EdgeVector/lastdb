@@ -18,7 +18,7 @@
 //! |----------|---------|
 //! | `LASTDB_MOLECULE_DRAIN_MS` | Interval between wakes. Zero turns the task off. Default 30000. |
 //! | `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | The share of wall time, in percent, that batches may take (1 to 100). Default 25. |
-//! | `LASTDB_MOLECULE_DRAIN_TIPS` | Tip records one batch erases, at most (1 to 1024). Default 256. |
+//! | `LASTDB_MOLECULE_DRAIN_TIPS` | Tip records one batch erases, at most (1 to 512). Default 256. A batch that hits the read limit halves the size. |
 //! | `LASTDB_MOLECULE_DRAIN_BATCHES` | Batches one wake runs, at most. Default 1024. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -84,7 +84,7 @@ impl MoleculeDrainPolicy {
                 DEFAULT_MOLECULE_DRAIN_TIPS as u64,
             ))
             .unwrap_or(DEFAULT_MOLECULE_DRAIN_TIPS)
-            .clamp(1, 1_024),
+            .clamp(1, 512),
             batches: usize::try_from(parse_number(
                 std::env::var(MOLECULE_DRAIN_BATCHES_ENV).ok().as_deref(),
                 MOLECULE_DRAIN_BATCHES_ENV,
@@ -167,6 +167,8 @@ impl BackgroundMoleculeDrainTask {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
             let mut cursor = DrainCursor::new();
+            // The batch size can shrink after a read limit; it does not grow back.
+            let mut tips = policy.tips;
             let mut failures = 0u64;
             let mut retry_at: Option<std::time::Instant> = None;
             loop {
@@ -181,7 +183,8 @@ impl BackgroundMoleculeDrainTask {
                     continue;
                 }
                 cursor.restart();
-                let error = run_wake(db_ops.atoms(), &stop_flag, &mut cursor, policy).await;
+                let error =
+                    run_wake(db_ops.atoms(), &stop_flag, &mut cursor, (policy, &mut tips)).await;
                 failures = if error.is_some() { failures + 1 } else { 0 };
                 let retry_in = (failures > 0).then(|| backoff_after(failures, interval));
                 retry_at = retry_in.map(|wait| std::time::Instant::now() + wait);
@@ -220,6 +223,20 @@ fn pause_after(took: Duration, duty_pct: u64) -> Duration {
         .clamp(MIN_PAUSE, MAX_PAUSE)
 }
 
+/// The smallest batch the drain shrinks to after read limits.
+const MIN_TIPS: usize = 8;
+
+/// A read call spent its budget of pages or keys.
+fn is_read_limit(failure: &crate::schema::SchemaError) -> bool {
+    matches!(
+        failure,
+        crate::schema::SchemaError::ReadResourceLimit { .. }
+    ) || failure
+        .to_string()
+        .to_ascii_lowercase()
+        .contains("read resource limit")
+}
+
 /// The wait before the next wake after `failures` wakes in a row that failed.
 fn backoff_after(failures: u64, interval: Duration) -> Duration {
     let base = interval.max(BACKOFF_BASE_MIN);
@@ -233,16 +250,18 @@ async fn run_wake(
     atoms: &AtomStore,
     stop: &AtomicBool,
     cursor: &mut DrainCursor,
-    policy: MoleculeDrainPolicy,
+    (policy, tips): (MoleculeDrainPolicy, &mut usize),
 ) -> Option<String> {
-    let limits = DrainLimits::new(policy.tips);
     let mut error = None;
     for _ in 0..policy.batches {
         if stop.load(Ordering::Relaxed) {
             break;
         }
         let started = std::time::Instant::now();
-        match atoms.molecule_drain_step(cursor, limits).await {
+        match atoms
+            .molecule_drain_step(cursor, DrainLimits::new(*tips))
+            .await
+        {
             Ok(Some(outcome)) => {
                 let wrote = note_outcome(&outcome.candidate.molecule, &outcome.kind, started);
                 atoms.drain_state().set_gauges(
@@ -255,6 +274,16 @@ async fn run_wake(
                 }
             }
             Ok(None) => break,
+            Err(failure) if *tips > MIN_TIPS && is_read_limit(&failure) => {
+                // The batch read more pages than one call may spend: halve it. The
+                // failed molecule went to the back of the line.
+                *tips = (*tips / 2).max(MIN_TIPS);
+                tracing::warn!(
+                    target: "fold_node::database",
+                    tips = *tips,
+                    "molecule drain batch hit the read limit; the batch is smaller now"
+                );
+            }
             Err(failure) => {
                 tracing::warn!(
                     target: "fold_node::database",

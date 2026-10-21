@@ -111,7 +111,7 @@ spent. After each batch it rests for `took * (100 - duty) / duty`.
 |---|---|---|
 | `LASTDB_MOLECULE_DRAIN_MS` | wake interval, 0 turns the task off | 30000 |
 | `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | share of wall time that batches may take | 25 |
-| `LASTDB_MOLECULE_DRAIN_TIPS` | tip records in one batch, 1 to 1024 | 256 |
+| `LASTDB_MOLECULE_DRAIN_TIPS` | tip records in one batch, 1 to 512; a batch that hits the read limit halves the size | 256 |
 | `LASTDB_MOLECULE_DRAIN_BATCHES` | batches in one wake | 1024 |
 
 A tip costs at most three operations in a batch (the tip, the counter, the body), so

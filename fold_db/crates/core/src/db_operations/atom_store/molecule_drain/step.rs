@@ -33,7 +33,7 @@ use crate::schema::SchemaError;
 /// The most tip records one batch erases, whatever the knob says. A tip costs at
 /// most three operations (the tip, the counter, the body), and an older home
 /// takes 4,096 operations in a batch.
-pub(crate) const MAX_TIPS_PER_BATCH: usize = 1_024;
+pub(crate) const MAX_TIPS_PER_BATCH: usize = 512;
 
 /// The size of one batch.
 #[derive(Debug, Clone, Copy)]
