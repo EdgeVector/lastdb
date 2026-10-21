@@ -372,15 +372,19 @@ release the kept conflict records of the slots they remove. See
 
 ## Checking and repair
 
-| Tool | Where it runs | What it does |
-|---|---|---|
-| `lastdb db verify-refs` | live node | reads, writes nothing, holds no write gate for a read, reports faults |
-| `lastdb db recount [--execute]` | stopped home | rebuilds the counters from the tips and the counted conflict records |
-| `lastdb db inventory` | live node | walks the key classes of the home; it also writes idempotent attribution rows, so it is not read-only |
-| `lastdb db molecule-drain` | live node | names a molecule to the drain and shows the drain report |
-| `lastdb liveness explain` | live node | shows the counters of named atoms, molecules or blobs |
-| `lastdb db reap-unsealed` | live node | removes rows that have no at-rest envelope (see below) |
-| `lastdb status` | live node | counters, last verifier result, queue depth, parts |
+| Tool | Route (owner socket) | Where it runs | What it does |
+|---|---|---|---|
+| `lastdb db verify-refs` | `POST` and `GET /api/db/verify-refs`, `GET /api/db/verify-refs/scopes` | live node | reads, writes nothing, holds no write gate for a read, reports faults |
+| `lastdb db recount [--execute]` | none (offline) | stopped home | rebuilds the counters from the tips and the counted conflict records |
+| `lastdb db inventory` | `GET /api/db/inventory` | live node | walks the key classes of the home; it also writes idempotent attribution rows, so it is not read-only |
+| `lastdb db molecule-drain` | `POST /api/db/molecule-drain` | live node | names a molecule to the drain and shows the drain report |
+| `lastdb liveness explain atom\|molecule\|blob` | `POST /api/storage/liveness/explain` | live node | shows the counters of named atoms, molecules or blobs |
+| `lastdb db delete-ledger` | `GET /api/db/delete-ledger` | live node | reads the durable audit trail of purges and deletes, oldest first; a row names the caller and holds counts, never content |
+| `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
+| `lastdb db gc-proteins` | `POST /api/db/gc-proteins` | live node | deletes empty, unbound `protein:` rows (the drain leaves them) |
+| `lastdb db reap-unsealed` | `POST /api/db/reap-unsealed` | live node | removes rows that have no at-rest envelope (see below) |
+| `lastdb db compact` | `POST /api/db/compact` | live node | packs the native home and reclaims old files (`docs/lastdb-storage-parts.md`) |
+| `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth, parts |
 
 ### `lastdb db verify-refs`
 
@@ -562,6 +566,7 @@ clusters of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and 
 | `Molecule drain` | pending, waiting, refused, drained molecules, tips erased, bodies deleted, batches |
 | `Blob counters` | the blob counter totals, dwell queue depth and buckets, next due time, passes, net sweeps |
 | `Conflict retention` | window, janitor interval, last run, queue depth and buckets, released by janitor and by purge, slot drains pending, failed wakes, net sweeps |
+| `Purge stats` | for each schema: purges, records purged, target slots and atoms deleted, since the process started |
 | `Storage parts` | dependency parts of the storage receipt: `docs/lastdb-storage-parts.md` |
 | `Local retention` | the TTL sweep: `docs/lastdb-ttl-sweep.md` |
 
