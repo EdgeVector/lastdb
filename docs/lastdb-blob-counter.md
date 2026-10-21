@@ -290,8 +290,8 @@ something wrote or deleted queue rows outside the queue.
 
 A race can count a repair that was not needed: a writer adds an entry and its row
 after the net read the row and before it read the hash. The net then registers the
-bucket with its own token, which is harmless. The proof below saw none in 8 rounds
-with kills.
+bucket with its own token, which is harmless: the row names a live bucket, and the
+next retirement of that bucket checks the token it reads.
 
 ## Retired-intent roots
 
