@@ -116,12 +116,26 @@ there. The next wake finishes it.
 `BackgroundMoleculeDrainTask` wakes every `LASTDB_MOLECULE_DRAIN_MS` (default 30000, 0 =
 off) and at once when a batch lowers `bindings` to zero. A wake reads the candidate
 list from its start and runs batches until the list is done or the batch budget is
-spent. After each batch it rests for `took * (100 - duty) / duty`.
+spent. The pacing is the one of the retention janitor and the blob dwell pass
+(`docs/lastdb-time-queue.md`, "Pacing"). After each batch the task rests for
+`blocked * (100 - duty) / duty`, where `blocked` is the time the batch kept writers waiting:
+the hold of the write gate, and for a batch that seals the write queue the wait until it is
+durable. The page reads before the gate are not part of it. The rest is at least 25 ms and at
+most 30 s. The rest protects the writers, so the task needs it only when a writer is there. The
+writer watch (`WriterWatch`) remembers the last write scope that another task opened. For a
+quiet period after it (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default) every rest is the full
+one. When no other task opened a write scope for the whole period, the rest is 25 ms and the
+drain runs at the speed of its flush. A long rest ends early when the quiet period has passed.
+The drop that makes a candidate is a write scope of another task, so a drain starts in the
+paced mode and goes on at full speed 60 s after the drop if no writer comes. A write scope
+that stages nothing is not counted as a writer (see "What the watch sees" in the same
+section).
 
 | Variable | Meaning | Default |
 |---|---|---|
 | `LASTDB_MOLECULE_DRAIN_MS` | wake interval, 0 turns the task off | 30000 |
-| `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | share of wall time that batches may take | 10 |
+| `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | share of the time that batches may keep writers waiting (while a writer is there) | 10 |
+| `LASTDB_MAINTENANCE_QUIET_SECS` | seconds without a write scope of another task after which the rest is 25 ms (the knob of the janitor and the blob pass too) | 60 |
 | `LASTDB_MOLECULE_DRAIN_TIPS` | tip records in one batch, 1 to 512; a batch that hits the read limit halves the size | 256 |
 | `LASTDB_MOLECULE_DRAIN_BATCHES` | batches in one wake | 1024 |
 
@@ -146,16 +160,32 @@ waits.
 
 ### Cost to writers
 
-A write that shares time with a drain batch waits longer than a write that does not.
-Measured on a loaded host, with 4 writers that wrote as fast as the node answered
-(the median latency was about 110 ms): the median of a write that overlapped a batch was
-1.3 to 1.8 times the median of the writes in the same window that did not. The hold of
-the write gate is not the cause: a batch of 256 tips holds it for 30 ms at the median
-and 70 ms at most. The duty share sets how many writes meet a batch (36 to 38 percent of
-the writes at a duty of 25, 13 to 19 percent at a duty of 10). The penalty for a write that
-meets a batch did not change in a clear way with the batch size (64 to 256 tips). The default
-duty is 10 percent for this reason: the schema is already gone when the drain runs, and only
-disk space waits for it. At this duty the drain erased 55 to 100 tips a second in the same runs.
+A batch of the drain seals the write queue, so a writer that arrives while a batch is open waits
+for the gate and then for the flush of the batch (0.3 to 1 s on a busy disk). The drain rests for
+a share of the time its batches kept writers waiting (a duty of 10 percent), and only while a
+writer is there. So about one write in ten meets a batch while a writer is there, and a node with
+no other writer for the quiet period has nobody to protect and the drain runs at the speed of its
+flush. The same knobs and the same watch as the janitor and the blob pass apply; the measurements
+are in `docs/lastdb-time-queue.md` ("The molecule drain"). With the default knobs, against the
+pacing by the wall time of a step, in runs of both builds at the same time on one host (3 pairs of
+a schema of 2,500 keys, 10,000 tips):
+
+| Tips a second | wall-time pacing (before) | this pacing |
+|---|---|---|
+| no other writer, RAM disk | 261 to 283 | 330 to 354 |
+| no other writer, system disk | 14 to 20 | 81 to 102 |
+| 4 continuous writers, RAM disk | 40 to 46 | 216 to 219 |
+| 4 continuous writers, busy system disk | 8 to 13 | 14 to 21 |
+| one sparse writer (a write every 3 s), RAM disk, 40,000 tips | 298 to 303 | 364 to 378 |
+| one sparse writer, system disk | 48 to 84 | 76 to 100 |
+
+The latency of a sparse writer with the drain on, against the same writer before the drop and
+after the drain (p50, 3 pairs): RAM disk 42 to 48 ms against 38 to 47 and 42 to 52 ms; system disk
+472 to 636 ms against 450 to 462 and 478 to 602 ms. The 95th percentile with the drain on is
+higher (RAM disk 86 to 130 ms against 46 to 157; system disk 937 to 1,380 ms against 498 to 1,296),
+because about one write in ten meets a sealed batch. The previous build gave the same figures. The
+first 60 s after a drop go at the paced speed (the drop is a write scope of another task): 38 to 50
+tips a second on the system disk.
 
 ## Show verbs
 
@@ -239,10 +269,16 @@ replace the single hash without a change to the drain steps.
 - **The failed-wake back-off ends on new work.** A wake that fails doubles the wait up to
   ten minutes. A new drop, or a molecule named by hand, ends the wait. A batch that hit the
   read limit is halved, and it doubles back after 5 wakes that did work and had no read limit.
-- **Pacing follows the wall time of a step.** The drain rests for `took * (100 - duty) / duty`
-  after each batch. It does not use the writer-wait meter or the writer watch that the retention
-  janitor and the blob dwell pass use (`docs/lastdb-time-queue.md`, section Pacing). A drain
-  batch seals the write queue, so a writer that meets one waits for its flush.
+- **A writer that meets a batch waits for its flush.** The drain paces like the janitor and the
+  blob dwell pass, so a batch that seals the write queue makes every writer that arrives wait
+  until it is durable. At a duty of 10 percent about one write in ten meets a batch while a writer
+  is there. A smaller `LASTDB_MOLECULE_DRAIN_DUTY_PCT` lowers that share and slows the drain (see
+  "Cost to writers").
+- **The watch counts write scopes of the process.** A caller that takes the write gate without a
+  scope is not seen. A write scope that stages nothing is not counted (`lastdb db verify-refs` opens
+  one at the start of each run). `lastdb db inventory` writes rows and counts as a writer; `lastdb
+  status`, `lastdb liveness explain` and a `lastdb db molecule-drain` call that names no molecule open
+  no write scope.
 - A write that was acknowledged from memory before the drop and flushes after the drain
   finished creates a tip in a molecule with no binding and no candidate. `lastdb db inventory`
   counts it under `unbound with tips`; queue it with `lastdb db molecule-drain`.

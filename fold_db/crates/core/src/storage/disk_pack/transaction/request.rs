@@ -63,7 +63,6 @@ where
     runtime.wait_for_part_room().await;
     let gate = runtime.enter_prepare().await;
     let held_from = std::time::Instant::now();
-    super::blocked::opened();
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
         Arc::clone(&runtime),
@@ -71,6 +70,12 @@ where
         WRITE.scope(Arc::clone(&pending), future),
     )
     .await;
+    // A scope that staged nothing is not counted as a writer (`blocked::opened`): a poll
+    // that opens an empty scope (`verify-refs` does, at the start of a run) must not
+    // keep a background job in its duty-paced mode.
+    if !pending.is_empty().unwrap_or(false) {
+        super::blocked::opened();
+    }
     // Refused complete mutations never publish their earlier private stages.
     // Preserve this classification even if an inner helper changed its error.
     if let Some(error) = pending.preparation_limit() {

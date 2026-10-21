@@ -36,6 +36,8 @@ use super::judge::Refusal;
 use crate::db_operations::atom_store::retention::RELEASE_RECORD_CAP;
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::transaction::blocked::measure;
+use std::time::Duration;
 
 /// The most tip records one batch erases, whatever the knob says. A tip costs at
 /// most three operations (the tip, the counter, the body), and an older home
@@ -87,6 +89,25 @@ pub(crate) enum OutcomeKind {
 pub(crate) struct DrainOutcome {
     pub candidate: Candidate,
     pub kind: OutcomeKind,
+    /// How long the step kept writers waiting: the hold of the native write gate, and
+    /// for a batch that seals the queue, the wait until it is durable
+    /// (`storage::disk_pack::transaction::blocked`). The task rests for a share of
+    /// this time, as the retention janitor does.
+    pub blocked: Duration,
+    /// Write scopes the step opened. The task takes them off the count of the scopes
+    /// of the process to tell whether another writer was there (`WriterWatch`).
+    pub scopes: u64,
+}
+
+impl DrainOutcome {
+    fn new(candidate: Candidate, kind: OutcomeKind) -> Self {
+        Self {
+            candidate,
+            kind,
+            blocked: Duration::ZERO,
+            scopes: 0,
+        }
+    }
 }
 
 /// The next step of the molecule in work.
@@ -104,6 +125,21 @@ impl AtomStore {
         cursor: &mut DrainCursor,
         limits: DrainLimits,
     ) -> Result<Option<DrainOutcome>, SchemaError> {
+        let (step, cost) = measure(self.unmeasured_step(cursor, limits)).await;
+        Ok(step?.map(|outcome| DrainOutcome {
+            blocked: cost.blocked,
+            scopes: cost.scopes,
+            ..outcome
+        }))
+    }
+
+    /// The work of [`Self::molecule_drain_step`], without the measure of the time it
+    /// keeps writers waiting.
+    async fn unmeasured_step(
+        &self,
+        cursor: &mut DrainCursor,
+        limits: DrainLimits,
+    ) -> Result<Option<DrainOutcome>, SchemaError> {
         loop {
             if cursor.active.is_none() && !self.take_next_candidate(cursor, limits).await? {
                 return Ok(None);
@@ -116,7 +152,7 @@ impl AtomStore {
                 Ok(Move::Continue) => cursor.active = Some(active),
                 Ok(Move::Batch(kind)) => {
                     cursor.active = Some(active);
-                    return Ok(Some(DrainOutcome { candidate, kind }));
+                    return Ok(Some(DrainOutcome::new(candidate, kind)));
                 }
                 Ok(Move::Done(kind)) => {
                     match &kind {
@@ -126,7 +162,7 @@ impl AtomStore {
                         }
                         _ => cursor.unpark(&candidate),
                     }
-                    return Ok(Some(DrainOutcome { candidate, kind }));
+                    return Ok(Some(DrainOutcome::new(candidate, kind)));
                 }
                 Err(error) => {
                     cursor.rotate(candidate);
