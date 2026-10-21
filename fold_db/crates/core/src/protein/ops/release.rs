@@ -13,7 +13,11 @@
 //! protein still names the molecule. A counter that is `suspect`, or lower than
 //! the member entries, is a fault that this call leaves alone.
 
-use super::{member_backref_key, AtomStore, MoleculeRefEdge, Protein, ProteinMember, SchemaError};
+use super::{
+    member_backref_key, protein_record_key, AtomStore, MoleculeRefEdge, Protein, ProteinMember,
+    SchemaError,
+};
+use crate::db_operations::atom_store::counter::TipChangeSet;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl AtomStore {
@@ -81,15 +85,26 @@ impl AtomStore {
             return Ok(0);
         }
         self.remove_molecule_bindings(&edges, None).await?;
-        for protein in &changed {
-            self.put_protein(protein).await?;
-        }
-        for molecule in &released {
-            self.raw()
-                .delete_item(&member_backref_key(molecule))
-                .await
-                .map_err(|e| SchemaError::InvalidData(format!("delete molprot {molecule}: {e}")))?;
-        }
+        // The protein records and the back-references go through the planner, in
+        // the batch of the caller. This call holds no write verb of its own.
+        let rows = changed
+            .iter()
+            .map(|protein| {
+                serde_json::to_value(protein)
+                    .map(|value| (protein_record_key(&protein.uuid), value))
+                    .map_err(|e| SchemaError::InvalidData(format!("serialize protein: {e}")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let deletes = released
+            .iter()
+            .map(|molecule| member_backref_key(molecule).into_bytes())
+            .collect();
+        self.commit_tip_changes(TipChangeSet {
+            rows,
+            deletes,
+            ..TipChangeSet::default()
+        })
+        .await?;
         Ok(released.len())
     }
 }
