@@ -44,11 +44,14 @@ mod repair;
 mod report;
 mod rows;
 mod slots;
+mod split;
 mod steps;
+mod window;
 
-pub(crate) use keys::record_digest;
+pub(crate) use keys::{molecule_dir_prefix, queue_for_window, record_digest};
+pub(crate) use repair::RepairWindow;
 pub use report::ConflictRetentionReport;
 pub(crate) use report::RetentionState;
 pub(crate) use rows::RecordSlot;
-pub(crate) use slots::SlotReleases;
+pub(crate) use slots::{SlotReleases, RELEASE_RECORD_CAP};
 pub(crate) use steps::{Lane, RetentionCursor, StepOutcome};

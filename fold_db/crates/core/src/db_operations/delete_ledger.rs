@@ -2,14 +2,13 @@
 //!
 //! # Why this exists
 //!
-//! Two paths hard-delete atom bodies: `purge_record` (the compliance/GDPR
-//! erasure verb) and `gc_orphan_atoms_with` (`gc-atoms --execute`). Before this
-//! module neither left durable evidence — `purge_record` emitted a
-//! `tracing::info!` into a ~15h log window, and `gc_orphan_atoms_with` returned
-//! an `AtomGcReport` to its HTTP caller which nobody stored. So the store could
-//! not answer a question about its own contents: classifying 121 unresolved tips
-//! took three agent sessions and still could not prove which run removed them,
-//! only which mechanism could have.
+//! The atom counter deletes an atom body when its count reaches zero. The batch
+//! that ends the last reference is a purge (`purge_record`, the compliance and
+//! GDPR erasure verb), a delete, or another write. Before this module the purge
+//! left no durable evidence: `purge_record` emitted a `tracing::info!` into a
+//! ~15h log window. So the store could not answer a question about its own
+//! contents: classifying 121 unresolved tips took three agent sessions and still
+//! could not prove which run removed them, only which mechanism could have.
 //!
 //! For a compliance verb that is also an audit gap: no evidence a purge ran,
 //! what it removed, or when.
@@ -69,19 +68,17 @@
 //!
 //! # Retention
 //!
-//! **Ledger rows are never automatically reaped.** They live under the `dellog:`
+//! **Ledger rows are never automatically removed.** They live under the `dellog:`
 //! prefix, which no delete path touches:
 //!
-//! - `gc_orphan_atoms_with` scans only `atom:` for deletion candidates, and
-//!   builds its reference set from `mk:` / `tv:` / `history:` / `conflict:` /
-//!   `ref:`. `dellog:` is in neither set, so the GC can neither delete a ledger
-//!   row nor be pinned by one.
-//! - `purge_record` deletes only `history:` / `atom:` / locator / schema-index
-//!   keys for the purged record.
+//! - The atom counter deletes only the body and the counter of an atom whose
+//!   count reached zero (`atom:{uuid}\0b` and `atom:{uuid}\0c`). A ledger row is
+//!   neither, and no counter counts it.
+//! - `purge_record` deletes only `history:` / `atom:` / schema-index keys for the
+//!   purged record.
 //!
 //! A self-erasing audit trail is worse than none, so this is enforced by
-//! construction and pinned by a test (`gc_execute_leaves_ledger_rows_intact`)
-//! rather than left to convention. Rows are ~300 bytes and one row covers a
+//! construction rather than left to convention. Rows are ~300 bytes and one row covers a
 //! whole batch, not a key, so unbounded growth is not a space concern; the
 //! class is reported by `lastdb db inventory` as `atom_delete_ledger` so it
 //! stays visible if that ever stops being true. `delete` and `delete-converge`
@@ -104,9 +101,6 @@ pub const ATOM_DELETE_LEDGER_PREFIX: &str = "dellog:";
 /// Which path performed the delete.
 pub const LEDGER_VERB_PURGE: &str = "purge";
 pub const LEDGER_VERB_DELETE: &str = "delete";
-pub const LEDGER_VERB_GC_ATOMS: &str = "gc-atoms";
-pub const LEDGER_VERB_REPAIR_TIPS: &str = "repair-dangling-tips";
-pub const LEDGER_VERB_GC_FILE_BLOBS: &str = "gc-file-blobs";
 /// Live `Delete` tip converge (`purge::converge_delete_tips`).
 ///
 /// Deliberately NOT [`LEDGER_VERB_DELETE`]. Converge removes tip (`mk:`) rows
@@ -127,7 +121,7 @@ pub const LEDGER_VERB_DELETE_CONVERGE: &str = "delete-converge";
 pub struct AtomDeleteLedgerEntry {
     /// Row format version. Bump when fields change meaning, not when adding.
     pub version: u32,
-    /// [`LEDGER_VERB_PURGE`] or [`LEDGER_VERB_GC_ATOMS`].
+    /// [`LEDGER_VERB_PURGE`], [`LEDGER_VERB_DELETE`] or [`LEDGER_VERB_DELETE_CONVERGE`].
     pub verb: String,
     /// When the batch was planned (RFC3339). Matches the key's timestamp.
     pub at: String,
@@ -146,7 +140,7 @@ pub struct AtomDeleteLedgerEntry {
     pub key_fingerprint: Option<String>,
     /// `atom:` bodies removed.
     pub atoms_deleted: u64,
-    /// `history:` rows removed (purge only; GC does not touch history rows).
+    /// `history:` rows removed (purge only).
     #[serde(default)]
     pub history_rows_deleted: u64,
     /// Purge only: Search-plane invalidations committed for the record(s).
@@ -162,42 +156,6 @@ pub struct AtomDeleteLedgerEntry {
     /// hit the store, as opposed to the logical atom count.
     #[serde(default)]
     pub storage_keys_deleted: u64,
-    /// GC only: `tv:` tip-version nodes removed by the same run.
-    #[serde(default)]
-    pub tip_versions_pruned: u64,
-    /// GC only: when the run's reachability scan began (RFC3339). Lets a later
-    /// audit date a body's disappearance against the store's own evidence.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scan_started_at: Option<String>,
-    /// GC only: `atom:` rows walked.
-    #[serde(default)]
-    pub atoms_scanned: u64,
-    /// GC only: unreferenced rows protected because they were created at or
-    /// after `scan_started_at`.
-    #[serde(default)]
-    pub atoms_skipped_recent: u64,
-    /// GC only: unreferenced rows protected because their `created_at` could
-    /// not be read. Sustained non-zero is a corruption signal.
-    #[serde(default)]
-    pub atoms_skipped_undatable: u64,
-    /// GC only: tips whose chain was left intact because the `mk:` head moved
-    /// under the run. Repair only: genuine concurrent tip moves (the transient
-    /// half of the old catch-all); see `tips_skipped_molecule_missing` /
-    /// `tips_skipped_atom_not_in_molecule` for permanent structural residue.
-    #[serde(default)]
-    pub tips_skipped_changed: u64,
-    /// Repair only: tips whose molecule header is gone — permanent residue,
-    /// serde-default so a staged-behind daemon still parses older rows.
-    #[serde(default)]
-    pub tips_skipped_molecule_missing: u64,
-    /// Repair only: tips whose molecule does not hold this atom at the tip's
-    /// slot — permanent residue, same default convention as above.
-    #[serde(default)]
-    pub tips_skipped_atom_not_in_molecule: u64,
-    /// Repair only: live `mk:` tips removed because they referenced atom bodies
-    /// unreachable by every reader route.
-    #[serde(default)]
-    pub tips_repaired: u64,
     /// Delete-converge only: live `mk:` tip rows removed to make disk agree
     /// with the resident tombstone. Counted write-ahead, so on a
     /// `committed: false` row it is what the batch was asked to remove.
@@ -214,33 +172,9 @@ pub struct AtomDeleteLedgerEntry {
     /// is a hash of the file's plaintext, so retaining it would be the same
     /// confirmation oracle the atoms-uuid rule closes (see module docs). A
     /// nonzero value tells compliance that sealed blob bytes may now be
-    /// orphaned and `gc-file-blobs` is the reclaim path.
+    /// orphaned. The blob counter reclaims them when the dwell passes.
     #[serde(default)]
     pub file_pointer_atoms_purged: u64,
-    /// GC (file blobs) only: blob rows walked across both local planes
-    /// (`cas_blobs` namespace + resident `cas_blob:` main-store rows).
-    #[serde(default)]
-    pub file_blobs_scanned: u64,
-    /// GC (file blobs) only: blob rows kept because a live atom references
-    /// them (content pointer or metadata).
-    #[serde(default)]
-    pub file_blobs_referenced: u64,
-    /// GC (file blobs) only: unreferenced rows deleted.
-    #[serde(default)]
-    pub file_blobs_deleted: u64,
-    /// GC (file blobs) only: unreferenced rows protected because their
-    /// `stored_at` is at or after `scan_started_at`.
-    #[serde(default)]
-    pub file_blobs_skipped_recent: u64,
-    /// GC (file blobs) only: undated rows stamped with this run's
-    /// `scan_started_at` instead of being deleted. They become reclaimable on
-    /// a later run if still unreferenced — the two-pass contract that makes
-    /// the pre-`stored_at` population safe to age.
-    #[serde(default)]
-    pub file_blobs_stamped: u64,
-    /// GC (file blobs) only: approximate bytes freed by the deleted rows.
-    #[serde(default)]
-    pub file_blob_bytes_freed_approx: u64,
 }
 
 impl AtomDeleteLedgerEntry {
@@ -260,24 +194,9 @@ impl AtomDeleteLedgerEntry {
             history_rows_deleted: 0,
             embedding_rows_deleted: 0,
             storage_keys_deleted: 0,
-            tip_versions_pruned: 0,
-            scan_started_at: None,
-            atoms_scanned: 0,
-            atoms_skipped_recent: 0,
-            atoms_skipped_undatable: 0,
-            tips_skipped_changed: 0,
-            tips_skipped_molecule_missing: 0,
-            tips_skipped_atom_not_in_molecule: 0,
-            tips_repaired: 0,
             tips_removed: 0,
             records_converged: 0,
             file_pointer_atoms_purged: 0,
-            file_blobs_scanned: 0,
-            file_blobs_referenced: 0,
-            file_blobs_deleted: 0,
-            file_blobs_skipped_recent: 0,
-            file_blobs_stamped: 0,
-            file_blob_bytes_freed_approx: 0,
         }
     }
 
@@ -295,22 +214,6 @@ impl AtomDeleteLedgerEntry {
         Self::erasure(LEDGER_VERB_PURGE, caller, schema, described_key)
     }
 
-    /// A `gc-atoms --execute` row, before the delete batch runs.
-    pub fn gc_atoms(caller: &str, scan_started_at: &str) -> Self {
-        Self {
-            scan_started_at: Some(scan_started_at.to_string()),
-            ..Self::base(LEDGER_VERB_GC_ATOMS, caller)
-        }
-    }
-
-    /// A `repair-dangling-tips --execute` row, before the repair batch runs.
-    pub fn repair_dangling_tips(caller: &str, scan_started_at: &str) -> Self {
-        Self {
-            scan_started_at: Some(scan_started_at.to_string()),
-            ..Self::base(LEDGER_VERB_REPAIR_TIPS, caller)
-        }
-    }
-
     /// A live-`Delete` tip-converge row, before the tip batch runs.
     ///
     /// Carries `schema` + `key_fingerprint` like the other erasure verbs, so
@@ -318,14 +221,6 @@ impl AtomDeleteLedgerEntry {
     /// answerable on the converge lane as it was on the inline one.
     pub fn delete_converge(caller: &str, schema: &str, described_key: &str) -> Self {
         Self::erasure(LEDGER_VERB_DELETE_CONVERGE, caller, schema, described_key)
-    }
-
-    /// A `gc-file-blobs --execute` row, before the blob delete batch runs.
-    pub fn gc_file_blobs(caller: &str, scan_started_at: &str) -> Self {
-        Self {
-            scan_started_at: Some(scan_started_at.to_string()),
-            ..Self::base(LEDGER_VERB_GC_FILE_BLOBS, caller)
-        }
     }
 }
 

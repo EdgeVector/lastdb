@@ -1,5 +1,6 @@
 mod checkpoints;
 mod legacy;
+mod reap_chunks;
 mod reseal;
 
 use super::encrypting_store::EncryptingKvStore;

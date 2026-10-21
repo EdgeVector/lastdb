@@ -1,0 +1,615 @@
+{
+  "all_notice_coordinates_and_metadata_equal": true,
+  "checked_utc": "2026-10-21T19:12:13.215078+00:00",
+  "command_identity": {
+    "bytes": 6392,
+    "sha256": "8c55f4ecbb4f7bbfefd8edd64cd04863e827f621dd7888ead75a0a85b88ca68f"
+  },
+  "counts": {
+    "accepted_unique_ids": 74,
+    "batch_calls": 18,
+    "event_objects_per_session": 74,
+    "event_occurrences": 148,
+    "immediate_notice_passes": 32,
+    "normal_sessions": 2,
+    "notice_pages": 37,
+    "operation_totals": {
+      "create": 44,
+      "delete": 6,
+      "update": 24
+    },
+    "planned_refusals": 4,
+    "read_request_certificates_reconstructed": 57,
+    "read_value_membership_checks": 57,
+    "receipt_rows": 326,
+    "single_calls": 20,
+    "successful_calls": 38,
+    "write_request_certificates_reconstructed": 38
+  },
+  "evidence": {
+    "result.json": {
+      "bytes": 11502,
+      "sha256": "7e2502d0e04617551ccd788e08fb11652a789f927130d431b7e566a30048206d"
+    },
+    "run/.synthetic-seed-owner.json": {
+      "bytes": 123,
+      "sha256": "01e7ce3104162a26b6a7d23ac7918aae924127bcd6ece7390b57712df23fbd49"
+    },
+    "run/inputs.json": {
+      "bytes": 2030,
+      "sha256": "c199af531be26606ece6e8a96e60d5065be48dfe3de06cd1e809f7440dc05fcd"
+    },
+    "run/receipts.jsonl": {
+      "bytes": 699045,
+      "sha256": "5c7b2a3da2be33503a356850f33ff17227a15222f15773cf071956e222c36340"
+    },
+    "run/retained-root.json": {
+      "bytes": 189,
+      "sha256": "051d8fe121c0a90f9d77f5da4a671c66012b53f2c541d609b3b1a7250ad9fed8"
+    },
+    "run/summary.json": {
+      "bytes": 174,
+      "sha256": "445b4a4dd32337bffe94bac1de3ec9a29acf26075056d648282dc2b11ee2f891"
+    }
+  },
+  "helper_files_independently_hashed": 15,
+  "limits": [
+    "No crash, power-loss, cloud, caller-supplied UUID, cross-node or protein proof.",
+    "The mixed request has separate update and erasure phases; this does not claim whole-request atomicity.",
+    "Only ordinary single and batch HTTP routes are used. No test or fixture runner.",
+    "Compact reply certificates omit singleton mutation_id/success scalar values and full record bodies. Runtime checks plus write observations and full notice objects corroborate them; raw singleton replies cannot be reconstructed.",
+    "Early expected_key_revisions maps reflect later mutations because the buffered receipt retains the dictionary reference. This review reconstructs and verifies all 57 actual read request certificates from the ordered write recipe. The maps are not exact early query controls.",
+    "Runtime full-field/value/member/atom/molecule checks execute before receipt capture. Their successful observations and frozen source remain the evidence; compact results do not permit independent full-body decode.",
+    "The status request_ops snapshot is cached and contains zero samples. It cannot supply live request phase tables or prove an absent operation.",
+    "Operational durations are candidate-only observations. No isolated performance, causal comparison, crash or hardware-cold claim."
+  ],
+  "node_stops": [
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 93703,
+      "variant": "operations"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 4610,
+      "variant": "operations"
+    }
+  ],
+  "normal_reopen_event_objects_equal": true,
+  "operation_checks_pass": true,
+  "private_binary": {
+    "bytes": 67623168,
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4/program-lastdbd",
+    "sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55"
+  },
+  "read_checks": [
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-single-omitted-values",
+      "present_keys": 1,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-7",
+      "requested_keys": 1
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-batch-omitted-values",
+      "present_keys": 3,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-10",
+      "requested_keys": 3
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-single-queued-values",
+      "present_keys": 4,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-13",
+      "requested_keys": 4
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-batch-queued-values",
+      "present_keys": 6,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-16",
+      "requested_keys": 6
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-single-durable-values",
+      "present_keys": 7,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-19",
+      "requested_keys": 7
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-batch-durable-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-22",
+      "requested_keys": 9
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-same-key-create-update-delete-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-25",
+      "requested_keys": 10
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-reinsert-after-delete-values",
+      "present_keys": 10,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-28",
+      "requested_keys": 10
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-pure-delete-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-31",
+      "requested_keys": 10
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-absent-delete-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-34",
+      "requested_keys": 11
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-single-derived-key-values",
+      "present_keys": 10,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-37",
+      "requested_keys": 12
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-batch-derived-key-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-40",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-must-exist-missing-update-unchanged-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-43",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-valid-after-must-exist-refusal-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-46",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-wrong-current-field-value-unchanged-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-49",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-valid-after-condition-refusal-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-52",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hash-valid-current-field-condition-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-55",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-single-omitted-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-58",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-single-omitted-values",
+      "present_keys": 1,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-59",
+      "requested_keys": 1
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-batch-omitted-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-62",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-batch-omitted-values",
+      "present_keys": 3,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-63",
+      "requested_keys": 3
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-single-queued-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-66",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-single-queued-values",
+      "present_keys": 4,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-67",
+      "requested_keys": 4
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-batch-queued-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-70",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-batch-queued-values",
+      "present_keys": 6,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-71",
+      "requested_keys": 6
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-single-durable-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-74",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-single-durable-values",
+      "present_keys": 7,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-75",
+      "requested_keys": 7
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-batch-durable-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-78",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-batch-durable-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-79",
+      "requested_keys": 9
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-same-key-create-update-delete-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-82",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-same-key-create-update-delete-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-83",
+      "requested_keys": 10
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-reinsert-after-delete-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-86",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-reinsert-after-delete-values",
+      "present_keys": 10,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-87",
+      "requested_keys": 10
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-pure-delete-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-90",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-pure-delete-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-91",
+      "requested_keys": 10
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-absent-delete-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-94",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-absent-delete-values",
+      "present_keys": 9,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-95",
+      "requested_keys": 11
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-single-derived-key-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-98",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-single-derived-key-values",
+      "present_keys": 10,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-99",
+      "requested_keys": 12
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-batch-derived-key-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-102",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-batch-derived-key-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-103",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-must-exist-missing-update-unchanged-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-106",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-must-exist-missing-update-unchanged-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-107",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-valid-after-must-exist-refusal-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-110",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-valid-after-must-exist-refusal-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-111",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-wrong-current-field-value-unchanged-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-114",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-wrong-current-field-value-unchanged-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-115",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-valid-after-condition-refusal-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-118",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-valid-after-condition-refusal-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-119",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "hashrange-valid-current-field-condition-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-122",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "hashrange-valid-current-field-condition-values",
+      "present_keys": 12,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-123",
+      "requested_keys": 14
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "parallel-revision-10-after-all-acks",
+      "present_keys": 20,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-129",
+      "requested_keys": 22
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "parallel-revision-10-after-all-acks",
+      "present_keys": 20,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-130",
+      "requested_keys": 22
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "parallel-revision-11-after-all-acks",
+      "present_keys": 20,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-136",
+      "requested_keys": 22
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "parallel-revision-11-after-all-acks",
+      "present_keys": 20,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-137",
+      "requested_keys": 22
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hash",
+      "phase": "all-values-after-normal-reopen",
+      "present_keys": 20,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-142",
+      "requested_keys": 22
+    },
+    {
+      "all_four_fields_and_identity_checked_at_runtime": true,
+      "geometry": "hashrange",
+      "phase": "all-values-after-normal-reopen",
+      "present_keys": 20,
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-143",
+      "requested_keys": 22
+    }
+  ],
+  "refusals": [
+    {
+      "expected_plaintext_decode_error": true,
+      "raw_bytes": 212,
+      "raw_sha256": "41e998735545c0e4cae24e5d47dc589091e533d89af028cadededae366bab4df",
+      "reason": "must_exist missing key",
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-41",
+      "status": 400
+    },
+    {
+      "expected_plaintext_decode_error": false,
+      "raw_bytes": 533,
+      "raw_sha256": "dd27c9501e36f9e4aafaba513a0cbc2fabf99477612d4692c6dd4131b983383e",
+      "reason": "current field condition differs",
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-47",
+      "status": 409
+    },
+    {
+      "expected_plaintext_decode_error": true,
+      "raw_bytes": 240,
+      "raw_sha256": "c0dee897d61c56ad2904f516f8c00ffc9a3cdb188e5483d07150935053067509",
+      "reason": "must_exist missing key",
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-104",
+      "status": 400
+    },
+    {
+      "expected_plaintext_decode_error": false,
+      "raw_bytes": 593,
+      "raw_sha256": "a3417395de2d509ca849d8985437a207574909795cade75b15e541d909c38f60",
+      "reason": "current field condition differs",
+      "request_id": "temperature-1dc884ab0491456ab494eb75022b94e9-operations-112",
+      "status": 409
+    }
+  ],
+  "request_ops_observation": {
+    "forensic_recent_available": false,
+    "matching_recent_write_request_ids": [],
+    "request_ops_available": true,
+    "request_ops_snapshot": {
+      "ring_capacity": 256,
+      "sample_count": 0
+    },
+    "sampler_status": {
+      "db_write_enabled": false,
+      "last_error": null,
+      "last_sample_at": null,
+      "retention_max_samples": null,
+      "sample_count": null
+    },
+    "snapshot_age_at_receive_ms": 34515,
+    "status_process_start_ts": 1792609663,
+    "status_sampled_at": 1792609663
+  },
+  "reviewer": "independent subagent disk_wait_telemetry",
+  "source_identity": {
+    "binary_sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55",
+    "bytes": 353903,
+    "head": "0bd1441526809faedfc54812ffd434e1b67f0b38",
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-main-v2/source-identity.json",
+    "sha256": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff",
+    "source_input_count": 1888,
+    "source_inventory_sha256": "ab963097823d00484fae09b9fc7b026d4f00dd71a96da49958f45c30bf9b6f4b",
+    "state": "release_verified"
+  },
+  "source_inputs_independently_hashed": 1888,
+  "unexpected_refusals_transport_or_response_failures": 0
+}

@@ -7,6 +7,8 @@ pub(crate) struct ReapUnsealedCliOpts<'a> {
     pub(crate) max_secs: Option<u64>,
     pub(crate) progress_only: bool,
     pub(crate) restart: bool,
+    /// Repeat the call until the collection is done (needs `execute`).
+    pub(crate) all: bool,
     pub(crate) json_only: bool,
     pub(crate) out: Option<&'a Path>,
     pub(crate) timeout_secs: Option<u64>,
@@ -26,11 +28,49 @@ pub(crate) fn db_reap_unsealed(
             deadline.as_secs().max(1)
         );
     }
+    let mut report = reap_unsealed_call(socket, opts, deadline, opts.restart)?;
+    let mut calls = 1u32;
+    while opts.all && reap_more_remaining(&report) {
+        let scanned = reap_checkpoint_total(&report, "rows_scanned_total");
+        eprintln!(
+            "reap-unsealed call {calls}: scanned {scanned} rows, removed {} rows so far",
+            reap_checkpoint_total(&report, "rows_removed_total")
+        );
+        let next = reap_unsealed_call(socket, opts, deadline, false)?;
+        if reap_checkpoint_total(&next, "rows_scanned_total") <= scanned {
+            return Err("reap-unsealed made no progress between two calls; stopped".to_string());
+        }
+        report = next;
+        calls += 1;
+    }
+    let pretty =
+        serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?;
+    if let Some(path) = opts.out {
+        write_product_file_atomic(path, pretty.as_bytes())?;
+        if !opts.json_only {
+            eprintln!("Wrote {}", path.display());
+        }
+    }
+    if opts.json_only {
+        println!("{pretty}");
+        return Ok(());
+    }
+    print_reap_unsealed_human(&report);
+    Ok(())
+}
+
+/// One `POST /api/db/reap-unsealed` call. Returns the report.
+fn reap_unsealed_call(
+    socket: &Path,
+    opts: &ReapUnsealedCliOpts<'_>,
+    deadline: Duration,
+    restart: bool,
+) -> Result<serde_json::Value, String> {
     let mut body = serde_json::json!({
         "collection": opts.collection,
         "dry_run": !opts.execute,
         "progress_only": opts.progress_only,
-        "restart": opts.restart,
+        "restart": restart,
     });
     if let Some(max_rows) = opts.max_rows {
         body["max_rows"] = serde_json::json!(max_rows);
@@ -54,25 +94,25 @@ pub(crate) fn db_reap_unsealed(
     req.extend_from_slice(&body_bytes);
     let response = request_with_timeout(socket, &req, deadline)?;
     let value = parse_json_response(&response, "reap-unsealed")?;
-    let report = value
+    value
         .get("reap_unsealed")
         .cloned()
-        .ok_or_else(|| "response missing reap_unsealed field".to_string())?;
+        .ok_or_else(|| "response missing reap_unsealed field".to_string())
+}
 
-    let pretty =
-        serde_json::to_string_pretty(&report).map_err(|e| format!("serialize report: {e}"))?;
-    if let Some(path) = opts.out {
-        write_product_file_atomic(path, pretty.as_bytes())?;
-        if !opts.json_only {
-            eprintln!("Wrote {}", path.display());
-        }
-    }
-    if opts.json_only {
-        println!("{pretty}");
-        return Ok(());
-    }
-    print_reap_unsealed_human(&report);
-    Ok(())
+fn reap_more_remaining(report: &serde_json::Value) -> bool {
+    report
+        .get("more_remaining")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn reap_checkpoint_total(report: &serde_json::Value, key: &str) -> u64 {
+    report
+        .get("checkpoint")
+        .and_then(|checkpoint| checkpoint.get(key))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
 }
 
 pub(crate) fn print_reap_unsealed_human(report: &serde_json::Value) {

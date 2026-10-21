@@ -38,6 +38,14 @@ pub(crate) enum DbOfflineCommand {
         /// personal scope. A scope with data and no catalog entry needs --scope.
         #[arg(long)]
         all_scopes: bool,
+        /// Set the blob counters to the exact count: lower a counter that is too
+        /// high, clear a `suspect` flag, and start the dwell of a blob that no
+        /// atom counter and no tip names. Without it the blob step only raises
+        /// counters and makes missing ones. Requires --all-scopes, and every
+        /// scope of the home must be listed: a scope that is missing makes the
+        /// count too low.
+        #[arg(long, requires = "all_scopes")]
+        blobs_exact: bool,
         /// Passes over the tips and records. Each pass holds the atoms of one
         /// shard in memory, so more passes use less memory (default 1).
         #[arg(long, default_value_t = 1)]

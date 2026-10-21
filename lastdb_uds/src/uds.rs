@@ -98,7 +98,7 @@ fn tmp_socket_path(path: &Path) -> PathBuf {
 ///
 /// Pure and I/O-free — it measures path lengths only — so the node can call it
 /// the moment the data dir is resolved. That ordering matters for three reasons,
-/// all of which bit a real run (`repair-dangling-tips` CoW proof, 2026-08-03):
+/// all of which bit a real run (a copy-on-write proof, 2026-08-03):
 ///
 /// 1. **Cost.** `bind` currently happens after `Host::boot`, so a data dir that
 ///    can never serve still pays a full open + decrypt proof + executor build.

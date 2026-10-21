@@ -1,11 +1,9 @@
 //! Namespace restore, namespace scan and key-ownership helpers for snapshots.
 
 use super::*;
-mod blob_roots;
+mod clear;
 mod files;
-mod proofs;
 pub(super) use files::validate_scoped_files;
-pub(super) use proofs::{begin_reference_restore, finish_reference_restore};
 
 #[derive(Clone, Copy)]
 pub(super) enum RestoreMode<'a> {
@@ -55,27 +53,11 @@ pub(super) async fn restore_namespace(
     } else {
         decoded
     };
-    blob_roots::clear_existing(store, &kv, existing, mode, is_main).await?;
-    if is_main {
-        blob_roots::prepare_incoming(store, &decoded, mode).await?;
-    }
+    clear::clear_existing(&kv, existing, mode, is_main).await?;
     for chunk in decoded.chunks(128) {
         let mut items = Vec::with_capacity(chunk.len());
         for (key, value) in chunk {
             let key = key.clone();
-            if is_main
-                && (proofs::is_reference_proof(&key)
-                    || crate::db_operations::atom_store::BlobRefEdge::is_target_key(&key))
-            {
-                continue;
-            }
-            // Node-local rows never travel in a snapshot: the peer-apply row
-            // (the restoring node writes its own `seen` after the install) and
-            // the `gcatoms-*` probe checkpoints and markers, which describe the
-            // lap of the node that wrote them and must not steer this one.
-            if crate::sync::policy::is_node_local_gc_scratch_key(&key) {
-                continue;
-            }
             match mode {
                 RestoreMode::Personal if is_org_scoped_key_bytes(&key) => {
                     report.org_skipped = report.org_skipped.saturating_add(1);
@@ -147,7 +129,6 @@ pub(super) async fn collect_snapshot_namespaces(
             SnapshotNamespaceMode::All => namespace_rows(kv.as_ref())
                 .await?
                 .into_iter()
-                .filter(|(k, _)| !crate::sync::policy::is_node_local_gc_scratch_key(k))
                 .map(|(k, v)| SnapshotEntry {
                     key: BASE64.encode(&k),
                     value: BASE64.encode(&v),

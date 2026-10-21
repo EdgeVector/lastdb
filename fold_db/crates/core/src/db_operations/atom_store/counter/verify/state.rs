@@ -89,6 +89,8 @@ impl Run {
                 binding_counters_read: 0,
                 binding_records_read: 0,
                 queue_entries_read: 0,
+                blob_counters_read: 0,
+                blob_queue_read: 0,
                 page_retries: 0,
                 range_reads: WalkStats::default(),
                 tally_atoms: 0,
@@ -163,6 +165,8 @@ impl Run {
             Phase::Records => "history",
             Phase::Headers => "molecule header",
             Phase::Bindings | Phase::BindingRecords => "molecule binding",
+            Phase::Blobs => "blob counter",
+            Phase::BlobQueue => "blob queue",
             _ => "atom",
         };
         self.note_faults(

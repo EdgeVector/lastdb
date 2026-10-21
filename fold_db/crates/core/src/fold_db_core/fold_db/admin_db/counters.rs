@@ -1,4 +1,4 @@
-//! The atom counter planner report and the verifier.
+//! The atom counter planner report, the verifier and the blob counter report.
 
 use super::*;
 
@@ -11,6 +11,7 @@ impl FoldDB {
         let atoms = self.db_ops().atoms();
         let mut report = atoms.counter_report().snapshot();
         report.verify_refs = Some(atoms.verify_refs_summary());
+        report.molecule_drain = Some(atoms.molecule_drain_report());
         report
     }
 
@@ -54,6 +55,13 @@ impl FoldDB {
             .collect();
         scopes.sort();
         Ok(scopes)
+    }
+
+    /// Totals of the blob counters since this process started, and the size of
+    /// the dwell queue: the buckets by the directory, and the entries counted up
+    /// to 1,000 with bounded reads (`queue_depth_capped`).
+    pub async fn blob_counter_report(&self) -> crate::db_operations::BlobCounterReport {
+        self.db_ops().atoms().blob_counter_report_full().await
     }
 
     /// The retention window of kept conflict records, the janitor's last run,

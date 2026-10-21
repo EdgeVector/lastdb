@@ -54,7 +54,7 @@ pub(in crate::exec) async fn execute_db_reclaim_keep_small_snapshot_route(
 
 /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit trail.
 ///
-/// The read side of the ledger written by `purge` and `gc-atoms --execute`.
+/// The read side of the ledger written by `purge`, `delete` and the delete converge.
 /// Answers "was this atom body deleted on purpose, or lost?" from the store's
 /// own evidence instead of a ~15h log window. `?limit=N` truncates from the
 /// oldest end; absent or 0 returns everything.

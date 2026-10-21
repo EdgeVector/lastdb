@@ -18,6 +18,10 @@ use serde_json::Value;
 /// The native get-many API accepts at most this many keys per call.
 const READ_CHUNK: usize = 10_000;
 
+/// Molecules in one call that get the read of a binding record. Each is a range
+/// read, and one call spends a budget of 4,096 metadata pages.
+const RECORD_CHECKS: usize = 256;
+
 /// The three counters of one molecule in one scope, for operators.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MoleculeCountersView {
@@ -32,13 +36,20 @@ pub struct MoleculeCountersView {
     pub bindings: u64,
     /// A counter disagreed with a change, or the header carries no counters.
     pub suspect: bool,
-    /// `live`, `droppable`, `suspect` or `absent`.
+    /// `live`, `droppable`, `suspect`, `mismatch` or `absent`. `mismatch` is a
+    /// molecule whose counters say it is dead and that still has a binding
+    /// record with no counter: a fault, never a drain.
     pub state: String,
+    /// A binding record exists. `None` when the read did not look for one
+    /// (only a molecule whose counters are all zero is checked).
+    #[serde(default)]
+    pub binding_records: Option<bool>,
 }
 
 impl MoleculeCountersView {
-    /// All three counters are zero and none is `suspect`, and a header exists.
-    /// The molecule holds nothing and nothing names it.
+    /// All three counters are zero, none is `suspect`, a header exists, and no
+    /// binding record exists where the read looked for one. The molecule holds
+    /// nothing and nothing names it.
     #[must_use]
     pub fn droppable(&self) -> bool {
         self.state == "droppable"
@@ -79,12 +90,28 @@ pub fn molecule_view(
         bindings: bound,
         suspect,
         state: state.to_string(),
+        binding_records: None,
+    }
+}
+
+impl MoleculeCountersView {
+    /// Record whether a binding record exists. A binding record next to a zero
+    /// counter is a fault, so a view that looked `droppable` becomes `mismatch`.
+    #[must_use]
+    pub fn with_binding_records(mut self, present: bool) -> Self {
+        self.binding_records = Some(present);
+        if present && self.state == "droppable" {
+            self.state = "mismatch".to_string();
+        }
+        self
     }
 }
 
 impl AtomStore {
     /// The counters of each molecule in `storage_prefix`, in the order given.
-    /// Two reads by key, in batches.
+    /// Two reads by key, in batches. A molecule whose counters are all zero gets
+    /// one more read, of at most one binding record, up to [`RECORD_CHECKS`]
+    /// molecules in one call.
     pub async fn molecule_counter_views(
         &self,
         molecules: &[String],
@@ -117,12 +144,23 @@ impl AtomStore {
         let bindings = self
             .read_binding_counters(molecules, storage_prefix)
             .await?;
-        Ok(molecules
+        let mut views: Vec<MoleculeCountersView> = molecules
             .iter()
             .zip(headers.iter().zip(bindings.iter()))
             .map(|(molecule, (header, bindings))| {
                 molecule_view(molecule, header.as_ref(), bindings.as_ref())
             })
-            .collect())
+            .collect();
+        for view in views
+            .iter_mut()
+            .filter(|view| view.droppable())
+            .take(RECORD_CHECKS)
+        {
+            let present = self
+                .binding_record_present(&view.molecule, storage_prefix)
+                .await?;
+            *view = view.clone().with_binding_records(present);
+        }
+        Ok(views)
     }
 }

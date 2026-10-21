@@ -24,6 +24,10 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
             | "idx"
             | "aloc"
             | "aref"
+            | "gcatoms-meta"
+            | "gcatoms-probe-ref"
+            | "gcatoms-probe-tv-skip"
+            | "peer-apply"
     ) {
         return Err(unsupported("retired key family"));
     }
@@ -38,7 +42,8 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
             return Err(unsupported("retired flat key spelling"));
         }
     }
-    if bare.starts_with("bref:v1:") || bare.starts_with("rdel:v1:") {
+    if bare.starts_with("bref:v1:") || bare.starts_with("bref:v2:") || bare.starts_with("rdel:v1:")
+    {
         return Err(unsupported("retired reference or delete key format"));
     }
     validate_references(bare, family)?;
@@ -88,9 +93,10 @@ fn validate_retention(key: &str, family: &str) -> StorageResult<()> {
                         .is_some_and(|(at, id)| digits(at, 20) && !id.is_empty())
             }),
         // `crb:v1\0{bucket:020}`
+        // `crb:v1\0params` records the window of the node
         "crb" => key
             .strip_prefix("crb:v1\0")
-            .is_some_and(|bucket| digits(bucket, 20)),
+            .is_some_and(|bucket| digits(bucket, 20) || bucket == "params"),
         "crs" => key
             .strip_prefix("crs:v1:")
             .and_then(|rest| rest.split_once('\0'))
@@ -122,18 +128,15 @@ fn validate_suffix(suffix: &str) -> StorageResult<()> {
 
 fn validate_references(key: &str, family: &str) -> StorageResult<()> {
     let current = match family {
-        "bref" => {
-            key == "bref:v2:complete"
-                || key
-                    .strip_prefix("bref:v2:e:")
-                    .or_else(|| key.strip_prefix("bref:v2:s:"))
-                    .is_some_and(hex_pair)
-        }
+        "bref" => crate::db_operations::atom_store::blob_counter::is_current_key(key),
         "mref" => {
             key.strip_prefix("mref:v1:e:").is_some_and(hex_pair)
                 || key
                     .strip_prefix("mref:v1:n:")
                     .is_some_and(|target| hex_identity(target, 64))
+                || key
+                    .strip_prefix("mref:v1:d\0")
+                    .is_some_and(crate::db_operations::atom_store::valid_drain_candidate_key)
         }
         _ => true,
     };

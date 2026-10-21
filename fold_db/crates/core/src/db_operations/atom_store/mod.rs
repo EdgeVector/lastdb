@@ -18,13 +18,14 @@
 //! - [`atoms`] — atom CRUD, history, schema listing
 //! - [`locks`] — molecule, tip and delete-barrier locks
 //! - [`delete_barriers`] — delete-barrier reads and writes
-//! - [`blob_ref_edges`] — blob roots; [`molecule_ref_edges`], [`molecule_bindings`],
-//!   [`molecule_counters`] — molecule binding records and the molecule counters
-//! - [`fresh_home_edges`] — key format marker and root proofs of an empty home
+//! - [`blob_counter`] — the blob counter, its dwell queue and the dwell pass
+//! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
+//!   binding records and the molecule counters
+//! - [`key_format`] — the key format marker of a new empty home
 //! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
 
 mod atoms;
-mod blob_ref_edges;
+pub(crate) mod blob_counter;
 mod bounded_range;
 mod catalog_bindings;
 mod codec;
@@ -33,13 +34,14 @@ mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
 mod filter;
-mod fresh_home_edges;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
+mod key_format;
 mod locks;
 mod molecule_bindings;
 mod molecule_counters;
+mod molecule_drain;
 mod molecule_ref_edges;
 mod molecules;
 mod retention;
@@ -47,22 +49,31 @@ mod retired_intent_retention;
 mod schema_keys;
 mod time_queue;
 mod types;
+mod writer_watch;
 
 pub(crate) use atoms::SealedAtom;
-pub use blob_ref_edges::{BlobRefCompleteness, BlobRefEdge, BlobRefLookup, BLOB_REF_COMPLETE_KEY};
+pub use blob_counter::{
+    BlobCounter, BlobCounterReport, BlobCounterView, BlobRecountReport, DwellCursor, DwellGuard,
+    DwellStep, NetStep, DWELL_CHUNK,
+};
 pub use bounded_range::WalkStats;
-pub(crate) use bounded_range::{unsealed_run_error, Progress, RangeWalk, WalkTotals};
+pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
     RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
 };
 pub(crate) use filter::SchemaKeyMembership;
-pub(crate) use fresh_home_edges::CURRENT_NATIVE_INITIALIZATION_KEYS;
 /// Historical derived-index prefixes the reclaim path may delete.
 pub use helpers::retired_index_reclaim_prefixes;
+pub(crate) use key_format::CURRENT_NATIVE_INITIALIZATION_KEYS;
 pub use molecule_bindings::MoleculeBindings;
 pub use molecule_counters::{molecule_view, MoleculeCountersView};
+pub(crate) use molecule_drain::{
+    valid_candidate_key as valid_drain_candidate_key, DrainCursor, DrainLimits,
+    OutcomeKind as DrainOutcomeKind,
+};
+pub use molecule_drain::{MoleculeDrainReport, MoleculeDrainVerdict, RefusedMolecule};
 pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
@@ -76,6 +87,7 @@ pub(crate) use types::{
     ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
     MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
 };
+pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
 use crate::storage::{
     traits::{KvStore, NamespacedStore},
@@ -216,11 +228,15 @@ pub struct AtomStore {
     keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
+    /// Totals, the last queue reading and recent faults of the blob counters.
+    blob_events: Arc<blob_counter::BlobEvents>,
     /// The retention window of kept conflict records and the janitor report.
     retention: Arc<retention::RetentionState>,
     /// The verifier: the run in progress, the last result and the watch of
     /// atoms that writers touch while a run reads. Memory only.
     counter_verify: Arc<counter::VerifyState>,
+    /// The report and the wake signal of the molecule drain. Memory only.
+    molecule_drain: Arc<molecule_drain::DrainState>,
     /// Bounded range reads made by the admin walks since this process started.
     range_walks: Arc<WalkTotals>,
     /// Sync device id of this node. Empty until a sync engine attaches. The
@@ -248,6 +264,12 @@ impl AtomStore {
     /// The planner report: bodies created and deleted, and counter faults.
     pub(crate) fn counter_report(&self) -> &counter::CounterEvents {
         &self.counter_events
+    }
+
+    /// The blob counter report: totals, the queue reading of the last dwell pass.
+    #[must_use]
+    pub fn blob_counter_report(&self) -> BlobCounterReport {
+        self.blob_events.snapshot()
     }
 
     /// The retention window and the report of kept conflict records.

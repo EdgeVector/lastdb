@@ -30,6 +30,8 @@ pub struct RecountArgs<'a> {
     /// Recount each scope that the database catalog names, besides the
     /// personal scope.
     pub all_scopes: bool,
+    /// Set the blob counters to the exact count. Needs `all_scopes`.
+    pub blobs_exact: bool,
     pub shards: u32,
     pub i_know_this_is_primary: bool,
     pub json: bool,
@@ -42,6 +44,9 @@ struct Output<'a> {
     home: String,
     preflight: &'a Preflight,
     elapsed_secs: u64,
+    /// The blob step of the recount, the same object as `recount.blobs`. A reader
+    /// that looks for `blobs.rows_missing` finds it here.
+    blobs: &'a fold_db::db_operations::BlobRecountReport,
     recount: &'a RecountReport,
 }
 
@@ -56,6 +61,10 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
             "recount requires a native LastDB node home (data/laststore-pack-node-v1)".into(),
         );
     }
+    for scope in &args.scopes {
+        fold_db::db_operations::AtomStore::validate_scope(Some(scope))
+            .map_err(|e| e.to_string())?;
+    }
     let (preflight, _lock) = preflight_stopped_home(args.home, &store_root)?;
     let mut scopes = vec![None];
     scopes.extend(args.scopes.iter().cloned().map(Some));
@@ -63,6 +72,7 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         execute: args.execute,
         scopes,
         shards: args.shards.max(1),
+        blobs_exact: args.blobs_exact && args.all_scopes,
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -140,6 +150,7 @@ fn print_report(
             home: args.home.display().to_string(),
             preflight,
             elapsed_secs,
+            blobs: &report.blobs,
             recount: report,
         };
         let text = serde_json::to_string_pretty(&output).map_err(|e| format!("serialize: {e}"))?;
@@ -190,14 +201,16 @@ fn print_report(
         report.retention_buckets_repaired
     );
     println!(
-        "  {} operations in {} batches, {} ms; range reads: {} calls, {} retried with fewer rows, {} narrowed",
+        "  {} operations in {} batches, {} ms; range reads: {} calls, {} over runs of deleted keys, {} retried with fewer rows, {} narrowed",
         report.operations,
         report.batches,
         report.elapsed_ms,
         report.range_reads.calls,
+        report.range_reads.skips,
         report.range_reads.shrinks,
         report.range_reads.splits
     );
+    print_blob_step(report);
     for change in &report.changes {
         println!(
             "  {} {} {:?} -> {:?}",
@@ -214,4 +227,44 @@ fn print_report(
         );
     }
     Ok(())
+}
+
+/// The blob step of the report.
+fn print_blob_step(report: &RecountReport) {
+    let blobs = &report.blobs;
+    if !blobs.ran {
+        return;
+    }
+    println!(
+        "  blobs ({}): {} atom counters and {} tips name {} blobs; {} counters read",
+        if blobs.exact { "exact" } else { "raise only" },
+        blobs.atom_counters_read,
+        blobs.tips_read,
+        blobs.referenced_blobs,
+        blobs.counters_read
+    );
+    println!(
+        "  blob counters: {} unchanged, {} created, {} raised, {} lowered, {} suspect cleared, {} dwell cancelled, {} dwell started; {} queue entries read, {} deleted, {} restored, {} directory rows restored",
+        blobs.unchanged,
+        blobs.created,
+        blobs.raised,
+        blobs.lowered,
+        blobs.suspect_cleared,
+        blobs.dwell_cancelled,
+        blobs.dwell_started,
+        blobs.queue_read,
+        blobs.queue_deleted,
+        blobs.queue_restored,
+        blobs.directory_rows_restored
+    );
+    if blobs.rows_missing > 0 {
+        println!(
+            "  blob rows missing: {} referenced blob(s), for example {}",
+            blobs.rows_missing,
+            blobs.missing_row_samples.join(", ")
+        );
+    }
+    for note in &blobs.notes {
+        println!("  note: {note}");
+    }
 }

@@ -187,10 +187,7 @@ impl CoreWarmSet {
         key: &MoleculeKey,
         value: &mut CoreWarmSlot,
     ) {
-        let atom = AtomKey {
-            scope: key.scope.clone(),
-            uuid: value.atom.uuid().to_owned(),
-        };
+        let atom = AtomKey::new(key.scope.clone(), value.atom.uuid());
         if let Some(existing) = self
             .atoms
             .get(&atom)
@@ -239,7 +236,6 @@ impl CoreWarmSet {
         sources: usize,
         definitions: usize,
     ) -> Result<(), CoreCapacity> {
-        self.molecules.try_reserve(slots).map_err(|_| capacity())?;
         self.slots.try_reserve(slots)?;
         self.sources.try_reserve(sources)?;
         self.memory.reserve_install(definitions)

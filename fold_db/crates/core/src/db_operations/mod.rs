@@ -13,7 +13,6 @@ pub mod delete_ledger;
 /// Local file-blob reachability GC. Gated on `sharing` because the
 /// `cas_blobs` plane and the `$lastdb_file` pointer codec live there; the
 /// shipped daemon (`cloud-sync` default) always carries it.
-pub mod file_blob_gc;
 pub mod keep_small;
 pub mod lineage_index;
 pub(crate) mod logical_membership;
@@ -35,8 +34,10 @@ pub use admin_db::{
     SchemaRecordKey, SchemaRecordKeysReport, SchemaRecordKeysRequest, SchemaStorageReport,
 };
 pub use atom_store::{
-    AtomCounterReport, AtomCounterView, AtomStore, ConflictRetentionReport, MoleculeData,
-    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
+    BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
+    MoleculeDrainReport, MoleculeDrainVerdict, NetStep, RecountOptions, RecountReport,
+    VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
@@ -52,8 +53,7 @@ pub use db_catalog_store::{
 };
 pub use delete_ledger::{
     key_fingerprint, AtomDeleteLedgerEntry, DeleteLedgerHandle, ATOM_DELETE_LEDGER_PREFIX,
-    LEDGER_VERB_DELETE, LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_GC_ATOMS, LEDGER_VERB_PURGE,
-    LEDGER_VERB_REPAIR_TIPS,
+    LEDGER_VERB_DELETE, LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_PURGE,
 };
 pub use keep_small::{
     atom_histogram, keep_small_schema_shard_key, AtomHistogram, KeepSmallHardEraseDebit,

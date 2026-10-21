@@ -21,6 +21,7 @@
 //! lowers the count to zero deletes the record. An absent record means no binding.
 
 use super::counter::MoleculeFault;
+use super::molecule_drain::Candidate as DrainCandidate;
 use super::molecule_ref_edges::{molecule_bindings_key, MoleculeRefEdge};
 use super::AtomStore;
 use crate::schema::SchemaError;
@@ -83,7 +84,7 @@ impl AtomStore {
     }
 
     /// The stored `bindings` record of each molecule, in the order given.
-    pub(super) async fn read_binding_counters(
+    pub(crate) async fn read_binding_counters(
         &self,
         molecules: &[String],
         storage_prefix: Option<&str>,
@@ -141,6 +142,7 @@ impl AtomStore {
                 .read_binding_counters(&molecules, storage_prefix)
                 .await?;
             let mut mutations = binding_record_mutations(&changed, flip)?;
+            let mut candidates = 0usize;
             for ((molecule, count), stored) in by_molecule.iter().zip(stored) {
                 let (next, fault) = lowered_or_raised(stored, *count, flip);
                 if fault {
@@ -148,10 +150,18 @@ impl AtomStore {
                         .note_molecule(molecule, MoleculeFault::Underflow);
                 }
                 let key = molecule_bindings_key(molecule, storage_prefix).into_bytes();
+                let reached_zero = next.is_none();
                 mutations.push(match next {
                     Some(record) => KvMutation::put(key, to_bytes(&record)?),
                     None => KvMutation::delete(key),
                 });
+                if reached_zero && flip == Flip::Unbind {
+                    // The molecule lost its last binding: the candidate row for the
+                    // drain joins this batch (`molecule_drain/candidate.rs`).
+                    let (key, value) = DrainCandidate::new(storage_prefix, molecule).row();
+                    mutations.push(KvMutation::put(key, value));
+                    candidates += 1;
+                }
             }
             self.main_store
                 .inner()
@@ -160,6 +170,9 @@ impl AtomStore {
                 .map_err(|error| {
                     SchemaError::InvalidData(format!("write molecule bindings: {error}"))
                 })?;
+            if candidates > 0 {
+                self.wake_drain_after_commit();
+            }
             tracing::debug!(
                 target: "fold_db::molecule_bindings",
                 bind = flip == Flip::Bind,

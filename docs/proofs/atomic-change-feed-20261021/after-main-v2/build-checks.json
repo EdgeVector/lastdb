@@ -1,0 +1,58 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--lib",
+      "--bins",
+      "--locked",
+      "--exclude",
+      "generate_validated_schema_org_seeds",
+      "--exclude",
+      "schema_service_worker",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "elapsed_seconds": 47.100154583999995,
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)\n    Checking lastdb_uds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_uds)\n    Checking lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_identity)\n    Checking generate_schema_org_classifications v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/scripts/generate_schema_org_classifications)\n    Checking lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_host)\n    Checking lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 46.98s\n"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "generate_validated_schema_org_seeds",
+      "-p",
+      "schema_service_worker",
+      "--bins",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "elapsed_seconds": 6.261609833999998,
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "    Checking laststore v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/vendor/laststore)\n    Checking schema_service_core v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/core)\n    Checking schema_service_server_shared v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/server_shared)\n    Checking schema_service_s3 v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/schema_service_s3)\n    Checking generate_validated_schema_org_seeds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/scripts/generate_validated_schema_org_seeds)\n    Checking schema_service_worker v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/worker)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.20s\n"
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "lastdb_node",
+      "--bin",
+      "lastdbd"
+    ],
+    "elapsed_seconds": 1177.685863083,
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "   Compiling laststore v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/vendor/laststore)\n   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)\n   Compiling fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)\n   Compiling schema_service_core v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/core)\n   Compiling schema_service_client v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/client)\n   Compiling lastdb_uds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_uds)\n   Compiling lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_identity)\n   Compiling lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_host)\n    Finished `release` profile [optimized] target(s) in 19m 37s\n"
+  }
+]

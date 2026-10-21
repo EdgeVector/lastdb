@@ -240,6 +240,8 @@ impl FoldDB {
 
         let background_conflict_janitor = Self::start_conflict_janitor(&db_ops);
 
+        let background_molecule_drain = Self::start_molecule_drain(&db_ops);
+
         let sync_coordinator = Self::start_sync_coordinator(&db_ops);
 
         Ok(Self {
@@ -251,6 +253,7 @@ impl FoldDB {
             background_flush,
             background_protein_reaper,
             background_conflict_janitor,
+            background_molecule_drain,
             sync_coordinator,
             mutation_log_capture,
             preserve_retired_restore_intents: false,

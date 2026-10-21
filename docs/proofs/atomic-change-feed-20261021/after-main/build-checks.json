@@ -1,0 +1,23 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--lib",
+      "--bins",
+      "--locked",
+      "--exclude",
+      "generate_validated_schema_org_seeds",
+      "--exclude",
+      "schema_service_worker",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "elapsed_seconds": 24.708897792,
+    "exit_code": 101,
+    "stdout": "",
+    "stderr": "    Checking laststore v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/vendor/laststore)\n   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/lastdb_node)\n    Checking schema_service_core v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/core)\n    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)\n    Checking lastdb_docstore v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/vendor/lastdb_docstore)\n    Checking schema_service_client v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/client)\n    Checking schema_service_server_shared v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/server_shared)\n    Checking schema_service_s3 v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/schema_service_s3)\n    Checking schema_resolver_pack_publisher v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/resolver_pack_publisher)\n    Checking schema_service_server_lambda v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/server_lambda)\nerror[E0308]: mismatched types\n  --> fold_db/crates/core/src/storage/disk_pack/transaction/request.rs:74:16\n   |\n74 |         if let Some(target) = target {\n   |                ^^^^^^^^^^^^   ------ this expression has type `u64`\n   |                |\n   |                expected `u64`, found `Option<_>`\n   |\n   = note: expected type `u64`\n              found enum `std::option::Option<_>`\n\n    Checking schema_service_server_http v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/schema_service/crates/server_http)\nFor more information about this error, try `rustc --explain E0308`.\nerror: could not compile `fold_db` (lib) due to 1 previous error\n"
+  }
+]

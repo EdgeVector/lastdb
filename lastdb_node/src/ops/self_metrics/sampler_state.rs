@@ -102,9 +102,6 @@ pub struct SamplerRuntimeState {
     /// Node-local TTL sweeper bookkeeping. Independent of the telemetry
     /// count-cap drain so a settled telemetry plane cannot silence expiry.
     pub(super) ttl: Mutex<TtlSweepState>,
-    /// Last atom reverse-edge health read by its background owner task.
-    /// Status clones this value and never reads durable atom-ref records.
-    pub(super) atom_ref_edges: Mutex<Option<AtomRefEdgeHealth>>,
     /// Last complete status snapshot published by the sampler. `/api/status`
     /// clones this value and never admits a group.
     pub(super) last_status: Mutex<Option<std::sync::Arc<StatusSnapshot>>>,
@@ -318,20 +315,6 @@ impl SamplerRuntimeState {
             last_pass: ttl.last_pass.clone(),
             next_attempt_unix_secs: ttl.next_attempt_unix_secs,
         }
-    }
-
-    pub(crate) fn cache_atom_ref_edge_health(&self, health: AtomRefEdgeHealth) {
-        *self
-            .atom_ref_edges
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(health);
-    }
-
-    pub(super) fn atom_ref_edge_health(&self) -> Option<AtomRefEdgeHealth> {
-        self.atom_ref_edges
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
     }
 }
 

@@ -302,6 +302,12 @@ pub enum DataRoute {
     /// database catalog names, besides the personal scope. OWNER socket only.
     /// Reads the catalog, not the data.
     DbVerifyRefsScopes,
+    /// `POST /api/db/molecule-drain` — name one molecule to the drain and read
+    /// the drain report. OWNER socket only. Body: `{molecule?, scope?}`. With a
+    /// molecule it reads the counters inside the write gate and queues the
+    /// molecule when it is dead or refused; it deletes nothing. The drain task
+    /// does the removal in bounded batches.
+    DbMoleculeDrain,
     /// `GET /api/db/schemas` — atom-only per-schema logical storage.
     /// OWNER socket only. Cheaper than [`Self::DbInventory`] (no history /
     /// order-log / tip-format walks) but still a heavy admin scan.
@@ -313,8 +319,8 @@ pub enum DataRoute {
     /// installed schemas from catalog metadata and molecule counters.
     /// OWNER socket only; this route never scans atoms.
     SchemaStorageReport,
-    /// `POST /api/storage/liveness/explain` — point-read one target's active
-    /// reverse-edge partition and fail-closed completeness state.
+    /// `POST /api/storage/liveness/explain` — point-read the counter of one
+    /// atom, molecule or blob, and its queue state.
     LivenessExplain,
     /// `POST /api/db/clear-history` — trim or purge mutation-history rows.
     /// OWNER socket only. Body: `{schema?, keep_last?, dry_run?}`.
@@ -339,11 +345,6 @@ pub enum DataRoute {
     /// would-retire counts. OWNER only. Body: `{ dry_run?: bool }` (default true).
     /// Execute skips while a backup cut is held. Never stamps missing groups.
     DbStampPurgedAtomRetirements,
-    /// `POST /api/db/gc-file-blobs` — delete local file-blob rows
-    /// (`cas_blobs` + resident `cas_blob:`) no live atom references; the
-    /// reclaim path for sealed bytes a purge orphans. OWNER socket only.
-    /// Body: `{ dry_run?: bool }` (default true).
-    DbGcFileBlobs,
     /// `POST /api/db/gc-proteins` — delete empty, unbound `protein:` rows.
     /// OWNER socket only. Body: `{ dry_run?: bool }` (default true).
     DbGcProteins,
@@ -356,7 +357,7 @@ pub enum DataRoute {
     /// skipped reads. Owner socket only; keys can name user data.
     DbUnresolvedAtoms,
     /// `GET /api/db/delete-ledger` — read the durable atom hard-delete audit
-    /// trail (purge + gc-atoms), oldest first. Query: `?limit=N` (0/absent =
+    /// trail (purge, delete and delete-converge), oldest first. Query: `?limit=N` (0/absent =
     /// all). Read-only; OWNER socket only, because it names which schemas had
     /// records erased.
     DbDeleteLedger,

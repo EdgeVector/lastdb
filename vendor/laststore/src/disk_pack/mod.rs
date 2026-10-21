@@ -99,6 +99,10 @@ const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_PACKED_KEYS
     | FEATURE_ATOM_RECORDS;
 
+/// Most dependency parts one published generation can name. A writer that
+/// reaches it refuses further writes until maintenance replaces the receipt.
+pub const MAX_DEPENDENCY_PARTS: u64 = dependency::MAX_DEPENDENCIES as u64;
+
 const LEGACY_BATCH_OPERATIONS: usize = 4096;
 const LARGE_BATCH_OPERATIONS: usize = 16_384;
 

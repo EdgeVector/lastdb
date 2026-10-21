@@ -8,9 +8,10 @@ fn history_row_bytes(storage_key: &str, ev: &MutationEvent) -> u64 {
 }
 
 /// True for a history row that keeps a conflicting write: a merge-conflict
-/// event, a conflict loser, or an imported Put kept out of the tip. Tom's rule
-/// (2026-10-13): when two devices write the same key, each write stays. A
-/// history clear never selects such a row, and its loser atom keeps its edge.
+/// event, a conflict loser, or an imported Put kept out of the tip. The rule
+/// of 2026-10-13: when two devices write the same key, each write stays. A
+/// history clear never selects such a row, and its loser atom keeps its counted
+/// reference.
 fn keeps_conflicting_write(ev: &MutationEvent) -> bool {
     ev.is_conflict
         || ev.conflict_loser_atom.is_some()
@@ -73,10 +74,10 @@ impl AtomStore {
     ///   and atoms remain; time-travel / `as_of` over deleted events is gone.
     /// - **`keep_last_per_key >= 1`**: keep the newest N events per field key.
     ///
-    /// Does **not** delete current tips or atoms (safe; may leave orphan atoms
-    /// until a later GC). Does **not** select a conflict row (see
-    /// [`keeps_conflicting_write`]): those rows, and the loser atoms their
-    /// edges keep alive, stay.
+    /// Does **not** delete current tips or atoms (an atom stays while a tip or a
+    /// conflict record names it: the atom counter). Does **not** select a
+    /// conflict row (see [`keeps_conflicting_write`]): those rows, and the loser
+    /// atoms their references keep alive, stay.
     pub async fn clear_mutation_history(
         &self,
         schema_field_molecules: &[(String, Vec<String>)],

@@ -97,11 +97,10 @@ impl SyncEngine {
         })
     }
 
-    /// Drop any fresh-home marker BEFORE a personal restore installs rows, not
-    /// only after. A crash between the install and the barrier that follows it
-    /// would otherwise leave a marker that vouches for rows no edge writer
-    /// produced.
-    async fn drop_fresh_home_before_restore(&self, target: &SyncTarget) -> SyncResult<()> {
+    /// Run the restore barrier BEFORE a personal restore installs rows, not only
+    /// after, so the serving store does not hold state of the home that the
+    /// restore replaces.
+    async fn prepare_serving_store_before_restore(&self, target: &SyncTarget) -> SyncResult<()> {
         if !target.prefix.is_empty() {
             return Ok(());
         }
@@ -141,7 +140,7 @@ impl SyncEngine {
             snapshot.namespaces.len(),
             last_seq
         );
-        self.drop_fresh_home_before_restore(target).await?;
+        self.prepare_serving_store_before_restore(target).await?;
         let restore_report = self.restore_snapshot_into_store(target, &snapshot).await?;
         if target.prefix.is_empty() {
             self.invoke_photograph_restore_barrier()

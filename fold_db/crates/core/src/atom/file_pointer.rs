@@ -30,9 +30,9 @@ pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
 /// (`file_blob_ref` verbatim; `file_hash` as `sha256:{hash}`).
 ///
 /// This union is the reachability definition shared by purge accounting and
-/// `gc_orphan_file_blobs`: the resident persist path records refs in
-/// metadata, the personal/sharing write paths record them in content, and a
-/// keep-set that reads only one of the two deletes blobs the other still
+/// the blob counter: the resident persist path records refs in metadata, the
+/// personal/sharing write paths record them in content, and a count that reads
+/// only one of the two lets the dwell pass delete blobs the other still
 /// needs.
 pub fn blob_refs_of_atom(
     content: &Value,

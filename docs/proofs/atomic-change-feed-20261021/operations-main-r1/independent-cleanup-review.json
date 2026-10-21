@@ -1,0 +1,271 @@
+{
+  "archive_listing_identity": {
+    "bytes": 12428,
+    "sha256": "092dd7f141a85e38b4ea26cc17bd608e4fa43271042967cdf3eaef81b9bd0d72"
+  },
+  "checked_pids": [
+    4610,
+    93353,
+    93703
+  ],
+  "checked_utc": "2026-10-21T19:12:13.413363+00:00",
+  "device": 16777231,
+  "exact_archives_verified": [
+    {
+      "manifest": "run/portable/receipts-jsonl/manifest.json",
+      "manifest_identity": {
+        "bytes": 892,
+        "sha256": "abd0474597b0dc0a61d6d3a9e0051d9562c0219553b301565faddf1e8655512a"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 699045,
+        "sha256": "5c7b2a3da2be33503a356850f33ff17227a15222f15773cf071956e222c36340"
+      }
+    },
+    {
+      "manifest": "run/portable/inputs-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 885,
+        "sha256": "745d4199150bb9e191a45b341d2611ab5193b22ae23506756ee70103b87c7745"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 2030,
+        "sha256": "c199af531be26606ece6e8a96e60d5065be48dfe3de06cd1e809f7440dc05fcd"
+      }
+    },
+    {
+      "manifest": "run/portable/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 883,
+        "sha256": "bbab409c208ac32fb97edeaa30ac53c0351bcacb97dbbaedd8d25d30cbf7f26b"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 174,
+        "sha256": "445b4a4dd32337bffe94bac1de3ec9a29acf26075056d648282dc2b11ee2f891"
+      }
+    },
+    {
+      "manifest": "run/portable/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 886,
+        "sha256": "1b29383d9e0d86983af65cf5974934770f569b7ade93ad530a0d202c86755c2c"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 11502,
+        "sha256": "7e2502d0e04617551ccd788e08fb11652a789f927130d431b7e566a30048206d"
+      }
+    },
+    {
+      "manifest": "run/portable/retained-root-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 889,
+        "sha256": "4183da41a66d1398b5c26d1a2b1c87954bec913360eedd73db5952cc9eb3b0d5"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 189,
+        "sha256": "051d8fe121c0a90f9d77f5da4a671c66012b53f2c541d609b3b1a7250ad9fed8"
+      }
+    },
+    {
+      "manifest": "run/portable/synthetic-seed-owner-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 897,
+        "sha256": "85c4fd74eb6486ffa538f6c5e3125bbe294a6e5bf58aa215e6520189f8720d23"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 123,
+        "sha256": "01e7ce3104162a26b6a7d23ac7918aae924127bcd6ece7390b57712df23fbd49"
+      }
+    },
+    {
+      "manifest": "run/portable/node-log-00/manifest.json",
+      "manifest_identity": {
+        "bytes": 813,
+        "sha256": "6729c4bb154ecd22c0660676ca44fd1c985ff4f6fb99bf336041bbea3cbc2709"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 27930,
+        "sha256": "33a661ead7ac7b1fcd53d09590c13a650666b50d1f9de3fe66f02fde6063656e"
+      }
+    },
+    {
+      "manifest": "portable/operations-main-r1/command-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 882,
+        "sha256": "2023278cf0a86bf362d7d945c68a4a14906a6e4e5222a5cc72c2f56bea75d7b6"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 6392,
+        "sha256": "8c55f4ecbb4f7bbfefd8edd64cd04863e827f621dd7888ead75a0a85b88ca68f"
+      }
+    },
+    {
+      "manifest": "portable/operations-main-r1/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 882,
+        "sha256": "5a47836a0e570ac5f2e5924ae7c3b53260d90420961513fc2e83b5ab2faf3139"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 11502,
+        "sha256": "7e2502d0e04617551ccd788e08fb11652a789f927130d431b7e566a30048206d"
+      }
+    },
+    {
+      "manifest": "portable/after-main/source-identity-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 888,
+        "sha256": "77ce997355331402ba1c637d6c1b6d11f64671fb4bca7dd98b560c7bd1e389d4"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 353309,
+        "sha256": "df9b476de28edeec26f8a63b0077e48c6673031ac543b8e4bfc53d0623c97843"
+      }
+    },
+    {
+      "manifest": "portable/after-main-v2/source-identity-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 891,
+        "sha256": "622948a074b051552d57f3c3e7e88254ec4dbe4928151f791309f6e9f5f0d44f"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 353903,
+        "sha256": "88b1e3c87396a862f1b79588bfc46df325167ac2a6a074b1fb6a20b013025fff"
+      }
+    },
+    {
+      "manifest": "portable/after-main-v2/binary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 873,
+        "sha256": "69f27b10adc714fc1902680a60a354ba2a5957a9ee19a5ee7d2a3fbbd2cc58bd"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 423,
+        "sha256": "39098451558cf4f8bdcfdc1edffc0753469c5401ccab16e6ef0c3934202b2e2f"
+      }
+    },
+    {
+      "manifest": "portable/sealed-originals-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 892,
+        "sha256": "3437000e0d97e4c7a44e3ea071f2856e0cd61ffb2f0a13221d335a30ed4b1db8"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 22202,
+        "sha256": "9a258a9732ece7cdf504e549afdbeafccc436c392290b00d519f1f2df8aba875"
+      }
+    }
+  ],
+  "inode": 1494769696,
+  "known_socket_paths_checked": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4/o/q.sock",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4/o/f.sock"
+  ],
+  "known_socket_paths_remaining": [],
+  "marker": {
+    "creator_pid": 93353,
+    "device": 16777231,
+    "inode": 1494769696,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "marker_identity": {
+    "bytes": 123,
+    "sha256": "01e7ce3104162a26b6a7d23ac7918aae924127bcd6ece7390b57712df23fbd49"
+  },
+  "mode": "0o700",
+  "normal_node_stops": [
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 93703,
+      "variant": "operations"
+    },
+    {
+      "diagnostics": "off",
+      "exit_code": 0,
+      "forced_kill": false,
+      "operation": "owned-node-stop",
+      "pid": 4610,
+      "variant": "operations"
+    }
+  ],
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "operation_review_identity": {
+    "bytes": 23061,
+    "sha256": "f3f6d1f17f2b7c76f269ad64a6467fc212e8bad8ae441eac27bae379eb7a05b3"
+  },
+  "owner_uid": 501,
+  "preview_identity": {
+    "bytes": 423,
+    "sha256": "469aae64fb4189304814a634efa0f85d19ad16e994e31f9f169680586fe98d16"
+  },
+  "preview_listing_identity": {
+    "bytes": 969,
+    "sha256": "d00040d194b075912b36c4ebdc871f86ab7bd4f1b8bb23273aa7cfbf8bb7e4d6"
+  },
+  "private_binary_identity": {
+    "bytes": 67623168,
+    "sha256": "26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55"
+  },
+  "process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "4610,93353,93703",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "ready_to_reclaim": true,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4",
+  "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run",
+  "reviewer": "independent subagent disk_wait_telemetry",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4",
+  "scope": "Only the new operations-main-r1 root sp.dndqa4q4. Every sealed file and all 12 exact archives plus the archived seal independently match their original bytes. The exact supported preview succeeds. Fresh ownership, creator/node process, open-file and socket checks pass. No node, build, primary access or reclaim occurs in this review. Original six reclaimed roots remain untouched. Recheck exact state immediately before supported reclaim.",
+  "seal_bytes": 22202,
+  "seal_sha256": "9a258a9732ece7cdf504e549afdbeafccc436c392290b00d519f1f2df8aba875",
+  "sealed_files_verified": 21,
+  "supported_preview": {
+    "command": [
+      "/Users/tomtang/.local/bin/lastdb-dev",
+      "reclaim",
+      "--home",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4",
+      "--exact-home",
+      "--dry-run"
+    ],
+    "exit_code": 0,
+    "root_exists_after_preview": true,
+    "stderr": "",
+    "stdout": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4 (released exact synthetic seed)\n"
+  }
+}

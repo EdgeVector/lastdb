@@ -53,6 +53,24 @@ pub trait KvStore: Send + Sync {
         )))
     }
 
+    /// Delete every key whose current raw value is exactly the value given
+    /// with it. Returns, in input order, whether each key was deleted.
+    ///
+    /// The batched counterpart of [`Self::compare_and_swap`] with `new = None`:
+    /// a key whose value differs is left alone and reports `false`. The
+    /// default compares and deletes one key at a time. A backend whose commit
+    /// is costly should override it to commit the matching keys together.
+    async fn compare_and_delete_many(
+        &self,
+        items: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> StorageResult<Vec<bool>> {
+        let mut deleted = Vec::with_capacity(items.len());
+        for (key, expected) in items {
+            deleted.push(self.compare_and_swap(&key, &expected, None).await?);
+        }
+        Ok(deleted)
+    }
+
     /// Delete a key
     async fn delete(&self, key: &[u8]) -> StorageResult<bool>;
 
@@ -214,6 +232,33 @@ pub trait KvStore: Send + Sync {
         Ok(rows)
     }
 
+    /// Scan up to `limit` rows of `start..end` and name where to continue.
+    ///
+    /// For a walk over a range that holds many deleted keys. A backend whose
+    /// reads have a key budget may stop short of `limit` rows when the budget
+    /// runs low, in a run of deleted keys or between live rows: it then returns
+    /// the rows it has and `resume`, the last key it examined, in place of a
+    /// read-limit error. `keys_per_row` says how many keys the caller reads
+    /// for each row it gets (its counters and bodies, in the same call): the
+    /// backend stops while it still has them. A page that is short does not end
+    /// the range; `resume` is `None` only at the end of the range. The default
+    /// reads as [`Self::scan_range_paged`] and names the last row of a full
+    /// page.
+    async fn scan_range_yielding(
+        &self,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+        keys_per_row: usize,
+    ) -> StorageResult<YieldedScan> {
+        let _ = keys_per_row;
+        let rows = self.scan_range_paged(start, end, limit).await?;
+        let resume = (limit > 0 && rows.len() >= limit)
+            .then(|| rows.last().map(|(key, _)| key.clone()))
+            .flatten();
+        Ok(YieldedScan { rows, resume })
+    }
+
     /// Scan a range while bounding physical shard/group resolution.
     ///
     /// Product queries must use the globally ordered range methods above.
@@ -229,38 +274,7 @@ pub trait KvStore: Send + Sync {
         limit: usize,
         max_handles: usize,
     ) -> StorageResult<PhysicalScanPage> {
-        if limit == 0 || max_handles == 0 || start >= end {
-            return Ok(PhysicalScanPage {
-                next_cursor: cursor.cloned(),
-                ..Default::default()
-            });
-        }
-        let resume = cursor
-            .and_then(|position| position.after_key.as_deref())
-            .unwrap_or(start);
-        // `scan_range_paged` includes its start key. A resume page therefore
-        // needs one slot for that duplicate plus one slot for lookahead.
-        let lookahead = limit
-            .saturating_add(1)
-            .saturating_add(usize::from(cursor.is_some()));
-        let mut rows = self.scan_range_paged(resume, end, lookahead).await?;
-        if let Some(after) = cursor.and_then(|position| position.after_key.as_deref()) {
-            rows.retain(|(key, _)| key.as_slice() != after);
-        }
-        let more_remaining = rows.len() > limit;
-        rows.truncate(limit);
-        let handle = PhysicalScanCursor::default();
-        let next_cursor = more_remaining.then(|| PhysicalScanCursor {
-            after_key: rows.last().map(|(key, _)| key.clone()),
-            ..handle.clone()
-        });
-        Ok(PhysicalScanPage {
-            row_handle: (!rows.is_empty()).then_some(handle),
-            rows,
-            next_cursor,
-            handles_visited: 1,
-            cold_shard_loads: 0,
-        })
+        scan::keyset_physical_page(self, start, end, cursor, limit, max_handles).await
     }
 
     /// Scan keys with a given prefix, tolerating per-row read failures.

@@ -32,6 +32,9 @@ pub(crate) use db_reclaim_cmds::*;
 #[path = "db_unresolved_cmds.rs"]
 mod db_unresolved_cmds;
 pub(crate) use db_unresolved_cmds::*;
+#[path = "db_molecule_drain_cmds.rs"]
+mod db_molecule_drain_cmds;
+pub(crate) use db_molecule_drain_cmds::*;
 #[path = "db_verify_refs_cmds.rs"]
 mod db_verify_refs_cmds;
 pub(crate) use db_verify_refs_cmds::*;
@@ -95,6 +98,7 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
             execute,
             scopes,
             all_scopes,
+            blobs_exact,
             shards,
             i_know_this_is_primary,
             json,
@@ -104,6 +108,7 @@ fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), Strin
                 execute,
                 scopes,
                 all_scopes,
+                blobs_exact,
                 shards,
                 i_know_this_is_primary,
                 json,

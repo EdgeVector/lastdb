@@ -369,6 +369,8 @@ pass on a fresh synthetic home: off point 13/52 write 246/447, read 13/14 and
   `docs/lastdb-write-ahead-journal-design.md` written. Built since the warm set
   design: store fsync gauges (#160), fewer groups per write (#167), GC reaper
   re-arm and hardening (#169, #170), persist cut for the manual GC verb (#171).
+  (The atom GC reaper and its verb were removed by the counter lifecycle,
+  `docs/lastdb-atom-counter.md`.)
 - 2026-10-14, sidecar flush rule: the key sidecar (`keys-v1.idx`) keeps its write
   aside and rename. The forced disk write before the rename now happens only for a
   group of half the cold-load cap or more (1 GiB by default). Proof on fresh

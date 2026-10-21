@@ -15,11 +15,12 @@
 //! long backlog cannot hold back a drain.
 
 use super::drain::{DrainOutcome, PendingDrain, MAX_PENDING_DRAINS};
-use super::entry::{DrainMarker, QueueValue};
+use super::entry::DrainMarker;
 use super::page::{ReleaseOutcome, RELEASE_BATCH_RECORDS};
-use crate::db_operations::atom_store::time_queue::{DuePage, QueueReader, TimeQueue};
+use crate::db_operations::atom_store::time_queue::{QueueReader, TimeQueue};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::transaction::blocked::{measure, Cost};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -49,6 +50,24 @@ pub(crate) struct StepOutcome {
     pub(crate) retired: bool,
     /// Buckets that a net chunk registered again.
     pub(crate) repaired: u64,
+    /// How long the step kept writers waiting: the hold of the native write gate,
+    /// and for a batch that seals the queue, the wait until it is durable
+    /// (`storage::disk_pack::transaction::blocked`). The janitor rests for a share
+    /// of this time.
+    pub(crate) blocked: Duration,
+    /// Write scopes the step opened. The janitor takes them off the count of the
+    /// scopes of the process to tell whether another writer was there.
+    pub(crate) scopes: u64,
+}
+
+impl StepOutcome {
+    fn with_cost(self, cost: Cost) -> Self {
+        Self {
+            blocked: cost.blocked,
+            scopes: cost.scopes,
+            ..self
+        }
+    }
 }
 
 /// Pages of drain markers that one ordinary step reads before it returns. A page
@@ -180,6 +199,16 @@ impl AtomStore {
         cursor: &mut RetentionCursor,
         now_nanos: u64,
     ) -> Result<Option<StepOutcome>, SchemaError> {
+        let (step, cost) = measure(self.read_and_release(cursor, now_nanos)).await;
+        Ok(step?.map(|outcome| outcome.with_cost(cost)))
+    }
+
+    /// The work of [`Self::release_step`], without the measure of the time it blocks writers.
+    async fn read_and_release(
+        &self,
+        cursor: &mut RetentionCursor,
+        now_nanos: u64,
+    ) -> Result<Option<StepOutcome>, SchemaError> {
         let mut marker_pages = 0usize;
         for bucket in cursor.reader.candidates(now_nanos) {
             loop {
@@ -211,13 +240,21 @@ impl AtomStore {
                     }
                     continue;
                 }
-                let (records, markers) = self.split_due_rows(&page);
+                let (records, markers, expired) = self.split_due_rows(&page, now_nanos);
                 let refused = cursor.register(markers);
-                let outcome = if records.is_empty() {
+                let outcome = if records.is_empty() && expired.is_empty() {
                     ReleaseOutcome::default()
                 } else {
-                    self.release_due_records(&records, now_nanos).await?
+                    self.release_due_records(&records, &expired, now_nanos)
+                        .await?
                 };
+                if !expired.is_empty() {
+                    tracing::info!(
+                        target: "fold_node::database",
+                        markers = expired.len(),
+                        "conflict janitor dropped drain markers older than the retention window"
+                    );
+                }
                 let stays = refused.is_some();
                 match refused {
                     None => cursor.reader.finish(page),
@@ -227,7 +264,10 @@ impl AtomStore {
                         now_nanos.saturating_add(RETRY_NANOS),
                     ),
                 }
-                if !records.is_empty() || marker_pages >= MARKER_PAGES_PER_STEP {
+                if !records.is_empty()
+                    || !expired.is_empty()
+                    || marker_pages >= MARKER_PAGES_PER_STEP
+                {
                     return Ok(Some(StepOutcome {
                         lane: Lane::Ordinary,
                         released: outcome.released,
@@ -245,31 +285,6 @@ impl AtomStore {
         Ok(None)
     }
 
-    /// The keys of the record entries of a page, and its drain markers. An entry
-    /// that does not decode, or whose key has no readable expiry, is counted and
-    /// left alone: the cursor moves past it, and the entry stays.
-    fn split_due_rows(&self, page: &DuePage) -> (Vec<String>, Vec<DrainMarker>) {
-        let queue = self.retention_state().queue();
-        let mut records = Vec::new();
-        let mut markers = Vec::new();
-        for (key, value) in &page.rows {
-            if queue.entry_expiry(key).is_none() {
-                tracing::error!(%key, "retention queue key has no readable expiry");
-                self.retention_state().note_undecodable();
-                continue;
-            }
-            match QueueValue::decode(value) {
-                Ok(QueueValue::Record(_)) => records.push(key.clone()),
-                Ok(QueueValue::Drain(marker)) => markers.push(marker),
-                Err(error) => {
-                    tracing::error!(%key, %error, "retention queue entry does not decode");
-                    self.retention_state().note_undecodable();
-                }
-            }
-        }
-        (records, markers)
-    }
-
     /// One chunk of the safety net: probe the next slices of the sweep, and
     /// register again each bucket that holds a live entry and has no directory
     /// row. A new sweep starts when the net is on and its time has come. `None`
@@ -278,6 +293,16 @@ impl AtomStore {
     /// The probe covers the slices that can hold a live entry, by arithmetic
     /// (`TimeQueue::net_slices`), so it needs no scan. See `time_queue/net.rs`.
     pub(crate) async fn net_step(
+        &self,
+        cursor: &mut RetentionCursor,
+        now_nanos: u64,
+    ) -> Result<Option<StepOutcome>, SchemaError> {
+        let (step, cost) = measure(self.sweep_chunk(cursor, now_nanos)).await;
+        Ok(step?.map(|outcome| outcome.with_cost(cost)))
+    }
+
+    /// The work of [`Self::net_step`], without the measure of the time it blocks writers.
+    async fn sweep_chunk(
         &self,
         cursor: &mut RetentionCursor,
         now_nanos: u64,
@@ -335,16 +360,19 @@ impl AtomStore {
         if cursor.pending.is_empty() {
             return Ok(None);
         }
+        let (batch, cost) = measure(self.drain_batch(&mut cursor.pending)).await;
         let DrainOutcome {
             released,
             skipped,
             finished,
-        } = self.drain_batch(&mut cursor.pending).await?;
+        } = batch?;
         Ok(Some(StepOutcome {
             lane: Lane::Drain,
             released,
             skipped,
             finished,
+            blocked: cost.blocked,
+            scopes: cost.scopes,
             ..StepOutcome::default()
         }))
     }

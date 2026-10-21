@@ -54,7 +54,7 @@ Each hash group retains its separate locator tree.
 
 The writer publishes the complete replacement receipt before it publishes `CURRENT`.
 It keeps the existing 65,536 dependency-part limit.
-The compaction quote permits at most 65,536 collection/hash-group coordinates and one million records across the home.
+The compaction quote permits at most 65,536 collection/hash-group coordinates and 67,108,864 records across the home.
 It retains one cursor path and one record stream, with a 64 KiB copy buffer.
 No product full-read query is added.
 
@@ -116,3 +116,12 @@ The ordinary cap-disabled space check uses filesystem capacity and active ticket
 It does not enumerate files for each write.
 An explicitly enabled whole-home cap still uses a bounded census.
 A configured cap therefore adds file-inventory work to each reservation.
+
+## Dependency parts and automatic maintenance
+
+A generation receipt names every part file that the generation needs, and it holds at most 65,536 entries.
+Every publication adds entries, and only the pack step removes them. The node counts the parts after each
+publication and runs pack and reclaim by itself when the count passes 4,096. Above 90 percent of the limit a
+new write waits for that work, and a write at the limit is refused with HTTP 503 `write_resource_limit`.
+The ledger, the worker, the settings, the `Storage parts` status line, the sweep of unreferenced part files
+and the fail-closed rule of reclaim are in `docs/lastdb-storage-parts.md`.

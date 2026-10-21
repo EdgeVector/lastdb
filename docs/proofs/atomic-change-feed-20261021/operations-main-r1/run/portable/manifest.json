@@ -1,0 +1,152 @@
+{
+  "archives": [
+    {
+      "gzip": {
+        "bytes": 45425,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 45425,
+            "path": "payload.gz.part-001",
+            "sha256": "6cf284b5871e16ccce87093e4e29a42edf9c9472ee0ac9ebe57a1d06e3cb98ab"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "6cf284b5871e16ccce87093e4e29a42edf9c9472ee0ac9ebe57a1d06e3cb98ab"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/receipts-jsonl/manifest.json",
+      "raw": {
+        "bytes": 699045,
+        "sha256": "5c7b2a3da2be33503a356850f33ff17227a15222f15773cf071956e222c36340"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/receipts.jsonl"
+    },
+    {
+      "gzip": {
+        "bytes": 1124,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 1124,
+            "path": "payload.gz.part-001",
+            "sha256": "695f554953c00bf60c99bd15c5b6936157575f13944aa1151e85be9a4a6fd16d"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "695f554953c00bf60c99bd15c5b6936157575f13944aa1151e85be9a4a6fd16d"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/inputs-json/manifest.json",
+      "raw": {
+        "bytes": 2030,
+        "sha256": "c199af531be26606ece6e8a96e60d5065be48dfe3de06cd1e809f7440dc05fcd"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/inputs.json"
+    },
+    {
+      "gzip": {
+        "bytes": 166,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 166,
+            "path": "payload.gz.part-001",
+            "sha256": "766485d91157a5b4b7068c70486adf9b753584b3d7dab807bdf70af3f2d98a06"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "766485d91157a5b4b7068c70486adf9b753584b3d7dab807bdf70af3f2d98a06"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/summary-json/manifest.json",
+      "raw": {
+        "bytes": 174,
+        "sha256": "445b4a4dd32337bffe94bac1de3ec9a29acf26075056d648282dc2b11ee2f891"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/summary.json"
+    },
+    {
+      "gzip": {
+        "bytes": 2739,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 2739,
+            "path": "payload.gz.part-001",
+            "sha256": "ed4a71405bb9bab281489fe1062ba07857f18200b7cb4a4b850329a5b715be74"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "ed4a71405bb9bab281489fe1062ba07857f18200b7cb4a4b850329a5b715be74"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/result-json/manifest.json",
+      "raw": {
+        "bytes": 11502,
+        "sha256": "7e2502d0e04617551ccd788e08fb11652a789f927130d431b7e566a30048206d"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/result.json"
+    },
+    {
+      "gzip": {
+        "bytes": 167,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 167,
+            "path": "payload.gz.part-001",
+            "sha256": "4733db459246686677985db3baab981ebbd0e7b982ba0d9283b4b4c027dd778f"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "4733db459246686677985db3baab981ebbd0e7b982ba0d9283b4b4c027dd778f"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/retained-root-json/manifest.json",
+      "raw": {
+        "bytes": 189,
+        "sha256": "051d8fe121c0a90f9d77f5da4a671c66012b53f2c541d609b3b1a7250ad9fed8"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/retained-root.json"
+    },
+    {
+      "gzip": {
+        "bytes": 122,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 122,
+            "path": "payload.gz.part-001",
+            "sha256": "c17466c3bb6c75c874a51df1d76b596af4fcb690b1c1e2dbec5fa5503f469a2a"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "c17466c3bb6c75c874a51df1d76b596af4fcb690b1c1e2dbec5fa5503f469a2a"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/synthetic-seed-owner-json/manifest.json",
+      "raw": {
+        "bytes": 123,
+        "sha256": "01e7ce3104162a26b6a7d23ac7918aae924127bcd6ece7390b57712df23fbd49"
+      },
+      "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/.synthetic-seed-owner.json"
+    },
+    {
+      "gzip": {
+        "bytes": 3496,
+        "part_max_bytes": 921600,
+        "parts": [
+          {
+            "bytes": 3496,
+            "path": "payload.gz.part-001",
+            "sha256": "6ef0c8ee3c744297bb864014a3c17d69a882e27fc1cb8379d58dae48ef5cf87e"
+          }
+        ],
+        "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+        "sha256": "6ef0c8ee3c744297bb864014a3c17d69a882e27fc1cb8379d58dae48ef5cf87e"
+      },
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/portable/node-log-00/manifest.json",
+      "raw": {
+        "bytes": 27930,
+        "sha256": "33a661ead7ac7b1fcd53d09590c13a650666b50d1f9de3fe66f02fde6063656e"
+      },
+      "source": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.dndqa4q4/o/node.log"
+    }
+  ],
+  "scope": "Exact raw files and compact original receipts, including every ID and original timestamp."
+}

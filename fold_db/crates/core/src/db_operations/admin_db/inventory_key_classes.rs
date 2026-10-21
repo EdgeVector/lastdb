@@ -32,9 +32,54 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
         "mref:v1:n:{M} — bindings counter of a molecule",
     ),
     (
+        "molecule_drain_candidate",
+        "mref:v1:d\0",
+        "mref:v1:d\0{scope}\0{M} — a molecule that lost its last binding; the drain removes it and deletes the row",
+    ),
+    (
+        "molecule_generation_delete",
+        "mgd:v1:",
+        "mgd:v1:{M}:… — one generation delete marker for each slot an erase removed",
+    ),
+    (
+        "molecule_generation_record",
+        "mgr:v1:",
+        "mgr:v1:{M}:{generation}:… — immutable generation slot records",
+    ),
+    (
+        "molecule_generation_pointer",
+        "mgp:v1:",
+        "mgp:v1:{M} — the active generation of a molecule",
+    ),
+    (
+        "delete_barrier",
+        "rdel:v2:",
+        "rdel:v2:{hex of mk key} — the order of a Delete for one tip key",
+    ),
+    (
+        "conflict_index",
+        "mcc:",
+        "mcc:{M} — ids of the kept conflict records of a molecule",
+    ),
+    (
         "conflict",
         "conflict\0",
         "conflict:… — merge conflict records",
+    ),
+    (
+        "blob_counter",
+        "bref:v3:c:",
+        "bref:v3:c:{sha256(blob_ref)}\\0c — blob counter (references to a local file blob, and its dwell)",
+    ),
+    (
+        "blob_queue",
+        "bref:v3:q:",
+        "bref:v3:q:{bucket}\0{zero_since}:{sha256(blob_ref)} — time-bucketed dwell queue of local file blobs at zero (the dwell pass reads it)",
+    ),
+    (
+        "blob_queue_bucket_directory",
+        "bref:v3:d\0",
+        "bref:v3:d\0{bucket} — one row for each bucket of the blob dwell queue (the dwell pass lists it)",
     ),
     (
         "retention_queue",
@@ -83,6 +128,6 @@ pub(super) const MAIN_KEY_CLASSES: &[(&str, &str, &str)] = &[
     (
         "atom_delete_ledger",
         "dellog\0",
-        "dellog:{ts}:{uuid} — hard-delete audit row (purge / gc-atoms). Never auto-reaped.",
+        "dellog:{ts}:{uuid} — hard-delete audit row (purge / delete). Never removed by a janitor.",
     ),
 ];

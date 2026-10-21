@@ -1,0 +1,22 @@
+{
+  "contract": "The gzip stream reproduces every original byte, ID and time. No JSON transformation.",
+  "format": "lastdb-exact-evidence-gzip-v1",
+  "gzip": {
+    "bytes": 122,
+    "part_max_bytes": 921600,
+    "parts": [
+      {
+        "bytes": 122,
+        "path": "payload.gz.part-001",
+        "sha256": "c17466c3bb6c75c874a51df1d76b596af4fcb690b1c1e2dbec5fa5503f469a2a"
+      }
+    ],
+    "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+    "sha256": "c17466c3bb6c75c874a51df1d76b596af4fcb690b1c1e2dbec5fa5503f469a2a"
+  },
+  "raw": {
+    "bytes": 123,
+    "sha256": "01e7ce3104162a26b6a7d23ac7918aae924127bcd6ece7390b57712df23fbd49"
+  },
+  "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-main-r1/run/.synthetic-seed-owner.json"
+}

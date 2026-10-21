@@ -14,32 +14,18 @@
 //!
 //! - **No row, or a row that does not open and hash to its key:** seal and
 //!   write. A damaged row is repaired by the next put of its bytes.
-//! - **An intact row younger than [`DUPLICATE_PUT_REFRESH_SECS`]:** write
-//!   nothing. No second copy.
-//! - **An intact row older than that, or one with no usable `stored_at`:**
-//!   write the same row back with a new `stored_at`. No second seal.
+//! - **An intact row:** write no second copy.
 //!
 //! "Intact" covers both row formats. A sealed row must open under the DEK. A
 //! legacy plain row (written by the photo migration, which has DEK-less
 //! readers) must hash to its key. A plain row stays plain: sealing it here would
 //! make `get_blob_bytes_in_ops` refuse it.
 //!
-//! # Why the freshness check stays
-//!
-//! The GC age gate (`gc-file-blobs`) reclaims an unreferenced row only once
-//! `stored_at` is older than `FRESH_WRITE_GRACE_SECS` (600 s). The caller puts
-//! the blob first and writes the pointer record second, so `stored_at` is what
-//! keeps a sweep from reaping a row in that gap. A row that already exists and
-//! is, say, 590 s old (an orphan of an earlier crashed push) must NOT be skipped:
-//! the sweep could reap it before this caller's pointer lands. Skipping only
-//! rows younger than half the gate bounds the age after a put to 300 s. The
-//! caller then has at least 300 s, and a renewed row has the full 600 s.
-//!
-//! The cost of the rule: a re-put of the same bytes more than 300 s after the
-//! last write rewrites the row, so the log holds one more copy of it. That is
-//! bounded by the re-put rate, not by the number of puts. No compaction runs
-//! automatically on `cas_blobs`; a dead copy stays on disk until an owner
-//! compacts that collection.
+//! In every case the put also registers the upload with the blob counter, in the
+//! same native write request as the row. A blob that no atom names yet starts
+//! its dwell, and a blob that is already in its dwell starts it again. The caller
+//! puts the blob first and writes the pointer record second, so the dwell is what
+//! keeps the blob in that gap. The age of the row decides nothing.
 //!
 //! # Memory
 //!
@@ -51,35 +37,22 @@
 //! `LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT`).
 
 use super::{decode_blob_bytes_with_dek, is_local_cas_sealed, namespace, ContentAddressedBlob};
-use crate::db_operations::file_blob_gc::FRESH_WRITE_GRACE_SECS;
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
 use crate::hex::sha256_hex;
 use crate::schema::SchemaError;
 use crate::sharing::delivery_wire::content_addressed_blob_sealed_under_dek;
 use crate::storage::{KvStore, StorageError};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use std::sync::Arc;
-
-/// A duplicate put skips the write when the row is younger than this. Half of
-/// the GC grace window, so the age after any put is at most this value.
-pub const DUPLICATE_PUT_REFRESH_SECS: i64 = FRESH_WRITE_GRACE_SECS / 2;
-
-const _: () = assert!(
-    DUPLICATE_PUT_REFRESH_SECS > 0 && DUPLICATE_PUT_REFRESH_SECS < FRESH_WRITE_GRACE_SECS,
-    "a skipped duplicate put must leave the row inside the GC grace window"
-);
 
 /// What a local put did to the `cas_blobs` plane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SealedPutOutcome {
     /// No usable row existed. This call wrote one.
     Stored,
-    /// An intact row existed and was young. This call wrote nothing.
+    /// An intact row existed. This call wrote no second copy.
     AlreadyPresent,
-    /// An intact row existed but was older than [`DUPLICATE_PUT_REFRESH_SECS`].
-    /// This call wrote it back with a new `stored_at`.
-    Refreshed,
 }
 
 impl SealedPutOutcome {
@@ -96,14 +69,12 @@ enum Existing {
     /// A row is there but it does not open, or it does not match its key.
     Unusable,
     /// A row that opens (sealed) or hashes (plain) to its key.
-    Intact {
-        row: Box<ContentAddressedBlob>,
-        age: chrono::Duration,
-    },
+    Intact,
 }
 
 /// Seal `plaintext` under `dek_hex` and store it unless an intact row for the
-/// same bytes is already there and young. See the module docs.
+/// same bytes is already there. Register the upload with the blob counter. See
+/// the module docs.
 pub async fn put_blob_sealed_under_dek_dedup_in_ops(
     ops: &DbOperations,
     plaintext: &[u8],
@@ -128,19 +99,8 @@ pub async fn put_blob_sealed_under_dek_dedup_in_ops(
             plain_len: plaintext.len(),
             dek_hex,
         };
-        match inspect_existing(&store, &wanted).await {
-            Existing::Intact { row, age } => {
-                if age < chrono::Duration::seconds(DUPLICATE_PUT_REFRESH_SECS) {
-                    return Ok(SealedPutOutcome::AlreadyPresent);
-                }
-                // Same row, same format, new stamp. No second seal.
-                let mut renewed = row;
-                renewed.stored_at = Some(Utc::now().to_rfc3339());
-                let value = encode_row(&renewed)?;
-                drop(renewed);
-                put_row(&store, &blob_ref, value).await?;
-                Ok(SealedPutOutcome::Refreshed)
-            }
+        let outcome = match inspect_existing(&store, &wanted).await {
+            Existing::Intact => SealedPutOutcome::AlreadyPresent,
             Existing::Absent | Existing::Unusable => {
                 let mut sealed =
                     content_addressed_blob_sealed_under_dek(plaintext, media_type, name, dek_hex)?;
@@ -156,9 +116,15 @@ pub async fn put_blob_sealed_under_dek_dedup_in_ops(
                 let value = encode_row(&sealed)?;
                 drop(sealed);
                 put_row(&store, &blob_ref, value).await?;
-                Ok(SealedPutOutcome::Stored)
+                SealedPutOutcome::Stored
             }
-        }
+        };
+        // The same native request holds the row and its counter.
+        ops.atoms()
+            .register_blob_upload(&blob_ref)
+            .await
+            .map_err(FoldDbError::Schema)?;
+        Ok(outcome)
     })
     .await
 }
@@ -234,16 +200,5 @@ async fn inspect_existing(store: &Arc<dyn KvStore>, wanted: &Wanted<'_>) -> Exis
     if !opens {
         return Existing::Unusable;
     }
-    let age = row
-        .stored_at
-        .as_deref()
-        .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
-        .map(|at| Utc::now().signed_duration_since(at.with_timezone(&Utc)))
-        .filter(|age| *age >= chrono::Duration::zero());
-    // No usable stamp (none, unparseable, or in the future) is not evidence of
-    // a young write: treat the row as due for renewal.
-    Existing::Intact {
-        age: age.unwrap_or_else(|| chrono::Duration::seconds(DUPLICATE_PUT_REFRESH_SECS)),
-        row: Box::new(row),
-    }
+    Existing::Intact
 }

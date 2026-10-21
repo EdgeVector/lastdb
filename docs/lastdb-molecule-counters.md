@@ -3,8 +3,9 @@
 ## Contract
 
 Every molecule in a storage scope has three counters. A molecule may go only
-when all three are zero and none is `suspect`. No other structure allows a drop
-and no other structure blocks one.
+when all three are zero, none is `suspect`, and no binding record exists (a
+binding record with a zero or absent counter is a fault, not a dead molecule).
+No other structure allows a drop and no other structure blocks one.
 
 | Counter | Counts | Where it lives |
 |---|---|---|
@@ -15,8 +16,7 @@ and no other structure blocks one.
 `{target}` is the hex SHA-256 of the molecule uuid. A scope adds its prefix before
 the key, as for every other record.
 
-The drain that removes a dead molecule is a later step (S7). This step makes the
-counters exact and shows them.
+The drain that removes a dead molecule is step S7: `docs/lastdb-molecule-drain.md`.
 
 ## Why `bindings` is not in the header
 
@@ -62,6 +62,7 @@ Writers of a binding record:
 |---|---|---|
 | `store_schema`, `drop_schema` (`db_operations/schema_operations.rs`) | a schema is stored or dropped | personal |
 | `protein_add_member_in_scope` (`protein/ops.rs`) | a protein gets a member | personal |
+| `protein_release_members` (`protein/ops/release.rs`) | a schema drop or a changed schema leaves a molecule that only a protein names; the protein lets it go | personal |
 | `bind_catalog_molecules`, `unbind_catalog_molecules` (`catalog_bindings.rs`) | a catalog row is written or deleted | the instance of the row |
 
 The catalog row and its binding records are written in one batch by the share route,
@@ -81,6 +82,14 @@ gone lowers nothing. An erase reads the header of each molecule it touches and
 looks for kept records only in a molecule whose `records` is above zero (or whose
 header cannot be trusted: `suspect`, or no counters).
 
+The molecule drain releases the kept records of a dead molecule itself, from the slot
+directory of the molecule, and does not wait for the janitor (see
+`docs/lastdb-molecule-drain.md`, "Kept conflict records"). A schema that was dropped with
+kept conflict records can be installed again within minutes, not after the retention
+window. An install that meets a molecule the drain still works on answers `409`; the body
+names the reason (`draining`, `waiting_for_conflict_records`, `drain_task_off`) and the
+response has a `Retry-After`.
+
 ## Underflow
 
 A removal can ask for more slots or records than the counter holds, and a header can
@@ -93,7 +102,7 @@ cloud replay, which is off) reads as `suspect` at its next planner change.
 
 - `lastdb liveness explain molecule <uuid> [--scope PREFIX]` (and
   `POST /api/storage/liveness/explain` with class `molecule`, `id` or `ids`, and
-  `scope`) returns the three counters, the state (`live`, `droppable`, `suspect`,
+  `scope`) returns the three counters, the state (`live`, `droppable`, `suspect`, `mismatch`,
   `absent`) and, for one id, the binding records.
 - `lastdb db inventory` has a `Molecule counters` block: headers, slots, records,
   bindings, binding records, live, droppable, suspect, and the first droppable
@@ -109,11 +118,43 @@ compares each counter with its binding records, read at one root: a bind writes 
 in one batch, so a difference is always a fault. `binding_records` finds a binding
 record without a counter. The verifier writes nothing.
 
+Faults of these phases:
+
+| Kind | Meaning |
+|---|---|
+| `molecule_slots_above_tips`, `molecule_slots_below_tips` | a header `slots` differs from the tips of the molecule that the tip phase counted |
+| `molecule_records_above_records`, `molecule_records_below_records` | a header `records` differs from the counted conflict records of the molecule |
+| `tips_without_header` | a molecule has tips and no header |
+| `molecule_counters_unset` | a header carries no counters |
+| `suspect_molecule` | a header has the `suspect` flag |
+| `unreadable_header`, `unreadable_bindings` | a header or a `bindings` record does not decode |
+| `bindings_counter_mismatch` | a `bindings` counter differs from the number of binding records |
+| `binding_record_without_counter` | a binding record has no `bindings` counter |
+| `zero_bindings_counter` | a `bindings` counter holds zero and is not `suspect` |
+| `suspect_bindings` | a `bindings` counter has the `suspect` flag |
+
 ## Known limits
 
-- A protein member binding is never removed (a protein has no removal), so a molecule
-  that a protein names never reaches `bindings = 0`.
+- A protein member binding goes only when a schema drop (or a changed schema) leaves a
+  molecule that only a protein names (`protein_release_members`). A protein member of a
+  molecule that a schema or a catalog still names stays.
 - Cloud replay and restore write headers and binding records that bypass the planner.
   Cloud sync is off in this build.
 - A crash between the share route's domain grant and its batch leaves a domain grant
   with no binding. The grant is not a reference.
+- Nothing finds a dead molecule except the candidate rows of the molecule drain
+  (`docs/lastdb-molecule-drain.md`). If the rows are lost, the molecules stay with their
+  keys and no scan finds them again. `lastdb db inventory` lists the first 500 of them as
+  `unbound_sample`, and `lastdb db molecule-drain --molecule=<uuid>` queues one. A molecule
+  recount that rediscovers candidates is not built.
+- A molecule that is refused or `suspect` has no repair path. The drain never changes a
+  counter. A tip written outside the planner into a dead molecule is erased by the drain, and
+  `slots` goes below zero: the header stays `suspect`.
+- After a drain the node-global key bundle (`mkb:`, `mkw:`), the `protein:` records without
+  members, the delete-ledger rows and the search entries of the erased keys stay.
+- The schema drop reads the whole database catalog with `list_entries` (a scan of a small
+  table that has one row for each database and schema).
+- A molecule whose `records` counter names kept conflict records that no slot directory entry
+  names (the counter and the directory differ) is not released by any drain step. The records
+  end with their own retention window, and the drain waits for them. Such a molecule does not
+  block an install. A molecule recount would repair it; it is not built.

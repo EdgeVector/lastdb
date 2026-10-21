@@ -22,6 +22,7 @@
 //! loses data.
 
 mod apply;
+mod blobs;
 mod decide;
 mod report;
 mod retention;
@@ -92,6 +93,7 @@ impl AtomStore {
                     .await?;
             }
         }
+        self.recount_blobs(options, &mut report).await?;
         report.range_reads = self.range_walks().snapshot().since(before);
         report.elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         Ok(report)

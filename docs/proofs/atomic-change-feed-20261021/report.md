@@ -13,6 +13,21 @@ The baseline is the previous durable version, with identical native disk counter
 Both versions require disk completion before each reply. Both use fresh synthetic data.
 The original primary and its archive are not used.
 
+The tables measure the pre-integration candidate from `after-v2/source-identity.json`.
+Its binary SHA-256 is `68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1`.
+The later integration of `origin/main` at `c70e6fdc` changes the source.
+The final integrated build uses separate build checks and the `operations-main-r1` workload.
+[integration.json](integration.json) records their current status and exact source identity.
+The tables do not measure the final integrated build.
+
+The integrated release passes full workspace Clippy, off-lane Clippy, and the release build.
+Its API workload passes another 74 changes across 38 calls, four expected refusals, and normal restart checks.
+Its binary SHA-256 is `26454b6eb19a555031903be8f85e8ab1ce121b331a29420728f3398fe587da55`.
+Its two node sessions stop normally. Its temporary database is removed after an independent receipt and ownership review.
+
+Each final operation read checks the values during the call. Some saved expectation maps contain later values.
+The independent review reconstructs all 57 read request hashes and uses the recorded check results.
+
 The Mac uses an Apple M4 Max, 14 CPU cores, and 36 GiB of memory.
 Tom permitted concurrent jobs for this comparison. No owned build, archive, or cleanup job overlaps the timed writes.
 Other database jobs cause disk traffic in all 3,342 host sample intervals that overlap the write windows.
@@ -49,9 +64,9 @@ The directory-sync duration sum is 282.445 seconds before and 203.849 seconds af
 These process-wide counters include clock and background work. Duration sums can overlap; they are not request latency.
 Native request counts do not count every direct storage commit. They do not prove exactly one total commit per HTTP call.
 
-The ordinary API checks pass for 768 timed calls and 41,216 mutations.
+The pre-integration API checks pass for 768 timed calls and 41,216 mutations.
 All four fields, key membership, notice IDs, notice coordinates, and normal reopen checks pass.
-The additional workload passes for 74 accepted mutations, 38 calls, four expected refusals, and two normal node sessions.
+The pre-integration additional workload passes for 74 accepted mutations, 38 calls, four expected refusals, and two normal node sessions.
 It covers single and batch routes, all requested durability modes, field-derived keys, Delete, conditions, and concurrent calls.
 No tests, fixtures, existing database, crash, power-loss, or cloud check runs.
 
@@ -61,18 +76,20 @@ It does not split disk work, gate waits, or other commit work.
 The gate and publication clock fields contain unmeasured zeros. Detailed request phases remain unavailable in this isolated workload.
 The optional status observation returns a cached startup snapshot; its report marks all missing write IDs explicitly.
 
-The source review confirms one journal commit for the combined data and notice batch.
+The pre-integration source review confirms one journal commit for the combined data and notice batch.
 Clock high-water reservations remain separate and precede the data gate.
-The next candidate is bounded reuse of the journal stream. The current engine creates a new stream after every publication.
+The next candidate is bounded reuse of the journal stream. The measured pre-integration engine creates a new stream after every publication.
 That rotation adds four file-sync calls and eight directory-sync calls on its normal path.
 Those are source-derived counts, not a measured gain. A separate change must preserve recovery, receipts, space limits, and durable replies.
 
 The PR remains a draft because the 128-record HashRange result declines under this shared load.
 The change removes the separate notice commit. The timings do not resolve the remaining performance question.
 
-The release build, full workspace Clippy, off-lane Clippy, formatting, source identity, and local source checks pass.
+The pre-integration release build, full workspace Clippy, off-lane Clippy, formatting, source identity, and local source checks pass.
 The exact source inventories, request receipts, host observations, and node logs have portable byte-for-byte archives.
-The archive parts contain all original IDs and times. Cleanup receipts cover only the exact owned synthetic roots.
+The archive parts contain all original IDs and times.
+The original proof uses ten normal node sessions and six temporary roots. Its cleanup receipts cover those exact owned roots.
+The final integration has separate validation and cleanup status in [integration.json](integration.json).
 
 Evidence: [independent result review](independent-result-review.json), [operation review](operation-review.json),
 [stage clocks](stages.json), [post-run checks](post-run-checks.json), and [exact archives](archives.json).

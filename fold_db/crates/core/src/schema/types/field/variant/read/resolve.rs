@@ -242,7 +242,7 @@ impl FieldVariant {
         (
             self.key_metadata_at_key(kv).cloned(),
             self.atom_entry_at_key(kv)
-                .map(|entry| entry.writer_pubkey.clone()),
+                .map(|entry| entry.writer_pubkey().to_string()),
         )
     }
 }

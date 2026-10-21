@@ -79,7 +79,12 @@ impl ReadCall {
             || part.length > PART_BYTES
             || (page_part && part.length % super::PAGE_BYTES as u64 != 0)
         {
-            return Err(corrupt("extent outside immutable part"));
+            return Err(crate::Error::Corrupt(format!(
+                "disk-pack v1: extent outside immutable part: {} offset {offset} length {length} \
+                 file length {}",
+                path.display(),
+                part.length
+            )));
         }
         let mut bytes = Vec::new();
         bytes

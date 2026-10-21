@@ -51,8 +51,9 @@ reclaimable = slack + (apparent - unknown) * dead / (live + dead)
 and every automatic trigger (`tips`, `atoms`, order log, residual planes,
 locators, the photograph-aligned pass) fires on that number against the
 existing ratio and floor knobs. `lastdb status` shows `dead=` and `reclaim=`
-per plane under `automatic_compactions`; `lastdb db compact --collection X`
-(dry run) prints a `residue:` line and projects `bytes_after` from it.
+per plane under `automatic_compactions`. On a native home, `lastdb db compact`
+(a dry run by default) previews the whole home, and `--execute` packs it. The
+native route refuses a named collection.
 
 ## Proof
 
@@ -60,8 +61,9 @@ per plane under `automatic_compactions`; `lastdb db compact --collection X`
   and `fold_db/crates/core/tests/delete_returns_bytes_test.rs`) were deleted
   with the repository tests (2026-10-09). The check is now a run on a synthetic
   home: create N rows, delete or purge them, read the residue counters in
-  `lastdb status`, run `lastdb db compact --collection atoms --execute`, and
-  compare the size of the plane before and after.
+  `lastdb status`, run `lastdb db compact --execute` (the whole native home; the
+  native route refuses a named collection), and compare the size of the home
+  before and after.
 - Measured on a copy-on-write clone of the primary (2026-09-07, build
   `b112ee096-dirty`): `atoms` 3,273,093,491 B -> 2,996,045,022 B after one
   rewrite (8.5% dead); a second probe measured every group with
@@ -69,12 +71,13 @@ per plane under `automatic_compactions`; `lastdb db compact --collection X`
 
 ## File blobs (`cas_blobs`)
 
-`gc-file-blobs` removes a blob row with `LastStore::delete`, which is an append,
-so the local file-blob plane kept every byte it ever stored. `cas_blobs` joined
-`COMPACT_ALLOWLIST` on 2026-10-08, so `lastdb db compact --collection cas_blobs
---execute` returns them. A bare `compact` and `compact --all` do not walk it
-(`COMPACT_NAMED_ONLY`); the operator names it, and the `--all` answer lists it
-under `named_only_not_walked`.
+The dwell pass of the blob counter (`docs/lastdb-blob-counter.md`) removes a blob
+row with `LastStore::delete`, which is an append, so the local file-blob plane
+keeps every byte it ever stored until a compaction rewrites it. On a native home
+the whole-home pack (`lastdb db compact --execute`) returns them. The native route
+refuses a named collection, so the per-collection text below (`COMPACT_ALLOWLIST`,
+`COMPACT_NAMED_ONLY`, `named_only_not_walked`) describes the earlier LastStore
+plane path.
 
 A blob row is the only copy of its bytes until a cloud copy exists, so the
 rewrite touches as little of the plane as it can.
@@ -84,7 +87,7 @@ rewrite touches as little of the plane as it can.
 | Cloud isolation | Required. The plane is captured (`PhysicalDigest` put, `Delete` op) and backed up as `Mutable` chunks, and no regression proves its rewrite capture-neutral. `--execute` pauses Cloud Sync if it was on. With a sync engine it holds the photograph packing lock; with no engine there is no backup cut to exclude, so it runs without the lock. |
 | Which groups | Only groups that hold dead bytes (`LastStore::compact_collection_dead_groups`). The verb loads each group once, reads its exact residue, and leaves a group with no dead bytes byte-identical. Other planes still rewrite every group. |
 | Disk order | Write and sync `<seq>.seg.tmp`, rename it, sync the directory, and only then remove the old segments, lowest sequence first. The first removal error stops the walk and is returned (a missing file is not an error). The key sidecar goes first, so an emptied group cannot keep one that matches its next first segment. A failed write or rename removes the temp file, and the next rewrite sweeps a leftover one. A crash leaves the old segments, the new one, or the new one plus a suffix of the old ones, and every state replays to the same live set. Not mitigated: a filesystem that reorders the directory operations of the removal could persist a later unlink before an earlier one, and a delete marker could go while the put it covers stays. |
-| Self-compaction | None, on purpose. An isolated plane would make the daemon pause Cloud Sync on a timer, and the automatic headroom gate reserves a flat 64 MiB that does not cover this rewrite. `gc-file-blobs` frees nothing yet while `blob_complete=false`, so a timer has nothing to reclaim. `automatic_compactions` in `lastdb status` has no `cas_blobs` entry for this reason. |
+| Self-compaction | None, on purpose. An isolated plane would make the daemon pause Cloud Sync on a timer, and the automatic headroom gate reserves a flat 64 MiB that does not cover this rewrite. A timer would have to pause Cloud Sync for each run. `automatic_compactions` in `lastdb status` has no `cas_blobs` entry for this reason. |
 | Host pressure | The manual path has no host-pressure gate, unlike the retired-group path (`compact_retired_groups`). That is why a bare `compact` skips the plane. A named run under high pressure is the operator's call; the help says not to. |
 | Memory | One hash group at a time, never a bounded frame. MEASURED (`vendor/laststore/tests/compact_plain_large_rows_memory.rs`, debug build, synthetic 8 x 2 MiB rows): the extra peak is about 1.9 x the group when the group is already resident, and about 2.6 x when the verb loads it cold (the daemon case), so about 3 x the group in all. A sealed row is the body base64-encoded inside a JSON row, about 4/3 of its size, so a 16 MiB slab is ~22 MB and a group holds a few of them; the largest group on the primary was 79 MB (DERIVED: about 150 MB extra). A local PUT can store a body up to the UDS cap, 128 MiB (`lastdb_uds::uds_http::MAX_BODY_LEN`); one sealed row then reaches ~171 MB and one group about 510 MB at the peak (DERIVED, not measured). |
 | Stalls | A put, get or delete on a group waits for that group's rewrite, which holds the group lock (DERIVED from `compact_loaded_group`, not measured). A PUT that ends with a store-wide flush locks each dirty group and can wait behind a compacting one. |

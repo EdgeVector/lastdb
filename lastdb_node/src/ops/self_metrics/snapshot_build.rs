@@ -83,17 +83,16 @@ pub(super) async fn build_snapshot(
         resident,
         build: BuildHealth::current(),
         integrity: integrity_health(host),
-        atom_ref_edges: host
-            .self_metrics
-            .atom_ref_edge_health()
-            .unwrap_or_else(|| configured_atom_ref_edge_health(host)),
+        molecule_edges: configured_molecule_edge_health(host),
         file_blob: file_blob_health(host).await,
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics
             .local_retention_health(crate::ttl_sweep::ttl_sweep_enabled()),
         atom_counters: Some(host.db.atom_counter_report()),
+        blob_counters: Some(host.db.blob_counter_report().await),
         conflict_retention: Some(host.db.conflict_retention_report().await),
+        storage_parts: Some(native.parts.clone()),
         at_rest_compression: Some(AtRestCompressionHealth::current()),
         codec_policy: Some(CodecPolicyHealth::current(&host.home)),
     }

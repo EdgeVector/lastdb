@@ -1,7 +1,7 @@
 //! The queue phase of `verify-refs`: survey the retention queue, then compare
 //! the entries with the conflict records that the records phase counted.
 
-use super::pages::phase_range;
+use super::pages::{phase_range, SuspectsPage};
 use super::report::{Kind, Phase};
 use super::state::{Run, StepGuard};
 use crate::db_operations::atom_store::time_queue::QueueSurvey;
@@ -79,8 +79,17 @@ impl AtomStore {
         };
         run.record_ids = std::collections::HashSet::new();
         if run.suspects.is_empty() {
-            run.phase = Phase::Done;
-            if !run.tally.complete {
+            // The blob counters are global. The personal run checks them once,
+            // after the retention queue.
+            run.phase = if run.report.scope.is_none() {
+                Phase::Blobs
+            } else {
+                Phase::Done
+            };
+            if let Some((start, end)) = phase_range(run.phase, run.report.scope.as_deref()) {
+                run.walk = RangeWalk::new(&start, &end, run.page_rows);
+            }
+            if run.phase == Phase::Done && !run.tally.complete {
                 run.report.notes.push(format!(
                     "more than {} atoms are referenced; counters were not compared with the totals of the pass",
                     run.tally.len()
@@ -93,5 +102,20 @@ impl AtomStore {
             }
         }
         Ok(())
+    }
+}
+
+/// Judge a page of the suspects phase: each record on it has no queue entry.
+pub(super) fn apply_suspects(run: &mut Run, page: &SuspectsPage) {
+    run.note_unsealed(page.scan_unsealed);
+    run.walk
+        .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+    run.report.pages += 1;
+    for key in &page.keys {
+        run.note_fault(
+            Kind::RecordWithoutQueueEntry,
+            key,
+            "no queue entry names this record (its entry was deleted, or never written)".into(),
+        );
     }
 }

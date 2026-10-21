@@ -41,6 +41,8 @@ pub(super) async fn execute(
         dry_run: body.dry_run.unwrap_or(true),
         reclaim_only: body.reclaim_only,
         grace_ms: body.grace_ms,
+        report_usage: true,
+        reclaim_generations: None,
     };
     match runtime.maintain_native(options).await {
         Ok(report) => json_ok(&envelope(

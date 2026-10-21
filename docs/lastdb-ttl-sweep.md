@@ -4,7 +4,25 @@ The node-local TTL sweep (`lastdb_node/src/ops/ttl_sweep.rs`) erases the expired
 schema that has a retention policy. The age rule is in
 `fold_db/crates/core/src/schema/schema_types.rs` (`SchemaRetentionPolicy`) and in
 `lastdb schema-retention set --help`. This page covers what the sweep does with the keys it
-selected, the two verbs, what each verb leaves on disk, and the four knobs.
+selected, the two verbs, what each verb leaves on disk, how the sweep paces itself, the guard
+for rewritten keys, the measured cost, and the knobs.
+
+In short: the default verb is `purge`. It goes through the atom counter, so each body whose last
+reference goes is freed in the same batch as the tips (`docs/lastdb-atom-counter.md`). `delete` is
+opt-in because it leaves barrier rows that nothing prunes.
+
+## Schema shape that a TTL needs
+
+A TTL deletes records for good. The sweep finds the expired keys without a scan only when the schema
+has the right shape (`docs/app-manifest-retention.md`).
+
+- A Range or HashRange schema needs a range key that starts with 20 digits of unix seconds, zero-padded.
+  A key that does not start with 20 ASCII digits has no entry time, and the sweep never expires it.
+- Use a day-slice hash for a HashRange log (for example the day of the entry). The sweep lists the
+  expired keys hash by hash, in the hashes that it has seen written since the policy exists. A
+  day-slice hash keeps each hash small, so one listing reads few keys.
+- Set the policy before the first write. A Hash or Single schema tracks only writes made after the
+  policy exists and has no backfill. A Range or HashRange schema ages its keys by their range key.
 
 ## What a pass does
 
@@ -56,16 +74,22 @@ tip deletes (the slot directory, `docs/lastdb-atom-counter.md`, section Conflict
 retention). A kept loser whose last reference goes is deleted in that batch. Both verbs leave one
 `mgd:v1:` record for each field of each key (see Records that stay).
 
-Any other value logs one warning at the first sampler tick and uses `purge`.
+Any other value logs one warning at the first sampler tick and uses `purge`. The delete ledger
+(`lastdb db delete-ledger`) names the caller of each erase: `ttl-sweep-purge` or `ttl-sweep-delete`.
 
 Both verbs free the atom bodies at once. The counter record of each atom decides
-(`docs/lastdb-atom-counter.md`). No audit, no grace window and no `gc-atoms` verb exists.
+(`docs/lastdb-atom-counter.md`). No audit and no grace window stand between the tip delete and the
+body delete.
 
 ## Why `purge` is the default
 
-`delete` leaves two `rdel:v2:` barrier rows for each field of each key, and nothing prunes them.
-On a 3-field schema that is about 3,170 B for each key and field, and about 28.6 GB for a log that
-expires 100,000 records per day for 30 days. `purge` writes no barrier.
+`delete` leaves two `rdel:v2:` barrier rows for each field of each key (one for each spelling of the
+molecule key that a read accepts), about 1.6 KB each, and nothing prunes them. That is about 3,170 B for
+each key and field. A log that expires 100,000 records per day on a 3-field schema leaks about
+28.6 GB of barriers in 30 days (measured on a build from before the counter work: 2,000 keys of 3
+fields gave 12,000 rows and about 19 MB, and a run of 400 keys gave the same bytes per key, so the
+growth is linear). Compaction removed none of them. `purge` writes no barrier. Both verbs also leave about 700 B for each key and field of `mgd:v1:` rows
+(measured on the same earlier build).
 
 What `delete` buys: the barrier stops an older write from bringing the key back. A write that
 a peer made before the sweep and did not yet sync, and the replay of an older log, are the cases.
@@ -77,33 +101,75 @@ is not verified.
 Condition to switch the default to `delete`: a prune horizon for the barriers that is safe for
 every peer. Today no code knows a maximum offline time for a device and no code prunes a barrier.
 
+## Pacing
+
+A sweep batch is one erase request. It holds the local mutation admission for the whole batch and the
+native write gate for about 50 ms. A purge or a delete that the sweep sends waits for disk, so its batch has no early
+publication: it seals the write queue, and a writer that arrives meanwhile waits for the flush of the
+batch even though the gate is free. The sweep therefore rests after each batch.
+
+- **The sweep** rests for `took * (100 - duty) / duty`, where `took` is the wall time of the batch
+  (`ttl_sweep/pace.rs`). With the default duty of 25 percent, writers wait for the sweep about a
+  quarter of the time. It does not use the writer-wait meter or the writer watch that the next bullet
+  describes, so an idle node still rests by this rule.
+- **The retention janitor and the blob dwell pass** pace by a different rule. A task-local meter
+  returns the time that a step kept writers waiting (the gate hold and, for a batch that seals the
+  queue, the wait until it is durable). The rest is `blocked * (100 - duty) / duty`. A sticky
+  writer watch (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s) keeps that rest in force for a quiet period
+  after the last write scope of another task, and lets the task go on at the speed of its flush when
+  no writer was there. See `docs/lastdb-time-queue.md`, section Pacing.
+
 ## Measured cost
 
 Synthetic fresh home, development-release build, `EXEMEM_ENV=dev`, default knobs (batch 16,
 duty 25, minimum rest 25 ms), verb `purge`. One HashRange schema with 6 fields and 2,400 rows
 (2,100 expired) and 150-byte bodies. Two writers: one on the swept schema and one on a second
-schema (one small durable write every 100 ms each). The host load of the final run was 3 to 4. The `main` column is
-the build before the counter (`main` at `8ed44f56`); it ran in the same hour as an earlier run of the
-branch (host load 4 to 5). The `with the counter` column is the final run of the branch after the merge of #239 (`a9eb17526`).
+schema (one small durable write every 100 ms each).
 
-| | `main` before the counter | with the counter |
-|---|---|---|
-| Keys erased | 0 in 782 s | 2,100 in 497 s (4.22 keys per second, 132 batches) |
-| Sweep result | each pass fails: `read resource limit exceeded`, because the old purge read the whole schema | every pass succeeds |
-| Time of one batch of 16 keys | no batch finished | median 0.67 s, shortest 0.24 s, longest 3.13 s (131 full batches) |
-| Hold of the native write gate for one erase request | not measured | median 45 ms, longest 123 ms |
-| Hold of the schema purge barrier | the barrier exists | the barrier is gone |
-| Writes to the swept schema during the sweep | p50 470 ms, p95 1,124 ms, longest 16.6 s | p50 423 ms, p95 994 ms, longest 2.4 s |
-| Writes to the second schema during the sweep | p50 446 ms, p95 1,146 ms, longest 2.9 s | p50 404 ms, p95 1,019 ms, longest 2.1 s |
-| A client `purge` of 16 keys of the swept schema | HTTP 503 after 73.9 s | HTTP 200 after 0.61 s |
+All runs used one shared development host (macOS, local SSD) that other builds and runs also used,
+so the load is part of each result. "Load" is the one-minute load average that the run recorded.
+Three runs are in the table.
+
+- `main`: the build before the counter (`main` at `8ed44f56`), host load 4 to 5.
+- `reference`: the build at `a9eb17526`, which is the counter lifecycle from before the pacing change of
+  the janitor and the dwell pass, on a quieter host (load 3 to 4).
+- `2026-10-21`: this page's build (`main` with the pacing change of the janitor and the dwell
+  pass), on a busy host: load 2.5 to 9, with other builds and runs on the disk. A second node on
+  the same host ran the same two writers on the same 2,400 rows with `LASTDB_TTL_SWEEP=0`
+  (`no sweep`). It shows what the host does to the writers without a sweep: their median write
+  took 2.4 s, against 0.4 s in the reference run. The run was cut after 20 minutes.
+
+| | `main` | reference | 2026-10-21 | no sweep (2026-10-21) |
+|---|---|---|---|---|
+| Keys erased | 0 in 782 s | 2,100 in 497 s (4.22 keys per second, 132 batches) | 1,152 in 1,203 s (0.96 keys per second, 72 batches) | - |
+| Sweep result | each pass fails: `read resource limit exceeded`, because the old purge read the whole schema | every pass succeeds | every pass succeeds | - |
+| Time of one batch of 16 keys | no batch finished | median 0.67 s, shortest 0.24 s, longest 3.13 s (131 full batches) | median 4.15 s, shortest 0.76 s, longest 7.79 s (72 full batches) | - |
+| Hold of the native write gate for one erase request | not measured | median 45 ms, longest 123 ms | median 48 ms, longest 109 ms | - |
+| Writes to the swept schema | p50 470 ms, p95 1,124 ms, longest 16.6 s | p50 423 ms, p95 994 ms, longest 2.4 s | p50 2,615 ms, p95 5,308 ms, longest 9.1 s (399 writes) | p50 2,483 ms, p95 4,418 ms, longest 6.9 s (143 writes in 407 s) |
+| Writes to the second schema | p50 446 ms, p95 1,146 ms, longest 2.9 s | p50 404 ms, p95 1,019 ms, longest 2.1 s | p50 2,538 ms, p95 5,289 ms, longest 7.3 s (417 writes) | p50 2,379 ms, p95 4,096 ms, longest 6.1 s (148 writes in 407 s) |
+| A client `purge` of 16 keys of the swept schema | HTTP 503 after 73.9 s | HTTP 200 after 0.61 s | HTTP 200 after 6.7 s, during the sweep | HTTP 200 after 3.8 s |
+
+A client `purge` of 16 keys, on a fresh home with no retention policy (no sweep), 3 requests
+in a row on the same busy host: 1,000 rows 1.8, 2.6 and 2.2 s; 2,400 rows 1.6, 2.2 and 2.4 s. All
+answered HTTP 200. The gate hold of the erase request was 47 ms (median) on 1,000 rows and 37 ms
+on 2,400. The cost follows the 16 keys, not the rows of the schema.
+
+The time of a batch follows the flush of the host: the gate hold of an erase request was the same
+in both runs (about 48 ms), and the batch took six times as long on the busy host. The sweep is
+paced by the time of its batches (duty 25), so it erased a quarter as many keys a second.
 
 The write latencies are mostly the durable wait of each writer (the flush interval is 500 ms).
-The erase takes the write gate for 45 ms, so a writer never waits for a sweep batch.
+A sweep batch holds the write gate for about 50 ms, and it also seals the write queue: a writer
+that arrives while a batch is open waits for the batch to be durable, though the gate is free.
+In the 2026-10-21 run the writers were 5 to 7 percent slower at the median and 20 to 30 percent
+slower at p95 than the same writers on the node with no sweep. The two nodes ran in different
+windows of a host that changed, so read these as a bound and not as a measurement. The duty of
+25 percent means that writers wait for the sweep about a quarter of the time.
 
-A `purge` batch reads about 2 records for each tip it removes, so its cost follows the number of
-keys and fields of the batch. It never follows the size of the schema. A purge of 64 keys of a
-24-field schema (1,536 tips, 6,046 operations) held the gate for 215 to 255 ms and took 0.66 to
-1.6 s.
+A `purge` batch reads 9 to 12 keys for each tip it removes (the target tips, the protein peers, the
+counters and the body records), so its cost follows the number of keys and fields of the batch. It
+never follows the size of the schema. A purge of 64 keys of a 24-field schema (1,536 tips,
+6,046 operations) held the gate for 215 to 255 ms and took 0.66 to 1.6 s.
 
 ## Batch size and the request limit
 
@@ -191,19 +257,20 @@ needs a restart of the daemon. The sweep reads them at the start of each pass.
 
 | Name | Default | Clamp | Meaning |
 |---|---|---|---|
+| `LASTDB_TTL_SWEEP` | on | - | Kill switch. `0`, `false`, `no` or `off` stops the sweep. |
 | `LASTDB_TTL_SWEEP_BATCH` | 16 | 1 to 64 | Keys erased in one batch. |
 | `LASTDB_TTL_SWEEP_DUTY_PCT` | 25 | 1 to 100 | The share of wall time that the sweep spends in batches. |
 | `LASTDB_TTL_SWEEP_MIN_PAUSE_MS` | 25 | 0 to 600000 | The shortest rest between two batches. |
 | `LASTDB_TTL_SWEEP_VERB` | `purge` | `purge`, `delete` | See Verbs. |
 
-A value that does not parse gives the default. `LASTDB_TTL_SWEEP=0` stops the sweep.
+A value that does not parse gives the default.
 
 The rest after a batch is `took * (100 - duty) / duty`, at least the minimum rest and at most
 10 minutes. The duty share is exact for a batch of up to 200 seconds at the default duty. After a
 slower batch the rest is 10 minutes, and the real share is `took / (took + 600 s)`.
 
-A stop waits for the batch in flight. It cannot cancel it. A batch of 16 keys takes about one
-second.
+A stop waits for the batch in flight. It cannot cancel it. A batch of 16 keys took 0.24 to 3.1 s
+on a quiet host and up to 7.8 s on a busy one.
 
 `RUST_LOG=lastdbd::ttl_sweep=debug` prints one line per batch with the phase times.
 

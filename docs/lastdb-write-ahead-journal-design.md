@@ -12,6 +12,11 @@ four readers (store write path and recovery, the lane and mutation path, the
 consumers of write order, cost and risk), one designer, two skeptics and a
 revision pass. The agents read the code and ran nothing.
 
+Update (2026-10-21): the atom reverse edges (`aref:`), the GC candidate and
+pending rows, the atom locators (`aloc:`) and the atom reaper that this text names
+were removed by the counter lifecycle (`docs/lastdb-atom-counter.md`). Read those
+passages as history.
+
 Update (2026-10-14): the sidecar flush rule is built (it replaces the B6 rule
 below). The key sidecar keeps its write aside and rename. The forced disk write
 before the rename happens only for a group of half the cold-load cap or more

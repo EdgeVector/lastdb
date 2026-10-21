@@ -40,16 +40,6 @@ impl SyncEngine {
                 ReplayCause::RawDeleteBarrierPut,
             ));
         }
-        if crate::sync::policy::is_node_local_gc_scratch_key(&key_bytes) {
-            // Node-local probe scratch from an older build or a peer. Applying
-            // it would let a foreign checkpoint or marker set steer this
-            // node's delete decisions.
-            tracing::debug!(
-                namespace,
-                "dropping node-local gc-atoms scratch put during replay"
-            );
-            return Ok(());
-        }
         let value_bytes = LogOp::decode_bytes_for_replay(namespace, "value", value_b64)?;
         let key_str = std::str::from_utf8(&key_bytes).ok();
 

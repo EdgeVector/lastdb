@@ -31,6 +31,8 @@ pub struct NativeDiskStatus {
     pub core_memory: crate::resident::CoreMemoryStats,
     pub(crate) core_model: crate::resident::CoreModelStats,
     pub schema_keys: schema_keys::SchemaKeyStatus,
+    /// Dependency parts of the current generation receipt against their limit.
+    pub parts: parts::NativePartsStatus,
 }
 
 #[derive(Clone)]
@@ -54,7 +56,19 @@ impl PackRuntime {
 
     pub fn status_native(&self) -> NativeDiskStatus {
         let queue = self.queue.lock().expect("native accepted queue");
-        let view = self.view.read().expect("native disk status view");
+        // Maintenance holds the view lock while it reclaims. A status read must
+        // not wait behind it, so it reports the last root the ledger saw.
+        let view = self.view.try_read().ok();
+        let (generation, frontier, accepted) = if let Some(view) = view.as_deref() {
+            (
+                view.current.generation,
+                view.current.frontier,
+                view.accepted.len(),
+            )
+        } else {
+            let (generation, frontier) = self.parts.root();
+            (generation, frontier, 0)
+        };
         let (core, core_bytes, core_memory, core_model) = {
             let mut core = self.core.lock().expect("native core status");
             (
@@ -65,10 +79,10 @@ impl PackRuntime {
             )
         };
         NativeDiskStatus {
-            generation: view.current.generation,
-            frontier: view.current.frontier,
-            accepted_batch: !view.accepted.is_empty(),
-            accepted_batches: view.accepted.len(),
+            generation,
+            frontier,
+            accepted_batch: accepted > 0,
+            accepted_batches: accepted,
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.failed.load(Ordering::Acquire),
@@ -88,6 +102,7 @@ impl PackRuntime {
             core_memory,
             core_model,
             schema_keys: self.schema_keys.status(),
+            parts: self.parts.status(),
         }
     }
 

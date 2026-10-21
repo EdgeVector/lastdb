@@ -166,13 +166,10 @@ pub struct StatusSnapshot {
     /// pointed at an atom that would not resolve.
     #[serde(default)]
     pub integrity: IntegrityHealth,
-    /// Atom reverse-edge cutover bytes and audit gauges.
-    ///
-    /// Physical bytes are exact collection gauges. Count-derived fields stay
-    /// unavailable until a bounded audit or backfill publishes them. Status
-    /// never scans either edge plane.
+    /// The bytes of the molecule binding records. An exact collection gauge,
+    /// read from file metadata. Status never scans the plane.
     #[serde(default)]
-    pub atom_ref_edges: AtomRefEdgeHealth,
+    pub molecule_edges: MoleculeEdgeHealth,
     /// File-blob durability: fetches the remote CAS proved absent, split by
     /// whether this node had recorded those bytes as uploaded.
     #[serde(default)]
@@ -191,10 +188,19 @@ pub struct StatusSnapshot {
     /// `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub atom_counters: Option<fold_db::db_operations::AtomCounterReport>,
+    /// The blob counters: totals, the dwell queue at the last pass, counter
+    /// faults. `None` means the daemon predates this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob_counters: Option<fold_db::db_operations::BlobCounterReport>,
     /// The retention window of kept conflict records, the janitor's last run
     /// and the queue depth. `None` means the daemon predates this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict_retention: Option<fold_db::db_operations::ConflictRetentionReport>,
+    /// Dependency parts of the native generation receipt against their hard
+    /// limit, and the maintenance that keeps the count below it. `None` means
+    /// the daemon predates this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_parts: Option<fold_db::storage::disk_pack::NativePartsStatus>,
     /// Process-lifetime effectiveness of plaintext compression before sealing.
     ///
     /// `None` means the serving daemon predates this status field. A current

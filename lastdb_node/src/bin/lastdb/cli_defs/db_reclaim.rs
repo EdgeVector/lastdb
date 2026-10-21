@@ -4,24 +4,23 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
-    /// Compact current allowlisted LastStore collections.
+    /// Pack the native home and reclaim the files that no generation needs.
     ///
-    /// Without `--execute`, report the live keys and file sizes only.
-    /// Omit `--collection` to compact all allowed collections except `cas_blobs`.
-    /// Name `cas_blobs` explicitly. The command pauses cloud sync when required.
-    ///
-    /// Current collections: schemas, schema_states, schema_index, tips,
-    /// metadata, idempotency, change_feed, sync_pin_log, sync_capture_reexport,
-    /// keep_small, atoms, blob_ref_edges, proteins and cas_blobs.
+    /// Without `--execute`, show a preview report and change nothing.
+    /// With `--execute`, the node copies every live record into new parts and
+    /// reclaims old files. The native route works on the whole home, so it
+    /// refuses `--collection` with HTTP 400. The node also runs this work by
+    /// itself when the dependency part count passes its mark
+    /// (`docs/lastdb-storage-parts.md`).
     Compact {
-        /// One collection (e.g. `schemas`). Omit with `--all` (or omit both)
-        /// to compact every allowlisted plane except `cas_blobs`.
+        /// One collection. A native home refuses it with HTTP 400: omit it.
         #[arg(long)]
         collection: Option<String>,
-        /// Compact every allowlisted collection but `cas_blobs` in one pass.
+        /// The whole home. A native home is always packed as a whole, so this
+        /// changes nothing.
         #[arg(long)]
         all: bool,
-        /// Actually compact (without this flag, only reports sizes).
+        /// Actually pack and reclaim (without this flag, only a preview).
         #[arg(long)]
         execute: bool,
         /// Emit raw JSON only.
@@ -47,21 +46,6 @@ pub(crate) enum DbReclaimCommand {
         #[arg(long)]
         execute: bool,
         /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-    },
-    /// GC: delete local file-blob rows no live atom references.
-    ///
-    /// The reclaim path for the sealed bytes a purge orphans: purge destroys
-    /// the `$lastdb_file` pointer but blobs are shared across records, so
-    /// only this reachability sweep may remove the rows (`cas_blobs` +
-    /// resident `cas_blob:`). Undated rows are stamped on the first pass and
-    /// become reclaimable on a later one. Cloud tiers (B2/R2) are untouched.
-    ///
-    /// Default is dry-run. Pass `--execute` to apply.
-    GcFileBlobs {
-        #[arg(long)]
-        execute: bool,
         #[arg(long)]
         json: bool,
     },
@@ -91,8 +75,8 @@ pub(crate) enum DbReclaimCommand {
     ///
     /// Default is dry-run (no sidecar write). `--execute` stamps groups that
     /// still have a verified local atom chunk. Missing groups are not stamped.
-    /// Skips while a backup cut is held. Owner `compact --collection atoms
-    /// --execute` rewrites ~3.6 GiB and is not this one-shot.
+    /// Skips while a backup cut is held. Owner `compact --execute` rewrites
+    /// the whole home and is not this one-shot.
     StampPurgedAtomRetirements {
         /// Actually write pending_shas (without this flag, report only).
         #[arg(long)]

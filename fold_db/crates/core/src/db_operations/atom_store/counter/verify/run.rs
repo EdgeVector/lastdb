@@ -1,12 +1,14 @@
 //! The driver of the verifier: steps with a page budget and a time budget.
 
+use super::blobs::apply_listed;
 use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
 use super::pages::{phase_range, AtomsPage, ReferencedPage, SuspectsPage};
+use super::queue::apply_suspects;
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{Run, StepGuard};
 use super::totals::{digest, Watch};
 use crate::db_operations::atom_store::counter::scan::CounterRead;
-use crate::db_operations::atom_store::{unsealed_run_error, AtomStore, Progress, RangeWalk};
+use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::schema::SchemaError;
 use std::time::{Duration, Instant};
 
@@ -59,6 +61,9 @@ impl AtomStore {
                 .unwrap_or(DEFAULT_PAUSE_MS)
                 .min(MAX_PAUSE_MS),
         );
+        if request.cursor.is_none() {
+            Self::validate_scope(request.scope.as_deref())?;
+        }
         let mut guard = self
             .counter_verify()
             .checkout(&request, || new_run(&request))?;
@@ -97,6 +102,10 @@ impl AtomStore {
         if guard.run().phase == Phase::Queue {
             return self.verify_queue_page(guard).await;
         }
+        if matches!(guard.run().phase, Phase::Blobs | Phase::BlobQueue) && !guard.run().walk.done()
+        {
+            return self.verify_blob_page(guard).await;
+        }
         let (run, watch) = guard.split();
         if run.walk.done() {
             next_phase(run);
@@ -126,60 +135,32 @@ impl AtomStore {
             | Phase::Bindings
             | Phase::BindingRecords
             | Phase::Queue
+            | Phase::Blobs
+            | Phase::BlobQueue
             | Phase::Done => return Ok(()),
         };
         match page {
             Ok(Page::Referenced(page)) => {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => apply_referenced(run, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
+                run.walk
+                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                apply_referenced(run, page);
             }
-            Ok(Page::Suspects(page)) => {
-                run.note_unsealed(page.scan_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => {
-                        run.report.pages += 1;
-                        for key in &page.keys {
-                            run.note_fault(
-                                Kind::RecordWithoutQueueEntry,
-                                key,
-                                "no queue entry names this record (its entry was deleted, or never written)"
-                                    .into(),
-                            );
-                        }
-                    }
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
-            }
+            Ok(Page::Suspects(page)) => apply_suspects(run, &page),
             Ok(Page::Atoms(page)) => {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => apply_atoms(run, watch, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
+                run.walk
+                    .finish_yield(page.rows, page.scan_unsealed, page.resume.as_deref());
+                apply_atoms(run, watch, page);
             }
             Err(SchemaError::ReadResourceLimit { .. }) => {
                 // The read hit the limit of one call. Ask for fewer rows or a
                 // narrower key range, in a new read scope.
                 run.report.page_retries += 1;
                 if !run.walk.read_too_big() {
-                    return Err(run.walk.failure(SchemaError::ReadResourceLimit {
+                    return Err(SchemaError::ReadResourceLimit {
                         detail: "a key range is too dense to read in pieces".into(),
-                    }));
+                    });
                 }
             }
             Err(error) => return Err(error),
@@ -214,7 +195,11 @@ fn next_phase(run: &mut Run) {
         Phase::Bindings => Phase::BindingRecords,
         Phase::BindingRecords => Phase::Queue,
         // The queue phase ends in `finish_queue`, which picks the next phase.
-        Phase::Queue | Phase::Suspects | Phase::Done => Phase::Done,
+        // The blob counters are global. The personal run checks them once, after
+        // the retention queue.
+        Phase::Suspects if run.report.scope.is_none() => Phase::Blobs,
+        Phase::Blobs => Phase::BlobQueue,
+        Phase::Queue | Phase::Suspects | Phase::BlobQueue | Phase::Done => Phase::Done,
     };
     if run.phase == Phase::Bindings {
         super::molecule_run::finish_headers(run);
@@ -297,6 +282,7 @@ fn apply_referenced(run: &mut Run, page: ReferencedPage) {
             run.note_fault(finding.kind, &read.atom, finding.detail);
         }
     }
+    apply_listed(run, page.blobs, "tips");
 }
 
 /// Judge a page of atoms: the pairing, and the counter against the totals.
@@ -332,4 +318,5 @@ fn apply_atoms(run: &mut Run, watch: &Watch, page: AtomsPage) {
             run.note_fault(finding.kind, &pair.atom, finding.detail);
         }
     }
+    apply_listed(run, page.blobs, "atom counters");
 }

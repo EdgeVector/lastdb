@@ -37,10 +37,7 @@ pub(crate) const RESIDUAL_SELF_COMPACT_PLANES: &[&str] = &[
     // record. Armed here so no operator has to remember it.
     "keep_small",
     "indexes",
-    "atom_ref_edges",
-    "atom_ref_edges_v2",
     "molecule_ref_edges",
-    "blob_ref_edges",
 ];
 
 /// Status-only tips-plane budget alarm. Not a compaction trigger (D2).

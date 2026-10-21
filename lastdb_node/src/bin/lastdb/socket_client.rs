@@ -183,8 +183,8 @@ where
 /// it for the CLI's own deadline, and the daemon reads it for the server side,
 /// so setting it in the environment raises both. `--timeout` exists only on
 /// `db inventory`, `db schemas` and `ops`; naming it unconditionally sent
-/// operators of `db gc-atoms` and `db compact-order-log` — the two verbs that
-/// most often hit this deadline — to `unexpected argument '--timeout' found`.
+/// operators of `db compact-order-log` — a verb that often hits this deadline —
+/// to `unexpected argument '--timeout' found`.
 pub(super) fn format_socket_io_error(op: &str, err: &std::io::Error, timeout: Duration) -> String {
     if is_client_deadline_error(err) {
         let secs = timeout.as_secs().max(1);
