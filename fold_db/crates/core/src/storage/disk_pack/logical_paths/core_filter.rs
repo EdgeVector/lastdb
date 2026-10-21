@@ -1,4 +1,4 @@
-//! Existing filters borrow the actual warm molecule for fully known exact keys.
+//! Exact-key filters answer from warm tips for fully known keys.
 use super::*;
 use crate::resident::CoreWarmTip;
 use crate::schema::types::field::{
@@ -150,14 +150,8 @@ fn current_matches(
         return Ok(None);
     }
     context.hold_core(&mut core, paths)?;
-    let mode = if projection.kind == FieldKind::Hash {
-        KeyedFilterMode::Hash
-    } else {
-        KeyedFilterMode::HashRange
-    };
-    let filtered = core.with_molecule(projection.scope, projection.molecule, |model| {
-        apply_keyed_filter(model, Some(projection.filter.clone()), mode)
-    });
+    // An exact-key filter matches every listed key that has a tip, so a warm
+    // tip is the whole test. The warm set keeps no molecule copy to filter.
     let mut matches = Vec::new();
     for (key, path) in keys.iter().zip(paths) {
         let value = core.lookup(path);
@@ -178,12 +172,6 @@ fn current_matches(
             return Ok(None);
         };
         account_tip(context, &mut call, key, &value)?;
-        if filtered
-            .as_ref()
-            .is_none_or(|filtered| !filtered.matches.contains_key(key))
-        {
-            continue;
-        }
         if !projection.include_tombstones
             && value.metadata.as_ref().is_some_and(|meta| meta.tombstoned)
         {

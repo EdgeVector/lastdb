@@ -23,6 +23,10 @@ pub(super) struct SlotEntry {
     /// Distinct invalidation sources, at most `MAX_SLOT_SOURCES`.
     pub(super) sources: SmallVec<[SourceId; 8]>,
     pub(super) atom: Option<Arc<SharedAtom>>,
+    /// The current tip of this key and its key metadata. The warm set keeps
+    /// no second molecule copy; the slot is the only owner of the tip.
+    pub(super) tip: Option<AtomEntry>,
+    pub(super) metadata: Option<Box<KeyMetadata>>,
     pub(super) owned: Option<Arc<model::CoreModelSlot>>,
     /// Heap of the current molecule tip, charged once for all alias paths.
     pub(super) tip_charge: usize,
@@ -77,6 +81,11 @@ impl SlotTable {
         self.entries.get_mut(id)
     }
 
+    /// Molecules with at least one warm slot.
+    pub(super) fn molecule_count(&self) -> usize {
+        self.names.len()
+    }
+
     pub(super) fn iter(&self) -> impl Iterator<Item = (SlotId, &SlotEntry)> {
         self.entries.iter()
     }
@@ -93,6 +102,8 @@ impl SlotTable {
             owners: SmallVec::new(),
             sources: SmallVec::new(),
             atom: None,
+            tip: None,
+            metadata: None,
             owned: None,
             tip_charge: 0,
         };

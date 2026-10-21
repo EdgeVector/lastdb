@@ -29,9 +29,8 @@ const SOURCE_BASE: usize = 72;
 /// Calibrated on 2026-10-19 from a heap profile of the interned tables (about
 /// 1.34 KB per slot).
 const SLOT_BASE: usize = 1170;
-/// Copies of the slot hash and range strings: the interned key and the
-/// molecule tip map.
-const SLOT_KEY_COPIES: usize = 2;
+/// Copies of the slot hash and range strings: the interned slot key only.
+const SLOT_KEY_COPIES: usize = 1;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).
 const HASH_MAP_SLOT: usize = 56;
 /// The `Arc` strong and weak counters in front of the atom.
@@ -53,14 +52,9 @@ pub(super) fn slot_charge(slot: &SlotKey) -> usize {
     finish(SLOT_BASE + SLOT_KEY_COPIES * (slot.hash.len() + slot.range.len()))
 }
 
-/// Heap owned by the current molecule tip, apart from the fixed slot cost.
-/// Key metadata and its coordinate copies belong to each slot, even when the
-/// atom body is shared. The two base key copies exclude this metadata map.
-pub(super) fn tip_heap_charge(
-    entry: &AtomEntry,
-    metadata: Option<&KeyMetadata>,
-    metadata_key_bytes: usize,
-) -> usize {
+/// Heap owned by the slot's tip, apart from the fixed slot cost: the tip's
+/// strings and boxed signer part, and the boxed key metadata.
+pub(super) fn tip_heap_charge(entry: &AtomEntry, metadata: Option<&KeyMetadata>) -> usize {
     let strings = [
         &entry.atom_uuid,
         &entry.mutation_uuid,
@@ -71,16 +65,16 @@ pub(super) fn tip_heap_charge(
     .map(String::capacity)
     .sum::<usize>();
     // The boxed signer part: its box, strings and provenance.
-    let provenance = entry.extra_heap_bytes();
+    let signer = entry.extra_heap_bytes();
     let metadata = metadata.map_or(0, |metadata| {
-        metadata_key_bytes
+        std::mem::size_of::<KeyMetadata>()
             + metadata
                 .source_file_name
                 .as_ref()
                 .map_or(0, String::capacity)
             + metadata.metadata.as_ref().map_or(0, metadata_heap_bytes)
     });
-    finish(strings + provenance + metadata)
+    finish(strings + signer + metadata)
 }
 
 /// One source link. Both sides store only ids.

@@ -36,18 +36,6 @@ impl MoleculeHashRange {
             .insert(range, entry)
     }
 
-    /// Purge a fetched slot without a logical delete or a history record.
-    pub(crate) fn forget_loaded_slot(&mut self, hash: &str, range: &str) -> Option<AtomEntry> {
-        self.loaded_is_partial = true;
-        self.remove_key_metadata(hash, range);
-        let ranges = self.atom_uuids.get_mut(hash)?;
-        let entry = ranges.remove(range);
-        if ranges.is_empty() {
-            self.atom_uuids.remove(hash);
-        }
-        entry
-    }
-
     /// Borrow the ordered slots directly so a bounded filter visits its range.
     pub(crate) fn atom_entries_for_hash(&self, hash: &str) -> Option<&BTreeMap<String, AtomEntry>> {
         self.atom_uuids.get(hash)

@@ -143,20 +143,9 @@ impl CoreWarmSet {
     /// keep their separate metadata reservations; this charges the molecule copy.
     pub(super) fn refresh_tip_charge(&mut self, id: tables::SlotId) {
         let charge = self.slots.get(id).map_or(0, |slot| {
-            self.molecules
-                .get(&slot.key.molecule)
-                .and_then(|molecule| {
-                    molecule
-                        .get_atom_entry(&slot.key.hash, &slot.key.range)
-                        .map(|entry| {
-                            tip_heap_charge(
-                                entry,
-                                molecule.get_key_metadata(&slot.key.hash, &slot.key.range),
-                                slot.key.hash.len() + slot.key.range.len(),
-                            )
-                        })
-                })
-                .unwrap_or(0)
+            slot.tip
+                .as_ref()
+                .map_or(0, |entry| tip_heap_charge(entry, slot.metadata.as_deref()))
         });
         self.set_tip_charge(id, charge);
     }

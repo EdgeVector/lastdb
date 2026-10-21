@@ -215,18 +215,8 @@ impl CoreWarmSet {
             return;
         };
         slot.owned = None;
-        let key = slot.key.clone();
-        let (previous, empty) = match self.molecules.get_mut(&key.molecule) {
-            Some(molecule) => (
-                molecule.forget_loaded_slot(&key.hash, &key.range),
-                molecule.is_empty() && molecule.core_keys().is_none(),
-            ),
-            None => return,
-        };
-        if empty {
-            self.molecules.remove(&key.molecule);
-        }
-        if let Some(previous) = previous {
+        slot.metadata = None;
+        if let Some(previous) = slot.tip.take() {
             self.unlink_atom(id, &previous.atom_uuid);
         }
     }

@@ -240,7 +240,6 @@ impl CoreWarmSet {
         sources: usize,
         definitions: usize,
     ) -> Result<(), CoreCapacity> {
-        self.molecules.try_reserve(slots).map_err(|_| capacity())?;
         self.slots.try_reserve(slots)?;
         self.sources.try_reserve(sources)?;
         self.memory.reserve_install(definitions)

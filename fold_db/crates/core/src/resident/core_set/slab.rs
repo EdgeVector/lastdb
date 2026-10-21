@@ -40,14 +40,11 @@ fn new_chunk<T>() -> Result<Box<[Option<T>]>, std::collections::TryReserveError>
 impl<T> Slab<T> {
     /// Store `value`, reusing a freed id before the table grows.
     pub(super) fn insert(&mut self, value: T) -> u32 {
-        let id = match self.free.pop() {
-            Some(id) => id,
-            None => {
-                let id = self.next;
-                self.next = id.checked_add(1).expect("core table id space");
-                id
-            }
-        };
+        let id = self.free.pop().unwrap_or_else(|| {
+            let id = self.next;
+            self.next = id.checked_add(1).expect("core table id space");
+            id
+        });
         let (chunk, at) = split(id);
         while self.chunks.len() <= chunk {
             self.chunks

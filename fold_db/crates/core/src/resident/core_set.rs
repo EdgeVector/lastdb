@@ -2,7 +2,9 @@
 //!
 //! The caller holds the publication lock before it locks this set. Disk I/O
 //! never runs under the set lock. The path map and recency list contain only
-//! ownership metadata; current tips live in `MoleculeHashRange` itself.
+//! ownership metadata; each slot holds its current tip and key metadata.
+//! There is no second molecule copy (measured 2026-10-20: the copy cost about
+//! 2.5 KB of each 7 KB small record, in text-keyed maps and key copies).
 
 use crate::atom::{Atom, AtomEntry, KeyMetadata, MoleculeHashRange};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -191,7 +193,8 @@ struct SharedAtom {
 pub(crate) struct CoreWarmSet {
     memory: memory::CoreMemory,
     model: model::CoreModel,
-    molecules: HashMap<MoleculeKey, MoleculeHashRange>,
+    /// Complete key membership attached to a molecule. Tips live in slots.
+    key_domains: HashMap<MoleculeKey, Arc<crate::resident::core_keys::CoreKeyDomain>>,
     // A content UUID does not identify the immutable metadata of a full atom.
     // The UUID buckets share only fully equal atoms and own no retained bytes.
     atoms: HashMap<AtomKey, Vec<Weak<SharedAtom>>>,
@@ -214,14 +217,11 @@ impl CoreWarmSet {
             .slots
             .iter()
             .filter(|(_, slot)| {
-                self.molecules
-                    .get(&slot.key.molecule)
-                    .and_then(|molecule| molecule.get_atom_entry(&slot.key.hash, &slot.key.range))
-                    .is_some_and(|entry| {
-                        slot.atom
-                            .as_ref()
-                            .is_none_or(|atom| atom.value.uuid() != entry.atom_uuid.as_str())
-                    })
+                slot.tip.as_ref().is_some_and(|entry| {
+                    slot.atom
+                        .as_ref()
+                        .is_none_or(|atom| atom.value.uuid() != entry.atom_uuid.as_str())
+                })
             })
             .flat_map(|(_, slot)| &slot.owners)
             .filter(|path| {
@@ -233,7 +233,7 @@ impl CoreWarmSet {
         CoreWarmStats {
             paths: self.paths.len(),
             tip_only_paths,
-            molecules: self.molecules.len(),
+            molecules: self.slots.molecule_count(),
             atoms: self.atoms.values().map(Vec::len).sum(),
             held: self
                 .paths
@@ -249,19 +249,6 @@ impl CoreWarmSet {
             misses: self.misses,
             purged: self.purged,
         }
-    }
-
-    /// Borrow the actual partial molecule for an existing synchronous filter.
-    /// Its present slots alone do not establish complete range coverage.
-    pub(crate) fn with_molecule<T>(
-        &self,
-        scope: Option<&str>,
-        molecule: &str,
-        inspect: impl FnOnce(&MoleculeHashRange) -> T,
-    ) -> Option<T> {
-        self.molecules
-            .get(&MoleculeKey::new(scope, molecule))
-            .map(inspect)
     }
 
     /// Absence requires the same publication boundary and source links as a tip.

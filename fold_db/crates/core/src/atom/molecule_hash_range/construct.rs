@@ -17,7 +17,6 @@ impl MoleculeHashRange {
             updated_at: Utc::now(),
             order_is_tail: false,
             loaded_is_partial: false,
-            complete_keys: None,
             version: 0,
             key_metadata: HashMap::new(),
         }
@@ -41,7 +40,6 @@ impl MoleculeHashRange {
             updated_at: Utc::now(),
             order_is_tail: false,
             loaded_is_partial: false,
-            complete_keys: None,
             version: 0,
             key_metadata: HashMap::new(),
         }
@@ -105,7 +103,6 @@ impl MoleculeHashRange {
             updated_at,
             order_is_tail: false,
             loaded_is_partial: false,
-            complete_keys: None,
             version,
             key_metadata,
             pending_tip_conflicts: Vec::new(),
@@ -140,7 +137,6 @@ impl MoleculeHashRange {
             updated_at,
             order_is_tail: true,
             loaded_is_partial: false,
-            complete_keys: None,
             version,
             key_metadata,
             pending_tip_conflicts: Vec::new(),
