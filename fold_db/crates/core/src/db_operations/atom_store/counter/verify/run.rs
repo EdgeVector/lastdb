@@ -1,8 +1,9 @@
 //! The driver of the verifier: steps with a page budget and a time budget.
 
-use super::blobs::{apply_blobs, apply_listed, apply_queue, BlobsPage, QueuePage};
+use super::blobs::apply_listed;
 use super::check::{judge_pair, judge_referenced, judge_total, Holder, Seen};
 use super::pages::{phase_range, AtomsPage, ReferencedPage, SuspectsPage};
+use super::queue::apply_suspects;
 use super::report::{Kind, Phase, VerifyReport, VerifyRequest, VerifySummary};
 use super::state::{Run, StepGuard};
 use super::totals::{digest, Watch};
@@ -25,8 +26,6 @@ const DEFAULT_MAX_ATOMS: usize = 1_000_000;
 enum Page {
     Referenced(ReferencedPage),
     Atoms(AtomsPage),
-    Blobs(BlobsPage),
-    BlobQueue(QueuePage),
     Suspects(SuspectsPage),
 }
 
@@ -100,6 +99,10 @@ impl AtomStore {
         if guard.run().phase == Phase::Queue {
             return self.verify_queue_page(guard).await;
         }
+        if matches!(guard.run().phase, Phase::Blobs | Phase::BlobQueue) && !guard.run().walk.done()
+        {
+            return self.verify_blob_page(guard).await;
+        }
         let (run, watch) = guard.split();
         if run.walk.done() {
             next_phase(run);
@@ -119,8 +122,6 @@ impl AtomStore {
                 .read_referenced_page(run.phase, scope.as_deref(), request)
                 .await
                 .map(Page::Referenced),
-            Phase::Blobs => self.read_blobs_page(request).await.map(Page::Blobs),
-            Phase::BlobQueue => self.read_queue_page(request).await.map(Page::BlobQueue),
             Phase::Suspects => {
                 let suspects = std::mem::take(&mut run.suspects);
                 let page = self.read_suspects_page(&suspects, request).await;
@@ -131,6 +132,8 @@ impl AtomStore {
             | Phase::Bindings
             | Phase::BindingRecords
             | Phase::Queue
+            | Phase::Blobs
+            | Phase::BlobQueue
             | Phase::Done => return Ok(()),
         };
         match page {
@@ -145,27 +148,7 @@ impl AtomStore {
                     Progress::Stuck => return Err(unsealed_run_error()),
                 }
             }
-            Ok(Page::Suspects(page)) => {
-                run.note_unsealed(page.scan_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => {
-                        run.report.pages += 1;
-                        for key in &page.keys {
-                            run.note_fault(
-                                Kind::RecordWithoutQueueEntry,
-                                key,
-                                "no queue entry names this record (its entry was deleted, or never written)"
-                                    .into(),
-                            );
-                        }
-                    }
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
-            }
+            Ok(Page::Suspects(page)) => apply_suspects(run, &page)?,
             Ok(Page::Atoms(page)) => {
                 run.note_unsealed(page.scan_unsealed + page.point_unsealed);
                 match run
@@ -173,28 +156,6 @@ impl AtomStore {
                     .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
                 {
                     Progress::Moved => apply_atoms(run, watch, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
-            }
-            Ok(Page::Blobs(page)) => {
-                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => apply_blobs(run, page),
-                    Progress::Widened => run.report.page_retries += 1,
-                    Progress::Stuck => return Err(unsealed_run_error()),
-                }
-            }
-            Ok(Page::BlobQueue(page)) => {
-                run.note_unsealed(page.scan_unsealed + page.point_unsealed);
-                match run
-                    .walk
-                    .finish_read(page.rows, page.scan_unsealed, page.last_key.as_deref())
-                {
-                    Progress::Moved => apply_queue(run, page),
                     Progress::Widened => run.report.page_retries += 1,
                     Progress::Stuck => return Err(unsealed_run_error()),
                 }

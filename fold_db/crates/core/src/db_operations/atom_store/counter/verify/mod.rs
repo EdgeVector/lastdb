@@ -59,6 +59,7 @@
 
 mod blob_pages;
 mod blob_report;
+mod blob_run;
 mod blobs;
 mod check;
 mod molecule_judge;
@@ -70,6 +71,7 @@ mod queue;
 mod report;
 mod run;
 mod state;
+mod summary;
 mod totals;
 
 pub use report::{VerifyReport, VerifyRequest, VerifySummary};
