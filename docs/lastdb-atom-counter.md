@@ -374,7 +374,7 @@ release the kept conflict records of the slots they remove. See
 
 | Tool | Where it runs | What it does |
 |---|---|---|
-| `lastdb db verify-refs` | live node | reads, writes nothing, takes no write gate, reports faults |
+| `lastdb db verify-refs` | live node | reads, writes nothing, holds no write gate for a read, reports faults |
 | `lastdb db recount [--execute]` | stopped home | rebuilds the counters from the tips and the counted conflict records |
 | `lastdb db inventory` | live node | walks the key classes of the home; it also writes idempotent attribution rows, so it is not read-only |
 | `lastdb db molecule-drain` | live node | names a molecule to the drain and shows the drain report |
@@ -386,8 +386,9 @@ release the kept conflict records of the slots they remove. See
 
 The verifier finds a counter that disagrees with the tips and the conflict records.
 It runs on request only. It writes no counter, no body, no tip and no record of its
-own. It keeps its result in memory, so a restart clears it. The writer lint lists no
-writer in `counter/verify/`.
+own, and it holds no write gate for any read (see A consistent view for the one empty
+write scope at the start of a run). It keeps its result in memory, so a restart clears
+it. The writer lint lists no writer in `counter/verify/`.
 
 A run reads in phases, each in pages with a cursor:
 
@@ -545,9 +546,9 @@ with `scan_range_yielding`. A read that runs short of key budget is not a failur
 returns the live rows it found and names the last key it examined, and the next read
 goes on above it. A read that fails with the read limit is retried with fewer rows, and
 then the key range is cut in two. The report shows `scan.calls`, `scan.shrinks`,
-`scan.splits` and `scan.skips`. On a home with a live row before each of three clusters
-of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and `inventory` 183 s
-before the walk existed, and 2.9 s and 7.1 s after.
+`scan.splits` and `scan.skips`. On a synthetic home with a live row before each of three
+clusters of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and `inventory`
+183 s before the walk existed, and about 3 s and 7 s after.
 
 ### Status lines
 
