@@ -148,6 +148,9 @@ Normal startup and direct logical constructors use native packed storage.
 The private native queue retains prepared disk bytes until flush. Ordinary
 reads cannot use that queue. Every successful local mutation request waits
 for its disk sequence before the ack. Cloud publication is a separate policy.
+Change notices and their sequence tip join the same native data commit.
+The core publishes the committed feed tip and subscriber hints after disk.
+Mini has no separate change-feed write queue.
 
 - `fold_db/crates/core/src/resident/` holds the core model, memory charges,
   the warm-set byte limit, and shared counters. Read its module doc and

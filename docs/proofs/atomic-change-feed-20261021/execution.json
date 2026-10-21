@@ -1,0 +1,29 @@
+{
+  "candidate_build_wrapper": [
+    "scripts/ci/with-fold-host-cargo-lock.sh", "--timeout", "3600", "--",
+    "python3", "docs/proofs/atomic-change-feed-20261021/build_release.py",
+    "--output", "docs/proofs/atomic-change-feed-20261021/after-v2"
+  ],
+  "candidate_build_checks": "after-v2/build-checks.json",
+  "candidate_build_passed": true,
+  "inventory_command_template_limit": "The imported inventory helper records a historical 600-second build command. It is not the executed wrapper.",
+  "candidate_binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+  "candidate_source_inventory_sha256": "2e130fe5568b7b461712ab38e0f1a4842298bd2db0a3aae5292bc71cdefc1dc8",
+  "before_binary_sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50",
+  "before_source_inventory_sha256": "49a5d5c99ff451ba216e4b6e15207e9ec14d1228b5f0610e2a2305ecf9f4ea0e",
+  "hardware": {"cpu": "Apple M4 Max", "logical_cpus": 14, "memory_bytes": 38654705664},
+  "host_scope": "Observed shared host. The user explicitly permitted simultaneous jobs.",
+  "timed_workload": "paired-r1/command.json",
+  "timed_workload_passed": true,
+  "operational_workload": "operations-r1/command.json",
+  "operational_workload_passed": true,
+  "failed_build_attempt": "after/build-checks.json retains the earlier unused_async failure. The sync helper and caller were corrected before after-v2 capture.",
+  "analysis_retry": "The first stage analysis read comparison.json while its producer still wrote the file. That read failed without an output. The final stage analysis ran after producer exit0 and passed.",
+  "source_recheck": "post-run-checks.json",
+  "primary_home_used": false,
+  "archive_home_used": false,
+  "existing_database_loaded": false,
+  "migration_added": false,
+  "cloud_activated": false,
+  "tests_run": false
+}

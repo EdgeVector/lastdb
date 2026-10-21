@@ -1,0 +1,24 @@
+{
+  "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq/status-lastdbd",
+  "sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50",
+  "bytes": 66569088,
+  "source_identity": "before/source-identity.json",
+  "source_head": "d1e83a127a39874140500af928186c3e7b80e30e",
+  "source_role": "Durable baseline plus status-only file barrier telemetry. Exact source inventory verified after release build.",
+  "build_command": [
+    "scripts/ci/with-fold-host-cargo-lock.sh",
+    "--timeout",
+    "3600",
+    "--",
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd"
+  ],
+  "build_exit_code": 0,
+  "cargo_reported_seconds": 260
+}

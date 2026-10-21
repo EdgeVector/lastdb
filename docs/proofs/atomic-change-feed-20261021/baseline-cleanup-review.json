@@ -1,0 +1,126 @@
+{
+  "checked_utc": "2026-10-21T18:27:39.897789+00:00",
+  "device": 16777231,
+  "execute_only_after_successful_preview": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+    "--exact-home"
+  ],
+  "inode": 1492865114,
+  "inventory": [
+    {
+      "identity": {
+        "bytes": 66558224,
+        "sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8"
+      },
+      "mode": "0o755",
+      "nlink": 1,
+      "owner_uid": 501,
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq/program-lastdbd"
+    },
+    {
+      "identity": {
+        "bytes": 66569088,
+        "sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50"
+      },
+      "mode": "0o755",
+      "nlink": 1,
+      "owner_uid": 501,
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq/status-lastdbd"
+    }
+  ],
+  "known_socket_paths_remaining": [],
+  "marker": {
+    "creator_pid": 34334,
+    "device": 16777231,
+    "inode": 1492865114,
+    "kind": "synthetic-trial",
+    "owner_uid": 501,
+    "version": 1
+  },
+  "marker_identity": {
+    "bytes": 123,
+    "sha256": "5734dab7a4f439bc79b09c4e1c32b892cca374a6c0d7709ff34941c9bf91dfcb"
+  },
+  "mode": "0o700",
+  "node_sessions": 0,
+  "open_file_check": {
+    "command": [
+      "lsof",
+      "-Fpn",
+      "+D",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq"
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "owner_uid": 501,
+  "preserved_inputs": {
+    ".baseline-binary-owner.json": {
+      "bytes": 123,
+      "sha256": "5734dab7a4f439bc79b09c4e1c32b892cca374a6c0d7709ff34941c9bf91dfcb"
+    },
+    "baseline-original.json": {
+      "bytes": 995,
+      "sha256": "400e11cab5d756cb5c60acc422d1e1ac75c83e9b380a6465e5bcfa238833163c"
+    },
+    "before/binary.json": {
+      "bytes": 729,
+      "sha256": "e843b960251fcaa028b5371ce179048c7e7fea343e5cec57b0c45e03c761beb3"
+    },
+    "before/source-identity.json": {
+      "bytes": 327468,
+      "sha256": "30893c8684d8c566c98237acf6da610dea3653aaa6a9e504a5ea11b25b9ec398"
+    }
+  },
+  "preview_identity": {
+    "bytes": 449,
+    "sha256": "827ecc14f7793888d44e3e65f2883c1dc3cfd793b6109b44b16e05b41ab86438"
+  },
+  "prior_review_identity": {
+    "bytes": 3150,
+    "sha256": "e3a9b99df730d52a52bcb088288c76fd587de6c6504deba975631f6273f0eb58"
+  },
+  "process_check": {
+    "command": [
+      "ps",
+      "-p",
+      "34334",
+      "-o",
+      "pid=,command="
+    ],
+    "exit_code": 1,
+    "stderr": "",
+    "stdout": ""
+  },
+  "ready_for_supported_preview": true,
+  "ready_to_reclaim": true,
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+  "recommended_preview": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+    "--exact-home",
+    "--dry-run"
+  ],
+  "reviewer": "independent subagent disk_wait_telemetry",
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+  "scope": "Binary container only. The supported exact-home preview succeeds for the reviewed root. Fresh checks confirm the unchanged root, two binary files and owner marker, absent creator PID, and no open handle. No node session is claimed or invented. This review approves supported reclaim for this exact root but does not execute it.",
+  "supported_preview": {
+    "command": [
+      "/Users/tomtang/.local/bin/lastdb-dev",
+      "reclaim",
+      "--home",
+      "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+      "--exact-home",
+      "--dry-run"
+    ],
+    "exit_code": 0,
+    "output": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq (released exact synthetic seed)\n",
+    "scope": "Exact owned binary container; no node sessions or database home."
+  }
+}

@@ -12,6 +12,8 @@ pub struct NativeDiskStatus {
     pub accepted_sequence: u64,
     pub completed_sequence: u64,
     pub writer_failed: bool,
+    /// Process-wide file barriers; legacy flush counters do not measure native commits.
+    pub file_barriers: NativeFileBarrierStats,
     pub warm_records: usize,
     /// Retired path-count limit; always 0. The limit is `core_warm_bytes.limit_bytes`.
     pub warm_record_limit: usize,
@@ -70,6 +72,7 @@ impl PackRuntime {
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
             writer_failed: self.failed.load(Ordering::Acquire),
+            file_barriers: NativeFileBarrierStats::capture(),
             warm_records: core.paths,
             warm_record_limit: 0,
             core_warm_paths: core.paths,

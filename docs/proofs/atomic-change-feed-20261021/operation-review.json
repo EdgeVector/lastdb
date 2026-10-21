@@ -1,0 +1,222 @@
+{
+  "available_response_clocks_us": {
+    "ack": {
+      "max_us": 3530399,
+      "min_us": 0,
+      "p50_us": 953543.0,
+      "samples": 38
+    },
+    "gate_wait": {
+      "max_us": 0,
+      "min_us": 0,
+      "p50_us": 0.0,
+      "samples": 38
+    },
+    "prepare": {
+      "max_us": 9145,
+      "min_us": 0,
+      "p50_us": 3032.0,
+      "samples": 38
+    },
+    "publish": {
+      "max_us": 0,
+      "min_us": 0,
+      "p50_us": 0.0,
+      "samples": 38
+    }
+  },
+  "binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+  "candidate_only_response_clock_groups": {
+    "create_update_only": {
+      "http_duration_including_client_decode_us": {
+        "max_us": 4381390.333,
+        "min_us": 513593.167,
+        "p50_us": 987734.7505000001,
+        "samples": 32
+      },
+      "inner_receipt_clocks_us": {
+        "ack": {
+          "max_us": 3530399,
+          "min_us": 506913,
+          "p50_us": 979426.5,
+          "samples": 32
+        },
+        "prepare": {
+          "max_us": 9145,
+          "min_us": 1954,
+          "p50_us": 3113.0,
+          "samples": 32
+        }
+      },
+      "scope": "Candidate operational calls only. These timings are not detailed request phases or isolated disk cost."
+    },
+    "mixed_create_update_then_erasure": {
+      "http_duration_including_client_decode_us": {
+        "max_us": 1751218.541,
+        "min_us": 1161209.333,
+        "p50_us": 1456213.937,
+        "samples": 2
+      },
+      "inner_receipt_clocks_us": {
+        "ack": {
+          "max_us": 1014923,
+          "min_us": 564925,
+          "p50_us": 789924.0,
+          "samples": 2
+        },
+        "prepare": {
+          "max_us": 4553,
+          "min_us": 3842,
+          "p50_us": 4197.5,
+          "samples": 2
+        }
+      },
+      "scope": "Candidate operational calls only. These timings are not detailed request phases or isolated disk cost."
+    },
+    "pure_erasure_default_clocks": {
+      "http_duration_including_client_decode_us": {
+        "max_us": 868259.583,
+        "min_us": 642924.625,
+        "p50_us": 796990.8955,
+        "samples": 4
+      },
+      "inner_receipt_clocks_us": {
+        "ack": {
+          "max_us": 0,
+          "min_us": 0,
+          "p50_us": 0.0,
+          "samples": 4
+        },
+        "prepare": {
+          "max_us": 0,
+          "min_us": 0,
+          "p50_us": 0.0,
+          "samples": 4
+        }
+      },
+      "scope": "Candidate operational calls only. These timings are not detailed request phases or isolated disk cost."
+    }
+  },
+  "checked": [
+    "Driver/helper/source/executable identities match their frozen inputs.",
+    "Write IDs and counts match recorded acknowledgements; batch response IDs are directly retained.",
+    "All74 unique notices match the accepted IDs, verbs, schemas and default async flags. Each exact event appears once after ack and once after reopen.",
+    "All57 logical read receipts report all four fields and exact membership checks.",
+    "Both intended refusal kinds retain their real raw response bodies. No product notice follows either refusal. Later writes succeed.",
+    "The two node sessions stop normally with exit0, and all native status observations report a healthy writer."
+  ],
+  "clock_scope": "Inner receipt intervals only. Mixed requests stamp create/update before later erasure; pure erasure clocks are zero defaults. HTTP minus inner time is not fsync time.",
+  "complete": true,
+  "evidence_files": {
+    "command.json": {
+      "bytes": 6835,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/command.json",
+      "sha256": "e6c6dbad345155f28e58c47416bb6f350e435965ac300b9af6869860d1a03212"
+    },
+    "result.json": {
+      "bytes": 11504,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/result.json",
+      "sha256": "d3881a7e08c30288ff24a0f16877c04cafaab7c76830a2fbe41bbf53e0d89b5c"
+    },
+    "run/.synthetic-seed-owner.json": {
+      "bytes": 123,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/run/.synthetic-seed-owner.json",
+      "sha256": "1ccaa9ecaef317d69280d2d139bed825f1eb0939077e64a4b6e691eec94e8285"
+    },
+    "run/inputs.json": {
+      "bytes": 2020,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/run/inputs.json",
+      "sha256": "5e1280ee86bb188e610684c20fbf3d639c41fbacbc9f3319dd5ded34d1169fec"
+    },
+    "run/receipts.jsonl": {
+      "bytes": 697922,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/run/receipts.jsonl",
+      "sha256": "79d0063905fb57b554b49bb5fd57b0f2e0337b2077592d0d55cea9b61e3fcb28"
+    },
+    "run/retained-root.json": {
+      "bytes": 189,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/run/retained-root.json",
+      "sha256": "7031b0c1d4b704e8c66f44b7892ea816250f213fd4df835e7649deab2fd6f3cc"
+    },
+    "run/summary.json": {
+      "bytes": 174,
+      "path": "docs/proofs/atomic-change-feed-20261021/operations-r1/run/summary.json",
+      "sha256": "22e02f914f7de030b8c050f2c261b24af6a11731692593f0ab5e5a59fc8598a2"
+    }
+  },
+  "evidence_limits": [
+    "Compact response/query certificates retain hashes and executed check results; they do not reconstruct full values or metadata.",
+    "The singleton mutation_id and success scalar are omitted by the generic response certificate. The strict driver records each validated singleton ID separately, and exact notices corroborate it.",
+    "There is no candidate-only detailed request phase diagnosis from this stale snapshot.",
+    "No isolated throughput, causal comparison, crash, power-loss, cloud or cross-node proof is claimed."
+  ],
+  "operation_checks_pass": true,
+  "operational_native_barrier_observation": {
+    "accepted_sequence_delta": 67,
+    "after_phase": "ordinary-operation-routes-complete",
+    "before_phase": "default-native-boot-without-selection-environment",
+    "completed_sequence_delta": 67,
+    "file_barriers": {
+      "data_file_calls": 838,
+      "data_file_micros": 8037216,
+      "directory_calls": 1598,
+      "directory_micros": 10250738,
+      "scope": "process_lifetime_all_laststore_homes",
+      "sidecar_file_calls": 0,
+      "sidecar_file_micros": 0
+    },
+    "scope": "First boot status through all operational routes, including schema seed, author clock and all node-native work. Not exact mutation attribution."
+  },
+  "optional_telemetry": {
+    "finding": "The status route returned its cached boot snapshot. No detailed request_ops phases are available; missing phase data is not zero. The omission is explicit and did not fail the value/notice proof.",
+    "forensic_request_phases_available": false,
+    "matching_write_request_ids": 0,
+    "missing_write_request_ids": 38,
+    "process_start_ts": 1792606633,
+    "request_ops_snapshot": {
+      "ring_capacity": 256,
+      "sample_count": 0
+    },
+    "sampler": {
+      "db_write_enabled": false,
+      "last_error": null,
+      "last_sample_at": null,
+      "retention_max_samples": null,
+      "sample_count": null
+    },
+    "snapshot_age_at_receive_ms": 38199,
+    "snapshot_sampled_at": 1792606633,
+    "status_call_succeeded": true
+  },
+  "reviewed_utc": "2026-10-21T18:21:16.950551+00:00",
+  "source_inventory_sha256": "2e130fe5568b7b461712ab38e0f1a4842298bd2db0a3aae5292bc71cdefc1dc8",
+  "totals": {
+    "accepted_unique_mutation_ids": 74,
+    "batch_mutation_calls": 18,
+    "exact_notices_replayed_after_reopen": 74,
+    "expected_refusals": {
+      "condition_http409": 2,
+      "must_exist_http400": 2
+    },
+    "immediate_notice_passes": 32,
+    "logical_read_checks": 57,
+    "node_exit_codes": [
+      0,
+      0
+    ],
+    "normal_node_sessions": 2,
+    "notice_pages": 37,
+    "operation_verbs": {
+      "created": 44,
+      "deleted": 6,
+      "no_op": 0,
+      "total": 74,
+      "updated": 24
+    },
+    "receipt_rows": 326,
+    "single_mutation_calls": 20,
+    "successful_mutation_http_calls": 38
+  },
+  "unexpected_failures": [],
+  "version": 1
+}

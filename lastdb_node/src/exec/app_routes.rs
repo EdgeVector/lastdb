@@ -116,7 +116,7 @@ pub(super) async fn execute_app_changes_route(
     };
     let raw = page.events;
     let examined_cursor = raw.last().map_or(after, |event| event.seq);
-    let tip = host.db.db_ops().change_feed().tip().await;
+    let tip = host.db.db_ops().change_feed().tip();
     let changes: Vec<Value> = raw
         .into_iter()
         .filter(|event| change_visible_to_caller(host, ctx, event, target.as_deref()))

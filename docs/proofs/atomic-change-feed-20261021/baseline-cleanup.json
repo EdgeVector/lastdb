@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+    "--exact-home"
+  ],
+  "exit_code": 0,
+  "output": "lastdb-dev: reclaiming /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq (released exact synthetic seed)\n",
+  "review": "baseline-cleanup-review.json",
+  "scope": "Two owned executable copies and their marker; no node session or primary home."
+}

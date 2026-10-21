@@ -9,24 +9,35 @@ impl MutationManager {
         job: &mut PurgeEnvelope,
     ) -> Result<(), SchemaError> {
         let has_completion = job.completion.is_some();
-        let native = self.db_ops.namespaced_store().disk_pack_runtime();
-        let original_flags = native
-            .as_ref()
-            .map(|_| (job.validated_present, job.retry_requires_finalize));
+        let native = self
+            .db_ops
+            .namespaced_store()
+            .disk_pack_runtime()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("logical erasures require native storage".into())
+            })?;
+        let validated_present = job.validated_present;
         let attempt = async {
             // Both erasure verbs accept caller conditions. Compare before any
             // selected tip or body is removed, under the native write gate.
             self.check_cas_preconditions(&job.erasures, job.storage_prefix.as_deref())
                 .await
                 .map_err(PurgeAttemptError::Rejected)?;
-            let result = match native.as_ref() {
-                Some(runtime) => self.attempt_current_erasure_stages(job, runtime).await?,
-                None => self.attempt_purge_stages(job).await?,
-            };
-            if let Some(runtime) = &native {
-                self.reserve_native_core_memory(runtime)
-                    .map_err(PurgeAttemptError::Retry)?;
-            }
+            // Capture only caller keys, before protein peer expansion. The
+            // whole erasure and its notices share this private native stage.
+            let notices = self
+                .prepare_change_notices(&job.erasures)
+                .map_err(PurgeAttemptError::Rejected)?;
+            let result = self.attempt_current_erasure_stages(job, &native).await?;
+            self.db_ops
+                .change_feed()
+                .stage(notices)
+                .await
+                // Notice admission changes only private preparation. Return
+                // failures to the caller; a fixed limit must not pin a lane.
+                .map_err(PurgeAttemptError::Rejected)?;
+            self.reserve_native_core_memory(&native)
+                .map_err(PurgeAttemptError::Retry)?;
             Ok(result)
         };
         let attempt = async {
@@ -39,7 +50,7 @@ impl MutationManager {
                 .capture_router()
                 .map(|router| router.enter_kv_suppress());
             crate::sync::capture::with_capture_suppressed(
-                crate::storage::disk_pack::transaction::scope(native.clone(), attempt),
+                crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&native)), attempt),
             )
             .await
         };
@@ -53,10 +64,7 @@ impl MutationManager {
             )
         };
         if result.is_err() {
-            if let Some((validated, finalize)) = original_flags {
-                job.validated_present = validated;
-                job.retry_requires_finalize = finalize;
-            }
+            job.validated_present = validated_present;
         }
         match result {
             Ok(result) => {
@@ -90,15 +98,15 @@ impl MutationManager {
         }
     }
 
-    /// Validate targets, run the durable erasure core, then the schema final
-    /// stages (finalize replay, retention keys, Search outbox).
+    /// Validate targets and stage erasures, retention keys, and Search delivery.
+    /// The enclosing native scope commits every stage together.
     pub(super) async fn attempt_purge_stages(
         &self,
         job: &mut PurgeEnvelope,
     ) -> Result<Vec<String>, PurgeAttemptError> {
         self.validate_purge_job_targets(job).await?;
 
-        let outcome = match self
+        let outcome = self
             .process_hard_erasures_durable(
                 job.erasures.clone(),
                 super::super::super::write::HardErasureOptions {
@@ -108,28 +116,12 @@ impl MutationManager {
                 },
             )
             .await
-        {
-            Ok(result) => result,
-            Err(error) => {
-                // The core can fail after its destructive store step. Keep
-                // this obligation until one later attempt completes every
-                // schema final stage.
-                job.retry_requires_finalize = true;
-                return Err(PurgeAttemptError::Retry(error));
-            }
-        };
+            .map_err(PurgeAttemptError::Retry)?;
 
         let schema_name = job
             .erasures
             .first()
             .map_or("", |mutation| mutation.schema_name.as_str());
-        if job.retry_requires_finalize {
-            self.replay_purge_finalize(schema_name)
-                .await
-                .map_err(PurgeAttemptError::Retry)?;
-            job.retry_requires_finalize = false;
-        }
-
         if let Some(keys) = &job.retention_keys {
             // A key that the erase spared by tip write time keeps its age row.
             let spared_from_nanos = job
@@ -162,7 +154,6 @@ impl MutationManager {
             .map_err(PurgeAttemptError::Retry)?
         {
             self.publish_purge_search(&batch)
-                .await
                 .map_err(PurgeAttemptError::Retry)?;
         }
 
@@ -203,10 +194,14 @@ impl MutationManager {
     }
 
     /// Search sees a tombstone only after the entire native deletion commits.
-    async fn publish_purge_search(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
-        let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() else {
-            return self.deliver_index_change_batch(batch).await;
-        };
+    fn publish_purge_search(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {
+        let runtime = self
+            .db_ops
+            .namespaced_store()
+            .disk_pack_runtime()
+            .ok_or_else(|| {
+                SchemaError::InvalidData("logical erasures require native storage".into())
+            })?;
         let inbox = self.search_outbox_inbox.clone();
         let batch = batch.clone();
         crate::storage::disk_pack::transaction::after_commit(&runtime, async move {

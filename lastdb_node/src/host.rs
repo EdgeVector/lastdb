@@ -94,9 +94,6 @@ pub struct Host {
     /// Local short-TTL mutation doorbell (not cloud-synced). Apps long-poll
     /// `/api/local-watch` instead of idle-polling keyed tables.
     pub local_outbox: Arc<crate::local_outbox::LocalOutbox>,
-    /// Bounded ordered persistence lane for durable app change-feed hints.
-    /// Requests reserve capacity before product commit and submit after it.
-    pub(crate) change_feed_queue: crate::change_feed_queue::ChangeFeedQueue,
     /// Admission gate for *blocking* `/api/local-watch` waiters. A parked
     /// long-poll holds a UDS worker for its whole timeout and takes no QoS
     /// permit, so without this the pool can be fully occupied by sleeping
@@ -471,11 +468,6 @@ impl Host {
             "minimal host booted"
         );
 
-        let change_feed_queue = crate::change_feed_queue::ChangeFeedQueue::new(
-            db.db_ops().change_feed().clone(),
-            Arc::clone(db.pending_tasks()),
-        );
-
         Ok(Self {
             home: home.to_path_buf(),
             data_dir: data_path,
@@ -491,7 +483,6 @@ impl Host {
                 crate::local_outbox::DEFAULT_TTL,
                 crate::local_outbox::DEFAULT_MAX_EVENTS,
             ),
-            change_feed_queue,
             watch_gate: crate::watch_gate::WatchGate::shared_from_env(),
             atom_ref_health: Arc::new(crate::atom_ref_health::AtomRefHealthRuntime::default()),
             primary_resume_job_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),

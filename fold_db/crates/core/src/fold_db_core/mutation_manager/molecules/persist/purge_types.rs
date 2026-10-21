@@ -12,8 +12,8 @@ pub(super) enum PurgeAttemptError {
     /// The store or a later durable stage failed. Keep the envelope at the
     /// lane head and retry it.
     Retry(SchemaError),
-    /// A caller precondition failed before any destructive stage. Complete
-    /// the envelope with that error instead of retrying rejected intent.
+    /// A caller condition or private native preparation failed. Complete the
+    /// envelope with that error; the native scope discards every private stage.
     Rejected(SchemaError),
 }
 
@@ -42,10 +42,6 @@ pub(crate) struct PurgeEnvelope {
     /// durable attempts after this point use `Skip`, so partial progress can
     /// converge without a false terminal miss.
     pub(in crate::fold_db_core::mutation_manager) validated_present: bool,
-    /// A prior core attempt can erase rows before its schema store, schema
-    /// reload, or flush fails. The next attempt must repeat those final stages
-    /// even when its idempotent `Skip` pass finds no durable trace.
-    pub(in crate::fold_db_core::mutation_manager) retry_requires_finalize: bool,
     pub(in crate::fold_db_core::mutation_manager) retention_keys:
         Option<Vec<crate::schema::types::KeyValue>>,
     pub(in crate::fold_db_core::mutation_manager) verb: crate::fold_db_core::purge::HardEraseVerb,

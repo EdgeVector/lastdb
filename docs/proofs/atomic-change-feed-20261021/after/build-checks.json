@@ -1,0 +1,23 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--lib",
+      "--bins",
+      "--locked",
+      "--exclude",
+      "generate_validated_schema_org_seeds",
+      "--exclude",
+      "schema_service_worker",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "elapsed_seconds": 32.559200459,
+    "exit_code": 101,
+    "stdout": "",
+    "stderr": "    Checking fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/fold_db/crates/core)\nerror: unused `async` for function with no await statements\n   --> fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/purge_job.rs:198:5\n    |\n198 | /     async fn publish_purge_search(&self, batch: &IndexChangeBatch) -> Result<(), SchemaError> {\n199 | |         let runtime = self\n200 | |             .db_ops\n201 | |             .namespaced_store()\n...   |\n219 | |         Ok(())\n220 | |     }\n    | |_____^\n    |\n    = help: consider removing the `async` from this function\nnote: `await` used in an async block, which does not require the enclosing function to be `async`\n   --> fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/purge_job.rs:213:48\n    |\n213 |                 sink.apply_change_batch(batch).await.map_err(|error| {\n    |                                                ^^^^^\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#unused_async\n    = note: requested on the command line with `-D clippy::unused-async`\n\nerror: could not compile `fold_db` (lib) due to 1 previous error\n"
+  }
+]

@@ -20,6 +20,7 @@ const PURGE_BARRIER_CHUNK: usize = super::super::purge::budget::ERASE_CHUNK_KEYS
 mod admission;
 mod attribution;
 mod batch_inner;
+mod change_notice;
 mod cloud_entry;
 mod create_update_batch;
 mod delete_winners;

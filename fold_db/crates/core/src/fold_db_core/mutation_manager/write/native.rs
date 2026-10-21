@@ -85,6 +85,7 @@ impl MutationManager {
             }
             self.check_batch_preconditions(&mutations, request.storage_prefix)
                 .await?;
+            let notices = self.prepare_change_notices(&mutations)?;
             request
                 .runtime
                 .record_read_stage("conditions-done", mutations.len());
@@ -101,6 +102,13 @@ impl MutationManager {
                 )
                 .boxed()
                 .await?;
+            let notice_started = std::time::Instant::now();
+            self.db_ops.change_feed().stage(notices).await?;
+            Self::add_timing(
+                &mut state.timing_breakdown,
+                "change_notice_prepare",
+                notice_started.elapsed(),
+            );
             request
                 .runtime
                 .record_read_stage("stored-stages-done", delta_count);

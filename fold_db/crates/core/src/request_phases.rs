@@ -211,8 +211,7 @@ pub fn add_phase_us(phase: RequestPhase, us: u64) {
             RequestPhase::SyncCapture => &mut totals.sync_capture_us,
             RequestPhase::IndexWait => &mut totals.index_wait_us,
             RequestPhase::ChangeRecord => &mut totals.change_record_us,
-            RequestPhase::ChangeRecordLockWait => &mut totals.change_record_lock_wait_us,
-            RequestPhase::ChangeRecordWrite => &mut totals.change_record_write_us,
+            RequestPhase::ChangeNoticePrepare => &mut totals.change_notice_prepare_us,
             RequestPhase::ResponseEnvelope => &mut totals.response_envelope_us,
             RequestPhase::StatusSync => &mut totals.status_sync_us,
             RequestPhase::StatusBackup => &mut totals.status_backup_us,
@@ -239,6 +238,10 @@ pub(crate) fn add_purge_totals(totals: &RequestPhaseTotals) {
         ),
         (RequestPhase::PurgeDelete, totals.purge_delete_us),
         (RequestPhase::PurgeFinalize, totals.purge_finalize_us),
+        (
+            RequestPhase::ChangeNoticePrepare,
+            totals.change_notice_prepare_us,
+        ),
     ] {
         add_phase_us(phase, us);
     }

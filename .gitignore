@@ -94,3 +94,9 @@
 
 # Keep the full local response seal; commit the compact file hashes beside it.
 /docs/proofs/warm-set-read-boundaries-20261019/sealed-originals.json
+
+# Full shared-host observations stay intact locally; exact portable parts are tracked.
+/docs/proofs/atomic-change-feed-20261021/paired-r1/*/result.json
+/docs/proofs/atomic-change-feed-20261021/comparison.json
+/docs/proofs/atomic-change-feed-20261021/sealed-originals.json
+/docs/proofs/atomic-change-feed-20261021/before/instrumentation.patch

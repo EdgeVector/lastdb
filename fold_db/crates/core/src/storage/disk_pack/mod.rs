@@ -22,6 +22,7 @@ mod read;
 mod rows;
 pub(crate) mod schema_keys;
 mod space;
+mod sync_status;
 pub(crate) mod transaction;
 mod view;
 mod write;
@@ -32,6 +33,7 @@ pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
+pub use sync_status::NativeFileBarrierStats;
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 

@@ -176,7 +176,6 @@ impl MutationManager {
             storage_prefix: storage_prefix.map(str::to_string),
             missing,
             validated_present: false,
-            retry_requires_finalize: false,
             retention_keys,
             verb,
             completion: None,

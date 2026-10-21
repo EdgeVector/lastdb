@@ -1,0 +1,46 @@
+{
+  "complete": true,
+  "exact_owned_roots": [
+    {
+      "absent": true,
+      "cleanup_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/before-r1/cleanup.json",
+      "normal_node_sessions": 2,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cicxji5f"
+    },
+    {
+      "absent": true,
+      "cleanup_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/after-r1/cleanup.json",
+      "normal_node_sessions": 2,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5nyy2xyz"
+    },
+    {
+      "absent": true,
+      "cleanup_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/after-r2/cleanup.json",
+      "normal_node_sessions": 2,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7s6zuiux"
+    },
+    {
+      "absent": true,
+      "cleanup_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/before-r2/cleanup.json",
+      "normal_node_sessions": 2,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.je46cyb5"
+    },
+    {
+      "absent": true,
+      "cleanup_receipt": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-r1/run/cleanup.json",
+      "normal_node_sessions": 2,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3"
+    },
+    {
+      "absent": true,
+      "cleanup_receipt": "docs/proofs/atomic-change-feed-20261021/baseline-cleanup.json",
+      "normal_node_sessions": 0,
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq"
+    }
+  ],
+  "normal_node_sessions": 10,
+  "primary_or_archive_used": false,
+  "roots_reclaimed": 6,
+  "scope": "Fresh synthetic homes and two executable copies only. Exact supported cleanup receipts remain preserved.",
+  "seal_sha256": "fa9f8fa69fe2b929888b5c3b5b63bcabc5d619e40b84c19b842f130a3c632fdf"
+}

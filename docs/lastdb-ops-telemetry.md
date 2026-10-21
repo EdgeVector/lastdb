@@ -91,6 +91,8 @@ each row, and the table is absent entirely when nothing reported phases.
 The native mutation disk-sequence wait stays within `apply`.
 Every successful local mutation receipt includes that wait.
 An absent `flush` field does not mean that the write skips disk completion.
+`change_notice_prepare` measures private notice preparation before the shared disk commit.
+It includes no separate feed flush or feed mutex wait.
 
 Proof sequence for "where did my slow write spend its time":
 
@@ -170,10 +172,18 @@ This read does not wake the flush worker.
 | `accepted_sequence`, `completed_sequence` | Accepted write frontier and completed disk frontier. |
 | `accepted_batches` | Accepted batches that still await complete disk publication. |
 | `writer_failed` | Native writer failure state. A failed writer cannot acknowledge another accepted view. |
+| `file_barriers` | Process-wide LastStore file and directory barrier counts and total microseconds since process start. |
 | `core_model.metadata_*` | Current, retained, used, peak, and limit bytes for core model metadata. |
 | `core_model.body_reserved_*` | Current and retained charged write-body owners, including captured older values. |
 | `core_memory` | Bounded definition memory, with hits, misses, refused admissions, and byte charges. |
 | `schema_keys` | Complete selected-schema key sets, their bytes, readiness, loads, and selection counters. |
+
+`file_barriers` includes every LastStore home in this process.
+It counts completed attempts, including failed attempts.
+Times can overlap across threads and do not equal request latency.
+The data-file count includes native journal, map, and root barriers.
+On macOS, these data-file barriers use `F_FULLFSYNC`.
+The separate directory count uses `sync_all`.
 
 A queued reply alone does not establish a memory-only ACK.
 Sample the accepted and completed sequences, pending batches, and dirty paths immediately after the reply.

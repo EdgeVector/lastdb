@@ -1,0 +1,131 @@
+{
+  "baseline_instrumentation": {
+    "base": "d1e83a127a39874140500af928186c3e7b80e30e",
+    "files": [
+      "fold_db/crates/core/src/storage/disk_pack/mod.rs",
+      "fold_db/crates/core/src/storage/disk_pack/view.rs",
+      "fold_db/crates/core/src/storage/disk_pack/sync_status.rs"
+    ],
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/before/instrumentation.patch",
+    "scope": "Only identical native barrier telemetry is added to the previous durable source.",
+    "sha256": "f05032403fd3afd5fbbcb6aea8359f28e52730ded57ba6540d356e4591df9992"
+  },
+  "commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/lints/lint-atom-counter-writers.py"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": "lint-atom-counter-writers: OK (103 writer functions, 100 allow lines)\n"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/lints/lint-no-write-path-syncing-store.sh"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": "lint-no-write-path-syncing-store: ok\n"
+    }
+  ],
+  "passed": true,
+  "python_syntax": [
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/analyze.py",
+      "sha256": "ee40fb379c2fc75717d687077756d3dce479c620ed3a4193e7b5d5139a7df534"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/analyze_stages.py",
+      "sha256": "7d570ea81815d031d8489221f5a0e71c87d399262c085af0dbc009571a911a37"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/bench_cells.py",
+      "sha256": "0b2502e579a8b4652cec8635a7b594b9cc9848cd970a6ac152347188b0061dc1"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/bench_notices.py",
+      "sha256": "16683bd999776c9c4e794858189b57ebc32e7b612b53239a8cb657c0634fe2aa"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/bench_support.py",
+      "sha256": "54b1b826735d9730552daea5ebf29d018233efe8a08ad26471ca6608e39cc45e"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/benchmark.py",
+      "sha256": "2bd9f40932e0f1f73680b4a666f151a9bdd4643ce711a5792c2a8121113fc03d"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/build_release.py",
+      "sha256": "2e758d0a6ab2a7cea95f2596fec0f00fcfe3b8ca881b7f188389014ba95b3b67"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/finish_checks.py",
+      "sha256": "92ab899096df4b9fb2d95c0d7e872ccd69494023712969194aca135fe5ba69c8"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/operation_cases.py",
+      "sha256": "fb1cf0d8b3addd246ee88aa63d5980b8751e86514fcffe4c8b848111aaab9915"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/operation_context.py",
+      "sha256": "82c620a0a976cd08e6c4ddb404d533170359aeca0e41fa489aaedd2c39eec97d"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/operation_telemetry.py",
+      "sha256": "62e39ae2d5fa6e013ac63d03cb00500229308624049f1bd2d74aba73b6d7fa3a"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/operational.py",
+      "sha256": "4ae692eccb47694368659cd6f1db7b3487c1a810a311547a38da5ba6d80d0709"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/preserve.py",
+      "sha256": "060c0740cbca44c885a3f4a118b30dc8d3ef50b42bbd3957b4d5cabb30b010b8"
+    },
+    {
+      "path": "docs/proofs/atomic-change-feed-20261021/quiet_host.py",
+      "sha256": "ac6c19f25f017e9587a2e95c3a022b0ebb921cfe1f9e6efcf097e426bf58918a"
+    }
+  ],
+  "release_identity": {
+    "binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+    "scope": "Read-only verification; the original finalized inventory is unchanged.",
+    "verification": {
+      "binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+      "binary_sha256_matches": true,
+      "checked_utc": "2026-10-21T18:18:58.055010+00:00",
+      "host_settings_match": true,
+      "passed": true,
+      "previous_attempt_identities_match": true,
+      "prior_identity_matches": true,
+      "removed_prior_inputs_match": true,
+      "source_input_count": 1838,
+      "source_mismatches": []
+    }
+  },
+  "tests": "No tests or fixture runner. The API workloads use fresh synthetic homes."
+}

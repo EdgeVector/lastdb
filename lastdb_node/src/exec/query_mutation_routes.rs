@@ -115,31 +115,11 @@ pub(super) async fn execute_mutation_route(
     let watch_mt = mutation_type_label(&components.mutation_type).to_string();
     let watch_hash = components.key_value.hash.clone();
     let watch_range = components.key_value.range.clone();
-    let change_feed_reservation = match host.change_feed_queue.try_reserve() {
-        Ok(reservation) => reservation,
-        Err(message) => return error_response(503, message, ctx),
-    };
     let result = handlers::execute_mutation(host, components, ctx)
         .await
-        .and_then(|value| {
-            let mutation_id = value
-                .get("mutation_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    HostError::new(500, "Single mutation receipt has no input identity")
-                })?;
-            let event = durable_change_event(
-                watch_schema.clone(),
-                watch_mt.clone(),
-                watch_hash.clone(),
-                watch_range.clone(),
-                mutation_id.to_string(),
-                &value,
-            );
-            // Queue submit is in-memory and cannot wait. Capacity was reserved
-            // before product commit, so overload cannot create a committed row
-            // without a matching queued hint.
-            change_feed_reservation.submit(vec![event]);
+        .inspect(|_| {
+            // The core commits durable notices with the data. This doorbell
+            // remains a separate, short-lived in-memory hint for local-watch.
             let change_record_started = std::time::Instant::now();
             host.local_outbox
                 .append(watch_schema, watch_mt, watch_hash, watch_range);
@@ -147,7 +127,6 @@ pub(super) async fn execute_mutation_route(
                 fold_db::request_phases::RequestPhase::ChangeRecord,
                 change_record_started.elapsed(),
             );
-            Ok(value)
         });
     let response_started = std::time::Instant::now();
     let response = render(result, ctx);

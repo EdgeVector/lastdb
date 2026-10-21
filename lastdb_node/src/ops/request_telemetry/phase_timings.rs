@@ -1,7 +1,7 @@
 use super::*;
 
 /// Number of phases in [`PhaseTimings`] — see [`PhaseTimings::PHASE_NAMES`].
-pub(super) const PHASE_COUNT: usize = 49;
+pub(super) const PHASE_COUNT: usize = 48;
 
 /// Per-phase timing breakdown for one request, in microseconds.
 ///
@@ -251,25 +251,15 @@ pub struct PhaseTimings {
     /// request.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub index_wait_us: u64,
-    /// Post-write process-local outbox recording only. Since 0.23.2 the
-    /// durable change-feed append below is `change_record_lock_wait_us` /
-    /// `change_record_write_us`; a drop here at the upgrade boundary is the
-    /// split, not a regression cured.
+    /// Post-request process-local outbox recording only. Durable notices
+    /// join the core data commit and use `change_notice_prepare_us` below.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub change_record_us: u64,
-    /// Mutation: time blocked acquiring the change-feed's single global `tip`
-    /// mutex — the one lock on the node not scoped to a schema, key, or
-    /// molecule. Every successful mutation passes through it, so a large
-    /// value here is every writer on the node queueing behind every other
-    /// one, not a same-key or same-schema peer.
+    /// Mutation: private feed-tip read, notice encode, and event/tip staging
+    /// beside product data. This excludes the shared disk commit, whose wait
+    /// remains in `apply_us`; native status exposes its file barriers.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub change_record_lock_wait_us: u64,
-    /// Mutation: the durable change-feed batch write (event + tip) done while
-    /// holding the mutex above. Storage IO, split from
-    /// `change_record_lock_wait_us` because contention and write cost have
-    /// different fixes.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub change_record_write_us: u64,
+    pub change_notice_prepare_us: u64,
     /// Final response envelope/error rendering after route work completes.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub response_envelope_us: u64,
@@ -338,8 +328,7 @@ impl PhaseTimings {
         "sync_capture",
         "index_wait",
         "change_record",
-        "change_record_lock_wait",
-        "change_record_write",
+        "change_notice_prepare",
         "response_envelope",
         "status_sync",
         "status_backup",
@@ -391,8 +380,7 @@ impl PhaseTimings {
             self.sync_capture_us,
             self.index_wait_us,
             self.change_record_us,
-            self.change_record_lock_wait_us,
-            self.change_record_write_us,
+            self.change_notice_prepare_us,
             self.response_envelope_us,
             self.status_sync_us,
             self.status_backup_us,
@@ -445,14 +433,13 @@ impl PhaseTimings {
             sync_capture_us: values[38],
             index_wait_us: values[39],
             change_record_us: values[40],
-            change_record_lock_wait_us: values[41],
-            change_record_write_us: values[42],
-            response_envelope_us: values[43],
-            status_sync_us: values[44],
-            status_backup_us: values[45],
-            status_durability_us: values[46],
-            status_data_dir_us: values[47],
-            status_request_ops_us: values[48],
+            change_notice_prepare_us: values[41],
+            response_envelope_us: values[42],
+            status_sync_us: values[43],
+            status_backup_us: values[44],
+            status_durability_us: values[45],
+            status_data_dir_us: values[46],
+            status_request_ops_us: values[47],
         }
     }
 
@@ -471,7 +458,7 @@ impl PhaseTimings {
     /// It is the WRONG number to rank keys by — use [`Self::disjoint_us`] —
     /// and the WRONG number to subtract from `duration_ms` — use
     /// [`Self::within_wall_us`]. It is kept because the wire vocabulary is
-    /// a flat 50-field array and a caller that genuinely wants the raw fold
+    /// a fixed-size array and a caller that genuinely wants the raw fold
     /// (a serialization round-trip check, for one) should not have to
     /// reimplement it.
     #[must_use]

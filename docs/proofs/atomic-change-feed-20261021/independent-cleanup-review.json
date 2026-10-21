@@ -1,0 +1,1050 @@
+{
+  "archives_listing_identity": {
+    "bytes": 45638,
+    "sha256": "725b2eb417da3fb980bc19ff2cc0eaf80c97bdb158425016f853cd22ffc9850d"
+  },
+  "checked_utc": "2026-10-21T18:26:36.496548+00:00",
+  "exact_roots": [
+    {
+      "binary_identity": {
+        "bytes": 66569088,
+        "sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50"
+      },
+      "checked_pid_set": [
+        11856,
+        25204,
+        25439
+      ],
+      "device": 16777231,
+      "inode": 1493374442,
+      "known_socket_paths_checked": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cicxji5f/b/q.sock",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cicxji5f/b/f.sock"
+      ],
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 25204,
+        "device": 16777231,
+        "inode": 1493374442,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "dfbb63d2f0c264de25fe6b08ce6b54bcf496585b84f67704b10f01c1078eb517"
+      },
+      "mode": "0o700",
+      "normal_node_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 25439,
+          "variant": "before-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 11856,
+          "variant": "before-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cicxji5f"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_identity": {
+        "bytes": 423,
+        "sha256": "3c591123747f619575805fe1cc58eb84a89013bbbcd0ace108633cfdcc52e131"
+      },
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "11856,25204,25439",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cicxji5f",
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/before-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.cicxji5f",
+      "sealed_files": 23,
+      "source_identity": {
+        "binary_sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50",
+        "bytes": 327468,
+        "head": "d1e83a127a39874140500af928186c3e7b80e30e",
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/before/source-identity.json",
+        "sha256": "30893c8684d8c566c98237acf6da610dea3653aaa6a9e504a5ea11b25b9ec398",
+        "source_input_count": 1839,
+        "source_inventory_sha256": "49a5d5c99ff451ba216e4b6e15207e9ec14d1228b5f0610e2a2305ecf9f4ea0e",
+        "state": "release_verified"
+      }
+    },
+    {
+      "binary_identity": {
+        "bytes": 66146736,
+        "sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1"
+      },
+      "checked_pid_set": [
+        12187,
+        25204,
+        65135
+      ],
+      "device": 16777231,
+      "inode": 1493374479,
+      "known_socket_paths_checked": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5nyy2xyz/a/q.sock",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5nyy2xyz/a/f.sock"
+      ],
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 25204,
+        "device": 16777231,
+        "inode": 1493374479,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "f711d7efb322d3821a900c11b4a731d3104dbaeaf944aaecff73d3e1aa7c99b1"
+      },
+      "mode": "0o700",
+      "normal_node_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 65135,
+          "variant": "after-r1"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 12187,
+          "variant": "after-r1"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5nyy2xyz"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_identity": {
+        "bytes": 423,
+        "sha256": "adf4d751b28b18c4465359f044643a8b62cfb5fdfb225c60c513ae0975283f53"
+      },
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "12187,25204,65135",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5nyy2xyz",
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/after-r1",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.5nyy2xyz",
+      "sealed_files": 23,
+      "source_identity": {
+        "binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+        "bytes": 328648,
+        "head": "d1e83a127a39874140500af928186c3e7b80e30e",
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-v2/source-identity.json",
+        "sha256": "95fe2291f19abe66efb6b87cec14b6fc689820636541add9882c79a7a9db40a2",
+        "source_input_count": 1838,
+        "source_inventory_sha256": "2e130fe5568b7b461712ab38e0f1a4842298bd2db0a3aae5292bc71cdefc1dc8",
+        "state": "release_verified"
+      }
+    },
+    {
+      "binary_identity": {
+        "bytes": 66146736,
+        "sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1"
+      },
+      "checked_pid_set": [
+        9241,
+        12634,
+        25204
+      ],
+      "device": 16777231,
+      "inode": 1493374516,
+      "known_socket_paths_checked": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7s6zuiux/a/q.sock",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7s6zuiux/a/f.sock"
+      ],
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 25204,
+        "device": 16777231,
+        "inode": 1493374516,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "d0e9fd163c73e8929bcf5f6d675ac3f0d29e4c7467da48acfda2130477165901"
+      },
+      "mode": "0o700",
+      "normal_node_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 9241,
+          "variant": "after-r2"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 12634,
+          "variant": "after-r2"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7s6zuiux"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_identity": {
+        "bytes": 423,
+        "sha256": "00b146a087db53f4c481683485a7723d61bf8d9c968ac59c5a85f4ab0d55e549"
+      },
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "9241,12634,25204",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7s6zuiux",
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/after-r2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.7s6zuiux",
+      "sealed_files": 24,
+      "source_identity": {
+        "binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+        "bytes": 328648,
+        "head": "d1e83a127a39874140500af928186c3e7b80e30e",
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-v2/source-identity.json",
+        "sha256": "95fe2291f19abe66efb6b87cec14b6fc689820636541add9882c79a7a9db40a2",
+        "source_input_count": 1838,
+        "source_inventory_sha256": "2e130fe5568b7b461712ab38e0f1a4842298bd2db0a3aae5292bc71cdefc1dc8",
+        "state": "release_verified"
+      }
+    },
+    {
+      "binary_identity": {
+        "bytes": 66569088,
+        "sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50"
+      },
+      "checked_pid_set": [
+        13499,
+        25204,
+        33755
+      ],
+      "device": 16777231,
+      "inode": 1493374543,
+      "known_socket_paths_checked": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.je46cyb5/b/q.sock",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.je46cyb5/b/f.sock"
+      ],
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 25204,
+        "device": 16777231,
+        "inode": 1493374543,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "46120aaccb821538909ff8e4ad407c743540ecb513b3732f563163d471ddb860"
+      },
+      "mode": "0o700",
+      "normal_node_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 33755,
+          "variant": "before-r2"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 13499,
+          "variant": "before-r2"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.je46cyb5"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_identity": {
+        "bytes": 423,
+        "sha256": "6dbc580fbd91663ace27d56b55d909be77f37368a2e2e522d4eb9d7d650088e6"
+      },
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "13499,25204,33755",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.je46cyb5",
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/paired-r1/before-r2",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.je46cyb5",
+      "sealed_files": 24,
+      "source_identity": {
+        "binary_sha256": "03e2fbe2b961cc20c2ba072e268ba6e2e02e2a39061a2d34f7f2a15e3cbeec50",
+        "bytes": 327468,
+        "head": "d1e83a127a39874140500af928186c3e7b80e30e",
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/before/source-identity.json",
+        "sha256": "30893c8684d8c566c98237acf6da610dea3653aaa6a9e504a5ea11b25b9ec398",
+        "source_input_count": 1839,
+        "source_inventory_sha256": "49a5d5c99ff451ba216e4b6e15207e9ec14d1228b5f0610e2a2305ecf9f4ea0e",
+        "state": "release_verified"
+      }
+    },
+    {
+      "binary_identity": {
+        "bytes": 66146736,
+        "sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1"
+      },
+      "checked_pid_set": [
+        18097,
+        18116,
+        18704
+      ],
+      "device": 16777231,
+      "inode": 1494121676,
+      "known_socket_paths_checked": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3/o/q.sock",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3/o/f.sock"
+      ],
+      "known_socket_paths_remaining": [],
+      "marker": {
+        "creator_pid": 18097,
+        "device": 16777231,
+        "inode": 1494121676,
+        "kind": "synthetic-trial",
+        "owner_uid": 501,
+        "version": 1
+      },
+      "marker_identity": {
+        "bytes": 123,
+        "sha256": "1ccaa9ecaef317d69280d2d139bed825f1eb0939077e64a4b6e691eec94e8285"
+      },
+      "mode": "0o700",
+      "normal_node_stops": [
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 18116,
+          "variant": "operations"
+        },
+        {
+          "diagnostics": "off",
+          "exit_code": 0,
+          "forced_kill": false,
+          "operation": "owned-node-stop",
+          "pid": 18704,
+          "variant": "operations"
+        }
+      ],
+      "open_file_check": {
+        "command": [
+          "lsof",
+          "-Fpn",
+          "+D",
+          "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3"
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "owner_uid": 501,
+      "preview_identity": {
+        "bytes": 423,
+        "sha256": "e6d31fd0739d49984a89dfa3eac6cdf33fa4b0540fc66d5e51b6e2ec28cc6bb7"
+      },
+      "process_check": {
+        "command": [
+          "ps",
+          "-p",
+          "18097,18116,18704",
+          "-o",
+          "pid=,command="
+        ],
+        "exit_code": 1,
+        "stderr": "",
+        "stdout": ""
+      },
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3",
+      "receipt_directory": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/operations-r1/run",
+      "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3",
+      "sealed_files": 21,
+      "source_identity": {
+        "binary_sha256": "68f8943d8d1914aa7acae6cbf5a612c82c273f98385efc5da76da9b29816c5b1",
+        "bytes": 328648,
+        "head": "d1e83a127a39874140500af928186c3e7b80e30e",
+        "path": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/after-v2/source-identity.json",
+        "sha256": "95fe2291f19abe66efb6b87cec14b6fc689820636541add9882c79a7a9db40a2",
+        "source_input_count": 1838,
+        "source_inventory_sha256": "2e130fe5568b7b461712ab38e0f1a4842298bd2db0a3aae5292bc71cdefc1dc8",
+        "state": "release_verified"
+      }
+    }
+  ],
+  "normal_sessions": 10,
+  "portable_archives_verified": [
+    {
+      "gzip_bytes": 2156849,
+      "manifest": "paired-r1/before-r1/portable/receipts-jsonl/manifest.json",
+      "manifest_identity": {
+        "bytes": 1226,
+        "sha256": "4e0902611f7bb4196323eea37f753aba290281e65e3996696d0d24e6bf3c1e5c"
+      },
+      "parts": 3,
+      "raw": {
+        "bytes": 16350211,
+        "sha256": "318986c2774a11ff27a794990be6d65846f9759b48bece327216897488592b90"
+      }
+    },
+    {
+      "gzip_bytes": 1270,
+      "manifest": "paired-r1/before-r1/portable/inputs-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 882,
+        "sha256": "c35dc49cab2545da442f5af50ec30eb772b546c07c3e6f0fabd278aaddb55b8e"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 2230,
+        "sha256": "0ef2784d0626699993875ee5d9a99f541fda71f2631865634abec53c4c30508f"
+      }
+    },
+    {
+      "gzip_bytes": 166,
+      "manifest": "paired-r1/before-r1/portable/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 880,
+        "sha256": "580696fd6307423a0c03e1825d469884f16467b35114793fd4baf1debd1a8f6b"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 174,
+        "sha256": "c8f7813adad3bd4527e6e433b7df6f16287d7a004332235535aa8b4c7692a5b8"
+      }
+    },
+    {
+      "gzip_bytes": 806230,
+      "manifest": "paired-r1/before-r1/portable/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 889,
+        "sha256": "86077e598316b168f265632db0010e2030d15b3bcb637571080415125aeff2ee"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 9300640,
+        "sha256": "bceb3c443e152ae88f0d27bcb4ce0bd19e2ae46e1735fa0b0d02d4e21f115bd3"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "paired-r1/before-r1/portable/retained-root-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 886,
+        "sha256": "2019536ec1ddc64b31e450ee1045be5d36f7d8b2378173fe8d6b09617f736923"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 189,
+        "sha256": "3d9f2cdfb7324022ef506ce2d30364a50c071774f0ac3db38b6ffb5b84e7fdff"
+      }
+    },
+    {
+      "gzip_bytes": 123,
+      "manifest": "paired-r1/before-r1/portable/synthetic-seed-owner-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 894,
+        "sha256": "5fa076bfdde4b860ac3a0999c34738edd6d826b3805edbdc92bfe9b871833da7"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 123,
+        "sha256": "dfbb63d2f0c264de25fe6b08ce6b54bcf496585b84f67704b10f01c1078eb517"
+      }
+    },
+    {
+      "gzip_bytes": 9030,
+      "manifest": "paired-r1/before-r1/portable/node-log-00/manifest.json",
+      "manifest_identity": {
+        "bytes": 814,
+        "sha256": "356b469b2656ee791e450af3eb922bd1fbd598b09d76beb65ff2dd4458379830"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 107805,
+        "sha256": "5d5cd380cf3a11b18c22dc7065808d324a3fe56760a7040647ba2e4b00891ac9"
+      }
+    },
+    {
+      "gzip_bytes": 2152029,
+      "manifest": "paired-r1/after-r1/portable/receipts-jsonl/manifest.json",
+      "manifest_identity": {
+        "bytes": 1225,
+        "sha256": "8fe35d48b58873bc556e4a643547d956c0808a2bd5f63b8421a9513f105fba8c"
+      },
+      "parts": 3,
+      "raw": {
+        "bytes": 16345332,
+        "sha256": "6878eefd6d52d3e17660af84955f19d3fbe479f669f8e68366c24dd3419121b9"
+      }
+    },
+    {
+      "gzip_bytes": 1267,
+      "manifest": "paired-r1/after-r1/portable/inputs-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 881,
+        "sha256": "98a1f4ca1b765cfb71b99c6634400ded2425e4dfc5d94fb194c474eccc870625"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 2248,
+        "sha256": "47fc3377dfb0f0013b8f0f9ea9444de9c55225bf0d8b4466afb0ea9a632ac577"
+      }
+    },
+    {
+      "gzip_bytes": 166,
+      "manifest": "paired-r1/after-r1/portable/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 879,
+        "sha256": "31b79beb51a60951d311c144911ca8c91ba27df31a4dc646b12db3f1c4569203"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 174,
+        "sha256": "598f7f5506f684f039417190d0f4c2a726d9f89e51ec26a1d65ad85017da2495"
+      }
+    },
+    {
+      "gzip_bytes": 822504,
+      "manifest": "paired-r1/after-r1/portable/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 888,
+        "sha256": "0d18595195a1ee0cd2bec77839eb2dbe20d417b095e341a1a10ec68009803537"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 8845363,
+        "sha256": "35327613bfb460dfcbc7c071887625324cc52a1664a24cec18c6689558e1f626"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "paired-r1/after-r1/portable/retained-root-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 885,
+        "sha256": "a46a60a2a95bd84c1971cceb94cfd4fc6a7ad5d5d30d9a83dac817f91e34acc7"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 189,
+        "sha256": "6211addf87a1b950514066422a7d653c6d2f05508b54535baec06ea4e130385e"
+      }
+    },
+    {
+      "gzip_bytes": 123,
+      "manifest": "paired-r1/after-r1/portable/synthetic-seed-owner-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 893,
+        "sha256": "1ba5c9fdfc8f724ac5856421dc2ca1866c06cb349656a936e90d0e9e7deb2a09"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 123,
+        "sha256": "f711d7efb322d3821a900c11b4a731d3104dbaeaf944aaecff73d3e1aa7c99b1"
+      }
+    },
+    {
+      "gzip_bytes": 8989,
+      "manifest": "paired-r1/after-r1/portable/node-log-00/manifest.json",
+      "manifest_identity": {
+        "bytes": 814,
+        "sha256": "338cbbad8139818c1431151204149832e1f8cb5537352d63200e0c827c12c356"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 107795,
+        "sha256": "272d0968773ec7e34e7310c75329aa46b9dc72ca2bca9766c202ccca7e05e59a"
+      }
+    },
+    {
+      "gzip_bytes": 2158159,
+      "manifest": "paired-r1/after-r2/portable/receipts-jsonl/manifest.json",
+      "manifest_identity": {
+        "bytes": 1225,
+        "sha256": "5917c395ecac3ae435314f362481d10a30231a98db8a3ab3429a88232f0220ba"
+      },
+      "parts": 3,
+      "raw": {
+        "bytes": 16356923,
+        "sha256": "53f63de2fd88af268132596185e8fdc846a86ddd7f35f9e9105b77a55f2f60b5"
+      }
+    },
+    {
+      "gzip_bytes": 1267,
+      "manifest": "paired-r1/after-r2/portable/inputs-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 881,
+        "sha256": "fdb818613b10d36f98bb08e18936f76265a902b41716965d48c0ed7d18aa711e"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 2248,
+        "sha256": "bd29b9d98f5b2edf61d92c0689cb64caaeef65f9c95839dae98b13d80a9fc450"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "paired-r1/after-r2/portable/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 879,
+        "sha256": "2e107ba4ae246cd54656220c864dcf670e730d90ee54561a374a9274f1d0c16b"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 174,
+        "sha256": "49a623e7304214f5eab7e31fbe79263fa8e744370a201e838b0933922fabde31"
+      }
+    },
+    {
+      "gzip_bytes": 1130143,
+      "manifest": "paired-r1/after-r2/portable/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 1056,
+        "sha256": "3ea4359b0257c74d0c3cb6958c616370741834322332b03aa0b13686dbafc88d"
+      },
+      "parts": 2,
+      "raw": {
+        "bytes": 13549109,
+        "sha256": "d31b6c3d01ad2bd742d7cdde3639bbf86f40aa36696387e2fe00b2e456324788"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "paired-r1/after-r2/portable/retained-root-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 885,
+        "sha256": "97cae92226aa7c8268ae47d01f791fd4940814c5a52d16663865e526bb83ad7b"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 189,
+        "sha256": "6de3099510b991a18e570e7374fc12912cfe975ce636f06ad24baabb5b36059d"
+      }
+    },
+    {
+      "gzip_bytes": 123,
+      "manifest": "paired-r1/after-r2/portable/synthetic-seed-owner-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 893,
+        "sha256": "241c0fd0c65a8924eecdcc02fa4f8839f3defa617cf68ac74558d63ccdb1f596"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 123,
+        "sha256": "d0e9fd163c73e8929bcf5f6d675ac3f0d29e4c7467da48acfda2130477165901"
+      }
+    },
+    {
+      "gzip_bytes": 9272,
+      "manifest": "paired-r1/after-r2/portable/node-log-00/manifest.json",
+      "manifest_identity": {
+        "bytes": 814,
+        "sha256": "bfd4761fe1a35c6e5cced072a35acbe492477710752937552e31bf4f191e9679"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 111319,
+        "sha256": "6ea61dd4f869e5ba482a79b21af641b617262bbaa730671e7504fe490e610e58"
+      }
+    },
+    {
+      "gzip_bytes": 2168030,
+      "manifest": "paired-r1/before-r2/portable/receipts-jsonl/manifest.json",
+      "manifest_identity": {
+        "bytes": 1226,
+        "sha256": "37ddba2ff9882ee19cf7caf8eea12c63e31c92135835fed5cc5679d3b46369f5"
+      },
+      "parts": 3,
+      "raw": {
+        "bytes": 16368466,
+        "sha256": "e6bafb196ce94e3a00b29fc740d3f4f03f0d08f94e02f75b0728c84bcf62d547"
+      }
+    },
+    {
+      "gzip_bytes": 1269,
+      "manifest": "paired-r1/before-r2/portable/inputs-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 882,
+        "sha256": "b5d5763702ea6ea8c62fac83212b4869d7f85ab528bada1b678a22d5d76cb5ae"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 2230,
+        "sha256": "2cfe71fb05894c0255eff08941d457bc0f57732fb54457b3f5209da9ac474deb"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "paired-r1/before-r2/portable/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 880,
+        "sha256": "7245cf5b16c15b9c298792aed4df6b698db350b2b1d03e3b0e861d3a538a7bc4"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 174,
+        "sha256": "15da68e9e0153b0af2f457414869be088661b6826d5bf2b6fdbd9c8c6fca8e0a"
+      }
+    },
+    {
+      "gzip_bytes": 1305301,
+      "manifest": "paired-r1/before-r2/portable/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 1057,
+        "sha256": "706828eaf1fa3929cb233d39fdd670c6959084c2862089ad80371e41412a7d06"
+      },
+      "parts": 2,
+      "raw": {
+        "bytes": 15193016,
+        "sha256": "9976a34aa6d860cdfbe6a2c6917135db413eb7f4ed8fe5d53c634542bb710963"
+      }
+    },
+    {
+      "gzip_bytes": 168,
+      "manifest": "paired-r1/before-r2/portable/retained-root-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 886,
+        "sha256": "8afbf2b0b260450736e9799dcb20bfaf95dc6ef10692f47f9a49abe45e86eda1"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 189,
+        "sha256": "da8d30ff346df632e358a3859e2587a9f54ba317c2a9717eed52dd1382c1fff0"
+      }
+    },
+    {
+      "gzip_bytes": 123,
+      "manifest": "paired-r1/before-r2/portable/synthetic-seed-owner-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 894,
+        "sha256": "2412944a31629b329239db77aefe8a83ce116eca878dcb69f044072e0fe55634"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 123,
+        "sha256": "46120aaccb821538909ff8e4ad407c743540ecb513b3732f563163d471ddb860"
+      }
+    },
+    {
+      "gzip_bytes": 9326,
+      "manifest": "paired-r1/before-r2/portable/node-log-00/manifest.json",
+      "manifest_identity": {
+        "bytes": 814,
+        "sha256": "57cde88f068f8bc1a0362f104c18ef463b42250f7efd832dc5e6616a70ac4e72"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 112487,
+        "sha256": "70850fdb10beb2d22db55fc441b86802a7de8641759acd9e238b290e05bbe9ca"
+      }
+    },
+    {
+      "gzip_bytes": 45194,
+      "manifest": "operations-r1/run/portable/receipts-jsonl/manifest.json",
+      "manifest_identity": {
+        "bytes": 887,
+        "sha256": "fd0f61ff42a84eef8f834dfd856b0ffc1c7d37528c388c2ba8c5a52d286ae3b1"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 697922,
+        "sha256": "79d0063905fb57b554b49bb5fd57b0f2e0337b2077592d0d55cea9b61e3fcb28"
+      }
+    },
+    {
+      "gzip_bytes": 1117,
+      "manifest": "operations-r1/run/portable/inputs-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 880,
+        "sha256": "bda99aeeb841bf488b489ebfc7382e176f7481dd6f8ae41a48235dfea3598395"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 2020,
+        "sha256": "5e1280ee86bb188e610684c20fbf3d639c41fbacbc9f3319dd5ded34d1169fec"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "operations-r1/run/portable/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 878,
+        "sha256": "b6a1402eb8fef3e8e8e7c27cbe7412fa4468bb538d0e3dbea88f378f3749546b"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 174,
+        "sha256": "22e02f914f7de030b8c050f2c261b24af6a11731692593f0ab5e5a59fc8598a2"
+      }
+    },
+    {
+      "gzip_bytes": 2728,
+      "manifest": "operations-r1/run/portable/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 881,
+        "sha256": "7f27f203500e24fadf940e21d329fa52782148550f233dc5a53a71eef658e5ce"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 11504,
+        "sha256": "d3881a7e08c30288ff24a0f16877c04cafaab7c76830a2fbe41bbf53e0d89b5c"
+      }
+    },
+    {
+      "gzip_bytes": 167,
+      "manifest": "operations-r1/run/portable/retained-root-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 884,
+        "sha256": "bb6c34e7cc9178692076141c3b70e03f07d84959334d6c3fbde47d3c3bb3ad93"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 189,
+        "sha256": "7031b0c1d4b704e8c66f44b7892ea816250f213fd4df835e7649deab2fd6f3cc"
+      }
+    },
+    {
+      "gzip_bytes": 120,
+      "manifest": "operations-r1/run/portable/synthetic-seed-owner-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 892,
+        "sha256": "9b7523858f063292c0a2d865651f1743cbb554a45800703410cd62d879e69a16"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 123,
+        "sha256": "1ccaa9ecaef317d69280d2d139bed825f1eb0939077e64a4b6e691eec94e8285"
+      }
+    },
+    {
+      "gzip_bytes": 3503,
+      "manifest": "operations-r1/run/portable/node-log-00/manifest.json",
+      "manifest_identity": {
+        "bytes": 813,
+        "sha256": "16d3f9e0fc5100a999f1b1c2b67771e965d0d220a6c9d38a6e48dbc91f8f91ca"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 27668,
+        "sha256": "68549566d580501299902d63dd1a11cf68d4c1322e662ec314b71294f2336afb"
+      }
+    },
+    {
+      "gzip_bytes": 98672,
+      "manifest": "portable/before/source-identity-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 882,
+        "sha256": "374440a1081ebe854b28faf04da3bd094910210f502b5cc5764aa3f0dd2d0f83"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 327468,
+        "sha256": "30893c8684d8c566c98237acf6da610dea3653aaa6a9e504a5ea11b25b9ec398"
+      }
+    },
+    {
+      "gzip_bytes": 98867,
+      "manifest": "portable/after-v2/source-identity-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 884,
+        "sha256": "6fe40e31cea7c9c74f4efd38b12c8e38ab29d7c5dee4275958089e7545e92431"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 328648,
+        "sha256": "95fe2291f19abe66efb6b87cec14b6fc689820636541add9882c79a7a9db40a2"
+      }
+    },
+    {
+      "gzip_bytes": 2238,
+      "manifest": "portable/paired-r1/command-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 873,
+        "sha256": "13d364844ce6da01c963edb679e1055e0d4d5dfd0679758ac19af43586faa9d8"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 7649,
+        "sha256": "115ec74162e81c95d8c4d672264726749836d1d6d489422e217befa936aab32b"
+      }
+    },
+    {
+      "gzip_bytes": 294,
+      "manifest": "portable/paired-r1/summary-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 870,
+        "sha256": "4e33262f53821acc60edb43a6296ae70c6fc2c26c880230060a030a89911b163"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 778,
+        "sha256": "9c6a30a7d017d28886f6bda668dc035fd0e6c9d9503633c650172c02c27cc7fe"
+      }
+    },
+    {
+      "gzip_bytes": 1955,
+      "manifest": "portable/operations-r1/command-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 877,
+        "sha256": "92cc52f71dfc3a4eecb6eec1ceba448f9770139b3f5a0107ed6011dd85baee83"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 6835,
+        "sha256": "e6c6dbad345155f28e58c47416bb6f350e435965ac300b9af6869860d1a03212"
+      }
+    },
+    {
+      "gzip_bytes": 2728,
+      "manifest": "portable/operations-r1/result-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 877,
+        "sha256": "a325e752810a9003371dc19521bc21626857ab49dc9cbfe22a72531cb16a9385"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 11504,
+        "sha256": "d3881a7e08c30288ff24a0f16877c04cafaab7c76830a2fbe41bbf53e0d89b5c"
+      }
+    },
+    {
+      "gzip_bytes": 1533897,
+      "manifest": "portable/comparison-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 1041,
+        "sha256": "5f5ad18e7194348b7efae51920ab53d2a6d7cbb1ed7fca8c31158de80fc30775"
+      },
+      "parts": 2,
+      "raw": {
+        "bytes": 35815689,
+        "sha256": "586d562dc244eba5948cbce1a1585dd4d4c47b7980a5e9139b0305ee5e3a26f4"
+      }
+    },
+    {
+      "gzip_bytes": 98709,
+      "manifest": "portable/after/source-identity-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 881,
+        "sha256": "ab036d056d43ade9fd9db48afab540e47fcde518efa3bf3f6b731baa38caaab1"
+      },
+      "parts": 1,
+      "raw": {
+        "bytes": 328054,
+        "sha256": "66ad8ac24fee216fe6bc250c811538a44fd708179fbff9a54dd7b71129a48e67"
+      }
+    },
+    {
+      "gzip_bytes": 5020609,
+      "manifest": "portable/sealed-originals-json/manifest.json",
+      "manifest_identity": {
+        "bytes": 1711,
+        "sha256": "93358953b693fab798dd73aa1a7383e4d49d280caca4ccb3c72c2279c6bb8f39"
+      },
+      "parts": 6,
+      "raw": {
+        "bytes": 89785837,
+        "sha256": "fa9f8fa69fe2b929888b5c3b5b63bcabc5d619e40b84c19b842f130a3c632fdf"
+      }
+    }
+  ],
+  "preview_listing_identity": {
+    "bytes": 4246,
+    "sha256": "02db6e2f9b5ae155d00476cbecad3b54321eac0bdc2278b87011cdf2e32db02c"
+  },
+  "ready_to_reclaim": true,
+  "reviewer": "independent subagent disk_wait_telemetry",
+  "scope": "Independent read-only evidence and exact ownership review. Recomputed every sealed file and every gzip part, archive and decoded original. Fresh ps and lsof checks include node and creator PIDs. Supported previews remain valid for these exact roots. No reclaim, node launch, build or primary access occurred. Recheck the exact roots immediately before supported reclaim.",
+  "seal_bytes": 89785837,
+  "seal_scope_note": "The shared seal scope has generic historical failed-gate text. The five actual runs here each contain two normal exit0 sessions.",
+  "seal_sha256": "fa9f8fa69fe2b929888b5c3b5b63bcabc5d619e40b84c19b842f130a3c632fdf",
+  "sealed_file_count": 115
+}

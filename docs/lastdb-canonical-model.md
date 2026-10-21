@@ -132,6 +132,17 @@ Rules:
   before one core publication. Its ack does not precede those related tips.
   A mixed create/delete call can also require a separate durable erasure phase.
   This does not promise one atomic change for every mutation verb.
+  Each native data commit also writes its change notices and the feed tip.
+  Mini has no separate disk queue for those notices.
+  Notices name the resolved caller key and input mutation identity.
+  They are hints: an absent or spared Delete can still produce a notice.
+  Consumers read current values after a notice.
+
+  An aggregate data phase writes its source notice with the source and derived values.
+  Later guard and valid-marker phases retain their required disk order.
+  A notice can describe a committed data phase even if a later phase fails.
+  Notices report convergence as pending at commit.
+  The HTTP response can report completion after its separate wait.
 - **App view:** when two schemas share the same set of fields but index them
   differently, their field molecules belong to one protein. A write through
   either schema updates the shared atoms and re-indexes the related molecules

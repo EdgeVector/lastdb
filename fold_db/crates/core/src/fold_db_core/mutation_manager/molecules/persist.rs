@@ -243,7 +243,6 @@ mod key_moves;
 mod lane_writer;
 mod protein_delete;
 mod purge_job;
-mod purge_resident;
 mod purge_types;
 mod quarantine_records;
 mod sibling;

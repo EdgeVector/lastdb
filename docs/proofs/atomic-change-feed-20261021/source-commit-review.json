@@ -1,0 +1,421 @@
+{
+  "review_date": "2026-10-21",
+  "reviewer": "/root/feed_atomicity_review",
+  "scope": "Read-only source audit of the combined native data/change notice path, ancillary clock writes, and current journal publication costs.",
+  "product_source_changes_by_this_review": false,
+  "builds_tests_or_nodes_run_by_this_review": false,
+  "result": "No remaining blocker in the combined data/change notice integration. Journal rotation remains a future unmeasured optimization candidate.",
+  "one_commit_claim": {
+    "accepted_wording": "The data and its change notices share one native commit.",
+    "excluded_wording": [
+      "One file write per HTTP request.",
+      "One file barrier per HTTP request.",
+      "One total native commit per HTTP request."
+    ],
+    "shared_owner": [
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/mod.rs",
+        "start": 46,
+        "end": 53,
+        "fact": "PackRuntime owns one DiskHome and one Mutex<HomeJournal>."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/mod.rs",
+        "start": 170,
+        "end": 184,
+        "fact": "Every PackKvStore namespace clones the same Arc<PackRuntime>."
+      },
+      {
+        "path": "fold_db/crates/core/src/db_operations/core/open.rs",
+        "start": 68,
+        "end": 68,
+        "fact": "The change_feed KV namespace opens from this same NamespacedStore."
+      },
+      {
+        "path": "fold_db/crates/core/src/db_operations/core/open.rs",
+        "start": 221,
+        "end": 221,
+        "fact": "ChangeFeedStore receives that KV namespace and the same native runtime."
+      }
+    ],
+    "call_chain": [
+      {
+        "path": "fold_db/crates/core/src/db_operations/change_feed.rs",
+        "start": 131,
+        "end": 132,
+        "fact": "Stage submits all event rows and TIP in one batch_put."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/kv.rs",
+        "start": 222,
+        "end": 229,
+        "fact": "PackKvStore batch_put delegates to change."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/kv.rs",
+        "start": 42,
+        "end": 56,
+        "fact": "Change derives HomeMutation operations and calls runtime.mutate."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/transaction/request.rs",
+        "start": 44,
+        "end": 45,
+        "fact": "A nested scope reuses its current PendingBatch instead of committing independently."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/write.rs",
+        "start": 108,
+        "end": 114,
+        "fact": "runtime.mutate stages into the current PendingBatch."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/kv.rs",
+        "start": 126,
+        "end": 132,
+        "fact": "Collection routing changes operation coordinates, not home or commit ownership."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/transaction.rs",
+        "start": 176,
+        "end": 194,
+        "fact": "freeze_operations collects the complete staged vector across all collections."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/transaction/request.rs",
+        "start": 74,
+        "end": 90,
+        "fact": "The outer scope prepares and accepts the complete vector, then waits for its covered native sequence."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/queue.rs",
+        "start": 207,
+        "end": 225,
+        "fact": "commit_queue takes one combined PreparedCommit and invokes commit_prepared_group once."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/write.rs",
+        "start": 229,
+        "end": 239,
+        "fact": "One journal lock protects one HomeJournal::commit_mutation call with the full vector."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/home/admission.rs",
+        "start": 34,
+        "end": 41,
+        "fact": "HomeJournal::commit_mutation appends the complete vector and publishes its durable read boundary."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/home/write.rs",
+        "start": 176,
+        "end": 188,
+        "fact": "Per-operation physical addressing produces one JournalMutation vector and one append_reserved call."
+      }
+    ],
+    "limits": [
+      "A queue prefix can contain more than one PendingBatch and share one HomeJournal commit.",
+      "An empty batch can fence prior work without a new physical commit.",
+      "One HomeJournal commit still performs multiple file writes, file barriers, directory barriers, and the current stream rotation.",
+      "Author-clock reservations, mixed erasure phases, aggregate phases, and maintenance can add other commits around one HTTP request."
+    ]
+  },
+  "atomicity_and_visibility": {
+    "findings": [
+      "Product operations, event rows, and TIP remain private until the outer native scope accepts their complete preparation.",
+      "Preparation failure discards the scope and cannot advance the committed AtomicU64 TIP or broadcast the notices.",
+      "The queue finishes post-disk metadata publication and delivery before it advances the completed sequence used by the acknowledgement.",
+      "Feed admission failures in a purge now return Rejected, so a deterministic notice limit does not hold the erasure lane forever.",
+      "Idempotent filtered Create/Update inputs produce no additional notices. Internal aggregate-derived mutations produce no notices.",
+      "Notice preparation occurs before complete native memory reservation."
+    ],
+    "intentional_semantics": [
+      "A notice describes an accepted durable logical mutation hint, not whole HTTP success or completed convergence.",
+      "Absent or spared Delete inputs can still produce a hint, including an event-only native commit for a fully skipped erasure.",
+      "An aggregate data phase can commit its source notice before a later guard or valid-marker phase fails.",
+      "Consumers must read current values. Commit-time notice convergence flags remain conservative."
+    ]
+  },
+  "ancillary_author_clock": {
+    "finding": "The existing author-clock high-water reservation can require a separate native commit before the product data commit.",
+    "anchors": [
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/write/cloud_entry.rs",
+        "start": 76,
+        "end": 80,
+        "fact": "The request allocates and submits the author-clock persist barrier."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/write/native.rs",
+        "start": 53,
+        "end": 58,
+        "fact": "Create/Update awaits the author-clock barrier before entering its data write scope."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/molecules/persist/lane_writer.rs",
+        "start": 133,
+        "end": 145,
+        "fact": "The erasure lane also awaits its author-clock barrier before the durable data attempt."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs",
+        "start": 159,
+        "end": 170,
+        "fact": "Clock persistence writes the metadata high-water state through put_typed_durable on native storage."
+      },
+      {
+        "path": "fold_db/crates/core/src/db_operations/metadata_store.rs",
+        "start": 107,
+        "end": 114,
+        "fact": "The metadata put is followed by a namespace durability fence."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/write.rs",
+        "start": 245,
+        "end": 255,
+        "fact": "Native flush waits for a captured queued prefix and does not append a second empty commit."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock/coverage.rs",
+        "start": 10,
+        "end": 11,
+        "fact": "Coverage reserves one second of physical clock space and 1024 logical counters."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock/coverage.rs",
+        "start": 25,
+        "end": 43,
+        "fact": "Covered requests reuse a shared durable barrier; an uncovered request submits a new high-water reservation."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs",
+        "start": 193,
+        "end": 208,
+        "fact": "Queued clock jobs can share one persisted maximum."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs",
+        "start": 223,
+        "end": 229,
+        "fact": "Completion is published only after clock persistence succeeds."
+      }
+    ],
+    "high_water_safety": {
+      "anchors": [
+        {
+          "path": "fold_db/crates/core/src/fold_db_core/fold_db/init_boot.rs",
+          "start": 14,
+          "end": 32,
+          "fact": "Startup reads the durable per-device author-clock state."
+        },
+        {
+          "path": "fold_db/crates/core/src/schema/types/author_clock.rs",
+          "start": 21,
+          "end": 47,
+          "fact": "Local allocations use the stored physical maximum and advance the logical counter; each batch receives consecutive physical timestamps and one revision counter."
+        },
+        {
+          "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs",
+          "start": 304,
+          "end": 317,
+          "fact": "The allocated clock values enter the signed mutation."
+        },
+        {
+          "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock/coverage.rs",
+          "start": 1,
+          "end": 5,
+          "fact": "The durable high-water also reserves unused values so restart skips the remainder after wall-clock rollback."
+        },
+        {
+          "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/author_clock.rs",
+          "start": 324,
+          "end": 328,
+          "fact": "A request must wait even if its clock does not advance the current in-memory maximum, because an earlier owner can still await metadata persistence."
+        }
+      ],
+      "why_not_remove": "Removing the durable high-water barrier lets data survive a restart while the device reloads an older clock state. The existing restart/clock-order guarantee would no longer follow from the current implementation.",
+      "why_not_join_by_moving_a_put": "The current data path awaits a separately queued shared clock barrier before it enters the data transaction. Moving that queued clock put behind the same data gate without redesigning the dependency can deadlock. The shared coverage barrier can also cover several callers, so replacing it requires explicit ownership and completion rules for every covered request.",
+      "not_a_fundamental_impossibility": "A future atomic data-plus-clock design can be evaluated separately. It must prove durable high-water coverage, restart ordering, shared-barrier failure behavior, and capture/erasure ordering. This review does not implement or validate such a design.",
+      "excluded_claims": [
+        "No encryption-nonce claim is made.",
+        "No clock-window change or weaker file barrier is recommended."
+      ]
+    },
+    "observed_counter_interpretation": {
+      "evidence": "docs/proofs/atomic-change-feed-20261021/independent-result-review.json",
+      "http_requests_per_version": 384,
+      "queued_native_sequences_through_notice_drain": {
+        "before": 1131,
+        "after": 740
+      },
+      "after_non_data_sequence_remainder_if_each_http_has_one_data_commit": 356,
+      "limits": [
+        "These are queued accepted/completed sequence deltas, not an exhaustive count of every raw-store commit or barrier.",
+        "The remainder is consistent with clock reservations but is not attributed exactly by these global counters.",
+        "The removed feed queue could combine several jobs, so 384 HTTP requests do not prove exactly 384 old feed commits.",
+        "Multi-second closed-loop requests often leave the one-second physical coverage window, which can require nearly one separate clock write per request.",
+        "Maintenance and other node-local metadata can contribute to the global deltas."
+      ]
+    },
+    "cloud_and_attribution_limits": [
+      {
+        "path": "fold_db/crates/core/src/sync/capture/write_path.rs",
+        "start": 199,
+        "end": 202,
+        "fact": "Without an attached sync engine, reserve_capture returns None."
+      },
+      {
+        "path": "fold_db/crates/core/src/sync/capture/write_path/logical_commit_finish.rs",
+        "start": 97,
+        "end": 104,
+        "fact": "Without a capture reservation, logical completion returns without submitting a mutation-log capture job."
+      },
+      {
+        "path": "fold_db/crates/core/src/fold_db_core/mutation_manager/write/attribution.rs",
+        "start": 32,
+        "end": 39,
+        "fact": "Attribution source-event writes are opt-in through LASTDB_ATTRIBUTION_SOURCE_EVENTS."
+      }
+    ]
+  },
+  "per_commit_stream_rotation": {
+    "status": "Unmeasured future experiment only. No rotation change is part of this round.",
+    "finding": "Every nonempty normal HomeJournal publication currently publishes the data CURRENT, then rotates the journal stream and publishes another CURRENT at the same data frontier.",
+    "anchors": [
+      {
+        "path": "vendor/laststore/src/disk_pack/home/admission.rs",
+        "start": 34,
+        "end": 41,
+        "fact": "Every complete native mutation appends then publishes."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/journal/writer.rs",
+        "start": 96,
+        "end": 115,
+        "fact": "Nonempty publication calls resume::checkpoint."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/journal/resume.rs",
+        "start": 37,
+        "end": 43,
+        "fact": "checkpoint unconditionally performs publish_locked and then rotate."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/publish.rs",
+        "start": 112,
+        "end": 119,
+        "fact": "The data generation receipt and first CURRENT publication finish before rotation."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/journal/resume.rs",
+        "start": 46,
+        "end": 70,
+        "fact": "Rotation archives TAIL, creates a stream directory, publishes an empty TAIL, and calls publish_stream."
+      },
+      {
+        "path": "vendor/laststore/src/disk_pack/stream_checkpoint.rs",
+        "start": 24,
+        "end": 35,
+        "fact": "publish_stream carries the same data frontier into a new generation receipt and second CURRENT publication."
+      }
+    ],
+    "source_derived_rotation_barriers": {
+      "assumptions": [
+        "Successful normal fresh stream and generation paths.",
+        "The generations parent directory already exists after the first data publication.",
+        "The current dependency limit is 65536. A receipt therefore requires at most 327 pages, within one 512-page part.",
+        "Counts describe source barrier calls, not observed latency or an OS guarantee about the cost of each call."
+      ],
+      "components": [
+        {
+          "operation": "Archive prior TAIL",
+          "dirty_file_barriers": 1,
+          "directory_barriers": 1,
+          "path": "vendor/laststore/src/disk_pack/journal/resume.rs",
+          "start": 81,
+          "end": 106
+        },
+        {
+          "operation": "Create new stream directory",
+          "dirty_file_barriers": 0,
+          "directory_barriers": 2,
+          "path": "vendor/laststore/src/disk_pack/page_write.rs",
+          "start": 9,
+          "end": 14
+        },
+        {
+          "operation": "Publish empty TAIL",
+          "dirty_file_barriers": 1,
+          "directory_barriers": 1,
+          "path": "vendor/laststore/src/disk_pack/journal/tail.rs",
+          "start": 147,
+          "end": 156
+        },
+        {
+          "operation": "Write second generation receipt",
+          "dirty_file_barriers": 1,
+          "directory_barriers": 3,
+          "path": "vendor/laststore/src/disk_pack/generation.rs",
+          "start": 50,
+          "end": 111
+        },
+        {
+          "operation": "Publish second CURRENT",
+          "dirty_file_barriers": 1,
+          "directory_barriers": 1,
+          "path": "vendor/laststore/src/disk_pack/publish.rs",
+          "start": 267,
+          "end": 276
+        }
+      ],
+      "total_dirty_file_barriers": 4,
+      "total_directory_barriers": 8,
+      "claimed_measured_saving": false
+    },
+    "future_safeguards": [
+      "Separate normal complete data publication from journal rotation; do not bypass checkpoint/recovery wholesale.",
+      "Keep payload and block-map barriers before a TAIL can reference them.",
+      "Keep immutable metadata, dependency receipt, CURRENT, and directory durability barriers before acknowledgement.",
+      "Preserve startup recovery, stream predecessor validation, archive validation, and writer poisoning after uncertain failures.",
+      "Preserve dependency receipts, held generation lifetimes, reclaim safety, space reservations, and bounded recovery.",
+      "Reconcile published versus unpublished suffix accounting and batch counts before any bounded stream-reuse policy.",
+      "Keep the current 512 MiB and 4096-batch admission limits explicit.",
+      "Measure barrier counts and time after any future change; do not infer current slowdown from this source pattern alone."
+    ]
+  },
+  "caller_group_commit": {
+    "anchors": [
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/transaction/request.rs",
+        "start": 47,
+        "end": 50,
+        "fact": "Ordinary durable requests choose no collection delay; background scopes can collect for a bounded interval."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/queue.rs",
+        "start": 94,
+        "end": 110,
+        "fact": "A collection delay also controls early memory visibility; requests without it seal the queue immediately."
+      },
+      {
+        "path": "fold_db/crates/core/src/storage/disk_pack/queue.rs",
+        "start": 34,
+        "end": 46,
+        "fact": "Later preparers wait for a sealed prefix to complete."
+      }
+    ],
+    "conclusions": [
+      "An explicit product batch already shares one data commit.",
+      "Reserved background callers can already share a bounded queue prefix.",
+      "Independent ordinary durable requests generally do not share one physical commit.",
+      "A future group-commit design must separate collection deadline from ordinary-read visibility and retain quota, batch limits, correct private preparation views, and per-caller covered-sequence waits.",
+      "Simply setting a small durable collection delay is not an established safe change."
+    ]
+  },
+  "review_limits": [
+    "This file records source-backed reasoning, not a live primary result.",
+    "No primary home, archive, cloud activation, migration, build, test, or node operation was used for this review.",
+    "The benchmark host contains overlapping jobs; neither the benchmark nor this source review establishes isolated device throughput or a causal explanation for all elapsed time.",
+    "Source-derived barrier counts are distinct from measured process-global counter deltas.",
+    "No per-kind clock or capture commit count is claimed without operation-specific evidence."
+  ]
+}

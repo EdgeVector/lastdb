@@ -1,0 +1,38 @@
+Default writes can return before local disk completion. Every native request now waits for its required disk sequence, including default and queued caller inputs.
+
+The core also stores each change notice and its feed position with the corresponding data. The separate Mini notice queue is removed. Notices use resolved keys, honor idempotency, and exclude internal aggregate writes. Memory reservations include notice bytes before acceptance. A fixed notice-size refusal now returns an error instead of trapping the Delete lane. The obsolete partial-Delete recovery path is removed.
+
+The data and its notices share one native commit. This does not mean one total disk write per HTTP call. Durable author-clock reservations remain separate. Mixed mutation and aggregate requests retain their required phases. Notices describe accepted changes; apps read current values after a notice.
+
+The earlier cleanup removes obsolete memory-ack controls, repeated namespace flushes, redundant receipt guards, and full-body copies used only for JSON size. Private preparation, active read owners, clock order, and the explicit durable-delete cloud policy remain intact. There is no migration or storage-format conversion. The primary and cloud configuration are untouched.
+
+Validation passes:
+
+- Full workspace Clippy and off-lane Clippy with warnings denied, the normal release build, formatting, source identity checks, and local source checks.
+- 768 measured HTTP calls, 41,216 mutations, and all field, key, notice, and normal-reopen checks.
+- An additional 74 accepted mutations across 38 calls, four expected condition refusals, concurrent writes, and normal reopen.
+- Single and batch routes; omitted, queued, and durable inputs; field-derived keys; mixed verbs; Delete; absent Delete; and conditions.
+- Exact receipt archives and independent source, result, operation, and cleanup reviews. All ten owned node sessions stop normally. All six temporary roots are reclaimed through the supported command.
+
+No tests, fixtures, existing database homes, crash checks, or cloud checks run.
+
+The new paired benchmark compares the previous durable candidate with this combined-commit version. Both versions require disk completion before reply. It measures the notice integration, rather than a change from memory acknowledgement to disk acknowledgement.
+
+The host is an M4 Max with 36 GiB of memory. Tom permits concurrent jobs. The order is before, after, after, before. Each run uses fresh synthetic Hash and HashRange schemas, four fields, a 1 KiB body, and one caller. Rates pool Create and Update calls from both runs.
+
+| Key type | Batch | Before records/s | After records/s | Observed change |
+|---|---:|---:|---:|---:|
+| Hash | 1 | 0.983 | 0.993 | +1.1% |
+| Hash | 32 | 9.705 | 10.669 | +9.9% |
+| Hash | 128 | 13.257 | 13.968 | +5.4% |
+| HashRange | 1 | 0.610 | 0.759 | +24.4% |
+| HashRange | 32 | 7.634 | 10.466 | +37.1% |
+| HashRange | 128 | 16.127 | 13.973 | -13.4% |
+
+The combined observed rate rises from 11.609 to 12.057 records/s, or 3.9%. File-sync calls fall from 30,356 to 22,842. Directory-sync calls fall from 42,372 to 30,646. These process-wide counters include clock and background work. Their duration sums can overlap and are not request latency.
+
+This PR stays a draft. All 3,342 host sample intervals that overlap writes contain foreign database I/O. The unchanged baseline ranges from 16.23 to 9.03 records/s between runs. These results establish no isolated speed gain or maximum throughput. The 128-record HashRange decline remains unresolved under this load.
+
+The source review identifies a separate next candidate: bounded journal-stream reuse. The engine currently rotates its stream after every publication. The normal rotation path adds four file-sync calls and eight directory-sync calls. No change to that behavior is included here. Any follow-up must preserve recovery, dependency receipts, space bounds, clock safety, and disk completion before reply.
+
+Detailed request-phase snapshots are unavailable in the isolated workload. The optional status call returns a cached startup snapshot. Original HTTP times, response clocks, native counters, host observations, source identities, failed attempts, and exact cleanup receipts remain in docs/proofs/atomic-change-feed-20261021. The earlier durable-path proof remains in docs/proofs/durable-write-path-20261020.

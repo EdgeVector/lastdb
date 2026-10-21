@@ -1,0 +1,7 @@
+{
+  "raw_sha256": "f05032403fd3afd5fbbcb6aea8359f28e52730ded57ba6540d356e4591df9992",
+  "raw_bytes": 3781,
+  "gzip_sha256": "cc087d66576c2bc923c3c94d993986fdb6370a6e6295c4c7908531b12451acdf",
+  "gzip_bytes": 1388,
+  "scope": "Exact original unified diff. Its blank context lines are retained in gzip. The original stays unchanged locally."
+}

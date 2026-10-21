@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/Users/tomtang/.local/bin/lastdb-dev",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+    "--exact-home",
+    "--dry-run"
+  ],
+  "exit_code": 0,
+  "output": "lastdb-dev: would reclaim /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq (released exact synthetic seed)\n",
+  "scope": "Exact owned binary container; no node sessions or database home."
+}

@@ -1,0 +1,22 @@
+{
+  "contract": "The gzip stream reproduces every original byte, ID and time. No JSON transformation.",
+  "format": "lastdb-exact-evidence-gzip-v1",
+  "gzip": {
+    "bytes": 3503,
+    "part_max_bytes": 921600,
+    "parts": [
+      {
+        "bytes": 3503,
+        "path": "payload.gz.part-001",
+        "sha256": "64c98236eaafa534980efef4b257af1019b081217d1269dd64e8360cc2105f3b"
+      }
+    ],
+    "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+    "sha256": "64c98236eaafa534980efef4b257af1019b081217d1269dd64e8360cc2105f3b"
+  },
+  "raw": {
+    "bytes": 27668,
+    "sha256": "68549566d580501299902d63dd1a11cf68d4c1322e662ec314b71294f2336afb"
+  },
+  "source": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.ygb7xzp3/o/node.log"
+}

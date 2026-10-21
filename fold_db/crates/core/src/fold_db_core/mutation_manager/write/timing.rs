@@ -171,7 +171,9 @@ impl MutationManager {
             + sync_uuids
             + spawn_indexing
             + apply_memory
-            + schema_load;
+            + schema_load
+            // The feed stage reports this phase directly; only subtract here.
+            + timing_breakdown.get("change_notice_prepare").copied().unwrap_or_default();
         // The durable-store sub-steps carved out of `persist`. Subtracted from
         // the residual alongside `persist` itself so the two do not
         // double-count the same microseconds — the same reason

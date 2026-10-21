@@ -1,0 +1,14 @@
+{
+  "checked_utc": "2026-10-21T16:43:54.931775+00:00",
+  "baseline_head": "d1e83a127a39874140500af928186c3e7b80e30e",
+  "compiled_product_commit": "544d5ed3a1894d7e688801de982867bdb95b9c89",
+  "source_input_count": 1838,
+  "source_inventory_sha256": "30e9580ce552edbf223d0a49f6b00b217f5449e4574f85c5f7b146b921b5557a",
+  "source_mismatches": [],
+  "prior_identity": "docs/proofs/durable-write-path-20261020/after-v1/source-identity.json",
+  "prior_identity_sha256": "c92c0ddc2ba7f5a035f4cb39d90da2833334b8cfc6c879bf5613e34e66fbb486",
+  "baseline_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq/program-lastdbd",
+  "baseline_binary_sha256": "8bd1dcc1b85d33b32095810e434ebcc62baffd8f9922a582e97319067d5f7ec8",
+  "owned_binary_container": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sp.svxbmhwq",
+  "role": "Unmodified durable baseline retained before status/feed edits. A status-only baseline may also be built for paired native barrier diagnostics."
+}

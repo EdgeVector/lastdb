@@ -1,0 +1,47 @@
+{
+  "contract": "The gzip stream reproduces every original byte, ID and time. No JSON transformation.",
+  "format": "lastdb-exact-evidence-gzip-v1",
+  "gzip": {
+    "bytes": 5020609,
+    "part_max_bytes": 921600,
+    "parts": [
+      {
+        "bytes": 921600,
+        "path": "payload.gz.part-001",
+        "sha256": "3914e7d93f203e47f6b3b0d9ba90779ba2fbf879ecf786e7699fd6336d2bc1dd"
+      },
+      {
+        "bytes": 921600,
+        "path": "payload.gz.part-002",
+        "sha256": "27bf9fb364eecc128b0643bc6affd52b9553bc3f081ed9c3e2a9256e82d76f89"
+      },
+      {
+        "bytes": 921600,
+        "path": "payload.gz.part-003",
+        "sha256": "d00be33d89a47be1f42a26d6c0e4244ac2a55c08bbc90a2985a7cbe329b885c5"
+      },
+      {
+        "bytes": 921600,
+        "path": "payload.gz.part-004",
+        "sha256": "a737eb14c2d6b64700f161caef3a9760047fd451bf9a1fd26f16866082db8ba7"
+      },
+      {
+        "bytes": 921600,
+        "path": "payload.gz.part-005",
+        "sha256": "0381b3840cfe6e9f56dacaad1927ba1a2d6c7c953b76a5ecf8b962ef06cf6ef0"
+      },
+      {
+        "bytes": 412609,
+        "path": "payload.gz.part-006",
+        "sha256": "8b8a306787b12be8ac7f092fab3d671ab017a3bfed63aa0511ecffa5756dbd97"
+      }
+    ],
+    "reassembly": "Concatenate parts in listed order, verify archive SHA256, then decompress the single gzip stream.",
+    "sha256": "3fac8a7c80b882455920676d9d82911dd3f6eee9f828dc68cde330a90b67b1c4"
+  },
+  "raw": {
+    "bytes": 89785837,
+    "sha256": "fa9f8fa69fe2b929888b5c3b5b63bcabc5d619e40b84c19b842f130a3c632fdf"
+  },
+  "source": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-layer2-batch-storage-20261016/docs/proofs/atomic-change-feed-20261021/sealed-originals.json"
+}

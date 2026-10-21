@@ -355,28 +355,13 @@ pub enum RequestPhase {
     SyncCapture,
     /// The handler's bounded wait for background index tasks.
     IndexWait,
-    /// Post-write process-local outbox recording only. Until
-    /// `lastdb-change-record-is-a-third-of-all-write-time-20260803`, this
-    /// also covered the durable change-feed append below; that work is now
-    /// [`Self::ChangeRecordLockWait`] / [`Self::ChangeRecordWrite`], so a drop
-    /// here at the upgrade boundary is the split, not a regression cured.
+    /// Post-request process-local outbox recording only. Durable notices
+    /// join the core data commit and are prepared by [`Self::ChangeNoticePrepare`].
     ChangeRecord,
-    /// Mutation only: time blocked acquiring the change feed's single global
-    /// `tip` mutex, which every successful mutation on the node passes
-    /// through to append its durable change-feed event — the one lock this
-    /// node has that is not scoped to a schema, key, or molecule.
-    ///
-    /// A large value here means writers are queueing behind EVERY OTHER
-    /// writer on the node, not a same-key or same-schema peer: measured
-    /// 2026-08-03, this queueing was 33% of all mutation wall time. Split out
-    /// so the queueing (this phase) is distinguishable from the storage IO
-    /// done while holding the lock ([`Self::ChangeRecordWrite`]) — the two
-    /// have different fixes, same as [`Self::LockWait`] vs
-    /// [`Self::MoleculeGate`].
-    ChangeRecordLockWait,
-    /// Mutation only: the durable change-feed batch write (event + tip) done
-    /// while holding the mutex above. Storage IO, not queueing.
-    ChangeRecordWrite,
+    /// Mutation: read the private feed tip, encode notices, and stage their
+    /// event rows and tip in the product transaction. This excludes the
+    /// shared disk commit, whose wait remains in [`Self::Apply`].
+    ChangeNoticePrepare,
     /// Final response envelope/error rendering after route work completes.
     ResponseEnvelope,
     /// Status route: cloud-sync health snapshot.

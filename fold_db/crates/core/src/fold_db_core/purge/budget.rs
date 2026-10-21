@@ -20,6 +20,8 @@
 //! 16 keys costs 3.8 operations per tip at 6 fields and 4.0 at 24 fields. A
 //! delete costs 4.8 and 5.0. Each chunk of keys adds one header write for each
 //! field and a few rows (the ledger row and the order log).
+//! Each caller key adds one change notice, and the complete request adds one
+//! feed tip write and one feed tip read.
 //!
 //! The reads cost about 10 to 12 examined keys for each tip of a purge and one
 //! more for each tip of a delete (the target tips, the peer expansion, the counters and the
@@ -63,6 +65,8 @@ pub fn erase_operations_upper_bound(delete: bool, keys: usize, fields: usize) ->
     keys.saturating_mul(fields)
         .saturating_mul(per_tip(delete))
         .saturating_add(chunks.saturating_mul(fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+        .saturating_add(keys)
+        .saturating_add(usize::from(keys > 0))
 }
 
 /// The most examined keys that an erase of `keys` keys of a schema with
@@ -78,6 +82,7 @@ pub fn erase_reads_upper_bound(delete: bool, keys: usize, fields: usize) -> usiz
     keys.saturating_mul(fields)
         .saturating_mul(per_tip)
         .saturating_add(chunks.saturating_mul(fields.saturating_add(CHUNK_FIXED_OPERATIONS)))
+        .saturating_add(usize::from(keys > 0))
 }
 
 fn fits(delete: bool, keys: usize, fields: usize, limit: usize) -> bool {
