@@ -63,8 +63,10 @@ pub(crate) async fn measure<F: Future>(work: F) -> (F::Output, Cost) {
     (output, cost)
 }
 
-/// A write scope has the gate. Count it for the process and for the job that runs
-/// in this task, if there is one.
+/// A write scope has finished and staged something. Count it for the process and for
+/// the job that runs in this task, if there is one. A scope that staged nothing (an
+/// ordering scope, such as the one `verify-refs` opens at the start of a run) is not
+/// counted, so a poll cannot make a background job treat the node as busy.
 pub(super) fn opened() {
     WRITE_SCOPES.fetch_add(1, Ordering::AcqRel);
     let _ = JOB.try_with(|job| job.scopes.fetch_add(1, Ordering::AcqRel));

@@ -6,8 +6,15 @@
 //! records through the atom counter planner, then bounded pages of the rows that
 //! carry no count, then the final batch. Each batch is one native write scope, and
 //! it decides from the counters it reads inside the gate. The page read holds no
-//! gate. The task rests after each batch for `took * (100 - duty) / duty`, so the
-//! flush of a batch leaves the disk to the writers most of the time.
+//! gate. The pacing is the one of the retention janitor and the blob dwell pass
+//! (`conflict_janitor_pace.rs`, `WriterWatch`): the task rests after each batch for
+//! `blocked * (100 - duty) / duty`, where `blocked` is the time the batch kept writers
+//! waiting (the hold of the write gate and the wait for the flush that seals the
+//! queue), not the wall time of the step. While another task has opened a write scope
+//! within the quiet period (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default) the rest is
+//! the full one. A node with no other writer for that period has nobody to protect, and
+//! the task rests the shortest time (25 ms). A rest ends early when the quiet period has
+//! passed.
 //!
 //! The task wakes at its interval and at once when a batch lowers a `bindings`
 //! counter to zero (a schema drop, a catalog removal). It reads the candidate
@@ -26,8 +33,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use super::conflict_janitor_pace::{rest, rest_after_cost};
 use crate::db_operations::atom_store::{
-    AtomStore, DrainCursor, DrainLimits, DrainOutcomeKind as OutcomeKind,
+    AtomStore, DrainCursor, DrainLimits, DrainOutcomeKind as OutcomeKind, WriterWatch,
 };
 use crate::db_operations::DbOperations;
 
@@ -35,7 +43,7 @@ use crate::db_operations::DbOperations;
 pub const MOLECULE_DRAIN_MS_ENV: &str = "LASTDB_MOLECULE_DRAIN_MS";
 /// Default interval between wakes: 30 seconds.
 pub const DEFAULT_MOLECULE_DRAIN_MS: u64 = 30_000;
-/// Env: the share of wall time, in percent, that batches may take.
+/// Env: the share of time, in percent, that batches may keep writers waiting.
 pub const MOLECULE_DRAIN_DUTY_PCT_ENV: &str = "LASTDB_MOLECULE_DRAIN_DUTY_PCT";
 /// Default duty share: 10 percent. A write that shares time with a drain batch waits
 /// longer, so the default keeps the share of such writes small. The drain is not urgent:
@@ -50,10 +58,6 @@ pub const MOLECULE_DRAIN_BATCHES_ENV: &str = "LASTDB_MOLECULE_DRAIN_BATCHES";
 /// Default batches in a wake.
 pub const DEFAULT_MOLECULE_DRAIN_BATCHES: usize = 1_024;
 
-/// The shortest rest between two batches.
-const MIN_PAUSE: Duration = Duration::from_millis(25);
-/// The longest rest between two batches.
-const MAX_PAUSE: Duration = Duration::from_secs(30);
 /// The longest wait after a wake that failed.
 const BACKOFF_MAX: Duration = Duration::from_secs(600);
 /// The shortest base of the wait after a wake that failed.
@@ -170,6 +174,9 @@ impl BackgroundMoleculeDrainTask {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
             let mut cursor = DrainCursor::new();
+            // The watch lives as long as the task: it remembers the last write scope
+            // of another task across the wakes.
+            let mut watch = WriterWatch::new();
             // The batch size shrinks after a read limit and grows back after
             // `REGROW_AFTER_WAKES` wakes that did work and had no read limit.
             let mut tips = policy.tips;
@@ -194,8 +201,14 @@ impl BackgroundMoleculeDrainTask {
                     continue;
                 }
                 cursor.restart();
-                let wake_result =
-                    run_wake(db_ops.atoms(), &stop_flag, &mut cursor, (policy, &mut tips)).await;
+                let wake_result = run_wake(
+                    db_ops.atoms(),
+                    &stop_flag,
+                    &mut cursor,
+                    (policy, &mut tips),
+                    &mut watch,
+                )
+                .await;
                 regrow_after(&wake_result, &mut clean_wakes, &mut tips, policy.tips);
                 let error = wake_result.error;
                 failures = if error.is_some() { failures + 1 } else { 0 };
@@ -227,13 +240,6 @@ impl Drop for BackgroundMoleculeDrainTask {
     fn drop(&mut self) {
         self.stop();
     }
-}
-
-/// The rest after a batch that took `took`.
-fn pause_after(took: Duration, duty_pct: u64) -> Duration {
-    let took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
-    Duration::from_millis(took_ms.saturating_mul(100 - duty_pct) / duty_pct)
-        .clamp(MIN_PAUSE, MAX_PAUSE)
 }
 
 /// The smallest batch the drain shrinks to after read limits.
@@ -300,6 +306,7 @@ async fn run_wake(
     stop: &AtomicBool,
     cursor: &mut DrainCursor,
     (policy, tips): (MoleculeDrainPolicy, &mut usize),
+    watch: &mut WriterWatch,
 ) -> WakeResult {
     let mut result = WakeResult {
         error: None,
@@ -318,9 +325,13 @@ async fn run_wake(
             Ok(Some(outcome)) => {
                 let wrote = note_outcome(&outcome.candidate.molecule, &outcome.kind, started);
                 publish(atoms, cursor);
+                // The watch takes the scopes of this step off its count after every
+                // step, also after one that wrote no batch.
+                let pause =
+                    rest_after_cost(watch, (outcome.blocked, outcome.scopes), policy.duty_pct);
                 if wrote {
                     result.batches += 1;
-                    tokio::time::sleep(pause_after(started.elapsed(), policy.duty_pct)).await;
+                    rest(pause, watch).await;
                 }
             }
             Ok(None) => break,
