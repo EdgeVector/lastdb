@@ -191,6 +191,29 @@ The janitor holds at most 1,024 pending drains. A marker that finds no room stay
 in its bucket. The cursor of the bucket stays at it, and the bucket waits for a
 second before it is read again. Memory does not grow with the number of markers.
 
+## Pacing
+
+A user of the queue rests after each batch, so the batches take only a share of the
+write gate. The rest is `held * (100 - duty) / duty`, where `held` is the time the
+batch held the native write gate (its reads inside the gate, its staging and its
+accept), and `duty` is a share of write-gate time in percent (10 by default). A
+writer that meets the gate waits for one small batch and then runs free.
+
+The measure is the hold of the gate, not the wall time of the step. The wall time
+also holds the wait for the flush (about 0.5 s on a busy host), which comes after
+the gate is free and blocks no writer. A rest that followed the wall time was about
+nine times the flush wait: the retention janitor drained 4 to 7 records a second
+and the dwell pass deleted about 5 blobs a second at the default knobs. With the
+rest set by the hold, the same knobs drain about ten times as fast, and the gate is
+still busy for a tenth of the time.
+
+`storage::disk_pack::transaction::hold::measure` runs a step and adds up the hold of
+every write scope the step opens in its own task. The steps of the retention janitor
+(`release_step`, `drain_step`, `net_step`) and of the dwell pass (`blob_dwell_step`,
+`blob_dwell_net_step`) return it in `held`. The rest is at least 25 ms and at most
+30 s. A step that opens no write scope (a read of a page, a probe that finds
+nothing) holds the gate for zero time and rests the minimum.
+
 ## Failure
 
 A wake that ends with an error does not retry at once. The wait doubles with each
