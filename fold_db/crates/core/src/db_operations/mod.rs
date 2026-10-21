@@ -35,8 +35,8 @@ pub use admin_db::{
 };
 pub use atom_store::{
     AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
-    ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData, NetStep,
-    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
+    BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
+    NetStep, RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats,
     DWELL_CHUNK,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};

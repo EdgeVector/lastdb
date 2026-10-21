@@ -44,6 +44,9 @@ struct Output<'a> {
     home: String,
     preflight: &'a Preflight,
     elapsed_secs: u64,
+    /// The blob step of the recount, the same object as `recount.blobs`. A reader
+    /// that looks for `blobs.rows_missing` finds it here.
+    blobs: &'a fold_db::db_operations::BlobRecountReport,
     recount: &'a RecountReport,
 }
 
@@ -143,6 +146,7 @@ fn print_report(
             home: args.home.display().to_string(),
             preflight,
             elapsed_secs,
+            blobs: &report.blobs,
             recount: report,
         };
         let text = serde_json::to_string_pretty(&output).map_err(|e| format!("serialize: {e}"))?;

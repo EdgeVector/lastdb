@@ -82,10 +82,10 @@ no row it
 - makes `lastdb liveness explain blob` say `referenced_row_missing`;
 - makes `lastdb db verify-refs` report `blob_counter_without_blob`.
 
-`lastdb db recount` lists such blobs as `blob rows missing` (the JSON key is
-`recount.blobs.rows_missing`, with the first ten blobs in
-`recount.blobs.missing_row_samples`; the report is under the key `recount` of the
-output). It cannot restore the bytes. The fix is to upload the file again and write
+`lastdb db recount` lists such blobs as `blob rows missing`. The JSON key is
+`blobs.rows_missing`, with the first ten blobs in `blobs.missing_row_samples`. The
+same object is also `recount.blobs` in the full report under the key `recount`. It
+cannot restore the bytes. The fix is to upload the file again and write
 the atom again.
 
 `late_references` in `lastdb status`, like every figure of the `Blob counters` line,
