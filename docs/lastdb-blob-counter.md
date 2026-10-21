@@ -227,6 +227,13 @@ is 30 s after the first pass that fails and doubles with each pass in a row that
 fails, up to 10 minutes. A good pass clears it. `lastdb status` shows the error, the
 count and the time to the next try.
 
+A write that names many blobs adds one keyed read of the blob counters to the read
+budget of its preparation, and one keyed read of the blob rows for the blobs that
+have no counter (a late reference). The budget of a write preparation is one
+aggregate for the whole request, so a request with thousands of writes that name
+blobs can reach it earlier than a request that names none. The request then fails
+with the read limit error and changes nothing.
+
 The reads and the batches stay small on purpose. A read call of the walk asks for
 a page of one chunk (32 keys by default) and is cut in two when it meets the
 read budget. The real budget
