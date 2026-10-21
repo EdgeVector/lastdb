@@ -5,12 +5,42 @@ use crate::disk_pack::{artifact, corrupt, generation, lifetime, Current, FEATURE
 use crate::{durability, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod unfinished;
 use unfinished::{at_generation, remove_unfinished};
 
 const MAX_RETAINED_PARTS: usize = 262_144;
+
+mod orphans;
+mod scan;
+pub(in crate::disk_pack) use orphans::sweep_orphans_locked;
+use scan::scan_old;
+
+/// Directories whose entries changed. One barrier per directory after a whole
+/// phase replaces one barrier per removed file. A phase ends with `flush`, and
+/// the next phase starts only after it, so a receipt never leaves the live set
+/// before the removals it lists are durable.
+#[derive(Default)]
+struct Dirty(BTreeSet<PathBuf>);
+
+impl Dirty {
+    fn mark(&mut self, dir: &Path) {
+        self.0.insert(dir.to_path_buf());
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        for dir in std::mem::take(&mut self.0) {
+            match File::open(&dir) {
+                Ok(handle) => durability::sync_directory(&handle)?,
+                // A directory removed in the same phase has nothing left to sync.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Reclaim only exact old-receipt paths, after a complete plan and all safety checks.
 /// A failure leaves CURRENT intact. Receipt files are removed after their data.
@@ -37,7 +67,9 @@ pub(in crate::disk_pack) fn reclaim_locked(
         return Ok(receipt);
     };
     validate_roots(root)?;
-    cleanup_retired(root, policy.max_files, &mut receipt)?;
+    let mut dirty = Dirty::default();
+    cleanup_retired(root, policy.max_files, &mut receipt, &mut dirty)?;
+    dirty.flush()?;
     let tail = crate::disk_pack::journal::JournalTail::read(root)?;
     if tail.stream != current.journal_stream || tail.last_batch != current.frontier {
         return Err(corrupt("reclaim requires a complete journal checkpoint"));
@@ -45,13 +77,14 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
-    let generations = generations(root, policy.max_files, &retained)?;
+    let mut generations = generations(root, policy.max_files, &retained)?;
+    generations.sort_unstable();
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
-    for number in &generations {
-        if at_generation(generation::load_current(root, *number), root, *number)?.published_ms
-            > cutoff
-        {
+    // With no grace nothing is young, so the scan is skipped.
+    for number in generations.iter().filter(|_| policy.grace_ms > 0) {
+        let held = at_generation(generation::load_current(root, *number), root, *number)?;
+        if held.published_ms > cutoff {
             retained.insert(*number);
         }
     }
@@ -66,53 +99,73 @@ pub(in crate::disk_pack) fn reclaim_locked(
             }
         }
     }
-    let mut old = Vec::new();
-    let mut candidates = BTreeMap::new();
-    for number in generations {
-        if retained.contains(&number) {
-            continue;
-        }
-        let held = at_generation(generation::load_current(root, number), root, number)?;
-        if held.published_ms > cutoff {
-            continue;
-        }
-        let generation = at_generation(generation::read_receipt(root, &held), root, number)?;
-        for coordinate in &generation.coordinates {
-            if !live.contains(coordinate) {
-                candidates.insert(*coordinate, coordinate.path(root)?);
-                if candidates.len() > MAX_RETAINED_PARTS {
-                    return Err(crate::disk_pack::resource());
-                }
-            }
-        }
-        // Retain root identities only; old conservative receipts can overlap heavily.
-        old.push(held);
-    }
+    let scan = scan_old(root, generations, &retained, &live, policy, cutoff)?;
+    receipt.reclaim_remaining = scan.remaining;
+    let (old, candidates) = (scan.old, scan.candidates);
     let mut removals = Vec::new();
+    let mut skipped = Vec::new();
     for (coordinate, path) in candidates {
-        if let Some(bytes) = removable(root, &coordinate, &path, cutoff)? {
-            removals.push((path, bytes));
+        match removable(root, &current, &coordinate, &path, cutoff)? {
+            Some(bytes) => removals.push((path, bytes)),
+            None => skipped.push(path),
         }
     }
     // Every retained part and every candidate is validated before the first deletion.
-    for (path, bytes) in removals {
-        std::fs::remove_file(&path)?;
-        durability::sync_directory(&File::open(path.parent().expect("part parent"))?)?;
-        receipt.files_removed += 1;
-        receipt.bytes_removed += bytes;
-        remove_empty_parents(root, &path)?;
-    }
-    for held in old {
-        let generation =
-            at_generation(generation::read_receipt(root, &held), root, held.generation)?;
-        if generation.coordinates.iter().any(|coordinate| {
-            !live.contains(coordinate) && coordinate.path(root).map_or(true, |path| path.exists())
-        }) {
-            continue;
-        }
-        remove_receipt(root, &held, policy.max_files, &mut receipt)?;
-    }
+    let plan = Obsolete {
+        removals,
+        skipped,
+        old,
+    };
+    plan.apply(root, policy, &live, &mut receipt, &mut dirty)?;
     Ok(receipt)
+}
+
+/// A validated plan: exact part files to remove, then the receipts that list them.
+struct Obsolete {
+    removals: Vec<(PathBuf, u64)>,
+    /// Candidates that were not removed: already gone, or too young to remove.
+    skipped: Vec<PathBuf>,
+    old: Vec<Current>,
+}
+
+impl Obsolete {
+    fn apply(
+        self,
+        root: &Path,
+        policy: &SpacePolicy,
+        live: &BTreeSet<Coordinate>,
+        receipt: &mut MaintenanceReceipt,
+        dirty: &mut Dirty,
+    ) -> Result<()> {
+        for (path, bytes) in self.removals {
+            std::fs::remove_file(&path)?;
+            dirty.mark(path.parent().expect("part parent"));
+            receipt.files_removed += 1;
+            receipt.bytes_removed += bytes;
+            remove_empty_parents(root, &path, dirty)?;
+        }
+        // Every removal is durable before the first receipt that lists it retires.
+        dirty.flush()?;
+        // Each old receipt lists only live parts and candidates. When no candidate
+        // remains on disk, every old receipt may retire without another read of it.
+        let blocked = self.skipped.iter().any(|path| path.exists());
+        for held in self.old {
+            if blocked {
+                let generation =
+                    at_generation(generation::read_receipt(root, &held), root, held.generation)?;
+                if generation.coordinates.iter().any(|coordinate| {
+                    !live.contains(coordinate)
+                        && coordinate.path(root).map_or(true, |path| path.exists())
+                }) {
+                    continue;
+                }
+            }
+            retire_receipt(root, held.generation, dirty)?;
+        }
+        dirty.flush()?;
+        cleanup_retired(root, policy.max_files, receipt, dirty)?;
+        dirty.flush()
+    }
 }
 
 fn validate_roots(root: &Path) -> Result<()> {
@@ -162,6 +215,7 @@ fn generations(root: &Path, max_files: usize, published: &BTreeSet<u64>) -> Resu
 
 fn removable(
     root: &Path,
+    current: &Current,
     coordinate: &Coordinate,
     path: &Path,
     cutoff: u64,
@@ -184,8 +238,7 @@ fn removable(
         return Ok(None);
     }
     // Header validation rejects a substituted file at a former exact coordinate.
-    let current = artifact::current(root)?;
-    coordinate.capture(root, &current)?;
+    coordinate.capture(root, current)?;
     Ok(Some(metadata.len()))
 }
 
@@ -209,29 +262,27 @@ fn validate_parents(root: &Path, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove_receipt(
-    root: &Path,
-    current: &Current,
-    max_files: usize,
-    receipt: &mut MaintenanceReceipt,
-) -> Result<()> {
-    let path = root
-        .join("generations")
-        .join(current.generation.to_string());
+fn retire_receipt(root: &Path, number: u64, dirty: &mut Dirty) -> Result<()> {
+    let path = root.join("generations").join(number.to_string());
     let parent = root.join("retired-generations");
     if !parent.try_exists()? {
         crate::disk_pack::page_write::directory(&parent)?;
     }
-    let target = parent.join(current.generation.to_string());
+    let target = parent.join(number.to_string());
     // Leave the complete receipt readable until it atomically leaves the live set.
     // A restart can finish deletion in this exclusively owned retirement namespace.
     std::fs::rename(&path, target)?;
-    durability::sync_directory(&File::open(root.join("generations"))?)?;
-    durability::sync_directory(&File::open(parent)?)?;
-    cleanup_retired(root, max_files, receipt)
+    dirty.mark(&root.join("generations"));
+    dirty.mark(&parent);
+    Ok(())
 }
 
-fn cleanup_retired(root: &Path, max_files: usize, receipt: &mut MaintenanceReceipt) -> Result<()> {
+fn cleanup_retired(
+    root: &Path,
+    max_files: usize,
+    receipt: &mut MaintenanceReceipt,
+    dirty: &mut Dirty,
+) -> Result<()> {
     let parent = root.join("retired-generations");
     if !parent.try_exists()? {
         return Ok(());
@@ -267,17 +318,16 @@ fn cleanup_retired(root: &Path, max_files: usize, receipt: &mut MaintenanceRecei
             }
             let bytes = part.metadata()?.len();
             std::fs::remove_file(part.path())?;
-            durability::sync_directory(&File::open(entry.path())?)?;
             receipt.files_removed += 1;
             receipt.bytes_removed += bytes;
         }
         std::fs::remove_dir(entry.path())?;
-        durability::sync_directory(&File::open(&parent)?)?;
+        dirty.mark(&parent);
     }
     Ok(())
 }
 
-fn remove_empty_parents(root: &Path, path: &Path) -> Result<()> {
+fn remove_empty_parents(root: &Path, path: &Path, dirty: &mut Dirty) -> Result<()> {
     let mut parent = path.parent();
     for _ in 0..3 {
         let Some(directory) = parent else {
@@ -289,7 +339,7 @@ fn remove_empty_parents(root: &Path, path: &Path) -> Result<()> {
         match std::fs::remove_dir(directory) {
             Ok(()) => {
                 if let Some(up) = directory.parent() {
-                    durability::sync_directory(&File::open(up)?)?;
+                    dirty.mark(up);
                 }
             }
             Err(error)

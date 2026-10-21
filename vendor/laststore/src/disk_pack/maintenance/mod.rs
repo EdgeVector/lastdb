@@ -29,7 +29,9 @@ pub struct MaintenanceReceipt {
     pub bytes_removed: u64,
     /// Active readers cause deletion to defer, while replacement can still publish.
     pub reclaim_deferred: bool,
+    /// Old generations remain after a reclaim that `SpacePolicy::reclaim_generations` bounded.
+    pub reclaim_remaining: bool,
 }
 
 pub(super) use compact::compact_locked;
-pub(super) use reclaim::reclaim_locked;
+pub(super) use reclaim::{reclaim_locked, sweep_orphans_locked};

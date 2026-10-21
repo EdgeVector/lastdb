@@ -12,6 +12,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+#[path = "writer_dependency.rs"]
+mod dependency;
 #[path = "writer_maintenance.rs"]
 mod maintenance;
 
@@ -38,6 +40,8 @@ pub struct JournalWriter {
     lock: Arc<WriteLock>,
     admission: Arc<super::admission::AdmissionLedger>,
     suffix_oldest: Option<Instant>,
+    /// Dependency parts named by the receipt of `current`.
+    dependencies: u64,
 }
 
 impl JournalWriter {
@@ -50,7 +54,7 @@ impl JournalWriter {
         }
         super::resume::initial(&lock, &current)?;
         let (publication, tail) = super::resume::checkpoint(&lock)?;
-        Ok(Self::from_state(lock, publication.current, tail))
+        Ok(Self::from_state(lock, publication, tail))
     }
 
     /// Recover every complete pending batch and start a fresh stream before admission.
@@ -70,19 +74,20 @@ impl JournalWriter {
             super::resume::initial(&lock, &current)?;
         }
         let (publication, tail) = super::resume::checkpoint(&lock)?;
-        Ok(Self::from_state(lock, publication.current, tail))
+        Ok(Self::from_state(lock, publication, tail))
     }
 
-    fn from_state(lock: WriteLock, current: Current, tail: JournalTail) -> Self {
+    fn from_state(lock: WriteLock, publication: PublishedGeneration, tail: JournalTail) -> Self {
         Self {
             root: lock.root().to_path_buf(),
-            current,
+            current: publication.current,
             tail,
             poisoned: false,
             reserved_bytes: 0,
             lock: Arc::new(lock),
             admission: Arc::default(),
             suffix_oldest: None,
+            dependencies: publication.dependency_parts,
         }
     }
 
@@ -103,11 +108,13 @@ impl JournalWriter {
         if self.tail.last_batch == self.current.frontier {
             let publication = crate::disk_pack::publish::publish_locked(&self.lock)?;
             self.current = publication.current.clone();
+            self.dependencies = publication.dependency_parts;
             self.poisoned = false;
             return Ok(publication);
         }
         let (publication, tail) = super::resume::checkpoint(&self.lock)?;
         self.current = publication.current.clone();
+        self.dependencies = publication.dependency_parts;
         self.tail = tail;
         self.reserved_bytes = 0;
         self.suffix_oldest = None;
@@ -123,30 +130,6 @@ impl JournalWriter {
     /// Worst-case uncompressed part/map bytes retained after the artifact's CURRENT.
     pub fn reserved_suffix_bytes(&self) -> u64 {
         self.reserved_bytes
-    }
-
-    /// Validate bounded future directory growth before an accepted mutation.
-    /// A native caller owns its exclusive complete-write gate through publish.
-    pub(crate) fn check_dependency_capacity(&self, additional: u64) -> Result<()> {
-        self.check_admission()?;
-        if self.tail.last_batch != self.current.frontier {
-            return Err(super::refuse(
-                "complete admission requires a published suffix",
-            ));
-        }
-        let generation = crate::disk_pack::publish::ensure_generation(&self.lock, &self.current)?;
-        if generation
-            .dependencies
-            .checked_add(additional)
-            .map_or(true, |parts| {
-                parts > crate::disk_pack::dependency::MAX_DEPENDENCIES as u64
-            })
-        {
-            return Err(super::capacity(
-                "complete mutation exceeds dependency capacity",
-            ));
-        }
-        Ok(())
     }
 
     /// Reserve a complete journal batch before its owned payloads move.
