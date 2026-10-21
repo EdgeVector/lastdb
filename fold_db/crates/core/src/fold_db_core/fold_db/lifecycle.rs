@@ -109,18 +109,13 @@ impl FoldDB {
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
         self.request_background_stop();
-        // Stop periodic flusher before the final barrier so we do not race
-        // two flushes (and so Drop does not try to abort a still-running tick).
-        self.background_flush.stop().await;
         self.background_protein_reaper.stop();
         self.background_conflict_janitor.stop();
         self.background_molecule_drain.stop();
         // Drain accepted persist-lane work FIRST, while admission stays open.
         // The capture wait and the final sync below can take many seconds,
-        // and a supervisor can SIGKILL the process before they finish (the
-        // primary LaunchAgent had a 5 s exit timeout on 2026-09-24, and the
-        // kill landed inside the final sync). Acked writes must not wait
-        // behind that work to become durable.
+        // and a supervisor can SIGKILL the process before they finish.
+        // Caller writes already wait for disk; drain pending maintenance too.
         self.drain_persist_lanes_before_sync(task_drain_timeout)
             .await;
         pre_flush_errors.extend(

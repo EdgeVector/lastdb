@@ -29,15 +29,12 @@ impl MutationManager {
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let committed = self.commit_native_request(request, &mut state).await?;
         if committed.mutation_ids.is_empty() {
-            return self
-                .finish_all_duplicate_batch(
-                    committed.already_seen_ids,
-                    state.force_durable,
-                    &state.timing_breakdown,
-                    start,
-                    state.stages,
-                )
-                .await;
+            return self.finish_all_duplicate_batch(
+                committed.already_seen_ids,
+                &state.timing_breakdown,
+                start,
+                state.stages,
+            );
         }
         Ok(Self::build_commit_receipt(
             committed.already_seen_ids,
@@ -58,10 +55,8 @@ impl MutationManager {
         if let Some(clock) = request.author_clock {
             clock.wait().await?;
         }
-        let memory_ack =
-            !state.force_durable && !crate::fold_db_core::mutation_sync_flush_enabled();
         let committed =
-            transaction::request_scope(Some(Arc::clone(&request.runtime)), memory_ack, async {
+            transaction::request_scope(Some(Arc::clone(&request.runtime)), true, async {
                 request
                     .runtime
                     .record_read_stage("request-start", request.mutations.len());
@@ -121,8 +116,6 @@ impl MutationManager {
             return Ok(committed);
         }
         crate::sync::capture::mark_logical_commit_published();
-        self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
-            .await?;
         Ok(committed)
     }
 

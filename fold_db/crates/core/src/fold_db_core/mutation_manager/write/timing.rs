@@ -62,9 +62,9 @@ impl MutationManager {
     ///   `tracing::debug!` line below — which a running node cannot enable
     ///   (`papercut-lastdb-no-runtime-log-level-toggle`), so on the one node
     ///   whose numbers matter the decomposition was measured and unreadable.
-    /// - **flush** — the optional durability flush; ~0 unless
-    ///   `LASTDB_MUTATION_SYNC_FLUSH=1`, and a truncated-to-zero value stays
-    ///   unset so operator surfaces hide the column.
+    /// - **flush** — a separately timed explicit flush. Native request scopes
+    ///   already wait for disk; that wait is inside the batch wall clock and
+    ///   its residual, without a second finalize barrier.
     /// - **apply** — the RESIDUAL: everything the batch spent that no other
     ///   named bucket claims. Every step this function measures into
     ///   `timing_breakdown` now has its own phase (see below), so a non-zero

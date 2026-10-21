@@ -50,7 +50,6 @@ pub struct PackRuntime {
     journal: Mutex<HomeJournal>,
     read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     write_gate: Arc<tokio::sync::Mutex<()>>,
-    flush_notify: tokio::sync::Notify,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
     persist_metrics: Arc<PersistLaneMetrics>,
@@ -110,7 +109,6 @@ impl PackNamespacedStore {
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
         }
-        space::validate_resident_policy()?;
         let node_home = initialization::NodeHome::open(path, &space_policy)?;
         Self::open_physical(&path.join("disk-pack"), Some(node_home))
     }
@@ -126,7 +124,6 @@ impl PackNamespacedStore {
         node_home: Option<initialization::NodeHome>,
     ) -> StorageResult<Self> {
         let space_policy = space::policy_from_env()?;
-        space::validate_resident_policy()?;
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let journal = home.journal().map_err(map)?;
         let read_lease = journal.read_lease();
@@ -145,7 +142,6 @@ impl PackNamespacedStore {
                 journal: Mutex::new(journal),
                 read_lease,
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
-                flush_notify: tokio::sync::Notify::new(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
                 persist_metrics: metrics,

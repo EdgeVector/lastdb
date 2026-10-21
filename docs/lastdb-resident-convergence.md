@@ -5,11 +5,11 @@ The core model owns current schemas, molecules, keys, tips, confirmed absence, a
 The recency list selects logical records for purge without a second set of values.
 The old serving graph, logical cache, mode controls, and alternate write branch are removed.
 
-Covered logical writes use memory ACKs by default when their reservations fit.
-Explicit durable requests, capacity limits, and uncovered raw operations can wait for disk.
+Every successful local write waits for complete disk publication and returns a durable ACK.
+Memory reservations control core retention; they do not permit an earlier ACK.
 The private disk-output queue retains bytes and resource owners until flush; ordinary reads cannot inspect it.
 Captured core values keep their memory charges until their calls release them.
-The default flush delay remains 500 ms. Cloud activation stays disabled.
+Disk output starts immediately. No 500 ms flush timer remains. Cloud activation stays disabled.
 
 The [current plan](lastdb-logical-warm-set-plan.md) records component responsibilities and the native writer cutover.
 The [cutover results](proofs/core-clarity-20261018/RESULTS.md) record fresh-data API results and their exact source identities.

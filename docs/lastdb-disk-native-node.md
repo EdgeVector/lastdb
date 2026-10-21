@@ -22,10 +22,9 @@ The recency list selects clean logical records for purge. It does not hold a sec
 The logical record cap defaults to 10,000. Separate allowances cover metadata, complete selected keys, and accepted write values.
 Those allowances do not define a whole-process memory maximum.
 
-A covered logical write can receive its ACK after complete core publication and before disk commit.
-This memory ACK is the default when the required reservations fit.
-An explicit durable request, insufficient reservation, or uncovered raw control operation waits for disk instead.
-A queued response alone does not prove that its request avoided a disk wait.
+Every successful logical write waits for complete disk commit and core publication before its ACK.
+Single writes, batch writes, duplicates, Delete, and Purge return `durability: "durable"`.
+A disk error prevents a successful ACK. Cloud delivery remains separate.
 Native status exposes the actual accepted and completed sequences, pending batches, and dirty logical records.
 `core_warm_tip_only_paths` counts retained positive paths whose values are not in memory.
 Normal status uses these same core counts for its logical-record count, holds, dirty records, and purge total.
@@ -33,7 +32,8 @@ Its tip-only count and warm lookup counters also come from the core.
 Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.
 The separate background purge counters describe queued work, without another value store.
 
-The default flush delay is 500 ms. Native admission requires a configured delay from 1 to 500 ms.
+Disk output starts as soon as the complete request enters the native queue.
+No periodic flush task or 500 ms collection delay remains.
 A private write queue retains prepared disk bytes and resource owners until the flush.
 Ordinary reads cannot inspect that queue. Private serialized write preparation can inspect its pending records.
 Captured core values retain their memory reservations until the last call releases them.

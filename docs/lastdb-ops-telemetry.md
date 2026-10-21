@@ -87,9 +87,9 @@ requests carried a phase breakdown at all.
 
 Zero-hide applies on both axes: phases that measured zero are omitted from
 each row, and the table is absent entirely when nothing reported phases.
-Flush in particular stays near zero on default builds (background flusher;
-sync only under `LASTDB_MUTATION_SYNC_FLUSH=1`), so a visible `flush=0` would
-read as broken instrumentation rather than a measurement.
+Every successful native write waits for disk publication inside its request scope.
+That wait contributes to request wall time; no separate finalize flush runs afterward.
+An absent `flush` phase does not mean the ack lacks disk durability.
 
 Proof sequence for "where did my slow write spend its time":
 

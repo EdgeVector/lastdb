@@ -93,13 +93,8 @@ impl MutationManager {
                 )
                 .await;
         }
-        self.write_create_update_batch_async(
-            mutations,
-            storage_prefix,
-            matches!(origin, WriteOrigin::Replay),
-            author_clock_barrier,
-        )
-        .await
+        self.write_create_update_batch_async(mutations, storage_prefix, author_clock_barrier)
+            .await
     }
 
     /// Reject mutations that target aggregate-owned schemas or ask for
@@ -168,7 +163,6 @@ impl MutationManager {
             .write_create_update_batch_async(
                 mutations,
                 storage_prefix,
-                matches!(origin, WriteOrigin::Replay),
                 author_clock_barrier.clone(),
             )
             .await?;

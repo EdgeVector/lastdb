@@ -232,8 +232,6 @@ impl FoldDB {
 
         info!("Created MutationManager for mutation operations");
 
-        let background_flush = Self::start_background_flush(&db_ops);
-
         Self::log_resident_policy();
 
         let background_protein_reaper = Self::start_protein_reaper(&db_ops);
@@ -250,7 +248,6 @@ impl FoldDB {
             query_executor,
             mutation_manager,
             pending_tasks,
-            background_flush,
             background_protein_reaper,
             background_conflict_janitor,
             background_molecule_drain,

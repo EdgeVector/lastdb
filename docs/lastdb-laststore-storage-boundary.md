@@ -34,7 +34,7 @@ An alternate engine comparison is optional later work, not a completion prerequi
 | Current tips, write order, conditions, and tombstones | Complete batch publication and recovery |
 | Atom identity, exact body references, and shared use | File positions, pages, large-value pages, and file handles |
 | The 10000 logical records in the warm set | Bounded temporary storage objects for each call |
-| The memory ack and the 500 ms flush schedule | The separate durable disk receipt |
+| The complete memory change and the disk-before-ack rule | The durable disk receipt |
 | Cloud mutation order, pending cloud work, and cloud receipts | Captured read and export views |
 | Permission to delete an atom key | Safe physical reclaim after storage holds end |
 | Encryption scope, key access, and logical identity | Required physical encryption state and file integrity |
@@ -143,13 +143,13 @@ A queued update and its required atom hold enter the same complete batch.
 
 1. LastDB asks LastStore to reserve the complete disk work and replacement space.
 2. LastDB reserves logical records and protects the accepted batch from cancellation.
-3. LastDB publishes the complete memory change and sends the memory ack.
-4. At the flush, LastDB submits complete accepted batches in their accepted order.
+3. LastDB publishes the complete memory change when its reservation permits it.
+4. LastDB immediately submits the complete accepted batch for disk output.
 5. LastStore commits each stored batch completely and returns a durable receipt.
 6. LastDB publishes the new disk view and removes its covered memory changes together.
+7. LastDB sends a successful ack only after the disk receipt and required local completion work.
 
-The normal flush interval stays 500 ms.
-A crash before the flush can lose a write with a memory ack.
+No timer collects writes. Every successful local ack claims disk durability.
 The durable receipt means recovery returns every operation in that stored batch.
 Recovery must not expose a subset across namespaces, hashes, or files.
 A logical API batch can still contain independent item results.
@@ -161,11 +161,11 @@ LastDB can reduce input only after it proves that no condition or required side 
 LastDB writes state changes and the required pending cloud work in the same durable batch.
 The pending record can contain the bytes or retain their body references.
 LastStore treats those records as ordinary keys and values.
-The cloud upload occurs later and does not delay an ordinary memory ack.
+The cloud upload occurs later and does not delay an ordinary local ack.
 
 ### Failures and resource limits
 
-Reserve memory, disk output, publication work, and required side records before the memory ack.
+Reserve memory, disk output, publication work, and required side records before the local ack.
 Count other reservations, held exports, incomplete maintenance, and replacement output.
 Take no credit for future compaction.
 Refuse a batch before the memory change when the complete reservation cannot fit.
@@ -313,7 +313,7 @@ Keep primary activation as a separate action.
 
 The first reviewable implementation is one real node batch through the new boundary, followed by exact and range reads, flush, and reopen.
 It includes the atom bytes, tips, reference facts, and required pending work.
-The memory ack and durable receipt remain separate results.
+The successful local ack follows the durable disk receipt.
 
 The first code change adds a concrete LastStore facade around the existing native home.
 Move physical reservation, complete publication, and captured disk-view ownership behind that facade.
@@ -333,7 +333,7 @@ Keep format, lint, build, and security checks; add no tests or fixture harness.
 
 Compare exact keys, absent keys, ranges, updates, deletes, and shared atoms.
 Include batch sizes 1, 16, 64, and 256, and several value sizes.
-Report the memory ack separately from the durable flush.
+Report the complete local ack latency, including the durable disk wait.
 Report median and p95 latency, throughput, file opens, read bytes, written bytes, and temporary memory size.
 Report disk size before deletes, after reuse, and after compact.
 Report export holds and the cost of a source-free restore.

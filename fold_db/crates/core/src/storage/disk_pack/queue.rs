@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::storage::laststore::LastStoreKvStore;
-use futures::FutureExt;
 use tracing::Instrument;
 
 const MAX_REQUESTS: usize = 1024;
@@ -55,7 +54,6 @@ impl PackRuntime {
     ) -> StorageResult<Option<write::PreparedAppend>> {
         let queue = self.queue.lock().expect("native accepted queue");
         if queue.requests.len() >= MAX_REQUESTS {
-            self.flush_notify.notify_one();
             return Err(StorageError::WriteResourceLimit {
                 detail: "native accepted queue reached 1024 requests; retry after flush".into(),
             });
@@ -63,13 +61,8 @@ impl PackRuntime {
         if incoming.is_empty() {
             return Ok(None);
         }
-        match self.prepare_append(incoming, queue.prepared.as_ref()) {
-            Ok(prepared) => Ok(Some(prepared)),
-            Err(error) => {
-                self.flush_notify.notify_one();
-                Err(error)
-            }
-        }
+        self.prepare_append(incoming, queue.prepared.as_ref())
+            .map(Some)
     }
 
     /// No await separates accepted publication from transfer to the queue owner.
@@ -77,24 +70,19 @@ impl PackRuntime {
         self: &Arc<Self>,
         pending: Arc<transaction::PendingBatch>,
         prepared: Option<write::PreparedAppend>,
-        delay: Option<std::time::Duration>,
+        early_publication: bool,
     ) -> StorageResult<u64> {
-        let delay = delay.filter(|_| pending.has_reserved_raw_memory());
         let mut queue = self.queue.lock().expect("native accepted queue");
         let sequence = queue.next_sequence.checked_add(1).ok_or_else(|| {
             StorageError::BackendError("native accepted sequence exhausted".into())
         })?;
         let first = queue.requests.is_empty();
-        if first {
-            // A completed immediate flush can leave one unused wake permit.
-            let _ = self.flush_notify.notified().now_or_never();
-        }
         if let Some(append) = &prepared {
             append.reserve_capacity(queue.prepared.as_mut())?;
         }
-        // Read-held core values require retained quota. Private durable work
-        // seals the queue so later writers wait for its committed state.
-        let visible = delay.is_some();
+        // Read-held core values require retained quota. The caller still waits
+        // for the complete disk publication before it receives success.
+        let visible = early_publication && pending.has_reserved_raw_memory();
         if visible {
             self.install_accepted(Arc::clone(&pending), sequence)?;
         }
@@ -108,21 +96,18 @@ impl PackRuntime {
             let previous = queue.prepared.take();
             queue.prepared = Some(append.finish(previous));
         }
-        queue.sealed |= delay.is_none() || queue.requests.len() == MAX_REQUESTS;
-        let sealed = queue.sealed;
+        // Every complete request starts disk output immediately. No timer or
+        // collection window delays the caller's durability boundary.
+        queue.sealed = true;
         drop(queue);
         if first {
             let runtime = Arc::clone(self);
-            let deadline = tokio::time::Instant::now() + delay.unwrap_or_default();
             tokio::spawn(
                 async move {
-                    runtime.run_queue(deadline).await;
+                    runtime.run_queue().await;
                 }
                 .in_current_span(),
             );
-        }
-        if sealed {
-            self.flush_notify.notify_one();
         }
         Ok(sequence)
     }
@@ -131,7 +116,6 @@ impl PackRuntime {
         let mut queue = self.queue.lock().expect("native accepted queue");
         if !queue.requests.is_empty() {
             queue.sealed = true;
-            self.flush_notify.notify_one();
         }
         queue.next_sequence
     }
@@ -157,16 +141,9 @@ impl PackRuntime {
         }
     }
 
-    async fn run_queue(self: Arc<Self>, deadline: tokio::time::Instant) {
-        tokio::select! {
-            () = tokio::time::sleep_until(deadline) => {},
-            () = self.flush_notify.notified() => {},
-        }
-        // Close collection at the first request's deadline. Waiting preparers
-        // yield their gate rather than extending this prefix with new work.
-        self.seal_queue();
+    async fn run_queue(self: Arc<Self>) {
         // The gate protects generation-bound reservations during physical output.
-        // Preparation proceeds during collection, but pauses during this commit.
+        // Later requests wait for this complete commit before preparation.
         let gate = Arc::clone(&self.write_gate).lock_owned().await;
         let runtime = Arc::clone(&self);
         let result = LastStoreKvStore::run_blocking(move || {

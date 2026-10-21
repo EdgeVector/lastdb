@@ -32,40 +32,14 @@ impl FoldDB {
             .unwrap_or_default())
     }
 
-    /// Memory-first mutations: skip sync fsync on finalize by default;
-    /// periodic flusher + shutdown cover durability (sled-like cadence).
-    pub(super) fn start_background_flush(
-        db_ops: &Arc<DbOperations>,
-    ) -> super::super::mutation_flush::BackgroundFlushTask {
-        let flush_policy = super::super::mutation_flush::MutationFlushPolicy::from_env();
-        let background_ms = flush_policy
-            .background_interval
-            .map(|d| d.as_millis() as u64);
-        info!(
-            target: "fold_node::database",
-            sync_on_finalize = flush_policy.sync_on_finalize,
-            background_flush_ms = ?background_ms,
-            sync_flush_env = super::super::mutation_flush::MUTATION_SYNC_FLUSH_ENV,
-            background_env = super::super::mutation_flush::BACKGROUND_FLUSH_MS_ENV,
-            "mutation flush policy (memory-first by default; flush later)"
-        );
-        match flush_policy.background_interval {
-            Some(interval) => super::super::mutation_flush::BackgroundFlushTask::spawn(
-                Arc::clone(db_ops),
-                interval,
-            ),
-            None => super::super::mutation_flush::BackgroundFlushTask::disabled(),
-        }
-    }
-
-    /// Log native memory admission and flush delay.
+    /// Log native memory admission and the required disk-before-ack boundary.
     pub(super) fn log_resident_policy() {
         let resident_policy = crate::resident::ResidentPolicy::from_env();
         info!(
             target: "fold_node::database",
             budget_bytes = resident_policy.budget_bytes,
-            persist_ms = ?resident_policy.persist_interval.map(|d| d.as_millis() as u64),
-            "native memory policy and flush delay"
+            durable_before_ack = true,
+            "native memory policy; writes wait for disk without a flush timer"
         );
         // This remains conservative process headroom after the graph cache
         // removal. Actual native pool charges have their own status counters.

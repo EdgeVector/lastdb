@@ -332,7 +332,8 @@ pub enum RequestPhase {
     PersistSchema,
     /// Mutation: storing the idempotency record for the applied batch.
     PersistIdempotency,
-    /// Store flush (near zero unless `LASTDB_MUTATION_SYNC_FLUSH=1`).
+    /// Explicit store flush. Native writes include disk publication in their
+    /// request scope rather than a separate finalize flush.
     Flush,
     /// Mutation: cloud-sync mutation-log work on the caller's request path.
     /// This phase contains envelope encoding and bounded queue admission.

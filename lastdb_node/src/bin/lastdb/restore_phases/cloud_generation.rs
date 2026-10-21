@@ -309,7 +309,6 @@ async fn replay(
     progress: Option<&fold_db::sync::engine::RestoreProgress>,
     data_path: &Path,
 ) -> Phase<fold_db::sync::engine::MutationLogReplayReport> {
-    std::env::set_var("LASTDB_MUTATION_SYNC_FLUSH", "1");
     let data = data_path.to_string_lossy().to_string();
     let database = fold_db::FoldDB::for_restore(
         store.clone() as _,

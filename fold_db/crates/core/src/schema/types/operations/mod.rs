@@ -311,22 +311,22 @@ impl MutationConvergence {
 /// The local persistence guarantee that a mutation request requires before
 /// the node returns its receipt.
 ///
-/// Durability is independent from [`MutationConvergence`]. A durable request
-/// waits for local mutation state to persist, but it does not drain unrelated
-/// background convergence work.
+/// Every request waits for local disk publication, independently from
+/// [`MutationConvergence`]. The legacy queued input cannot weaken that boundary.
+/// The explicit durable input retains its existing cloud-delete behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MutationDurability {
     /// Persist local mutation state before the node returns a durable receipt.
     Durable,
-    /// Accept the normal queued receipt without a persistence barrier.
+    /// Legacy input alias; local disk publication still precedes success.
     #[default]
     Queued,
 }
 
 impl MutationDurability {
     pub fn waits_for_persist(self) -> bool {
-        matches!(self, Self::Durable)
+        true
     }
 }
 

@@ -30,7 +30,7 @@ The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separate
 |---|---|
 | Batch reads | Exact, batch, and bounded range reads; call-local page and file state; secondary atom requests across fields use one batch per storage scope. |
 | Complete writes | One private native request, complete output reservation, complete journal publication, and a durable receipt. |
-| Memory ack | Explicit write mode accepts eligible complete batches in memory. The idle flush delay defaults to 500 ms and cannot exceed 500 ms. |
+| Local ack | Every successful write waits for complete disk publication. Disk output starts immediately, with no collection timer. |
 | Captured reads | One disk root and accepted memory view, including schema names and field metadata. Native data choices bypass the legacy memory graph. |
 | Warm set | Complete logical field paths, with a 10000-record cap. Repeated complete owner queries can reuse one key or an explicit key batch. |
 | Optional metadata | Complete memory coverage precedes value copies. Optional request metadata can decline admission without a failed data read. |
@@ -44,8 +44,7 @@ The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separate
 | Local recovery | Owner backup and flush routes, exact bundle validation, source-free local restore, and explicit forward and reverse conversion. |
 | Current status | `GET /api/db/native-status` reports accepted work and the durable boundary without a forced flush. |
 
-The 500 ms interval starts disk work.
-Disk completion also includes the publication cost.
+Disk output starts immediately. The local ack includes the complete disk publication cost.
 `POST /api/db/flush` waits for earlier accepted batches and returns the durable boundary.
 An unset disk cap keeps the existing uncapped mode.
 A configured cap must be positive; admission counts current files and reserves replacement space.

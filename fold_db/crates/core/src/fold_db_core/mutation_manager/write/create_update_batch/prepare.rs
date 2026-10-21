@@ -5,19 +5,15 @@ use super::*;
 impl MutationManager {
     /// Receipt for a batch whose every mutation the idempotency filter
     /// recognised as already applied.
-    pub(in crate::fold_db_core::mutation_manager::write) async fn finish_all_duplicate_batch(
+    pub(in crate::fold_db_core::mutation_manager::write) fn finish_all_duplicate_batch(
         &self,
         already_seen_ids: Vec<String>,
-        force_durable: bool,
         timing_breakdown: &HashMap<&str, std::time::Duration>,
         start_time: std::time::Instant,
         mut stages: ResidentCommitStages,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
-        if force_durable {
-            self.db_ops.flush().await.map_err(|error| {
-                SchemaError::InvalidData(format!("forced durable duplicate flush failed: {error}"))
-            })?;
-        }
+        // The enclosing native request already waited for the durable prefix,
+        // including a duplicate of an earlier accepted request.
         tracing::info!(
             "All {} mutations were idempotency duplicates, skipping processing",
             already_seen_ids.len()
@@ -45,7 +41,7 @@ impl MutationManager {
             mutation_ids: already_seen_ids,
             revision: None,
             operations,
-            durability: Self::commit_durability(force_durable),
+            durability: ResidentDurability::Durable,
             cloud: None,
             stages,
             touched_group_ids: crate::durable_flush::current_touched_groups(),

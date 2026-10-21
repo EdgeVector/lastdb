@@ -252,7 +252,7 @@ fn empty_delete_response() -> Value {
         "convergence_pending": false,
         "revision": Value::Null,
         "operations": operations_json(&operations),
-        "durability": ResidentDurability::Queued.as_str(),
+        "durability": ResidentDurability::Durable.as_str(),
         "resident_stages_us": stages_json(&stages),
         "touched_group_ids": [],
         "size": 0

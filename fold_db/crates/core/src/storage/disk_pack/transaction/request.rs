@@ -3,34 +3,19 @@
 use super::*;
 use crate::storage::laststore::LastStoreKvStore;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Reply {
-    Memory,
-    Durable,
-    Background,
-}
-
+/// Every request waits for its complete disk publication before success.
 pub(crate) async fn request_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
-    memory_ack: bool,
+    early_publication: bool,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
 {
-    scope(
-        runtime,
-        if memory_ack {
-            Reply::Memory
-        } else {
-            Reply::Durable
-        },
-        future,
-    )
-    .await
+    scope(runtime, early_publication, future).await
 }
 
-/// Return after durability; unreserved work seals the current collection window.
+/// Background work uses the same immediate disk boundary as caller writes.
 pub(crate) async fn background_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -38,12 +23,12 @@ pub(crate) async fn background_scope<T, E>(
 where
     E: From<StorageError>,
 {
-    scope(runtime, Reply::Background, future).await
+    scope(runtime, true, future).await
 }
 
 async fn scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
-    reply: Reply,
+    early_publication: bool,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
@@ -55,11 +40,6 @@ where
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }
-    let delay = match reply {
-        Reply::Memory => Some(super::super::space::memory_flush_delay()?),
-        Reply::Background => Some(std::time::Duration::from_millis(500)),
-        Reply::Durable => None,
-    };
     runtime.wait_for_part_room().await;
     let gate = runtime.enter_prepare().await;
     let held_from = std::time::Instant::now();
@@ -79,43 +59,31 @@ where
     let result = result??;
     if pending.is_empty()? {
         // Preserve an explicit durability fence without adding an empty batch.
-        let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);
-        let target = durable.then(|| runtime.seal_queue());
+        let target = runtime.seal_queue();
         drop(gate);
-        let hold = note_gate_hold(held_from, 0, 0, &BatchShape::default());
-        // A durable fence seals the queue, so writers wait until it is durable.
-        if let Some(target) = target {
-            runtime.wait_for_queue(target).await?;
-            super::blocked::note(held_from.elapsed());
-        } else {
-            super::blocked::note(hold);
-        }
+        note_gate_hold(held_from, 0, 0, &BatchShape::default());
+        runtime.wait_for_queue(target).await?;
+        super::blocked::note(held_from.elapsed());
         return Ok(result);
     }
     let operations = pending.freeze_operations();
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
-    let delay = delay.filter(|_| {
-        !pending.durable_only.load(Ordering::Acquire) && pending.has_reserved_raw_memory()
-    });
+    let early_publication = early_publication
+        && !pending.durable_only.load(Ordering::Acquire)
+        && pending.has_reserved_raw_memory();
     let owner = Arc::clone(&runtime);
     // A cancelled pre-admission caller cannot release the queue's older quota.
     let (prepared, gate) =
         LastStoreKvStore::run_blocking(move || Ok((owner.prepare_queued(operations)?, gate)))
             .await?;
-    let delay = protect_paths(&runtime, &pending, delay)?;
-    let wait = reply != Reply::Memory || delay.is_none();
-    // A batch with no early publication seals the queue: every later writer waits
-    // in `enter_prepare` until the batch is durable, though the gate is free.
-    let sealed = delay.is_none();
+    let early_publication = protect_paths(&runtime, &pending, early_publication)?;
     // Publication, ownership transfer and worker creation contain no await.
-    let sequence = runtime.accept_queued(pending, prepared, delay)?;
+    let sequence = runtime.accept_queued(pending, prepared, early_publication)?;
     drop(gate);
-    let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
-    if wait {
-        runtime.wait_for_queue(sequence).await?;
-    }
-    super::blocked::note(if sealed { held_from.elapsed() } else { hold });
+    note_gate_hold(held_from, operations_len, sequence, &shape);
+    runtime.wait_for_queue(sequence).await?;
+    super::blocked::note(held_from.elapsed());
     Ok(result)
 }
 
@@ -201,7 +169,7 @@ impl BatchShape {
 }
 
 /// Say how long a request held the write gate, for a run that reads the log, and
-/// return the hold. The hold covers preparation, staging and acceptance. The
+/// record the hold. The hold covers preparation, staging and acceptance. The
 /// durable wait comes after the gate is free and is not counted here. A batch that
 /// seals the queue keeps writers waiting through that wait too (`blocked.rs`).
 fn note_gate_hold(
@@ -209,7 +177,7 @@ fn note_gate_hold(
     operations: usize,
     sequence: u64,
     shape: &BatchShape,
-) -> std::time::Duration {
+) {
     let held = held_from.elapsed();
     tracing::debug!(
         target: "fold_db::write_gate",
@@ -231,14 +199,13 @@ fn note_gate_hold(
         binding_deletes = shape.binding_deletes,
         "native write gate released"
     );
-    held
 }
 
 fn protect_paths(
     runtime: &PackRuntime,
     pending: &PendingBatch,
-    delay: Option<std::time::Duration>,
-) -> StorageResult<Option<std::time::Duration>> {
+    early_publication: bool,
+) -> StorageResult<bool> {
     let paths = std::mem::take(&mut *pending.paths.lock().expect("native private paths"));
     let absences = std::mem::take(&mut *pending.absences.lock().expect("native private absences"));
     let definitions = std::mem::take(
@@ -260,7 +227,7 @@ fn protect_paths(
         definitions,
         owner,
         changed_sources: changes,
-        early: delay.is_some(),
+        early: early_publication,
     };
     let protection = match super::super::logical_paths::PathProtection::reserve(
         runtime,
@@ -269,13 +236,13 @@ fn protect_paths(
         publication,
     ) {
         Ok(protection) => protection,
-        Err(StorageError::WriteResourceLimit { .. }) => return Ok(None),
+        Err(StorageError::WriteResourceLimit { .. }) => return Ok(false),
         Err(error) => return Err(error),
     };
-    let delay = delay.filter(|_| protection.memory_ready());
+    let early_publication = early_publication && protection.memory_ready();
     *pending
         .path_protection
         .lock()
         .expect("native typed path protection") = Some(protection);
-    Ok(delay)
+    Ok(early_publication)
 }
