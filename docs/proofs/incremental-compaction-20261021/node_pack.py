@@ -7,8 +7,8 @@ Clones SNAPSHOT (a stopped synthetic home, never changed) with `cp -c`, starts a
 automatic maintenance on (the first run starts 5 seconds after the start), starts the writers (default
 acknowledgement, new keys, `--ops` operations for each request), and polls the `Storage parts` line of
 `lastdb status` until the first run ends. Prints one JSON line:
-  pack_published_after_s   CURRENT named the packed root this long after the run began (mtime of CURRENT)
   run_ms                   the node's own time for the run (pack and its first slice of reclaim)
+  pack_millis_logged       the pack time that the node logs for the run (the gate is held for it)
   longest_gap_s            the longest time between two completed writes while the run was in progress
   failed                   requests that did not return 200
 The writers stay on after the run, for `--tail` seconds, to see that writes resume.
@@ -35,11 +35,8 @@ ap.add_argument('--tail', type=int, default=20)
 args = ap.parse_args()
 
 source = ldc.refuse_primary(args.home)
-clone = Path(f'{source}.node')
-ldc.refuse_primary(clone)
+clone = ldc.clone_path('np')
 subprocess.run(['cp', '-cRp', str(source), str(clone)], check=True)
-current = ldc.pack_root(clone) / 'CURRENT'
-mtime0 = current.stat().st_mtime
 node = ldc.Node(clone, {'LASTDB_AUTO_MAINTENANCE_START_DELAY_SECS': '5'})
 began = time.time()
 node.start(timeout=3600)
@@ -96,7 +93,6 @@ stop.set()
 [t.join(timeout=150) for t in threads]
 with lock:
     rows = sorted(done)
-published = current.stat().st_mtime
 ok = [r for r in rows if r[2] == 200]
 window_start = first_running or t0
 window_end = finished or time.time()
@@ -109,10 +105,16 @@ for end, _, _ in ok:
         if end > window_end:
             break
 run_ms = re.search(r'parts in (\d+) ms', line)
+# The node logs the pack and reclaim time of each automatic run (tracing fields, with colour codes).
+log = re.sub(r'\x1b\[[0-9;]*m', '', (clone / 'node.log').read_text(errors='replace'))
+logged = [l for l in log.splitlines() if 'reached the dependency high-water mark' in l]
+pack_millis = re.search(r'pack_millis=(\d+)', logged[0]) if logged else None
+reclaim_millis = re.search(r'reclaim_millis=(\d+)', logged[0]) if logged else None
 print(json.dumps({'ready_s': round(ready_s, 1), 'writers': args.writers, 'ops': args.ops,
                   'run_started_after_s': round(window_start - t0, 1) if first_running else None,
-                  'pack_published_after_s': round(published - window_start, 1) if published > mtime0 else None,
                   'run_ms': int(run_ms.group(1)) if run_ms else None,
+                  'pack_millis_logged': int(pack_millis.group(1)) if pack_millis else None,
+                  'reclaim_millis_logged': int(reclaim_millis.group(1)) if reclaim_millis else None,
                   'writes_ok_total': len(ok), 'failed': len(rows) - len(ok),
                   'longest_gap_s': round(max(gaps), 1) if gaps else None,
                   'status_line': line[:300]}), flush=True)

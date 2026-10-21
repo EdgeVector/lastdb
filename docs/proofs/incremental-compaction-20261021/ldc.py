@@ -72,6 +72,16 @@ class UDS(http.client.HTTPConnection):
         self.sock.connect(self.path)
 
 
+def clone_path(tag):
+    """A short, unused path under $TMPDIR for a clone that a node will serve.
+
+    A Unix socket path is limited to about 100 bytes on macOS, so a node home needs a short name."""
+    while True:
+        path = Path(os.environ.get('TMPDIR') or '/tmp') / ('s1s2.%s.%s' % (tag, uuid.uuid4().hex[:8]))
+        if not path.exists():
+            return refuse_primary(path)
+
+
 def new_home(tag):
     """A fresh synthetic home under $TMPDIR (never the primary)."""
     path = tempfile.mkdtemp(prefix=f's1s2.{tag}.', dir=os.environ.get('TMPDIR') or '/tmp')

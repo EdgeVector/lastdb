@@ -25,6 +25,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--home', required=True)
 ap.add_argument('--bins', required=True)
 ap.add_argument('--runs', type=int, default=1)
+ap.add_argument('--warm', action='store_true',
+                help='read every journal file of the clone before the timed pack, so that the pack meets a warm file cache')
 ap.add_argument('--keep-last', action='store_true', help='keep the clone of the last run')
 args = ap.parse_args()
 
@@ -41,6 +43,9 @@ def tool_cpu(stderr):
     match = re.search(r'(\d+)\s+maximum resident set size', stderr)
     if match:
         out['max_rss_mb'] = round(int(match.group(1)) / 1048576, 1)
+    match = re.search(r'(\d+)\s+block input operations', stderr)
+    if match:
+        out['block_input_ops'] = int(match.group(1))
     match = re.search(r'(\d+)\s+peak memory footprint', stderr)
     if match:
         out['peak_footprint_mb'] = round(int(match.group(1)) / 1048576, 1)
@@ -53,6 +58,17 @@ for run, (name, bindir) in enumerate(order, 1):
     subprocess.run(['cp', '-cRp', str(source), str(clone)], check=True)
     current = ldc.pack_root(clone) / 'CURRENT'
     before = current.stat().st_mtime
+    warm_s = None
+    if args.warm:
+        # A clone starts with a cold file cache. A node packs soon after it wrote the journal, so the
+        # journal files are in the cache. Reading them here (not timed) gives the same state.
+        began = time.time()
+        for base, _dirs, files in os.walk(ldc.pack_root(clone) / 'journal'):  # walk-ok: my own temp clone
+            for name in files:
+                with open(os.path.join(base, name), 'rb') as handle:
+                    while handle.read(1 << 20):
+                        pass
+        warm_s = round(time.time() - began, 1)
     began = time.time()
     done = subprocess.run(['/usr/bin/time', '-l', str(bindir / 'lastdb-pack-maintain'), 'compact',
                            '--home', str(ldc.pack_root(clone)), '--grace-ms', '0'],
@@ -63,7 +79,7 @@ for run, (name, bindir) in enumerate(order, 1):
         result = json.loads(done.stdout.strip().splitlines()[-1])['result']
     except Exception:
         result = {'raw': done.stdout[-300:], 'stderr': done.stderr[-300:]}
-    row = {'bin': name, 'run': run, 'exit': done.returncode, 'wall_s': round(wall, 1),
+    row = {'bin': name, 'run': run, 'warm': args.warm, 'warm_read_s': warm_s, 'exit': done.returncode, 'wall_s': round(wall, 1),
            'published_after_s': round(published, 1) if current.stat().st_mtime > before else None,
            **tool_cpu(done.stderr), 'result': result}
     print(json.dumps(row), flush=True)
