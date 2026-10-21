@@ -264,11 +264,7 @@ async fn run_wake(
         {
             Ok(Some(outcome)) => {
                 let wrote = note_outcome(&outcome.candidate.molecule, &outcome.kind, started);
-                atoms.drain_state().set_gauges(
-                    cursor.gauges().0,
-                    cursor.gauges().1,
-                    cursor.gauges().2,
-                );
+                publish(atoms, cursor);
                 if wrote {
                     tokio::time::sleep(pause_after(started.elapsed(), policy.duty_pct)).await;
                 }
@@ -295,10 +291,15 @@ async fn run_wake(
             }
         }
     }
+    publish(atoms, cursor);
+    error
+}
+
+/// Put the gauges and the refused molecules of the cursor in the report.
+fn publish(atoms: &AtomStore, cursor: &DrainCursor) {
     let (pending, waiting, refused) = cursor.gauges();
     atoms.drain_state().set_gauges(pending, waiting, refused);
     atoms.drain_state().set_refused_sample(cursor.refused());
-    error
 }
 
 /// Log one step. Returns true when the step wrote a batch.
