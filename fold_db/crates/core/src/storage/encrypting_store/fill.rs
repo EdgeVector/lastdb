@@ -62,12 +62,7 @@ impl EncryptingKvStore {
             let Some(last) = last else {
                 return Ok(out);
             };
-            let Some(end) = source_end(&source) else {
-                return Err(StorageError::InvalidOperation(
-                    "a paged scan met a row with no at-rest envelope and the prefix has no upper bound"
-                        .into(),
-                ));
-            };
+            let end = source_end(&source);
             let next = key_after(&last);
             if next.as_slice() >= end.as_slice() {
                 return Ok(out);
@@ -80,10 +75,24 @@ impl EncryptingKvStore {
 }
 
 /// The exclusive end of the range a source reads.
-fn source_end(source: &PagedSource<'_>) -> Option<Vec<u8>> {
+fn source_end(source: &PagedSource<'_>) -> Vec<u8> {
     match source {
-        PagedSource::Range(_, end) => Some(end.to_vec()),
+        PagedSource::Range(_, end) => end.to_vec(),
         PagedSource::Prefix(prefix) => prefix_end(prefix),
+    }
+}
+
+/// The least key that is above every key under `prefix`. The empty prefix names
+/// every key, and a prefix of `0xFF` bytes has no end, so both end at the marker
+/// that closes a collection.
+fn prefix_end(prefix: &[u8]) -> Vec<u8> {
+    match prefix.iter().rposition(|byte| *byte != 0xFF) {
+        Some(at) => {
+            let mut end = prefix[..=at].to_vec();
+            end[at] += 1;
+            end
+        }
+        None => RESEAL_COLLECTION_END.to_vec(),
     }
 }
 
@@ -93,13 +102,4 @@ fn key_after(key: &[u8]) -> Vec<u8> {
     next.extend_from_slice(key);
     next.push(0);
     next
-}
-
-/// The least key that is above every key under `prefix`. `None` when every
-/// byte of the prefix is `0xFF`.
-fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
-    let at = prefix.iter().rposition(|byte| *byte != 0xFF)?;
-    let mut end = prefix[..=at].to_vec();
-    end[at] += 1;
-    Some(end)
 }
