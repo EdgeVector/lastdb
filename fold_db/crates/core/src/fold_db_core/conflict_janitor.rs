@@ -123,6 +123,9 @@ impl BackgroundConflictJanitorTask {
             }
             let mut cursor = db_ops.atoms().retention_cursor();
             cursor.set_net_every(net_every);
+            // The watch lives as long as the task: it remembers the last write
+            // of another task across the wakes.
+            let mut watch = WriterWatch::new();
             let mut wakes = 0u64;
             let mut failures = 0u64;
             let mut retry_at: Option<std::time::Instant> = None;
@@ -138,7 +141,7 @@ impl BackgroundConflictJanitorTask {
                     cursor.restart();
                 }
                 wakes += 1;
-                let wake = run_wake(&db_ops, &stop_flag, &mut cursor, duty_pct).await;
+                let wake = run_wake(&db_ops, &stop_flag, &mut cursor, duty_pct, &mut watch).await;
                 failures = if wake.error.is_some() {
                     failures + 1
                 } else {
@@ -218,7 +221,7 @@ async fn run_net(
                     blocked_us = u64::try_from(outcome.blocked.as_micros()).unwrap_or(u64::MAX),
                     "conflict janitor net chunk"
                 );
-                rest(rest_after(watch, &outcome, duty_pct)).await;
+                rest(rest_after(watch, &outcome, duty_pct), watch).await;
             }
             Ok(None) => return true,
             Err(failure) => {
@@ -270,15 +273,15 @@ async fn run_wake(
     stop: &AtomicBool,
     cursor: &mut RetentionCursor,
     duty_pct: u64,
+    watch: &mut WriterWatch,
 ) -> Wake {
     let atoms = db_ops.atoms();
     let mut wake = Wake::default();
     let mut ordinary_ok = true;
     let mut drain_ok = true;
-    let mut watch = WriterWatch::new();
     // The safety net sweeps the slices once in a while (a few chunks, each paced
     // like a batch). A failed sweep does not hold back the release of records.
-    if !run_net(atoms, stop, cursor, duty_pct, &mut watch).await {
+    if !run_net(atoms, stop, cursor, duty_pct, watch).await {
         return wake;
     }
     let mut batches = 0usize;
@@ -323,7 +326,7 @@ async fn run_wake(
                 };
                 progressed = true;
                 batches += 1;
-                let rest_for = rest_after(&mut watch, &outcome, duty_pct);
+                let rest_for = rest_after(watch, &outcome, duty_pct);
                 note_batch(
                     atoms,
                     cursor,
@@ -332,7 +335,7 @@ async fn run_wake(
                     started.elapsed(),
                     rest_for,
                 );
-                rest(rest_for).await;
+                rest(rest_for, watch).await;
             }
         }
         if !progressed {

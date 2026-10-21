@@ -1,6 +1,6 @@
 //! The pacing of the retention janitor: how long it rests after a step.
 
-use crate::db_operations::atom_store::{QuietRest, StepOutcome, WriterWatch};
+use crate::db_operations::atom_store::{StepOutcome, WriterWatch};
 use std::time::Duration;
 
 /// The shortest rest between two pages.
@@ -32,14 +32,15 @@ pub(super) fn backoff_after(failures: u64, interval: Duration) -> Duration {
     base.saturating_mul(1 << shift).min(BACKOFF_MAX)
 }
 
-/// The rest after a step: the full rest when another writer was there, and the
-/// shortest one when the janitor has the node to itself (`WriterWatch`).
+/// The rest after a step: the full rest when another writer was there within the
+/// quiet period, and the shortest one when the janitor has the node to itself
+/// (`WriterWatch`).
 pub(super) fn rest_after(
     watch: &mut WriterWatch,
     outcome: &StepOutcome,
     duty_pct: u64,
 ) -> Duration {
-    if watch.others_wrote(outcome.scopes) {
+    if watch.writer_present(outcome.scopes) {
         pause_after(outcome.blocked, duty_pct)
     } else {
         MIN_PAUSE
@@ -47,10 +48,9 @@ pub(super) fn rest_after(
 }
 
 /// Sleep `pause`, and end the sleep early when no other writer has opened a write
-/// scope for two seconds (`QuietRest`).
-pub(super) async fn rest(pause: Duration) {
+/// scope within the quiet period (`WriterWatch::rest_may_end`).
+pub(super) async fn rest(pause: Duration, watch: &mut WriterWatch) {
     const SLICE: Duration = Duration::from_millis(250);
-    let mut watch = QuietRest::begin();
     let end = std::time::Instant::now() + pause;
     loop {
         let left = end.saturating_duration_since(std::time::Instant::now());
@@ -58,7 +58,7 @@ pub(super) async fn rest(pause: Duration) {
             return;
         }
         tokio::time::sleep(left.min(SLICE)).await;
-        if left > SLICE && watch.quiet() {
+        if left > SLICE && watch.rest_may_end() {
             return;
         }
     }

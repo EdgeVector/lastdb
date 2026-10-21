@@ -53,6 +53,11 @@ pub(crate) struct DrainMarker {
     pub(crate) queue: String,
     /// When the erase ran, in nanoseconds of the retention clock.
     pub(crate) erased_at: u64,
+    /// The retention window of the node when it wrote the marker, in nanoseconds.
+    /// The marker lives at most this long. A marker without it (an older build)
+    /// is never deleted for its age.
+    #[serde(default)]
+    pub(crate) window_nanos: u64,
 }
 
 /// The value of a queue entry.

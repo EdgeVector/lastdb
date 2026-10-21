@@ -10,7 +10,11 @@ impl AtomStore {
     /// or whose key has no readable expiry, is counted and left alone: the cursor
     /// moves past it, and the entry stays.
     ///
-    /// A marker lives at most one retention window. Every record of an erased slot
+    /// A marker lives at most one retention window: the window the node had when it
+    /// wrote the marker (`DrainMarker::window_nanos`), or the current one when that
+    /// is longer. A window that was shortened between two starts does not shorten
+    /// the life of a marker that an earlier start wrote, and a marker with no
+    /// recorded window is never deleted for its age. Every record of an erased slot
     /// was written before the erase, so its own queue entry is due one window after
     /// the erase at the latest, and the ordinary lane releases it. A marker that is
     /// older than that has nothing left to speed up. The janitor deletes it without
@@ -22,7 +26,7 @@ impl AtomStore {
         now_nanos: u64,
     ) -> (Vec<String>, Vec<DrainMarker>, Vec<String>) {
         let queue = self.retention_state().queue();
-        let window = self.retention_state().window_nanos();
+        let current = self.retention_state().window_nanos();
         let mut records = Vec::new();
         let mut markers = Vec::new();
         let mut expired = Vec::new();
@@ -35,7 +39,11 @@ impl AtomStore {
             match QueueValue::decode(value) {
                 Ok(QueueValue::Record(_)) => records.push(key.clone()),
                 Ok(QueueValue::Drain(marker))
-                    if marker.erased_at.saturating_add(window) < now_nanos =>
+                    if marker.window_nanos > 0
+                        && marker
+                            .erased_at
+                            .saturating_add(marker.window_nanos.max(current))
+                            < now_nanos =>
                 {
                     expired.push(key.clone());
                 }

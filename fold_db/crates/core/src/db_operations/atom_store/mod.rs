@@ -87,7 +87,7 @@ pub(crate) use types::{
     ChangedKey, FilterLayout, MoleculeGenerationDelete, MoleculeGenerationPointer,
     MoleculeGenerationSlot, MoleculeRangeForm, OneDSlot, PerKeyRecord,
 };
-pub use writer_watch::{QuietRest, WriterWatch};
+pub use writer_watch::{WriterWatch, DEFAULT_QUIET_SECS, QUIET_SECS_ENV};
 
 use crate::storage::{
     traits::{KvStore, NamespacedStore},
