@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
-/// How many droppable molecule ids the report names.
-const DROPPABLE_SAMPLE: usize = 20;
+/// How many molecule ids each sample of the report names. The walk reads every
+/// header already, so the cap only bounds the size of the report.
+const DROPPABLE_SAMPLE: usize = 500;
 
 /// The hash of the candidate rows of the molecule drain.
 const DRAIN_CANDIDATE_PREFIX: &str = "mref:v1:d\0";

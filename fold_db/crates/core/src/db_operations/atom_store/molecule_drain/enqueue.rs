@@ -32,15 +32,28 @@ pub struct MoleculeDrainVerdict {
 }
 
 impl AtomStore {
-    /// Refuse a storage scope prefix that no key can carry. A mistyped scope
-    /// reads an empty range and looks like a clean scope, so the verbs that take
-    /// a scope check it before they read.
+    /// Check the scope that a verb names. The only scopes a verb may name are the
+    /// personal scope (no value) and a database scope: exactly 64 lowercase hex
+    /// characters. A mistyped scope reads an empty range and looks like a clean
+    /// scope, so the verbs that take a scope check it before they read. The check is
+    /// narrower than the key validation of the storage layer on purpose: a verb
+    /// never needs a `cloud:` or `from:` scope or a reserved name.
     pub fn validate_scope(scope: Option<&str>) -> Result<(), SchemaError> {
-        match scope {
-            Some(scope) => crate::storage::current_keys::validate_scope(scope)
-                .map_err(|error| SchemaError::InvalidData(format!("invalid scope: {error}"))),
-            None => Ok(()),
+        let Some(scope) = scope else {
+            return Ok(());
+        };
+        let lower_hex = scope.len() == 64
+            && scope
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        if lower_hex {
+            return Ok(());
         }
+        let shown: String = scope.chars().take(80).collect();
+        Err(SchemaError::InvalidData(format!(
+            "invalid scope {shown:?}: a scope is the personal scope (leave the value out) \
+             or a database scope of exactly 64 lowercase hex characters"
+        )))
     }
 
     /// Read the molecule inside the write gate and queue it for the drain when it
@@ -81,6 +94,41 @@ impl AtomStore {
 }
 
 impl AtomStore {
+    /// The molecules of `molecules` that the drain still removes in `scope`: each
+    /// has a candidate row and reads dead. An install of a schema that binds such a
+    /// molecule again would stop the drain with part of the keys erased, so the
+    /// install is refused (`SchemaError::SchemaBeingDropped`). The caller holds the
+    /// write gate, so a batch of the drain cannot run between this read and the
+    /// bind. A refused molecule (a counter fault) is not on the list: the drain does
+    /// not remove it. One bounded range read for each molecule, all at once.
+    pub(crate) async fn molecules_draining(
+        &self,
+        scope: Option<&str>,
+        molecules: &[String],
+    ) -> Result<Vec<String>, SchemaError> {
+        let checks = molecules.iter().map(|molecule| async move {
+            let candidate = Candidate::new(scope, molecule);
+            let (start, end) = crate::kind_partition::exact_prefix_bounds(&candidate.key());
+            let mut walk = crate::db_operations::atom_store::RangeWalk::new(
+                start.as_bytes(),
+                end.as_bytes(),
+                1,
+            );
+            if self.walk_step(&mut walk).await?.rows.is_empty() {
+                return Ok::<bool, SchemaError>(false);
+            }
+            let reads = self.read_molecule_reads(&candidate).await?;
+            Ok(matches!(judge(&reads), Verdict::Dead { .. }))
+        });
+        let dead = futures::future::try_join_all(checks).await?;
+        Ok(molecules
+            .iter()
+            .zip(dead)
+            .filter(|(_, dead)| *dead)
+            .map(|(molecule, _)| molecule.clone())
+            .collect())
+    }
+
     /// The candidate rows now, counted up to `cap` with bounded range reads (a
     /// deleted key does not make the read fail). The second value is true when the
     /// count stopped at the cap.

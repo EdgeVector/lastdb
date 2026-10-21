@@ -119,3 +119,15 @@ record without a counter. The verifier writes nothing.
   Cloud sync is off in this build.
 - A crash between the share route's domain grant and its batch leaves a domain grant
   with no binding. The grant is not a reference.
+- Nothing finds a dead molecule except the candidate rows of the molecule drain
+  (`docs/lastdb-molecule-drain.md`). If the rows are lost, the molecules stay with their
+  keys and no scan finds them again. `lastdb db inventory` lists the first 500 of them as
+  `unbound_sample`, and `lastdb db molecule-drain --molecule=<uuid>` queues one. A molecule
+  recount that rediscovers candidates is a later step.
+- A molecule that is refused or `suspect` has no repair path. The drain never changes a
+  counter. A tip written outside the planner into a dead molecule is erased by the drain, and
+  `slots` goes below zero: the header stays `suspect`.
+- After a drain the node-global key bundle (`mkb:`, `mkw:`), the `protein:` records without
+  members, the delete-ledger rows and the search entries of the erased keys stay.
+- The schema drop reads the whole database catalog with `list_entries` (a scan of a small
+  table that has one row for each database and schema).

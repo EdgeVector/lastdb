@@ -12,13 +12,14 @@
 //! The task wakes at its interval and at once when a batch lowers a `bindings`
 //! counter to zero (a schema drop, a catalog removal). It reads the candidate
 //! list from its start at each wake. A wake that ends with an error makes the task
-//! wait longer before the next wake, as the conflict janitor does.
+//! wait longer before the next wake, as the conflict janitor does. A wake signal (a
+//! new drop, or a molecule named by hand) ends that wait, because it brings new work.
 //!
 //! | Variable | Meaning |
 //! |----------|---------|
 //! | `LASTDB_MOLECULE_DRAIN_MS` | Interval between wakes. Zero turns the task off. Default 30000. |
 //! | `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | The share of wall time, in percent, that batches may take (1 to 100). Default 10. |
-//! | `LASTDB_MOLECULE_DRAIN_TIPS` | Tip records one batch erases, at most (1 to 512). Default 256. A batch that hits the read limit halves the size. |
+//! | `LASTDB_MOLECULE_DRAIN_TIPS` | Tip records one batch erases, at most (1 to 512). Default 256. A batch that hits the read limit halves the size, and the size doubles back after 5 wakes that did work and had no read limit. |
 //! | `LASTDB_MOLECULE_DRAIN_BATCHES` | Batches one wake runs, at most. Default 1024. |
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -169,24 +170,34 @@ impl BackgroundMoleculeDrainTask {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
             let mut cursor = DrainCursor::new();
-            // The batch size can shrink after a read limit; it does not grow back.
+            // The batch size shrinks after a read limit and grows back after
+            // `REGROW_AFTER_WAKES` wakes that did work and had no read limit.
             let mut tips = policy.tips;
+            let mut clean_wakes = 0u32;
             let mut failures = 0u64;
             let mut retry_at: Option<std::time::Instant> = None;
             loop {
-                tokio::select! {
-                    _ = ticker.tick() => {}
-                    () = wake.notified() => {}
-                }
+                let woken = tokio::select! {
+                    _ = ticker.tick() => false,
+                    () = wake.notified() => true,
+                };
                 if stop_flag.load(Ordering::Relaxed) {
                     break;
+                }
+                if woken {
+                    // A wake signal means new work: a drop, or a molecule named by
+                    // hand. The wait that a failed wake set does not apply to it.
+                    failures = 0;
+                    retry_at = None;
                 }
                 if retry_at.is_some_and(|at| std::time::Instant::now() < at) {
                     continue;
                 }
                 cursor.restart();
-                let error =
+                let wake_result =
                     run_wake(db_ops.atoms(), &stop_flag, &mut cursor, (policy, &mut tips)).await;
+                regrow_after(&wake_result, &mut clean_wakes, &mut tips, policy.tips);
+                let error = wake_result.error;
                 failures = if error.is_some() { failures + 1 } else { 0 };
                 let retry_in = (failures > 0).then(|| backoff_after(failures, interval));
                 retry_at = retry_in.map(|wait| std::time::Instant::now() + wait);
@@ -246,15 +257,55 @@ fn backoff_after(failures: u64, interval: Duration) -> Duration {
     base.saturating_mul(1 << shift).min(BACKOFF_MAX)
 }
 
+/// What one wake did.
+struct WakeResult {
+    /// The error of the step that failed.
+    error: Option<String>,
+    /// Steps that wrote a batch.
+    batches: u64,
+    /// A batch hit the read limit and the batch size went down.
+    shrank: bool,
+}
+
+/// Wakes that did work, and had no read limit, before the batch size doubles again.
+const REGROW_AFTER_WAKES: u32 = 5;
+
+/// Count a clean wake. After `REGROW_AFTER_WAKES` of them the batch size doubles, up
+/// to the size the policy sets. A wake with an error or a read limit starts the count
+/// again. A wake that did no work says nothing about the read limit and is not counted.
+fn regrow_after(result: &WakeResult, clean_wakes: &mut u32, tips: &mut usize, max_tips: usize) {
+    if result.error.is_some() || result.shrank {
+        *clean_wakes = 0;
+        return;
+    }
+    if result.batches == 0 || *tips >= max_tips {
+        return;
+    }
+    *clean_wakes += 1;
+    if *clean_wakes >= REGROW_AFTER_WAKES {
+        *clean_wakes = 0;
+        *tips = (*tips * 2).min(max_tips);
+        tracing::info!(
+            target: "fold_node::database",
+            tips = *tips,
+            "molecule drain batch is larger again after clean wakes"
+        );
+    }
+}
+
 /// One wake: batches until the list is done, the batch budget is spent, or a step
-/// fails. Returns the error of the step that failed.
+/// fails.
 async fn run_wake(
     atoms: &AtomStore,
     stop: &AtomicBool,
     cursor: &mut DrainCursor,
     (policy, tips): (MoleculeDrainPolicy, &mut usize),
-) -> Option<String> {
-    let mut error = None;
+) -> WakeResult {
+    let mut result = WakeResult {
+        error: None,
+        batches: 0,
+        shrank: false,
+    };
     for _ in 0..policy.batches {
         if stop.load(Ordering::Relaxed) {
             break;
@@ -268,6 +319,7 @@ async fn run_wake(
                 let wrote = note_outcome(&outcome.candidate.molecule, &outcome.kind, started);
                 publish(atoms, cursor);
                 if wrote {
+                    result.batches += 1;
                     tokio::time::sleep(pause_after(started.elapsed(), policy.duty_pct)).await;
                 }
             }
@@ -276,6 +328,7 @@ async fn run_wake(
                 // The batch read more pages than one call may spend: halve it. The
                 // failed molecule went to the back of the line.
                 *tips = (*tips / 2).max(MIN_TIPS);
+                result.shrank = true;
                 tracing::warn!(
                     target: "fold_node::database",
                     tips = *tips,
@@ -288,13 +341,13 @@ async fn run_wake(
                     error = %failure,
                     "molecule drain stopped before its work was done"
                 );
-                error = Some(failure.to_string());
+                result.error = Some(failure.to_string());
                 break;
             }
         }
     }
     publish(atoms, cursor);
-    error
+    result
 }
 
 /// Put the gauges and the refused molecules of the cursor in the report.
