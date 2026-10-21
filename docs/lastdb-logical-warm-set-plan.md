@@ -146,7 +146,7 @@ The package details below retain the target contracts; their completion statemen
 Record the earlier committed engine at aa64f61cd3d2d01a3f8953d4a1b3cf21f9940bab as one reference.
 Preserve the current unfinished spike separately with its complete source state.
 HEAD alone does not identify that spike: it includes modified files, untracked files, and deletions.
-Use the existing [source receipt](proofs/core-model-warm-spike-20261017/candidate-source.json) and a complete code checkpoint.
+Use the existing source receipt (receipt not kept in this repository) and a complete code checkpoint.
 
 Preserve each reference executable outside the candidate build output before a rebuild can replace it.
 Verify its hash against its source/build receipt; rebuild from the exact source checkpoint if the match fails.
@@ -316,7 +316,7 @@ Later narrow ranges must neither reload the schema nor enumerate unrelated hashe
 Unselected or recorded DiskOnly schemas keep bounded disk selection plus captured pending changes.
 Tip and value purge causes only missing-path fetches while the complete keys remain ready.
 
-Primary sources: [query entry](../fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs), [key filter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs), [resolver](../fold_db/crates/core/src/schema/types/field/variant/read/core_model.rs), [copy reads](../fold_db/crates/core/src/record_molecule/dual_read.rs).
+Primary sources: [query entry](../fold_db/crates/core/src/fold_db_core/query/query_executor/run.rs), [key filter](../fold_db/crates/core/src/storage/disk_pack/logical_paths/core_filter.rs), [resolver](../fold_db/crates/core/src/schema/types/field/variant/read/core_model.rs), copy reads (file removed).
 
 Completion: every supported read returns correct current keys, values, metadata, bounds, counts, and page flags.
 Concurrent first queries share one automatic load, including when the first query is exact.
@@ -471,7 +471,7 @@ Use format, syntax, lint, build, and product operational checks; add or run no t
 | Publication and flush | [Current view](../fold_db/crates/core/src/storage/disk_pack/view.rs), [queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs): publish key changes and retain loader changes through flush. |
 | Native and shared writes | [Prepared paths](../fold_db/crates/core/src/fold_db_core/mutation_manager/write/native_paths.rs): complete typed scope and shared-molecule publication. |
 | Sample | [HashRange loader](../fold_db/crates/core/src/db_operations/atom_store/filter/load/hash_range_pages.rs): use complete membership without all-value materialization. |
-| Document copies | [Copy reads](../fold_db/crates/core/src/record_molecule/dual_read.rs): resolve precedence before predicates and pages. |
+| Document copies | Copy reads (file removed): resolve precedence before predicates and pages. |
 | Public response | [Query handler](../lastdb_host/src/handlers/query.rs), [response order](../lastdb_host/src/handlers/query/rows.rs): preserve public limits, cursors, metadata, and exact results. |
 | Definitions and old key types | Registration, schema types, generated clients, retention, republish, imports, and bulk-root controls. |
 

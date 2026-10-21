@@ -1,7 +1,7 @@
 # App Identity — envelope & cert interop notes (Lane B2b)
 
 Implementation notes for the publish-side trust gate shipped in Lane B2b
-of [app_identity v3.1](../../exemem-workspace/docs/designs/app_identity.md):
+of app_identity v3.1:
 `POST /v1/apps`, the `owner_app_id` schema-claim gate on
 `POST /v1/schemas`, and `apps[]` in `GET /v1/snapshot`.
 

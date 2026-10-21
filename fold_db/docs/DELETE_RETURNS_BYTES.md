@@ -51,8 +51,9 @@ reclaimable = slack + (apparent - unknown) * dead / (live + dead)
 and every automatic trigger (`tips`, `atoms`, order log, residual planes,
 locators, the photograph-aligned pass) fires on that number against the
 existing ratio and floor knobs. `lastdb status` shows `dead=` and `reclaim=`
-per plane under `automatic_compactions`; `lastdb db compact --collection X`
-(dry run) prints a `residue:` line and projects `bytes_after` from it.
+per plane under `automatic_compactions`. On a native home, `lastdb db compact`
+(a dry run by default) previews the whole home, and `--execute` packs it. The
+native route refuses a named collection.
 
 ## Proof
 
@@ -72,11 +73,11 @@ per plane under `automatic_compactions`; `lastdb db compact --collection X`
 
 The dwell pass of the blob counter (`docs/lastdb-blob-counter.md`) removes a blob
 row with `LastStore::delete`, which is an append, so the local file-blob plane
-keeps every byte it ever stored. `cas_blobs` joined
-`COMPACT_ALLOWLIST` on 2026-10-08, so `lastdb db compact --collection cas_blobs
---execute` returns them. A bare `compact` and `compact --all` do not walk it
-(`COMPACT_NAMED_ONLY`); the operator names it, and the `--all` answer lists it
-under `named_only_not_walked`.
+keeps every byte it ever stored until a compaction rewrites it. On a native home
+the whole-home pack (`lastdb db compact --execute`) returns them. The native route
+refuses a named collection, so the per-collection text below (`COMPACT_ALLOWLIST`,
+`COMPACT_NAMED_ONLY`, `named_only_not_walked`) describes the earlier LastStore
+plane path.
 
 A blob row is the only copy of its bytes until a cloud copy exists, so the
 rewrite touches as little of the plane as it can.

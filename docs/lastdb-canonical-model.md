@@ -1,11 +1,9 @@
 # LastDB canonical model — schema → field → molecule → atom → file, proteins, and the no-scan contract
 
-> **CANONICAL.** Owner: Tom. Ratified 2026-07-27, written after the storage
-> redesign to re-fix the terms that drifted in translation. If another doc or a
-> code comment disagrees with this one, this one wins; fix the other.
->
-> Brain: `brain get concepts-lastdb-canonical-model` · this file:
-> `docs/lastdb-canonical-model.md`
+> **CANONICAL.** Ratified 2026-07-27, written after the storage redesign to
+> re-fix the terms that drifted in translation. If another doc or a code
+> comment disagrees with this one, this one wins; fix the other. The atom
+> lifecycle (counters, delete, purge, TTL) was updated on 2026-10-21.
 
 **Audience:** anyone designing an app against LastDB (Mini `lastdbd` or
 embedded). Agents: also read
@@ -25,7 +23,7 @@ LastDB is **Dynamo-style NoSQL**. It is not SQL and is not "almost SQL."
 - If you know DynamoDB access-pattern design (table + partition key + sort key
   + projections per query), you already know how to use this database.
 
-Complexity law (`requirement-lastdb-access-complexity`):
+Complexity law (`docs/lastdb-access-complexity-requirements.md`):
 
 | Operation | Shape | Complexity |
 |---|---|---|
@@ -64,14 +62,26 @@ An **immutable, content-addressed value** (`atom:{uuid}\0b`) holding one field's
 data at one key. A write never mutates an atom — it writes a new atom and
 repoints the molecule's tip (last-write-wins).
 
-Every atom has one **counter** record (`atom:{uuid}\0c`) in the same hash group.
-The counter holds the number of tip records and conflict records that name the
-atom. The batch that lowers it to zero deletes the body and the counter. The
+Every atom has one **counter** record (`atom:{uuid}\0c`) in the same hash group
+as its body. The counter holds the number of tip records and counted conflict
+records that name the atom. **The batch that lowers the counter to exactly zero
+deletes the body and the counter, in the same batch.** Nothing else deletes an
+atom body. There is no grace window, no audit and no garbage-collection pass. The
 counter is the only authority for the life of a body
 (`docs/lastdb-atom-counter.md`).
 
-Atoms are size-fenced (default 256 KiB serialized; hard max 1 MiB). An atom may
-pack many small fields up to the fence, but it is not a blob store.
+**The ceiling.** A new atom holds at most 256 KiB of content (the JSON value, before
+encryption). `LASTDB_MAX_ATOM_CONTENT_BYTES` can change it between 1 KiB and 1 MiB.
+A sealed 256 KiB atom is about 341 KiB, which fits the 400 KiB item limit of the
+cloud store. Restore replay still accepts 1 MiB, for older atoms. An atom may pack
+many small fields up to the ceiling, but it is not a blob store. Shape rules for
+data that grows or that is large: `docs/lastdb-agent-access-model.md`, section
+Shape rules.
+
+**No history.** A rewrite keeps no older version. The replaced atom loses one
+reference, and its body goes when its last reference goes. The home has no `as_of`
+read and no per-key history. The one exception is a conflicting write (see
+Delete, purge and TTL).
 
 ### File
 
@@ -98,6 +108,39 @@ Schema (catalog: fields + keying mode)
                  └─ atom (immutable value, content-addressed)
                        └─ file (segment on disk; big bytes → CAS blob)
 ```
+
+### Delete, purge and TTL
+
+Three ways end a key. All three remove the tip records of the key, and the atom
+counter frees each body whose last reference goes, in the same batch.
+
+| Way | Removes the tips | Frees the bodies | Writes a delete barrier | Use |
+|---|---|---|---|---|
+| Delete | yes | yes, at zero references | yes (`rdel:v2:`), so an older replayed write cannot bring the key back | an ordinary client delete |
+| Purge | yes | yes, at zero references | no | hard erasure; a TTL sweep uses it by default |
+| TTL sweep | yes | yes, at zero references | only with `LASTDB_TTL_SWEEP_VERB=delete` | expiry of old keys |
+
+- A request reads the tips of its keys by key and stages one batch. The cost follows the
+  keys of the request, never the size of the schema.
+- A body that another tip or a kept conflict record still names stays. Two keys that
+  share one atom keep it until the last one goes.
+- A delete frees the record, not the disk bytes. Compaction returns the bytes.
+- A TTL is a schema retention policy. The sweep erases the expired keys of every schema
+  that has a policy. A Range or HashRange schema needs a range key that starts with 20
+  digits of unix seconds. The policy must exist before the first write. See
+  `docs/lastdb-ttl-sweep.md` and `docs/app-manifest-retention.md`.
+- A molecule goes only when its `slots`, `records` and `bindings` counters are all zero.
+  A file blob goes after its counter reaches zero and a dwell of one hour passes.
+  (`docs/lastdb-molecule-counters.md`, `docs/lastdb-blob-counter.md`.)
+
+**Kept conflicting writes.** When two devices write one key, the database keeps the
+losing write as a conflict record for 30 days (`LASTDB_CONFLICT_RETENTION_SECS`). A
+conflict record holds one counted reference to each atom it names, so a kept loser keeps
+its body. The retention janitor releases a record at the end of its window. A delete,
+a purge or a TTL erase of the key releases its records in the same batch (up to 100 for
+one request) and hands the rest to the janitor to drain. Conflict is per atom, so
+packing independent facts into one atom couples their fate.
+
 
 ---
 
@@ -145,7 +188,7 @@ Rules:
   link. Arbitrary molecule graphs are not a feature.
 
 **Status (restated 2026-08-17):** proteins are **shipped in core**
-(`design-lastdb-protein-molecule-set`, e2e 2026-07-28). Multi-key
+(end-to-end proof 2026-07-28). Multi-key
 same-product **shared fields** bind into a protein and fold sibling tips
 to one atom. App dual-write remains only for a **thin projection** that
 is a different product shape, not the same field protein. Prefer protein
@@ -253,9 +296,9 @@ The source review and product receipts must identify the exact native source tha
 
 ---
 
-## 6. Molecules and atoms are node-universal (cross-DB) — Tom, 2026-08-18
+## 6. Molecules and atoms are node-universal (cross-DB) — 2026-08-18
 
-Owner-stated semantics (Tom, 2026-08-18, near-verbatim): "For all DBs in the
+Owner-stated semantics (2026-08-18, near-verbatim): "For all DBs in the
 user's node, molecules and atoms are universal. If I copy an entire schema
 (with my selection of keys) into an org database, it does not copy the
 molecules — it references the same molecules. Same with atoms. They are
@@ -285,14 +328,12 @@ The `reclaimed_wraps` result therefore remains zero. Cloud sync stays disabled.
 Cloud sync needs domain-aware access revocation before it can resume.
 
 Scope note: this universality is **per node**. Cross-user sharing (a shared
-DB synced to another person's node) still replicates data to that node — see
-brain `design-databases-are-shareable-org-dissolves`.
+DB synced to another person's node) still replicates data to that node.
 
-**2026-08-18 follow-up:** the node-universal rule above is now an approved
-implementation design — brain `design-lastdb-db-catalog-reference-model` (DB
-catalog + per-molecule key bundles; replaces the `{db_hash}:` copy-geometry of
-fold #1278/#1323). North Star: brain
-`north-star-lastdb-db-catalog-reference-model`.
+**2026-08-18 follow-up:** the node-universal rule above is now implemented as a
+database catalog with per-molecule key bundles (it replaces the earlier
+`{db_hash}:` copy geometry). A catalog entry that names a molecule adds one
+`bindings` count to the molecule (`docs/lastdb-molecule-counters.md`).
 
 ---
 
@@ -300,13 +341,13 @@ fold #1278/#1323). North Star: brain
 
 | What | Where |
 |---|---|
-| **This doc (canonical)** | `docs/lastdb-canonical-model.md` · brain `concepts-lastdb-canonical-model` |
-| **rehydrate / resident graph** | brain `concepts-lastdb-rehydrate` |
-| Agent usage rules | `docs/lastdb-agent-access-model.md` · brain `concepts-lastdb-agent-access-model` · https://thelastdb.com/docs/agent-access-model |
-| Complexity requirement | `docs/lastdb-access-complexity-requirements.md` · brain `requirement-lastdb-access-complexity` |
-| Protein design | brain `design-lastdb-protein-molecule-set` · `docs/lastdb-native-secondary-indexes-design.html` |
-| Protein write/fold | brain `concepts-lastdb-protein-write-fold` |
-| Storage depth (HTML) | `docs/lastdb-storage-schema-to-atoms.html` |
-| Storage v2 (segments + CAS) | brain `spike-lastdb-storage-v2-sharded-segments` |
-| Atom counter and body key | `docs/lastdb-atom-counter.md` |
-| DB catalog reference model (§6) | brain `design-lastdb-db-catalog-reference-model` · `north-star-lastdb-db-catalog-reference-model` |
+| **This doc (canonical)** | `docs/lastdb-canonical-model.md` |
+| Core logical memory and native disk | `docs/lastdb-rehydrate.md` |
+| Agent usage rules and shape rules | `docs/lastdb-agent-access-model.md` · https://thelastdb.com/docs/agent-access-model |
+| Complexity requirement | `docs/lastdb-access-complexity-requirements.md` |
+| Atom counter, delete and purge, crash states | `docs/lastdb-atom-counter.md` |
+| Molecule counters and the drain | `docs/lastdb-molecule-counters.md` · `docs/lastdb-molecule-drain.md` |
+| Blob counter and the dwell | `docs/lastdb-blob-counter.md` |
+| TTL sweep | `docs/lastdb-ttl-sweep.md` · `docs/app-manifest-retention.md` |
+| Atom size ceiling | `fold_db/docs/ATOM_CONTENT_SIZE_LIMIT.md` |
+| Counter lifecycle design and what was built | `docs/design-lastdb-counter-lifecycle.md` |

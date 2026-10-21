@@ -31,7 +31,7 @@ The comparison does not split the packed-key gain from the logical warm-model ga
 | Program | Source | Executable SHA256 |
 |---|---|---|
 | Before | Clean committed engine `aa64f61cd3d2d01a3f8953d4a1b3cf21f9940bab` | `3f591bae95065fd31a507dcbab12aa6e40e30b24ff346a55fa5a2b0d126b13cb` |
-| Final off and on | [candidate5-source.json](proofs/schema-preload-product-20261017/candidate5-source.json) | `2c14d7d2f04865454ba9b1a41ba441ee7b69e2bad11a577f1056fe5b43c1324b` |
+| Final off and on | candidate5-source.json (receipt not kept in this repository) | `2c14d7d2f04865454ba9b1a41ba441ee7b69e2bad11a577f1056fe5b43c1324b` |
 
 The reference used its own clean DEV checkout and target directory.
 Each run creates a fresh private synthetic home.

@@ -17,6 +17,8 @@ The scanner accepts native `atom\0<id>`, legacy `atom:<id>`, and partition-prefi
 
 ## Tiny DEV cloud proof, 2026-09-12
 
+This section is a dated record. The orphan GC that it names no longer exists: the atom counter deletes a body in the batch of its last reference (`docs/lastdb-atom-counter.md`).
+
 Release `b96c2b266a1bbfee39953773750f95db5fa19c59` used three synthetic records in a fresh DEV identity. Two durable Deletes removed the keys. Scoped orphan GC and atom compaction removed the local payload bodies.
 
 The first fresh restore passed point reads and exact atom misses across two cold boots. Its physical audit failed. Snapshot counter 3 still referenced two old 696-byte Put prefixes. Local compaction retired the later 768-byte Put-plus-Delete digests. The restore downloaded the old Puts, then replay appended Delete markers.

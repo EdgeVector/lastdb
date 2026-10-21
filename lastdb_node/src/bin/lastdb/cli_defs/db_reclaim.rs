@@ -4,24 +4,23 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
-    /// Compact current allowlisted LastStore collections.
+    /// Pack the native home and reclaim the files that no generation needs.
     ///
-    /// Without `--execute`, report the live keys and file sizes only.
-    /// Omit `--collection` to compact all allowed collections except `cas_blobs`.
-    /// Name `cas_blobs` explicitly. The command pauses cloud sync when required.
-    ///
-    /// Current collections: schemas, schema_states, schema_index, tips,
-    /// metadata, idempotency, change_feed, sync_pin_log, sync_capture_reexport,
-    /// keep_small, atoms, proteins and cas_blobs.
+    /// Without `--execute`, show a preview report and change nothing.
+    /// With `--execute`, the node copies every live record into new parts and
+    /// reclaims old files. The native route works on the whole home, so it
+    /// refuses `--collection` with HTTP 400. The node also runs this work by
+    /// itself when the dependency part count passes its mark
+    /// (`docs/lastdb-storage-parts.md`).
     Compact {
-        /// One collection (e.g. `schemas`). Omit with `--all` (or omit both)
-        /// to compact every allowlisted plane except `cas_blobs`.
+        /// One collection. A native home refuses it with HTTP 400: omit it.
         #[arg(long)]
         collection: Option<String>,
-        /// Compact every allowlisted collection but `cas_blobs` in one pass.
+        /// The whole home. A native home is always packed as a whole, so this
+        /// changes nothing.
         #[arg(long)]
         all: bool,
-        /// Actually compact (without this flag, only reports sizes).
+        /// Actually pack and reclaim (without this flag, only a preview).
         #[arg(long)]
         execute: bool,
         /// Emit raw JSON only.

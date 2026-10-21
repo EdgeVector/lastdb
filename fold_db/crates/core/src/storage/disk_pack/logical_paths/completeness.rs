@@ -75,7 +75,7 @@ pub(super) fn covers(
         // the old tip with the old body. A reader after it sees the new tip and
         // no old body. The batch is one durable commit with the tip and the
         // counter, so a crash before the flush leaves the previous consistent
-        // state. See `docs/lastdb-atom-counter.md`, section Memory acknowledgement.
+        // state. See `docs/lastdb-atom-counter.md`, section Reads and acknowledgement.
         if crate::atom::atom_key_codec::uuid_of(raw).is_some() {
             return true;
         }

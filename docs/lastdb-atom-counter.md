@@ -1,413 +1,427 @@
-# Atom counter
+# Atom counter and the life of stored data
 
-## Contract
+This page is the operator and reader reference for how LastDB decides that an
+atom body, a molecule, or a file blob may leave the store. The plan and the
+reasons are in `docs/design-lastdb-counter-lifecycle.md`. The detail pages are
+linked from each section.
 
-Every atom body in a storage scope has one counter record. The counter holds
-the number of tip records and conflict records that name the atom. The counter
-is the only authority for the life of a body. No other structure allows a
-delete. No other structure blocks one.
+## Terms
 
-A batch that lowers the count to exactly zero deletes the body and the counter,
-and lowers the blob counters that the counter lists, in the same batch as the
-last tip change. A body exists if and only if its counter exists. A counter never
-holds zero, except a counter with the `suspect` flag.
+| Term | Meaning |
+|---|---|
+| Atom | One immutable value of one field. Its body is a record. Many tips can name the same atom. |
+| Tip | The record that says which atom is current for one key of one molecule (`mk:{molecule}:...`). |
+| Molecule | The index of one field. It maps keys to tips. |
+| Hash group | All records whose key shares the part before the first NUL. A hash group is one unit of storage placement. |
+| Counter | A small record that holds a count of references. |
+| Scope | A storage prefix. The personal scope has none. An org or share scope has a 64-hex prefix. A counter exists in the scope of its atom. |
+| Batch | The set of writes of one request. A crash keeps a whole batch or none of it. |
+| Write gate | The one lock that orders the writers of a node. A request holds it from prepare to the acceptance of its batch. |
 
-## Records
+## The rule
 
-| Record | Key | Collection |
-|---|---|---|
-| Body | `atom:{uuid}\0b` | `atoms` |
-| Counter | `atom:{uuid}\0c` | `atoms` |
+The counter is the only authority for the life of an atom body, of a molecule,
+and of a file blob.
 
-The first NUL ends the hash. The body and the counter of one atom share one
-hash group. A storage scope adds its prefix before the key.
+- An object may leave the store only when its counter reads exactly zero. The
+  read happens inside the same write-gate hold as the batch that removes the object.
+- No other structure allows a delete. No other structure blocks one. A blob
+  has one extra rule, the dwell (see Blobs and the dwell).
+- A counter that is wrong in the low direction loses data. A counter that is
+  wrong in the high direction leaks space. A crash cannot cause either, because
+  a batch is atomic. Only a defect in a writer can.
 
-Blob references have two sources. A body names the blobs in its counter. A tip
-record that carries file metadata names its own blob. The planner changes the
-blob counters of both in the batch of the change: a created atom counter raises
-the counters of its blobs, a deleted one lowers them, and an old tip record lowers
-and a new tip record raises the counters of the blobs that their metadata names.
-The contract of the blob counters is in `docs/lastdb-blob-counter.md`.
+## The records
 
-The counter is JSON: `{"v":1,"refs":N,"blobs":[...],"suspect":false}`.
-`blobs` lists the blob references of the body, so a delete needs no body read.
+| Record | Key | Collection | Holds |
+|---|---|---|---|
+| Atom body | `atom:{uuid}\0b` | `atoms` | the value |
+| Atom counter | `atom:{uuid}\0c` | `atoms` | `{"v":1,"refs":N,"blobs":[...],"sz":[a,b],"suspect":true}`; `blobs`, `sz` and `suspect` appear only when set |
+| Molecule header | `mh:{M}` | `tips` | `slots` and `records` counters |
+| Binding counter | `mref:v1:n:{target}` | `molecule_ref_edges` | `bindings` |
+| Binding record | `mref:v1:e:{target}\0{source}` | `molecule_ref_edges` | one per schema field, protein member, or catalog entry |
+| Drain candidate | `mref:v1:d\0{scope}\0{molecule}` | `molecule_ref_edges` | a molecule that lost its last binding |
+| Conflict record | `history\0{molecule}:{ts}:conflict:{digest}` or `...:suppressed:{digest}` | `tips` | one counted reference to each distinct atom it names |
+| Retention queue entry | `crq:v1:{bucket:020}\0{expires:020}:{record_id}` | `tips` | the expiry of a conflict record |
+| Queue bucket directory row | `crb:v1\0{bucket:020}` | `tips` | a token |
+| Slot directory entry | `{scope:}crs:v1:{M}\0{esc(hash)}\0{range}\0{record_id}` | `tips` | links a slot to its conflict records |
+| Blob counter | `bref:v3:c:{sha256(blob_ref)}\0c` | `atoms` | `refs`, `zero_since`, `suspect` |
+| Blob dwell queue entry, directory row | `bref:v3:q:...`, `bref:v3:d\0...` | `atoms` | the blobs that wait out their dwell |
 
-## Invariants
+`{M}` is the molecule uuid. `{target}` is the hex SHA-256 of it. A scope adds
+its prefix before the key. The first NUL ends the hash, so the body and the
+counter of one atom share one hash group, and a purge touches one group for
+each atom. A counter holds `suspect` only after a planner found a fault.
+
+Details per family: `docs/lastdb-molecule-counters.md`,
+`docs/lastdb-blob-counter.md`, `docs/lastdb-time-queue.md`.
+
+### Invariants
 
 For every scope and every atom `A`:
 
-- I1: `refs(A)` equals the number of tip records plus conflict records that name `A`.
-- I2: the body exists if and only if the counter exists.
-- I3: a batch lowers `refs(A)` by `k` only if the same batch removes `k` references to `A`.
+- I1: `refs(A)` equals the number of tip records plus counted conflict records that name `A`.
+- I2: the body exists if and only if the counter exists. A counter never holds zero, except a counter with `suspect`.
+- I3: a batch lowers `refs(A)` by `k` only if the same batch removes `k` references to `A`. The batch reads each of them from the store inside the gate hold.
 - I4: the stored count is never lower than the true number of references.
 
-## The planner
+## The planner and the write gate
 
 One module writes tips, conflict references, bodies and counters:
 `fold_db/crates/core/src/db_operations/atom_store/counter/`.
 
-1. The caller holds the native write gate through a request scope.
+1. The caller holds the write gate through a request scope. A call without a
+   scope on a native store fails: the one atomic batch is the safety argument.
 2. The planner reads the old tip records, the counters and the bodies by key.
-   Every read sees the committed root, the accepted batches and the pending batch.
+   A read inside the gate sees the committed root, the accepted batches and the
+   pending batch of the request.
 3. `plan.rs` computes each counter change from the old tips, the new tips and the
-   new conflict records. It is pure arithmetic.
-4. `build.rs` makes the writes. `commit.rs` joins them to the pending batch of
-   the request with one `batch_mutate`.
+   changed conflict records. It is pure arithmetic and it aggregates per atom
+   first. Sixteen purged keys that share one atom give one change of minus sixteen.
+4. `build.rs` makes the writes and `commit.rs` joins them to the pending batch
+   with one `batch_mutate`. The same run changes the molecule counters `slots`
+   and `records` and the blob counters.
 
-A crash keeps whole batches only. Each batch moves the store from one equal
-state to another.
+The callers: tip writes (create, update, rewrite), the protein sibling write,
+user Delete, Purge, the TTL sweep, the conflict recorder, the retention janitor,
+the molecule drain, the retirement of queue buckets, and the repair of queue
+rows.
 
-Tip writes, user Delete, Purge, the TTL sweep and the protein sibling write all
-go through `commit_tip_changes`. `scripts/lints/lint-atom-counter-writers.py`
-guards the boundary, function by function. A function that writes through a
-store and names a tip, conflict, body or counter key (or holds a raw store
-handle or scans and deletes) must be in `scripts/lints/atom-counter-writers.allow`
-with the families it touches and a reason. A new family in a listed function
-fails the lint, and so does a line that no function matches. The lint is a
-source check: it cannot see a key that a caller builds elsewhere and passes to
-a generic helper.
+`scripts/lints/lint-atom-counter-writers.py` guards the boundary, function by
+function. A function that writes through a store and names a tip, conflict,
+body, counter, molecule or blob-counter key must be in
+`scripts/lints/atom-counter-writers.allow` with the families it touches and a
+reason. The lint is a source check. It cannot see a key that a caller builds
+elsewhere and passes to a generic helper.
 
-## Underflow
+### What a request may spend
+
+| Limit | Value |
+|---|---|
+| Operations in one native batch | 16,384 (4,096 on a home from an older build) |
+| Examined keys in the reads of one write request | 40,000 |
+| Examined keys in one ordinary read call | 10,000 |
+| Metadata pages in one read call | 4,096 |
+| Decoded blocks, bytes in one read call | 16,384 blocks, 256 MiB |
+
+A read call ends with the first limit it reaches. The error is
+`read_resource_limit` (HTTP 503). The binding limit is often the 4,096
+metadata pages and not the key count: a request that reads one slot directory
+for each of hundreds of slots, or that rewrites about 2,000 fields, spends the
+pages first. A deleted key counts as an examined key until compaction removes it.
+
+A purge or delete stages all its chunks of 64 keys in one batch. The node counts
+the request before it takes the gate (`fold_db_core/purge/budget.rs`). For K keys
+of F fields the upper bounds are:
+
+- purge: `4*K*F` operations and `12*K*F` examined keys,
+- delete: `5*K*F` operations and `13*K*F` examined keys,
+- plus `F + 8` of each for every chunk of 64 keys.
+
+A tip costs the tip delete, the `mgd` marker, and the body delete and the
+counter delete when it holds the last reference. A delete adds one barrier row.
+A request over a limit is refused with HTTP 400 before it takes the gate, and
+the message gives the number of keys that fits. A schema of 24 fields fits 138
+keys for a purge and 128 for a delete on a fresh home (42 and 33 on a home from an
+older build). The TTL sweep cuts its batch to fit and halves a batch that still
+hits a limit.
+
+## Delete on zero, delete and purge
+
+A batch that lowers the count to exactly zero deletes the body and the counter,
+and lowers the blob counters that the counter lists, in the same batch as the
+last tip change. There is no grace window, no audit and no queue for an atom body.
+
+Delete and Purge read the tips of their keys by key, in one batch, inside the
+gate. They give every tip change to the planner and stage one batch. They take no
+schema barrier, no molecule lock and no atom lock. A Delete also takes the tip-commit
+locks of its keys, to order itself against a memory delete that registered its
+barrier before the persist lane ran. A Purge takes none. The cost follows the number
+of keys of the request and never the size of the schema.
+
+| | Delete | Purge |
+|---|---|---|
+| Removes the tips of the key | yes | yes |
+| Frees each body whose last reference goes | yes, same batch | yes, same batch |
+| Writes a delete barrier (`rdel:v2:`) | yes, so a replayed older write cannot bring the key back | no |
+| Reaches the protein siblings of the key | HashRange siblings only | HashRange siblings only |
+| Releases the kept conflict records of the key | yes | yes |
+| Leaves `mgd:v1:` markers | yes | yes |
+
+A sibling of another layout keeps its tip, so its atom stays. The counter keeps the data
+safe, but the record is not erased everywhere. A Purge with a cutoff spares a key that
+has a tip written at or after the cutoff.
+`GET /api/atom/{id}` returns 404 after the last holder is gone (see Reads and
+acknowledgement for the exception after a `queued` write).
+
+## Underflow and `suspect`
 
 A removal can ask for more references than the counter holds, or name an atom
-with a body and no counter. The planner never clamps the count and deletes the
-body. It erases the tip, keeps the body, sets `suspect`, and reports the case.
-A new write that brings an atom whose body exists and whose counter is gone
-takes the same path: the planner keeps the body, writes a counter with only the
-new references and sets `suspect`. It does not treat the write as a fresh
-create, because the holders that the lost counter counted are not known. A
-`suspect` counter never reaches zero for a delete.
-`lastdb status` shows the totals and the recent atoms. `lastdb db inventory`
-shows `bodies_without_counter`, `counters_without_body`, `zero_counters` and
-`suspect` for the whole home.
+with a body and no counter. The planner never clamps the count to zero and
+deletes the body. It erases the tip, keeps the body, sets `suspect` on the counter,
+and reports the case. A write that brings an atom whose body exists and whose
+counter is gone takes the same path: the planner keeps the body, writes a counter
+with only the new references, and sets `suspect`. It does not treat the write as a
+fresh create, because the holders that the lost counter counted are not known.
+A `suspect` counter never reaches zero for a delete.
 
 **Limit.** The planner catches a counter that is below the removal it gets. It
 cannot catch a counter that is too low by less than that. Example: two tips name
-an atom and the counter holds 1. A purge of one key asks for 1 reference and the
+an atom and the counter holds 1. A purge of one key asks for 1 reference, the
 counter holds 1, so the planner takes it to zero and deletes the body. The other
 key still names the atom, and a query of that key then returns a bare HTTP 500.
 `lastdb db verify-refs` reports such a counter as `counter_below_tips` before the
-purge, and `lastdb db recount --execute` (offline) repairs it. Repair a counter
-before any purge or TTL sweep reaches its atom.
+purge. `lastdb db recount --execute` (offline) repairs it. Repair a counter before
+a purge or a TTL sweep reaches its atom.
 
-## Delete and Purge
+A planner fault that raises `suspect` for a molecule counter works the same way:
+`docs/lastdb-molecule-counters.md`, section Underflow.
 
-Both verbs read the tips of their keys by key, in one batch, inside the gate.
-They give every tip change to the planner and stage one batch. They take no
-schema barrier, no molecule lock and no atom lock. The cost follows the number
-of keys of the request, and never the size of the schema.
+## Format fence
 
-- Purge writes no delete barrier. A Purge with a cutoff spares a key that has a
-  tip written at or after the cutoff.
-- Delete writes the delete barrier of each key, so a later replayed write cannot
-  bring the key back.
-- Both verbs reach the protein siblings of the key.
+Two markers keep one build from opening a home with another counter model.
+
+- The LastStore `CURRENT` file carries the required-feature bit
+  `FEATURE_ATOM_RECORDS` (value 128): every atom body is one record at
+  `atom:{uuid}\0b` in `atoms`. A build that does not know the bit refuses the
+  home. This build refuses a home without the bit.
+- The logical key format marker is `layout:v3:keys` with the value `4`
+  (`atom_store/key_format.rs`). A home written by an earlier build carries
+  another value or an older marker. This build refuses it with "create a new
+  empty home". An older build refuses a home that holds the value `4`.
+
+The design has no migration. A home from an earlier layout is refused; it is not
+converted.
 
 ## Conflict records and their retention
 
-The database keeps every conflicting write. A conflict record is a history row:
-`history\0{molecule}:{ts}:conflict:{digest}` from the tip-conflict recorder, or
-`history\0{molecule}:{ts}:suppressed:{digest}` from a Put that lost to a Delete.
-It holds one counted reference to each distinct atom it names (I1). A Replaced
-record names the loser and the winner. A Dropped record names the loser only.
-So a kept loser keeps its body while its record exists, also when its last tip
-is purged.
+The database keeps every conflicting write. A conflict record is a history row
+from the tip-conflict recorder (`...:conflict:...`) or from a Put that lost to a
+Delete (`...:suppressed:...`). It holds one counted reference to each distinct atom
+it names (I1). A Replaced record names the loser and the winner. A Dropped record
+names the loser only. A kept loser keeps its body while its record exists, also
+after its last tip is purged.
 
-Three more rows go with a new record, in the same batch as its history row and
-only when the record is new (a repeat of one decision writes none of them):
+When a record is new, the same batch writes three more rows (a repeat of one
+decision writes none):
 
-| Row | Key | Use |
-|---|---|---|
-| Queue entry | `crq:v1:{bucket:020}\0{expires_at_nanos:020}:{record_id}` | one hash for each time slice of the expiry; the range is the expiry, so a range read of a bucket returns the oldest expiry first |
-| Bucket directory row | `crb:v1\0{bucket:020}` | one row for each bucket that holds, or held, an entry; the value is a token that changes with each entry |
-| Slot directory entry | `{scope:}crs:v1:{M}\0{esc(hash)}\0{range}\0{record_id}` | one hash for each scope and molecule; a purge reads the entries of the slots it removes |
+| Row | Use |
+|---|---|
+| Retention queue entry | one hash for each time slice of the expiry; a range read of a bucket returns the oldest expiry first |
+| Bucket directory row | one row for each bucket that holds, or held, an entry; the value is a token that changes with each entry |
+| Slot directory entry | one hash for each scope and molecule; a purge reads the entries of the slots it removes |
 
-The queue is a time-bucketed queue. Its contract (layout, writers, readers,
-retirement of a bucket, count of its size) is in `docs/lastdb-time-queue.md`.
-The bucket is the start of a slice of the expiry. The slice is a 64th of the
-retention window, between one second and one hour (one hour for the default
-window).
+`record_id` is the SHA-256 of the full key of the history row. The queue and the
+directories hold no atom reference. The history row is the only holder. The queue
+is the time-bucketed queue of `docs/lastdb-time-queue.md`. The bucket is the start
+of a slice of the expiry. The slice is a 64th of the retention window, between one
+second and one hour.
 
-`record_id` is the SHA-256 of the full key of the history row. Both entries hold
-the same JSON: the history key, the conflict row key, both entry keys and the
-`mk:` key of the slot. The queue and the directories hold no atom reference. The
-history row is the only holder.
+A record ends in two ways, and both use the same release.
 
-A record ends in two ways, and both use the same release:
+**The key goes.** A delete, a purge and a TTL sweep read the slot directory of the
+slots they remove and release the records in the same batch as the tip deletes.
 
-1. **The key goes.** A delete, a purge and a TTL sweep read the directory of the
-   slots they remove (inside `remove_molecules_keys_with_rows`) and release the
-   records in the same batch as the tip deletes. The erase first reads the
-   header of each molecule it touches, in one batch read, and skips a molecule
-   whose `records` is zero (a molecule that is `suspect` or has no counters is
-   read as if it held records). For a molecule that holds records, a removed
-   slot costs one range read, and an entry counts only when its `mk:` key
-   matches the slot exactly. The reads run in the write gate and a call may
-   spend a fixed budget (4,096 metadata pages, 40,000 keys, deleted keys
-   included), so one erase request reads the directories of at most 256 slots.
-   One erase request releases at most 100 records in its own batch
-   (the cap is for the whole request, not for each slot). For each slot that
-   still holds records, and for each slot that the erase did not read (the cap
-   was full, or 256 slots were read), the same batch writes one **drain marker**, a queue
-   entry that is due at once, in the bucket of now (the key holds the hash of
-   the slot prefix). It costs one operation for each slot, however many
-   records the slot holds, and it needs no read of the records. The janitor
-   keeps a cursor for each marker: a range walk over the directory of the slot
-   that moves over the keys of the records it released. It releases the records,
-   32 for each batch, and deletes the marker with the last batch. So no record
-   of a removed slot waits for its window: the janitor ends it in the wake that
-   follows the erase, and a slot of any size drains in batches of one size. The
-   drain releases only the records written before the erase (`created` in the
-   entry). A drain does not hold back the due records of the queue: the janitor
-   alternates a few drain batches with a few batches of due records. A protein
-   key move is not an erase and releases nothing. `purge_capped_slots` in the
-   status counts the slots that got a marker. A marker lives at most one window:
-   every record of the slot has its own queue entry, due one window after the
-   erase at the latest, so the janitor deletes an older marker without a drain.
+- The erase first reads the header of each molecule it touches, in one batch read.
+  It skips a molecule whose `records` is zero. A molecule that is `suspect`, or has
+  no counters, is read as if it held records.
+- A removed slot of a molecule that holds records costs one range read. An entry
+  counts only when its `mk:` key matches the slot exactly. One erase request reads
+  the directories of at most 256 slots and releases at most 100 records in its
+  own batch (the cap is for the whole request).
+- For each slot that still holds records, and for each slot the erase did not read,
+  the same batch writes one **drain marker**: a queue entry that is due at once.
+  It costs one operation for each slot, however many records the slot holds.
+  `purge_capped_slots` in the status counts these slots.
+- The janitor drains the markers. It keeps a cursor over the directory of the slot,
+  releases the records 32 for each batch, and deletes the marker with the last
+  batch. A drain releases only the records written before the erase. A marker lives
+  at most one retention window: every record of the slot has its own queue entry,
+  due one window after the erase at the latest.
+- A protein key move is not an erase and releases nothing.
+- The reads of an erase run inside the gate and share the 40,000 key budget. A slot
+  whose earlier releases left more than that many deleted directory keys can make
+  the read of a later erase of the same slot fail with a read error. The erase then
+  fails as a whole and changes nothing. Compaction removes the deleted keys.
 
-   The reads of the erase run in the write gate. A read passes the deleted
-   directory keys of its slot, and the gate allows 40,000 keys for the request. A
-   slot that had more than that many records released before can make the read of
-   a later erase of the same slot fail with a read error. The erase then fails as
-   a whole and changes nothing. Compaction of the files removes the deleted keys.
-   The drain of the janitor has no such limit: it reads outside the gate.
-2. **The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes
-   every `LASTDB_CONFLICT_JANITOR_MS` (60,000; zero turns it off). It lists the
-   bucket directory (the buckets that have started), and walks those buckets
-   oldest first, in pages of 32 keys, with no write gate. It runs one
-   release batch for each page that has due entries (`background_scope`: one
-   gate hold, then durable). Its cursors are in memory, one range walk for each
-   bucket, and they move over deleted keys: no read starts again at the head of a
-   hash that holds many deleted keys. A bucket that is read to its end, with
-   no marker in it that waits for a drain, leaves the directory. The directory
-   row is deleted in the write gate only while its token is the one the janitor
-   read before the walk, so an entry that a writer added after the walk keeps the
-   bucket. The deleted keys of a retired bucket are never read again. The gate is
-   free between pages, and the janitor
-   rests after each batch for `blocked * (100 - duty) / duty`, where `blocked` is the
-   time the batch kept writers waiting: its hold of the write gate and, because the
-   batch seals the write queue, the wait until it is durable
-   (`LASTDB_CONFLICT_JANITOR_DUTY_PCT`, default 10: writers wait for the janitor a
-   tenth of the time; at least 25 ms and at most 30 s). When no other task opened a
-   write scope for a quiet period (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s by default),
-   the rest protects nobody and it is the minimum rest
-   (`docs/lastdb-time-queue.md`, section Pacing). The window is
-   `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node
-   records the pair.
+**The window ends.** The janitor (`fold_db_core/conflict_janitor.rs`) wakes every
+`LASTDB_CONFLICT_JANITOR_MS` (60,000). It lists the bucket directory and walks the
+buckets that have started, oldest first, in pages of 32 keys, without the write
+gate. It runs one release batch for each page that has due entries. The window is
+`LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node records
+the pair.
 
-   The queue reads one clock (`RetentionState::clock_nanos`) both when it writes
-   an expiry and when the janitor tests it: the wall clock, but never more than
-   a day ahead of the time that the monotonic clock gives since the store was
-   made. A forward excursion of the wall clock longer than a day therefore gives
-   no record a far-future expiry and makes the janitor release nothing early. A
-   smaller forward jump moves the clock, and the janitor then releases records
-   early by at most the size of the jump (acceptable for a conflict record). A
-   backward jump delays the release by its size. A wall clock that was wrong
-   when the node started and was corrected by more than a day later is read as
-   the monotonic time; at the next start the records written in the wrong period
-   are released early.
-
-   A restart loses the cursors. The janitor then lists the directory once and
-   walks each live bucket once from its start, with bounded reads. Once in 60
-   wakes the cursors of the live buckets start again the same way, in case the
-   clock stepped back. Neither reads a bucket that the directory dropped.
-
-   The queue has a safety net. A bucket that holds live entries and has no
-   directory row is never listed, so its records would stay for ever. At its
-   start, and then once in `LASTDB_CONFLICT_JANITOR_NET_SECS` seconds (3,600;
-   zero turns it off), the janitor probes the slices that can hold a live entry
-   (by arithmetic, no scan) and writes the missing row again. The status shows
-   the sweeps and `buckets repaired`. See `docs/lastdb-time-queue.md`
-   ("The safety net").
-
-   A page of drain markers needs no write gate and costs no batch: the janitor
-   keeps the markers it reads as pending drains (at most 1,024).
-
-   The wake alternates two kinds of work: up to 4 batches of slot drains, then
-   up to 4 batches of due records, and again. So a long drain delays the due
-   records by at most 4 batches, and a long backlog delays a drain by at most 4
-   batches. A wake that ends with an error (for example, the storage refuses a
-   write because a file holds too many parts) makes the janitor wait longer: the
-   wait doubles with each wake in a row that fails, from the interval (at least
-   one second) up to ten minutes. The status shows the error, the number of failed
-   wakes and the time of the next try. A good wake sets the number to zero.
+- Pacing. A release batch seals the write queue, so a writer that arrives waits
+  for the hold of the gate and then for the flush of the batch. The janitor rests
+  after each batch for `blocked * (100 - duty) / duty`, where `blocked` is that
+  time and `duty` is `LASTDB_CONFLICT_JANITOR_DUTY_PCT` (10). The rest is at least
+  25 ms and at most 30 s. When no other task opened a write scope for a quiet period
+  (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s), the rest protects nobody and it is the
+  minimum rest. See `docs/lastdb-time-queue.md`, section Pacing.
+- Alternation. A wake runs up to 4 batches of slot drains, then up to 4 batches of
+  due records, and again. A long drain delays due records by at most 4 batches.
+- Failure. A wake that ends with an error doubles the wait before the next wake,
+  from the interval (at least one second) up to ten minutes. A good wake clears it.
+- Clock. The queue reads one clock for the expiry it writes and the expiry it tests:
+  the wall clock, never more than a day ahead of the time that the monotonic clock
+  gives since the store was made. A forward jump longer than a day gives no record a
+  far-future expiry. A smaller forward jump releases records early by its size. A
+  backward jump delays the release by its size.
+- Restart. The cursors are in memory. After a restart, and once in 60 wakes, the
+  janitor lists the directory once and walks each live bucket from its start.
+- Safety net. A bucket that holds live entries and has no directory row is never
+  listed. At its start, and once in `LASTDB_CONFLICT_JANITOR_NET_SECS` (3,600; zero
+  turns it off), the janitor probes the slices that can hold a live entry by
+  arithmetic and writes the missing row again.
 
 A release names the history row to the planner (`counter::ReleaseRequest`). The
 planner reads the row inside the same gate hold, lowers one reference for each
-distinct atom the row names, lowers `records` in the header of the molecule that
-the row names (a record raises it when it is new), and deletes the row, the
-conflict row, the directory entry and the queue entry in one batch. A caller never names an atom,
-and the janitor never deletes an atom: an atom whose count reaches zero goes by
-the delete-on-zero rule above. A release of a row that is gone lowers nothing,
-and a row that does not decode is kept with its references and counted
-(`undecodable_rows`). Only a row that `is_counted_record_key` accepts can be
-released.
+distinct atom the row names, lowers `records` in the header of the molecule that the
+row names, and deletes the row, the conflict row, the directory entry and the queue
+entry in one batch. A caller never names an atom, and the janitor never deletes an
+atom: an atom whose count reaches zero goes by the rule above. A release of a row
+that is gone lowers nothing. A row that does not decode is kept with its references
+and counted (`undecodable_rows`). Only a row that `is_counted_record_key` accepts can
+be released.
 
-`lastdb db verify-refs` surveys the queue (phase `queue`) and reports
-`queue_entry_without_directory` (entries in a bucket that the directory does not
-list) and `record_without_queue_entry` (a conflict record that no queue entry
-names, read again before it is reported). `lastdb db recount --execute` (a
-stopped home) writes the missing rows again through the planner: the row of a
-bucket, or the queue entry of a record. The entry goes back at its own key, with
-its slot directory entry, when the record still has that entry; otherwise it
-expires one window from now. The recount uses the window that the janitor recorded
-(`crb:v1\0params`), not its own environment (`docs/lastdb-time-queue.md`).
+`lastdb db clear-history` (`POST /api/db/clear-history`) never selects a conflict row.
 
-`lastdb status` shows the window, the janitor's last run, the queue depth (up to
-1,000 entries) and the number of buckets, the slot drains that wait, the failed
-wakes, and the records released by the janitor and by purges. The buckets come
-from the directory. The entries are counted with bounded range walks, which pass
-deleted keys, so a queue that holds many deleted keys still shows its depth. A
-bucket that cannot be read makes the depth a lower bound (shown as `N+`). `lastdb
-db inventory` has the classes `retention_queue`, `retention_bucket_directory` and
-`retention_directory`. The class `retention_bucket_directory` also counts the row
-that records the window of the node (`crb:v1\0params`).
+Not covered: the conflict-state caches `mcc:` and `hcu:mols` (the conflict reader
+repairs them when it finds a conflict row gone), and the keep-small meters, which a
+release does not debit.
 
-Not done in this step: the conflict-state caches `mcc:` and `hcu:mols`, which the conflict reader repairs
-when it finds a conflict row gone. The keep-small meters are not debited when a
-release deletes rows or atoms (the removed atom reaper did not debit them either).
+## Molecule counters and the drain
 
-## Memory acknowledgement
+A molecule has three counters: `slots` (tip records) and `records` (conflict records)
+in its header, and `bindings` (schema field, protein member and catalog binding
+records) in `mref:v1:n:{target}`. `bindings` is not in the header because the
+presence of a header means that the molecule lives at that prefix, and a bind comes
+before the first tip. A molecule may go only when all three are zero, none is
+`suspect`, and no binding record exists.
 
-A write that asks for a memory acknowledgement (`durability: queued`) returns
-when its batch is accepted, before the flush. The batch holds the tips, the
-counters and the bodies of the request, and the typed model of the warm set
-changes at the same acceptance. The check that allows this
-(`logical_paths/completeness.rs`, `covers`) accepts the counter key and the body
-key of an atom without a typed cover of their own. Why this is safe:
+The batch that lowers `bindings` to zero writes a drain candidate row. The drain
+(`BackgroundMoleculeDrainTask`) then erases the keys of the dead molecule through the
+planner, releases its kept conflict records, and removes its rows, in bounded
+batches. It re-reads the counters inside the gate for every batch. A schema whose
+molecules still drain cannot be installed again: the install answers HTTP 409
+`schema_being_dropped` with a reason and a `Retry-After`.
 
-1. A body is immutable. One atom id holds one content, so a body create cannot
-   change a value that a cached path holds. The path record of a tip write
-   lists its new body as a source.
-2. A body delete happens only in the batch that takes the counter to exactly
-   zero (I1). After that batch no tip and no conflict record names the atom, so
-   no live path resolves through the body.
-3. A cached path that lists the deleted body as a source is the old value of a
-   slot that the same batch rewrites or erases. The typed model requires that
-   (`core_set/model/coverage.rs`, `covered`): every cached slot with a changed
-   source must be one of the typed changes of the publication. If one is not,
-   the dirty publication is refused and the write takes the disk-first path,
-   which waits for the flush. A stale value cannot be published.
-4. A reader that captured its view before the acceptance keeps the old root,
-   the older accepted batches and the older typed model. It sees the old tip with
-   the old body. A query after the acceptance reads the new tip and the new
-   body, and it never reads the old body. No query sees half of a batch. One
-   read does not go through a tip: `GET /api/atom/{id}` reads a body by its id.
-   After a `queued` acknowledgement it still returns 200 with the old body of a
-   replaced atom until the flush commits the batch, and then it returns 404
-   (see Reads for the measured delay). After a `durable` acknowledgement it
-   returns 404 at once.
-5. The typed publication happens at the acceptance, under the queue lock, with
-   no await between it and the hand-over to the queue owner. The flush writes
-   the accepted batches later, as one durable commit.
-6. A crash before the flush loses the whole batch. The disk keeps the old tip,
-   the old body and the old counter, which agree. The loss is the one that a
-   `queued` acknowledgement already allows (up to the flush interval).
+Details, the batch phases and the limits: `docs/lastdb-molecule-counters.md`,
+`docs/lastdb-molecule-drain.md`.
 
-Without the body key in `covers`, every write whose old atom reached zero took the
-disk-first path and waited about 250 ms for the flush, and the per-schema lane
-waited with it.
+## Blobs and the dwell
 
-## Size of one request
+Every local file blob has one counter. A reference is an atom counter that lists the
+blob, or a live tip whose metadata names it. The batch of the change raises or lowers
+the blob counter. A blob at zero is not deleted at once, because an upload comes
+before the atom that names it. The blob waits for the dwell (`LASTDB_BLOB_DWELL_SECS`,
+3,600; the floor is 120). A reference that arrives during the dwell cancels the
+delete. The dwell pass reads the counter again inside the gate, then deletes the blob
+row, the counter and the queue entry in one batch.
 
-A native batch holds at most 16,384 operations (4,096 on a home from an older
-build). The reads of one write request, inside the write gate, share a budget of
-40,000 examined keys. A purge or delete stages all its chunks of 64 keys in one
-batch. The request is counted before it takes the write gate
-(`fold_db_core/purge/budget.rs`), with these upper bounds for K keys of F fields:
+A write that names a blob that is already gone is accepted, and it is made loud:
+`late_references` in the status, `referenced_row_missing` in `liveness explain`, and
+`blob_counter_without_blob` in `verify-refs`.
 
-- purge: `4 * K * F` operations and `12 * K * F` examined keys,
-- delete: `5 * K * F` operations and `13 * K * F` examined keys,
-- plus `F + 8` of each for every chunk of 64 keys.
+Details: `docs/lastdb-blob-counter.md`.
 
-A tip costs the tip delete, the `mgd` marker, and the body delete and counter
-delete when it holds the last reference. A delete adds one barrier row. The reads
-are the target tips, the peer expansion, the counters and the body records
-(measured 9 to 12 examined keys for each tip). A request over either limit is
-refused with the number of keys that fits ("send at most M keys of F fields in
-one request"). For a schema of 24 fields, a purge fits 138 keys and a delete
-fits 128 on a fresh home (42 and 33 on an older home). For 300 fields the limits
-are 11 and 10 keys. The TTL sweep cuts its batch to fit, and it halves a batch
-that still hits a size limit and retries, so the default of 16 keys fits a
-schema of up to about 200 fields on a fresh home and about 60 on an older home.
+## The time-bucketed queue
 
-## Reads
+LastDB has no scan, and a read call has a budget. A queue under one hash fails after
+about 10,000 deletions, because a deleted key still counts as examined and the oldest
+entries sit at the head. The time-bucketed queue (`atom_store/time_queue/`) gives each
+slice of time its own hash and keeps a directory of buckets. A reader lists the
+directory, walks one bucket with a cursor that moves over deleted keys, and retires a
+bucket with a guarded delete of its directory row. A generic safety net re-registers a
+bucket that has entries and no directory row. The retention queue and the blob dwell
+queue use it. Its contract is in `docs/lastdb-time-queue.md`.
 
-- `GET /api/atom/{id}` returns 404 after the last holder is purged. With
-  `durability: queued` it returns 200 with the old body of a replaced atom until
-  the flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement,
-  median 0.26 s, in 20 rounds on a synthetic home; the flush interval is
-  500 ms). A query by key shows the new value at once. With `durability: durable`
-  the route returns 404 as soon as the acknowledgement returns.
-- `POST /api/storage/liveness/explain` with `{"class":"atom","ids":[...]}` returns
-  the counter, the `suspect` flag and the body state of each atom. It cannot
-  list the referrers: the counter holds a number, not a list.
-- Molecule counters (`slots`, `records`, `bindings`) are in
-  `docs/lastdb-molecule-counters.md`. The verifier checks them in three more phases.
-- `lastdb status` has an `Atom counters` line, a `Verify refs` line, a `Blob counters` line
-  (`docs/lastdb-blob-counter.md`) and a `Molecule drain` line (`docs/lastdb-molecule-drain.md`).
-  The status is a snapshot that the sampler publishes every 60 s.
-  `lastdb db inventory` has an `Atom counters` block.
-  - `Atom counters` counts the planner events since this process started:
-    `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`,
-    `dangling_removals` and `suspect_marked` (the counters this process marked
-    `suspect`; `underflows` plus `counters_absent`). A restart sets these
-    numbers to zero, so a home with `suspect` counters shows zeros after a
-    restart. The line says so. The count of `suspect` counters on disk comes
-    from one run of `lastdb db verify-refs` (`suspect_atoms`) or from
-    `lastdb db inventory`; the status does not scan for it.
-  - `Verify refs` shows the last complete run of the verifier: the time, the
-    pages, the faults, `suspect_atoms` (the `suspect` counters that run read),
-    and the candidates. It shows a run in progress. The verifier keeps this in
-    memory, so a restart clears it. The status JSON has the same data in
-    `atom_counters.verify_refs`.
-- `POST /api/db/verify-refs` runs one step of the verifier. `GET /api/db/verify-refs`
-  returns the last result and the run in progress. Owner socket only.
+## TTL sweep
 
-## Verifier: `lastdb db verify-refs`
+The node-local sweep erases the expired keys of every schema that has a retention
+policy. The default verb is `purge`. `delete` is opt-in and leaves barrier rows that
+nothing prunes. Both verbs go through the planner, free the bodies at once, and
+release the kept conflict records of the slots they remove. See
+`docs/lastdb-ttl-sweep.md`.
 
-The verifier finds a counter that disagrees with the tips and the conflict
-records. It runs on request only. It **writes nothing**: no counter, no body,
-no tip, and no record of its own. It takes **no write gate**. It keeps its
-result in memory, so a restart clears it. The source check
-`scripts/lints/lint-atom-counter-writers.py` lists no writer in
-`counter/verify/`, so the verifier has no write call to a store.
+## Reads and acknowledgement
 
-It reads in three phases for the atoms, three more for the molecule counters
-(`docs/lastdb-molecule-counters.md`), and two more for the blob counters on the
-personal run (`docs/lastdb-blob-counter.md`), each in pages with a cursor:
+- The receipt of a write says `durability: queued` when the write was acknowledged from
+  memory, and `durability: durable` when it waited for the flush. A default create or
+  update is `queued`: it returns when its batch is accepted in memory, before the flush
+  (at most 500 ms later). A delete, a purge, a replay, and a write that memory admission
+  refuses are `durable`. The batch of a write holds the tips, the counters and the bodies
+  of the request, so a crash before the flush loses the whole batch and leaves the
+  earlier consistent state.
+- A query by key shows the new value as soon as the batch is accepted.
+  `GET /api/atom/{id}` reads a body by id and does not go through a tip. After a
+  `queued` write it can return 200 with the old body of a replaced atom until the
+  flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement, median
+  0.26 s, in 20 rounds on a synthetic home). After a `durable` write (a delete or a
+  purge) it returns 404 at once.
+- `POST /api/storage/liveness/explain` (`lastdb liveness explain atom|molecule|blob`)
+  returns the counters. For an atom it returns `refs`, `suspect`, `blobs`,
+  `body_present` and a state: `live`, `suspect`, `inconsistent` or `absent`. One
+  call takes up to 10,000 ids. It cannot list the referrers: the counter holds a
+  number, not a list.
+- A batch that has no early publication seals the write queue. Every later writer then
+  waits until that batch is durable, though the gate is already free. The batches of
+  the janitor, the dwell pass and the drain have no early publication, and neither has
+  a `durable` request. This is why the janitor and the dwell pass pace
+  by the time writers wait, and not by the hold of the gate alone.
 
-1. Tip records (`mk:`): the atom of each tip has a body, and its counter is not
+## Checking and repair
+
+| Tool | Route (owner socket) | Where it runs | What it does |
+|---|---|---|---|
+| `lastdb db verify-refs` | `POST` and `GET /api/db/verify-refs`, `GET /api/db/verify-refs/scopes` | live node | reads, writes nothing, holds no write gate for a read, reports faults |
+| `lastdb db recount [--execute]` | none (offline) | stopped home | rebuilds the counters from the tips and the counted conflict records |
+| `lastdb db inventory` | `GET /api/db/inventory` | live node | walks the key classes of the home; it also writes idempotent attribution rows, so it is not read-only |
+| `lastdb db molecule-drain` | `POST /api/db/molecule-drain` | live node | names a molecule to the drain and shows the drain report |
+| `lastdb liveness explain atom\|molecule\|blob` | `POST /api/storage/liveness/explain` | live node | shows the counters of named atoms, molecules or blobs |
+| `lastdb db delete-ledger` | `GET /api/db/delete-ledger` | live node | reads the durable audit trail of purges and deletes, oldest first; a row names the caller and holds counts, never content |
+| `lastdb db clear-history` | `POST /api/db/clear-history` | live node | trims history rows; it never selects a conflict row |
+| `lastdb db gc-proteins` | `POST /api/db/gc-proteins` | live node | deletes empty, unbound `protein:` rows (the drain leaves them) |
+| `lastdb db reap-unsealed` | `POST /api/db/reap-unsealed` | live node | removes rows that have no at-rest envelope (see below) |
+| `lastdb db compact` | `POST /api/db/compact` | live node | packs the native home and reclaims old files (`docs/lastdb-storage-parts.md`) |
+| `lastdb status` | `GET /api/status` | live node | counters, last verifier result, queue depth, parts |
+
+### `lastdb db verify-refs`
+
+The verifier finds a counter that disagrees with the tips and the conflict records.
+It runs on request only. It writes no counter, no body, no tip and no record of its
+own, and it holds no write gate for any read (see A consistent view for the one empty
+write scope at the start of a run). It keeps its result in memory, so a restart clears
+it. The writer lint lists no writer in `counter/verify/`.
+
+A run reads in phases, each in pages with a cursor:
+
+1. Tip records (`mk:`): the atom of each tip has a body and a counter that is not
    below the tips of the page.
-2. Counted conflict records (`history`, tagged `conflict` or `suppressed`): the
-   same checks for the atoms a record holds. All history rows share one hash,
-   and a row does not say by its key alone whether it holds references, so this
-   phase reads every `history\0` row and skips the uncounted ones. Its cost
-   follows the total size of the history, not the number of counted records.
-3. Body and counter records of atoms (`atom:`): body and counter exist
-   together, no counter holds zero, no counter is `suspect`, and the counter
-   equals the totals of phases 1 and 2.
-4. to 6. The molecule headers, the `bindings` counters and the binding records.
-7. Blob counters (personal run only): each counter alone. A counter is
-   `suspect`, holds zero with no `zero_since`, holds references and has a
-   `zero_since`, or has a `zero_since` and no queue entry.
-8. The blob queue (personal run only): each entry has a counter at zero with the
-   same `zero_since`. The phase walks the entries of all buckets with one bounded
-   range walk (an admin walk; the dwell pass never does that, it walks one bucket
-   at a time from the directory). It does not check the directory against the
-   entries; the generic check of the time queue does (follow-up).
+2. Counted conflict records: the same checks for the atoms a record holds. All
+   history rows share one hash, so this phase reads every `history\0` row and skips
+   the uncounted ones. Its cost follows the total size of the history.
+3. Atom bodies and counters (`atom:`): body and counter exist together, no counter
+   holds zero, none is `suspect`, and the counter equals the totals of phases 1 and 2.
+4. Molecule headers, `bindings` counters and binding records (three phases).
+5. The retention queue (`queue` and `suspects`): the entries against the bucket
+   directory, and the conflict records against the entries.
+6. Blob counters and the blob dwell queue (two phases, personal run only).
 
-Phases 1 and 3 also read the blob counter of every blob that the tips or the atom
-counters of a page name. A counter that is absent, or below the number of holders
-in the page, is a fault. A counter above its holders is not found by a run,
-because the blob counters are global and a run checks one scope. The recount finds
-it.
+Phases 1 and 3 also read the blob counter of each blob that a page names. A counter
+that is absent or below the holders of the page is a fault. A counter above its
+holders is not found by a run, because the blob counters are global and a run checks
+one scope. The recount finds it.
 
-A step reads pages until it has used `max_pages` (default 64) or `max_ms`
-(default 3,000), pauses `pause_ms` (default 2) after each page, and returns a
-`next_cursor`. The command follows the cursor until the run is complete and
-exits non-zero when it finds a fault. `--steps N` stops after N steps and
-prints the cursor. `--last` shows the last result without a run.
+A step reads pages until it has used `max_pages` (default 64) or `max_ms` (default
+3,000), pauses `pause_ms` (default 2) after each page, and returns a `next_cursor`.
+The command follows the cursor until the run is complete. It exits non-zero when it
+finds a fault. Flags: `--json`, `--last` (show the last result, run nothing),
+`--steps N`, `--cursor`, `--max-pages`, `--max-ms`, `--pause-ms`, `--page-rows`
+(default 1,000), `--scope PREFIX`, `--all-scopes`, `--max-atoms` (default 1,000,000).
+Routes: `POST /api/db/verify-refs` runs one step, `GET /api/db/verify-refs` returns
+the last result and the run in progress, `GET /api/db/verify-refs/scopes` lists the
+scopes of the catalog. All three are on the owner socket only.
 
 Faults, by name:
 
@@ -421,9 +435,10 @@ Faults, by name:
 | `suspect_counter` | a counter has the `suspect` flag |
 | `tip_without_body` | a tip names an atom that has no body (a lost body) |
 | `record_without_body` | a conflict record names an atom that has no body |
-| `record_without_queue_entry` | no queue entry can be reached from a conflict record: its slot directory entry is missing, does not decode, or names a queue entry that is missing (the janitor never releases the record) |
-| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory of the queue does not list (the janitor never finds it; for the blob queue the dwell pass never finds it, and the blob phase reads every bucket of that queue) |
+| `record_without_queue_entry` | no queue entry can be reached from a conflict record (the janitor never releases it) |
+| `queue_entry_without_directory` | a queue entry sits in a bucket that the directory does not list (the janitor, or the dwell pass, never finds it) |
 | `unreadable_tip`, `unreadable_record`, `unreadable_counter` | a record does not decode |
+| `unsealed_rows` | a read dropped a row that has no at-rest envelope |
 | `blob_counter_missing` | an atom counter or a tip names a blob that has no counter |
 | `blob_counter_below_refs` | a blob counter holds fewer references than the atom counters or tips of one page that name the blob |
 | `blob_zero_without_dwell` | a blob counter holds zero, is not `suspect`, and has no `zero_since` |
@@ -433,219 +448,214 @@ Faults, by name:
 | `blob_suspect` | a blob counter has the `suspect` flag |
 | `unreadable_blob_counter` | a blob counter does not decode, or its blob does not match its key |
 | `blob_counter_without_blob` | a blob counter holds references and the store has no blob row for it |
-| `unconfirmed_count_mismatch` | not a fault: see below |
+| `unconfirmed_count_mismatch` | not a fault: a candidate that a concurrent write can explain |
 
-A kind is a fact about one atom, and an atom can show more than one. For
-example, a counter at zero for an atom that a tip names shows `zero_counter` and
-`counter_below_tips`.
+The molecule phases report their own faults, such as `molecule_slots_below_tips` and
+`bindings_counter_mismatch` (`docs/lastdb-molecule-counters.md`, section Verifier).
+A kind is a fact about one atom, and an atom can show more than one.
 
-### How it reads a consistent view
+**A consistent view.** One page is one captured read scope. The tip rows, the
+counters and the bodies of the page are read at one committed root, and a committed
+root holds whole batches, so I1 to I4 hold at it. A fault found inside a page has no
+false positive under concurrent writers. A count that differs from the totals of the
+whole pass needs pages read at different roots. The planner tells the verifier which
+atoms it changed while a run reads. A difference for an atom that no batch touched is
+a fault. A difference for a touched atom is an `unconfirmed_count_mismatch`: run the
+verifier again when the writers are quiet. A new run takes the write gate once, for an
+empty scope, to order itself after the writes in flight. This is a durable fence: it
+seals the write queue and waits for one flush, once at the start of the run. This
+empty write scope also counts as a writer for the pacing of the background tasks.
 
-One page is one captured read scope. The tip rows, the counters and the bodies
-of the page are read at one committed root. A committed root holds whole
-batches, so I1 to I4 hold at it. Therefore:
+**Limits.**
 
-- A fault found inside a page (a tip without a body, a counter below the tips of
-  the page, an unpaired body or counter, a zero or `suspect` counter) has **no
-  false positive** under concurrent writers. The other holders of an atom only
-  raise its true count.
-- A count that differs from the totals of the **whole pass** needs the pages
-  together, and they are read at different roots. The planner tells the
-  verifier which atoms it changed while a run reads (one atomic load per batch
-  when no run reads). A difference for an atom that no batch touched is a fault,
-  because the holders did not change. A difference for a touched atom is
-  counted as `unconfirmed_count_mismatch`: a candidate, not a fault. **Run the
-  verifier again when the writers are quiet**: a candidate that was a write
-  between two pages is gone, and a real fault stays.
-- A new run takes the write gate once, for an empty scope, to order itself after
-  the writes in flight. It holds the gate for no read. The empty scope is a
-  durable fence: it seals the write queue and waits for one flush. A writer
-  that arrives in that time waits for the same flush (up to the flush
-  interval, 500 ms). The run pays this once, at its start, and not at each step.
+- The totals hold about 32 bytes for each referenced atom, at most `--max-atoms`.
+  Beyond it the verifier does not compare counters with totals (`tally_complete:
+  false`). The command prints `INCOMPLETE` and exits non-zero.
+- A range read across hash groups seeks all 1,024 hash groups of the collection, and
+  one call may read 4,096 pages. A very large home can exceed that budget before the
+  first row. The verifier then fails with a read resource error.
+- A run checks one storage scope: the personal scope, `--scope PREFIX` (a 64-hex
+  prefix), or `--all-scopes` (the personal scope and each scope the database catalog
+  names). A scope that holds data and has no catalog entry needs `--scope`. A scope
+  name that no key can carry is refused with HTTP 400. A run that reads 0 tips prints a
+  warning: a mistyped `--scope` reads nothing and finds no fault.
+- A record whose encryption does not verify ends the step with HTTP 500.
 
-### Rows without an at-rest envelope
+**Rows without an at-rest envelope.** A row in an encrypted collection that carries no
+envelope reads as absent. The encrypting store drops it after the inner store applied
+the row limit, so a page of `limit` raw rows can open to fewer rows. The paged scans
+of the encrypting store read on from the key after the last raw row until the page is
+full or the range ends (`storage/encrypting_store/fill.rs`), so a short page from them
+is the end of the range. The bounded range walk (`atom_store/bounded_range.rs`) names
+the key where the next read goes on. The verifier reports dropped rows as
+`unsealed_rows`. The recount refuses to write while any read dropped such a row: run
+`lastdb db reap-unsealed --collection <name>` (dry run first), then recount again. A
+key listing (`GET /api/list`) reads one page in one call with a budget of 10,000
+keys, and a row without an envelope costs a key. A page that needs more fails with the
+named 503 `read_resource_limit`. Ask for a smaller page.
 
-A row in an encrypted collection that carries no at-rest envelope reads as
-absent (the product treats it as not written). The encrypting store drops such a
-row **after** the inner store applied the row limit. A page of `limit` raw rows
-can therefore open to fewer rows, and a loop that takes a short page for the end
-of a range stops early with no error. Two parts of the code close this:
+### `lastdb db recount`
 
-- The paged scans of the encrypting store (`scan_range_paged`,
-  `scan_prefix_paged`) read on from the key after the last raw row until the
-  page is full or the range ends (`storage/encrypting_store/fill.rs`). A short
-  page from them is the end of the range. This covers every page loop (the key
-  listings, the keyed pages, the journal replay, the pin-log walks).
-- The range walk (`atom_store/bounded_range.rs`) reads with
-  `scan_range_yielding`. Each read names the key where the next read goes on,
-  taken from the raw rows, so a dropped row does not change it. The walk counts
-  the dropped rows of each read (`crypto::count_unsealed_discards`, a count that
-  belongs to that read only) to report them. The verifier, the recount and the
-  inventory all use this walk.
-
-A key listing (`GET /api/list`) is not a walk: one call reads one page in one
-read scope with a budget of 10,000 keys, and each row without an envelope costs
-a key. A page that needs more fails with the named 503 `read_resource_limit` and
-the hint to ask for fewer records, and a smaller page returns every row (1,200
-keys with two such rows after each live key: pages of 500 or fewer are full, a
-page of 800 is refused). Before this change the listing stopped at the first
-dropped row and returned 17 to 43 of the 1,200 keys with no error.
-
-- The verifier reports the dropped rows as the fault `unsealed_rows` (a count of
-  reads that dropped a row, with a sample that names the fix). The rest of the
-  run reads on, so the other faults are not false.
-- The recount **refuses to write** while any read dropped such a row: it cannot
-  count a row that reads as absent, and a body or counter that is only absent
-  for that reason must not decide a delete. A dry run plans no delete of a body.
-  Run `lastdb db reap-unsealed --collection <name>` (dry run first), then
-  recount again.
-- The inventory counts the reads in `scan.unsealed_rows` and adds a note.
-
-### Limits
-
-- The totals hold about 32 bytes for each referenced atom, at most `--max-atoms`
-  (default 1,000,000). Beyond it the verifier does not compare counters with
-  totals and says so in the report (`tally_complete: false`). The checks inside
-  a page still run.
-- A range read across hash groups seeks all 1,024 hash groups of the collection,
-  and one read call may read 4,096 pages. A very large home can exceed that
-  page budget before the first row. The verifier then fails with a read
-  resource error instead of a wrong answer.
-- A run checks **one storage scope**: the personal scope, or `--scope PREFIX`
-  (an org or share scope is a 64-hex prefix). A tip under an org prefix is not
-  seen by the default run. `--all-scopes` checks the personal scope and each
-  scope that the database catalog names (the catalog is small; listing it is not
-  a scan of the data). A scope that holds data and has no catalog entry needs
-  `--scope`. A scope name that no key can carry (for example `mk:x` or `a::b`) is
-  refused with a 400 before the run starts. The report, the `Verify refs` status line and the command print the
-  scope. A run that reads 0 tips in its scope prints a warning on stderr, a note
-  in the report and `WARNING` in the status line: a mistyped `--scope` reads
-  nothing and finds no fault.
-- A run that cannot compare the counters with the totals (`tally_complete:
-  false`, more atoms than `--max-atoms`) skips the check for a counter above its
-  holders. The command prints `INCOMPLETE` and **exits non-zero** with a message
-  that names the cap, also when it found no other fault.
-- A record whose encryption does not verify ends the step with an error
-  (HTTP 500): the batch read of the page fails as a whole. A record that
-  decrypts and does not decode as JSON is counted as `unreadable_counter`,
-  `unreadable_tip` or `unreadable_record`.
-
-## Recount: `lastdb db recount`
-
-The recount rebuilds every counter from the tips and the counted conflict
-records. It is the one scan the counter design keeps. No gate and no write path
-calls it.
-
-It works on a **stopped home**. It refuses when a daemon is alive for the home,
-when a daemon socket accepts a connection, when the last session did not end
-cleanly, or when another offline tool holds `data/maintenance.lock`. It refuses
-the primary home unless `--i-know-this-is-primary` is set.
-
-For each atom of a scope it counts the tips and the counted conflict records
-that name it, and compares the count with the counter record and the body:
+The recount rebuilds every counter from the tips and the counted conflict records. It
+is the one scan the design keeps. No gate and no write path calls it. It works on a
+stopped home. It refuses when a daemon is alive for the home, when a daemon socket
+accepts a connection, when the last session did not end cleanly, or when another offline
+tool holds `data/maintenance.lock`. It refuses the primary home unless
+`--i-know-this-is-primary` is set.
 
 | Found | The recount does |
 |---|---|
 | counter equals the count | nothing |
-| counter below, above, or missing; counter does not decode | writes the exact count (`raise`, `lower`, `create`, `rewrite`) |
+| counter below, above, or missing; counter does not decode | writes the exact count |
 | counter equals the count and is `suspect` | clears the flag |
 | counter without a body, and nothing names the atom | deletes the counter |
 | body, and nothing names the atom | deletes the body, the counter and the blob references |
 | a tip or record names the atom and no body exists | reports `lost_bodies`; nothing can repair a lost body |
 
-The default is a dry run that reports every change. `--execute` writes the
-changes in whole batches of at most 400 operations. It is safe to run again: a
-stopped run leaves whole batches, and the next run changes only what is still
-wrong. A second run after a complete run changes nothing.
+The default is a dry run. `--execute` writes the changes in whole batches of at most
+400 operations. A stopped run leaves whole batches, and a second run changes only
+what is still wrong. It writes nothing while a tip or conflict row does not decode,
+and nothing while a read drops a row with no envelope. It recounts the personal scope;
+`--scope PREFIX` (repeat) and `--all-scopes` add others. `--shards N` makes N passes and
+holds one Nth of the atoms in memory in each pass.
 
-It writes nothing while a tip or conflict row does not decode, because a count
-that is too low loses data. It writes nothing while a read drops a row with no
-at-rest envelope (see above). It recounts the personal scope; `--scope PREFIX`
-(repeat for more) and `--all-scopes` add other scopes. `--shards N` makes N passes over the tips and
-records and holds one Nth of the atoms in memory in each pass.
-`scripts/lints/atom-counter-writers.allow` lists the two functions that write
-(`recount/apply.rs`) with the reason.
+The recount also repairs the retention rows: a conflict record that no queue entry
+reaches gets its queue entry back (at its own key, with its slot directory entry, when
+the slot directory still holds the whole entry; otherwise it expires one window from
+now), and a bucket gets its directory row. It uses the window that the janitor recorded
+in `crb:v1\0params`, not its own environment.
 
-The recount also checks the blob counters (`blobs` in the report). It counts, for
-each blob, the atom counters that list it and the live tips that name it in the
-listed scopes, and compares the count with the blob counter:
+For the blob counters, the default only raises counters, makes missing ones, writes a
+missing queue entry or directory row, and deletes a queue entry that no counter backs.
+`--blobs-exact` (needs `--all-scopes`, and every scope of the home must be listed) also
+lowers a counter that is too high, clears `suspect`, and starts the dwell of a blob
+that nothing references. A blob row with references and no row is listed as
+`rows_missing`.
 
-| Found | The default (raise only) | With `--blobs-exact` (needs `--all-scopes`) |
+After a recount, start the daemon and run `lastdb db verify-refs`. It must find no
+fault except the lost bodies. Purge the keys of a lost body to remove them.
+
+### `lastdb db inventory`
+
+The inventory walks the key classes of the home and reports the atom counters as their
+own class (`atom_counter`): the counters, the sum, the largest count, the buckets by
+count, the five most referenced atoms, and the pairing faults (`bodies_without_counter`,
+`counters_without_body`, `zero_counters`, `suspect`). It also has a `Molecule counters`
+block and classes for the retention rows. It writes idempotent attribution rows before
+it reports (it is a GET, and it is not side-effect free). It takes `--out PATH`,
+`--timeout SECS` and `--json`.
+
+Every walk of the inventory, the verifier and the recount uses the bounded range walk
+with `scan_range_yielding`. A read that runs short of key budget is not a failure: it
+returns the live rows it found and names the last key it examined, and the next read
+goes on above it. A read that fails with the read limit is retried with fewer rows, and
+then the key range is cut in two. The report shows `scan.calls`, `scan.shrinks`,
+`scan.splits` and `scan.skips`. On a synthetic home with a live row before each of three
+clusters of 12,000, 5,000 and 40,000 deleted keys, `verify-refs` took 164 s and `inventory`
+183 s before the walk existed, and about 3 s and 7 s after.
+
+### Status lines
+
+`lastdb status` is a snapshot that the sampler publishes every 60 s
+(`LASTDB_SELF_METRICS_SAMPLE_SECS`).
+
+| Line | Shows |
+|---|---|
+| `Atom counters` | planner events since this process started (a restart sets them to zero): `bodies_created`, `bodies_deleted`, `underflows`, `counters_absent`, `dangling_removals`, `suspect_marked`, `molecule_faults`, and recent faults. The count of `suspect` counters on disk comes from `verify-refs` or `inventory`. |
+| `Verify refs` | the last complete run (time, scope, pages, faults, `suspect_atoms`, candidates) and a run in progress. A restart clears it. The status JSON has it in `atom_counters.verify_refs`. |
+| `Molecule drain` | pending, waiting, refused, drained molecules, tips erased, bodies deleted, batches |
+| `Blob counters` | the blob counter totals, dwell queue depth and buckets, next due time, passes, net sweeps |
+| `Conflict retention` | window, janitor interval, last run, queue depth and buckets, released by janitor and by purge, slot drains pending, failed wakes, net sweeps |
+| `Purge stats` | for each schema: purges, records purged, target slots and atoms deleted, since the process started |
+| `Storage parts` | dependency parts of the storage receipt: `docs/lastdb-storage-parts.md` |
+| `Local retention` | the TTL sweep: `docs/lastdb-ttl-sweep.md` |
+
+## Crash states
+
+A crash keeps whole batches only, in order. Each batch moves the store from one state
+that holds I1 to another. The table lists the states a crash can leave and what recovers
+each one.
+
+| Crash point | State on disk | What recovers it |
 |---|---|---|
-| counter below the count | raises it | raises it |
-| counter missing, blob named | makes it | makes it |
-| counter above the count | nothing | lowers it |
-| counter `suspect` | nothing | clears the flag when the count is exact |
-| blob with a counter and no reference | nothing | starts its dwell (the dwell pass reclaims it) |
-| counter with a `zero_since` and no queue entry | puts the entry | puts the entry |
-| queue entry that no counter at zero backs | deletes it | deletes it |
-| blob with references and no blob row | lists it (`rows_missing`) | lists it |
+| before the batch is accepted | no change | nothing to recover |
+| after a `queued` acknowledgement, before the flush | the whole batch is lost | the client was told `queued`; a retry applies it |
+| during the journal append, or after the commit and before `CURRENT` | no batch, or a complete batch | recovery returns only complete batches |
+| after batch N of a job of many batches (TTL pass, janitor, drain, dwell pass, mixed request) | batches 1 to N applied | each batch is valid alone; the next pass continues |
+| a schema drop between the catalog rows and the schema record | rows gone, schema still installed | run the drop again |
+| a molecule drain between batches | header with zero counters, candidate row present | the next wake reads the candidate list and finishes |
+| after a blob upload, before the atom | a blob with no reference | the dwell holds the blob; the atom comes in time or the dwell pass deletes the blob |
+| an erase marked a slot and stopped | drain marker in the queue | the janitor drains it, or the records expire with their own window |
+| a queue bucket without directory row (outside the queue) | entries that no reader lists | the safety net, `verify-refs`, `recount --execute` |
+| a conflict record with no queue entry | a record that the janitor never releases | `verify-refs` finds it; `recount --execute` writes the entry |
+| a writer that bypassed the planner | a count that is wrong | `verify-refs`, then `recount --execute` |
+| a kill during pack or reclaim | files that no receipt names, an unfinished generation directory | `lastdb-pack-maintain reclaim`, the automatic sweep (`docs/lastdb-storage-parts.md`) |
+| a row without an at-rest envelope | the row reads as absent | `lastdb db reap-unsealed`, then `recount` |
 
-The blob counters are global, and a recount lists scopes. A scope that is missing
-makes the count too low, and a too low counter loses a blob. So only
-`--blobs-exact` lowers a counter, and it asks for `--all-scopes`. List every scope
-of the home: a scope that holds data and has no catalog entry needs `--scope`.
+A leak and a loss do not come from a crash. They come from a defect in the planner or in a
+writer that skips it.
 
-After a recount, start the daemon and run `lastdb db verify-refs` (with
-`--all-scopes` when you recounted other scopes). It must find
-no fault except the lost bodies. Purge the keys of a lost body to remove them.
+## Settings
 
-## Inventory: `lastdb db inventory`
+Only the node environment sets them. A change needs a restart of the daemon. A value
+that does not parse gives the default.
 
-The inventory walks the key classes of the home. A read call examines at most
-10,000 keys, and a range read counts deleted keys. After many purges, the keys
-between two live rows can be more than the budget. Every walk of the inventory,
-and every walk of the verifier and the recount, uses the bounded range walk
-(`atom_store/bounded_range.rs`) with `scan_range_yielding`. Each read is its own
-call with its own budget. A read that runs short of key budget is not a
-failure. It returns the live rows it found (it can find none) and names the last
-key it examined, and the next read goes on above that key. This holds for a run
-of deleted keys and for live rows between deleted keys. The verifier reads the
-counter and the body of each row in the same call, so its reads stop while four
-keys for each row are left; the inventory and the recount keep none. A range of
-D deleted keys therefore costs about D / 10,000 reads for the inventory and the
-recount, and a little more for the verifier, with no failed read and no cut of
-the key range. A read that fails with the read limit (the page or byte budget,
-or a live row that needs more than a call) is retried with fewer rows, and then
-the key range is cut in two and the lower half is read first. The report shows
-the calls (`scan.calls`, `scan.shrinks`, `scan.splits`) and the reads that went
-on above a run of deleted keys (`scan.skips`).
-
-Measured before the change (a home of 10,000 keys of six fields, created and
-purged in five rounds): `verify-refs` took 118 s and `inventory` 130 s, with 3,213
-reads and 1,587 cuts. The cut halves the key space, and the deleted keys sit in a
-few clusters that are very narrow in it, so a cluster took about 250 cuts to find.
-Each read of an administrative range also seeks the trees of all 1,024 hash groups
-(400 to 2,000 pages, 20 to 450 ms), so the cost followed the number of reads. A
-home with a live row before each of three clusters of 12,000, 5,000 and 40,000
-deleted keys (in `tips` and in `atoms`): `verify-refs` 164 s and `inventory` 183 s
-before; 2.9 s and 7.1 s after, with 64 reads and no cut.
-
-The inventory reports the counter records as their own key class
-(`atom_counter`) and not as atom content. The `atom_counters` block shows the
-counters, the sum and the largest count, the number of counters with a count of
-1, 2, 3 to 9, 10 to 99 and 100 or more, the five most referenced atoms, and the
-pairing faults (`bodies_without_counter`, `counters_without_body`,
-`zero_counters`, `suspect`). The key classes list the colon plane of each key
-family. History rows and conflict rows are in the NUL plane and are not in the
-class list.
-
-## Format fence
-
-A home with this record layout sets the required-feature bit `FEATURE_ATOM_RECORDS`
-(value 128) in the LastStore `CURRENT` file. A build that does not know the bit
-refuses the home. This build refuses a home without the bit.
+| Name | Default | Meaning |
+|---|---|---|
+| `LASTDB_MAX_ATOM_CONTENT_BYTES` | 262,144 | Ceiling of one new atom (256 KiB). Range 1 KiB to 1 MiB. |
+| `LASTDB_CONFLICT_RETENTION_SECS` | 2,592,000 | Retention window of a kept conflict record (30 days). |
+| `LASTDB_CONFLICT_JANITOR_MS` | 60,000 | Interval of the janitor wake. `0` turns the janitor off. |
+| `LASTDB_CONFLICT_JANITOR_DUTY_PCT` | 10 | Share of time (1 to 100) that the janitor may keep writers waiting. |
+| `LASTDB_CONFLICT_JANITOR_NET_SECS` | 3,600 | Interval of the safety-net sweep. `0` turns it off. |
+| `LASTDB_MAINTENANCE_QUIET_SECS` | 60 | Seconds without another writer after which the janitor and the dwell pass rest the minimum. |
+| `LASTDB_BLOB_DWELL_SECS` | 3,600 | Dwell of a blob at zero. A value below 120 is refused. |
+| `LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV` | off | `1` allows a dwell below 120 s, for a synthetic home only. |
+| `LASTDB_BLOB_DWELL_PASS` | on | `0`, `false`, `no` or `off` turns the dwell pass off. |
+| `LASTDB_BLOB_DWELL_CHUNK` | 32 | Blobs deleted in one batch (1 to 64). |
+| `LASTDB_BLOB_DWELL_DUTY_PCT` | 10 | Share of time (1 to 100) that the pass may keep writers waiting. |
+| `LASTDB_BLOB_DWELL_MIN_PAUSE_MS` | 25 | Shortest rest between two chunks. |
+| `LASTDB_BLOB_DWELL_NET_SECS` | 3,600 | Interval of the safety-net sweep. `0` turns it off. |
+| `LASTDB_MOLECULE_DRAIN_MS` | 30,000 | Interval of the drain wake. `0` turns the drain off. |
+| `LASTDB_MOLECULE_DRAIN_DUTY_PCT` | 10 | Share of wall time (1 to 100) that drain batches may take. |
+| `LASTDB_MOLECULE_DRAIN_TIPS` | 256 | Tip records in one drain batch (1 to 512). |
+| `LASTDB_MOLECULE_DRAIN_BATCHES` | 1,024 | Batches in one drain wake. |
+| `LASTDB_TTL_SWEEP` | on | `0`, `false`, `no` or `off` stops the TTL sweep. |
+| `LASTDB_TTL_SWEEP_VERB` | `purge` | `purge` or `delete`. |
+| `LASTDB_TTL_SWEEP_BATCH` | 16 | Keys erased in one batch (1 to 64). |
+| `LASTDB_TTL_SWEEP_DUTY_PCT` | 25 | Share of wall time (1 to 100) that the sweep spends in batches. |
+| `LASTDB_TTL_SWEEP_MIN_PAUSE_MS` | 25 | Shortest rest between two batches. |
+| `LASTDB_DEPENDENCY_HIGH_WATER` | 4,096 | Storage parts at which maintenance starts (at most 75 percent of the limit). |
+| `LASTDB_AUTO_MAINTENANCE` | on | `0` or `false` turns the storage maintenance worker off. |
+| `LASTDB_AUTO_MAINTENANCE_GRACE_MS` | 0 | Grace for the reclaim of an automatic run. |
+| `LASTDB_ORPHAN_MIN_AGE_MS` | 600,000 | Youngest unreferenced part file that the sweep removes. |
+| `LASTDB_AUTO_MAINTENANCE_START_DELAY_SECS` | 30 | Wait before the first pack of a process. |
 
 ## Known limits
 
-- Cloud sync replay and restore write rows that bypass the planner. Cloud sync
-  is off in this build. `lastdb db verify-refs` finds the damage, and
-  `lastdb db recount` repairs it.
-- A lost body (a tip names an atom that has no body) is found, never repaired.
+- Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in
+  this build. `verify-refs` finds the damage and `recount` repairs it.
+- A lost body (a tip names an atom that has no body) is found and never repaired.
+- A molecule counter fault has no repair path. The drain never changes a counter, and
+  the recount repairs atom and blob counters only.
+- The planner cannot catch a counter that is too low by less than the removal.
+- A blob row with no counter is invisible to the verifier and the recount, and nothing
+  deletes it (cloud paths only).
+- A request that mixes creates or updates with deletes or purges runs the writes first
+  and the erasures after, as two batches. A delete and a write of the same key in one
+  request leave the key deleted.
+- The batches of the janitor, the dwell pass and the drain seal the write queue, so a
+  writer that meets one waits for its flush. The janitor and the dwell pass pace by the
+  time writers wait. The drain and the TTL sweep pace by the wall time of a batch.
+  A batch that does not seal the queue would need a change in the storage path.
 
-## Not in this step
+Limits of each part are on its page: `docs/lastdb-molecule-counters.md`,
+`docs/lastdb-molecule-drain.md`, `docs/lastdb-blob-counter.md`,
+`docs/lastdb-time-queue.md`, `docs/lastdb-ttl-sweep.md`.
 
-Steps S2 to S8 of the design (`docs/design-lastdb-counter-lifecycle.md`) remain:
+## History
 
-- S7 is built: `docs/lastdb-molecule-drain.md`.
-- Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in this build.
+Before this design, an atom was deleted only after a live count, a candidate queue,
+a 24-hour grace window, an audit lap and a peer-apply interlock all agreed. Reverse edge
+records held the count outside the batch of the tip. The design page lists what was
+removed and what replaced it, and the section "What was built and where it differs"
+lists the steps and the limits: `docs/design-lastdb-counter-lifecycle.md`.

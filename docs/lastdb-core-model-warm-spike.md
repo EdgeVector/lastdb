@@ -209,10 +209,10 @@ The comparison measures those complete versions. It does not isolate one core me
 |---|---|
 | Before binary | [Preserved binary identity](proofs/core-model-warm-spike-20261017/before-binary.json) |
 | Initial after source and binary | [Initial source and binary hashes](proofs/core-model-warm-spike-20261017/candidate-source-initial.json) |
-| Final after source and binary | [Final source and binary hashes](proofs/core-model-warm-spike-20261017/candidate-source.json) |
+| Final after source and binary | Final source and binary hashes (receipt not kept in this repository) |
 | Initial workload and configuration | [Inputs](proofs/core-model-warm-spike-20261017/run/inputs.json) and [exact driver sources](proofs/core-model-warm-spike-20261017/run/driver-sources/manifest.json) |
 | Product observations | [Owner counters and outcomes](proofs/core-model-warm-spike-20261017/run/observations.json) |
-| Detailed request receipts | [Request records](proofs/core-model-warm-spike-20261017/run/receipts.jsonl) |
+| Detailed request receipts | Request records (receipt not kept in this repository) |
 | Source and build checks | [Initial checks](proofs/core-model-warm-spike-20261017/checks-initial.json) and [final checks](proofs/core-model-warm-spike-20261017/checks.json) |
 
 All 112 query calls and 96 Hash item replies returned the expected values.
@@ -309,7 +309,7 @@ pending disk work before and after their reads. All sampled holds remain zero.
 The earlier preflush and overlapping-call limits therefore still apply.
 
 The final [inputs](proofs/core-model-warm-spike-20261017/run-final/inputs.json),
-[request receipts](proofs/core-model-warm-spike-20261017/run-final/receipts.jsonl),
+request receipts (receipt not kept in this repository),
 and [driver sources](proofs/core-model-warm-spike-20261017/run-final/driver-sources/manifest.json)
 remain separate from the initial run.
 
