@@ -53,12 +53,19 @@ pub(super) enum Phase {
 pub(super) struct Active {
     pub(super) candidate: Candidate,
     pub(super) phase: Phase,
+    /// Tip keys the current pass of the tip phase has found. A pass that found
+    /// none, followed by a gate that still counts `slots`, is a counter fault.
+    pub(super) found_tips: u64,
 }
 
 impl Active {
     pub(super) fn new(candidate: Candidate, rows: usize) -> Self {
         let phase = Phase::Tips(tip_walk(&candidate, rows));
-        Self { candidate, phase }
+        Self {
+            candidate,
+            phase,
+            found_tips: 0,
+        }
     }
 }
 

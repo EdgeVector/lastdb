@@ -37,6 +37,9 @@ pub(crate) enum Refusal {
     CountersUnset,
     /// A binding record exists and the `bindings` counter is zero or absent.
     BindingRecordWithoutCounter,
+    /// The header counts tip records (`slots`), and the key walk finds none. The
+    /// counter is above the rows.
+    SlotsWithoutTips,
 }
 
 impl Refusal {
@@ -47,6 +50,7 @@ impl Refusal {
             Self::BindingsSuspect => "bindings_suspect",
             Self::CountersUnset => "counters_unset",
             Self::BindingRecordWithoutCounter => "binding_record_without_counter",
+            Self::SlotsWithoutTips => "slots_without_tips",
         }
     }
 }

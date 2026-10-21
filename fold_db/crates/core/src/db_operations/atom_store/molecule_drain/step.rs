@@ -164,6 +164,7 @@ impl AtomStore {
                     active.phase = rows_phase(&candidate, 0, limits);
                     return Ok(Move::Continue);
                 }
+                active.found_tips += keys.len() as u64;
                 match self.tips_batch(&candidate, &keys).await? {
                     Batch::Ran(commit) => {
                         let tips = commit.previous.len() as u64;
@@ -194,10 +195,7 @@ impl AtomStore {
                         self.drain_state().note_batch(0, rows, 0);
                         Ok(Move::Batch(OutcomeKind::Removed { rows }))
                     }
-                    Batch::Stopped(Gate::BackToKeys) => {
-                        active.phase = Phase::Tips(tip_walk(&candidate, limits.tips));
-                        Ok(Move::Continue)
-                    }
+                    Batch::Stopped(Gate::BackToKeys) => Ok(back_to_keys(active, limits)),
                     Batch::Stopped(gate) => Ok(self.stopped(gate)),
                 }
             }
@@ -208,10 +206,7 @@ impl AtomStore {
                     self.drain_state().note_drained();
                     Ok(Move::Done(OutcomeKind::Finished))
                 }
-                Batch::Stopped(Gate::BackToKeys) => {
-                    active.phase = Phase::Tips(tip_walk(&candidate, limits.tips));
-                    Ok(Move::Continue)
-                }
+                Batch::Stopped(Gate::BackToKeys) => Ok(back_to_keys(active, limits)),
                 Batch::Stopped(gate) => Ok(self.stopped(gate)),
             },
         }
@@ -246,6 +241,18 @@ impl AtomStore {
         }
         Ok(keys)
     }
+}
+
+/// The gate still counts tip records after the tip phase. When the pass found
+/// keys, a writer made new ones: walk again. When it found none, the counter is
+/// above the rows and no walk can lower it: refuse, so the step cannot loop.
+fn back_to_keys(active: &mut Active, limits: DrainLimits) -> Move {
+    if active.found_tips == 0 {
+        return Move::Done(OutcomeKind::Refused(Refusal::SlotsWithoutTips));
+    }
+    active.found_tips = 0;
+    active.phase = Phase::Tips(tip_walk(&active.candidate, limits.tips));
+    Move::Continue
 }
 
 fn rows_phase(candidate: &Candidate, index: usize, limits: DrainLimits) -> Phase {
