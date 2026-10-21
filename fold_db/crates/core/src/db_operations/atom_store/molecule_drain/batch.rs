@@ -14,6 +14,7 @@ use crate::schema::types::field::build_storage_key;
 use crate::schema::SchemaError;
 
 /// What the gate decided.
+#[derive(Clone, Copy)]
 pub(super) enum Gate {
     Go,
     Rebound,

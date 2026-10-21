@@ -151,12 +151,11 @@ impl AtomStore {
                 molecule_view(molecule, header.as_ref(), bindings.as_ref())
             })
             .collect();
-        let mut checks = 0usize;
-        for view in views.iter_mut().filter(|view| view.droppable()) {
-            if checks == RECORD_CHECKS {
-                break;
-            }
-            checks += 1;
+        for view in views
+            .iter_mut()
+            .filter(|view| view.droppable())
+            .take(RECORD_CHECKS)
+        {
             let present = self
                 .binding_record_present(&view.molecule, storage_prefix)
                 .await?;
