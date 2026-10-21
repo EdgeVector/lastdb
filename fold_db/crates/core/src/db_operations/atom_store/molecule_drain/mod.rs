@@ -25,6 +25,7 @@
 //! Design: `docs/design-lastdb-counter-lifecycle.md` section 12.
 //! Contract: `docs/lastdb-molecule-drain.md`.
 
+mod batch;
 mod candidate;
 mod cursor;
 mod enqueue;
