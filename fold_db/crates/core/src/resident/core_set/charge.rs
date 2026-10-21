@@ -11,9 +11,10 @@ use serde_json::Value;
 
 /// One path: its path table entry, index bucket, and recency entry. The
 /// schema and field names are interned and shared by every path that uses
-/// them, so they are not charged. Calibrated on 2026-10-19 from a heap
-/// profile of the path table (about 130 bytes per path).
-const PATH_BASE: usize = 112;
+/// them, so they are not charged. Calibrated on 2026-10-20 from a heap
+/// profile of the chunked path table and recency map (about 93 bytes per
+/// path).
+const PATH_BASE: usize = 80;
 /// One `BTreeMap` entry of a JSON object: inline key and value plus node slack (guess).
 const JSON_MAP_ENTRY: usize = 96;
 /// One source link: one id in the slot's list and one in the source's set.
@@ -24,11 +25,12 @@ const LINK_BASE: usize = 8;
 /// `mk:` key and is charged this base only. Calibrated on 2026-10-19 (heap
 /// profile: about 450 bytes of sources per path).
 const SOURCE_BASE: usize = 72;
-/// One slot: its table and index entries, its atom link, and the molecule tip
-/// and key-metadata map entries. A clean read keeps no owned copy of the tip.
-/// Calibrated on 2026-10-19 from a heap profile of the interned tables (about
-/// 1.34 KB per slot).
-const SLOT_BASE: usize = 1170;
+/// One slot: its chunked table entry with the inline tip, its index bucket,
+/// and its interned key allocations. The tip's strings and boxed metadata are
+/// charged by `tip_heap_charge`. A clean read keeps no owned copy of the tip.
+/// Calibrated on 2026-10-20 from a heap profile after the molecule copy left
+/// (about 620 bytes per slot with a small tip, 1.34 KB before).
+const SLOT_BASE: usize = 350;
 /// Copies of the slot hash and range strings: the interned slot key only.
 const SLOT_KEY_COPIES: usize = 1;
 /// One `HashMap` slot of atom metadata: key, value, and control byte (guess).
