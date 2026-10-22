@@ -29,6 +29,12 @@ This receipt describes source changes in the candidate worktree. The build recei
 
 Cloud activation and restore refuse generations that require the removed adoption workflow. The checks remain in `lastdb_node/src/cloud_activation.rs` and `lastdb_node/src/bin/lastdb/restore_phases/cloud_generation.rs`.
 
+`vendor/laststore/src/disk_pack/current.rs` requires snapshot feature `256` and refuses the retired internal-journal format. `vendor/laststore/src/bin/lastdb-disk-recovery.rs` removes generic `convert` and `reverse` commands. `vendor/laststore/src/disk_pack/conversion.rs` removes reverse conversion. Its remaining `finish_conversion` validates an existing forward fence and snapshot root before any completion marker changes. It opens no legacy source store.
+
+`lastdb_node/src/bin/lastdb/restore_guards.rs` and `lastdb_node/src/bin/lastdb/restore_phases/destination.rs` refuse SegmentLog restore before destination file changes. `vendor/laststore/src/bin/lastdb-maintenance.rs` refuses SegmentLog maintenance before the source opens. `vendor/laststore/src/store/open.rs` refuses pending conversion fences; its pending legacy opener is removed.
+
+This closure does not remove all HashGroup writers. HashGroup restore and maintenance remain supported. `vendor/laststore/src/store/append.rs` can still emit legacy data files. Those files contain authoritative stored data; they are separate from the removed native recovery journal.
+
 **Erase meter source review**
 
 `fold_db/crates/core/src/db_operations/atom_store/hard_erase_journal.rs` and its commit module are removed. `fold_db/crates/core/src/db_operations/atom_store/erase_meters.rs` stages the final aggregate and audit fact with the native erase.
