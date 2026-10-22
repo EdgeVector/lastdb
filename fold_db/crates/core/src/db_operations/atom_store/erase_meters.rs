@@ -109,6 +109,9 @@ impl AtomStore {
             .map_err(SchemaError::InvalidData)?;
         let plan = self.resolve_erase_meter_plan(fallback_schema, atoms, tips);
         plan.record(&candidate);
+        candidate
+            .check_erase_copy_budget()
+            .map_err(|detail| SchemaError::WriteResourceLimit { detail })?;
         let snapshot = candidate.export();
         let mut dirty = self.keep_small.dirty_schema_names();
         dirty.extend(candidate.take_dirty_schemas());
