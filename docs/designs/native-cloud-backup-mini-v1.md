@@ -1,6 +1,8 @@
 # Native cloud backup: Mini integration
 
 Status: M1 source integration in DEV. Cloud sync stays off.
+This source baseline predates the separate log journal removal that Tom expects on main.
+The journal removal integration below is a required release step.
 The [shared contract](native-cloud-backup-protocol-v1.md) defines the authority and byte rules.
 The [resource policy](native-backup-resource-policy-v1.md) defines the file, memory, and metadata bounds.
 
@@ -81,6 +83,47 @@ Restore resumes only that saved selection and publishes only a fresh destination
 It keeps cloud sync off.
 The phrase enters through standard input and does not enter the saved job or command arguments.
 
+## Journal removal integration
+
+The separate native store change owns removal of the local log journal.
+After its merge, fetch main and record the exact commit and journal scope before a cloud compatibility change.
+Integrate that commit into the cloud DEV worktree and review its actual disk publication boundary.
+Do not create a second journal removal implementation in the cloud branch.
+
+The current capture selects CURRENT and reserves disk space through the journal handle.
+The shared root summary compares two frontiers and the manifest constrains the JOURNAL_TAIL file.
+Restore compares those fields and calls the native snapshot validator.
+These dependencies require review against the actual merged format.
+The native disk journal is separate from the legacy cloud mutation log.
+If the merge removes only the cloud log, keep native checks that still describe real disk state.
+Current native journal files can contain live root dependencies.
+A complete replacement root must name the replacement data files before those journal files can go.
+An inventory filter alone cannot remove that dependency.
+
+The revised capture must select a complete published disk root after the required flush.
+A durable file hold must protect that exact root through upload, restart, and compaction.
+File pointers and their dependency records must remain atomic at the selected root.
+Native pack bytes must pass unchanged through upload and restore.
+Terminal confirmation must reach disk before source release.
+
+Update capture, space reservations, the native inventory, shared root types, feature masks, and restore validation together.
+Remove obsolete journal requirements where the merged format removes them.
+Do not invent zero journal values or empty journal files to satisfy obsolete checks.
+Define compatibility or explicit refusal for old saved jobs and older native formats before exposure of new cloud effects.
+Keep the original decoder for any existing accepted backup.
+Keep old files protected until every reader and backup hold releases them.
+Never change an old saved job's exact bytes or transfer identity to match the new native format.
+The service must consume the same revised shared crate commit through its fold submodule.
+
+The cloud job keeps its saved inputs, receipts, and accepted result for restart recovery.
+Those control records do not depend on the local write journal.
+Review the actual memory allocations before any change to the shared backup allowance.
+The existing completed source checks establish only the pre-removal baseline.
+Repeat the relevant non-test build and source checks after integration.
+
+The independent service authorization and usage work can proceed before this merge.
+Cloud activation and operational proof require both completed boundaries.
+
 ## Source review and remaining gates
 
 Source review fixed first-stream absence, terminal retry order, close state races, and restart reconstruction of a private external copy.
@@ -106,6 +149,7 @@ Both native activation flags remain off by default. Legacy Cloud On stays disabl
 No deployment, shared infrastructure change, primary access, tests, or runtime cloud recovery occurs in this wave.
 Format, type, lint, and build results establish source checks only.
 
-The next source step supplies the read-only file grant and the native usage and legacy isolation boundaries.
+The next native integration step consumes journal removal from main.
+Independent service work supplies the read-only file grant and the native usage and legacy isolation boundaries.
 P1 then uses normal product commands with fresh synthetic data in an approved service environment.
 Tom must approve shared service and infrastructure changes before that operational step.
