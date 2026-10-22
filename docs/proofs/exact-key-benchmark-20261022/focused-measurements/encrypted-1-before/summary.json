@@ -1,0 +1,74 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "encrypted",
+  "free_bytes_after": 20240707584,
+  "full_values_and_reopen_verified": true,
+  "phases": {
+    "hash_durable_write32": {
+      "acknowledgements": {
+        "durable": 32
+      },
+      "final_flush_ms": 0.323987,
+      "first_request_ms": 104.391781,
+      "max_ms": 133.159145,
+      "mean_ms": 120.70897209375,
+      "median_ms": 119.381769,
+      "p95_ms": 132.918927,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 263.5846401795227,
+      "requests": 32,
+      "total_ms": 3862.687107,
+      "wall_through_flush_seconds": 3.884900119
+    },
+    "hash_queued_write1": {
+      "acknowledgements": {
+        "queued": 256
+      },
+      "final_flush_ms": 11.965109,
+      "first_request_ms": 17.265296,
+      "max_ms": 66.204826,
+      "mean_ms": 23.2387154453125,
+      "median_ms": 22.654715,
+      "p95_ms": 30.52425,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 42.79982939065134,
+      "requests": 256,
+      "total_ms": 5949.111154,
+      "wall_through_flush_seconds": 5.981332254
+    },
+    "range_durable_write32": {
+      "acknowledgements": {
+        "durable": 32
+      },
+      "final_flush_ms": 0.371172,
+      "first_request_ms": 117.050235,
+      "max_ms": 168.01157,
+      "mean_ms": 128.94347303125,
+      "median_ms": 127.892222,
+      "p95_ms": 154.924597,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 246.81104993056448,
+      "requests": 32,
+      "total_ms": 4126.191137,
+      "wall_through_flush_seconds": 4.148922831
+    },
+    "range_queued_write1": {
+      "acknowledgements": {
+        "queued": 256
+      },
+      "final_flush_ms": 14.849699,
+      "first_request_ms": 28.449708,
+      "max_ms": 110.616709,
+      "mean_ms": 33.9753509921875,
+      "median_ms": 31.702836499999997,
+      "p95_ms": 46.309377,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 29.306222426596694,
+      "requests": 256,
+      "total_ms": 8697.689854,
+      "wall_through_flush_seconds": 8.735346244
+    }
+  },
+  "source_revision": "4118c7baa12539c8c6bcf4391c497159f2a1529a"
+}

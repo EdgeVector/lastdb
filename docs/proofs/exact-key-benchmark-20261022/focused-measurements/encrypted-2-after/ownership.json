@@ -1,0 +1,11 @@
+{
+  "creator_pid": 26644,
+  "device": 27,
+  "home": "/workspace/fc-pairs/encrypted-2-after/home",
+  "inode": 1056764,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "fd493de1a1664acd9451fa846cb98e47",
+  "scratch": "/workspace/fc-pairs/encrypted-2-after",
+  "version": 1
+}

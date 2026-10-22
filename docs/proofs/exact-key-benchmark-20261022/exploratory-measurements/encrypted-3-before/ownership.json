@@ -1,0 +1,11 @@
+{
+  "creator_pid": 23423,
+  "device": 27,
+  "home": "/workspace/eb-pairs/encrypted-3-before/home",
+  "inode": 1585940,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "9166230687b84b3f84a72676936d0c45",
+  "scratch": "/workspace/eb-pairs/encrypted-3-before",
+  "version": 1
+}

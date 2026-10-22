@@ -1,0 +1,5 @@
+__pycache__/
+!measurements/*/receipts.jsonl
+!focused-measurements/*/receipts.jsonl
+!exploratory-measurements/*/receipts.jsonl
+!failed-focused-measurements/*/receipts.jsonl

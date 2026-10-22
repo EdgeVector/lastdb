@@ -1,0 +1,12 @@
+{
+  "run_id": "90ed14f2afc4446897c202911303fa6c",
+  "home": "/workspace/fc-pairs/encrypted-0-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 12786,
+  "allocated_bytes_removed": 1157009408,
+  "free_bytes_before": 20234129408,
+  "free_bytes_after": 21403398144
+}

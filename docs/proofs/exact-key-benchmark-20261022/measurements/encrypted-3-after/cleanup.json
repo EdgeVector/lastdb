@@ -1,0 +1,12 @@
+{
+  "run_id": "7b0238a7308d42dd9e2a68dfd3ebb776",
+  "home": "/workspace/ec-pairs/encrypted-3-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 7956,
+  "allocated_bytes_removed": 737071104,
+  "free_bytes_before": 20659679232,
+  "free_bytes_after": 21405036544
+}

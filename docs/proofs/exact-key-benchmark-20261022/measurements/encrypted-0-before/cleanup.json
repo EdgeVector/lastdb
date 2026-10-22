@@ -1,0 +1,12 @@
+{
+  "run_id": "b7f542e8ce5b4f698608a19d28543b64",
+  "home": "/workspace/ec-pairs/encrypted-0-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 7973,
+  "allocated_bytes_removed": 738844672,
+  "free_bytes_before": 20658806784,
+  "free_bytes_after": 21406027776
+}
