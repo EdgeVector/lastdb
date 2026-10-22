@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import time
@@ -177,22 +178,25 @@ def inspect_meters(capture, disk_binary, label):
             "numeric_restore_verification": "Ordinary owner APIs before and after reopen; no identity or key read"}
 
 
-def home_metadata(home):
-    pending, entries, result, deadline = [(home, 0)], 0, {}, time.monotonic() + 15
+def protected_metadata(home):
+    roots = [home / "data" / "disk-pack", home / "cloud-purge-resync", home / "identity.key"]
+    pending, entries, result, deadline = [(path, 0) for path in roots], 0, {}, time.monotonic() + 15
     while pending:
-        parent, depth = pending.pop()
-        if depth > 8:
-            raise RuntimeError("The owned metadata capture exceeded depth eight")
-        with os.scandir(parent) as children:
-            for child in children:
-                entries += 1
-                if entries > 40000 or time.monotonic() > deadline or child.is_symlink():
-                    raise RuntimeError("The owned metadata capture exceeded its bounds")
-                info = child.stat(follow_symlinks=False)
-                path = Path(child.path)
-                result[str(path.relative_to(home))] = [info.st_mode, info.st_size, info.st_mtime_ns, info.st_ino]
-                if child.is_dir(follow_symlinks=False):
-                    pending.append((path, depth + 1))
+        path, depth = pending.pop()
+        entries += 1
+        info = path.lstat()
+        if (depth > 8 or entries > 40000 or time.monotonic() > deadline
+                or stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid()):
+            raise RuntimeError("The owned protected metadata capture exceeded its bounds")
+        result[str(path.relative_to(home))] = [info.st_mode, info.st_size, info.st_mtime_ns, info.st_ino]
+        if stat.S_ISDIR(info.st_mode):
+            with os.scandir(path) as children:
+                for child in children:
+                    if len(pending) + entries >= 40000 or time.monotonic() > deadline:
+                        raise RuntimeError("The protected metadata queue exceeded its bounds")
+                    pending.append((Path(child.path), depth + 1))
+        elif not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("Protected snapshot, retired state, and identity must use ordinary files")
     return result
 
 
@@ -200,7 +204,7 @@ def retired_state_refusal(capture):
     marker = capture.home / "cloud-purge-resync"
     marker.mkdir(mode=0o700)
     (marker / "owned-marker.json").write_text('{"generated_owned_marker":true}\n')
-    before = home_metadata(capture.home)
+    before = protected_metadata(capture.home)
     log_start = (capture.output / "node.log").stat().st_size
     try:
         try:
@@ -216,11 +220,13 @@ def retired_state_refusal(capture):
             raise RuntimeError("The owned node log exceeds its eight MiB bound")
         if b"unsupported retired cloud repair state" not in log_path.read_bytes()[log_start:]:
             raise RuntimeError("The failed boot lacks the expected retired-state refusal")
-        after = home_metadata(capture.home)
+        after = protected_metadata(capture.home)
         if before != after:
-            raise RuntimeError("The retired-state refusal changed owned home files")
-        save(capture.output / "retired-state-refusal.json", {"unchanged_metadata": True,
-             "before": before, "after": after, "file_contents_including_identity_were_not_read": True})
+            raise RuntimeError("The refusal changed the native snapshot, retired records, or identity metadata")
+        save(capture.output / "retired-state-refusal.json", {
+             "retired_records_and_snapshot_unchanged": True, "identity_metadata_unchanged": True,
+             "scope": "Native snapshot files, retired repair tree, and identity file metadata; normal diagnostics may change",
+             "before": before, "after": after, "protected_file_contents_were_not_read_by_capture": True})
     finally:
         if capture.process is not None:
             capture.stop(force=True)
@@ -277,7 +283,8 @@ def run(capture, args):
     return {"complete": True, "records": COUNT, "first_erase": 129, "first_erase_chunks_per_schema": 3,
             "shared_field_schemas": [SCHEMA, PEER], "seed": seeded, "after_129": erased,
             "reopened_129": reopened, "empty": empty, "persisted": [seed_disk, erased_disk, empty_disk],
-            "retired_route_absent": True, "retired_commands_absent": True, "retired_boot_refusal_read_only": True,
+            "retired_route_absent": True, "retired_commands_absent": True,
+            "retired_records_and_snapshot_unchanged": True,
             "scope": "Generated product data; interruption follows explicit flush; no power-loss or primary claim"}
 
 

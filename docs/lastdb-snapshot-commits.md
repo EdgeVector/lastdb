@@ -164,7 +164,8 @@ A cap refusal returns `WriteResourceLimit`; the complete private erase batch rem
 These caps can refuse an erase on a home with a large aggregate meter state.
 
 The journal-based cloud repair, selected-device replacement, peer adoption, and atom-rewrite commands are removed.
-Startup refuses retired repair state without a read, replay, or file change.
+Startup refuses retired repair state without a read, replay, or change of the retired records.
+Normal session diagnostics can still change files outside that state and the native snapshot.
 Cloud generations that need the removed adoption workflow receive an explicit refusal.
 The sync mutation log and authenticated retired sync source records remain.
 Those records serve sync and never select the local recovery root.
