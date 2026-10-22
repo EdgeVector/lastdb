@@ -131,6 +131,9 @@ Both native activation flags remain off by default. Legacy Cloud On stays disabl
 No deployment, shared infrastructure change, primary access, tests, or runtime cloud recovery occurs in this wave.
 Format, type, lint, and build results establish source checks only.
 
-The next source step closes legacy grant isolation, allocation reconciliation, and legacy purge coverage.
+The service now supplies a permanent shared account cutoff hold and explicit native namespace protection.
+The hold stops new legacy admissions. It does not revoke prior upload grants or prove provider quiescence.
+Native new effects require Ready authority. This stage has no Ready writer, so context reports new work unavailable.
+The next source step binds old-effect and allocation evidence to that exact hold before any Ready transition.
 P1 then uses normal product commands with fresh synthetic data in an approved service environment.
 Tom must approve shared service and infrastructure changes before that operational step.

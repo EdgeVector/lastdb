@@ -1,7 +1,7 @@
 # Native cloud backup protocol, version 1
 
-Status: unreleased draft, revision 5. Runtime support stays disabled.
-This revision consumes snapshot commits from main and adds read-only file source grants and native usage observations.
+Status: unreleased draft, revision 6. Runtime support stays disabled.
+This revision adds the shared account cutoff boundary after snapshot integration and read-only source grants.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 4118c7baa12539c8c6bcf4391c497159f2a1529a and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
@@ -64,6 +64,17 @@ A present control requires its exact identity, positive generation, and typed au
 An unavailable or malformed record never becomes generation zero.
 The client compares the returned account with its independently derived source or recovery account.
 This observation does not replace conditional authority checks on any new effect.
+The new_work_enabled observation includes account readiness as well as the feature gate.
+The current service supplies only a permanent cutoff hold and reports this value as false.
+It provides no Ready transition or hold removal.
+
+The private per-account storage authority is separate from the existing generation control.
+Its cutoff hold fences new legacy admission and control changes through conditions in their own transactions.
+The hold does not prove closure of old grants or provider effects.
+Native new effects and acceptance require explicit Ready authority in addition to their generation and job conditions.
+A later transition must bind complete old-effect proof to the exact cutoff and account generation.
+Reads, exact close, and positive-evidence recovery remain available during the hold.
+Legacy purge has no authority over native backup files or native obligations.
 
 BackupStream adds stream_id and source_home.
 The first successful jobs/begin conditionally registers the stream to its authenticated stable service subject and exact native home.

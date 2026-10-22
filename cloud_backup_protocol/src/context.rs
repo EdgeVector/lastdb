@@ -18,7 +18,8 @@ impl ContextReadRequest {
 }
 
 /// The service derives scope from its authenticated subject and current control.
-/// `new_work_enabled` reports the native feature gate, not quota admission.
+/// `new_work_enabled` observes both the feature gate and account readiness.
+/// It never replaces conditional authority or quota admission.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContextReadResponse {
