@@ -1,11 +1,14 @@
 # cloud_backup_protocol
 
-Canonical version-one native cloud backup wire types, unreleased draft revision 2.
+Canonical version-one native cloud backup wire types, unreleased draft revision 3.
 The [protocol specification](../docs/designs/native-cloud-backup-protocol-v1.md) defines the required authority and provider effects.
 
 The crate contains strict scalars, byte limits, job results, object receipts, manifest and recovery types, and one accepted backup result.
 Pure validators check local consistency and exact request/result linkage.
 They do not verify provider bytes, account authority, durable effects, complete native inventories, or successful recovery.
+
+The initial manifest read binds its grant to the accepted receipt ID through `ReadGrantResponse::manifest_index_grant_for`.
+Private upload targets use the complete frozen transfer digest, so separate jobs keep separate physical allocations.
 
 Runtime support remains disabled.
 No production crate imports this package at stage one.

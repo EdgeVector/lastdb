@@ -1,7 +1,7 @@
 # Native cloud backup protocol, version 1
 
-Status: unreleased draft, revision 2. Runtime support stays disabled.
-This revision supersedes the first stage-one draft. Wire Version remains 1 because no runtime consumer uses either draft.
+Status: unreleased draft, revision 3. Runtime support stays disabled.
+This revision closes both revision-two review gaps. Wire Version remains 1 because no runtime consumer uses these drafts.
 Source baseline: LastDB 8067843c4f9626470edc971ab10c10e829f021d8 and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
 ## 1. Release boundary and authority
@@ -394,6 +394,15 @@ It includes the separate encrypted index and public reference metadata.
 It cannot accept an arbitrary client provider key.
 The client compares every grant's expected hash and length to its authoritative receipt or reference descriptor.
 
+The first encrypted manifest index read starts with AcceptedBackup's receipt ID, without a local full receipt.
+Reconstruct its ObjectReceipt from Version 1, the accepted scope, ManifestIndex kind, and the grant's hash and length.
+Verify that reconstructed receipt against the accepted receipt ID before download.
+This check also enforces the ManifestIndex envelope byte bound.
+Use ReadGrantResponse::manifest_index_grant_for for this first response.
+That helper binds the selected job and receipt selector, then verifies the reconstructed receipt before it returns the grant.
+An echoed receipt selector alone cannot establish the grant's byte identity.
+Other receipt reads use the full receipt from the verified reference tree.
+
 The restore job saves its selected BackupJob, accepted digest, progress, and fresh destination before downloads.
 A restart resumes that selection.
 The importer verifies encryption context, recovered keys, complete inventory, every digest and extent, and file blob access.
@@ -459,11 +468,14 @@ Keyed reads, not raw provider lists, establish record identity.
 
 The fixed R2 object names are:
 
-    native-backup/v1/S/objects/REQUEST_ID/OBJECT_SHA256-BYTE_LENGTH
+    native-backup/v1/S/objects/TRANSFER_SHA256/OBJECT_SHA256-BYTE_LENGTH
     native-backup/v1/S/references/pages/PAGE_SHA256.json
     native-backup/v1/S/references/indices/INDEX_SHA256.json
 
-Each transfer target has a unique request ID. A refreshed URL keeps the same target.
+TRANSFER_SHA256 is TransferInput::input_sha256 over the complete frozen transfer input.
+It includes the scope, stream, commit ID, request ID, object kind, hash, and length.
+Two jobs with the same request ID and bytes therefore use different targets and independent byte obligations.
+A refreshed URL keeps the same target.
 Existing verified receipts reuse their saved backup-owned location.
 Concurrent first uploads can leave a redundant object at another unique target.
 The service keeps the first canonical receipt binding and never overwrites it with that second location.

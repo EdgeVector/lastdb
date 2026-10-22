@@ -3,9 +3,13 @@
 use crate::limits::{
     encoded_json_bytes, MAX_OBJECT_BYTES, MAX_REFERENCE_PAGE_BYTES, REQUEST_JSON_MAX_BYTES,
 };
+use crate::publication::AcceptedBackup;
 use crate::references::{ReferenceIndex, ReferencePage};
 use crate::transfer::ObjectReceipt;
-use crate::{BackupJob, CloudScope, DecimalU64, Digest, ProtocolError, Text, Version};
+use crate::{
+    BackupJob, CloudScope, DecimalU64, Digest, ObjectIdentity, ObjectKind, ProtocolError, Text,
+    Version,
+};
 use serde::{Deserialize, Serialize};
 
 pub const READ_GRANT_BATCH_MAX: usize = 4;
@@ -241,5 +245,44 @@ impl ReadGrantResponse {
             }
         }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
+
+    /// Validate the first index grant when its receipt is not yet available locally.
+    /// The caller must still verify downloaded bytes and authenticated plaintext context.
+    pub fn manifest_index_grant_for(
+        &self,
+        request: &ReadGrantRequest,
+        accepted: &AcceptedBackup,
+    ) -> Result<&ReadGrant, ProtocolError> {
+        self.validate_for(request)?;
+        accepted.validate()?;
+        if self.job != accepted.job {
+            return Err(ProtocolError::invalid("read_grant.manifest_index.job"));
+        }
+        let expected = ReadSelector::Receipt {
+            receipt_id: accepted.encrypted_manifest_receipt_id.clone(),
+        };
+        let index = request
+            .objects
+            .iter()
+            .position(|selector| selector == &expected)
+            .ok_or_else(|| ProtocolError::invalid("read_grant.manifest_index.selector"))?;
+        match &self.items[index] {
+            ReadGrantItemResult::Ok { grant, .. } => {
+                let receipt = ObjectReceipt {
+                    version: accepted.version,
+                    receipt_id: accepted.encrypted_manifest_receipt_id.clone(),
+                    scope: accepted.job.stream.scope.clone(),
+                    object: ObjectIdentity {
+                        sha256: grant.sha256.clone(),
+                        bytes: grant.bytes,
+                        kind: ObjectKind::ManifestIndex,
+                    },
+                };
+                grant.validate_for_receipt(&receipt)?;
+                Ok(grant)
+            }
+            ReadGrantItemResult::Error { error, .. } => Err(error.clone()),
+        }
     }
 }
