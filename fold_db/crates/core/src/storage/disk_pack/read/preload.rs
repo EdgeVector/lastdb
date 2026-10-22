@@ -27,6 +27,7 @@ impl ReadContext {
                 failure: Arc::new(Mutex::new(None)),
                 core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
                 accepted: base.accepted.clone(),
+                hidden_prefix: base.hidden_prefix,
                 core_model: base.core_model.clone(),
                 snapshots: Arc::new(snapshots::ReadSnapshots::default()),
                 revision: base.revision,

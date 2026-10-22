@@ -47,13 +47,12 @@ impl<'a> TierCopy<'a> {
         for (coordinate, bytes) in receipt.coordinates.iter().zip(&receipt.records) {
             let age = crate::disk_pack::bytes::u64_at(bytes, 72);
             ages.insert(*coordinate, age);
-            if coordinate.kind == 5 {
-                if payload_ages
+            if coordinate.kind == 5
+                && payload_ages
                     .insert(coordinate.object, age)
                     .is_some_and(|old| old != age)
-                {
-                    return Err(corrupt("payload parts have different creation generations"));
-                }
+            {
+                return Err(corrupt("payload parts have different creation generations"));
             }
             if age <= boundary {
                 dependencies.add(*coordinate)?;
@@ -287,8 +286,7 @@ impl<'a> TierCopy<'a> {
             .pack
             .put(&collection, key, location.version, bytes, &mut body)?;
         self.receipt.records_copied += 1;
-        drop(body);
         self.caches.keep(call);
-        Ok(replacement.encode_for_features(self.source.required_features)?)
+        replacement.encode_for_features(self.source.required_features)
     }
 }

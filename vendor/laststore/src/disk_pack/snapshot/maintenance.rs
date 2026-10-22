@@ -22,6 +22,15 @@ impl SnapshotWriter {
     /// read view before it calls `reclaim` under that view's exclusive lock.
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.check_admission()?;
+        if self
+            .lock
+            .compaction_active
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(crate::Error::WriteCapacity(
+                "compaction already active".into(),
+            ));
+        }
         self.poisoned = true;
         let packed = crate::disk_pack::maintenance::compact_locked(&self.lock, policy);
         let (current, receipt) = match packed {

@@ -9,7 +9,7 @@ use crate::disk_pack::tree_cursor::TreeCursor;
 use crate::disk_pack::tree_write::TreeWriter;
 use crate::disk_pack::write_lock::WriteLock;
 use crate::disk_pack::{
-    artifact, corrupt, publish, Current, DirectoryEntry, Location, Source, TreeKind,
+    artifact, corrupt, generation, publish, Current, DirectoryEntry, Location, Source, TreeKind,
 };
 use crate::Result;
 
@@ -33,13 +33,14 @@ pub(in crate::disk_pack) fn compact_locked(
     let previous = artifact::current(lock.root())?;
     let reserve = super::quote::replacement_bytes(lock.root(), &previous)?;
     let _space = reserve_replacement(lock.root(), policy, reserve)?;
+    publish::ensure_generation(lock, &previous)?;
     let output = copy(lock, &previous)?;
     super::concurrent::publish_output(lock, &previous, output)
 }
 
 pub(super) fn copy(lock: &WriteLock, previous: &Current) -> Result<PackOutput> {
     let root = lock.root();
-    let old = publish::ensure_generation(lock, &previous)?;
+    let old = generation::read_receipt(root, previous)?;
     let mut current = previous.clone();
     current.generation = publish::fresh_generation(root, previous.generation)?;
     current.previous_generation = previous.generation;
@@ -57,7 +58,7 @@ pub(super) fn copy(lock: &WriteLock, previous: &Current) -> Result<PackOutput> {
         },
     };
     let mut caches = PackCaches::new();
-    let mut call = caches.call(root, &previous);
+    let mut call = caches.call(root, previous);
     let mut cursor = TreeCursor::seek(&mut call, previous.directory.clone(), b"")?;
     while let Some((key, value)) = cursor.next(&mut call)? {
         let entry = DirectoryEntry::decode(&value)?;
@@ -65,13 +66,13 @@ pub(super) fn copy(lock: &WriteLock, previous: &Current) -> Result<PackOutput> {
         // The group takes the caches while it runs and gives them back at its end.
         caches.keep(call);
         let replacement = compactor.group(
-            &previous,
+            previous,
             &collection,
             &entry,
             (&mut pack, &mut locators, &mut caches),
         )?;
         directory.add(&key, replacement.encode()?)?;
-        call = caches.call(root, &previous);
+        call = caches.call(root, previous);
     }
     let data = pack.finish()?;
     compactor

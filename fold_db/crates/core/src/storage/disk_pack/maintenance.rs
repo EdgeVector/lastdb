@@ -69,7 +69,7 @@ impl PackRuntime {
             != 0
     }
 
-    /// Publish replacements under the write gate, then release it before cleanup.
+    /// Copy outside the write gate, publish with a bounded catch-up, then reclaim.
     /// A separate maintenance owner excludes competing cleanup and pack calls.
     pub async fn maintain_native(
         self: &Arc<Self>,
@@ -105,7 +105,10 @@ impl PackRuntime {
                 })
                 .await?;
                 let output = if !options.dry_run && !options.reclaim_only {
-                    Some(runtime.copy_native_pack(options).await?)
+                    Some(runtime.copy_native_pack(options).await.map_err(|error| {
+                        runtime.parts.record_failure(&error);
+                        error
+                    })?)
                 } else {
                     None
                 };

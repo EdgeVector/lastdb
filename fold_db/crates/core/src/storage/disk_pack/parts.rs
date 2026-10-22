@@ -4,9 +4,9 @@
 //! receipt holds at most `MAX_DEPENDENCY_PARTS` entries, each publication writes
 //! it again in full, and only maintenance (pack, then reclaim) shrinks it. The
 //! count is therefore a hard limit and a per-write cost. This ledger records the
-//! count after every publication. When the count passes the high-water mark, a
-//! single worker task runs maintenance. Writers wait on the write gate while it
-//! runs, so they never meet the hard limit in the ordinary case.
+//! count after every publication. A single worker copies outside the write gate
+//! and catches up before a short handoff. Admission refuses new work at the
+//! 85-percent soft limit if writers outrun compaction.
 
 use super::*;
 use laststore::disk_pack::MAX_DEPENDENCY_PARTS;
@@ -179,10 +179,16 @@ impl PartsLedger {
             return ceiling;
         }
         let by_records = (self.records.load(Relaxed).saturating_mul(20) as f64).sqrt() as u64;
-        self.high_water
+        let configured = self
+            .high_water
             .max(self.baseline.load(Relaxed).saturating_mul(2))
             .max(by_records)
-            .min(ceiling)
+            .min(ceiling.min(MAX_DEPENDENCY_PARTS / 2));
+        let minimum = self
+            .baseline
+            .load(Relaxed)
+            .saturating_add(MIN_GROWTH.min(self.high_water / 2));
+        self.progress.start_before_exhaustion(configured, minimum)
     }
 
     /// True when the count leaves too little room for another write.
@@ -205,7 +211,8 @@ impl PartsLedger {
 
     /// Record the count of a new publication and wake the worker at the mark.
     pub(super) fn observe(&self, parts: u64, root: &Current) {
-        self.current.store(parts, Relaxed);
+        let previous = self.current.swap(parts, Relaxed);
+        self.progress.observe_growth(parts.saturating_sub(previous));
         self.generation.store(root.generation, Relaxed);
         self.frontier.store(root.frontier, Relaxed);
         self.peak.fetch_max(parts, Relaxed);

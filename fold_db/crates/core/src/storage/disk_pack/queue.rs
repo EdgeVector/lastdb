@@ -108,8 +108,8 @@ impl PackRuntime {
         if let Some(append) = &prepared {
             append.reserve_capacity(queue.prepared.as_mut())?;
         }
-        // Read-held core values require retained quota. Private durable work
-        // seals the queue so later writers wait for its committed state.
+        // Read-held core values require retained quota. Private background work
+        // is available only to later preparation, through preparation_prefix.
         if visible {
             self.install_accepted(Arc::clone(&pending), sequence)?;
         }

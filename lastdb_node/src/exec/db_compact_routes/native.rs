@@ -49,6 +49,6 @@ pub(super) async fn execute(
             &serde_json::json!({"compact":{"native_disk":report}}),
             ctx.user_id.as_str(),
         )),
-        Err(error) => error_response(500, &format!("native disk compact failed: {error}"), ctx),
+        Err(error) => render(Err(error.into()), ctx),
     }
 }

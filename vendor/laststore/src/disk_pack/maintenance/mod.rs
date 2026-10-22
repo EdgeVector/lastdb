@@ -34,6 +34,7 @@ pub struct MaintenanceReceipt {
     pub copy_millis: u64,
     /// Catch-up rounds and changed locators across those rounds.
     pub catch_up_rounds: u64,
+    /// Changed locators or newly grafted groups across catch-up rounds.
     pub catch_up_records: u64,
     /// Verified obsolete file count removed after protection and grace checks.
     pub files_removed: u64,

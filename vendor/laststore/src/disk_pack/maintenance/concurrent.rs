@@ -20,6 +20,7 @@ impl Drop for ActivePack {
 pub struct CompactionPlan {
     lock: Arc<WriteLock>,
     source: GenerationHold,
+    caught: GenerationHold,
     active: ActivePack,
     policy: super::CompactionPolicy,
 }
@@ -32,6 +33,8 @@ pub struct PreparedCompaction {
     pub(super) output: PackOutput,
     _active: ActivePack,
     _space: SpaceReservation,
+    policy: SpacePolicy,
+    off_gate_millis: u64,
     rounds: u64,
     changes: u64,
     started: std::time::Instant,
@@ -51,9 +54,11 @@ impl CompactionPlan {
         let active = ActivePack(Arc::clone(&lock));
         let lease = crate::disk_pack::lifetime::WriterReadLease::new(Arc::clone(&lock));
         let source = GenerationHold::from_writer(&lease, lock.root(), current)?;
+        let caught = GenerationHold::from_writer(&lease, lock.root(), current)?;
         Ok(Self {
             lock,
             source,
+            caught,
             active,
             policy,
         })
@@ -64,24 +69,29 @@ impl CompactionPlan {
         let started = std::time::Instant::now();
         let root = self.lock.root();
         let current = self.source.current();
-        let reserve = super::quote::replacement_bytes(root, current)?;
-        let space = super::space::reserve_replacement(root, policy, reserve)?;
         let boundary = self.policy.boundary(root, current)?;
+        let reserve = if boundary == 0 {
+            super::quote::replacement_bytes(root, current)?
+        } else {
+            super::quote::tier_bytes(root, current, boundary)?
+        };
+        let space = super::space::reserve_replacement(root, policy, reserve)?;
         let mut output = if boundary == 0 {
             super::compact::copy(&self.lock, current)?
         } else {
             super::tier::TierCopy::copy(root, current, boundary)?
         };
         output.receipt.tier_boundary = boundary;
-        let lease = crate::disk_pack::lifetime::WriterReadLease::new(Arc::clone(&self.lock));
-        let caught = GenerationHold::from_writer(&lease, root, current)?;
+
         Ok(PreparedCompaction {
             lock: self.lock,
             source: self.source,
-            caught,
+            caught: self.caught,
             output,
             _active: self.active,
             _space: space,
+            policy: policy.clone(),
+            off_gate_millis: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
             rounds: 0,
             changes: 0,
             started,
@@ -93,7 +103,14 @@ impl PreparedCompaction {
     /// Replay only keys whose original mutation sequence is newer than the previous cut.
     /// The hold keeps that cut's files until the complete round ends.
     pub fn catch_up(&mut self, cut: GenerationHold) -> Result<u64> {
-        self.catch_up_bounded(cut, u64::MAX)
+        let count = self.catch_up_bounded(cut, u64::MAX)?;
+        self.off_gate_millis = self
+            .started
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        Ok(count)
     }
 
     pub(in crate::disk_pack) fn catch_up_bounded(
@@ -104,11 +121,40 @@ impl PreparedCompaction {
         if cut.root() != self.lock.root() {
             return Err(corrupt("compaction cut belongs to another home"));
         }
+        self.reserve_delta(cut.current())?;
         let count = super::catch_up::run(self, cut.current(), limit)?;
         self.caught = cut;
         self.rounds += 1;
         self.changes = self.changes.saturating_add(count);
         Ok(count)
+    }
+
+    fn reserve_delta(&mut self, cut: &Current) -> Result<()> {
+        if cut == self.caught.current() {
+            return Ok(());
+        }
+        let receipt = generation::read_receipt(self.lock.root(), cut)?;
+        let mut extra = 0u64;
+        for (coordinate, record) in receipt.coordinates.iter().zip(&receipt.records) {
+            if matches!(coordinate.kind, 1 | 2)
+                && crate::disk_pack::bytes::u64_at(record, 72) > self.caught.current().generation
+            {
+                extra = extra
+                    .checked_add(crate::disk_pack::bytes::u64_at(record, 32).saturating_mul(32))
+                    .ok_or_else(|| corrupt("catch-up space quote overflow"))?;
+            }
+        }
+        if extra > 0 {
+            let total = self
+                ._space
+                .bytes()
+                .checked_add(extra)
+                .ok_or_else(|| corrupt("catch-up reservation overflow"))?;
+            let mut extension = self._space.reserve_extension(&self.policy, total)?;
+            std::mem::swap(&mut extension, &mut self._space);
+            self._space.absorb(extension);
+        }
+        Ok(())
     }
 
     /// Number of completed catch-up rounds, excluding the final root handoff.
@@ -124,12 +170,7 @@ impl PreparedCompaction {
             return Err(corrupt("compaction belongs to another writer lease"));
         }
         let mut output = self.output;
-        output.receipt.copy_millis = self
-            .started
-            .elapsed()
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX);
+        output.receipt.copy_millis = self.off_gate_millis;
         output.receipt.catch_up_rounds = self.rounds;
         output.receipt.catch_up_records = self.changes;
         publish_output(lock, self.caught.current(), output)

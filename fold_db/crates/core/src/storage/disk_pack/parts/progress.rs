@@ -2,7 +2,7 @@
 use super::*;
 
 #[derive(Default)]
-pub(super) struct Progress {
+pub(in crate::storage::disk_pack) struct Progress {
     phase: AtomicU64,
     copy_millis: AtomicU64,
     swap_millis: AtomicU64,
@@ -10,6 +10,8 @@ pub(super) struct Progress {
     rounds: AtomicU64,
     changed: AtomicU64,
     boundary: AtomicU64,
+    write_rate: AtomicU64,
+    last_write: Mutex<Option<std::time::Instant>>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -24,7 +26,7 @@ pub struct NativeCompactionStatus {
     pub compaction_tier_boundary: u64,
 }
 
-pub(super) struct PhaseGuard(Arc<Progress>);
+pub(in crate::storage::disk_pack) struct PhaseGuard(Arc<Progress>);
 
 impl Drop for PhaseGuard {
     fn drop(&mut self) {
@@ -33,16 +35,49 @@ impl Drop for PhaseGuard {
 }
 
 impl Progress {
-    pub(super) fn begin(self: &Arc<Self>) -> PhaseGuard {
+    pub(in crate::storage::disk_pack) fn observe_growth(&self, growth: u64) {
+        if growth == 0 {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let previous = self
+            .last_write
+            .lock()
+            .expect("part growth clock")
+            .replace(now);
+        if let Some(previous) = previous {
+            let micros = now.duration_since(previous).as_micros().max(1000);
+            let rate = (u128::from(growth) * 1_000_000 / micros).min(u128::from(u64::MAX)) as u64;
+            let old = self.write_rate.load(Relaxed);
+            self.write_rate
+                .store(old.saturating_mul(7).saturating_add(rate) / 8, Relaxed);
+        }
+    }
+
+    pub(in crate::storage::disk_pack) fn start_before_exhaustion(
+        &self,
+        trigger: u64,
+        minimum: u64,
+    ) -> u64 {
+        let growth = self
+            .write_rate
+            .load(Relaxed)
+            .saturating_mul(self.copy_millis.load(Relaxed))
+            / 1000;
+        let headroom = laststore::disk_pack::MAX_DEPENDENCY_PARTS * 85 / 100;
+        trigger.min(headroom.saturating_sub(growth).max(minimum))
+    }
+
+    pub(in crate::storage::disk_pack) fn begin(self: &Arc<Self>) -> PhaseGuard {
         self.phase(1);
         PhaseGuard(Arc::clone(self))
     }
 
-    pub(super) fn phase(&self, phase: u64) {
+    pub(in crate::storage::disk_pack) fn phase(&self, phase: u64) {
         self.phase.store(phase, Relaxed);
     }
 
-    pub(super) fn completed(
+    pub(in crate::storage::disk_pack) fn completed(
         &self,
         receipt: &laststore::disk_pack::maintenance::MaintenanceReceipt,
         swap: u64,
@@ -55,7 +90,7 @@ impl Progress {
         self.boundary.store(receipt.tier_boundary, Relaxed);
     }
 
-    pub(super) fn status(&self) -> NativeCompactionStatus {
+    pub(in crate::storage::disk_pack) fn status(&self) -> NativeCompactionStatus {
         let phase = match self.phase.load(Relaxed) {
             1 => "capture",
             2 => "copy",

@@ -32,6 +32,7 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     let mut call = artifact::metadata_call(root, cut.clone());
     let mut groups = TreeCursor::recent(&mut call, cut.directory.clone(), previous.generation)?;
     let mut copied = 0;
+    let mut directory_changes = Vec::new();
     while let Some((key, value)) = groups.next(&mut call)? {
         let live = DirectoryEntry::decode(&value)?;
         let mut output_call = artifact::metadata_call(root, proposed.clone());
@@ -84,7 +85,11 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
             locator: tree,
             ..live
         };
-        directory.put_many(&mut output_call, &[(key, replacement.encode()?)])?;
+        directory_changes.push((key, replacement.encode()?));
+        if directory_changes.len() == cut.batch_operation_limit().min(256) {
+            directory.put_many(&mut output_call, &directory_changes)?;
+            directory_changes.clear();
+        }
         call = artifact::metadata_call(root, cut.clone());
     }
     let mut dependencies =

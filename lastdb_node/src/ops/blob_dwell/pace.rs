@@ -1,21 +1,13 @@
 //! Chunk size and pacing of the dwell pass.
 //!
-//! One chunk is one hold of the native write gate and one batch with its own
-//! flush, and the pass holds the local mutation admission while the chunk runs.
-//! A chunk seals the write queue, so a writer that arrives meanwhile waits for the
-//! chunk and for its flush. A pass that runs its chunks back to back keeps writers
-//! waiting for as long as the queue lasts. So the pass rests after each chunk for a
-//! share of the time the chunk kept writers waiting.
+//! The duty share measures the time a chunk keeps writers waiting. Background
+//! batches share the bounded collection window and still wait for durability.
+//! Their private prefix is available to write preparation only. Ordinary reads
+//! retain the committed view. A chunk that needs a sealed fence includes that
+//! flush wait in its measured cost. Other chunks measure the gate hold.
 //!
-//! The rest after a chunk is `blocked * (100 - duty) / duty`, where `blocked` is
-//! the time the chunk kept writers waiting: the hold of the native write gate (its
-//! reads in the gate, its staging and its accept) and the wait until the chunk is
-//! durable. The reads of the queue page before the gate block nobody and are not
-//! part of it. When no other task wrote since the last chunk (`WriterWatch`), the
-//! rest protects nobody and it is the minimum rest. The rest is otherwise at least
-//! the minimum rest and at most [`MAX_PAUSE`]. The knobs come from the node
-//! environment and are read at the start of each pass. A value that does not
-//! parse, or lies outside its range, is clamped into the range.
+//! The writer watch preserves that share for sparse writers. An idle node uses
+//! only the minimum pause. The environment sets the knobs at the start of a pass.
 
 use std::time::Duration;
 

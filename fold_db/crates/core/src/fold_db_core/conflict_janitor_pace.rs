@@ -17,8 +17,8 @@ const BACKOFF_BASE_MIN: Duration = Duration::from_secs(1);
 /// the janitor `d` percent of the time. The measure is the time the step keeps
 /// writers waiting (`storage::disk_pack::transaction::blocked`), not its wall time:
 /// the page reads before the gate block nobody. It is also not the hold of the
-/// gate alone: a release batch seals the write queue, so every writer waits until
-/// the batch is durable.
+/// gate alone when a batch requires a sealed durability fence. A normal background
+/// batch shares the bounded collection window and measures its gate hold.
 fn pause_after(blocked: Duration, duty_pct: u64) -> Duration {
     let blocked_us = u64::try_from(blocked.as_micros()).unwrap_or(u64::MAX);
     Duration::from_micros(blocked_us.saturating_mul(100 - duty_pct) / duty_pct)

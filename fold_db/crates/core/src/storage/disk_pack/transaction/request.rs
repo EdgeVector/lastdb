@@ -30,7 +30,7 @@ where
     .await
 }
 
-/// Return after durability; unreserved work seals the current collection window.
+/// Return after durability; private background work can share one bounded collection window.
 pub(crate) async fn background_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -110,8 +110,8 @@ where
             .await?;
     let delay = protect_paths(&runtime, &pending, delay)?;
     let wait = reply != Reply::Memory || delay.is_none();
-    // A batch with no early publication seals the queue: every later writer waits
-    // in `enter_prepare` until the batch is durable, though the gate is free.
+    // Background work remains private during collection. Write preparation reads
+    // its owned prefix; ordinary reads retain their committed view.
     let collection_delay = if reply == Reply::Background {
         Some(std::time::Duration::from_millis(500))
     } else {
