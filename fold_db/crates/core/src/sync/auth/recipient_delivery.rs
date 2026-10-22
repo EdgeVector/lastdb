@@ -126,9 +126,6 @@ impl AuthClient {
         target: RecipientDeliveryTarget,
         delivery_nonce: &str,
     ) -> SyncResult<RecipientDeliveryBinding> {
-        if self.cloud_adoption_read.is_some() {
-            return Err(held("an inactive adoption reader cannot create a delivery"));
-        }
         validate_nonce(delivery_nonce)?;
         let (sender_account, sender_generation, _) = self.sender_delivery_admission().await?;
         let response = self
@@ -151,10 +148,7 @@ impl AuthClient {
         &self,
         body: &mut Value,
     ) -> SyncResult<()> {
-        if self.cloud_adoption_read.is_some() {
-            return Err(held("an inactive adoption reader cannot send a delivery"));
-        }
-        if let Some(error) = &self.cloud_purge_peer_error {
+        if let Some(error) = &self.cloud_generation_error {
             return Err(SyncError::CloudPurgeHeld(error.clone()));
         }
         let target = RecipientDeliveryTarget::from_request(body)?;
@@ -233,25 +227,11 @@ impl AuthClient {
                 "the service did not resolve the sender personal account",
             ));
         }
-        if generation == 0 {
-            if let Some(peer) = &self.cloud_purge_peer {
-                peer.observe(&response)?;
-                peer.bind_local_account(&account)?;
-            }
-            return Ok((account, 0, None));
+        if generation != 0 || response.protocol_required {
+            return Err(held("sender generation requires retired cloud adoption"));
         }
-        let peer = self
-            .cloud_purge_peer
-            .as_ref()
-            .ok_or_else(|| held("sender adoption requires a durable local peer receipt"))?;
-        peer.observe(&response)?;
-        peer.bind_local_account(&account)?;
-        let control = response
-            .control
-            .as_ref()
-            .ok_or_else(|| held("sender control is absent"))?;
-        let token = peer.ensure_adopted(self, control).await?;
-        Ok((account, generation, Some(token)))
+        self.observe_cloud_control(&response)?;
+        Ok((account, 0, None))
     }
 }
 

@@ -74,11 +74,6 @@ pub struct FoldDB {
     /// Optional configuration store for runtime node config.
     /// Uses RwLock for interior mutability so FoldDB doesn't need &mut self.
     config_store: std::sync::RwLock<Option<crate::storage::NodeConfigStore>>,
-    /// Signing keypair for molecule signatures. Cloned at construction into
-    /// `MutationManager` (for atom signatures). Held on `FoldDB` so
-    /// `start_sync_engine_runtime` can pass it to `SyncEngine::new` when sync
-    /// activates after boot.
-    pub(crate) signer: Arc<crate::security::Ed25519KeyPair>,
 }
 
 impl Drop for FoldDB {

@@ -1,9 +1,8 @@
-//! Owner Cloud On requires an exact generation receipt before runtime activation.
+//! Owner Cloud On checks the account generation before runtime activation.
 
 use super::*;
 
-/// `POST /api/sync/cloud-on` — new account control activates the serving engine.
-/// The old account control only renames the resume file.
+/// `POST /api/sync/cloud-on` refuses retired repair generations.
 pub(in crate::exec) async fn execute_sync_cloud_on_route(
     ctx: &AccessContext,
     host: &Host,
@@ -17,14 +16,13 @@ pub(in crate::exec) async fn execute_sync_cloud_on_route(
     if !ctx.is_owner {
         return error_response(403, "Cloud On is owner-only", ctx);
     }
+    if let Err(error) = crate::cloud_activation::require_legacy_generation(host).await {
+        return error_response(409, &error, ctx);
+    }
     if host.db.sync_engine().is_none()
         || crate::cloud::cloud_resume_required_path(&host.home).exists()
     {
-        match crate::cloud_activation::activate_adopted_generation(host).await {
-            Ok(Some(report)) => return json_ok(&envelope(&report, ctx.user_id.as_str())),
-            Ok(None) => return old_control_pending_restart(ctx, host),
-            Err(error) => return error_response(409, &error, ctx),
-        }
+        return old_control_pending_restart(ctx, host);
     }
     let file_restored = match crate::cloud::resume_cloud_sync_file(&host.home) {
         Ok(restored) => restored,

@@ -3,6 +3,32 @@
 use super::*;
 
 impl KeepSmallMeters {
+    /// Remove a known tip without wrapping an incomplete aggregate below zero.
+    pub(crate) fn record_tip_delete(&self, schema: Option<&str>, bytes: u64) {
+        let before = self
+            .tip_bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_sub(bytes))
+            })
+            .unwrap_or(0);
+        let count = self
+            .tip_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(value.saturating_sub(1))
+            })
+            .unwrap_or(0);
+        if before < bytes || count == 0 {
+            self.mark_incomplete("erase_tip_aggregate_underflow");
+        }
+        if let Some(schema) = schema {
+            self.with_schema(schema, |meter| {
+                meter.tip_bytes = meter.tip_bytes.saturating_sub(bytes);
+            });
+        } else {
+            self.mark_schema_dirty(None);
+        }
+    }
+
     pub(super) fn take_pending(&self, atom_uuid: &str) -> Option<PendingAtomContribution> {
         self.pending_atoms
             .lock()

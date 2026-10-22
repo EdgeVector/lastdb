@@ -1,4 +1,4 @@
-//! Durable snapshot, shard and hard-erase debit rows, and their key names.
+//! Durable aggregate meter state, schema slices, and their key names.
 
 use super::*;
 
@@ -6,6 +6,10 @@ use super::*;
 /// [`KEEP_SMALL_SNAPSHOT_KEY`] (in `metadata` before 2026-09-21).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct KeepSmallSnapshot {
+    /// Version 2 stores aggregate state directly. Older snapshots require
+    /// journal replay and cannot establish meter trust in this implementation.
+    #[serde(default)]
+    pub version: u32,
     pub totals: LiveBudgetTotals,
     pub schemas: HashMap<String, SchemaMeter>,
     /// One compact counter per molecule that this process has observed on the
@@ -38,14 +42,6 @@ pub struct KeepSmallSnapshot {
     /// Missing on pre-PR2 snapshots, which deserialize as incomplete.
     #[serde(default = "legacy_trust_payload")]
     pub trust: MeterTrustPayload,
-    /// Cumulative hard-erase debits already reflected in this snapshot.
-    /// A later durable debit row can be replayed without a whole-map flush.
-    #[serde(default)]
-    pub hard_erase_totals: KeepSmallHardEraseTotals,
-    /// Highest committed operation sequence included in this snapshot.
-    /// Rows at or below it can be pruned after this snapshot reaches disk.
-    #[serde(default)]
-    pub hard_erase_journal_checkpoint_seq: u64,
     /// When true, per-schema maps live at [`KEEP_SMALL_SCHEMA_SHARD_PREFIX`]
     /// keys (and [`KEEP_SMALL_UNATTRIBUTED_SHARD_KEY`]) instead of in this
     /// row. A whole-map blob from before this layout deserializes as false.
@@ -67,19 +63,7 @@ pub struct KeepSmallSchemaShard {
     pub trust: Option<MeterDomainTrust>,
 }
 
-/// Small durable aggregate; it stores schema totals, never erased row keys.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct KeepSmallHardEraseTotals {
-    pub by_schema: HashMap<String, KeepSmallHardEraseDebit>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct KeepSmallHardEraseDebit {
-    pub atom_bytes: u64,
-    pub atom_count: u64,
-    pub tip_bytes: u64,
-    pub tip_count: u64,
-}
+pub const KEEP_SMALL_SNAPSHOT_VERSION: u32 = 2;
 
 /// Metadata key for [`KeepSmallSnapshot`]. Point get/put — not a store walk.
 ///
@@ -92,8 +76,6 @@ pub const KEEP_SMALL_SCHEMA_SHARD_PREFIX: &str = "keep_small:meters:schema:";
 pub const KEEP_SMALL_UNATTRIBUTED_SHARD_KEY: &str = "keep_small:meters:unattributed";
 /// Sentinel schema name for [`KEEP_SMALL_UNATTRIBUTED_SHARD_KEY`] dirty tracking.
 pub const KEEP_SMALL_UNATTRIBUTED_SCHEMA: &str = "\u{1}unattributed";
-/// A small cumulative debit row. Hard erases flush this row, not the snapshot.
-pub const KEEP_SMALL_HARD_ERASE_TOTALS_KEY: &str = "keep_small:hard_erase_totals";
 
 pub(super) const HEX: &[u8; 16] = b"0123456789abcdef";
 

@@ -1,10 +1,4 @@
 //! Library surface of the minimal `lastdbd` daemon.
-//!
-//! The binary ([`main.rs`](../main.rs)) is a thin wrapper; the host boot
-//! ([`host::Host`]) and the owner-socket data-route executor ([`exec`]) live
-//! here so integration tests (notably the dual-boot cross-binary wire-shape
-//! test) can boot a real minimal host and drive the SAME shared owner-socket
-//! handlers the full node runs, asserting the two socket surfaces agree.
 
 pub mod allocator;
 pub mod app_publish;
@@ -14,11 +8,7 @@ pub mod app_storage;
 mod change_feed_queue;
 pub mod cloud;
 mod cloud_activation;
-pub mod cloud_purge_adoption;
-pub(crate) mod cloud_purge_adoption_org;
-pub(crate) mod cloud_purge_job;
-pub mod cloud_purge_runtime;
-pub(crate) mod cloud_purge_secrets;
+mod cloud_clients;
 pub mod deliver;
 pub mod distribution;
 pub mod ephemeral;

@@ -4,7 +4,7 @@ Reviewed 2026-10-22 against commit `47088b89c0bff5142a519db685051849112a787a` an
 The implementation starts from main `6d8aa0d573e91a94fd4fd308a7f0eacca022e852`.
 It retains the macOS barriers from PR 266 and the reclaim handoff from PR 267.
 This document separates source facts, the first product run, and historical performance evidence.
-This document pass starts no node, build, or runtime measurement.
+The second review also removes erase recovery records and journal-based cloud repair.
 
 ## Current source
 
@@ -14,7 +14,7 @@ This document pass starts no node, build, or runtime measurement.
 | Publications | Each complete stored batch writes one generation receipt and publishes one root | Receipt copies still retain conservative prior dependencies |
 | Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Compaction still removes superseded files |
 | Recovery | Writer open verifies `CURRENT`, its receipt, and dependency files | No local mutation replay or silent receipt reconstruction |
-| Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Logical meter debit records remain separate ordinary KV state |
+| Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Erase aggregates now commit with deletes; debit recovery records are removed |
 | Format | Every supported root requires snapshot feature `256`; retired feature `2` is refused | No converter for old native journal homes exists |
 | macOS durability | Ordered file barriers precede root publication; a final device flush precedes durable success | Process interruption does not prove power-loss behavior |
 | File lifetime | Read holds, backup references, and the installed-root reclaim handoff remain | Compaction still has a write pause |
@@ -32,6 +32,26 @@ Other 10,000 values bound individual query work or separate caches.
 They do not restore a warm-data count limit.
 The companion plan's new queue, workspace, range, sync, and disk limits remain proposals.
 This journal removal does not implement those proposed limits.
+
+## Additional removal from the second review
+
+Erase accounting writes the final header and changed schema slices in the same native batch as the delete.
+The live meter debit follows the durable root.
+No debit intent, sequence checkpoint, replay, or prune remains.
+Version 2 prevents an older meter snapshot from claiming complete counts without a replay.
+Final deletion audit facts remain ordinary snapshot data.
+
+The node no longer starts a cloud-repair worker or replays a local home switch.
+The selected-device replacement, peer adoption, and cloud atom-rewrite commands and routes are removed.
+Retired repair state and cloud generations that require adoption receive an explicit refusal.
+Ordinary sync mutations and authenticated retired sync source records remain.
+
+The review also removes unused acceptance timestamps, pressure wrappers, and dependency batch fields.
+Reserved format bytes remain zero and retain their integrity check.
+Payload reservations no longer charge a phantom journal prefix.
+The complete-batch policy cap stays 128 MiB.
+The offline write command now holds a complete disk-space reservation through publication.
+Its default free-space and replacement allowances remain 64 MiB each.
 
 ## Actual commit route
 

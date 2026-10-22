@@ -1,4 +1,4 @@
-//! Owned payload and map capacity before the complete native append.
+//! Owned payload and map capacity before the complete native snapshot commit.
 
 use super::{HomeMutation, HomeSnapshot, MutationQuote};
 use crate::disk_pack::corrupt;
@@ -33,7 +33,6 @@ impl HomeSnapshot {
     pub fn commit_mutation(
         &mut self,
         operations: Vec<HomeMutation>,
-        _accepted_ms: u64,
         reservation: MutationReservation,
     ) -> Result<crate::disk_pack::PublishedGeneration> {
         if reservation.generation != self.current().generation {
@@ -72,7 +71,7 @@ impl HomeSnapshot {
 
     /// Reserve a replacement prefix using only the new request's dimensions.
     /// The caller retains the previous ticket until complete admission succeeds,
-    /// then absorbs it into the returned ticket before append. Cancellation
+    /// then absorbs it into the returned ticket before commit. Cancellation
     /// releases only the added charge and leaves the previous ticket intact.
     pub fn reserve_mutation_extension(
         &self,

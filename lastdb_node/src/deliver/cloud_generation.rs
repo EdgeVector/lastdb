@@ -3,9 +3,8 @@
 use super::*;
 use fold_db::sync::auth::{AuthClient, RecipientDeliveryBinding, RecipientDeliveryTarget};
 
-pub(super) async fn auth(host: &Host) -> Result<AuthClient, String> {
-    let engine = crate::cloud_purge_runtime::peer_engine(host).await?;
-    Ok(engine.cloud_purge_auth())
+pub(super) fn auth(host: &Host) -> Result<AuthClient, String> {
+    crate::cloud_clients::auth(host)
 }
 
 pub(super) async fn prepare(
@@ -13,7 +12,7 @@ pub(super) async fn prepare(
     target_pseudonym: &str,
     delivery_id: &str,
 ) -> Result<Value, String> {
-    let auth = auth(host).await?;
+    let auth = auth(host)?;
     super::recipient::address(host).await?;
     let binding = auth
         .prepare_recipient_delivery(
@@ -41,7 +40,7 @@ pub(super) async fn send(
                 .map_err(|_| "the staged recipient generation binding is invalid".to_string())
         })
         .transpose()?;
-    let auth = auth(host).await?;
+    let auth = auth(host)?;
     super::recipient::address(host).await?;
     auth.send_recipient_messaging(
         target_pseudonym,

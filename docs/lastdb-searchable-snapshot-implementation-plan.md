@@ -18,6 +18,20 @@ No old-native-journal converter exists in this change.
 The [active protocol](lastdb-snapshot-commits.md) describes the exact implemented local path.
 The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
 The later [matched benchmark](proofs/journal-removal-benchmark-20261022/RESULTS.md) records three controlled before/after pairs.
+The second review removes erase debit intents, replay, prune, and journal bootstrap fields.
+Erase accounting writes its final aggregate header and changed schema slices with the delete.
+The live meter debit follows the durable snapshot root.
+Meter snapshot version 2 marks older values incomplete without journal replay.
+Erase preparation checks an 8 MiB aggregate copy quote before a full-state copy.
+It retains one aggregate candidate and allows at most eight aggregate working allocations, with a conservative 64 MiB total quote.
+Retained post-root debit effects have a separate 8 MiB cap per request.
+Either cap returns `WriteResourceLimit` and refuses the complete private erase batch.
+This limit can refuse an erase when the aggregate meter state is too large.
+
+The journal-based cloud repair workers, selected-device replacement, peer adoption, and atom-rewrite commands are removed.
+Retired repair state and cloud generations that require adoption receive an explicit refusal.
+Keep the sync mutation log and authenticated retired sync source records.
+
 Native cloud activation remains disabled. The sync contract and proposed resource limits below remain separate work.
 Dirty-share enforcement, new workspace quotas, and performance improvements beyond journal removal are not part of this change.
 
@@ -252,6 +266,9 @@ Keep the generic pack, encryption, page, ownership, and durability helpers.
 | Remove | `vendor/laststore/src/disk_pack/journal/` | Remove internal batch markers, suffix admission, replay, tail archives, and stream rotation after all callers move |
 | Remove | `vendor/laststore/src/disk_pack/stream_checkpoint.rs` | Remove the second empty-stream receipt and root publication |
 | Remove | `vendor/laststore/src/bin/lastdb-journal.rs` and its entry in `vendor/laststore/Cargo.toml` | Retire the internal-journal command; update dependent recovery commands |
+| Remove | `db_operations/atom_store/hard_erase_journal.rs` and its commit helper | Replace recovery records with final aggregate state in the native erase batch |
+| Remove | Node `cloud_purge*` modules, commands, routes, and core repair/adoption modules | Remove journal-based repair and restart workers; keep generation guards as explicit refusals |
+| Remove | Node and core `backup_atom_rewrite.rs` | Retire the resumable cloud rewrite command; keep old backup identity reads |
 | Replace | `vendor/laststore/src/disk_pack/home/write.rs`, `home/admission.rs`, `home/mutation_quote.rs` | Replace `HomeJournal` with direct snapshot reservations and commits |
 | Rewrite | `vendor/laststore/src/disk_pack/publish.rs` | Accept prepared locations directly; keep one receipt, durable root publication, and commit-identity resolution |
 | Rewrite | `vendor/laststore/src/disk_pack/current.rs`, `artifact.rs`, `mod.rs`, `home.rs`, `build.rs`, `home/build.rs` | Add the journal-free format fence and snapshot commit metadata; remove mandatory journal initialization |

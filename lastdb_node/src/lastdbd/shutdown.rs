@@ -53,7 +53,6 @@ pub(crate) fn drain_background(
 ) -> Result<(), String> {
     runtime.block_on(async {
         let drain = async {
-            lastdb_node::cloud_purge_runtime::drain(&host.home).await?;
             sampler_task
                 .await
                 .map_err(|error| format!("self-metrics task failed: {error}"))?;
@@ -71,35 +70,17 @@ pub(crate) fn drain_background(
     })
 }
 
-/// Keep the selected-source fence through every local writer and flush. An
-/// unreadable journal selects local-only shutdown and prevents a clean proof.
+/// Flush the local snapshot and the ordinary sync queues.
 pub(crate) fn flush_database(runtime: &tokio::runtime::Runtime, host: &Host) -> Result<(), String> {
-    let mut errors = Vec::new();
-    let local_only = lastdb_node::cloud_purge_runtime::requires_local_shutdown(&host.home)
-        .unwrap_or_else(|error| {
-            errors.push(error);
-            true
-        });
-    // The local proof engine has no cloud: a final remote sync cannot finish.
-    let local_only = local_only || host.proof_replay_engine;
-    let flush = runtime.block_on(async {
-        if local_only {
-            host.db.shutdown_local_only().await
-        } else {
-            host.db.shutdown().await
-        }
-    });
-    if let Err(error) = flush {
-        errors.push(format!("FoldDB shutdown flush failed: {error}"));
-    }
-    if let Err(error) = lastdb_node::cloud_purge_runtime::release_for_shutdown(&host.home) {
-        errors.push(error);
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("; "))
-    }
+    runtime
+        .block_on(async {
+            if host.proof_replay_engine {
+                host.db.shutdown_local_only().await
+            } else {
+                host.db.shutdown().await
+            }
+        })
+        .map_err(|error| format!("FoldDB shutdown flush failed: {error}"))
 }
 
 /// Persist the graceful-shutdown intent BEFORE the bounded async drain.

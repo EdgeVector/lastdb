@@ -1,0 +1,24 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/before-lastdbd",
+  "binary_sha256": "5b874ddd32e2c58f04b6a50b99d5e1e0a3698bc2fc662f0e26db7aa2007f4870",
+  "build_command": "scripts/ci/with-fold-host-cargo-lock.sh -- cargo build --locked --release -p lastdb_node --bin lastdbd",
+  "build_elapsed": "7m52s",
+  "build_environment": {
+    "CARGO_TARGET_DIR": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target"
+  },
+  "build_scratch_owner": {
+    "version": 1,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK",
+    "device": 16777231,
+    "inode": 1501069229,
+    "owner_uid": 501,
+    "run_id": "057eb65885504f358df8a53d7fbea071",
+    "primary_data": false
+  },
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "product_source_clean": true,
+  "revision": "6d8aa0d573e91a94fd4fd308a7f0eacca022e852",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "version": "lastdbd 0.23.4-pre.0-258-g6d8aa0d57",
+  "reused_exact_binary_from": "docs/proofs/journal-removal-benchmark-20261022/before-build.json"
+}

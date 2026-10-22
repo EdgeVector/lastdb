@@ -150,34 +150,6 @@ impl KeepSmallMeters {
         });
     }
 
-    /// Replay aggregate hard-erase debits after the snapshot's checkpoint.
-    /// The aggregate has no subject keys, so molecule source detail is not
-    /// recoverable from it. Mark trust incomplete until a full repair runs.
-    pub fn replay_hard_erase_debit(&self, schema: &str, debit: KeepSmallHardEraseDebit) {
-        self.sub_atom_bytes(debit.atom_bytes);
-        let _ = self
-            .atom_count
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                Some(n.saturating_sub(debit.atom_count))
-            });
-        let _ = self
-            .tip_bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                Some(n.saturating_sub(debit.tip_bytes))
-            });
-        let _ = self
-            .tip_count
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                Some(n.saturating_sub(debit.tip_count))
-            });
-        self.with_schema(schema, |meter| {
-            meter.live_bytes = meter.live_bytes.saturating_sub(debit.atom_bytes);
-            meter.atom_count = meter.atom_count.saturating_sub(debit.atom_count);
-            meter.tip_bytes = meter.tip_bytes.saturating_sub(debit.tip_bytes);
-        });
-        self.mark_incomplete("hard_erase_debit_replayed_without_sources");
-    }
-
     /// Drop a just-stored atom's pending size so a later replace cannot
     /// subtract it after the body is gone.
     pub fn forget_pending_atom(&self, atom_uuid: &str) {

@@ -43,19 +43,13 @@ pub(crate) fn prepare_destination(
     Ok(data_path)
 }
 
-/// Open the destination LastStore.
-///
-/// Backup chunks keep the source shard/group addresses. The destination
-/// descriptor must therefore match the source descriptor before any chunk
-/// is installed. Reading the descriptor does not open or lock the live
-/// source store. Existing destination descriptors still win through
-/// open_existing_or_with, which keeps mutation-log resume stable.
-pub(crate) fn open_destination_store(
+/// Validate the source and resumable target before destination file changes.
+/// Backup chunks retain the source placement. SegmentLog output is retired.
+pub(crate) fn destination_options(
     homes: &Homes,
     identity: &Identity,
     remote_descriptor: Option<&RemoteRecovery>,
-    data_path: &Path,
-) -> Phase<std::sync::Arc<fold_db::storage::LastStoreNamespacedStore>> {
+) -> Phase<laststore::LastStoreOptions> {
     let frame_aead = env_flag::var_truthy("LASTDB_RESTORE_FRAME_AEAD");
     let opts = if let Some(recovery) = remote_descriptor {
         recovery
@@ -76,6 +70,43 @@ pub(crate) fn open_destination_store(
             frame_aead,
         )?
     };
+    if opts.layout_mode == laststore::LayoutMode::SegmentLog {
+        return Err(retired_segment_log());
+    }
+    let target_layout = laststore::describe_home(homes.target.join("data")).map_err(|error| {
+        RestoreFailure::new(Stage::SourceLayout, Code::LayoutMismatch, error.to_string())
+    })?;
+    if target_layout
+        .as_ref()
+        .is_some_and(|layout| layout.layout_mode == laststore::LayoutMode::SegmentLog)
+    {
+        return Err(retired_segment_log());
+    }
+    if homes.resume_mutation_log && target_layout.is_none() {
+        return Err(RestoreFailure::new(
+            Stage::SourceLayout,
+            Code::LayoutMismatch,
+            "restore destination layout is missing; refusing to guess its write format",
+        ));
+    }
+    Ok(opts)
+}
+
+fn retired_segment_log() -> RestoreFailure {
+    RestoreFailure::new(
+        Stage::SourceLayout,
+        Code::LayoutMismatch,
+        "legacy SegmentLog restore is retired; the destination stays unchanged",
+    )
+}
+
+/// Open the validated HashGroup destination. Sync mutation-log resume retains
+/// its saved layout; it cannot select the retired SegmentLog writer.
+pub(crate) fn open_destination_store(
+    homes: &Homes,
+    opts: laststore::LastStoreOptions,
+    data_path: &Path,
+) -> Phase<std::sync::Arc<fold_db::storage::LastStoreNamespacedStore>> {
     let high_water = homes.target.join("laststore_high_water.json");
     let (opened, label) = if opts.packaging == laststore::PackagingMode::FrameAead {
         (

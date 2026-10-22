@@ -18,7 +18,7 @@ use crate::storage::laststore::{
     BackupManifest, BackupManifestRole, LastStoreNamespacedStore,
 };
 use crate::sync::snapshot_log::Frontier;
-pub(super) use chunk_download::{backup_restore_chunk_order, download_backup_chunk};
+pub(super) use chunk_download::backup_restore_chunk_order;
 use chunk_download::{
     download_backup_chunk_with_progress, download_fits, download_reservation,
     BACKUP_CHUNK_DOWNLOAD_HARD_CAP,

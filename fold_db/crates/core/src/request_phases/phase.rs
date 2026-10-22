@@ -77,7 +77,7 @@ pub enum RequestPhase {
     /// of the five was paying that could not be read off any surface. The
     /// sub-steps below carve it up; what stays here is the destructive
     /// commit's own bookkeeping (schema fetch, key-shape validation, batch
-    /// dedupe, storage-slot planning, the write-ahead ledger row).
+    /// dedupe, storage-slot planning, the atomic erase audit row).
     PurgeCommit,
     /// Mutation only, purge side: materializing every field molecule of the
     /// schema (`refresh_runtime_field_molecules`) so the trace and the

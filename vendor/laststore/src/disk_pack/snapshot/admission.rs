@@ -22,26 +22,13 @@ struct State {
 pub(super) struct AdmissionLedger(Mutex<State>);
 
 /// Owned, non-cloneable capacity for one complete batch on one writer instance.
-/// Dropping an unused ticket returns its quota. A failed append retains the
+/// Dropping an unused ticket returns its quota. A failed commit retains the
 /// uncertain charge while that poisoned writer exists.
 pub struct SnapshotReservation {
     ledger: Arc<AdmissionLedger>,
     id: u64,
     quote: SnapshotQuote,
     created: Instant,
-}
-
-/// Finite snapshot work, including reserved batches not yet appended.
-#[derive(Clone, Copy, Debug)]
-pub struct SnapshotPressure {
-    /// Quota held by owned tickets, including an uncertain append.
-    pub reserved_bytes: u64,
-    /// Number of tickets awaiting a complete snapshot commit.
-    pub reserved_batches: usize,
-    /// Age of the oldest ticket, measured with a monotonic clock.
-    pub oldest_reservation_ms: u64,
-    /// Caller should drain at 384 MiB or two seconds. This is not a timer.
-    pub should_flush: bool,
 }
 
 impl AdmissionLedger {
@@ -113,6 +100,7 @@ impl AdmissionLedger {
             || entry.quote != previous.quote
             || entry.reserved_bytes != previous.quote.physical_reserve
             || quote.operations < previous.quote.operations
+            || quote.policy_bytes < previous.quote.policy_bytes
             || quote.logical_bytes < previous.quote.logical_bytes
         {
             return Err(super::refuse(
@@ -123,20 +111,6 @@ impl AdmissionLedger {
             .physical_reserve
             .checked_sub(entry.reserved_bytes)
             .ok_or_else(|| super::refuse("snapshot extension shrank its prefix"))
-    }
-
-    pub(super) fn pressure(&self) -> Result<SnapshotPressure> {
-        let state = self.state()?;
-        let oldest = state.entries.values().map(|entry| entry.created).min();
-        let age = oldest.map_or(0, |time| {
-            u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
-        });
-        Ok(SnapshotPressure {
-            reserved_bytes: state.bytes,
-            reserved_batches: state.entries.len(),
-            oldest_reservation_ms: age,
-            should_flush: state.bytes >= 384 * 1024 * 1024 || age >= 2000,
-        })
     }
 }
 
@@ -156,6 +130,7 @@ impl SnapshotReservation {
     ) -> Result<()> {
         if !Arc::ptr_eq(ledger, &self.ledger)
             || actual.operations > self.quote.operations
+            || actual.policy_bytes > self.quote.policy_bytes
             || actual.logical_bytes > self.quote.logical_bytes
             || actual.physical_reserve > self.quote.physical_reserve
         {

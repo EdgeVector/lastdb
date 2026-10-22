@@ -3,17 +3,16 @@ use std::sync::Arc;
 use crate::fold_db_core::sync_coordinator::SyncCoordinator;
 
 use super::FoldDB;
-mod cloud_purge_source;
 mod cloud_resume;
 mod engine_attach;
 mod org_republish;
 mod org_targets;
+mod photograph_cut;
 mod status;
 
 mod inbound_targets;
 mod replay_applier;
 mod retired_applier;
-mod runtime_activation;
 mod schema_reload;
 
 impl FoldDB {

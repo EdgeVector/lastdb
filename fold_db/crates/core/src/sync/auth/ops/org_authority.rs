@@ -87,7 +87,7 @@ impl AuthClient {
     ) -> SyncResult<OrgAuthorityTip> {
         validate_account(account)?;
         let tip: OrgAuthorityTip = self
-            .purge_call(json!({"account":account}), "cloud_org_authority_get")
+            .control_call(json!({"account":account}), "cloud_org_authority_get")
             .await?;
         if tip.account != *account
             || if tip.absent {
@@ -118,7 +118,7 @@ impl AuthClient {
             OrgAuthorityExpectedEpoch::Exact(value) => value,
         };
         let published: OrgAuthorityPublished = self
-            .purge_call(
+            .control_call(
                 json!({"account":&account,"expected_epoch_hash":expected,
                     "org_authority":&request.org_authority}),
                 "cloud_org_authority_publish",

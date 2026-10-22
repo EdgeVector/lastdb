@@ -2,7 +2,7 @@
 use super::*;
 
 pub(super) async fn address(host: &Host) -> Result<crate::cloud::RecipientAddress, String> {
-    let auth = super::cloud_generation::auth(host).await?;
+    let auth = super::cloud_generation::auth(host)?;
     let api_url = crate::cloud::recipient_api_url(&host.home)?;
     crate::cloud::ensure_recipient_address(&host.home, &api_url, host.keypair.as_ref(), &auth).await
 }
