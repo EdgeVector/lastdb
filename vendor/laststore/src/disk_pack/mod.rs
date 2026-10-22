@@ -1,7 +1,5 @@
-//! Immutable disk-pack v1 reader and construction primitives.
-//!
-//! These APIs address an explicitly selected artifact root. They do not activate
-//! the format in a LastStore home or bypass the legacy home descriptor fence.
+//! Immutable searchable snapshots with direct atomic commits and bounded reads.
+//! Native homes and explicit artifacts retain their separate format fences.
 
 mod artifact;
 pub mod backup;
@@ -18,12 +16,10 @@ pub(crate) mod conversion_fence;
 mod conversion_select;
 mod current;
 mod dependency;
-mod dependency_walk;
 mod frame;
 mod generation;
 mod hash_range;
 pub mod home;
-pub mod journal;
 mod key_layout;
 pub mod lifetime;
 mod location;
@@ -37,8 +33,8 @@ mod page_write;
 mod publish;
 mod record;
 mod selected_batch;
+pub mod snapshot;
 mod sparse_pages;
-mod stream_checkpoint;
 mod tree;
 mod tree_cursor;
 mod tree_edit;
@@ -53,16 +49,12 @@ pub use conversion_select::{resolve_conversion, ResolvedStore};
 pub use current::Current;
 pub use hash_range::{HashRangeCursor, HashScope, RangeBounds, RangePage, RangeRecord};
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};
-pub use publish::{publish_artifact_journal, PublishedGeneration};
+pub use publish::PublishedGeneration;
 pub use tree::{TreeKind, TreeRoot};
 
 /// CURRENT feature bit: payload objects have complete immutable object metadata.
 /// Older readers refuse this bit before they trust any payload extent.
 pub const FEATURE_OBJECT_METADATA: u64 = 1;
-
-/// CURRENT feature bit: no journal admission before a complete stream checkpoint.
-/// A previous generation of zero marks initial, unadmitted journal state.
-pub const FEATURE_JOURNAL_LIFECYCLE: u64 = 2;
 
 /// CURRENT feature bit: a native home descriptor controls placement and key identity.
 pub const FEATURE_NATIVE_HOME: u64 = 4;
@@ -77,7 +69,7 @@ pub const FEATURE_FILE_LIFETIME: u64 = 8;
 pub const FEATURE_SCHEMA_RECORD_REFS: u64 = 16;
 
 /// Native batches admit 16,384 ordered storage operations instead of 4,096.
-/// The initial CURRENT fences older readers before any larger journal append.
+/// The initial CURRENT fences older readers before any larger stored batch.
 pub const FEATURE_LARGE_BATCHES: u64 = 32;
 
 /// Locator pages pack complete ordinary keys beside their values.
@@ -90,14 +82,18 @@ pub const FEATURE_PACKED_KEYS: u64 = 64;
 /// a home with this bit.
 pub const FEATURE_ATOM_RECORDS: u64 = 128;
 
+/// Local recovery and reads use the complete immutable snapshot selected by CURRENT.
+/// Old journal-backed homes require explicit conversion and are not opened.
+pub const FEATURE_SNAPSHOT_COMMIT: u64 = 256;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
-    | FEATURE_JOURNAL_LIFECYCLE
     | FEATURE_NATIVE_HOME
     | FEATURE_FILE_LIFETIME
     | FEATURE_SCHEMA_RECORD_REFS
     | FEATURE_LARGE_BATCHES
     | FEATURE_PACKED_KEYS
-    | FEATURE_ATOM_RECORDS;
+    | FEATURE_ATOM_RECORDS
+    | FEATURE_SNAPSHOT_COMMIT;
 
 /// Most dependency parts one published generation can name. A writer that
 /// reaches it refuses further writes until maintenance replaces the receipt.

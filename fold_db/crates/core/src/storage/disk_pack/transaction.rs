@@ -299,7 +299,7 @@ pub(super) fn validate(operations: &[HomeMutation], operation_limit: usize) -> S
     batch_bytes(operations, operation_limit).map(|_| ())
 }
 
-/// Conservative encoded-byte charge, including the batch's fixed markers.
+/// Conservative complete-request charge, including fixed preparation overhead.
 pub(super) fn batch_bytes(
     operations: &[HomeMutation],
     operation_limit: usize,

@@ -59,27 +59,6 @@ impl ObjectMetadata {
 }
 
 impl ReadCall {
-    pub(super) fn journal_object_metadata(
-        &mut self,
-        stream: uuid::Uuid,
-        batch: u64,
-    ) -> Result<ObjectMetadata> {
-        super::bytes::nonnil(stream)?;
-        if batch == 0
-            || batch > self.current.journal_frontier
-            || self.current.required_features & FEATURE_OBJECT_METADATA == 0
-        {
-            return Err(corrupt("journal object outside held publication boundary"));
-        }
-        let path = self
-            .root
-            .join("journal")
-            .join(stream.to_string())
-            .join(format!("batch-{batch:016x}"));
-        let page = self.map_page(&path, stream, 0)?;
-        ObjectMetadata::decode(&page)
-    }
-
     pub(super) fn object_metadata(
         &mut self,
         location: &Location,

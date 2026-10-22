@@ -2,11 +2,15 @@
 
 Selected engine and boundary design, 16 October 2026.
 
+Source status reviewed 2026-10-22 at `9f0ab569b65ba8ff17cdc6902cdc7315aaae3d86`.
+The current engine still uses the internal journal.
+The [snapshot-owned recovery plan](lastdb-searchable-snapshot-implementation-plan.md) describes its proposed replacement.
+
 Tom selected the original native LastStore packed-file engine for completion.
 R5′ finds file positions through directory and locator pages.
 R6′ reads the required bytes from journal or packed files.
 The final node work reuses these parts and preserves existing atom and tip records.
-The default backend and primary remain separate adoption decisions.
+Native packed storage is now the startup default. Primary deployment remains a separate decision.
 The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
 See the [current source status](lastdb-disk-rollout-status.md) for the supported boundaries.
 
@@ -16,8 +20,10 @@ The two components can stay in one process and share one release.
 Their boundary is a complete batch, a captured read view, and explicit resource limits.
 
 Preserve molecule sharing, atom sharing, ordered ranges, and existing current-record semantics.
-This unit preserves existing history records and their reference rules.
-The separate current-only proposal remains future work.
+Keep current values, required conflict records, and their reference rules.
+The current query route refuses old-value `as_of` reads.
+The default conflict-record retention is 30 days.
+Atom, blob, and molecule counters remain live correctness data.
 Keep physical file positions out of molecule tips and cloud records.
 Use one storage engine for tips, atom bytes, and required control records.
 The selected engine is the existing native LastStore engine.
@@ -33,7 +39,7 @@ An alternate engine comparison is optional later work, not a completion prerequi
 | Key encoding, OPE range meaning, and storage scope | Byte order within the supplied key bounds |
 | Current tips, write order, conditions, and tombstones | Complete batch publication and recovery |
 | Atom identity, exact body references, and shared use | File positions, pages, large-value pages, and file handles |
-| The 10000 logical records in the warm set | Bounded temporary storage objects for each call |
+| The byte-budgeted warm set, with no record-count cap | Bounded temporary storage objects for each call |
 | The memory ack and the 500 ms flush schedule | The separate durable disk receipt |
 | Cloud mutation order, pending cloud work, and cloud receipts | Captured read and export views |
 | Permission to delete an atom key | Safe physical reclaim after storage holds end |
@@ -175,7 +181,7 @@ The initial synced root records that feature before journal admission; older rea
 Existing homes without the feature and standalone artifacts retain their 4,096-operation limit.
 This release does not upgrade them implicitly.
 The 128 MiB batch cap and existing part and dependency bounds remain unchanged.
-These storage-operation limits are separate from query limits and the 10,000 logical records in the warm set.
+These storage-operation limits are separate from query limits and the warm-set byte budget. The old warm-record count cap is retired.
 
 An accepted batch remains owned after caller cancellation.
 Normal shutdown drains accepted work.

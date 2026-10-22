@@ -253,7 +253,7 @@ impl PackRuntime {
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let _gate = gate;
             if runtime.failed.load(Ordering::Acquire) {
-                return Err(refusal("current creation requires journal recovery"));
+                return Err(refusal("current creation requires a snapshot reopen"));
             }
             if runtime.fresh_initialization_pending() {
                 runtime

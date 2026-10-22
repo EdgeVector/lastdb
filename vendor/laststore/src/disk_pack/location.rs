@@ -15,8 +15,6 @@ pub struct MutationVersion {
 /// Durable source of one committed locator entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// Direct extent within one complete local journal batch.
-    Journal,
     /// Direct extent within an immutable local pack.
     Pack,
     /// Versioned deletion with no payload extent.
@@ -32,7 +30,7 @@ pub struct Location {
     pub version: MutationVersion,
     /// Header, full key, and body byte count.
     pub record_bytes: u64,
-    /// Pack or journal stream UUID; nil for a tombstone.
+    /// Immutable pack UUID; nil for a tombstone.
     pub object: Uuid,
     /// First logical block ordinal.
     pub first_block: u64,
@@ -59,7 +57,6 @@ impl Location {
         zero(&bytes[1..4])?;
         zero(&bytes[88..])?;
         let source = match bytes[0] {
-            1 => Source::Journal,
             2 => Source::Pack,
             4 => Source::Tombstone,
             _ => return Err(corrupt("unsupported locator source")),
@@ -95,7 +92,6 @@ impl Location {
         self.validate(operation_limit)?;
         let mut bytes = [0; 128];
         bytes[0] = match self.source {
-            Source::Journal => 1,
             Source::Pack => 2,
             Source::Tombstone => 4,
         };
@@ -111,9 +107,7 @@ impl Location {
     }
 
     fn validate(&self, operation_limit: usize) -> Result<()> {
-        if self.version.operation as usize >= operation_limit
-            || (self.source == Source::Journal && self.version.batch == 0)
-        {
+        if self.version.operation as usize >= operation_limit {
             return Err(corrupt("mutation version outside complete-batch limits"));
         }
         if self.source == Source::Tombstone {

@@ -1,0 +1,50 @@
+{
+  "utc": "2026-10-21T21:58:21.806393+00:00",
+  "preserved_receipts_root": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/write-overhead-20261021",
+  "homes": [
+    {
+      "profile": "controlled",
+      "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.IDnbLr",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.IDnbLr",
+      "uid": 501,
+      "checked_absent_pids": [
+        43182,
+        63793
+      ],
+      "sockets": [
+        {
+          "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.IDnbLr/q",
+          "active": false
+        },
+        {
+          "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.IDnbLr/f",
+          "active": false
+        }
+      ],
+      "latest_values_verified": 512,
+      "removed": true
+    },
+    {
+      "profile": "default",
+      "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.kRn1Al",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.kRn1Al",
+      "uid": 501,
+      "checked_absent_pids": [
+        74431,
+        86939
+      ],
+      "sockets": [
+        {
+          "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.kRn1Al/q",
+          "active": false
+        },
+        {
+          "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lw.kRn1Al/f",
+          "active": false
+        }
+      ],
+      "latest_values_verified": 512,
+      "removed": true
+    }
+  ]
+}

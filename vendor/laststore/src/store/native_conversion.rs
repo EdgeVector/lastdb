@@ -23,7 +23,7 @@ pub struct ConversionReceipt {
     pub source_csn: u64,
     /// Complete native root after catchup publication.
     pub generation: u64,
-    /// Last complete native journal batch after catchup.
+    /// Last complete native snapshot batch after catchup.
     pub frontier: u64,
 }
 
@@ -35,7 +35,7 @@ pub struct ConversionCutover<'a> {
     receipt: ConversionReceipt,
     reference: DurableReference,
     token: Uuid,
-    _writer: crate::disk_pack::home::HomeJournal,
+    _writer: crate::disk_pack::home::HomeSnapshot,
     _conversion: MutexGuard<'a, ()>,
     _guards: Vec<MutexGuard<'a, ()>>,
 }
@@ -74,7 +74,7 @@ impl LastStore {
         let changed = self.conversion_changes(floor)?;
         self.flush()?;
         let home = DiskHome::open_conversion(destination)?;
-        let mut writer = home.journal_conversion(token)?;
+        let mut writer = home.snapshot_conversion(token)?;
         self.register_native_namespaces(&mut writer)?;
         let mut batch = Vec::new();
         let mut batch_bytes = 0usize;
@@ -83,7 +83,7 @@ impl LastStore {
             let bytes = body.as_ref().map_or(0, Vec::len) + collection.len() + key.len() + 256;
             if !batch.is_empty() && (batch.len() == 4096 || batch_bytes + bytes > 64 * 1024 * 1024)
             {
-                append(&mut writer, std::mem::take(&mut batch))?;
+                commit(&mut writer, std::mem::take(&mut batch))?;
                 batch_bytes = 0;
             }
             batch_bytes += bytes;
@@ -94,7 +94,7 @@ impl LastStore {
             });
         }
         if !batch.is_empty() {
-            append(&mut writer, batch)?;
+            commit(&mut writer, batch)?;
         }
         let current = writer.current().clone();
         let reference =
@@ -134,7 +134,7 @@ impl LastStore {
 
     fn register_native_namespaces(
         &self,
-        writer: &mut crate::disk_pack::home::HomeJournal,
+        writer: &mut crate::disk_pack::home::HomeSnapshot,
     ) -> Result<()> {
         let mut names = self.collections_on_disk()?;
         names.push("main".into());
@@ -154,7 +154,7 @@ impl LastStore {
                 })
                 .collect::<Vec<_>>();
             if !operations.is_empty() {
-                append(writer, operations)?;
+                commit(writer, operations)?;
             }
         }
         Ok(())
@@ -262,12 +262,11 @@ impl ConversionCutover<'_> {
     }
 }
 
-fn append(
-    writer: &mut crate::disk_pack::home::HomeJournal,
+fn commit(
+    writer: &mut crate::disk_pack::home::HomeSnapshot,
     operations: Vec<HomeMutation>,
 ) -> Result<()> {
     let reservation = writer.reserve_mutation(&operations)?;
-    writer.append_mutation(operations, 0, reservation)?;
-    writer.publish()?;
+    writer.commit_mutation(operations, 0, reservation)?;
     Ok(())
 }

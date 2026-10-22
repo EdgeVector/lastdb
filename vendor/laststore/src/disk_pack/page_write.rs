@@ -97,7 +97,7 @@ impl PageWriter {
         durability::sync_directory(&File::open(&self.directory)?)
     }
 
-    /// Finalize private map headers before any root or TAIL references them.
+    /// Finalize private map headers before any root references them.
     /// No published metadata part is modified by this method.
     pub(super) fn finish_block_map(mut self, logical_bytes: u64, data_parts: u64) -> Result<()> {
         drop(self.file.take());

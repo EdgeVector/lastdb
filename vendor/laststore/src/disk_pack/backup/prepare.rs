@@ -2,7 +2,7 @@
 
 use super::manifest::{Entry, Manifest};
 use super::{files, BackupReceipt};
-use crate::disk_pack::home::{DiskHome, HomeJournal};
+use crate::disk_pack::home::{DiskHome, HomeSnapshot};
 use crate::disk_pack::lifetime::{
     DurableReference, GenerationHold, GenerationInventory, ReferencePurpose,
 };
@@ -84,7 +84,7 @@ impl PreparedBackup {
     }
 
     /// Reserve through the serving writer before the source write gate releases.
-    pub fn reserve(self, writer: &HomeJournal, policy: &SpacePolicy) -> Result<ReservedBackup> {
+    pub fn reserve(self, writer: &HomeSnapshot, policy: &SpacePolicy) -> Result<ReservedBackup> {
         let result = if writer.current().home_digest == self.current.home_digest {
             writer.reserve_space(self.required_bytes, policy)
         } else {
@@ -156,7 +156,7 @@ fn quote(inventory: &GenerationInventory) -> Result<u64> {
             digest: [0; 32],
         })
         .collect();
-    for name in ["CURRENT", "JOURNAL_TAIL"] {
+    for name in ["CURRENT"] {
         entries.push(Entry {
             path: name.into(),
             bytes: 4096,

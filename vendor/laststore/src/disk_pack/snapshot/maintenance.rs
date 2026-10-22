@@ -1,8 +1,8 @@
-use super::JournalWriter;
+use super::SnapshotWriter;
 use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy, SpaceReservation};
 use crate::Result;
 
-impl JournalWriter {
+impl SnapshotWriter {
     /// Retain this writer's lease and its read/reclaim gate, without file access.
     pub fn read_lease(&self) -> crate::disk_pack::lifetime::WriterReadLease {
         crate::disk_pack::lifetime::WriterReadLease::new(std::sync::Arc::clone(&self.lock))
@@ -21,7 +21,7 @@ impl JournalWriter {
     /// Publish replacements without deletion. A node installs this root in its
     /// read view before it calls `reclaim` under that view's exclusive lock.
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
+        self.check_admission()?;
         self.poisoned = true;
         let packed = crate::disk_pack::maintenance::compact_locked(&self.lock, policy);
         let (current, receipt) = match packed {
@@ -43,14 +43,14 @@ impl JournalWriter {
 
     /// Release only obsolete unreferenced parts; never implicitly perform a rewrite.
     pub fn reclaim(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
+        self.check_admission()?;
         crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)
     }
 
     /// Remove part files that no receipt names, such as the output of a publication
     /// or a compaction that a crash interrupted. Files younger than `policy.grace_ms` stay.
     pub fn reclaim_orphans(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
+        self.check_admission()?;
         crate::disk_pack::maintenance::sweep_orphans_locked(&self.lock, policy)
     }
 

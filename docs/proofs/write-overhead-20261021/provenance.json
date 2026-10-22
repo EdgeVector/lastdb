@@ -1,0 +1,37 @@
+{
+  "source_revision": "8067843c4f9626470edc971ab10c10e829f021d8",
+  "node_version": "lastdbd 0.23.4-pre.0-256-g8067843c4",
+  "node_sha256": "009e787556d56f0d2b7fcd86dd962eae2fa6f0d7b19a7d2003327b5112257d59",
+  "cli_sha256": "c33ce562cdd12737c19855eded5fb5e186305a25329382da03d2bbda58ac9e01",
+  "build": "cargo build --release -p lastdb_node --bin lastdbd --bin lastdb",
+  "method": "Actual product HTTP requests through an owner Unix socket, generated records, fresh independent home",
+  "controlled_profile": "Automatic maintenance disabled only on the owned node; explicit live compactions measure packing and reclaim separately",
+  "schema_fields": [
+    "bucket",
+    "id",
+    "title",
+    "body"
+  ],
+  "record_count": 512,
+  "body_ascii_bytes": 1024,
+  "updates_change_fields": [
+    "title",
+    "body"
+  ],
+  "cache_state": "OS cache state unknown; no cache purge",
+  "process_io_scope": "Darwin per-process cumulative accounting; not an SSD hardware write measurement",
+  "filesystem_scope": "Native disk-pack only; bounded exact owned-home inventory, file lengths and allocated blocks",
+  "timing_scope": "End-to-end Unix HTTP request through decoded response; ack separate from explicit-flush completion",
+  "primary_access": false,
+  "primary_copy": false,
+  "cloud_configuration": false,
+  "headline_profile": "default",
+  "default_profile": "Automatic maintenance enabled; five stable 100 ms samples at each checkpoint require accepted sequence equals completed sequence, zero pending batches, and zero dirty warm records",
+  "controlled_profile_limit": "Exploratory corroboration; some initial checkpoints contain trailing accepted delivery work",
+  "host_scope": "Shared Mac; host Cargo lock held during timed phases; unrelated agents may run other processes",
+  "default_reopen": "512 of 512 latest title and body values match after a clean stop and restart",
+  "crash_recovery_scope": "No process crash or power-loss measurement in this pass",
+  "sparse_result": "Byte-identical sparse metadata files save 0.6627 percent of allocated bytes on this filesystem; reject as a material improvement",
+  "product_changes": false,
+  "tests_run": false
+}

@@ -4,14 +4,13 @@
 //! rename of `CURRENT` leaves files that no receipt lists. Reclaim removes only
 //! files that an old receipt lists, so these files stay for ever. A sweep under
 //! the writer lease finds them: every part file that no receipt on disk names
-//! is an orphan under a complete checkpoint. Concurrent cleanup also checks the
+//! is an orphan under a complete snapshot. Concurrent cleanup also checks the
 //! part generation: output at or above its captured floor stays untouched.
 
 use super::*;
-use crate::disk_pack::journal::JournalTail;
 
-const NAMESPACES: [&str; 4] = ["directory", "locator", "packs", "journal"];
-/// Deepest part file: `journal/<stream>/batch-<n>/map/part-<n>`.
+const NAMESPACES: [&str; 3] = ["directory", "locator", "packs"];
+/// Bound the supported directory, locator, and packed-payload namespaces.
 const MAX_DEPTH: usize = 4;
 
 /// Remove unreferenced part files that are older than `policy.grace_ms`.
@@ -53,13 +52,6 @@ pub(in crate::disk_pack) fn sweep_orphans_at(
         return Ok(receipt);
     };
     validate_roots(root)?;
-    let tail = JournalTail::read(root)?;
-    if !concurrent && (tail.stream != current.journal_stream || tail.last_batch != current.frontier)
-    {
-        return Err(corrupt(
-            "orphan sweep requires a complete journal checkpoint",
-        ));
-    }
     // An unreadable receipt could name parts, so it ends the sweep without a removal.
     let mut published = BTreeSet::from([current.generation]);
     published.extend(
@@ -127,7 +119,7 @@ fn named_paths(
     Ok(named)
 }
 
-/// Regular files named `part-<8 hex digits>` under the four part namespaces.
+/// Regular files named `part-<8 hex digits>` under the snapshot part namespaces.
 fn part_files(root: &Path, max_files: usize) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     let mut pending: Vec<(PathBuf, usize)> =

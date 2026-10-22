@@ -1,0 +1,23 @@
+# LastDB: searchable snapshot and sync-only mutation log
+
+Revised 2026-10-22. Proposed implementation. This document replaces the earlier journal-first design in this review.
+
+LastDB needs two durable data structures: a local searchable snapshot for current data, and a mutation log for sync. Each structure can use several files. The snapshot supplies local reads and crash recovery. The mutation log retains changes after the latest confirmed cloud snapshot. Devices can hold different local snapshots and still exchange those changes. Ordinary reads and local recovery never search or replay the mutation log.
+
+Current main still uses an internal journal and can retain current record bytes in its files. The October 22 change batches macOS disk barriers without a format change. Its report shows median queued-request latency of 143 ms before and 30 ms after, with a 1.69-second maximum afterward. The October 21 disk-growth measurements describe an older revision and a different workload. They do not measure the new source or establish a snapshot-only speed benefit.
+
+The snapshot contains current molecule keys, atom references, required bodies, and search pages. A read checks accepted memory first, then fetches missing logical records by key. A range supplies one hash and ordered bounds. It merges bounded snapshot pages with newer memory changes and deletes. Each request captures a fresh view; ascending keyed continuations use the last key, while other forms retain their current offset rules. Optional selected-schema key preload remains supported under its separate budget; neither read route uses the sync log.
+
+A write reserves its complete memory, disk, and sync work before acceptance. It updates memory as one complete unit, then sends the memory ack. The normal flush interval stays 500 ms. The flush writes changed bytes, search pages, and required sync entries. Ordered file barriers and one atomic root update commit the snapshot and matching sync boundary. The durable ack follows all required barriers, including the final device flush on macOS.
+
+The writer keeps the files that the previous selected snapshot still needs. It changes only the required pages, without a full snapshot rewrite after each write.
+
+A crash before the root update leaves the previous snapshot selected. A crash during publication can leave either complete version selected. A completed durable commit survives restart. Recovery opens the selected snapshot without mutation replay. A memory ack remains volatile until the flush completes; 500 ms is a schedule, not a guaranteed maximum loss window. Corrupt committed bytes require an explicit error and a restore procedure.
+
+The sender uses a durable root captured after all publication barriers complete. It exports only covered sync entries, with original mutation identities and sufficient values or durable file references. An import commits received progress with its value changes. The cloud snapshot records a boundary for each source device. Covered entries leave disk only after the cloud confirms a restorable replacement base and required holds end. A full queue stops dependent writes before acceptance; reserved capacity permits sync progress that frees space.
+
+The warm set defaults to a 256 MiB byte budget; the 10,000-record cap is retired. Each read enters the warm set, and the purge removes least recently used clean records. Held and unflushed records remain protected, so the charge can temporarily exceed the budget. The purge returns it toward the budget after calls end or writes reach disk. The approved dirty-write share is 25%; its enforcement remains implementation work. Separate reservations cover definitions, selected keys, queues, and temporary work; storage objects leave memory after their call.
+
+The first implementation retains search files, payload files, and one generation receipt per commit. It removes the internal journal, tail files, rotation, and replay. Startup, backup, compaction, and restore use snapshot roots. Existing journal-backed bodies need conversion before their files can leave disk. Fewer files and shorter compaction pauses remain separate improvements. The companion plan defines the implementation and operational checks; the primary and cloud activation remain outside this document change.
+
+Sources: [implementation plan](lastdb-searchable-snapshot-implementation-plan.md), [current code review](lastdb-searchable-snapshot-code-review.md), [October 22 barrier report](proofs/native-commit-barriers-20261022/RESULTS.md), [October 21 growth receipts](proofs/write-overhead-20261021/summary.json). Source review: `9f0ab569b65ba8ff17cdc6902cdc7315aaae3d86`. Growth measurement revision: `8067843c4f9626470edc971ab10c10e829f021d8`.

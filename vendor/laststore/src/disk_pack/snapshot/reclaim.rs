@@ -1,6 +1,6 @@
 //! Delete exact obsolete paths below a captured installed root without a writer mutex.
 
-use super::JournalWriter;
+use super::SnapshotWriter;
 use crate::disk_pack::maintenance::{self, MaintenanceReceipt, SpacePolicy};
 use crate::disk_pack::{write_lock::WriteLock, Current};
 use crate::Result;
@@ -13,9 +13,9 @@ pub struct ReclaimPlan {
     _hold: crate::disk_pack::lifetime::GenerationHold,
 }
 
-impl JournalWriter {
+impl SnapshotWriter {
     /// The node captures this root under its view boundary and serializes
-    /// maintenance callers. Later ordinary publications and appends may proceed.
+    /// maintenance callers. Later ordinary snapshot publications may proceed.
     pub fn capture_reclaim(&self) -> Result<ReclaimPlan> {
         self.check_admission()?;
         Ok(ReclaimPlan {

@@ -1,16 +1,16 @@
-use super::{BatchPlan, JournalMutation};
+use super::SnapshotMutation;
 use crate::Result;
 
 /// Complete stored-operation dimensions. No body is copied or retained.
 #[derive(Clone, Copy, Debug)]
-pub struct JournalMutationShape {
+pub struct SnapshotMutationShape {
     collection_bytes: usize,
     group: u16,
     key_bytes: usize,
     body_bytes: Option<u64>,
 }
 
-impl JournalMutationShape {
+impl SnapshotMutationShape {
     /// A put with an empty body differs from a tombstone (`None`).
     pub fn new(
         collection_bytes: usize,
@@ -48,16 +48,16 @@ impl JournalMutationShape {
     }
 }
 
-/// Checked journal-only quota. Directory, logical-record, and disk-space
+/// Checked payload-only quota. Directory, logical-record, and disk-space
 /// reservations are separate prerequisites before a memory acknowledgement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct JournalQuote {
+pub struct SnapshotQuote {
     pub(super) operations: usize,
     pub(super) logical_bytes: u64,
     pub(super) physical_reserve: u64,
 }
 
-impl JournalQuote {
+impl SnapshotQuote {
     /// Extend dimensions without revisiting an admitted operation or body.
     pub(in crate::disk_pack) fn extended(self, incoming: Self, limit: usize) -> Result<Self> {
         let operations = self
@@ -65,33 +65,31 @@ impl JournalQuote {
             .checked_add(incoming.operations)
             .filter(|count| *count <= limit)
             .ok_or_else(|| super::capacity("batch operation admission limit"))?;
-        // Each quote includes one BEGIN/COMMIT pair. The prefix uses one pair.
         let logical_bytes = self
             .logical_bytes
             .checked_add(incoming.logical_bytes)
-            .and_then(|bytes| bytes.checked_sub(256))
             .filter(|bytes| *bytes <= super::MAX_BATCH_BYTES)
             .ok_or_else(|| super::capacity("batch byte admission limit"))?;
         Ok(Self {
             operations,
             logical_bytes,
-            physical_reserve: BatchPlan::reserve(logical_bytes)?,
+            physical_reserve: reserve(logical_bytes)?,
         })
     }
 
     /// Quote one complete batch from dimensions available before ownership moves.
-    pub fn from_shapes(shapes: &[JournalMutationShape]) -> Result<Self> {
+    pub fn from_shapes(shapes: &[SnapshotMutationShape]) -> Result<Self> {
         Self::from_iter(shapes.iter().copied())
     }
 
     pub(super) fn from_iter(
-        shapes: impl IntoIterator<Item = JournalMutationShape>,
+        shapes: impl IntoIterator<Item = SnapshotMutationShape>,
     ) -> Result<Self> {
         Self::from_iter_with_limit(shapes, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
     }
 
     pub(in crate::disk_pack) fn from_iter_with_limit(
-        shapes: impl IntoIterator<Item = JournalMutationShape>,
+        shapes: impl IntoIterator<Item = SnapshotMutationShape>,
         operation_limit: usize,
     ) -> Result<Self> {
         if ![
@@ -102,7 +100,7 @@ impl JournalQuote {
         {
             return Err(super::refuse("unsupported operation admission limit"));
         }
-        let mut length = 256u64;
+        let mut length = 0u64;
         let mut operations = 0;
         for shape in shapes {
             operations += 1;
@@ -122,7 +120,7 @@ impl JournalQuote {
         Ok(Self {
             operations,
             logical_bytes: length,
-            physical_reserve: BatchPlan::reserve(length)?,
+            physical_reserve: reserve(length)?,
         })
     }
 
@@ -130,7 +128,7 @@ impl JournalQuote {
     pub fn operations(&self) -> usize {
         self.operations
     }
-    /// BEGIN, complete operations, and COMMIT before block compression.
+    /// Complete payload and operation dimensions before block compression.
     pub fn logical_bytes(&self) -> u64 {
         self.logical_bytes
     }
@@ -138,24 +136,25 @@ impl JournalQuote {
     pub fn physical_reserve(&self) -> u64 {
         self.physical_reserve
     }
-
-    pub(super) fn from_plan(operations: usize, plan: &BatchPlan) -> Self {
-        Self {
-            operations,
-            logical_bytes: plan.logical_bytes,
-            physical_reserve: plan.physical_reserve,
-        }
-    }
 }
 
-impl JournalMutation {
+impl SnapshotMutation {
     /// Borrow only the dimensions needed for a bounded admission quote.
-    pub fn shape(&self) -> JournalMutationShape {
-        JournalMutationShape::new(
+    pub fn shape(&self) -> SnapshotMutationShape {
+        SnapshotMutationShape::new(
             self.collection.len(),
             self.group,
             self.key.len(),
             self.body.as_ref().map(|body| body.len() as u64),
         )
     }
+}
+
+fn reserve(length: u64) -> Result<u64> {
+    let blocks = length.div_ceil(4096);
+    length
+        .checked_add(blocks * 80)
+        .and_then(|n| n.checked_add(blocks.div_ceil(2008) * 128))
+        .and_then(|n| n.checked_add(blocks.div_ceil(677) * 16_384))
+        .ok_or_else(|| super::super::corrupt("snapshot payload reserve overflow"))
 }

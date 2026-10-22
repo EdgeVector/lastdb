@@ -20,7 +20,7 @@ const LINE_BYTES: u64 = 2_200_000;
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-disk-home <build|plan|read|range|append|write|publish> --home PATH --input JSON [--fanout N]");
+        println!("usage: lastdb-disk-home <build|plan|read|range|write> --home PATH --input JSON [--fanout N]");
         println!(
             "  build: ordered JSONL collection/key/body_hex or deleted; initial versions are (0,0)"
         );
@@ -28,9 +28,8 @@ fn main() -> ExitCode {
         println!(
             "  range: JSON object with collection,prefix,start,end,page_size,max_pages,budget"
         );
-        println!("  append/write: complete JSONL batch; write also publishes its directory");
-        println!("  plan: journal-only quote for a complete JSONL batch; no writer is opened");
-        println!("  publish: no input; recover complete batches before a fresh stream admits work");
+        println!("  write: commit one complete JSONL batch directly to the snapshot");
+        println!("  plan: complete snapshot quote for a JSONL batch; no writer is opened");
         return ExitCode::SUCCESS;
     }
     match run() {
@@ -49,11 +48,7 @@ fn invalid(message: &'static str) -> io::Error {
 fn options() -> Result<(String, PathBuf, Option<PathBuf>, u16)> {
     let mut args = std::env::args().skip(1);
     let command = args.next().ok_or_else(|| invalid("command required"))?;
-    if ![
-        "build", "plan", "read", "range", "append", "write", "publish",
-    ]
-    .contains(&command.as_str())
-    {
+    if !["build", "plan", "read", "range", "write"].contains(&command.as_str()) {
         return Err(invalid("unknown command").into());
     }
     let (mut home, mut input, mut fanout) = (None, None, None);
@@ -66,11 +61,8 @@ fn options() -> Result<(String, PathBuf, Option<PathBuf>, u16)> {
             _ => return Err(invalid("unknown or duplicate flag").into()),
         }
     }
-    if command != "publish" && input.is_none() {
+    if input.is_none() {
         return Err(invalid("explicit input required").into());
-    }
-    if command == "publish" && input.is_some() {
-        return Err(invalid("publish does not accept input mutations").into());
     }
     Ok((
         command,
@@ -90,7 +82,7 @@ fn run() -> Result<()> {
         let home = DiskHome::open(&home)?;
         match command.as_str() {
             "plan" => plan(&home, input.as_deref().expect("input")),
-            "append" | "write" | "publish" => write(&home, input.as_deref(), &command),
+            "write" => write(&home, input.as_deref().expect("input")),
             "read" | "range" => {
                 let request = request(input.as_deref().expect("input"))?;
                 if command == "read" {
@@ -107,7 +99,7 @@ fn run() -> Result<()> {
     output["disk"] = json!({"file_opens":disk.file_opens,"read_operations":disk.read_operations,
         "format_probe_bytes":disk.format_probe_bytes,"payload_bytes":disk.payload_bytes,
         "group_opens":disk.group_opens,"legacy_replay_bytes":disk.legacy_replay_bytes,
-        "journal_replay_bytes":disk.journal_replay_bytes,"footer_bytes":disk.footer_bytes,
+        "footer_bytes":disk.footer_bytes,
         "directory_reads":disk.directory_reads,"temporary_bytes_peak":disk.temporary_bytes_peak});
     println!("{output}");
     Ok(())
