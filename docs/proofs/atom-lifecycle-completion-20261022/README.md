@@ -33,6 +33,42 @@ It also confirmed a new-key write, zero counter mismatches, and a successful reo
 Both failed temporary homes were removed after their separate recovery checks.
 Their original results remain `complete: false`.
 
+## Final run
+
+`run-3/summary.json` records `complete: true` for 4,096 generated records and two long keys.
+The final state contains 4,090 records after eight deletes.
+Every exact read and list continuation matched the accepted values.
+The 84 list pages include 72 successful partial pages below the requested limit.
+
+The concurrent full copy caught 2,697 changed entries across four catch-up rounds.
+Three later update copies and the delete copy used recent-tier boundaries.
+The largest observed handoff was 16 ms. This small run establishes no large-home latency bound.
+The mixed mutation calls had a 130.9 ms median and a 289.8 ms maximum.
+Those calls include all phases and establish no paired speed improvement.
+
+The backup completed during the copy and excluded identity files.
+The bundle restore, graceful reopen, forced reopen, and interrupted-copy reopen returned the expected values.
+The TTL sweep removed 24 expired records while eight foreground updates completed.
+Schema drop and molecule drain completed.
+The final verifier read 24,546 counters and 16,360 tips, with a complete tally and zero mismatches.
+This run contains no file blobs.
+
+All owned node processes stopped. The owned scratch was removed after the receipt and ownership checks.
+The backup manifest and cleanup receipt remain with the result.
+
+## Source checks
+
+The executable uses Rust implementation `8ca6c30f0507eb166c519cb13c20cb9b3990608e`.
+Its SHA-256 is `672faa0a41739709524530f2e658c4df045fe571279d5becf23790f6b8654378`.
+The `dev-release` build passed for the daemon and both native maintenance commands.
+Format, size, function, new-allow, writer-boundary, write-path, byte-slice, redaction, and URL checks passed.
+The required GitHub check also passed for that implementation, including the full workspace Rust checks and SDK checks.
+The final PR head retains its own required GitHub check.
+
+The automatic GitHub code review completed without findings at `3535235fce28d9190ddec17590ae66ddaf5c09a7`.
+The later result commit adds receipts and this report. It changes no Rust implementation.
+The separate safety and performance reviews remain necessary before merge.
+
 ## Product operations
 
 The capture uses these operations:
