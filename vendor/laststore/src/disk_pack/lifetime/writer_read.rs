@@ -17,6 +17,7 @@ pub(in crate::disk_pack) struct WriterReadState {
     /// Active local reads, counted for each generation that a read holds.
     readers: BTreeMap<u64, usize>,
     reclaiming: bool,
+    allow_current_reads: bool,
     minimum_generation: u64,
 }
 
@@ -68,7 +69,9 @@ impl WriterReadLease {
             .read_state
             .lock()
             .map_err(|_| corrupt("writer read lifetime lock is poisoned"))?;
-        if state.reclaiming || current.generation < state.minimum_generation {
+        if (state.reclaiming && !state.allow_current_reads)
+            || current.generation < state.minimum_generation
+        {
             return Err(corrupt("writer read root is retired or reclaim is active"));
         }
         let count = state.readers.entry(current.generation).or_insert(0);
@@ -81,6 +84,29 @@ impl WriterReadLease {
 }
 
 impl WriteLock {
+    /// Freeze the old-read set, then admit only installed or newer roots.
+    /// Older active reads retain their complete generation through `held`.
+    pub(in crate::disk_pack) fn retire_before(
+        &self,
+        current: &Current,
+    ) -> Result<Option<ReclaimExclusion<'_>>> {
+        let mut state = self
+            .read_state
+            .lock()
+            .map_err(|_| corrupt("writer read lifetime lock is poisoned"))?;
+        if state.reclaiming || current.generation < state.minimum_generation {
+            return Ok(None);
+        }
+        state.minimum_generation = current.generation;
+        state.reclaiming = true;
+        state.allow_current_reads = true;
+        Ok(Some(ReclaimExclusion {
+            state: &self.read_state,
+            minimum_generation: current.generation,
+            held: state.readers.keys().copied().collect(),
+        }))
+    }
+
     pub(in crate::disk_pack) fn exclude_local_reads(
         &self,
         current: &Current,
@@ -120,6 +146,7 @@ impl Drop for ReclaimExclusion<'_> {
         if let Ok(mut state) = self.state.lock() {
             state.minimum_generation = state.minimum_generation.max(self.minimum_generation);
             state.reclaiming = false;
+            state.allow_current_reads = false;
         }
     }
 }

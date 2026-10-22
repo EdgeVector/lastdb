@@ -19,7 +19,7 @@ pub use batch::{JournalMutation, RecoveredBatch, RecoveredMutation};
 pub use quote::{JournalMutationShape, JournalQuote};
 pub use reader::JournalRecovery;
 pub use tail::{JournalTail, TailPredecessor};
-pub use writer::{DurableBatch, JournalWriter};
+pub use writer::{DurableBatch, JournalWriter, ReclaimPlan};
 
 const MAX_BATCH_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_SUFFIX_BYTES: u64 = 512 * 1024 * 1024;

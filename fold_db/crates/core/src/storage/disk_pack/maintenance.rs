@@ -2,6 +2,9 @@
 
 use super::*;
 use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePolicy, SpaceUsage};
+use tracing::Instrument;
+
+mod publish;
 
 /// Explicit native maintenance options. Preview is the default at the node route.
 #[derive(Clone, Copy, Debug)]
@@ -62,8 +65,8 @@ impl PackRuntime {
             != 0
     }
 
-    /// Serialize with complete writes, publish replacements, install their view,
-    /// then reclaim while new read captures remain excluded by the view lock.
+    /// Publish replacements under the write gate, then release it before cleanup.
+    /// A separate maintenance owner excludes competing cleanup and pack calls.
     pub async fn maintain_native(
         self: &Arc<Self>,
         options: NativeMaintenanceOptions,
@@ -85,19 +88,57 @@ impl PackRuntime {
         options: NativeMaintenanceOptions,
         keep_pack_on_reclaim_error: bool,
     ) -> StorageResult<NativeMaintenanceReport> {
-        let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
-        super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let _gate = gate;
-            runtime.maintain_native_blocking(options, keep_pack_on_reclaim_error)
-        })
+        // This owner survives cancellation of the HTTP caller. Keep its serial
+        // lease in the blocking closure until every file operation ends.
+        tokio::spawn(
+            async move {
+                let maintenance = Arc::clone(&runtime.maintenance_gate).lock_owned().await;
+                let measuring = Arc::clone(&runtime);
+                let before = super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                    measuring.maintenance_usage(options)
+                })
+                .await?;
+                let gate = runtime.enter_write().await;
+                super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                    let _maintenance = maintenance;
+                    runtime.maintain_native_blocking(
+                        options,
+                        keep_pack_on_reclaim_error,
+                        before,
+                        gate,
+                    )
+                })
+                .await
+            }
+            .in_current_span(),
+        )
         .await
+        .map_err(|error| StorageError::BackendError(format!("native maintenance owner: {error}")))?
+    }
+
+    fn maintenance_policy(&self, options: NativeMaintenanceOptions) -> SpacePolicy {
+        SpacePolicy {
+            grace_ms: options.grace_ms.unwrap_or(86_400_000),
+            reclaim_generations: options.reclaim_generations.unwrap_or(usize::MAX),
+            ..self.space_policy.clone()
+        }
+    }
+
+    fn maintenance_usage(&self, options: NativeMaintenanceOptions) -> StorageResult<SpaceUsage> {
+        if options.report_usage {
+            space_usage(self.home.path(), self.space_policy.max_files).map_err(map)
+        } else {
+            Ok(SpaceUsage::default())
+        }
     }
 
     fn maintain_native_blocking(
         &self,
         options: NativeMaintenanceOptions,
         keep_pack_on_reclaim_error: bool,
+        before: SpaceUsage,
+        gate: tokio::sync::OwnedMutexGuard<()>,
     ) -> StorageResult<NativeMaintenanceReport> {
         self.require_initialized()?;
         if self.failed.load(Ordering::Acquire) {
@@ -105,67 +146,26 @@ impl PackRuntime {
                 "native maintenance requires complete recovery of the failed writer".into(),
             ));
         }
-        let policy = SpacePolicy {
-            grace_ms: options.grace_ms.unwrap_or(86_400_000),
-            reclaim_generations: options.reclaim_generations.unwrap_or(usize::MAX),
-            ..self.space_policy.clone()
-        };
-        let usage = |home: &std::path::Path| match options.report_usage {
-            true => space_usage(home, policy.max_files).map_err(map),
-            false => Ok(SpaceUsage::default()),
-        };
-        let before = usage(self.home.path())?;
-        let mut writer = self.journal.lock().expect("native journal owner");
-        let mut receipt = MaintenanceReceipt::default();
-        let (mut pack_millis, mut reclaim_millis) = (0, 0);
-        if !options.dry_run && !options.reclaim_only {
-            let started = std::time::Instant::now();
-            receipt = match writer.pack(&policy) {
-                Ok(receipt) => receipt,
-                Err(error) => {
-                    // A failure before the replacement is published leaves the
-                    // writer healthy; only a poisoned writer needs a restart.
-                    if writer.is_poisoned() {
-                        self.failed.store(true, Ordering::Release);
-                    }
-                    let error = map(error);
-                    self.parts.record_failure(&error);
-                    return Err(error);
-                }
-            };
-            pack_millis = millis_since(started);
-            // The replacement is published: the count is final even if reclaim fails.
-            let run = parts::RunCounts {
-                parts_before: receipt.parts_before,
-                parts_after: receipt.parts_after,
-                records: receipt.records_copied + receipt.tombstones_copied,
-            };
-            self.parts.record_run(&run, pack_millis, writer.current());
-        }
-        // All older calls already hold their own generation. New calls take the
-        // view read lock before their lifetime hold, so no retired view can escape.
-        let mut view = self.view.write().expect("native complete read view");
-        if !view.accepted.is_empty() {
-            return Err(StorageError::BackendError(
-                "native maintenance cannot replace an accepted write view".into(),
-            ));
-        }
-        view.current = writer.current().clone();
+        let policy = self.maintenance_policy(options);
+        let (mut receipt, pack_millis, plan, current) =
+            self.prepare_maintenance(options, &policy)?;
+        // The installed floor and all active old reads protect their complete
+        // closures. Future output cannot appear in an older deletion plan.
+        drop(gate);
+        let mut reclaim_millis = 0;
         let mut reclaim_error = None;
         if !options.dry_run {
             let started = std::time::Instant::now();
             // The pack is published. Only the worker keeps its result on a reclaim error.
             let keep_pack = keep_pack_on_reclaim_error && !options.reclaim_only;
-            reclaim_error = self.note_reclaim(writer.reclaim(&policy), &mut receipt, keep_pack)?;
-            view.current = writer.current().clone();
+            reclaim_error =
+                self.note_reclaim(plan.execute(&policy, false), &mut receipt, keep_pack)?;
             reclaim_millis = millis_since(started);
             if !options.reclaim_only {
                 self.parts.add_run_millis(reclaim_millis);
             }
         }
-        let current = view.current.clone();
-        drop(view);
-        let after = usage(self.home.path())?;
+        let after = self.maintenance_usage(options)?;
         Ok(NativeMaintenanceReport {
             dry_run: options.dry_run,
             executed: !options.dry_run,
