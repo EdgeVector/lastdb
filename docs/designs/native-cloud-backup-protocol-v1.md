@@ -1,553 +1,533 @@
 # Native cloud backup protocol, version 1
 
-Status: stage-one contract. Runtime support stays disabled.
-Source baseline: LastDB `8067843c4f9626470edc971ab10c10e829f021d8` and Exemem Infra `a4ecf4d73465370a8b3e08cbfb44fed677b4ca62`.
+Status: unreleased draft, revision 2. Runtime support stays disabled.
+This revision supersedes the first stage-one draft. Wire Version remains 1 because no runtime consumer uses either draft.
+Source baseline: LastDB 8067843c4f9626470edc971ab10c10e829f021d8 and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
-The first release copies complete native roots into a personal backup.
-It preserves native packed file bytes and reuses verified cloud objects.
-A complete backup includes all required file blob bytes and recovery keys.
-Device sync, org sync, automatic cloud deletion, and journal suffix backup remain separate releases.
+## 1. Release boundary and authority
 
-## 1. Contract authority
+The first release provides complete personal native backups on R2 with the Mini portable recovery profile.
+It preserves native packed bytes and reuses verified backup-owned objects.
+Every required main file, thumbnail, and poster belongs to that protected backup object set.
+The cloud control store owns the sole accepted backup pointer.
 
-The [cloud_backup_protocol crate](../../cloud_backup_protocol/src/lib.rs) defines the wire fields, enum values, scalar encodings, and local validation rules.
-This document defines the required authority, storage effects, recovery actions, and completion rules.
-Neither source alone proves a live cloud result.
-Change this document and the types together before a client or service uses a changed contract.
+The [shared crate](../../cloud_backup_protocol/src/lib.rs) defines wire fields, exact encodings, bounded results, and pure validation.
+This document defines authority, required durable actions, recovery rules, and completion.
+The crate does not activate routes, verify cloud bytes, change a daemon, or prove recovery.
+The existing native cloud refusal stays in place.
 
-The crate has no runtime, HTTP, provider, or database dependency.
-It does not activate a route or remove the native cloud refusal.
-Its four capability constants remain `false`.
+Each part owns one result:
 
-The client later imports this workspace crate.
-The service later imports the same crate through its existing `fold` submodule:
+| Part | Owner | Authoritative result |
+| --- | --- | --- |
+| Capture | Native store | One committed root and its protected source files |
+| Transfer | Cloud object service | One authoritative receipt for exact backup-owned bytes |
+| Manifest | Exporter and importer | One authenticated map from native paths and file pointers to those bytes |
+| Acceptance | Cloud control service | One accepted record and pointer from one conditional transaction |
+| Restore | Native importer | One verified fresh destination with recoverable record and file data |
 
-```toml
-cloud_backup_protocol = { path = "../../../fold/cloud_backup_protocol" }
-```
+Scope, authority, limits, and exact retry identities apply to all five parts.
+A memory ack, disk completion, verified object, accepted backup, and local confirmation remain separate facts.
 
-That path belongs in `exemem_service/lambdas/storage_service/Cargo.toml` after the canonical LastDB change merges.
-The service must not copy the types into a second source file.
-The service consumer build requires its explicit manifest path; the service workspace excludes that Lambda.
-Stage one does not change that submodule or prove that consumer build.
+The following functions have no version-one wire contract:
+org sync, logical operation replay, B2, publisher takeover, external-object adoption, journal suffix backup, and automatic cloud deletion.
+A later release must define its own complete operation contract before it adds those functions.
 
-## 2. Encodings and identities
+## 2. Identities and encoding
 
-Use UTF-8 JSON. Reject unknown fields, duplicate struct fields, and unsupported enum values.
-Reject an oversized raw request before JSON decode.
-Use RFC 8785 canonical JSON bytes for hashes and durable protocol objects.
-Do not hash a transport JSON string with arbitrary whitespace.
+Use UTF-8 JSON and RFC 8785 canonical JSON for durable protocol bytes and hashes.
+Reject unknown fields, duplicate struct fields, unsupported enum values, and oversized raw requests before decode.
 
 | Scalar | Exact representation |
 | --- | --- |
-| `Version` | JSON integer `1` |
-| `DecimalU64` | Decimal JSON string; no leading zero except `"0"`; maximum `18446744073709551615` |
-| `Digest` | 64 lowercase hexadecimal characters for 32 bytes |
-| `Id` | Canonical lowercase, nonnil UUID string |
-| `AccountId` | Existing 32- or 64-character lowercase hexadecimal identity |
-| `RelativePath` | At most 512 UTF-8 bytes and eight normal slash-separated components |
-| `Text<N>` | Nonempty UTF-8 text, at most N bytes, with no control characters |
+| Version | JSON integer 1 |
+| DecimalU64 | Canonical decimal JSON string; no leading zero except "0"; maximum 18446744073709551615 |
+| Digest | 64 lowercase hexadecimal characters |
+| Id | Canonical lowercase nonnil UUID |
+| AccountId | 32 lowercase hexadecimal characters |
+| RelativePath | At most 512 UTF-8 bytes and eight normal slash-separated components |
+| Text<N> | Nonempty UTF-8 text, at most N bytes, without control characters |
 
-`RelativePath` rejects absolute paths, empty components, backslashes, `.` and `..`.
+RelativePath rejects absolute paths, empty components, backslashes, "." and "..".
 The importer also rejects symlinks and paths outside its owned destination.
-The scalar alone does not establish safe file access.
 
-`CloudScope` contains the account kind, account identity, account generation, and physical cloud generation.
-The physical generation cannot exceed the account generation.
-The service compares both generations with current authority before each new effect.
-Generation values in a request do not grant authority.
+CloudScope contains account_id and account_generation.
+The generation identifies the account incarnation authorized by the cloud service.
+A reset or revocation can advance it. Ordinary backups do not advance it.
+Provider routing and physical cleanup state remain private service facts.
 
-`BackupStream` adds `stream_id` and the exact native `source_home` identity.
-`Publisher` adds the authenticated principal, durable lease identity, and positive publisher epoch.
-The service binds that value to its stored authority and the authenticated request.
-The client cannot choose a publisher epoch to replace another publisher.
+BackupStream adds stream_id and source_home.
+The first successful jobs/begin conditionally registers the stream to its authenticated stable service subject and exact native home.
+Authentication uses the existing service credential system.
+The subject remains stable across token refresh; it is not the access-token bytes.
+Another subject cannot adopt that stream through this protocol.
+Restore preserves the native home but starts a fresh stream.
 
-One stream has one active backup commit and one authorized publisher.
-A restore preserves the native home identity but allocates a fresh backup `stream_id`.
-Old publisher takeover and device join have no version-one operation.
-An elapsed lease timeout does not close an uncertain provider effect.
+BackupJob adds commit_id. The client saves this identity before a cloud request.
+The native root, recovery profile, and expected predecessor belong to the immutable JobBeginInput.
+The service saves its hash before object transfers.
+Changed input under the same identity returns IdentityConflict.
 
-Native generation, native journal frontier, backup ordinal, and logical writer sequence have different meanings.
-Never use one value as another value's progress.
-An ordinary write ack confirms the current memory result under the existing local durability rules.
-A committed native root confirms the disk boundary. Neither result confirms a cloud backup.
-Verified object bytes, a confirmed cloud commit, and a locally flushed confirmation are separate results.
-Stored control revisions start at one. Each changed record advances its revision by exactly one.
+Native generation, native frontier, backup ordinal, and private control revision have different meanings.
+The first accepted backup has ordinal 1. A successor has its predecessor's ordinal plus one.
+Native generation and frontier cannot decrease within a stream.
+An unchanged generation requires the same NativeRoot summary.
+The exporter and importer also compare that summary against exact native bytes.
 
-## 3. Hash rules and object names
+bytes_sha256 hashes exact stored bytes with SHA-256.
+An ETag is not a byte-integrity proof.
 
-`bytes_sha256` hashes the exact stored bytes with SHA-256.
-Use it for native files, stored blob streams, encrypted manifests, reference metadata, and candidate head bytes.
-An object ETag is an opaque conditional-write token. It is not a SHA-256 proof.
+input_digest hashes this frame:
 
-`input_digest(domain, value)` hashes this frame:
+    u32_be(domain UTF-8 length) || domain UTF-8 bytes ||
+    u64_be(canonical JSON length) || canonical JSON bytes
 
-```text
-u32_be(domain UTF-8 byte length) || domain UTF-8 bytes ||
-u64_be(canonical JSON byte length) || canonical JSON bytes
-```
-
-| Input | Domain and value |
+| Value | Domain |
 | --- | --- |
-| Transfer | `lastdb:native-backup:transfer:v1`, complete `TransferInput` |
-| Commit | `lastdb:native-backup:commit:v1`, complete `CommitInput` |
-| Object receipt | `lastdb:native-backup:object-receipt:v1`, array `[version, scope, object, provider, bucket, key, etag]` |
-| Scope namespace | `lastdb:native-backup:scope:v1`, complete `CloudScope` |
-| Recovery commitment | `lastdb:native-backup:recovery:v1`, complete `RecoveryDescriptor` |
+| JobBeginInput | lastdb:native-backup:job-begin:v1 |
+| TransferInput | lastdb:native-backup:transfer:v1 |
+| CommitInput | lastdb:native-backup:commit:v1 |
+| Array [version, scope, object] | lastdb:native-backup:object-receipt:v1 |
+| CloudScope | lastdb:native-backup:scope:v1 |
+| RecoveryDescriptor | lastdb:native-backup:recovery:v1 |
 
-The receipt identity excludes `receipt_id` and `verified_ms`.
-A repeated verification returns the original authoritative receipt, including its original time.
-The service accepts a receipt only through its authoritative receipt record.
-A client-supplied, internally consistent receipt does not establish byte verification.
+The receipt hash names one canonical scoped byte identity.
+The authoritative private receipt record supplies its fixed provider location and verified evidence.
+A client-created receipt with a valid hash does not establish that authority.
 
-Let `S` be the scope namespace digest.
-Use these version-one object names inside the selected provider bucket:
+## 3. Capture and protected backup files
 
-```text
-native-backup/v1/S/streams/STREAM_ID/head.json
-native-backup/v1/S/objects/REQUEST_ID/OBJECT_SHA256-BYTE_LENGTH
-native-backup/v1/S/references/pages/PAGE_SHA256.json
-native-backup/v1/S/references/indices/INDEX_SHA256.json
-```
+The native exporter completes a full-root cut and creates its durable file hold.
+It requires frontier == journal_frontier and the native snapshot's empty JOURNAL_TAIL boundary.
+It releases the local write gate before network work.
+Ordinary local reads and writes use their existing memory and disk rules.
 
-`S`, UUIDs, hashes, and lengths use the scalar encodings above.
-The fixed provider, bucket, and complete key survive a restart in durable records.
-Current provider defaults must not change a saved location.
-There is no automatic provider fallback.
-New native namespace objects and heads use R2 for the first implementation.
-Do not use the legacy prefix selector; it routes this unknown prefix to B2.
-S1 must add explicit native namespace routing, account ownership, quota admission, and usage classification before a provider effect.
-The B2 wire value reserves a supported location identity; it does not enable new native transfers on B2.
+The source job saves its hold identity, root, exact inventory, and initial transfer inputs before cloud work.
+A restart resumes those files. It does not substitute a newer root.
+A full local backup copy is not required.
+A generation hold protects that cut; it does not retain journal files from later writes.
 
-Each new transfer owns a unique object key.
-A later transfer can reuse an authoritative verified receipt for the same scope, hash, length, kind, and encoding.
-It must not create another multipart upload against the accepted object's key.
-This rule prevents a late completion from overwriting accepted bytes.
-Temporary URLs permit part upload only. They never permit head writes, object deletion, or multipart completion.
+NativeRoot is a service-visible summary:
+home identity and digest, full CURRENT digest, native generation, frontier, journal frontier, and required native features.
+Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
+The exporter and importer use the native decoder to check those details.
+The current native profile supports mask 0xff, requires 0xc7, uses codecs 0x0101, and requires logical marker layout:v3:keys with ASCII value 4.
+Unsupported features cause refusal before destination publication.
 
-Reference metadata uses service-only conditional creation with exact canonical bytes.
-Its authoritative metadata record saves the fixed provider binding before that effect.
-An existing metadata object requires an exact hash and length match.
-Its key hash cannot substitute for that match.
+Native files retain their exact stored bytes and hashes.
+Small metadata files may share an 8 MiB transport object with explicit member extents.
+Ordinary native packed files need no second database layout or encryption pass.
+The current native physical frames remain plain; upper layers protect stored values where configured.
 
-## 4. Native root and packed file cut
+File-pointer changes and dependency-directory changes share the same native mutation batch.
+The exporter captures that directory with the same root.
+The current local cache is not the dependency authority.
+An old pointer without a certified dependency prevents a complete backup.
 
-Use the native backup cut and its exact inventory as the exporter boundary.
-The cut completes the native flush, creates a durable generation hold, and captures one full root.
-Release the local write gate before network work.
-Stream retained files directly; do not require a full local backup copy.
+All required file blob bytes use backup-owned objects.
+Copy authorized external bytes once, then reuse verified backup objects in later snapshots.
+Do not retain a dependency on an external owner's deletion policy.
+If the exporter lacks permission to copy required bytes, it refuses completion.
 
-The durable job saves the exact source root, inventory, hold identity, and initial object identities before cloud requests.
-Each later manifest object saves its exact bytes before its own transfer preparation.
-A restart resumes that cut. It cannot substitute the latest root.
-A source hold protects the captured files. It does not protect journal files from later writes.
+Preserve each stored source hash, length, encryption suite, and encrypted key reference.
+The dependency map key is the pair logical_pointer_sha256 and FileDependencyKind.
+The digest hashes canonical JSON bytes of the exact decrypted whole validated file-pointer atom value, including its outer $lastdb_file wrapper.
+It includes all optional pointer members and excludes the atom ID, atom metadata, and stored ciphertext.
+Main selects the parent blob_ref, dek, and cipher_suite.
+Thumbnail selects thumbnail with kind image. Poster selects thumbnail with kind video-poster.
+Both nested forms select their own blob_ref and access.dek / access.cipher_suite.
+The exporter and importer use the existing pointer validator and compare the selected suite with the dependency.
+There is no second key-reference digest. The existing encrypted pointer retains the key material.
+Legacy $blob_ref or metadata-only file references require certified native coverage or explicit refusal; the exporter cannot silently omit them.
+Large blob streams use ordered extents over objects of at most 64 MiB.
+The first profile supports the existing convergent and legacy DEK file suites.
+The account content key does not replace a per-file DEK.
+A persistent restore dependency map resolves original file identities through the backup extents without a native-root rewrite.
 
-`NativeRoot` mirrors the complete `CURRENT` and home descriptor fields.
-Hash all 4096 bytes of `CURRENT` and the home descriptor.
-Verify all mirrors against those bytes during export and import.
-Require `frontier == journal_frontier` and the native snapshot's empty `JOURNAL_TAIL` boundary.
-No version-one manifest advertises a journal suffix.
+## 4. Job lifecycle and authority
 
-Version one accepts the native supported feature mask `0xff` and requires the current base features `0xc7`.
-Placement and key codecs equal `0x0101`.
-The hash fanout is a power of two from one through sixteen.
-The logical key marker is key `layout:v3:keys`, with ASCII value `4`.
-Unknown features or a different logical key format cause refusal before destination publication.
+jobs/begin saves the immutable input and conditionally creates or checks the stream's one active job.
+It checks the authenticated subject, current account generation, exact native home, predecessor, and admitted resources.
+The same input returns the original job result.
 
-Preserve native packed files without a second physical format or encryption pass.
-Native frames use the current plain physical format; upper layers protect stored values where configured.
-Do not describe every native file as ciphertext.
-The native reader remains the authority for checksums, tree structure, and readable keys.
+The public lifecycle has three states:
 
-Small metadata files may share a bounded transport object.
-The manifest retains each path, native hash, native length, creation generation, object receipt, offset, and extent length.
-Use the native header's creation generation when that format contains one.
-For fixed metadata without that field, use the captured root generation.
-Do not repack ordinary native pack files into a new database layout.
-Every extent must stay inside its verified object.
-The complete manifest must contain exactly the native backup inventory, including required descriptor and journal files.
+| State | Meaning | Legal terminal result |
+| --- | --- | --- |
+| Active | The exact job may transfer bytes and submit its manifest | Published or Closed |
+| Published | The acceptance transaction committed its AcceptedBackup | The same Published result |
+| Closed | A close transaction permanently fenced this job's acceptance | The same Closed result |
 
-Keep the backup job outside the captured database contents.
-Node credentials, temporary grants, and private job authority are not restore data.
-The client flushes the confirmed cloud receipt before it releases the source hold.
+Active does not expose private worker phases.
+Transfer rejection does not silently close the parent job.
+The client can replace a definitively rejected transfer through a new request identity, or explicitly close the job.
+A changed frozen commit requires a new job.
 
-## 5. Manifest and finite reference closure
+jobs/status reads the exact BackupJob and returns its original input hash.
+A recovery caller therefore needs no lost local input hash for a status read.
+jobs/close requires that saved hash and one CloseReason:
+UserRequested, SourceUnavailable, or GenerationChanged.
 
-`ManifestPage` and `NativeBackupManifest` describe encrypted plaintext.
-Use the current account content envelope version one: AES-256-GCM, 12-byte random nonce, and 16-byte tag.
-The stored envelope has a one-byte version prefix and 29 bytes of total overhead.
-This envelope has no AAD or key identifier.
-Its authenticated plaintext therefore contains the version, stream, commit identity, exact root digest, and page ordinal.
-The importer compares that context after decryption.
+Close is one conditional control-store transaction:
+it marks the exact active job Closed and clears the stream's active-job slot.
+It does not change the accepted backup pointer.
+If acceptance wins the race, close returns the original Published result.
+If close wins, no later worker can accept that job.
+Repeated close returns the first terminal result and preserves its original reason.
 
-Save the exact encrypted page and index bytes before transfer preparation.
-A retry reuses those bytes and hashes. It does not encrypt the plaintext again.
-The encrypted index lists encrypted page receipts, native totals, dependency totals, recovery commitment, and the same `ReferenceRoot` as the commit.
+Close also handles an absent job after a lost begin response.
+It conditionally creates a permanent Closed record with the exact BackupJob, begin-input hash, and reason.
+That path leaves any other active job and the accepted pointer unchanged.
+A later begin must check that record before admission and return Closed for the same input hash.
+Changed input returns IdentityConflict. The Closed record has no expiry rule.
+If begin wins the race, close reads the saved job and uses the ordinary conditional close path.
+NotFound alone never permits the client to release its source hold after an uncertain begin.
 
-Build the reference closure in this order:
+Closure may complete while an old PUT outcome remains unknown.
+The private byte reservation, fixed target, and accounting obligation remain after closure.
+A late write can create an unreferenced object, but it cannot publish the closed job.
+Closure authorizes neither deletion nor an assumption that the old write failed.
+The source releases its local hold after it saves terminal closure and stops its own source readers.
 
-1. Obtain receipts for native file objects, metadata objects, and required blob objects.
-2. Encrypt manifest pages and obtain their receipts.
-3. Sort all those receipts by `receipt_id`, with no duplicate identity.
-4. Write bounded `ReferencePage` objects and a bounded `ReferenceIndex`.
-5. Compute `ReferenceRoot` from the exact canonical index bytes and its totals.
-6. Put that root in the encrypted manifest index, then obtain the index receipt.
-7. Put the root and the separate index receipt in `CommitInput`.
+Authority rules differ by operation:
 
-The reference root includes encrypted manifest pages but excludes the encrypted index itself.
-It also excludes its own public reference pages and index.
-Those metadata objects form a finite tree, with hashes and lengths in their parent descriptors.
-The separate encrypted index receipt closes the manifest dependency without a circular hash.
+| Operation | Required authority |
+| --- | --- |
+| New job, grant, metadata write, or acceptance | Current account generation, registered subject, and exact Active job |
+| Read an accepted backup | Authenticated read permission for that selected scope and backup |
+| Close a job | Its normal write authority or explicit scoped recovery authority |
+| Record an old provider outcome | Trusted service recovery authority over the exact saved private attempt |
 
-Each public page contains scoped authoritative `ObjectReceipt` values in strict receipt order.
-It also contains sorted `RetentionHoldReference` values for any reused external objects.
-Each public hold names an object receipt in that page.
-The authoritative hold record binds the same scope, receipt, beneficiary stream, and commit identity.
-Each index descriptor commits to page hash, byte length, count, stored object bytes, and first and last receipt identities.
-Page ranges cannot overlap. Page indices are consecutive from zero.
-`ReferenceRoot.stored_bytes` sums receipt object lengths once per listed receipt.
-It excludes reference metadata and the separate encrypted index bytes.
-Quota admission adds those excluded bytes and any temporary provider allocations separately.
+Trusted recovery may record evidence and close old admissions after a generation change.
+It cannot issue a new old-generation grant or publish a closed job.
+A fence must not prevent evidence records from resolving old reserved bytes.
 
-Before publication, the service verifies the complete public reference tree, every authoritative receipt, and all required retention holds.
-It also verifies the separate encrypted index receipt.
-After decryption, the client verifies the complete native and file dependency inventory against that same tree.
-The service cannot certify encrypted native semantics without the account key.
-It must not claim that transport closure alone proves record recovery.
+## 5. Small immutable transfers
 
-## 6. File blob dependencies and recovery keys
+Each TransferInput contains version, request_id, BackupJob, and ObjectIdentity.
+ObjectIdentity contains the stored SHA-256, byte length, and kind.
+The kind determines the format; there is no separate encoding choice.
 
-A file pointer alone is not a recoverable backup.
-Each main file, thumbnail, and poster requires its exact stored hash, stored length, scope, key reference, and recoverable source.
-The exporter captures a durable dependency directory with the same native root.
-Each file-pointer change and its dependency-directory change share one native mutation batch.
-It must not derive that directory from the current local cache.
-An old pointer without a certified dependency prevents complete publication.
+| Kind | Stored format |
+| --- | --- |
+| NativeFile, MetadataPack | Existing native stored bytes |
+| ManifestPage, ManifestIndex | Existing account envelope v1 |
+| BlobPart | Existing stored blob bytes |
 
-Use an existing remote object only when an enforceable hold protects its bytes and key access for the backup lifetime.
-The service checks that hold against the exact receipt and owner scope.
-Version one permits retained receipts from the same backup scope only.
-Another scope requires an authorized copy into the backup scope.
-`holds/prepare` creates or returns the same hold for the exact stream, commit, and receipt.
-The public reference page carries that hold; the encrypted manifest must name the same hold.
-Provider expiry and old owner deletion cannot defeat the hold.
-Otherwise, copy authorized stored bytes into protected backup objects and record their ordered extents.
-Refuse publication when neither option is authorized.
+Before a grant, the service saves the frozen transfer input, its hash, its fixed unique target, and the byte reservation.
+The same request and input returns the same transfer.
+Provider addresses and worker records stay private.
+The service explicitly routes the new namespace to R2; the legacy unknown-prefix selector cannot choose its backend.
 
-Version one supports the existing convergent and legacy DEK file encryption suites only.
-Keep each existing per-file key in its encrypted pointer or encrypted manifest data.
-The account content key does not replace a file DEK.
-Public descriptors, receipts, and errors contain no seed, DEK, API key, or signed URL.
+Use one signed conditional PUT per object.
+The client sends signed If-None-Match: * and the exact signed Content-Length.
+The URL signature must enforce both values.
+No grant permits overwrite, deletion, arbitrary keys, or control metadata writes.
+The client streams bytes with bounded memory.
+A retry repeats the bounded object through the same saved target; it does not resume a multipart upload.
 
-The restore path resolves original stored-file identities through the authenticated manifest dependency map.
-It does not rewrite the native root merely to replace a provider address.
-That map must provide file access after restore and after restart.
-If a required resolver capability is absent, the importer refuses completion.
+R2 evaluates create-once conditional writes against committed state.
+The service still verifies full stored SHA-256 and length before it issues a receipt.
+A provider existence response or ETag alone is insufficient.
+See [R2 conditional writes and uncertainty](https://developers.cloudflare.com/r2/reference/consistency/).
 
-The only version-one account recovery scheme is Mini's portable identity scheme:
+A 412 response can mean the earlier request succeeded.
+The service checks the exact fixed target and expected bytes.
+A negative read, timeout, expired URL, or elapsed interval does not prove that an in-flight PUT failed.
+The service may repeat the same conditional PUT without a new target.
+At most one write creates that target; later retries verify the winning bytes.
 
-```text
-24 BIP39 words -> 32 raw entropy bytes -> Ed25519 seed -> existing E2eKeys derivation
-```
+| Public transfer result | Meaning |
+| --- | --- |
+| Pending / AwaitingBytes | Required verified bytes do not exist yet |
+| Pending / Verifying | The service checks the stored bytes |
+| Pending / OutcomeUnknown | The service cannot yet establish the exact outcome |
+| Verified | The authoritative receipt is available, through upload or safe reuse |
+| Rejected | The exact request has a known terminal failure |
+
+Verified and Rejected remain terminal for that request identity.
+Missing bytes remain Pending. A missing local source uses jobs/close.
+TerminalFailureCode includes only InvalidInput, UnsupportedFormat, UnsupportedKeyMode, and IntegrityMismatch.
+Pending and retryable error codes cannot appear in TerminalFailure.
+
+Resume returns a temporary grant, the current transfer state, or a typed request error.
+A verified-state race therefore returns the receipt instead of an unnecessary upload.
+Status never contains a URL.
+The complete operation triggers byte verification; it performs no provider multipart completion.
+Temporary read and upload URLs never enter durable manifests or job records.
+
+Independent requests use bounded batches or parallel calls.
+The service uses batched keyed control reads.
+Usage charges and uncertain byte reservations use independent durable obligation identities.
+A charge retry cannot duplicate usage or keep the stream's active-job slot indefinitely.
+
+## 6. Manifest and finite reference closure
+
+The encrypted manifest describes private native paths, original file pointers, key references, hashes, and extents.
+The public reference tree describes the exact verified cloud object set.
+Their shared reference digest binds the two views.
+The service checks byte availability; the importer checks native meaning after decryption.
+
+The public tree contains each full ObjectReceipt once in strict receipt order.
+Manifest page references and file extents use receipt IDs.
+Receipt scope must equal the backup scope.
+Every extent must fit its selected receipt and use the required object kind.
+The complete native inventory must have no duplicate or extra path.
+
+Build the closure in this order:
+
+1. Obtain receipts for native files, metadata objects, and backup-owned blob parts.
+2. Save each exact encrypted manifest page, then obtain its receipt.
+3. Sort those content and page receipts into bounded public ReferencePages.
+4. Save their exact canonical bytes through references/put.
+5. Create and save a bounded ReferenceIndex over those pages.
+6. Compute ReferenceRoot from the exact canonical index and its checked totals.
+7. Put that root and the recovery commitment into the encrypted manifest index.
+8. Save its exact encrypted bytes and obtain its separate receipt.
+9. Submit CommitInput with the reference root and encrypted index receipt ID.
+
+Each reference descriptor binds page hash, length, count, object bytes, and first and last receipt IDs.
+Page indices are consecutive from zero. Receipt ranges cannot overlap.
+ReferenceRoot includes content and encrypted page objects.
+It excludes public reference metadata and the encrypted manifest index itself.
+The finite tree and separate index receipt avoid a circular hash.
+Quota admission adds the excluded metadata and temporary bytes separately.
+
+The service verifies the full reference tree and the separate authoritative ManifestIndex receipt.
+That check does not prove encrypted native semantics.
+The importer verifies the decrypted index, all page contexts, receipt membership, file hashes, extents, totals, and exact native inventory.
+It checks that the index job, native root, reference root, and recovery commitment equal the selected AcceptedBackup values.
+It calls validate_for_accepted only after byte-hash verification and authenticated decryption of that selected index object.
+
+Manifest encryption uses existing account envelope v1:
+one version byte, 12-byte random nonce, ciphertext, and 16-byte tag.
+It has 29 bytes of overhead, no AAD, and no key ID.
+Its authenticated plaintext includes version, BackupJob, exact CURRENT hash, and page index.
+Save each exact ciphertext before that object's transfer preparation.
+A retry does not encrypt that object again.
+
+## 7. One atomic acceptance point
+
+CommitInput selects an existing Active job through its exact begin-input hash.
+It adds the final ReferenceRoot and encrypted manifest index receipt ID.
+The first submission freezes those bytes under that commit identity.
+A different submission returns IdentityConflict.
+
+The service verifies all required authoritative receipts and exact reference metadata before acceptance.
+These objects and records remain immutable and protected with cloud deletion disabled.
+The private verification certificate binds the complete tree and submission hash.
+This certificate permits a small final transaction; it does not replace receipt verification.
+The transaction need not read thousands of object records at once.
+
+One Dynamo DB transaction performs these actions:
+
+1. Check current account authority and generation.
+2. Conditionally update the stream from the exact predecessor and Active job to the new BackupHead.
+3. Put the immutable AcceptedBackup record under the exact commit identity.
+4. Mark that job Published and clear its active-job admission.
+
+Combine conditions and updates for the same item into one action.
+Check the frozen begin hash, frozen commit hash, verification certificate, native order, and registered subject in those conditions.
+No action can target the same item twice.
+Add deterministic usage obligations within the bounded transaction or retain them independently through the job.
+Never lose an obligation between accepted bytes and charge completion.
+
+AcceptedBackup is also the commit receipt.
+There is no second receipt object or mutable R2 head.
+The stream head contains only the accepted commit ID, digest, and ordinal.
+Private storage records may reference that immutable accepted record instead of duplicating its complete contents.
+
+Dynamo DB supports conditional all-or-nothing transactions.
+Its token window is not the durable retry identity.
+See [TransactWriteItems](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html).
+
+A lost transaction response returns Pending / OutcomeUnknown.
+The client reads status through the same job and retries only the same frozen CommitInput.
+An accepted status returns the original AcceptedBackup, even after a newer job starts.
+NotFound means no saved submission is visible; it does not prove that a request cannot still complete.
+The client repeats the same input or closes the job to fence later acceptance.
+
+heads/read returns the last accepted backup plus the separate active commit ID.
+A pending, rejected, or closed new job cannot mask the previous accepted backup.
+Before the first accepted backup, accepted is null; an active job can still exist.
+Use strongly consistent keyed reads and a transactional read when several changing records require one coherent view.
+A private worker event or provider object list is not acceptance evidence.
+
+The client saves AcceptedBackup on local disk before it releases its native source hold.
+If that local flush fails, it retains the hold and retrieves the same accepted result.
+Local confirmation and remote acceptance remain separate states.
+
+## 8. Recovery and restore
+
+MiniPortableV1 is the only account recovery profile.
+RecoveryDescriptor contains that profile tag and the account public key.
+The surrounding job supplies scope and native identity.
+
+The existing derivation remains:
+
+    24 BIP39 words -> 32 raw entropy bytes -> Ed25519 seed -> existing E2eKeys derivation
 
 Do not use BIP39's PBKDF seed output.
-Preserve the existing Ed25519-to-X25519 conversion and HKDF-SHA256 salts and info values.
-The existing salt is `fold:e2e:v1`.
-The existing info values are `fold:content-key`, `fold:index-key`, and `fold:range-ope-v1`.
+Preserve the existing Ed25519-to-X25519 conversion and HKDF-SHA256 derivation.
+The salt remains fold:e2e:v1.
+The info values remain fold:content-key, fold:index-key, and fold:range-ope-v1.
 
-`account_public_key` is the raw 32-byte Ed25519 public key in lowercase hexadecimal.
-The Mini account identity equals the first sixteen SHA-256 bytes of that raw public key, in lowercase hexadecimal.
-The importer derives the public key from the supplied recovery secret and compares it before destination publication.
-The public descriptor's own consistency check cannot prove possession of that secret.
-Embedded store-keyring recovery has no version-one variant.
+The public key contains 32 raw Ed25519 bytes in lowercase hexadecimal.
+The account ID equals the first sixteen SHA-256 bytes of that raw public key.
+The importer derives the key from the supplied recovery secret and compares it.
+A public descriptor check alone does not prove secret possession.
 
-Disaster recovery preserves the account and native home identity in a fresh destination.
-It obtains separate authorized cloud credentials and leaves cloud sync off.
-It does not resume a source publisher lease or private upload job.
+The recovery secret stays outside the backup.
+Recovery also requires cloud service authority and its accepted metadata. A bucket and phrase alone do not satisfy this profile.
+Each per-file DEK remains in its existing encrypted pointer data.
+No public descriptor, receipt, or error contains seeds, DEKs, API keys, record values, or signed URLs.
+Embedded store-keyring recovery requires a later profile.
 
-## 7. Transfers and uncertain provider effects
+Authentication supplies authorized account generations after loss of the local home.
+streams/list reads bounded pages from the account's keyed stream directory.
+Directory entries are discovery information.
+heads/read or commits/status supplies the accepted result.
+A RecoveryLocator is an optional convenience, not a required surviving local file.
 
-The service writes the complete `TransferInput`, its input hash, revision, and effect identity before any provider call.
-Each transfer carries the pending backup `commit_id` before its manifest exists.
-The first transfer prepare conditionally creates or checks the stream's active job and publisher authority.
-Later transfer, hold, metadata, and commit requests must name that same active job.
-This job admission precedes provider work; final commit preparation checks and advances that existing admission.
-The same request identity and input returns the same transfer.
-A different input under that identity returns `IdentityConflict`.
-Every durable transition uses the expected revision and current account, generation, publisher, and admission authority.
+objects/read grants temporary access only to identities in the selected accepted backup's exact closure.
+It includes the separate encrypted index and public reference metadata.
+It cannot accept an arbitrary client provider key.
+The client compares every grant's expected hash and length to its authoritative receipt or reference descriptor.
 
-| State | Required action or evidence before the next state |
-| --- | --- |
-| `prepared` | Reserve quota and the exact provider target before Create |
-| `reused` | Return an existing authoritative receipt without Create, part upload, or Complete |
-| `creating` | Save the in-flight creation effect before the provider request |
-| `create_uncertain` | Recover the same owned effect; do not create another upload |
-| `ready` | Save the exact provider upload identity |
-| `uploading` | Refresh temporary part URLs for that upload only |
-| `completing` | Save the immutable ordered part set and completion effect before Complete |
-| `complete_uncertain` | Recover that exact completion; preserve the source and admission |
-| `verifying` | Verify stored SHA-256 and length with bounded reads or an equivalent trusted full-byte checksum |
-| `verified` | Save the immutable authoritative object receipt |
-| `rejected` | Record a definite failure with conclusive closure of every possible provider effect |
+The restore job saves its selected BackupJob, accepted digest, progress, and fresh destination before downloads.
+A restart resumes that selection.
+The importer verifies encryption context, recovered keys, complete inventory, every digest and extent, and file blob access.
+It uses the native validator and completes disk writes before it exposes the destination.
+The persistent dependency map must still resolve all file bytes after restart.
 
-Parts use consecutive provider numbers from one.
-Each nonfinal part has exactly 8 MiB; the final part contains the remaining bytes.
-The maximum object has eight parts.
-The service owns Complete and all final object writes.
-A successful part response or object existence response cannot create an object receipt.
-Before `prepared` leaves for `reused`, the service verifies the receipt identity, byte identity, authority, and required retention.
-That terminal path has no new provider binding or completion effect.
-The original provider object stays immutable and protected for the new backup.
+Restore preserves the account and native home identity.
+It obtains separate authorized credentials, leaves cloud sync off, and starts a fresh stream for any later backup.
+It does not adopt the source's private job or registered subject binding.
 
-A timeout, missing list result, 404, expired URL, or elapsed lease does not prove a provider request failed.
-The effect ledger records the exact target, exclusive owner, saved request, provider evidence, and closed prior effects.
-It exists under the stable effect identity named in the transfer record.
-The worker cannot infer that evidence from the phase enum.
+## 9. API and private record boundary
 
-Create has no assumed provider idempotency token.
-After a lost Create response, reconcile the unique owned key and the original provider request.
-Do not repeat Create while that effect can still succeed.
-If the provider cannot establish its outcome, retain `create_uncertain` and report `OutcomeUnknown`.
-Do not exchange safety for a timed retry against a new key.
-This case may require operator evidence or a later provider-specific recovery design.
+All operations are reserved POST routes under /api/cloud/native-backup/v1/.
+No route becomes available through this contract change.
+An authenticated request body never grants authority by itself.
 
-Complete retries use the saved upload identity and exact frozen parts only.
-A confirmed final object still requires byte verification.
-Rejected work releases admission only after positive evidence closes all possible effects.
-Uncertain work has no TTL deletion rule.
-
-Usage charges have separate durable obligation identities.
-Charge retries cannot duplicate a charge or keep a verified transfer's upload admission active.
-The charge obligation remains visible until its own terminal result.
-
-## 8. One authoritative head and complete publication
-
-The object-store head is the sole mutable publication head for each stream.
-Do not maintain a second independently mutable `latest` value in Dynamo DB.
-Keep the legacy namespace outside this protocol.
-Only the service worker can write the native head.
-
-`CommitInput` binds the exact root, recovery descriptor, reference root, encrypted index receipt, publisher, and predecessor.
-The service validates that predecessor against the authenticated prior candidate.
-Native generation and frontier cannot decrease within one stream.
-An unchanged generation requires an identical native root.
-Compaction may increase generation without a frontier change.
-
-`HeadCandidate` contains the complete commit input, its input hash, and the next ordinal.
-It has no volatile timestamp.
-Save its exact canonical bytes, SHA-256, expected predecessor ETag, and head effect before the conditional provider write.
-The first head uses `If-None-Match: *`.
-A later head uses `If-Match` with the exact predecessor ETag.
-Never perform an unconditional head write.
-
-| State | Required action or evidence before the next state |
-| --- | --- |
-| `prepared` | Save the immutable commit and verify the same exclusive active-job admission |
-| `references_verified` | Verify the full reference closure, separate index, holds, generations, and authority |
-| `writing_head` | Save exact bytes and the effect before the conditional head request |
-| `head_uncertain` | Reconcile only the saved candidate and predecessor |
-| `head_confirmed` | Confirm the exact candidate hash, bytes, ordinal, and provider ETag |
-| `confirmed` | Atomically save the immutable commit receipt and close the exact active admission in the control store |
-| `rejected` | Record a definite refusal after all possible head effects are conclusively closed |
-
-One unresolved head effect prevents a later commit on that stream.
-A retry may send the same conditional request with the same saved bytes and predecessor.
-It cannot change the candidate, predecessor, or effect identity.
-A precondition failure requires reconciliation: the original request may already own the head.
-A different head or a greater ordinal does not confirm this commit.
-
-Provider head writes and Dynamo DB transactions cannot form one atomic operation.
-The service therefore preserves the uncertain states between those operations.
-After a crash, it completes the same receipt and admission closure.
-It never erases an uncertain record or starts a replacement publisher to infer success.
-
-The head-read operation returns a `PublishedHead` only with its matching confirmed `CommitReceipt`.
-The client validates that receipt's complete linkage and the exact candidate hash.
-An unconfirmed head returns `ProviderPending` or `OutcomeUnknown`.
-It does not return an empty head or silently accept a raw object list.
-An empty result means authoritative absence with no unresolved head effect.
-
-After remote confirmation, the client flushes that receipt locally, then releases the durable source hold.
-If the local flush fails, the client retains the hold and repeats confirmation through the same commit identity.
-That local state is separate from the service's confirmed state.
-
-## 9. Reserved API and control-store rules
-
-All routes below are reserved `POST` operations under `/api/cloud/native-backup/v1/`.
-They require authenticated authority and remain unavailable until their implementation and release gate complete.
-No request body grants authority by itself.
-
-| Suffix | Request | Result |
+| Route | Request | Successful or operation result |
 | --- | --- | --- |
-| `transfers/prepare` | `TransferPrepareRequest` | `TransferBatchResponse` |
-| `transfers/status` | `TransferStatusRequest` | `TransferBatchResponse` |
-| `transfers/resume` | `TransferResumeRequest` | Temporary `TransferResumeResponse` or typed error |
-| `transfers/complete` | `TransferCompleteRequest` | `TransferItemResult` |
-| `references/put` | `ReferencePutRequest` | `ReferencePutResult` |
-| `holds/prepare` | `RetentionPrepareRequest` | `RetentionPrepareResult` |
-| `commits/prepare` | `CommitRequest` | `CommitResponse` |
-| `commits/status` | `CommitStatusRequest` | `CommitResponse` |
-| `heads/read` | `HeadReadRequest` | `HeadReadResult` |
-| `streams/list` | `StreamsListRequest` | `StreamsListResponse` or typed error |
-| `objects/read` | `ReadGrantRequest` | `ReadGrantResponse` |
+| jobs/begin | JobBeginRequest | JobBeginResult |
+| jobs/status | JobStatusRequest | JobStatusResult |
+| jobs/close | JobCloseRequest | JobCloseResult |
+| transfers/prepare | TransferPrepareRequest | TransferBatchResponse |
+| transfers/status | TransferStatusRequest | TransferBatchResponse |
+| transfers/resume | TransferResumeRequest | TransferResumeResult |
+| transfers/complete | TransferCompleteRequest | TransferItemResult |
+| references/put | ReferencePutRequest | ReferencePutResult |
+| commits/prepare | CommitRequest | CommitResponse |
+| commits/status | CommitStatusRequest | CommitResponse |
+| heads/read | HeadReadRequest | HeadReadResult |
+| streams/list | StreamsListRequest | StreamsListResponse |
+| objects/read | ReadGrantRequest | ReadGrantResponse |
 
-Prepare accepts at most four transfers and preserves each item's result.
-The general transfer route rejects `ReferencePage` and `LogicalPayload` object kinds.
-Public reference metadata uses its dedicated route. Logical sync remains unavailable.
-Independent keyed work uses bounded batches and parallel calls.
-Do not send one serial control call for every native record.
-Status contains no signed URL. Resume returns fresh temporary URLs for the original upload.
-`references/put` sends bounded public page or index bytes for the deterministic service-only metadata write.
-Its receipt returns the fixed provider location, exact hash, and stored byte length.
-`objects/read` accepts at most four selected receipt or reference metadata identities from one confirmed commit.
-The service proves membership in that commit's exact closure before it returns a temporary read URL.
-The request cannot specify an arbitrary provider key.
-Read URLs remain temporary response data and never enter durable manifests or status records.
+ProtocolError is the typed error body where no operation result exists.
+NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.
+Resource and quota refusal maps to 413.
+Known pending work maps to 202; an unknown or retryable backend failure maps to 503 with its stable identity.
+Batch results preserve the requested order and keep each item's success or error.
+No response code permits a new identity merely because an earlier outcome is unknown.
 
-`streams/list` reads the authenticated account's keyed stream directory with bounded pages.
-It permits discovery after loss of the local home and private jobs.
-Authentication and current account authority supply the authorized scope generations before this request.
-The user does not need a saved local scope digest or locator.
-Follow every directory page needed for the user's selection, then call `heads/read` for confirmation.
-The directory is not publication evidence and does not replace the authoritative head.
-The backup command also returns a nonsecret `RecoveryLocator` for the confirmed commit.
+Private service state includes stream subject bindings, revisions, provider targets, verification evidence, quota reservations, submission certificates, and usage obligations.
+These records stay outside the shared wire crate.
+Worker implementation must define conditional durable transitions before its provider code runs.
 
-Map identity, revision, predecessor, and generation conflicts to HTTP 409.
-Map invalid input to 400, failed authority to 403, and resource or quota refusal to 413.
-Use 202 for known pending work, and 503 with the saved identity for an unknown provider outcome or retryable control failure.
-Use a typed `ProtocolError` in error results. Do not put credentials or record values in its `field` text.
-These codes do not authorize a client to allocate a new identity after an uncertain result.
+Use account key nb1#ACCOUNT_ID.
+Let S be the framed scope digest.
 
-The current service stores control JSON in a Dynamo DB string attribute.
-Count UTF-8 attribute names and stored string values, including base64 text inside that string.
-Do not count the SDK's outer escaped request JSON as the stored item size.
-The full final item, not only its payload JSON, must pass admission.
-Each transaction names unique items once and uses conditional revision checks.
-
-Use account key `nb1#ACCOUNT_KIND#ACCOUNT_ID` and the following record keys.
-`S` is the scope digest from section 3.
-
-| Record | `record_id` |
+| Private record | record_id |
 | --- | --- |
-| Stream directory and publisher authority | `s#S#stream#STREAM_ID` |
-| Transfer | `s#S#transfer#REQUEST_ID` |
-| Provider effect | `s#S#effect#EFFECT_ID` |
-| Object receipt | `s#S#receipt#RECEIPT_ID` |
-| Commit | `s#S#commit#COMMIT_ID` |
-| Public reference page | `s#S#reference#page#PAGE_SHA256` |
-| Public reference index | `s#S#reference#index#INDEX_SHA256` |
-| Retention hold | `s#S#hold#STREAM_ID#COMMIT_ID#RECEIPT_ID` |
-| Usage obligation | `s#S#charge#CHARGE_ID` |
+| Stream directory, subject, head, and active job | s#S#stream#STREAM_ID |
+| Frozen begin input and job lifecycle | s#S#job#COMMIT_ID |
+| Frozen submission and verification certificate | s#S#submission#COMMIT_ID |
+| AcceptedBackup | s#S#accepted#COMMIT_ID |
+| Transfer and fixed target | s#S#job#COMMIT_ID#transfer#REQUEST_ID |
+| Canonical object receipt | s#S#receipt#RECEIPT_ID |
+| Public metadata binding | s#S#reference#page-or-index#SHA256 |
+| Private byte reservation or usage obligation | s#S#job#COMMIT_ID#obligation#OBLIGATION_ID |
 
 All substitutions use the canonical scalar encodings.
-The service creates or checks stream directory authority before any upload effect.
-Directory discovery uses the exact account key and `s#S#stream#` range prefix.
-It does not inspect provider object lists for accepted roots.
-Use exact keyed reads. Do not infer membership or progress from a partial list.
-No active, uncertain, confirmed-root, or required receipt record receives an expiry rule that defeats recovery.
-The shared ten-minute transaction token is insufficient as the durable request identity.
+Directory discovery uses the exact account key and s#S#stream# range prefix.
+Trusted recovery uses the exact job prefix to find its transfer and obligation records after loss of local metadata.
+Aggregate account quota retains unresolved reservations across account generations.
+Keyed reads, not raw provider lists, establish record identity.
 
-## 10. Bounds and admission
+The fixed R2 object names are:
 
-These values are conservative version-one policy bounds, not measured speed or capacity claims.
+    native-backup/v1/S/objects/REQUEST_ID/OBJECT_SHA256-BYTE_LENGTH
+    native-backup/v1/S/references/pages/PAGE_SHA256.json
+    native-backup/v1/S/references/indices/INDEX_SHA256.json
+
+Each transfer target has a unique request ID. A refreshed URL keeps the same target.
+Existing verified receipts reuse their saved backup-owned location.
+Concurrent first uploads can leave a redundant object at another unique target.
+The service keeps the first canonical receipt binding and never overwrites it with that second location.
+Each physical allocation has one saved reservation and charge identity before its grant.
+Quota counts all retained physical objects and unresolved reservations, including unreferenced bytes after close.
+Receipt reuse creates no new payload allocation; it cannot erase an older independent obligation.
+Public metadata uses service-only conditional creation over its exact canonical bytes.
+A pre-existing metadata object must match its hash and length.
+
+## 10. Bounds, checks, and next work
+
+These are conservative v1 policy limits, not measured speed or capacity claims.
 The first reached byte or count bound controls admission.
-All totals use checked arithmetic.
-The complete final encoding must fit even when a count stays below its separate maximum.
+All totals use checked arithmetic and complete final encodings.
 
-| Resource | Version-one bound |
+| Resource | Bound |
 | --- | --- |
-| Native file or metadata transport object | 8 MiB |
-| Other cloud object | 64 MiB |
-| Multipart size and count | 8 MiB; at most eight parts |
-| Raw control request | 256 KiB |
-| Transfer session record | 64 KiB canonical JSON |
-| Object or commit receipt | 16 KiB canonical JSON |
-| Candidate head | 16 KiB canonical JSON |
-| Manifest page or index plaintext | 256 KiB |
-| Encrypted manifest object | Plaintext plus 29 bytes |
+| Native file or metadata object | 8 MiB |
+| Blob object | 64 MiB |
+| Control request or response | 256 KiB |
+| Object receipt or AcceptedBackup | 16 KiB |
+| Manifest plaintext page or index | 256 KiB |
+| Manifest envelope | Plaintext plus 29 bytes |
 | Public reference page or index | 256 KiB |
-| Entries per manifest or reference page | At most 512 |
-| Manifest pages and reference pages | At most 1024 each, subject to index byte bounds |
-| Native file count | 65,552 |
-| Referenced stored bytes per backup | 1 TiB, plus separately admitted metadata and temporary bytes |
-| Copied external file | At most 512 extents; at most 32 GiB, subject to page bytes |
-| Reused single external object | At most 64 MiB |
-| Active backup jobs | One per process and one per stream; coalesce later requests |
-| Concurrent streams and transfer batch size | Four |
+| Entries per page | 512 |
+| Manifest and reference pages | 1024 each, subject to index byte bounds |
+| Native files | 65,552 |
+| Referenced backup bytes | 1 TiB, plus separately admitted metadata and temporary bytes |
+| One external file | At most 512 extents or 32 GiB, subject to page bytes |
+| Active backup jobs | One per process and one per stream |
+| Concurrent object streams and request batches | Four |
 | Cloud-owned working allocations | 96 MiB total |
 | Decoded cloud values within that budget | 64 MiB |
 | Stream buffer | 1 MiB per stream |
 | Durable local cloud spool | 1 GiB |
-| Reserved logical unit | 16 MiB |
-| Reserved logical queue | 1 GiB and 1024 requests |
 | Full stored control item | 256 KiB |
 | Control transaction | 16 unique items and 2 MiB |
-| Account key and record key | 256 and 512 UTF-8 bytes |
+| Account and record keys | 256 and 512 UTF-8 bytes |
 
-The cloud allocation budget includes serialization, encryption copies, decoded values, and stream buffers together.
-It is not a bound on the whole LastDB process.
-The native hold also requires the native disk admission rule and visible retained-byte accounting.
-The source may refuse a cut when the hold or spool exceeds its admitted capacity.
-It must not delete required held files to meet that cap.
+The aggregate memory budget includes serialization, encryption copies, decoded values, and stream buffers.
+It does not cap the whole LastDB process.
+The native hold also requires native disk admission and visible retained-byte accounting.
+The exporter cannot delete held files to satisfy a cap.
 
-The native 8 MiB part and 65,552-file ceilings come from the current native format.
-Dynamo DB permits 400 KiB per item and 100 unique items or 4 MiB per transaction.
-Its key ceilings are 2048 and 1024 bytes.
-The smaller contract limits leave space for complete item attributes and conditional operations.
-See [Dynamo DB constraints](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Constraints.html) and [TransactWriteItems](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html).
+The current service stores control JSON as a Dynamo DB string.
+Count complete stored attribute names and values, including base64 inside that string.
+Do not count SDK outer JSON escaping as stored bytes.
+The full stored-item and transaction bounds apply to private worker records too.
 
-R2 permits 1024-byte object keys, 8192-byte metadata, and 10,000 multipart parts.
-Its nonfinal multipart minimum is 5 MiB; the contract uses 8 MiB.
-See [R2 limits](https://developers.cloudflare.com/r2/platform/limits/) and [multipart uploads](https://developers.cloudflare.com/r2/objects/upload-objects/).
-Conditional head recovery uses committed provider state, with the uncertainty rules above.
-See [R2 consistency](https://developers.cloudflare.com/r2/reference/consistency/).
-The provider implementation must demonstrate equivalent required semantics before a later contract revision enables B2 for this namespace.
+A service implementation must prove signed create-once headers and exact byte verification before transfer activation.
+A restore implementation must prove native record and file recovery through normal product commands.
+Format, type, lint, and build checks establish source consistency only.
+No new test suite or fixture harness supplies product proof.
 
-## 11. Restore completion and later logical sync
+The next packages remain B1 native export, S1 cloud jobs and transfers, and R1 restore.
+B2 supplies atomic dependency records and backup-owned blob copies.
+S2 supplies reference verification and the single acceptance transaction.
+P1 proves cloud-only recovery on fresh synthetic data in an approved service environment.
 
-The restore job saves the selected stream, commit, root, receipt tree, completed work, and fresh destination before downloads.
-A restart resumes that selected root.
-It never combines files from different heads.
-It verifies authenticated manifest context, source keys, every file digest and extent, exact inventory, and required blob access.
-It then uses the native validator and completes disk writes before destination publication.
-The command reports completion only when records and all required file bytes are available after restart.
+The service later imports this crate through its existing fold submodule at ../../../fold/cloud_backup_protocol from exemem_service/lambdas/storage_service/Cargo.toml.
+That consumer build requires the Lambda's explicit manifest path.
+This draft does not update the submodule or establish that build.
 
-Format and build checks do not supply that recovery proof.
-The later personal release gate uses normal product commands, fresh synthetic data, and cloud-only recovery in an approved environment.
-It does not use a primary copy, an archive, an existing source cache, or a new test harness.
-Shared service, deployment, provider lifecycle, and primary changes require Tom's approval after the concrete source result is ready.
-
-Logical sync has reserved identity types only in version one.
-`LogicalStream` scopes account, generations, database, target, writer identity, and writer epoch.
-`LogicalUnitReference` names one complete source commit, not one transport part.
-Its dependency root includes the encrypted payload itself, even when no external file exists.
-Sparse writer sequence values do not define accepted publication order.
-The eventual accepted receipt predecessor chain defines that order.
-
-Preserve existing author signature version three and the native mutation content format.
-The new canonical JSON hashes do not replace those signatures.
-Raw native `HomeMutation` journal entries do not define a cross-node merge operation.
-The later operation contract must cover record transactions, schema authority, proteins, file dependencies, and org authority.
-
-The later local write must commit the complete logical unit and its data in the same native transaction.
-The later importer must commit data and its exact scoped `AppliedCheckpoint` together.
-Applied progress cannot be shared between personal and org targets.
-No logical route, queue worker, replay decoder, or sync capability starts in stage one.
-
-## 12. Next work and ownership
-
-The next stage has three parallel work packages:
-
-- B1: the native owner extracts the retained cut and durable exporter job.
-- S1: the service owner adds durable transfer identities, provider effects, and exact object receipts.
-- R1: the restore owner adds bounded import and account recovery from this contract.
-
-The integration owner controls protocol changes and shared native transaction interfaces.
-B2 then closes file dependencies through the exporter and restore interfaces.
-S2 then implements the confirmed head and complete reference rules.
-P1 proves personal cloud recovery before a separate activation decision.
-
-Keep automatic cloud deletion disabled through P1.
-No first-release provider expiry rule may remove a required object.
-Cloud size, retained local bytes, unresolved effects, queue age, blocked reason, and last confirmed root must remain visible.
-G1 deletion, J1 journal suffixes, and L1-L3 logical sync each require their own complete design and release evidence.
+Automatic cloud deletion and required-object expiry remain disabled.
+Unresolved byte reservations and accepted roots cannot disappear through TTL.
+Expose retained bytes, pending obligations, job state, blocked reason, and the last accepted backup.
+Shared service, CI, routines, deployment, provider lifecycle, or primary changes require Tom's approval after concrete source work is ready.

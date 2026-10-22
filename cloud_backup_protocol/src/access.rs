@@ -1,13 +1,11 @@
-//! Reference metadata creation and temporary reads. These types grant no authority.
-//! The service admits metadata under the exact pending commit and fixed provider binding.
-//! Read grants require membership in the selected confirmed commit's complete closure.
+//! Public metadata creation and temporary reads. Provider bindings remain private.
+//! The service checks the exact job and selected confirmed commit's complete closure.
 use crate::limits::{
     encoded_json_bytes, MAX_OBJECT_BYTES, MAX_REFERENCE_PAGE_BYTES, REQUEST_JSON_MAX_BYTES,
 };
 use crate::references::{ReferenceIndex, ReferencePage};
-use crate::{
-    BackupStream, CloudScope, DecimalU64, Digest, Id, ProtocolError, Provider, Text, Version,
-};
+use crate::transfer::ObjectReceipt;
+use crate::{BackupJob, CloudScope, DecimalU64, Digest, ProtocolError, Text, Version};
 use serde::{Deserialize, Serialize};
 
 pub const READ_GRANT_BATCH_MAX: usize = 4;
@@ -56,24 +54,23 @@ impl ReferenceMetadata {
 #[serde(deny_unknown_fields)]
 pub struct ReferencePutRequest {
     pub version: Version,
-    pub stream: BackupStream,
-    pub commit_id: Id,
+    pub job: BackupJob,
     pub metadata: ReferenceMetadata,
 }
 
 impl ReferencePutRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
+        self.job.validate()?;
         self.metadata.validate()?;
-        if self.metadata.scope() != &self.stream.scope {
+        if self.metadata.scope() != &self.job.stream.scope {
             return Err(ProtocolError::invalid("reference_put.scope"));
         }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
 }
 
-/// The service returns this only after an exact conditional PUT or verified existing bytes.
-/// It is not an ObjectReceipt and is excluded from the reference root's object totals.
+/// The service verifies exact canonical bytes before it returns this value.
+/// Reference metadata is excluded from the reference root's object totals.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReferencePutReceipt {
@@ -82,9 +79,6 @@ pub struct ReferencePutReceipt {
     pub kind: ReferenceKind,
     pub sha256: Digest,
     pub bytes: DecimalU64,
-    pub provider: Provider,
-    pub bucket: Text<256>,
-    pub key: Text<1024>,
 }
 
 impl ReferencePutReceipt {
@@ -93,20 +87,6 @@ impl ReferencePutReceipt {
         if self.bytes.get() == 0 || self.bytes.get() > MAX_REFERENCE_PAGE_BYTES {
             return Err(ProtocolError::limit("reference_put.bytes"));
         }
-        let scope = crate::input_digest("lastdb:native-backup:scope:v1", &self.scope)?;
-        let directory = match self.kind {
-            ReferenceKind::Page => "pages",
-            ReferenceKind::Index => "indices",
-        };
-        let key = format!(
-            "native-backup/v1/{}/references/{}/{}.json",
-            scope.as_str(),
-            directory,
-            self.sha256.as_str()
-        );
-        if self.key.as_str() != key {
-            return Err(ProtocolError::invalid("reference_put.key"));
-        }
         encoded_json_bytes(self, crate::limits::RECEIPT_JSON_MAX_BYTES).map(|_| ())
     }
 
@@ -114,7 +94,7 @@ impl ReferencePutReceipt {
         request.validate()?;
         self.validate()?;
         let (kind, sha256, bytes) = request.metadata.identity()?;
-        if self.scope != request.stream.scope
+        if self.scope != request.job.stream.scope
             || self.kind != kind
             || self.sha256 != sha256
             || self.bytes.get() != bytes
@@ -126,9 +106,9 @@ impl ReferencePutReceipt {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReferencePutResult {
-    Ok { receipt: Box<ReferencePutReceipt> },
+    Ok { receipt: ReferencePutReceipt },
     Error { error: ProtocolError },
 }
 
@@ -142,7 +122,7 @@ impl ReferencePutResult {
     }
 }
 
-/// These identities never permit a client to choose a raw storage key or bucket.
+/// Select only identities in one confirmed commit. No client storage key is accepted.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReadSelector {
@@ -155,15 +135,16 @@ pub enum ReadSelector {
 #[serde(deny_unknown_fields)]
 pub struct ReadGrantRequest {
     pub version: Version,
-    pub stream: BackupStream,
-    pub commit_id: Id,
+    pub job: BackupJob,
     pub objects: Vec<ReadSelector>,
 }
 
 impl ReadGrantRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
-        validate_count(self.objects.len())?;
+        self.job.validate()?;
+        if self.objects.is_empty() || self.objects.len() > READ_GRANT_BATCH_MAX {
+            return Err(ProtocolError::limit("read_grant.objects"));
+        }
         for (offset, selector) in self.objects.iter().enumerate() {
             if self.objects[..offset].contains(selector) {
                 return Err(ProtocolError::invalid("read_grant.objects.duplicate"));
@@ -173,13 +154,10 @@ impl ReadGrantRequest {
     }
 }
 
-/// Temporary GET authority only. Never place this value in a durable job or receipt.
+/// Temporary GET authority only. Never save this URL in a durable job or receipt.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReadGrant {
-    pub provider: Provider,
-    pub bucket: Text<256>,
-    pub key: Text<1024>,
     pub sha256: Digest,
     pub bytes: DecimalU64,
     pub expires_ms: DecimalU64,
@@ -194,12 +172,21 @@ impl ReadGrant {
         {
             return Err(ProtocolError::invalid("read_grant.bounds"));
         }
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
+
+    pub fn validate_for_receipt(&self, receipt: &ObjectReceipt) -> Result<(), ProtocolError> {
+        self.validate()?;
+        receipt.validate()?;
+        if self.sha256 != receipt.object.sha256 || self.bytes != receipt.object.bytes {
+            return Err(ProtocolError::invalid("read_grant.receipt"));
+        }
         Ok(())
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReadGrantItemResult {
     Ok {
         selector: ReadSelector,
@@ -237,18 +224,14 @@ impl ReadGrantItemResult {
 #[serde(deny_unknown_fields)]
 pub struct ReadGrantResponse {
     pub version: Version,
-    pub stream: BackupStream,
-    pub commit_id: Id,
+    pub job: BackupJob,
     pub items: Vec<ReadGrantItemResult>,
 }
 
 impl ReadGrantResponse {
     pub fn validate_for(&self, request: &ReadGrantRequest) -> Result<(), ProtocolError> {
         request.validate()?;
-        if self.stream != request.stream
-            || self.commit_id != request.commit_id
-            || self.items.len() != request.objects.len()
-        {
+        if self.job != request.job || self.items.len() != request.objects.len() {
             return Err(ProtocolError::invalid("read_grant.response.identity"));
         }
         for (item, selector) in self.items.iter().zip(&request.objects) {
@@ -259,11 +242,4 @@ impl ReadGrantResponse {
         }
         encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
-}
-
-fn validate_count(count: usize) -> Result<(), ProtocolError> {
-    if count == 0 || count > READ_GRANT_BATCH_MAX {
-        return Err(ProtocolError::limit("read_grant.objects"));
-    }
-    Ok(())
 }

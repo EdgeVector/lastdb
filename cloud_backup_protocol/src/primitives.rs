@@ -128,7 +128,7 @@ fn valid_digest(value: &str) -> bool {
 }
 
 fn valid_account(value: &str) -> bool {
-    matches!(value.len(), 32 | 64) && lower_hex(value)
+    value.len() == 32 && lower_hex(value)
 }
 
 fn valid_id(value: &str) -> bool {

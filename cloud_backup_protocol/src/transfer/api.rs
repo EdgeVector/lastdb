@@ -1,8 +1,6 @@
-use super::{
-    validate_parts, PartReceipt, ProviderBinding, TransferInput, TransferPhase, TransferRecord,
-    MAX_BATCH_ITEMS, MAX_REQUEST_BYTES, PART_BYTES,
-};
-use crate::{BackupStream, DecimalU64, Id, ProtocolError, Text, Version};
+use super::{TransferInput, TransferView, MAX_BATCH_ITEMS};
+use crate::limits::{encoded_json_bytes, REQUEST_JSON_MAX_BYTES};
+use crate::{BackupJob, DecimalU64, Digest, Id, ProtocolError, Text, Version};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,7 +12,7 @@ pub struct TransferPrepareRequest {
 
 impl TransferPrepareRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        validate_batch_count(self.items.len())?;
+        validate_count(self.items.len())?;
         for (offset, item) in self.items.iter().enumerate() {
             item.validate()?;
             if self.items[..offset]
@@ -24,7 +22,7 @@ impl TransferPrepareRequest {
                 return Err(ProtocolError::invalid("transfer.items.duplicate"));
             }
         }
-        crate::limits::encoded_json_bytes(self, MAX_REQUEST_BYTES).map(|_| ())
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
 }
 
@@ -32,116 +30,152 @@ impl TransferPrepareRequest {
 #[serde(deny_unknown_fields)]
 pub struct TransferStatusRequest {
     pub version: Version,
-    pub stream: BackupStream,
+    pub job: BackupJob,
     pub request_ids: Vec<Id>,
 }
 
 impl TransferStatusRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
-        validate_batch_count(self.request_ids.len())?;
+        self.job.validate()?;
+        validate_count(self.request_ids.len())?;
         for (offset, id) in self.request_ids.iter().enumerate() {
             if self.request_ids[..offset].contains(id) {
                 return Err(ProtocolError::invalid("transfer.request_ids.duplicate"));
             }
         }
-        crate::limits::encoded_json_bytes(self, MAX_REQUEST_BYTES).map(|_| ())
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
 }
 
+/// Resume and final verification select the same saved transfer, without worker revisions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TransferResumeRequest {
+pub struct TransferIdentityRequest {
     pub version: Version,
-    pub stream: BackupStream,
+    pub job: BackupJob,
     pub request_id: Id,
-    pub expected_revision: DecimalU64,
+    pub input_sha256: Digest,
 }
 
-impl TransferResumeRequest {
+impl TransferIdentityRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
-        crate::limits::encoded_json_bytes(self, MAX_REQUEST_BYTES).map(|_| ())
+        self.job.validate()?;
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
+
+    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
+        self.validate()?;
+        input.validate()?;
+        if self.job != input.job
+            || self.request_id != input.request_id
+            || self.input_sha256 != input.input_sha256()?
+        {
+            return Err(ProtocolError::invalid("transfer.request.identity"));
+        }
+        Ok(())
     }
 }
 
+pub type TransferResumeRequest = TransferIdentityRequest;
+pub type TransferCompleteRequest = TransferIdentityRequest;
+
+/// Temporary create-once PUT authority. Never save this URL in a durable record.
+/// The client sends signed If-None-Match: * and the input's exact Content-Length.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PartUpload {
-    pub index: u16,
-    pub bytes: DecimalU64,
+pub struct UploadGrant {
     pub url: Text<8192>,
+    pub expires_ms: DecimalU64,
+}
+
+impl UploadGrant {
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        if self.expires_ms.get() == 0 {
+            return Err(ProtocolError::invalid("upload_grant.expires_ms"));
+        }
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TransferResumeResponse {
     pub version: Version,
+    pub job: BackupJob,
     pub request_id: Id,
-    pub revision: DecimalU64,
-    pub binding: ProviderBinding,
-    pub expires_ms: DecimalU64,
-    pub parts: Vec<PartUpload>,
+    pub input_sha256: Digest,
+    pub grant: UploadGrant,
 }
 
 impl TransferResumeResponse {
-    pub fn validate_for(&self, record: &TransferRecord) -> Result<(), ProtocolError> {
-        record.validate()?;
-        if self.request_id != record.input.request_id
-            || self.revision != record.revision
-            || Some(&self.binding) != record.provider_binding.as_ref()
-            || self.binding.upload_id.is_none()
-            || !matches!(
-                record.phase,
-                TransferPhase::Ready | TransferPhase::Uploading
-            )
-            || self.parts.len() != record.input.part_count()
+    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
+        input.validate()?;
+        self.grant.validate()?;
+        if self.job != input.job
+            || self.request_id != input.request_id
+            || self.input_sha256 != input.input_sha256()?
         {
             return Err(ProtocolError::invalid("transfer.resume.identity"));
         }
-        for (offset, part) in self.parts.iter().enumerate() {
-            let expected =
-                (record.input.object.bytes.get() - offset as u64 * PART_BYTES).min(PART_BYTES);
-            if usize::from(part.index) != offset + 1 || part.bytes.get() != expected {
-                return Err(ProtocolError::invalid("transfer.resume.parts"));
-            }
-        }
-        crate::limits::encoded_json_bytes(self, MAX_REQUEST_BYTES).map(|_| ())
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
 }
 
+/// A resume race can return the current state instead of another temporary upload grant.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TransferCompleteRequest {
-    pub version: Version,
-    pub stream: BackupStream,
-    pub request_id: Id,
-    pub expected_revision: DecimalU64,
-    pub parts: Vec<PartReceipt>,
-}
-
-impl TransferCompleteRequest {
-    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
-        if self.stream != input.stream || self.request_id != input.request_id {
-            return Err(ProtocolError::invalid("transfer.complete.identity"));
-        }
-        validate_parts(input, &self.parts)?;
-        crate::limits::encoded_json_bytes(self, MAX_REQUEST_BYTES).map(|_| ())
-    }
-}
-
-/// Status carries no upload URL. Each error belongs to one exact request identity.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-pub enum TransferItemResult {
-    Ok {
-        request_id: Id,
-        record: Box<TransferRecord>,
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TransferResumeResult {
+    Grant {
+        response: Box<TransferResumeResponse>,
+    },
+    State {
+        transfer: TransferView,
     },
     Error {
         request_id: Id,
         error: ProtocolError,
     },
+}
+
+impl TransferResumeResult {
+    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
+        input.validate()?;
+        match self {
+            Self::Grant { response } => response.validate_for(input)?,
+            Self::State { transfer } => transfer.validate_for(input)?,
+            Self::Error { request_id, .. } if request_id != &input.request_id => {
+                return Err(ProtocolError::invalid("transfer.resume.error.request_id"));
+            }
+            Self::Error { .. } => {}
+        }
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TransferItemResult {
+    Ok {
+        transfer: TransferView,
+    },
+    Error {
+        request_id: Id,
+        error: ProtocolError,
+    },
+}
+
+impl TransferItemResult {
+    pub fn validate_for(&self, input: &TransferInput) -> Result<(), ProtocolError> {
+        input.validate()?;
+        match self {
+            Self::Ok { transfer } => transfer.validate_for(input)?,
+            Self::Error { request_id, .. } if request_id != &input.request_id => {
+                return Err(ProtocolError::invalid("transfer.error.request_id"));
+            }
+            Self::Error { .. } => {}
+        }
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,29 +186,25 @@ pub struct TransferBatchResponse {
 }
 
 impl TransferBatchResponse {
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        validate_batch_count(self.items.len())?;
-        let mut ids = std::collections::BTreeSet::new();
-        for item in &self.items {
-            let request_id = match item {
-                TransferItemResult::Ok { request_id, record } => {
-                    record.validate()?;
-                    if request_id != &record.input.request_id {
-                        return Err(ProtocolError::invalid("transfer.response.request_id"));
-                    }
-                    request_id
-                }
-                TransferItemResult::Error { request_id, .. } => request_id,
-            };
-            if !ids.insert(request_id) {
+    pub fn validate_for(&self, inputs: &[TransferInput]) -> Result<(), ProtocolError> {
+        validate_count(inputs.len())?;
+        if self.items.len() != inputs.len() {
+            return Err(ProtocolError::invalid("transfer.response.count"));
+        }
+        for (offset, (item, input)) in self.items.iter().zip(inputs).enumerate() {
+            item.validate_for(input)?;
+            if inputs[..offset]
+                .iter()
+                .any(|old| old.request_id == input.request_id)
+            {
                 return Err(ProtocolError::invalid("transfer.response.duplicate"));
             }
         }
-        crate::limits::encoded_json_bytes(self, MAX_REQUEST_BYTES).map(|_| ())
+        encoded_json_bytes(self, REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
 }
 
-fn validate_batch_count(count: usize) -> Result<(), ProtocolError> {
+fn validate_count(count: usize) -> Result<(), ProtocolError> {
     if count == 0 || count > MAX_BATCH_ITEMS {
         return Err(ProtocolError::limit("transfer.items"));
     }

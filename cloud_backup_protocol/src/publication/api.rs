@@ -1,32 +1,24 @@
-use super::{CommitInput, CommitReceipt, CommitRecord, HeadCandidate, HeadIdentity};
-use crate::{BackupStream, Id, ProtocolError, Version};
+use super::{AcceptedBackup, CommitInput};
+use crate::jobs::JobBeginInput;
+use crate::{
+    BackupJob, BackupStream, Digest, Id, PendingReason, ProtocolError, TerminalFailure, Version,
+};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CommitRequest {
-    pub version: Version,
-    pub input: CommitInput,
-}
+pub type CommitRequest = CommitInput;
 
-impl CommitRequest {
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.input.validate()?;
-        crate::limits::encoded_json_bytes(self, crate::limits::REQUEST_JSON_MAX_BYTES).map(|_| ())
-    }
-}
-
+/// Status reads the exact job. No caller-side input hash is required for recovery.
+/// No saved submission returns error code NotFound, not another pending state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommitStatusRequest {
     pub version: Version,
-    pub stream: BackupStream,
-    pub commit_id: Id,
+    pub job: BackupJob,
 }
 
 impl CommitStatusRequest {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.stream.validate()?;
+        self.job.validate()?;
         crate::limits::encoded_json_bytes(self, crate::limits::REQUEST_JSON_MAX_BYTES).map(|_| ())
     }
 }
@@ -34,16 +26,81 @@ impl CommitStatusRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommitResponse {
-    Ok { record: Box<CommitRecord> },
-    Error { commit_id: Id, error: ProtocolError },
+    Pending {
+        version: Version,
+        job: BackupJob,
+        job_input_sha256: Digest,
+        commit_sha256: Digest,
+        reason: PendingReason,
+    },
+    Accepted {
+        backup: Box<AcceptedBackup>,
+    },
+    Rejected {
+        version: Version,
+        job: BackupJob,
+        job_input_sha256: Digest,
+        commit_sha256: Digest,
+        failure: TerminalFailure,
+    },
 }
 
 impl CommitResponse {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        if let Self::Ok { record } = self {
-            record.validate()?;
+        match self {
+            Self::Pending { job, .. } => job.validate()?,
+            Self::Accepted { backup } => backup.validate()?,
+            Self::Rejected { job, failure, .. } => {
+                job.validate()?;
+                failure.validate()?;
+            }
         }
         crate::limits::encoded_json_bytes(self, crate::limits::REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
+
+    pub fn validate_for(
+        &self,
+        begin: &JobBeginInput,
+        commit: &CommitInput,
+    ) -> Result<(), ProtocolError> {
+        self.validate()?;
+        commit.validate_for(begin)?;
+        match self {
+            Self::Accepted { backup } => backup.validate_for(begin, commit),
+            Self::Pending {
+                job,
+                job_input_sha256,
+                commit_sha256,
+                ..
+            }
+            | Self::Rejected {
+                job,
+                job_input_sha256,
+                commit_sha256,
+                ..
+            } => {
+                if job != &commit.job
+                    || job_input_sha256 != &commit.job_input_sha256
+                    || commit_sha256 != &commit.input_sha256()?
+                {
+                    return Err(ProtocolError::invalid("commit_response.input"));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub fn validate_for_status(&self, request: &CommitStatusRequest) -> Result<(), ProtocolError> {
+        self.validate()?;
+        request.validate()?;
+        let job = match self {
+            Self::Pending { job, .. } | Self::Rejected { job, .. } => job,
+            Self::Accepted { backup } => &backup.job,
+        };
+        if job != &request.job {
+            return Err(ProtocolError::invalid("commit_status.job"));
+        }
+        Ok(())
     }
 }
 
@@ -61,48 +118,37 @@ impl HeadReadRequest {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PublishedHead {
-    pub identity: HeadIdentity,
-    pub candidate: HeadCandidate,
-    pub receipt: CommitReceipt,
-}
-
-impl PublishedHead {
-    pub fn validate(&self) -> Result<(), ProtocolError> {
-        self.identity.validate()?;
-        self.candidate.validate()?;
-        if self.identity.commit_id != self.candidate.input.commit_id
-            || self.identity.ordinal != self.candidate.ordinal
-            || self.identity.head_sha256 != self.candidate.head_sha256()?
-        {
-            return Err(ProtocolError::invalid("head.identity"));
-        }
-        self.receipt.validate_for(&self.candidate, &self.identity)?;
-        crate::limits::encoded_json_bytes(self, crate::limits::REQUEST_JSON_MAX_BYTES).map(|_| ())
-    }
-}
-
+/// A pending job never masks the last accepted backup.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeadReadResponse {
     pub version: Version,
     pub stream: BackupStream,
-    /// None means an authoritative absent head, never an uncertain provider outcome.
-    pub head: Option<PublishedHead>,
+    pub accepted: Option<AcceptedBackup>,
+    pub active_commit_id: Option<Id>,
 }
 
 impl HeadReadResponse {
     pub fn validate(&self) -> Result<(), ProtocolError> {
         self.stream.validate()?;
-        if let Some(head) = &self.head {
-            head.validate()?;
-            if head.candidate.input.stream != self.stream {
-                return Err(ProtocolError::invalid("head.stream"));
+        if let Some(backup) = &self.accepted {
+            backup.validate()?;
+            if backup.job.stream != self.stream
+                || self.active_commit_id.as_ref() == Some(&backup.job.commit_id)
+            {
+                return Err(ProtocolError::invalid("head_read.accepted"));
             }
         }
         crate::limits::encoded_json_bytes(self, crate::limits::REQUEST_JSON_MAX_BYTES).map(|_| ())
+    }
+
+    pub fn validate_for(&self, request: &HeadReadRequest) -> Result<(), ProtocolError> {
+        self.validate()?;
+        request.validate()?;
+        if self.stream != request.stream {
+            return Err(ProtocolError::invalid("head_read.stream"));
+        }
+        Ok(())
     }
 }
 
@@ -114,9 +160,10 @@ pub enum HeadReadResult {
 }
 
 impl HeadReadResult {
-    pub fn validate(&self) -> Result<(), ProtocolError> {
+    pub fn validate_for(&self, request: &HeadReadRequest) -> Result<(), ProtocolError> {
+        request.validate()?;
         if let Self::Ok { response } = self {
-            response.validate()?;
+            response.validate_for(request)?;
         }
         crate::limits::encoded_json_bytes(self, crate::limits::REQUEST_JSON_MAX_BYTES).map(|_| ())
     }

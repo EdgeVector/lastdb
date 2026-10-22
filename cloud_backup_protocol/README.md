@@ -1,15 +1,15 @@
 # cloud_backup_protocol
 
-Canonical version-one native cloud backup wire types.
+Canonical version-one native cloud backup wire types, unreleased draft revision 2.
 The [protocol specification](../docs/designs/native-cloud-backup-protocol-v1.md) defines the required authority and provider effects.
 
-The crate contains strict scalars, byte limits, manifest and recovery types, transfer states, reference metadata, and head publication types.
-Pure validators check local consistency and immutable transitions.
+The crate contains strict scalars, byte limits, job results, object receipts, manifest and recovery types, and one accepted backup result.
+Pure validators check local consistency and exact request/result linkage.
 They do not verify provider bytes, account authority, durable effects, complete native inventories, or successful recovery.
 
-All runtime capabilities remain disabled.
+Runtime support remains disabled.
 No production crate imports this package at stage one.
-Logical sync types reserve identities only; they provide no replay implementation.
+Private worker records, provider locations, multipart uploads, external retention holds, and future sync types stay outside this wire contract.
 
 The service later consumes this exact package through its existing `fold` submodule after the canonical source merges.
 Do not duplicate its types in the service.

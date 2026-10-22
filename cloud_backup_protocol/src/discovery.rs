@@ -27,7 +27,7 @@ impl StreamsListRequest {
     }
 }
 
-/// Read and validate each selected stream's confirmed head before restore.
+/// Read each selected stream's last accepted backup before restore.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StreamsListResponse {
@@ -56,14 +56,14 @@ impl StreamsListResponse {
 }
 
 /// Optional durable user receipt. Account-authorized discovery also finds streams.
-/// This locator names a candidate; it does not replace confirmed head evidence.
+/// This locator names an accepted commit; it does not replace its authoritative record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveryLocator {
     pub version: Version,
     pub stream: BackupStream,
     pub commit_id: Id,
-    pub head_sha256: Digest,
+    pub commit_sha256: Digest,
 }
 
 impl RecoveryLocator {

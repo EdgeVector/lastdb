@@ -1,3 +1,4 @@
+use crate::Text;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,10 +10,11 @@ pub enum ErrorCode {
     UnsupportedFormat,
     UnsupportedKeyMode,
     Unauthorized,
+    NotFound,
     GenerationConflict,
-    PublisherFenced,
+    StreamAuthorityConflict,
+    JobClosed,
     IdentityConflict,
-    RevisionConflict,
     PredecessorConflict,
     ResourceLimit,
     QuotaExceeded,
@@ -56,3 +58,36 @@ impl std::fmt::Display for ProtocolError {
 }
 
 impl std::error::Error for ProtocolError {}
+
+/// Pending outcomes are never definite failures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingReason {
+    AwaitingBytes,
+    Verifying,
+    OutcomeUnknown,
+}
+
+/// The exact operation cannot succeed under its frozen input.
+/// This classification does not authorize deletion or release unknown byte reservations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalFailureCode {
+    InvalidInput,
+    UnsupportedFormat,
+    UnsupportedKeyMode,
+    IntegrityMismatch,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalFailure {
+    pub code: TerminalFailureCode,
+    pub field: Text<128>,
+}
+
+impl TerminalFailure {
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        crate::limits::encoded_json_bytes(self, crate::limits::RECEIPT_JSON_MAX_BYTES).map(|_| ())
+    }
+}

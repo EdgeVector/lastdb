@@ -1,6 +1,5 @@
 //! Finite public receipt inventory. The encrypted manifest index is separate.
 
-use crate::holds::RetentionHoldReference;
 use crate::limits::{encoded_json_bytes, MAX_PAGE_ENTRIES, MAX_REFERENCE_PAGE_BYTES};
 use crate::transfer::ObjectReceipt;
 use crate::{
@@ -8,7 +7,6 @@ use crate::{
     ReferenceRoot, Version,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,8 +16,6 @@ pub struct ReferencePage {
     pub page_index: u32,
     /// Strictly increasing receipt identities; each receipt appears once.
     pub objects: Vec<ObjectReceipt>,
-    /// Public hold bindings for retained blobs, ordered by receipt identity.
-    pub retention_holds: Vec<RetentionHoldReference>,
 }
 
 impl ReferencePage {
@@ -28,39 +24,16 @@ impl ReferencePage {
         if self.page_index >= 1024
             || self.objects.is_empty()
             || self.objects.len() as u64 > MAX_PAGE_ENTRIES
-            || self.retention_holds.len() as u64 > MAX_PAGE_ENTRIES
         {
             return Err(ProtocolError::limit("reference_page.entries"));
         }
         for (offset, object) in self.objects.iter().enumerate() {
             object.validate()?;
             if object.scope != self.scope
-                || matches!(
-                    object.object.kind,
-                    ObjectKind::ReferencePage | ObjectKind::ManifestIndex
-                )
+                || object.object.kind == ObjectKind::ManifestIndex
                 || (offset > 0 && self.objects[offset - 1].receipt_id >= object.receipt_id)
             {
                 return Err(ProtocolError::invalid("reference_page.objects"));
-            }
-        }
-        let mut hold_ids = BTreeSet::new();
-        for (offset, hold) in self.retention_holds.iter().enumerate() {
-            hold.validate()?;
-            if (offset > 0 && self.retention_holds[offset - 1].receipt_id >= hold.receipt_id)
-                || !hold_ids.insert(&hold.hold_id)
-            {
-                return Err(ProtocolError::invalid("reference_page.retention_holds"));
-            }
-            let object = self
-                .objects
-                .binary_search_by(|object| object.receipt_id.cmp(&hold.receipt_id))
-                .ok()
-                .and_then(|index| self.objects.get(index));
-            if object.is_none_or(|object| object.object.kind != ObjectKind::BlobPart) {
-                return Err(ProtocolError::invalid(
-                    "reference_page.retention_hold_object",
-                ));
             }
         }
         encoded_json_bytes(self, MAX_REFERENCE_PAGE_BYTES)?;
