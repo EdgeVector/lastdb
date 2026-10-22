@@ -156,13 +156,11 @@ fn quote(inventory: &GenerationInventory) -> Result<u64> {
             digest: [0; 32],
         })
         .collect();
-    for name in ["CURRENT"] {
-        entries.push(Entry {
-            path: name.into(),
-            bytes: 4096,
-            digest: [0; 32],
-        });
-    }
+    entries.push(Entry {
+        path: "CURRENT".into(),
+        bytes: 4096,
+        digest: [0; 32],
+    });
     Manifest {
         generation: inventory.current.generation,
         frontier: inventory.current.frontier,

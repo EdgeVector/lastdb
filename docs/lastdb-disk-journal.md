@@ -1,3 +1,8 @@
+> Retired protocol, October 22, 2026. This document describes the old internal native journal.
+> Its journal files, recovery suffix, and commands are removed from the active native path.
+> Read [Native snapshot commits](lastdb-snapshot-commits.md) for the current source protocol and format refusal rules.
+> The text below remains historical evidence. It does not authorize an old-format reopen or conversion.
+
 # Complete disk-pack journal batches
 
 This unit adds the recovery bytes for the disk-pack plan.

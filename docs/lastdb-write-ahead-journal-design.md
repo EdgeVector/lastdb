@@ -1,3 +1,8 @@
+> Retired proposal, October 22, 2026. This document does not describe the active native write protocol.
+> Read [Native snapshot commits](lastdb-snapshot-commits.md) for the current source protocol and format refusal rules.
+> The text below remains historical design and measurement evidence.
+> Its proposed recovery journal and commands do not authorize an old-format reopen or conversion.
+
 # Write-ahead journal for the store: design and the decision not to build it yet
 
 Status (2026-10-13): design for Tom's review. Nothing here is built. The result

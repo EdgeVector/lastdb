@@ -1,39 +1,116 @@
-# LastDB storage code review and implementation preview
+# LastDB storage code review
 
-Reviewed 2026-10-22 against main `9f0ab569b65ba8ff17cdc6902cdc7315aaae3d86`.
-This pass reads source and saved operational receipts. It changes documents only.
-No new node, crash exercise, build, or runtime measurement ran in this pass.
+Reviewed 2026-10-22 against commit `47088b89c0bff5142a519db685051849112a787a` and the current fixes after that commit.
+The implementation starts from main `6d8aa0d573e91a94fd4fd308a7f0eacca022e852`.
+It retains the macOS barriers from PR 266 and the reclaim handoff from PR 267.
+This document separates source facts, the first product run, and historical performance evidence.
+This document pass starts no node, build, or runtime measurement.
 
-## Current facts and target changes
+## Current source
 
-| Area | Current source | Target or remaining work |
+| Area | Current source | Scope left |
 |---|---|---|
-| Local writes | `HomeJournal::commit_mutation` appends an internal journal batch, then publishes searchable pages | Write ordinary payload files and changed pages directly |
-| Recovery | Writer open recovers complete journal batches before new admission | Open the selected complete snapshot without mutation replay |
-| Current record bytes | A committed locator can point into a journal file | Convert those extents to ordinary payload files before journal removal |
-| Publications | A data publication is followed by a fresh-stream publication and a second receipt | One receipt and one root publication per complete committed group |
-| macOS durability | Bounded file sets, ordered publication barriers, then one final full device flush | Preserve this machinery around the new writer |
-| Warm records | No 10,000-record cap; default byte budget is 256 MiB | Preserve the byte policy and counted temporary overshoot |
-| Dirty share | The approved 25% threshold appears in status; admission enforcement remains incomplete | Complete write admission and durable-first fallback |
-| Key preload | Selected HashRange schemas can opt into a complete membership-key load | Preserve the option and its separate 128 MiB default allowance |
-| Ranges | A common view merges accepted changes and bounded disk pages | Preserve value, delete, order, and view semantics |
-| Query continuation | Supported ascending keyed pages use a last-key cursor; other forms use offsets | Preserve that distinction; add no cross-request snapshot promise |
-| Cloud sync | Native startup and activation refuse cloud configuration | Implement and verify atomic snapshot/log capture before activation |
-| Capture | Retained asynchronous capture follows local work | Replace that ordering for required durable sync capture |
-| Backup and restore | Native bundles still contain and validate internal-journal state | Capture a snapshot root and its required sync prefix instead |
-| History | Queries refuse `as_of`; conflict records remain for 30 days by default | Preserve that exception and its required file references |
-| Counters | Atom, blob, and molecule counters remain live correctness data | Retain them through conversion and the new commit path |
+| Local writes | `HomeSnapshot::commit_mutation` writes immutable payload files and changed search pages | Measure the change against a matched baseline |
+| Publications | Each complete stored batch writes one generation receipt and publishes one root | Receipt copies still retain conservative prior dependencies |
+| Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Compaction still removes superseded files |
+| Recovery | Writer open verifies `CURRENT`, its receipt, and dependency files | No local mutation replay or silent receipt reconstruction |
+| Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Logical meter debit records remain separate ordinary KV state |
+| Format | Every supported root requires snapshot feature `256`; retired feature `2` is refused | No converter for old native journal homes exists |
+| macOS durability | Ordered file barriers precede root publication; a final device flush precedes durable success | Process interruption does not prove power-loss behavior |
+| File lifetime | Read holds, backup references, and the installed-root reclaim handoff remain | Compaction still has a write pause |
+| Backup and restore | `lastdb-native-backup-2` contains the exact snapshot inventory and no journal state | A data-only bundle excludes node identity and encryption keys |
+| Cloud sync | Native startup and activation still refuse cloud configuration | Atomic snapshot/log capture and a sync-only mutation log remain future work |
+| Warm records | No 10,000-record cap; the default byte budget is 256 MiB | Preserve counted temporary overshoot for held and dirty records |
+| Dirty share | The approved 25% threshold appears in status | Admission enforcement and durable-first fallback remain incomplete |
+| Key preload | Selected HashRange schemas can opt into a complete membership-key load | Its separate default allowance remains 128 MiB |
+| Ranges | One captured view merges accepted changes and bounded disk pages | Ascending keyed continuations use the last key; other forms retain offsets |
+| History | Queries refuse `as_of`; conflict records remain for 30 days by default | Preserve their required file references |
+| Counters | Atom, blob, and molecule counters remain correctness data | Preserve them through each commit and compaction |
 
-The 10,000-record workspace rule predates the October 19 byte-limit decision.
-Other 10,000 values still bound individual query work or separate caches.
-They do not restore a warm-data record count limit.
-The [byte-limit decision](lastdb-warm-set-byte-limit-design.md#decisions-tom-2026-10-19) explicitly replaces the old rule.
+The [October 19 byte-limit decision](lastdb-warm-set-byte-limit-design.md#decisions-tom-2026-10-19) replaces the older warm-data count cap.
+Other 10,000 values bound individual query work or separate caches.
+They do not restore a warm-data count limit.
+The companion plan's new queue, workspace, range, sync, and disk limits remain proposals.
+This journal removal does not implement those proposed limits.
 
-## Updated performance evidence
+## Actual commit route
 
-PR 266 is already on the reviewed main revision.
-Its [operational report](proofs/native-commit-barriers-20261022/RESULTS.md) compares old main with the candidate for the macOS barrier change.
-It uses 1,000 queued requests across 64 schemas, one client, and 64-byte values on APFS.
+The active stored-batch route is:
+
+```text
+HomeSnapshot::commit_mutation
+  SnapshotWriter::commit_reserved
+    complete_native_commit
+      write immutable payload files with PackWriter
+      write changed directory and locator pages
+      write one generation receipt
+      order dependency writes and publish one CURRENT
+      finish the platform durability barriers
+  install the committed disk view and retire covered memory changes
+  complete the queue receipt
+```
+
+This route does not write required sync entries.
+That atomic capture contract remains future work, and cloud activation stays blocked.
+Author-clock reservations retain their durability requirements before a memory ack.
+The ordinary flush interval stays 500 ms.
+A memory ack remains volatile until the flush completes.
+The interval does not set a guaranteed maximum loss window.
+
+The writer reserves the complete stored batch before file output.
+The payload quote includes worst-case frames, part headers, and complete block-map pages.
+The complete mutation quote adds changed tree pages, one maximum-size receipt, and root space.
+The writer also checks actual payload dimensions against its admitted quote.
+The node retains separate disk and memory reservations.
+An engine reservation alone does not authorize a memory ack.
+
+The writer marks itself poisoned before commit file work.
+An uncertain result stops new admission until the caller reopens the writer.
+A reopen selects only the committed root; private interrupted output remains unused.
+Missing or damaged committed dependencies cause an error.
+The code does not infer another root or reconstruct a missing receipt.
+
+New native and artifact roots require `FEATURE_SNAPSHOT_COMMIT`.
+Old journal roots receive an explicit refusal before writer file creation.
+Startup performs no migration.
+The refusal describes a required future explicit conversion, not an available command.
+The generic legacy converter still refuses native output without the atom-record authority.
+
+## First product receipt
+
+The [run-1 inputs](proofs/snapshot-commits-20261022/run-1/inputs.json) identify the executable by its SHA-256 and source commit `47088b89c`.
+The run precedes the current fixes after that commit.
+Its [summary](proofs/snapshot-commits-20261022/run-1/summary.json) records completion, no error, and all owned processes stopped.
+The detailed receipts remain in `proofs/snapshot-commits-20261022/run-1/receipts.jsonl`.
+
+The fresh owned home contains 64 generated records with four fields and 1 KiB bodies.
+The run changes all 64 records five times, deletes eight records, and recreates four records.
+Checks use one batch of exact keys and bounded ordered range pages under one supplied hash.
+They confirm 60 live records before compaction, after compaction, and after graceful reopen.
+A separate durable update survives a forced process stop and reopen with the expected values.
+All 83 recorded requests return HTTP 200.
+
+The physical inventories report no `journal` directory or `JOURNAL_TAIL`.
+Their feature mask is `509`, which includes snapshot bit `256` and excludes retired bit `2`.
+The compaction receipt reports 152 dependency parts before and six afterward.
+It reports 408 ms for the pack and 90 ms for reclaim.
+Those figures describe this run only; they establish no improvement over an equivalent baseline.
+
+The first run does not establish power-loss, backup, restore, sync, or corruption behavior.
+It does not exercise old-format refusal or the current fixes after its executable commit.
+The filesystem cache is uncontrolled.
+No result on the primary is claimed.
+
+The later [backup and restore result](proofs/snapshot-commits-20261022/run-1/backup-restore/result.json) restores the exact snapshot bundle after a source-root rename.
+The same generated home retains its identity without a read or copy of the identity key bytes.
+Exact and ordered range reads match all 60 current records, including the durable update at key 63.
+The [complete operational report](proofs/snapshot-commits-20261022/RESULTS.md) also records the final physical command checks and cleanup.
+
+## Historical performance evidence
+
+The [PR 266 barrier report](proofs/native-commit-barriers-20261022/RESULTS.md) predates journal removal.
+It compares old main with the barrier candidate on macOS APFS.
+The workload sends 1,000 queued requests across 64 schemas through one client, with 64-byte values.
 
 | Whole-request latency | Old main | Barrier candidate |
 |---|---:|---:|
@@ -43,87 +120,20 @@ It uses 1,000 queued requests across 64 schemas, one client, and 64-byte values 
 | Maximum | 1,430.70 ms | 1,688.54 ms |
 
 All 1,000 requests return memory acks in each run.
-They are not durable-write latency samples.
+These are not durable-write latency samples.
 Memory acks can still wait for an author-clock disk commit.
-The report includes a separate durable mutation and forced-process-stop recovery receipt.
-That receipt does not establish power-loss behavior.
+The separate durable mutation and forced-process-stop receipt does not establish power-loss behavior.
+This report establishes no benefit from journal removal.
 
-The older [512-record measurements](proofs/write-overhead-20261021/summary.json) use `8067843c4` and 1 KiB bodies.
-They measure growth, process I/O, and explicit compaction with a different request schedule.
-Keep their 94.7% metadata growth and compaction timings labeled historical.
-The October 22 report does not repeat that growth workload.
-Unchanged disk format does not prove unchanged per-workload growth: different request speed can change flush groups.
+The [October 21 growth receipts](proofs/write-overhead-20261021/summary.json) use revision `8067843c4` and a different 512-record workload.
+Metadata accounts for 94.7% of aggregate growth across its five default update phases.
+Its compaction times also describe that historical revision.
+Neither later run repeats that workload.
+Request speed can change flush groups, so an unchanged file envelope would not establish unchanged workload growth.
 
-The earlier estimate of several removable full device flushes per commit is obsolete on current macOS.
-Duplicate receipts and root work remain, but their current speed benefit needs a new measurement.
-The maximum request latency still exceeds one second in the new report.
-Journal removal alone supplies no proven compaction-pause reduction.
+The old estimate of several removable full device flushes became obsolete with PR 266.
+The new source removes duplicate receipts and root publications from the ordinary commit route.
+Its actual latency, growth, and compaction-pause benefit still needs a matched measurement.
 
-## Code preview
-
-The current stored-batch route is:
-
-```text
-HomeJournal::commit_mutation
-  complete_native_commit
-    append internal journal data and tail
-    publish changed directory and locator pages
-    rotate stream and publish another receipt/root
-    finish the platform durability barriers
-  install committed disk view
-  complete the queue receipt
-```
-
-The proposed route is:
-
-```text
-SnapshotWriter::commit
-  complete_native_commit
-    write ordinary payload files
-    write changed directory and locator pages
-    write required sync entries and durable references
-    write one generation receipt
-    order dependency writes and publish one root
-    finish the platform durability barriers
-  install committed disk view and retire covered memory changes
-  complete the queue receipt
-```
-
-This is a control-flow preview, not compiled replacement code.
-Keep author-clock reservations and their existing durability requirements before a memory ack.
-The sync sender receives the durable-root handle only after the final barrier completes.
-An uncertain commit stops new write admission until the selected root resolves its identity.
-
-Reuse these implementation parts:
-
-- Ordinary payload output in `PackWriter::new`.
-- Directory and locator page copies and existing keyed readers.
-- `publish_current` and its ordered publication-file barrier.
-- `complete_native_commit`, `durability/ordered.rs`, and the macOS filesystem dependency.
-- Root lifetimes, backup references, exclusive writer ownership, integrity checks, and reference counters.
-
-Replace the journal-first writer and its startup, maintenance, backup, and restore requirements.
-Do not remove the sync log or its required retained bytes.
-An explicit converter must handle old `Source::Journal` extents before the new serving reader drops that source type.
-
-## Document corrections in this pass
-
-- Update the one-pager and plan to the reviewed source revision.
-- Separate the historical growth measurements from the newer barrier report.
-- Keep the retired count cap retired and the 25% dirty-share work unfinished.
-- Preserve optional key preload and existing ascending-versus-offset continuation behavior.
-- Carry the current ordered durability helper into the proposed writer.
-- Replace stale warm-count wording in the canonical model and storage-boundary document.
-- Preserve current conflict records and counters in the boundary description.
-- Keep new queue, workspace, page, sync, and disk limits explicitly proposed.
-
-## Next implementation boundary
-
-The first engine change should add a journal-free format and direct commits on fresh owned homes.
-It must include complete stored batches, root selection, memory-view publication, and durable receipts.
-Conversion, journal-free backup, and sync capture follow under the same explicit format boundary.
-Compiler-guided deletion comes after those dependencies move.
-The [implementation plan](lastdb-searchable-snapshot-implementation-plan.md) lists the files, proposed limits, and required operational evidence.
-
-Source review does not establish live results.
-No primary data, archive, shared service, CI setting, or release setting changed in this pass.
+Source review does not establish runtime results.
+No primary data, archive, shared service, CI setting, or release setting changes in this document pass.

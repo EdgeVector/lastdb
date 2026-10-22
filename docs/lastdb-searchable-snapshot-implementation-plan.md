@@ -1,10 +1,24 @@
 # Implementation plan: snapshot-owned recovery and sync-only mutation log
 
-Revised 2026-10-22. Proposed implementation; no product change is complete.
-Source audit: current main `9f0ab569b65ba8ff17cdc6902cdc7315aaae3d86`.
+Revised 2026-10-22. Local journal removal is implemented in this branch, based on main `6d8aa0d57`.
+The initial implementation commit is `47088b89c`; later fixes and receipts accompany it.
 The October 21 growth measurements use `8067843c4f9626470edc971ab10c10e829f021d8`.
 The [code review](lastdb-searchable-snapshot-code-review.md) separates implemented behavior, approved policy, and new proposals.
-Refresh this source map again before implementation starts.
+
+## Completed local scope and remaining scope
+
+The implemented writer creates ordinary payload files and changed search pages.
+It commits one generation receipt and one `CURRENT` publication per complete stored batch.
+Startup validates the selected snapshot without local mutation replay.
+Compaction, backup format `lastdb-native-backup-2`, and restore use the selected snapshot.
+The internal journal module, stream checkpoint, dependency walker, and `lastdb-journal` command are removed.
+The format requires feature `256`; it refuses old native journal homes before writer file creation.
+No old-native-journal converter exists in this change.
+
+The [active protocol](lastdb-snapshot-commits.md) describes the exact implemented local path.
+The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
+Native cloud activation remains disabled. The sync contract and proposed resource limits below remain separate work.
+Dirty-share enforcement, new workspace quotas, and performance improvements beyond journal removal are not part of this change.
 
 ## 1. End state and scope
 
@@ -25,7 +39,8 @@ See [the byte-limit decisions](lastdb-warm-set-byte-limit-design.md#decisions-to
 
 ## 2. Snapshot commit protocol
 
-Define a `SnapshotWriter` and a complete `SnapshotCommit` reservation.
+The implemented `SnapshotWriter` uses complete `SnapshotReservation` and `MutationReservation` ownership.
+Steps that concern required sync entries describe the remaining sync contract; the local writer does not implement those steps.
 Retain the existing exclusive writer ownership and immutable page helpers.
 Retain `complete_native_commit`, ordered publication barriers, and the final macOS full device flush from PR 266.
 Wrap the complete new direct-write path in that durability scope.
@@ -54,7 +69,9 @@ Never split an atomic unit to satisfy a cap.
 Preserve author-clock reservations and their existing durability barriers before a memory ack.
 The current memory-ack route can still wait for a clock-metadata disk commit.
 
-The selected root records these facts, directly or through its committed metadata:
+The end-state root must record these facts, directly or through its committed metadata.
+The local implementation records the format, generation, frontier, roots, and integrity facts.
+It does not add the outgoing or incoming sync boundaries below.
 
 | Fact | Purpose |
 |---|---|
@@ -111,7 +128,8 @@ The sync worker separately checks its committed log interval before export.
 Missing required sync bytes produce a sync-integrity error. They do not become instructions to rebuild local values.
 
 Compaction uses the same new-files-and-root protocol.
-The first implementation may retain the current whole-home write lock; report its pause explicitly.
+Compaction retains the current whole-home write lock for replacement publication; report its pause explicitly.
+The change retains PR 267's concurrent reclaim after the new disk view enters service.
 A later performance change can build replacement output outside a short publication lock.
 That later publication must preserve newer commits or retry from a newer source view.
 It must never replace newer data with an older compaction result.
@@ -161,7 +179,18 @@ Reject an unsupported mutation before local acceptance instead.
 
 ## 6. Initial limits
 
-These are proposed first-implementation limits, not a claim about current enforcement.
+The implemented local change preserves the current limits:
+
+| Resource | Implemented limit |
+|---|---|
+| Native stored batch | 16,384 operations; 128 MiB encoded dimensions |
+| Physical CLI write and standalone artifact | 4,096 operations; 128 MiB encoded dimensions |
+| Snapshot reservation queue | 512 MiB and 4,096 pending batches; these are reservations, not sync history |
+| Warm retention | 256 MiB default; protected-record overshoot remains counted |
+| Native flush delay | Existing configuration range 1–500 ms; 500 ms default |
+| Generation dependencies | 65,536-file ceiling; adaptive maintenance retains its current policy |
+
+The following limits remain proposals, except where the table names an existing or approved rule.
 Keep all limits explicit in status and receipts. Byte values use binary units.
 
 | Resource | Initial limit or rule |
@@ -212,7 +241,9 @@ Do not return an empty continuation that cannot advance.
 
 ## 7. Code and disk files
 
-The paths below describe the audited source. A compiler cascade determines the final removal list.
+The paths below map the original plan to the affected source.
+The local writer, format, reader, maintenance, backup, and command changes are complete in this branch.
+The converter, sync contract, dirty share, and new quotas remain future work.
 Keep the generic pack, encryption, page, ownership, and durability helpers.
 
 | Action | Code or files | Required change |
@@ -223,9 +254,9 @@ Keep the generic pack, encryption, page, ownership, and durability helpers.
 | Replace | `vendor/laststore/src/disk_pack/home/write.rs`, `home/admission.rs`, `home/mutation_quote.rs` | Replace `HomeJournal` with direct snapshot reservations and commits |
 | Rewrite | `vendor/laststore/src/disk_pack/publish.rs` | Accept prepared locations directly; keep one receipt, durable root publication, and commit-identity resolution |
 | Rewrite | `vendor/laststore/src/disk_pack/current.rs`, `artifact.rs`, `mod.rs`, `home.rs`, `build.rs`, `home/build.rs` | Add the journal-free format fence and snapshot commit metadata; remove mandatory journal initialization |
-| Rewrite | `vendor/laststore/src/disk_pack/pack_write.rs`, `location.rs`, `frame.rs`, `call.rs`, `object.rs`, `block_plan.rs`, `dependency_walk.rs` | Remove journal output and `Source::Journal` from the normal new-format route after conversion; keep direct payload access |
+| Rewrite; walker removed | `vendor/laststore/src/disk_pack/pack_write.rs`, `location.rs`, `frame.rs`, `call.rs`, `object.rs`, `block_plan.rs`, `dependency_walk.rs` | Journal output and `Source::Journal` are removed; direct payload access remains |
 | Rewrite | `vendor/laststore/src/disk_pack/maintenance/`, `home/maintenance.rs`, `backup/` | Remove tail requirements; preserve roots, file holds, space reservations, and complete backup state |
-| Rewrite | `vendor/laststore/src/disk_pack/{conversion.rs,conversion_select.rs,conversion_fence.rs}`, `vendor/laststore/src/store/native_conversion.rs` | Add explicit old-to-new conversion and format refusal |
+| Refusal complete; converter future | `vendor/laststore/src/disk_pack/{conversion.rs,conversion_select.rs,conversion_fence.rs}`, `vendor/laststore/src/store/native_conversion.rs` | Preserve explicit format refusal; add an old-native-journal converter separately |
 | Rewrite | `vendor/laststore/src/bin/{lastdb-disk-home.rs,lastdb-disk-recovery.rs,lastdb-pack-maintain.rs}`, `vendor/laststore/src/bin/disk_home/io.rs` | Remove internal append-versus-publish commands and journal output |
 | Rewrite | `fold_db/crates/core/src/storage/disk_pack/{mod.rs,write.rs,queue.rs,initialization.rs,view.rs,space.rs,transaction/,maintenance.rs,backup.rs,parts/orphans.rs}` | Replace journal ownership, tokens, admission, startup, status, and maintenance edges |
 | Rewrite | `vendor/laststore/src/disk_pack/dependency.rs`, `generation/dependency_record.rs` | Remove internal-journal dependency kinds; retain snapshot and required sync file holds |
@@ -239,21 +270,21 @@ Keep the generic pack, encryption, page, ownership, and durability helpers.
 
 In the new disk format, remove `JOURNAL_TAIL`, `journal/<stream>/batch-*`, and archived `tail-*` files.
 Keep `CURRENT`, `generations/`, `directory/`, `locator/`, ordinary payload files under `packs/`, and required file blobs.
-Keep the separate sync mutation files and their committed references.
+Keep the separate sync mutation code. Native cloud activation remains refused.
 The new format creates no internal-journal files, even when sync is disabled.
 
 ## 8. Compatibility and implementation sequence
 
-1. Record the journal-free format, root fields, failure results, limits, and counters before writer work.
-2. Add direct snapshot commits on fresh owned homes. Keep the current serving format available until review completes.
-3. Integrate complete memory publication, the 500 ms flush, durable receipts, and reservations under the approved byte-based policy.
-4. Connect sync entries, durable file holds, and received progress to the same root commit.
-5. Rewrite startup, backup, restore, compaction, and reclaim around snapshot ownership.
-6. Add an explicit offline converter for known old native homes, with a separate destination and complete ownership checks.
-7. Verify the new route, then remove the internal journal and every unused caller.
-8. Review operational receipts and performance before any release or cloud activation.
+1. Complete: add the journal-free format, direct commits, and explicit old-format refusal.
+2. Complete: retain memory publication, flush, durable receipts, reservations, and the byte-based warm policy.
+3. Complete: use snapshot ownership for startup, backup, restore, compaction, and reclaim; remove the native journal and unused callers.
+4. Record the operational results and limits. Keep primary activation separate.
+5. Future: add an explicit offline converter for known old native journal homes, with a separate destination and ownership checks.
+6. Future: connect required sync entries, file holds, and received progress to the same root commit.
+7. Future: enforce the approved dirty share and agree on the other proposed quotas before their implementation.
+8. Review new performance receipts before a performance claim. Review complete sync receipts before cloud activation.
 
-The converter reads one held old `CURRENT` and copies all required journal-backed bodies into ordinary snapshot payload files.
+A future converter must read one held old `CURRENT` and copy all required journal-backed bodies into ordinary snapshot payload files.
 It preserves storage keys, atom identities, author facts, deletes, reference counts, and required sync state.
 The existing generic conversion command does not establish this conversion.
 Keep any required old-format parser isolated in the conversion tool; the normal new engine has no internal-journal module.
@@ -299,7 +330,8 @@ Keep exact process ownership, source revision, binary identity, resource limits,
 Process interruption receipts do not establish power-loss behavior.
 Report which publication edges the operational exercise reaches.
 Retain platform durability reasoning separately and report any unobserved edge.
-Zero replay counters alone are insufficient: the current reader can fetch journal payloads without replay.
+Zero replay counters alone were insufficient for the former format: that reader could fetch journal payloads without replay.
+The new format refuses journal payload source tags and inventories show no internal-journal files.
 
 Repeat the saved 512-record workload against both the reviewed current source and the new writer where practical.
 The historical October 21 run is not a current-main measurement.
@@ -309,7 +341,8 @@ Report median and p95 latency, process disk I/O, logical and allocated growth, m
 Record operating-system cache uncertainty and shared-host load.
 Do not claim physical SSD writes from process counters.
 
-Completion requires one receipt/root publication per nonempty committed flush group, correct product results, and zero internal-journal dependencies in the new format.
+Local journal-removal completion requires one receipt/root publication per nonempty stored batch, correct product results, and zero internal-journal dependencies.
+The full design, including future sync and resource work, has additional requirements below.
 Require correct byte accounting, approved read admission, bounded work allowances, valid backup restore, and complete sync retention receipts.
 Run appropriate non-test format, syntax, lint, build, secret, and security checks for changed code.
 Use compiler failures and a bounded zero-reference source review to complete dead-code removal.
