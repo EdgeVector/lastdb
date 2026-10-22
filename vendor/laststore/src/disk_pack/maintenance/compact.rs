@@ -42,7 +42,13 @@ pub(super) fn copy(lock: &WriteLock, previous: &Current) -> Result<PackOutput> {
     let root = lock.root();
     let old = generation::read_receipt(root, previous)?;
     let mut current = previous.clone();
-    current.generation = publish::fresh_generation(root, previous.generation)?;
+    // Private UUID objects need an age, not a receipt identity. Writers can
+    // publish source+1 during this copy; reserving a receipt name here could
+    // jump the output age beyond the next catch-up cut. Allocate only at swap.
+    current.generation = previous
+        .generation
+        .checked_add(1)
+        .ok_or_else(|| corrupt("generation exhaustion"))?;
     current.previous_generation = previous.generation;
     current.published_ms = artifact::unix_ms();
     let mut directory = TreeWriter::new(root, TreeKind::Directory, current.generation)?;

@@ -51,6 +51,7 @@ class Recovery(ProductRun):
             "source_revision": args.source_revision, "binary_sha256": base.file_hash(self.binary),
             "maintenance_sha256": base.file_hash(self.maintain),
             "driver_sha256": base.file_hash(Path(__file__)), "original_run_complete": False,
+            "accepted_state": args.accepted_state,
         })
         self.identity = ownership["run_id"]
         self.home = self.root / "home"
@@ -62,7 +63,7 @@ class Recovery(ProductRun):
         self.expected = {}
         for number in range(self.records):
             revision = 111 if number < 16 or 32 <= number < 48 else 0
-            if 64 <= number < 80:
+            if args.accepted_state == "template-failure" and 64 <= number < 80:
                 revision = 200
             self.expected[base.key(number)] = base.fields(number, revision)
         long_key = "long-0-" + "x" * 1536
@@ -96,6 +97,8 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--maintain", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--accepted-state", choices=("template-failure", "copy-age-failure"),
+                        default="template-failure")
     args = parser.parse_args()
     args.run = args.run.resolve(strict=True)
     capture, complete, error = Recovery(args), False, None
