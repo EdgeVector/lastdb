@@ -6,7 +6,7 @@ use laststore::disk_pack::home::DiskHome;
 use laststore::disk_pack::ReadBudget;
 use std::collections::BTreeSet;
 
-const VALUE_MAX: u64 = 4 * 1024 * 1024;
+const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
 // The two charged atom JSON trees use 64 MiB; release them before any CAS decode.
 // This separate 8 MiB identity cap leaves the complete active proof below 96 MiB.
 const COVERAGE_MAX: usize = 8 * 1024 * 1024 / 192;
@@ -28,7 +28,7 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
     loop {
         let page = {
             let mut read = home
-                .read(budget(VALUE_MAX, 10000))
+                .read(budget(DIRECTORY_READ_BYTES, 10000))
                 .map_err(|_| RestoreError::Limit("native atom read"))?;
             let mut cursor = read
                 .administrative_range("atoms", &start, &[])
@@ -60,7 +60,7 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
             drop(atom);
             drop(record);
             let mut read = home
-                .read(budget(64 * 1024, 3))
+                .read(budget(DIRECTORY_READ_BYTES, 3))
                 .map_err(|_| RestoreError::Limit("native file directory"))?;
             directory::read_directories(&mut read, scope.as_deref(), &id, &expected, key)
                 .map_err(|_| RestoreError::Invalid("native file directory coverage"))?;
@@ -96,7 +96,12 @@ fn verify_dependency(
 ) -> Result<()> {
     let row = {
         let mut read = home
-            .read(budget(directory::NATIVE_CAS_ROW_MAX_BYTES, 1))
+            // The native budget also charges physical pages and block bytes.
+            // 48 MiB of reader state + 32 MiB row + 8 MiB identities stays below96.
+            .read(budget(
+                directory::NATIVE_CAS_ROW_MAX_BYTES + 16 * 1024 * 1024,
+                1,
+            ))
             .map_err(|_| RestoreError::Limit("native file read"))?;
         directory::read_native_cas(&mut read, dependency)
             .map_err(|_| RestoreError::Invalid("native file source"))?
