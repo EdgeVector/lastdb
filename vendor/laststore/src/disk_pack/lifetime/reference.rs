@@ -62,7 +62,31 @@ impl DurableReference {
         purpose: ReferencePurpose,
         expiry_ms: u64,
     ) -> Result<Self> {
+        Self::create_identified(root, current, purpose, expiry_ms, Uuid::new_v4())
+    }
+
+    /// A durable owner saves this identity before capture. Repeating the exact
+    /// identity resumes its original hold; changed roots or purposes are refused.
+    pub fn create_identified(
+        root: &Path,
+        current: &Current,
+        purpose: ReferencePurpose,
+        expiry_ms: u64,
+        identity: Uuid,
+    ) -> Result<Self> {
+        nonnil(identity)?;
         let _hold = GenerationHold::acquire(root, current)?;
+        let target = root.join("references").join(identity.to_string());
+        if target.try_exists()? {
+            let reference = Self::open(root, identity)?;
+            if reference.current != *current
+                || reference.info.purpose != purpose
+                || reference.info.expiry_ms != expiry_ms
+            {
+                return Err(corrupt("named reference input changed"));
+            }
+            return Ok(reference);
+        }
         let generation = generation::verify(root, current)?;
         let parent = root.join("references");
         if !parent.try_exists()? {
@@ -76,7 +100,7 @@ impl DurableReference {
             return Err(corrupt("reference already expired"));
         }
         let info = ReferenceInfo {
-            identity: Uuid::new_v4(),
+            identity,
             generation: current.generation,
             receipt: generation.object,
             purpose,
@@ -84,14 +108,25 @@ impl DurableReference {
             expiry_ms,
             current_digest: digest(&current.encode()?),
         };
-        let temporary = root.join(format!("REFERENCE.pending-{}", info.identity));
+        let temporary = root.join(format!("REFERENCE.pending-{}", identity));
+        if temporary.try_exists()? && !std::fs::symlink_metadata(&temporary)?.is_file() {
+            return Err(corrupt("pending reference is not a regular file"));
+        }
         let mut file = OpenOptions::new()
-            .create_new(true)
+            .create(true)
+            .truncate(true)
             .write(true)
             .open(&temporary)?;
         file.write_all(&encode(&info)?)?;
         durability::sync_dirty_file(&file)?;
-        std::fs::rename(temporary, parent.join(info.identity.to_string()))?;
+        rustix::fs::renameat_with(
+            rustix::fs::CWD,
+            &temporary,
+            rustix::fs::CWD,
+            &target,
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(std::io::Error::from)?;
         durability::sync_directory(&File::open(parent)?)?;
         durability::sync_directory(&File::open(root)?)?;
         Ok(Self {
@@ -152,6 +187,42 @@ pub fn release_reference(root: &Path, identity: Uuid) -> Result<()> {
     read(root, identity)?;
     std::fs::remove_file(root.join("references").join(identity.to_string()))?;
     durability::sync_directory(&File::open(root.join("references"))?)
+}
+
+/// Release an exact owner's named reference after its terminal outcome is
+/// durable. No dependent generation bytes are needed for this metadata check.
+/// An absent reference still receives the deletion directory barrier on retry.
+pub fn release_owned_reference(
+    root: &Path,
+    identity: Uuid,
+    purpose: ReferencePurpose,
+    current_digest: &[u8; 32],
+) -> Result<()> {
+    nonnil(identity)?;
+    let _hold = shared(root)?;
+    match read(root, identity) {
+        Ok(info) => {
+            if info.purpose != purpose || info.current_digest != *current_digest {
+                return Err(corrupt("owned reference release input changed"));
+            }
+            std::fs::remove_file(root.join("references").join(identity.to_string()))?;
+        }
+        Err(crate::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    let pending = root.join(format!("REFERENCE.pending-{identity}"));
+    match std::fs::symlink_metadata(&pending) {
+        Ok(metadata) if metadata.is_file() => std::fs::remove_file(pending)?,
+        Ok(_) => return Err(corrupt("owned pending reference is not a regular file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    match File::open(root.join("references")) {
+        Ok(parent) => durability::sync_directory(&parent)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    durability::sync_directory(&File::open(root)?)
 }
 
 /// Bounded named references. Expired entries remain in this live retention set.

@@ -1,6 +1,7 @@
 //! Explicit local backups of complete immutable native disk generations.
 //! The bundle contains opaque stored bytes, not node credentials or cloud grants.
 
+pub mod export;
 mod files;
 mod manifest;
 mod prepare;

@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
+pub mod cloud_export;
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;

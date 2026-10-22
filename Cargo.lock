@@ -2019,6 +2019,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "cloud_backup_protocol",
  "criterion",
  "ed25519-compact",
  "ed25519-dalek",

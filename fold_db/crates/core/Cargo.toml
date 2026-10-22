@@ -29,6 +29,7 @@ hashbrown = { version = "0.17", default-features = false }
 
 # Storage
 laststore = { path = "../../../vendor/laststore" }
+cloud_backup_protocol = { path = "../../../cloud_backup_protocol" }
 
 # Core utilities
 uuid = { workspace = true, features = ["v4", "serde"] }
