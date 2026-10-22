@@ -99,7 +99,7 @@ fn archive(root: &Path, tail: &JournalTail, bytes: &[u8; 4096]) -> Result<()> {
                 .truncate(true)
                 .open(&pending)?;
             file.write_all(bytes)?;
-            durability::sync_dirty_file(&file)?;
+            durability::sync_publication_file(&file)?;
             fs::rename(&pending, &path)?;
         }
     }

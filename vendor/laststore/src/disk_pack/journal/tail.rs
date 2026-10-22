@@ -151,7 +151,7 @@ impl JournalTail {
             .write(true)
             .open(&temporary)?;
         file.write_all(&self.encode()?)?;
-        durability::sync_dirty_file(&file)?;
+        durability::sync_publication_file(&file)?;
         fs::rename(&temporary, root.join("JOURNAL_TAIL"))?;
         durability::sync_directory(&File::open(root)?)
     }

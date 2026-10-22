@@ -45,6 +45,14 @@ pub struct JournalWriter {
 }
 
 impl JournalWriter {
+    pub(in crate::disk_pack) fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub(in crate::disk_pack) fn require_recovery(&mut self) {
+        self.poisoned = true;
+    }
+
     /// Create the first stream only. Existing journals require `open`.
     pub fn create(root: &Path) -> Result<Self> {
         let lock = WriteLock::acquire(root)?;

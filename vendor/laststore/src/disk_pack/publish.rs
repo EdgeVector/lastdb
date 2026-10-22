@@ -271,7 +271,7 @@ pub(super) fn publish_current(root: &Path, current: &Current) -> Result<()> {
         .create_new(true)
         .open(&path)?;
     file.write_all(&current.encode()?)?;
-    durability::sync_dirty_file(&file)?;
+    durability::sync_publication_file(&file)?;
     fs::rename(path, root.join("CURRENT"))?;
     durability::sync_directory(&File::open(root)?)
 }
