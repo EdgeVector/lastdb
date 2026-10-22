@@ -96,8 +96,10 @@ pub fn open_remote_file(
     {
         return Err(invalid("recovered file envelope bounds"));
     }
-    let key = crate::hex::hex_decode_array::<32>(&access.dek)
-        .ok_or_else(|| invalid("recovered file key"))?;
+    let key = zeroize::Zeroizing::new(
+        crate::hex::hex_decode_array::<32>(&access.dek)
+            .ok_or_else(|| invalid("recovered file key"))?,
+    );
     let plain = crate::crypto::envelope::decrypt_envelope(&key, ciphertext)
         .map_err(|_| invalid("recovered file authentication"))?;
     let digest = cloud_backup_protocol::bytes_sha256(&plain);
@@ -127,6 +129,39 @@ pub fn resolve(
 
 /// Restore uses the already validated whole-pointer digest after it drops atom JSON.
 pub fn resolve_entry(
+    data_root: &Path,
+    home_id: &Id,
+    pointer_id: &Digest,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+    maximum: u64,
+) -> StorageResult<Option<Vec<u8>>> {
+    let Some(bytes) = read_ciphertext(data_root, home_id, pointer_id, kind, access, maximum)?
+    else {
+        return Ok(None);
+    };
+    open_remote_file(access, &bytes, maximum).map(Some)
+}
+
+/// A subsequent backup copies these authenticated bytes into its owned spool.
+/// The original remote owner and source object are not a recovery dependency.
+pub fn read_verified_ciphertext(
+    data_root: &Path,
+    home_id: &Id,
+    pointer_id: &Digest,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+) -> StorageResult<Option<Vec<u8>>> {
+    let maximum = FILE_RECOVERY_MAX_PLAINTEXT_BYTES;
+    let Some(bytes) = read_ciphertext(data_root, home_id, pointer_id, kind, access, maximum)?
+    else {
+        return Ok(None);
+    };
+    drop(open_remote_file(access, &bytes, maximum)?);
+    Ok(Some(bytes))
+}
+
+fn read_ciphertext(
     data_root: &Path,
     home_id: &Id,
     pointer_id: &Digest,
@@ -174,13 +209,13 @@ pub fn resolve_entry(
     if cloud_backup_protocol::bytes_sha256(&bytes) != entry.stored_source_sha256 {
         return Err(invalid("recovered file stored identity"));
     }
-    open_remote_file(access, &bytes, maximum).map(Some)
+    Ok(Some(bytes))
 }
 
 impl PackRuntime {
     pub(crate) fn resolve_recovered_file(
         &self,
-        pointer: &Value,
+        pointer: &Digest,
         kind: FileDependencyKind,
         access: &FileBlobAccess,
     ) -> StorageResult<Option<Vec<u8>>> {
@@ -191,7 +226,7 @@ impl PackRuntime {
             .ok_or_else(|| invalid("node root"))?;
         let home_id = Id::try_from(self.home.descriptor().identity.to_string())
             .map_err(|_| invalid("native home identity"))?;
-        resolve(
+        resolve_entry(
             root,
             &home_id,
             pointer,
