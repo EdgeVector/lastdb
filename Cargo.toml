@@ -31,6 +31,9 @@ members = [
     # Canonical env-flag truthy/falsy vocabulary (zero-dep leaf).
     "env_flag",
 
+    # Canonical native cloud backup wire contract; no runtime activation.
+    "cloud_backup_protocol",
+
     # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal
     # HTTP/1.1 framing, control-socket route classifier). A leaf crate
     # (fold_db only) originally extracted from the desktop node's uds*.rs so
