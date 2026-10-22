@@ -26,6 +26,7 @@ class ProductRun(base.Capture):
         self.receipt_lock = threading.Lock()
         self.timings = []
         self.compactions = []
+        self.long_keys = []
         base.save(self.output / "recipe.json", {
             "records": self.records, "batch": 64, "body_bytes": 1024,
             "writer_threads": 2, "rounds_per_writer": 12,
@@ -101,6 +102,10 @@ class ProductRun(base.Capture):
                 "filter": {"HashRangeKeys": [[base.HASH, base.key(number)]
                     for number in range(first, min(first + 64, self.records))]}, "limit": 64})
             actual.update(self.rows(result))
+        for key in self.long_keys:
+            result = self.call("/api/query", {"schema_name": base.SCHEMA, "fields": base.FIELDS,
+                "filter": {"HashRangeKey": {"hash": base.HASH, "range": key}}, "limit": 1})
+            actual.update(self.rows(result))
         if actual != self.expected:
             raise RuntimeError(f"{phase}: exact keys differ from accepted writes")
         cursor, listed = None, set()
@@ -132,6 +137,43 @@ class ProductRun(base.Capture):
         self.compactions.append(report["compact"]["native_disk"])
         return report
 
+    def write_long(self, number, revision):
+        key = f"long-{number}-" + "x" * 1536
+        fields = base.fields(number, revision)
+        fields["id"] = key
+        operation = "update" if key in self.expected else "create"
+        self.call("/api/mutations/batch", {"mutations": [{"type": "mutation", "schema": base.SCHEMA,
+            "mutation_type": operation, "durability": "durable",
+            "key_value": {"hash": base.HASH, "range": key}, "fields_and_values": fields}]})
+        self.expected[key] = fields
+        if key not in self.long_keys:
+            self.long_keys.append(key)
+
+    def interrupt_copy(self):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            request = pool.submit(self.compact)
+            observed = None
+            for _ in range(500):
+                state = self.call("/api/db/native-status")["native_disk"]["parts"]
+                if state.get("compaction_phase") == "copy":
+                    observed = state
+                    self.stop(force=True)
+                    break
+                if request.done():
+                    break
+                time.sleep(0.02)
+            try:
+                request.result()
+            except (OSError, http.client.HTTPException):
+                if observed is None:
+                    raise
+            self.remember("interrupted-compaction", observed_phase=observed,
+                          signal="SIGKILL" if observed else None)
+        if observed is None:
+            raise RuntimeError("The copy phase ended before an interruption receipt")
+        self.start()
+        self.verify("interrupted-copy-reopen")
+
     def writer(self, offset):
         for revision in range(12):
             self.mutate("update", range(offset, offset + 16), 100 + revision, durability="durable")
@@ -141,6 +183,7 @@ class ProductRun(base.Capture):
         self.install()
         for first in range(0, self.records, 64):
             self.mutate("create", range(first, min(first + 64, self.records)), 0, durability="durable")
+        self.write_long(0, 0)
         self.flush("seed")
         self.verify("seed")
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
@@ -152,6 +195,7 @@ class ProductRun(base.Capture):
         self.verify("concurrent-copy")
         for revision in range(3):
             self.mutate("update", range(64, 80), 200 + revision, durability="durable")
+            self.write_long(1, 200 + revision)
             self.compact()
             self.verify(f"recent-tier-{revision}")
         self.mutate("delete", range(80, 88), 0, durability="durable")
@@ -164,10 +208,15 @@ class ProductRun(base.Capture):
         self.stop(force=True)
         self.start()
         self.verify("forced-reopen")
+        self.interrupt_copy()
         self.compact()
         self.verify("compacted-after-forced-reopen")
         self.flush("final")
         base.save(self.output / "compactions.json", self.compactions)
+        if not any(report.get("catch_up_records", 0) > 0 for report in self.compactions):
+            raise RuntimeError("No compaction receipt includes a concurrent changed key")
+        if not any(report.get("tier_boundary", 0) > 0 for report in self.compactions):
+            raise RuntimeError("No compaction receipt includes a recent tier")
         ordered = sorted(self.timings)
         base.save(self.output / "latency.json", {"all_mutation_calls": len(ordered),
             "p50_ms": ordered[len(ordered) // 2], "max_ms": max(ordered),

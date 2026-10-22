@@ -105,10 +105,14 @@ impl PackRuntime {
                 })
                 .await?;
                 let output = if !options.dry_run && !options.reclaim_only {
-                    Some(runtime.copy_native_pack(options).await.map_err(|error| {
-                        runtime.parts.record_failure(&error);
-                        error
-                    })?)
+                    Some(
+                        runtime
+                            .copy_native_pack(options)
+                            .await
+                            .inspect_err(|error| {
+                                runtime.parts.record_failure(error);
+                            })?,
+                    )
                 } else {
                     None
                 };

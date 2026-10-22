@@ -31,7 +31,13 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     let mut locators = LocatorChanges::new(root, proposed.generation);
     let mut call = artifact::metadata_call(root, cut.clone());
     let mut groups = TreeCursor::recent(&mut call, cut.directory.clone(), previous.generation)?;
-    let mut copied = 0;
+    let mut budget = DeltaBudget { changed: 0, limit };
+    let graft = Graft {
+        root,
+        cut,
+        previous,
+        proposed: &proposed,
+    };
     let mut directory_changes = Vec::new();
     while let Some((key, value)) = groups.next(&mut call)? {
         let live = DirectoryEntry::decode(&value)?;
@@ -41,44 +47,15 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
             .map(|value| DirectoryEntry::decode(&value))
             .transpose()?;
         let tree = if let Some(existing) = existing {
-            let mut tree = existing.locator;
-            let mut source = artifact::metadata_call(root, cut.clone());
-            let mut records =
-                TreeCursor::recent(&mut source, live.locator.clone(), previous.generation)?;
-            let mut changes = Vec::new();
-            let mut examined = 0u64;
-            while let Some((key, value)) = records.next(&mut source)? {
-                examined += 1;
-                if examined % 256 == 0 {
-                    source = artifact::metadata_call(root, cut.clone());
-                }
-                let location = Location::decode_for_current(&value, cut)?;
-                if location.version.batch <= previous.frontier {
-                    continue;
-                }
-                copied += 1;
-                if copied > limit {
-                    return Err(behind());
-                }
-                changes.push((key, value));
-                if changes.len() == cut.batch_operation_limit().min(256) {
-                    tree = locators.edit(&mut output_call, tree, &changes)?;
-                    changes.clear();
-                    source = artifact::metadata_call(root, cut.clone());
-                    output_call = artifact::metadata_call(root, proposed.clone());
-                }
-            }
-            if !changes.is_empty() {
-                tree = locators.edit(&mut output_call, tree, &changes)?;
-            }
-            tree
+            graft.tree(
+                live.locator.clone(),
+                existing.locator,
+                &mut locators,
+                &mut output_call,
+                &mut budget,
+            )?
         } else {
-            // Every part of a newly created group is newer than the original cut.
-            // Its whole immutable tree can be retained directly.
-            copied += 1;
-            if copied > limit {
-                return Err(behind());
-            }
+            budget.note()?;
             live.locator.clone()
         };
         let replacement = DirectoryEntry {
@@ -92,14 +69,16 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         }
         call = artifact::metadata_call(root, cut.clone());
     }
-    let mut dependencies =
-        Dependencies::from_coordinates(std::mem::take(&mut job.output.dependencies))?;
-    let receipt = generation::read_receipt(root, cut)?;
-    for (coordinate, record) in receipt.coordinates.into_iter().zip(receipt.records) {
-        if crate::disk_pack::bytes::u64_at(&record, 72) > job.source.current().generation {
-            dependencies.add(coordinate)?;
-        }
+    if !directory_changes.is_empty() {
+        let mut call = artifact::metadata_call(root, proposed.clone());
+        directory.put_many(&mut call, &directory_changes)?;
     }
+    let mut dependencies = carried_dependencies(
+        root,
+        cut,
+        job.source.current().generation,
+        std::mem::take(&mut job.output.dependencies),
+    )?;
     for output in locators.finish()? {
         dependencies.add_tree(&output.tree, output.parts)?;
     }
@@ -108,7 +87,7 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     proposed.directory = tree;
     job.output.current = proposed;
     job.output.dependencies = dependencies.finish();
-    Ok(copied)
+    Ok(budget.changed)
 }
 
 fn behind() -> crate::Error {
@@ -116,4 +95,79 @@ fn behind() -> crate::Error {
         "compaction_behind: final catch-up exceeds its bounded key budget; retry after maintenance"
             .into(),
     )
+}
+
+fn carried_dependencies(
+    root: &std::path::Path,
+    cut: &Current,
+    source_generation: u64,
+    output: Vec<crate::disk_pack::dependency::Coordinate>,
+) -> Result<Dependencies> {
+    let mut dependencies = Dependencies::from_coordinates(output)?;
+    let receipt = generation::read_receipt(root, cut)?;
+    for (coordinate, record) in receipt.coordinates.into_iter().zip(receipt.records) {
+        if crate::disk_pack::bytes::u64_at(&record, 72) > source_generation {
+            dependencies.add(coordinate)?;
+        }
+    }
+    Ok(dependencies)
+}
+
+struct DeltaBudget {
+    changed: u64,
+    limit: u64,
+}
+impl DeltaBudget {
+    fn note(&mut self) -> Result<()> {
+        self.changed += 1;
+        if self.changed > self.limit {
+            return Err(behind());
+        }
+        Ok(())
+    }
+}
+
+struct Graft<'a> {
+    root: &'a std::path::Path,
+    cut: &'a Current,
+    previous: &'a Current,
+    proposed: &'a Current,
+}
+
+impl Graft<'_> {
+    fn tree(
+        &self,
+        live: crate::disk_pack::TreeRoot,
+        mut tree: crate::disk_pack::TreeRoot,
+        locators: &mut LocatorChanges,
+        output_call: &mut crate::disk_pack::ReadCall,
+        budget: &mut DeltaBudget,
+    ) -> Result<crate::disk_pack::TreeRoot> {
+        let mut source = artifact::metadata_call(self.root, self.cut.clone());
+        let mut records = TreeCursor::recent(&mut source, live, self.previous.generation)?;
+        let mut changes = Vec::new();
+        let mut examined = 0u64;
+        while let Some((key, value)) = records.next(&mut source)? {
+            examined += 1;
+            if examined % 256 == 0 {
+                source = artifact::metadata_call(self.root, self.cut.clone());
+            }
+            let location = Location::decode_for_current(&value, self.cut)?;
+            if location.version.batch <= self.previous.frontier {
+                continue;
+            }
+            budget.note()?;
+            changes.push((key, value));
+            if changes.len() == self.cut.batch_operation_limit().min(256) {
+                tree = locators.edit(output_call, tree, &changes)?;
+                changes.clear();
+                source = artifact::metadata_call(self.root, self.cut.clone());
+                *output_call = artifact::metadata_call(self.root, self.proposed.clone());
+            }
+        }
+        if !changes.is_empty() {
+            tree = locators.edit(output_call, tree, &changes)?;
+        }
+        Ok(tree)
+    }
 }

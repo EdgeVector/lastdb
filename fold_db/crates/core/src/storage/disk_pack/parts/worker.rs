@@ -50,13 +50,9 @@ impl PackRuntime {
         }
     }
 
-    /// Backpressure before the hard limit: above 90% of the limit a new write
-    /// waits for the worker, for at most a minute, and then proceeds to its own
-    /// admission, which refuses it with a retry hint if no room appeared.
-    /// Call it before the write gate: maintenance needs that gate to make room.
-    pub(in crate::storage::disk_pack) async fn wait_for_part_room(
-        self: &Arc<Self>,
-    ) -> StorageResult<()> {
+    /// Refuse new work at the 85-percent soft limit and wake the worker.
+    /// The caller retries after maintenance; no admission waits behind the copy.
+    pub(in crate::storage::disk_pack) fn check_part_room(self: &Arc<Self>) -> StorageResult<()> {
         self.ensure_parts_worker();
         let ledger = &self.parts;
         if ledger.auto && ledger.over_soft_limit() {
