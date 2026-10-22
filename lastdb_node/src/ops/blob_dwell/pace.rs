@@ -4,7 +4,8 @@
 //! batches share the bounded collection window and still wait for durability.
 //! Their private prefix is available to write preparation only. Ordinary reads
 //! retain the committed view. A chunk that needs a sealed fence includes that
-//! flush wait in its measured cost. Other chunks measure the gate hold.
+//! flush wait in its measured cost. Other chunks measure their gate hold and
+//! the shared flush hold, excluding the open collection window.
 //!
 //! The writer watch preserves that share for sparse writers. An idle node uses
 //! only the minimum pause. The environment sets the knobs at the start of a pass.

@@ -257,7 +257,7 @@ gate. It runs one release batch for each page that has due entries. The window i
 the pair.
 
 - Pacing. A background release batch shares the bounded collection window.
-  It returns after durability. Its measured cost normally covers the gate hold. The janitor rests
+  It returns after durability. Its measured cost includes the gate and shared flush holds. The janitor rests
   after each batch for `blocked * (100 - duty) / duty`, where `blocked` is that
   time and `duty` is `LASTDB_CONFLICT_JANITOR_DUTY_PCT` (10). The rest is at least
   25 ms and at most 30 s. When no other task opened a write scope for a quiet period

@@ -54,6 +54,17 @@ impl SnapshotWriter {
     /// Release only obsolete unreferenced parts; never implicitly perform a rewrite.
     pub fn reclaim(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.check_admission()?;
+        if self
+            .lock
+            .compaction_active
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Ok(MaintenanceReceipt {
+                generation: self.current.generation,
+                reclaim_deferred: true,
+                ..Default::default()
+            });
+        }
         crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)
     }
 

@@ -226,7 +226,7 @@ with a `suspect` counter that holds the references of its own batch, and counts 
 5. releases the gate, and **rests**. A step that finds a bucket done retires it
    (a batch of one guarded delete) and rests the same way. A private background chunk
    shares the bounded collection window and still returns after durability.
-   Its measured writer cost normally covers the gate hold. A sealed fence also counts its flush wait.
+   Its measured writer cost includes the gate and shared flush holds. A sealed fence also counts its flush wait.
    The rest after a chunk is
    `blocked * (100 - duty) / duty`, where `blocked` is that time and the duty share
    is 10 percent by default (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100): writers wait for
