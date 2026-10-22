@@ -62,6 +62,7 @@ Unknown cloud byte obligations stay reserved after close.
 
 Close reloads the latest saved commit before a terminal result or a resumed worker can use it.
 This prevents a concurrent accepted result from loss through an older local state write.
+A delayed close cannot restart an older job after a newer job becomes active.
 Terminal cleanup can repeat after a lost local response.
 An archived terminal request cannot select a new active capture.
 

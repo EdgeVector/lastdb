@@ -155,6 +155,12 @@ async fn close(source: Source) -> Result<NativeBackupStatus> {
     }
     if !RUNNING.load(Ordering::Acquire) {
         let permit = acquire(&source.home)?;
+        // A delayed close response can outlive cleanup and a newer job. It must
+        // not restart the older owner or replace the newer accepted status.
+        if Store::active(&source.home)?.as_ref() != Some(&id) {
+            drop(permit);
+            return status(&home);
+        }
         saved = store.state()?.ok_or(BackupError::Invalid)?;
         source.validate(&saved)?;
         launch(source, store, saved, permit)?;
@@ -227,6 +233,7 @@ fn status_for(home: &Path, selection: Option<Id>) -> Result<NativeBackupStatus> 
     let Some(id) = selection else {
         return Ok(value);
     };
+    value.running &= Store::active(home)?.as_ref() == Some(&id);
     let root = base.join("jobs").join(id.as_str());
     let saved: Saved = store::read(&root.join("state.json"))?.ok_or(BackupError::Invalid)?;
     saved.validate()?;
