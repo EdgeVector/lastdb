@@ -15,6 +15,9 @@ impl TransferPrepareRequest {
         validate_count(self.items.len())?;
         for (offset, item) in self.items.iter().enumerate() {
             item.validate()?;
+            if item.job != self.items[0].job {
+                return Err(ProtocolError::invalid("transfer.items.job"));
+            }
             if self.items[..offset]
                 .iter()
                 .any(|old| old.request_id == item.request_id)

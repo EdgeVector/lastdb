@@ -201,6 +201,8 @@ Authority rules differ by operation:
 Trusted recovery may record evidence and close old admissions after a generation change.
 It cannot issue a new old-generation grant or publish a closed job.
 A fence must not prevent evidence records from resolving old reserved bytes.
+The authenticated personal account owner supplies scoped recovery authority for its own old jobs.
+The service compares the authenticated account identity with the exact scope; the request body supplies no authority.
 
 ## 5. Small immutable transfers
 
@@ -258,6 +260,9 @@ Temporary read and upload URLs never enter durable manifests or job records.
 
 Independent requests use bounded batches or parallel calls.
 The service uses batched keyed control reads.
+Every transfer prepare batch selects one exact BackupJob, with at most four items.
+The service sums new reservations and admits that batch through one conditional transaction.
+It does not send one read and write sequence for each item.
 Usage charges and uncertain byte reservations use independent durable obligation identities.
 A charge retry cannot duplicate usage or keep the stream's active-job slot indefinitely.
 
@@ -438,8 +443,9 @@ An authenticated request body never grants authority by itself.
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.
 Resource and quota refusal maps to 413.
-Known pending work maps to 202; an unknown or retryable backend failure maps to 503 with its stable identity.
+Single known pending results map to 202; an unknown or retryable backend failure maps to 503 with its stable identity.
 Batch results preserve the requested order and keep each item's success or error.
+Valid batch envelopes return 200 with each item's state or error; top-level request failures retain their error code.
 No response code permits a new identity merely because an earlier outcome is unknown.
 
 Private service state includes stream subject bindings, revisions, provider targets, verification evidence, quota reservations, submission certificates, and usage obligations.
@@ -526,6 +532,9 @@ Do not count SDK outer JSON escaping as stored bytes.
 The full stored-item and transaction bounds apply to private worker records too.
 
 A service implementation must prove signed create-once headers and exact byte verification before transfer activation.
+Native byte admission includes retained native bytes, unresolved reservations, and observed legacy use under one account quota.
+Legacy grants without reservations require isolation or the same allocation ledger before activation.
+An old usage counter alone cannot bound concurrent legacy uploads.
 A restore implementation must prove native record and file recovery through normal product commands.
 Format, type, lint, and build checks establish source consistency only.
 No new test suite or fixture harness supplies product proof.
