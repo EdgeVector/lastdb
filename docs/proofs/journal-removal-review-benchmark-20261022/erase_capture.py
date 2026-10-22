@@ -96,6 +96,11 @@ class EraseCapture(Benchmark):
             raise RuntimeError("The generated range exceeds its eight-page bound")
         if result != self.expected:
             raise RuntimeError("The range does not match the expected generated values")
+        self.remember("known-key-readback", label=label, live_records=len(self.expected),
+                      both_protein_schemas_verified=True)
+        return self.meters(label)
+
+    def meters(self, label):
         with ThreadPoolExecutor(max_workers=3) as pool:
             futures = [pool.submit(self.call, "/api/storage/schema", {"schema": schema})
                        for schema in (SCHEMA, PEER)]
@@ -108,10 +113,10 @@ class EraseCapture(Benchmark):
                 raise RuntimeError(f"The molecule slot count differs for {schema}")
             if not self.expected and meter["logical_value_bytes"] != 0:
                 raise RuntimeError("The empty schema retains logical value bytes")
+        if not self.expected and any(owner["atom_count"] != 0 for owner in app["owners"]):
+            raise RuntimeError("The empty generated home retains aggregate atom counts")
         result = {"live_records": len(self.expected), "schemas": meters, "app": app}
         save(self.output / f"meters-{label}.json", result)
-        self.remember("known-key-readback", label=label, live_records=len(self.expected),
-                      both_protein_schemas_verified=True)
         return result
 
 
@@ -134,7 +139,7 @@ def command(capture, binary, arguments, label, expected=0):
     return result
 
 
-def inspect_meters(capture, disk_binary, label, expected_live):
+def inspect_meters(capture, disk_binary, label):
     if capture.process is not None:
         raise RuntimeError("Native inspection requires the owned node to stop")
     request = {"collection": "keep_small", "prefix": "keep_small:", "page_size": 128, "max_pages": 4,
@@ -146,29 +151,28 @@ def inspect_meters(capture, disk_binary, label, expected_live):
     listing = json.loads(output.stdout)
     if listing.get("exhausted") is not True:
         raise RuntimeError("The bounded meter prefix did not exhaust")
-    rows = {row["key"]: json.loads(bytes.fromhex(row["body_hex"]))
+    rows = {row["key"]: bytes.fromhex(row["body_hex"])
             for page in listing["pages"] for row in page["records"]}
     if any(not key.startswith("keep_small:meters") for key in rows):
         raise RuntimeError("A retired recovery key remains in the generated meter namespace")
-    header = rows["keep_small:meters"]
-    if header.get("version") != 2 or "hard_erase_totals" in header or "hard_erase_journal_checkpoint_seq" in header:
-        raise RuntimeError("The persisted aggregate does not use the direct version-2 format")
-    slices = [row for key, row in rows.items() if key.startswith("keep_small:meters:schema:")]
-    by_schema = {row["schema"]["schema_name"]: row for row in slices if row.get("schema")}
+    expected_keys = {"keep_small:meters"}
     for schema in (SCHEMA, PEER):
-        slots = sum(value["active_slot_count"] for value in by_schema[schema]["molecules"].values())
-        if slots != expected_live * len(FIELDS):
-            raise RuntimeError(f"The persisted meter slice differs for {schema}")
-    if expected_live == 0 and any(header["totals"][key] != 0 for key in
-                                  ("atom_bytes", "atom_count", "tip_bytes", "tip_count")):
-        raise RuntimeError("The empty generated home retains atom or tip totals")
+        expected_keys.add("keep_small:meters:schema:" + schema.encode().hex())
+    if not expected_keys.issubset(rows):
+        raise RuntimeError("The native snapshot lacks an aggregate header or schema slice")
+    if any(not body.startswith(b"ENC:") for body in rows.values()):
+        raise RuntimeError("A generated meter value lacks its encrypted envelope")
     inventory = bounded_inventory(capture.home)
     if any("journal" in name.lower() or "JOURNAL_TAIL" in name for name in inventory["_files"]):
         raise RuntimeError("The generated native home contains a recovery journal file")
-    save(capture.output / f"{label}-decoded-meters.json", rows)
+    save(capture.output / f"{label}-stored-meters.json", {
+         key: {"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(), "encrypted": True}
+         for key, body in rows.items()})
     save(capture.output / f"{label}-native-inventory.json", inventory)
     return {"generation": listing["generation"], "frontier": listing["frontier"],
-            "meter_keys": sorted(rows), "totals": header["totals"], "no_recovery_keys_or_files": True}
+            "meter_keys": sorted(rows), "no_recovery_keys_or_files": True,
+            "stored_values_encrypted": True, "format_version_2_is_source_guarantee": True,
+            "numeric_restore_verification": "Ordinary owner APIs before and after reopen; no identity or key read"}
 
 
 def home_metadata(home):
@@ -224,20 +228,28 @@ def run(capture, args):
     capture.flush("seed")
     seeded = capture.verify("seed")
     capture.stop()
-    seed_disk = inspect_meters(capture, args.disk_binary, "seed", COUNT)
+    seed_disk = inspect_meters(capture, args.disk_binary, "seed")
     capture.start()
     capture.phase = "three-chunk-protein-erase"
     capture.erase(range(129))
     erased = capture.verify("after-129")
     capture.stop(force=True)
-    erased_disk = inspect_meters(capture, args.disk_binary, "after-129", COUNT - 129)
+    erased_disk = inspect_meters(capture, args.disk_binary, "after-129")
     capture.phase = "direct-snapshot-reopen"
     capture.start()
-    reopened = capture.verify("reopened-129")
+    reopened = capture.meters("reopened-before-any-value-fetch")
+    if reopened["app"].get("incomplete_reason") != "stale_after_unclean_stop":
+        raise RuntimeError("The interrupted reopen lacks its expected stale meter verdict")
     for schema in (SCHEMA, PEER):
         for field in ("active_slot_count", "logical_value_bytes", "schema_structure_bytes", "counter_epoch"):
             if reopened["schemas"][schema][field] != erased["schemas"][schema][field]:
                 raise RuntimeError("Direct aggregate restore changed a molecule counter")
+    for field in ("live_total_bytes", "system_bytes", "unattributed_bytes"):
+        if reopened["app"][field] != erased["app"][field]:
+            raise RuntimeError("Direct aggregate restore changed an app byte total")
+    if reopened["app"]["owners"] != erased["app"]["owners"]:
+        raise RuntimeError("Direct aggregate restore changed owner counts or bytes")
+    capture.verify("reopened-129")
     capture.phase = "erase-remainder"
     capture.erase(range(129, COUNT))
     empty = capture.verify("empty")
@@ -246,10 +258,11 @@ def run(capture, args):
                              ("removed-rewrite-command", ["cloud", "rewrite-deleted-atoms", "--help"])]:
         command(capture, args.cli_binary, arguments, label, expected="nonzero")
     capture.stop()
-    empty_disk = inspect_meters(capture, args.disk_binary, "empty", 0)
+    empty_disk = inspect_meters(capture, args.disk_binary, "empty")
     retired_state_refusal(capture)
     capture.phase = "final-graceful-reopen"
     capture.start()
+    capture.meters("final-empty-before-any-value-fetch")
     capture.verify("final-empty-reopen")
     return {"complete": True, "records": COUNT, "first_erase": 129, "first_erase_chunks_per_schema": 3,
             "shared_field_schemas": [SCHEMA, PEER], "seed": seeded, "after_129": erased,
