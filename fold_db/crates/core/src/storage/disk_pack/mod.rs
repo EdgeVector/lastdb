@@ -11,8 +11,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
-pub mod cloud_export;
+pub mod backup_capture;
 mod cloud_work;
+pub mod file_dependencies;
 pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
 mod initialization;

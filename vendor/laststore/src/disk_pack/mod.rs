@@ -10,6 +10,7 @@ mod block_plan;
 mod build;
 mod bytes;
 mod call;
+mod call_bounded;
 mod call_io;
 pub mod conversion;
 pub(crate) mod conversion_fence;

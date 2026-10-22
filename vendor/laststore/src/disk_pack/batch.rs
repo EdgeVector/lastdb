@@ -16,6 +16,14 @@ impl ReadCall {
         &mut self,
         coordinates: impl ExactSizeIterator<Item = (&'a str, Result<u16>, &'a str)>,
     ) -> Result<Vec<Result<Option<Vec<u8>>>>> {
+        self.batch_get_bounded(coordinates, None)
+    }
+
+    pub(super) fn batch_get_bounded<'a>(
+        &mut self,
+        coordinates: impl ExactSizeIterator<Item = (&'a str, Result<u16>, &'a str)>,
+        maximum: Option<u64>,
+    ) -> Result<Vec<Result<Option<Vec<u8>>>>> {
         let count = coordinates.len();
         if count > 10_000 {
             return Err(super::resource());
@@ -46,7 +54,12 @@ impl ReadCall {
             });
         }
         for key in &keys {
-            locations.push(self.locate_batch_key(key));
+            locations.push(self.locate_batch_key(key).and_then(|location| {
+                if let (Some(location), Some(maximum)) = (&location, maximum) {
+                    Self::check_body_bound(location, key.key, maximum)?;
+                }
+                Ok(location)
+            }));
         }
         let (plans, mut failures) = self.plan_batch_blocks(&mut locations)?;
         self.read_planned_blocks(plans, &mut failures);

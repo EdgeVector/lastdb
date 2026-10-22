@@ -63,10 +63,12 @@
 
 mod compress;
 mod config;
+mod owned;
 mod stats;
 
 pub use compress::*;
 pub use config::*;
+pub use owned::open_at_rest_bounded_owned;
 pub use stats::*;
 
 use super::envelope::decrypt_envelope;

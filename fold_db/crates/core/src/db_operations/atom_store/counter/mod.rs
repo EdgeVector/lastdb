@@ -35,6 +35,7 @@
 
 mod build;
 mod commit;
+mod file_dependencies;
 mod guarded;
 mod molecule;
 mod molecule_plan;

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ExportPhase {
+pub enum BackupCapturePhase {
     Preparing,
     Ready,
     Terminal {
@@ -15,9 +15,9 @@ pub enum ExportPhase {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct NativeCloudExportStatus {
+pub struct NativeBackupCaptureStatus {
     pub begin: JobBeginInput,
-    pub phase: ExportPhase,
+    pub phase: BackupCapturePhase,
     pub native_files: u64,
     pub native_bytes: u64,
     pub retained_source_bytes: Option<u64>,
@@ -29,6 +29,7 @@ pub struct NativeCloudExportStatus {
     pub page_count: usize,
     pub active_readers: usize,
     pub complete_backup_eligible: bool,
+    pub file_dependencies: Option<super::BackupFileDependencyStatus>,
     pub blocked_reason: &'static str,
 }
 
@@ -39,7 +40,7 @@ pub(super) struct ExportRecord {
     pub begin: JobBeginInput,
     pub reference_id: uuid::Uuid,
     pub current_bytes: Vec<u8>,
-    pub phase: ExportPhase,
+    pub phase: BackupCapturePhase,
     pub pages: Vec<PageDescriptor>,
     pub native_files: u64,
     pub native_bytes: u64,
@@ -68,7 +69,7 @@ impl ExportRecord {
             || self.native_bytes > BACKUP_STORED_BYTES_MAX
             || self.spool_bytes > DURABLE_LOCAL_SPOOL_MAX_BYTES
         {
-            return Err(invalid("native export saved record bounds"));
+            return Err(invalid("backup capture saved record bounds"));
         }
         let mut files = 0;
         let mut spool = 0;
@@ -80,19 +81,19 @@ impl ExportRecord {
                 || page.bytes.get() == 0
                 || page.bytes.get() > super::store::PAGE_MAX
             {
-                return Err(invalid("native export saved page bounds"));
+                return Err(invalid("backup capture saved page bounds"));
             }
             files += page.files;
             spool += page.bytes.get();
         }
         if files != self.native_files || spool != self.spool_bytes {
-            return Err(invalid("native export saved page totals"));
+            return Err(invalid("backup capture saved page totals"));
         }
         match &self.phase {
-            ExportPhase::Ready if self.pages.is_empty() || self.native_bytes == 0 => {
-                return Err(invalid("native export ready without a complete catalogue"))
+            BackupCapturePhase::Ready if self.pages.is_empty() || self.native_bytes == 0 => {
+                return Err(invalid("backup capture ready without a complete catalogue"))
             }
-            ExportPhase::Terminal { result, .. } => {
+            BackupCapturePhase::Terminal { result, .. } => {
                 result.validate_for_begin(&self.begin).map_err(protocol)?;
                 if matches!(result.status, JobStatus::Active) {
                     return Err(invalid("active cloud job cannot release its native source"));
@@ -104,34 +105,38 @@ impl ExportRecord {
     }
 
     pub fn require_ready(&self) -> StorageResult<()> {
-        if !matches!(self.phase, ExportPhase::Ready) {
+        if !matches!(self.phase, BackupCapturePhase::Ready) {
             return Err(invalid(
-                "native export source is not ready or its job is terminal",
+                "backup capture source is not ready or its job is terminal",
             ));
         }
         Ok(())
     }
 
-    pub fn status(&self, active_readers: usize) -> NativeCloudExportStatus {
+    pub fn status(&self, active_readers: usize) -> NativeBackupCaptureStatus {
         let released = matches!(
             self.phase,
-            ExportPhase::Terminal {
+            BackupCapturePhase::Terminal {
                 source_released: true,
                 ..
             }
         );
-        NativeCloudExportStatus {
-            begin: self.begin.clone(), phase: self.phase.clone(),
-            native_files: self.native_files, native_bytes: self.native_bytes,
+        NativeBackupCaptureStatus {
+            begin: self.begin.clone(),
+            phase: self.phase.clone(),
+            native_files: self.native_files,
+            native_bytes: self.native_bytes,
             retained_source_bytes: if released { Some(0) } else { None },
             source_available: false,
             source_error: None,
             last_accepted_backup: None,
             spool_bytes: self.spool_bytes,
             object_count: self.pages.iter().map(|page| page.objects).sum(),
-            page_count: self.pages.len(), active_readers,
+            page_count: self.pages.len(),
+            active_readers,
             complete_backup_eligible: false,
-            blocked_reason: "native file dependency completeness requires B2 certification; cloud activation stays disabled",
+            file_dependencies: None,
+            blocked_reason: "backup file dependency completeness is uncertified",
         }
     }
 }

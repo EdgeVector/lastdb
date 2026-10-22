@@ -1,8 +1,8 @@
-use super::state::{ExportPhase, ExportRecord};
+use super::state::{BackupCapturePhase, ExportRecord};
 use super::store::{hex, LocalStore};
 use super::{
-    catalog, invalid, protocol, Admission, ExportInner, NativeCloudExport,
-    NativeCloudExportRequest, PackRuntime, StorageResult,
+    catalog, invalid, protocol, Admission, ExportInner, NativeBackupCapture,
+    NativeBackupCaptureRequest, PackRuntime, StorageResult,
 };
 use cloud_backup_protocol::jobs::JobBeginInput;
 use cloud_backup_protocol::{bytes_sha256, DecimalU64, Id, NativeRoot, Version};
@@ -15,13 +15,13 @@ use std::sync::{Arc, Mutex};
 impl PackRuntime {
     /// Select a complete native cut and durable reference before the first
     /// network operation. Hashing and catalogue output run after gate release.
-    pub async fn prepare_native_cloud_export(
+    pub async fn prepare_native_backup_capture(
         self: &Arc<Self>,
-        request: NativeCloudExportRequest,
-    ) -> StorageResult<NativeCloudExport> {
+        request: NativeBackupCaptureRequest,
+    ) -> StorageResult<NativeBackupCapture> {
         if super::super::transaction::PendingBatch::current(self).is_some() {
             return Err(invalid(
-                "native export cannot capture inside a pending mutation",
+                "backup capture cannot capture inside a pending mutation",
             ));
         }
         request.job.validate().map_err(protocol)?;
@@ -35,35 +35,36 @@ impl PackRuntime {
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
             runtime.require_initialized()?;
             if runtime.failed.load(Ordering::Acquire) {
-                return Err(invalid("native export requires complete writer recovery"));
+                return Err(invalid("backup capture requires complete writer recovery"));
             }
             if request.job.stream.source_home.as_str()
                 != runtime.home.descriptor().identity.to_string()
             {
-                return Err(invalid("native export stream has a different source home"));
+                return Err(invalid("backup capture stream has a different source home"));
             }
             let store = LocalStore::open(runtime.home.path())?;
             if let Some(previous) = store.load()? {
                 if !matches!(
                     previous.phase,
-                    ExportPhase::Terminal {
+                    BackupCapturePhase::Terminal {
                         source_released: true,
                         ..
                     }
                 ) {
                     return Err(invalid(
-                        "saved native export requires resume or terminal confirmation",
+                        "saved backup capture requires resume or terminal confirmation",
                     ));
                 }
+                super::dependency_store::cleanup_owned(&store, &previous.begin.job)?;
                 store.cleanup_pages(&previous)?;
                 if previous.begin.job == request.job {
-                    return Err(invalid("terminal native export identity cannot be reused"));
+                    return Err(invalid("terminal backup capture identity cannot be reused"));
                 }
             }
             let writer = runtime
                 .journal
                 .lock()
-                .map_err(|_| invalid("native export journal lock failed"))?;
+                .map_err(|_| invalid("backup capture journal lock failed"))?;
             let current = writer.current().clone();
             let begin = JobBeginInput {
                 version: Version::V1,
@@ -78,7 +79,7 @@ impl PackRuntime {
                 begin,
                 reference_id: uuid::Uuid::new_v4(),
                 current_bytes: current.encode().map_err(super::super::map)?.to_vec(),
-                phase: ExportPhase::Preparing,
+                phase: BackupCapturePhase::Preparing,
                 pages: Vec::new(),
                 native_files: 0,
                 native_bytes: 0,
@@ -100,7 +101,9 @@ impl PackRuntime {
     }
 
     /// Resume only the saved cut. Never replace it with the current live root.
-    pub async fn resume_native_cloud_export(self: &Arc<Self>) -> StorageResult<NativeCloudExport> {
+    pub async fn resume_native_backup_capture(
+        self: &Arc<Self>,
+    ) -> StorageResult<NativeBackupCapture> {
         let admission = Admission::acquire()?;
         let runtime = Arc::clone(self);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
@@ -108,13 +111,13 @@ impl PackRuntime {
             let store = LocalStore::open(runtime.home.path())?;
             let record = store
                 .load()?
-                .ok_or_else(|| invalid("no saved native cloud export exists"))?;
+                .ok_or_else(|| invalid("no saved backup capture exists"))?;
             // A missing source must still allow status and exact remote close.
             // The frozen begin identity is sufficient for that recovery path.
             if record.begin.job.stream.source_home.as_str()
                 != runtime.home.descriptor().identity.to_string()
             {
-                return Err(invalid("saved native export belongs to another home"));
+                return Err(invalid("saved backup capture belongs to another home"));
             }
             let resumed = resume_source(&runtime, &store, &record);
             let (record, source, source_error) = match resumed {
@@ -122,7 +125,7 @@ impl PackRuntime {
                 Err(error) => (
                     store
                         .load()?
-                        .ok_or_else(|| invalid("saved native export disappeared"))?,
+                        .ok_or_else(|| invalid("saved backup capture disappeared"))?,
                     None,
                     Some(error.to_string()),
                 ),
@@ -139,13 +142,13 @@ fn finish(
     mut record: ExportRecord,
     reference: Option<DurableReference>,
     admission: Admission,
-) -> StorageResult<NativeCloudExport> {
+) -> StorageResult<NativeBackupCapture> {
     let source = reference
         .map(SnapshotExport::open)
         .transpose()
         .map_err(super::super::map)?;
     if let Some(source) = &source {
-        if matches!(record.phase, ExportPhase::Preparing) {
+        if matches!(record.phase, BackupCapturePhase::Preparing) {
             catalog::build(&runtime, source, &store, &mut record)?;
         }
         validate_inventory(&store, &record, source)?;
@@ -161,13 +164,15 @@ fn resume_source(
     let mut record = record.clone();
     validate_cut(runtime, &record)?;
     let reference = match record.phase {
-        ExportPhase::Terminal { .. } => return Ok((record, None)),
-        ExportPhase::Preparing => retain(runtime, &record)?,
-        ExportPhase::Ready => DurableReference::open(runtime.home.path(), record.reference_id)
-            .map_err(super::super::map)?,
+        BackupCapturePhase::Terminal { .. } => return Ok((record, None)),
+        BackupCapturePhase::Preparing => retain(runtime, &record)?,
+        BackupCapturePhase::Ready => {
+            DurableReference::open(runtime.home.path(), record.reference_id)
+                .map_err(super::super::map)?
+        }
     };
     let source = SnapshotExport::open(reference).map_err(super::super::map)?;
-    if matches!(record.phase, ExportPhase::Preparing) {
+    if matches!(record.phase, BackupCapturePhase::Preparing) {
         catalog::build(runtime, &source, store, &mut record)?;
     }
     validate_inventory(store, &record, &source)?;
@@ -181,8 +186,8 @@ fn assemble(
     source: Option<SnapshotExport>,
     source_error: Option<String>,
     admission: Admission,
-) -> StorageResult<NativeCloudExport> {
-    let export = NativeCloudExport {
+) -> StorageResult<NativeBackupCapture> {
+    let export = NativeBackupCapture {
         inner: Arc::new(ExportInner {
             runtime,
             store,
@@ -190,6 +195,7 @@ fn assemble(
             source,
             source_error,
             readers: AtomicUsize::new(0),
+            dependency_work: Arc::new(tokio::sync::Mutex::new(())),
             _admission: admission,
         }),
     };
@@ -215,10 +221,10 @@ fn validate_cut(runtime: &PackRuntime, record: &ExportRecord) -> StorageResult<C
         .current_bytes
         .as_slice()
         .try_into()
-        .map_err(|_| invalid("native export CURRENT size"))?;
+        .map_err(|_| invalid("backup capture CURRENT size"))?;
     let current = Current::decode(bytes).map_err(super::super::map)?;
     if record.begin.native_root != root(runtime, &current)? {
-        return Err(invalid("saved native export cut changed"));
+        return Err(invalid("saved backup capture cut changed"));
     }
     Ok(current)
 }
@@ -238,12 +244,12 @@ fn root(runtime: &PackRuntime, current: &Current) -> StorageResult<NativeRoot> {
         != runtime
             .view
             .read()
-            .map_err(|_| invalid("native export view lock failed"))?
+            .map_err(|_| invalid("backup capture view lock failed"))?
             .current
             .home_digest
     {
         return Err(invalid(
-            "native export home descriptor differs from its source",
+            "backup capture home descriptor differs from its source",
         ));
     }
     Ok(root)
@@ -261,12 +267,12 @@ fn validate_inventory(
             for file in object.files {
                 let native = expected
                     .next()
-                    .ok_or_else(|| invalid("native export catalogue has an extra path"))?;
+                    .ok_or_else(|| invalid("backup capture catalogue has an extra path"))?;
                 if native.path.to_str() != Some(file.path.as_str())
                     || native.bytes != file.bytes.get()
                 {
                     return Err(invalid(
-                        "native export catalogue differs from held inventory",
+                        "backup capture catalogue differs from held inventory",
                     ));
                 }
             }
@@ -276,7 +282,7 @@ fn validate_inventory(
         || record.native_bytes != source.bytes()
         || record.native_files != source.files().len() as u64
     {
-        return Err(invalid("native export catalogue omits a held native file"));
+        return Err(invalid("backup capture catalogue omits a held native file"));
     }
     Ok(())
 }

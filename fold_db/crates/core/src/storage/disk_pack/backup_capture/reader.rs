@@ -1,6 +1,6 @@
-use super::catalog::ExportObject;
+use super::catalog::BackupCaptureObject;
 use super::store::hex;
-use super::{invalid, ExportInner, NativeCloudExport, StorageResult};
+use super::{invalid, ExportInner, NativeBackupCapture, StorageResult};
 use laststore::disk_pack::backup::export::SnapshotReader;
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-impl NativeCloudExport {
+impl NativeBackupCapture {
     /// Open the saved object, never a caller-supplied path or changed input.
     /// At most four readers use this process session. Terminal state stops new
     /// readers; existing readers must stop before source release.
@@ -16,33 +16,33 @@ impl NativeCloudExport {
         &self,
         page_index: u32,
         object_index: usize,
-    ) -> StorageResult<NativeCloudObjectReader> {
+    ) -> StorageResult<NativeBackupObjectReader> {
         let record = self
             .inner
             .record
             .lock()
-            .map_err(|_| invalid("native export state lock failed"))?;
+            .map_err(|_| invalid("backup capture state lock failed"))?;
         record.require_ready()?;
         let descriptor = record
             .pages
             .get(page_index as usize)
-            .ok_or_else(|| invalid("native export page does not exist"))?;
+            .ok_or_else(|| invalid("backup capture page does not exist"))?;
         let page = self.inner.store.read_page(&record.begin.job, descriptor)?;
         let object = page
             .objects
             .into_iter()
             .nth(object_index)
-            .ok_or_else(|| invalid("native export object does not exist"))?;
+            .ok_or_else(|| invalid("backup capture object does not exist"))?;
         if self.inner.readers.load(Ordering::Acquire)
             >= cloud_backup_protocol::limits::CONCURRENT_STREAMS_MAX
         {
-            return Err(invalid("native export concurrent stream limit reached"));
+            return Err(invalid("backup capture concurrent stream limit reached"));
         }
         if self.inner.source.is_none() {
-            return Err(invalid("native export source is unavailable"));
+            return Err(invalid("backup capture source is unavailable"));
         }
         self.inner.readers.fetch_add(1, Ordering::AcqRel);
-        Ok(NativeCloudObjectReader {
+        Ok(NativeBackupObjectReader {
             inner: Arc::clone(&self.inner),
             object,
             position: 0,
@@ -58,9 +58,9 @@ impl NativeCloudExport {
 
 /// A bounded stream of the exact saved bytes. Each original member and the
 /// complete object are hashed again. A retry reopens this same frozen input.
-pub struct NativeCloudObjectReader {
+pub struct NativeBackupObjectReader {
     inner: Arc<ExportInner>,
-    object: ExportObject,
+    object: BackupCaptureObject,
     position: usize,
     reader: Option<SnapshotReader>,
     file_hash: Sha256,
@@ -70,7 +70,7 @@ pub struct NativeCloudObjectReader {
     failed: bool,
 }
 
-impl NativeCloudObjectReader {
+impl NativeBackupObjectReader {
     pub fn input(&self) -> &cloud_backup_protocol::transfer::TransferInput {
         &self.object.input
     }
@@ -81,7 +81,7 @@ impl NativeCloudObjectReader {
 
     fn read_next(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         if self.failed {
-            return Err(std::io::Error::other("native export stream failed"));
+            return Err(std::io::Error::other("backup capture stream failed"));
         }
         if buffer.is_empty() {
             return Ok(0);
@@ -89,11 +89,10 @@ impl NativeCloudObjectReader {
         while self.position < self.object.files.len() {
             let file = &self.object.files[self.position];
             if self.reader.is_none() {
-                let source = self
-                    .inner
-                    .source
-                    .as_ref()
-                    .ok_or_else(|| std::io::Error::other("native export source unavailable"))?;
+                let source =
+                    self.inner.source.as_ref().ok_or_else(|| {
+                        std::io::Error::other("backup capture source unavailable")
+                    })?;
                 self.reader = Some(
                     source
                         .reader(
@@ -115,7 +114,7 @@ impl NativeCloudObjectReader {
                 if self.file_bytes != file.bytes.get()
                     || hex(self.file_hash.clone().finalize().into()) != file.sha256
                 {
-                    return Err(std::io::Error::other("native export member bytes changed"));
+                    return Err(std::io::Error::other("backup capture member bytes changed"));
                 }
                 self.position += 1;
                 self.reader = None;
@@ -131,7 +130,7 @@ impl NativeCloudObjectReader {
                 && hex(self.file_hash.clone().finalize().into()) != file.sha256
             {
                 return Err(std::io::Error::other(
-                    "native export member checksum changed",
+                    "backup capture member checksum changed",
                 ));
             }
             if self.total_bytes == self.object.input.object.bytes.get()
@@ -139,19 +138,19 @@ impl NativeCloudObjectReader {
                     != self.object.input.object.sha256
             {
                 return Err(std::io::Error::other(
-                    "native export object checksum changed",
+                    "backup capture object checksum changed",
                 ));
             }
             return Ok(read);
         }
         if self.total_bytes != self.object.input.object.bytes.get() {
-            return Err(std::io::Error::other("native export object truncated"));
+            return Err(std::io::Error::other("backup capture object truncated"));
         }
         Ok(0)
     }
 }
 
-impl Read for NativeCloudObjectReader {
+impl Read for NativeBackupObjectReader {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         let result = self.read_next(buffer);
         if result.is_err() {
@@ -161,7 +160,7 @@ impl Read for NativeCloudObjectReader {
     }
 }
 
-impl Drop for NativeCloudObjectReader {
+impl Drop for NativeBackupObjectReader {
     fn drop(&mut self) {
         // The active source hold drops before the session's reader count.
         self.reader = None;

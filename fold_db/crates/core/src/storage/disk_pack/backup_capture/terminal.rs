@@ -1,11 +1,11 @@
-use super::state::ExportPhase;
-use super::{invalid, protocol, NativeCloudExport, StorageResult};
+use super::state::BackupCapturePhase;
+use super::{invalid, protocol, NativeBackupCapture, StorageResult};
 use cloud_backup_protocol::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 use cloud_backup_protocol::Version;
 use laststore::disk_pack::lifetime::{release_owned_reference, ReferencePurpose};
 use std::sync::atomic::Ordering;
 
-impl NativeCloudExport {
+impl NativeBackupCapture {
     /// NotFound, a timeout, and a rejected transfer never release the source.
     /// Send this exact request to the authority if begin has an uncertain result.
     pub fn close_request(&self, reason: CloseReason) -> StorageResult<JobCloseRequest> {
@@ -13,7 +13,7 @@ impl NativeCloudExport {
             .inner
             .record
             .lock()
-            .map_err(|_| invalid("native export state lock failed"))?;
+            .map_err(|_| invalid("backup capture state lock failed"))?;
         let request = JobCloseRequest {
             version: Version::V1,
             job: record.begin.job.clone(),
@@ -32,23 +32,23 @@ impl NativeCloudExport {
             .inner
             .record
             .lock()
-            .map_err(|_| invalid("native export state lock failed"))?;
+            .map_err(|_| invalid("backup capture state lock failed"))?;
         result.validate_for_begin(&record.begin).map_err(protocol)?;
         if matches!(result.status, JobStatus::Active) {
             return Err(invalid(
                 "active cloud result cannot release the native source",
             ));
         }
-        if let ExportPhase::Terminal {
+        if let BackupCapturePhase::Terminal {
             result: previous, ..
         } = &record.phase
         {
             if previous.as_ref() != &result {
-                return Err(invalid("native export terminal result changed"));
+                return Err(invalid("backup capture terminal result changed"));
             }
         } else {
             let mut confirmed = record.clone();
-            confirmed.phase = ExportPhase::Terminal {
+            confirmed.phase = BackupCapturePhase::Terminal {
                 result: Box::new(result),
                 source_released: false,
             };
@@ -68,25 +68,26 @@ impl NativeCloudExport {
             .inner
             .record
             .lock()
-            .map_err(|_| invalid("native export state lock failed"))?;
+            .map_err(|_| invalid("backup capture state lock failed"))?;
         if matches!(
             record.phase,
-            ExportPhase::Terminal {
+            BackupCapturePhase::Terminal {
                 source_released: true,
                 ..
             }
         ) {
+            super::dependency_store::cleanup_owned(&self.inner.store, &record.begin.job)?;
             return self.inner.store.cleanup_pages(&record);
         }
-        if !matches!(record.phase, ExportPhase::Terminal { .. }) {
+        if !matches!(record.phase, BackupCapturePhase::Terminal { .. }) {
             return Ok(());
         }
         if self.inner.readers.load(Ordering::Acquire) != 0 {
             return Err(invalid(
-                "native export terminal result saved; source readers must stop before release",
+                "backup capture terminal result saved; source readers must stop before release",
             ));
         }
-        if let ExportPhase::Terminal { result, .. } = &record.phase {
+        if let BackupCapturePhase::Terminal { result, .. } = &record.phase {
             if let JobStatus::Published { backup } = &result.status {
                 self.inner.store.save_accepted(backup)?;
             }
@@ -95,7 +96,7 @@ impl NativeCloudExport {
         let text = record.begin.native_root.current_sha256.as_str();
         for (index, byte) in current_digest.iter_mut().enumerate() {
             *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
-                .map_err(|_| invalid("native export CURRENT digest is not hexadecimal"))?;
+                .map_err(|_| invalid("backup capture CURRENT digest is not hexadecimal"))?;
         }
         release_owned_reference(
             self.inner.runtime.home.path(),
@@ -105,7 +106,7 @@ impl NativeCloudExport {
         )
         .map_err(super::super::map)?;
         let mut released = record.clone();
-        if let ExportPhase::Terminal {
+        if let BackupCapturePhase::Terminal {
             source_released, ..
         } = &mut released.phase
         {
@@ -115,6 +116,7 @@ impl NativeCloudExport {
         *record = released;
         // These are catalogue pages only. Original native files are reclaimed
         // by the native writer from its ordinary retained-generation rules.
+        super::dependency_store::cleanup_owned(&self.inner.store, &record.begin.job)?;
         self.inner.store.cleanup_pages(&record)
     }
 }

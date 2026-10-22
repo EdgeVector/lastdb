@@ -1,4 +1,4 @@
-use super::catalog::ExportPage;
+use super::catalog::BackupCapturePage;
 use super::state::{ExportRecord, PageDescriptor};
 use super::{invalid, StorageResult};
 use cloud_backup_protocol::{BackupJob, DecimalU64};
@@ -16,6 +16,9 @@ pub(super) struct LocalStore {
 }
 
 impl LocalStore {
+    pub(super) fn root(&self) -> &Path {
+        &self.root
+    }
     pub fn open(native_home: &Path) -> StorageResult<Self> {
         // This sidecar is outside the exact generation inventory. Native disk
         // admission still counts its bytes beneath this selected home.
@@ -57,15 +60,15 @@ impl LocalStore {
                 Ok(metadata) if metadata.is_file() => {
                     total = total
                         .checked_add(metadata.len())
-                        .ok_or_else(|| invalid("native export spool count overflow"))?;
+                        .ok_or_else(|| invalid("backup capture spool count overflow"))?;
                 }
-                Ok(_) => return Err(invalid("native export spool path is not regular")),
+                Ok(_) => return Err(invalid("backup capture spool path is not regular")),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
         }
         if total > cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES {
-            return Err(invalid("native export durable spool exceeds its limit"));
+            return Err(invalid("backup capture durable spool exceeds its limit"));
         }
         Ok(total)
     }
@@ -90,13 +93,13 @@ impl LocalStore {
         backup.validate().map_err(super::protocol)?;
         if let Some(previous) = self.accepted()? {
             if previous.job == backup.job && previous != *backup {
-                return Err(invalid("saved accepted native export changed"));
+                return Err(invalid("saved accepted backup capture changed"));
             }
             if previous.job.stream == backup.job.stream
                 && previous != *backup
                 && previous.ordinal.get() >= backup.ordinal.get()
             {
-                return Err(invalid("accepted native export ordinal moved backwards"));
+                return Err(invalid("accepted backup capture ordinal moved backwards"));
             }
         }
         write_json(&self.root.join("accepted.json"), backup, 16 * 1024).map(|_| ())
@@ -107,7 +110,7 @@ impl LocalStore {
         Ok(root.join(format!("page-{index:04}.json")))
     }
 
-    pub fn write_page(&self, page: &ExportPage) -> StorageResult<PageDescriptor> {
+    pub fn write_page(&self, page: &BackupCapturePage) -> StorageResult<PageDescriptor> {
         page.validate()?;
         directory(&self.root.join(page.job.commit_id.as_str()))?;
         let (bytes, sha256) =
@@ -129,11 +132,11 @@ impl LocalStore {
         &self,
         job: &BackupJob,
         descriptor: &PageDescriptor,
-    ) -> StorageResult<ExportPage> {
+    ) -> StorageResult<BackupCapturePage> {
         let path = self.page_path(job, descriptor.page_index)?;
         let file = regular(&path)?;
         if file.metadata()?.len() != descriptor.bytes.get() {
-            return Err(invalid("native export page length changed"));
+            return Err(invalid("backup capture page length changed"));
         }
         let mut input = DigestReader {
             input: file,
@@ -141,8 +144,8 @@ impl LocalStore {
             bytes: 0,
             limit: PAGE_MAX,
         };
-        let page: ExportPage = serde_json::from_reader(&mut input)
-            .map_err(|error| invalid(&format!("native export page decode: {error}")))?;
+        let page: BackupCapturePage = serde_json::from_reader(&mut input)
+            .map_err(|error| invalid(&format!("backup capture page decode: {error}")))?;
         let digest = hex(input.hash.finalize().into());
         if digest != descriptor.sha256
             || input.bytes != descriptor.bytes.get()
@@ -156,7 +159,7 @@ impl LocalStore {
                 .sum::<u64>()
                 != descriptor.files
         {
-            return Err(invalid("native export page identity changed"));
+            return Err(invalid("backup capture page identity changed"));
         }
         page.validate()?;
         Ok(page)
@@ -186,7 +189,7 @@ impl LocalStore {
     }
 }
 
-fn directory(path: &Path) -> StorageResult<()> {
+pub(super) fn directory(path: &Path) -> StorageResult<()> {
     if !path.try_exists()? {
         #[cfg(unix)]
         {
@@ -197,42 +200,42 @@ fn directory(path: &Path) -> StorageResult<()> {
         fs::create_dir(path)?;
         File::open(
             path.parent()
-                .ok_or_else(|| invalid("native export parent missing"))?,
+                .ok_or_else(|| invalid("backup capture parent missing"))?,
         )?
         .sync_all()?;
     }
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(invalid("native export state is not an owned directory"));
+        return Err(invalid("backup capture state is not an owned directory"));
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o077 != 0 {
-            return Err(invalid("native export state directory must be private"));
+            return Err(invalid("backup capture state directory must be private"));
         }
     }
     Ok(())
 }
 
-fn regular(path: &Path) -> StorageResult<File> {
+pub(super) fn regular(path: &Path) -> StorageResult<File> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(invalid("native export state file is not regular"));
+        return Err(invalid("backup capture state file is not regular"));
     }
     Ok(File::open(path)?)
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> StorageResult<T> {
+pub(super) fn read_json<T: DeserializeOwned>(path: &Path, maximum: u64) -> StorageResult<T> {
     let file = regular(path)?;
     if file.metadata()?.len() > maximum {
-        return Err(invalid("native export state size exceeded"));
+        return Err(invalid("backup capture state size exceeded"));
     }
     serde_json::from_reader(file.take(maximum + 1))
-        .map_err(|error| invalid(&format!("native export state decode: {error}")))
+        .map_err(|error| invalid(&format!("backup capture state decode: {error}")))
 }
 
-fn write_json<T: Serialize>(
+pub(super) fn write_json<T: Serialize>(
     path: &Path,
     value: &T,
     maximum: u64,
@@ -240,7 +243,7 @@ fn write_json<T: Serialize>(
     let temporary = path.with_extension("pending");
     match fs::symlink_metadata(&temporary) {
         Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
-            return Err(invalid("native export pending file is not regular"))
+            return Err(invalid("backup capture pending file is not regular"))
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -261,14 +264,14 @@ fn write_json<T: Serialize>(
         limit: maximum,
     };
     serde_json::to_writer(&mut output, value)
-        .map_err(|error| invalid(&format!("native export state encode: {error}")))?;
+        .map_err(|error| invalid(&format!("backup capture state encode: {error}")))?;
     output.output.sync_all()?;
     let bytes = output.bytes;
     let digest = hex(output.hash.finalize().into());
     fs::rename(temporary, path)?;
     File::open(
         path.parent()
-            .ok_or_else(|| invalid("native export state parent missing"))?,
+            .ok_or_else(|| invalid("backup capture state parent missing"))?,
     )?
     .sync_all()?;
     Ok((bytes, digest))
@@ -293,7 +296,7 @@ struct DigestWriter {
 impl Write for DigestWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.bytes + bytes.len() as u64 > self.limit {
-            return Err(std::io::Error::other("native export state byte limit"));
+            return Err(std::io::Error::other("backup capture state byte limit"));
         }
         let count = self.output.write(bytes)?;
         self.hash.update(&bytes[..count]);
@@ -319,7 +322,7 @@ impl Read for DigestReader {
         let count = self.input.read(&mut bytes[..maximum])?;
         self.bytes += count as u64;
         if self.bytes > self.limit {
-            return Err(std::io::Error::other("native export state byte limit"));
+            return Err(std::io::Error::other("backup capture state byte limit"));
         }
         self.hash.update(&bytes[..count]);
         Ok(count)

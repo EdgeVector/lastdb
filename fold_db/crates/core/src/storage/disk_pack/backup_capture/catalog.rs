@@ -1,4 +1,4 @@
-use super::state::{ExportPhase, ExportRecord};
+use super::state::{BackupCapturePhase, ExportRecord};
 use super::store::{hex, LocalStore};
 use super::{invalid, protocol, PackRuntime, StorageResult};
 use cloud_backup_protocol::limits::*;
@@ -17,7 +17,7 @@ const SMALL_FILE_BYTES: u64 = 64 * 1024;
 /// Private original native-file identity and its position in one object.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExportFile {
+pub struct BackupCaptureFile {
     pub path: RelativePath,
     pub sha256: Digest,
     pub bytes: DecimalU64,
@@ -27,13 +27,13 @@ pub struct ExportFile {
 /// Frozen transfer input. Its files concatenate without a new physical format.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExportObject {
+pub struct BackupCaptureObject {
     pub input: TransferInput,
     pub input_sha256: Digest,
-    pub files: Vec<ExportFile>,
+    pub files: Vec<BackupCaptureFile>,
 }
 
-impl ExportObject {
+impl BackupCaptureObject {
     fn validate(&self, job: &BackupJob) -> StorageResult<()> {
         self.input.validate().map_err(protocol)?;
         if self.input.job != *job
@@ -46,7 +46,7 @@ impl ExportObject {
             )
             || (self.input.object.kind == ObjectKind::NativeFile && self.files.len() != 1)
         {
-            return Err(invalid("native export object identity"));
+            return Err(invalid("backup capture object identity"));
         }
         let mut offset = 0;
         let mut previous = None;
@@ -56,7 +56,7 @@ impl ExportObject {
                 || file.offset.get() != offset
                 || previous.is_some_and(|path| path >= file.path.as_str())
             {
-                return Err(invalid("native export file extent bounds"));
+                return Err(invalid("backup capture file extent bounds"));
             }
             offset += file.bytes.get();
             previous = Some(file.path.as_str());
@@ -65,7 +65,7 @@ impl ExportObject {
             || (self.input.object.kind == ObjectKind::NativeFile
                 && self.files[0].sha256 != self.input.object.sha256)
         {
-            return Err(invalid("native export object length or digest"));
+            return Err(invalid("backup capture object length or digest"));
         }
         Ok(())
     }
@@ -77,7 +77,7 @@ impl ExportObject {
         receipt.validate().map_err(protocol)?;
         if receipt.scope != self.input.job.stream.scope || receipt.object != self.input.object {
             return Err(invalid(
-                "native export receipt does not select this exact object",
+                "backup capture receipt does not select this exact object",
             ));
         }
         Ok(self
@@ -100,13 +100,13 @@ impl ExportObject {
 /// One bounded local catalogue page. It is not an encrypted cloud manifest.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExportPage {
+pub struct BackupCapturePage {
     pub job: BackupJob,
     pub page_index: u32,
-    pub objects: Vec<ExportObject>,
+    pub objects: Vec<BackupCaptureObject>,
 }
 
-impl ExportPage {
+impl BackupCapturePage {
     pub(super) fn validate(&self) -> StorageResult<()> {
         self.job.validate().map_err(protocol)?;
         let files: usize = self.objects.iter().map(|object| object.files.len()).sum();
@@ -115,7 +115,7 @@ impl ExportPage {
             || self.objects.len() > 512
             || files > 512
         {
-            return Err(invalid("native export page bounds"));
+            return Err(invalid("backup capture page bounds"));
         }
         for object in &self.objects {
             object.validate(&self.job)?;
@@ -132,7 +132,7 @@ pub(super) fn build(
 ) -> StorageResult<()> {
     if source.bytes() > BACKUP_STORED_BYTES_MAX || source.files().len() > NATIVE_FILES_MAX {
         return Err(invalid(
-            "native export retained source exceeds its admission limit",
+            "backup capture retained source exceeds its admission limit",
         ));
     }
     let quote = source
@@ -141,15 +141,15 @@ pub(super) fn build(
         .try_fold(2 * 1024 * 1024u64, |total, file| {
             total
                 .checked_add(file.path.as_os_str().len() as u64 + 1536)
-                .ok_or_else(|| invalid("native export metadata quote overflow"))
+                .ok_or_else(|| invalid("backup capture metadata quote overflow"))
         })?;
     if quote > DURABLE_LOCAL_SPOOL_MAX_BYTES {
-        return Err(invalid("native export spool quote exceeds its limit"));
+        return Err(invalid("backup capture spool quote exceeds its limit"));
     }
     let _space = runtime
         .journal
         .lock()
-        .map_err(|_| invalid("native export journal lock failed"))?
+        .map_err(|_| invalid("backup capture journal lock failed"))?
         .reserve_space(quote, &runtime.space_policy)
         .map_err(super::super::map)?;
     store.cleanup_pages(record)?;
@@ -158,7 +158,7 @@ pub(super) fn build(
     record.native_bytes = 0;
     record.spool_bytes = 0;
     store.save(record)?;
-    let mut page = ExportPage {
+    let mut page = BackupCapturePage {
         job: record.begin.job.clone(),
         page_index: 0,
         objects: Vec::new(),
@@ -193,17 +193,17 @@ pub(super) fn build(
     }
     if record.native_files != source.files().len() as u64 || record.native_bytes != source.bytes() {
         return Err(invalid(
-            "native export catalogue does not cover the exact source inventory",
+            "backup capture catalogue does not cover the exact source inventory",
         ));
     }
-    record.phase = ExportPhase::Ready;
+    record.phase = BackupCapturePhase::Ready;
     store.save(record)
 }
 
 fn save_page(
     store: &LocalStore,
     record: &mut ExportRecord,
-    page: &mut ExportPage,
+    page: &mut BackupCapturePage,
 ) -> StorageResult<()> {
     let descriptor = store.write_page(page)?;
     record.native_files += descriptor.files;
@@ -225,7 +225,7 @@ fn make_object(
     source: &SnapshotExport,
     job: &BackupJob,
     members: &[&SnapshotFile],
-) -> StorageResult<ExportObject> {
+) -> StorageResult<BackupCaptureObject> {
     let mut hash = Sha256::new();
     let mut files = Vec::with_capacity(members.len());
     let mut offset = 0;
@@ -246,13 +246,13 @@ fn make_object(
             bytes += read as u64;
         }
         if bytes != file.bytes {
-            return Err(invalid("native export file changed during its hash pass"));
+            return Err(invalid("backup capture file changed during its hash pass"));
         }
         let path = file
             .path
             .to_str()
-            .ok_or_else(|| invalid("native export path is not UTF-8"))?;
-        files.push(ExportFile {
+            .ok_or_else(|| invalid("backup capture path is not UTF-8"))?;
+        files.push(BackupCaptureFile {
             path: RelativePath::try_from(path.to_owned()).map_err(protocol)?,
             sha256: hex(file_hash.finalize().into()),
             bytes: DecimalU64::new(bytes),
@@ -274,7 +274,7 @@ fn make_object(
             },
         },
     };
-    let object = ExportObject {
+    let object = BackupCaptureObject {
         input_sha256: input.input_sha256().map_err(protocol)?,
         input,
         files,

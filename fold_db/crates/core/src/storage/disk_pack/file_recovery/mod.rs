@@ -182,7 +182,7 @@ fn read_ciphertext(
     if directory.version != 1 || directory.home_id != *home_id {
         return Err(invalid("recovered file home identity"));
     }
-    let path = root.join("entries").join(entry_key(&pointer_id, kind));
+    let path = root.join("entries").join(entry_key(pointer_id, kind));
     if !files::regular_present(&path)? {
         return Ok(None);
     }
