@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
 pub mod cloud_export;
+mod cloud_work;
+pub use cloud_work::NativeCloudWorkGuard;
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;

@@ -21,7 +21,7 @@ use cloud_backup_protocol::jobs::JobBeginInput;
 use cloud_backup_protocol::publication::BackupHead;
 use cloud_backup_protocol::{BackupJob, ProtocolError, RecoveryDescriptor};
 use laststore::disk_pack::backup::export::SnapshotExport;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Caller-supplied immutable job identity and account recovery descriptor.
@@ -48,24 +48,7 @@ struct ExportInner {
     _admission: Admission,
 }
 
-static ADMITTED: AtomicBool = AtomicBool::new(false);
-
-struct Admission;
-
-impl Admission {
-    fn acquire() -> StorageResult<Self> {
-        ADMITTED
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| invalid("one native cloud export session is already active"))?;
-        Ok(Self)
-    }
-}
-
-impl Drop for Admission {
-    fn drop(&mut self) {
-        ADMITTED.store(false, Ordering::Release);
-    }
-}
+type Admission = super::NativeCloudWorkGuard;
 
 impl NativeCloudExport {
     pub fn status(&self) -> StorageResult<NativeCloudExportStatus> {
