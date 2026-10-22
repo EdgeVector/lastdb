@@ -1,7 +1,7 @@
 # Native cloud backup protocol, version 1
 
-Status: unreleased draft, revision 3. Runtime support stays disabled.
-This revision closes the revision-two review gaps and requires atomic transfer admission for each batch.
+Status: unreleased draft, revision 4. Runtime support stays disabled.
+This revision adds read-only account context and records the Mini source integration.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 8067843c4f9626470edc971ab10c10e829f021d8 and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
@@ -56,6 +56,14 @@ CloudScope contains account_id and account_generation.
 The generation identifies the account incarnation authorized by the cloud service.
 A reset or revocation can advance it. Ordinary backups do not advance it.
 Provider routing and physical cleanup state remain private service facts.
+
+context/read takes only Version. The authenticated service subject selects the personal account.
+It returns CloudScope, open_for_writes, and new_work_enabled without account creation or adoption.
+Authoritative control absence means generation zero and an open account.
+A present control requires its exact identity, positive generation, and typed authority flag.
+An unavailable or malformed record never becomes generation zero.
+The client compares the returned account with its independently derived source or recovery account.
+This observation does not replace conditional authority checks on any new effect.
 
 BackupStream adds stream_id and source_home.
 The first successful jobs/begin conditionally registers the stream to its authenticated stable service subject and exact native home.
@@ -434,6 +442,7 @@ An authenticated request body never grants authority by itself.
 
 | Route | Request | Successful or operation result |
 | --- | --- | --- |
+| context/read | ContextReadRequest | ContextReadResponse |
 | jobs/begin | JobBeginRequest | JobBeginResult |
 | jobs/status | JobStatusRequest | JobStatusResult |
 | jobs/close | JobCloseRequest | JobCloseResult |
@@ -559,8 +568,10 @@ Format, type, lint, and build checks establish source consistency only.
 No new test suite or fixture harness supplies product proof.
 
 B1 backup capture, S1 cloud jobs and transfers, R1 restore, B2 file coverage, and S2 acceptance now have disabled source implementations.
-The [source status](native-cloud-backup-wave-two.md) records their exact boundaries and next work.
-The Mini worker, manifest assembler, authorized service client, and normal product commands still need integration.
+The [second source wave](native-cloud-backup-wave-two.md) records their original boundaries.
+The [Mini integration wave](native-cloud-backup-mini-v1.md) supplies the saved worker, manifest assembler, native client, and normal commands.
+Read-only scoped file grants, native usage views, legacy grant isolation, and purge exclusion remain source release gates.
+Reserved cloud bytes stay unknown in Mini status until the native usage view exists.
 P1 proves cloud-only recovery on fresh synthetic data in an approved service environment.
 
 The S1 service worktree imports this crate through its existing fold submodule.
