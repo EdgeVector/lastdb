@@ -17,6 +17,7 @@ No old-native-journal converter exists in this change.
 
 The [active protocol](lastdb-snapshot-commits.md) describes the exact implemented local path.
 The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
+The later [matched benchmark](proofs/journal-removal-benchmark-20261022/RESULTS.md) records three controlled before/after pairs.
 Native cloud activation remains disabled. The sync contract and proposed resource limits below remain separate work.
 Dirty-share enforcement, new workspace quotas, and performance improvements beyond journal removal are not part of this change.
 

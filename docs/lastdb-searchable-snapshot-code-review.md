@@ -133,7 +133,10 @@ Request speed can change flush groups, so an unchanged file envelope would not e
 
 The old estimate of several removable full device flushes became obsolete with PR 266.
 The new source removes duplicate receipts and root publications from the ordinary commit route.
-Its actual latency, growth, and compaction-pause benefit still needs a matched measurement.
+The later [matched benchmark](proofs/journal-removal-benchmark-20261022/RESULTS.md) compares `6d8aa0d57` with `3b53ece33` in three fresh-home pairs.
+Every write phase completes sooner and records fewer process write bytes in all three pairs.
+Compaction finishes sooner, mainly through reclaim; concurrent write probes establish no consistent pause improvement.
+The controlled comparison disables automatic maintenance and retains the 500 ms flush.
 
 Source review does not establish runtime results.
 No primary data, archive, shared service, CI setting, or release setting changes in this document pass.
