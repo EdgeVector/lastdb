@@ -58,6 +58,25 @@ pub mod backup_decode {
     pub const FILE_COVERAGE_IDENTITY_BYTES: usize = 192;
     pub const JSON_PAGE_RESERVE_BYTES: u64 = 4 * 1024 * 1024;
     pub const RESTORE_SPOOL_RESERVE_BYTES: u64 = 16 * 1024 * 1024;
+    pub const RECEIPT_MEMORY_BYTES: u64 = 512;
+    pub const IDENTITY_MEMORY_BYTES: u64 = 192;
+}
+
+/// Backup phases do not overlap proof trees with upload feeders. This includes
+/// the bounded HTTP backend's retained chunks, not only the application queue.
+pub mod backup_memory {
+    use super::{backup_decode, BACKUP_RESOURCES};
+    pub const UPLOAD_BUFFERS_PER_STREAM: u64 = 6;
+    pub const PROOF_PEAK_BYTES: u64 = BACKUP_RESOURCES.decoded_values_bytes
+        + backup_decode::DIRECTORY_READ_BYTES
+        + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64
+        + backup_decode::JSON_PAGE_RESERVE_BYTES
+        + 4 * BACKUP_RESOURCES.stream_buffer_bytes;
+    pub const UPLOAD_PEAK_BYTES: u64 = UPLOAD_BUFFERS_PER_STREAM
+        * BACKUP_RESOURCES.concurrent_streams as u64
+        * BACKUP_RESOURCES.stream_buffer_bytes
+        + 2 * backup_decode::JSON_PAGE_RESERVE_BYTES
+        + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64;
 }
 
 /// Existing local file PUT default. The owner can override it independently.
@@ -74,9 +93,6 @@ const _: () = assert!(BACKUP_RESOURCES.concurrent_streams > 0);
 const _: () = assert!(native_read::STREAM_RUN_BLOCKS > 0 && native_read::MAX_READ_HANDLES > 0);
 
 const _: () = assert!(
-    BACKUP_RESOURCES.working_memory_bytes
-        >= BACKUP_RESOURCES.decoded_values_bytes
-            + backup_decode::DIRECTORY_READ_BYTES
-            + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64
-            + BACKUP_RESOURCES.stream_buffer_bytes * BACKUP_RESOURCES.concurrent_streams as u64
+    BACKUP_RESOURCES.working_memory_bytes >= backup_memory::PROOF_PEAK_BYTES
+        && BACKUP_RESOURCES.working_memory_bytes >= backup_memory::UPLOAD_PEAK_BYTES
 );

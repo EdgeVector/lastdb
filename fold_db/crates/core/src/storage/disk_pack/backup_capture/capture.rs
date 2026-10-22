@@ -195,6 +195,8 @@ fn assemble(
             source,
             source_error,
             readers: AtomicUsize::new(0),
+            coordinator_spool_bytes: std::sync::atomic::AtomicU64::new(0),
+            assembly_spool_bytes: std::sync::atomic::AtomicU64::new(0),
             dependency_work: Arc::new(tokio::sync::Mutex::new(())),
             _admission: admission,
         }),

@@ -2,8 +2,17 @@
 
 use super::*;
 
+#[path = "cloud/native_backup.rs"]
+mod native_backup;
+pub(crate) use native_backup::NativeBackupCommand;
+
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
+    /// Run explicit native backup work, or discover and restore an accepted backup.
+    Backup {
+        #[command(subcommand)]
+        action: NativeBackupCommand,
+    },
     /// Recover credentials for an existing DEV account from a protected seed on stdin.
     /// Registers one fresh device; creates no store and keeps Cloud Sync Off.
     RecoverDevCredentialsHome {

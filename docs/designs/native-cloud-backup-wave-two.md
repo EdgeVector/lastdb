@@ -12,7 +12,7 @@ Large native files stream directly. Small files share bounded upload objects wit
 The stored format-one job and its existing path stay compatible across a restart.
 
 This wave supplies B2 file coverage and S2 cloud acceptance source.
-The Mini worker, manifest assembler, authorized service client, and normal product commands remain incomplete.
+The [Mini integration wave](native-cloud-backup-mini-v1.md) supplies the worker, manifest assembler, service client, and product commands.
 No source component starts cloud sync by itself.
 
 ## File coverage and recovery
@@ -93,9 +93,8 @@ These findings come from source review. They do not establish a live cloud resul
 
 ## Next action
 
-Connect the Mini owner, manifest assembler, capture worker, and service client through the shared types.
-Derive the recovery descriptor from the actual account and keys.
-Expose clear product refusals for unsupported files and uncertified old pointers.
+Review the [Mini integration wave](native-cloud-backup-mini-v1.md) before service activation.
+It uses the shared types and the actual source account and keys.
 
 Before activation, isolate legacy grants or move them to the same quota ledger.
 Complete native usage views and exclude native objects from legacy purge paths.

@@ -5,6 +5,7 @@
 
 pub mod access;
 mod common;
+pub mod context;
 mod digest;
 pub mod discovery;
 mod error;

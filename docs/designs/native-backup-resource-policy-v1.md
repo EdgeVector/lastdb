@@ -47,6 +47,14 @@ Capture and restore use private disk files for larger ciphertext, JSON, and enve
 Filesystem capacity checks admit those payload and scratch bytes separately from the metadata allowance.
 Capture retains one complete active external ciphertext until all of its part receipts reach disk.
 
+`backup_memory` defines separate proof and upload phase allowances.
+The proof phase allowance is 88 MiB within the current 96 MiB policy.
+The upload phase allowance is 40 MiB, with six bounded buffers for each of four streams.
+Those buffers include the HTTP backend, the queue, and the file reader.
+The worker completes each upload batch before the next proof or manifest phase.
+The two phase allowances do not overlap.
+Restore and manifest assembly share the receipt and identity memory charges in `backup_decode`.
+
 ## Existing cloud and local limits
 
 The cloud wire still admits objects of at most 64 MiB.

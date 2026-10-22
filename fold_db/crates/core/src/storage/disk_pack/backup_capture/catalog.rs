@@ -15,7 +15,7 @@ use std::io::Read;
 const SMALL_FILE_BYTES: u64 = 64 * 1024;
 
 /// Private original native-file identity and its position in one object.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BackupCaptureFile {
     pub path: RelativePath,
@@ -25,7 +25,7 @@ pub struct BackupCaptureFile {
 }
 
 /// Frozen transfer input. Its files concatenate without a new physical format.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BackupCaptureObject {
     pub input: TransferInput,

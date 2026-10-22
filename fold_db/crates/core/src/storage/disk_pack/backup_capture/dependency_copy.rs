@@ -1,7 +1,5 @@
 use super::super::{file_dependencies as files, file_recovery};
-use super::dependencies::{
-    held_read, ready, require_room, selection, ActiveWork, AuthorizedFileSource,
-};
+use super::dependencies::{held_read, ready, require_room, selection, ActiveWork, FileSource};
 use super::dependency_state::*;
 use super::dependency_store::DependencyStore;
 use super::{invalid, protocol, ExportInner, NativeBackupCapture, StorageResult};
@@ -17,9 +15,11 @@ impl NativeBackupCapture {
         &self,
         index: u64,
         account_key: &[u8; 32],
-        source: Option<&AuthorizedFileSource>,
+        source: Option<&dyn FileSource>,
     ) -> StorageResult<BackupFileDependencyEntry> {
-        let active = Arc::new(ActiveWork::acquire(&self.inner)?);
+        let active = ActiveWork::acquire(&self.inner)?;
+        active.require_exclusive()?;
+        let active = Arc::new(active);
         let inner = Arc::clone(&self.inner);
         let key = zeroize::Zeroizing::new(*account_key);
         let phase = Arc::clone(&active);

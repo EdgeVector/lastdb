@@ -17,6 +17,26 @@ pub struct AuthorizedFileSource {
     pub s3: crate::sync::s3::S3Client,
 }
 
+#[async_trait::async_trait]
+pub trait FileSource: Send + Sync {
+    async fn fetch_to_file(
+        &self,
+        dependency: &files::FileDependency,
+        path: &std::path::Path,
+    ) -> StorageResult<()>;
+}
+
+#[async_trait::async_trait]
+impl FileSource for AuthorizedFileSource {
+    async fn fetch_to_file(
+        &self,
+        dependency: &files::FileDependency,
+        path: &std::path::Path,
+    ) -> StorageResult<()> {
+        Self::fetch_to_file(self, dependency, path).await
+    }
+}
+
 impl AuthorizedFileSource {
     pub(super) async fn fetch_to_file(
         &self,
@@ -58,7 +78,8 @@ impl NativeBackupCapture {
         let inner = Arc::clone(&self.inner);
         let key = zeroize::Zeroizing::new(*account_key);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let _active = ActiveWork::acquire(&inner)?;
+            let active = ActiveWork::acquire(&inner)?;
+            active.require_exclusive()?;
             let (job, current) = selection(&inner)?;
             let store = DependencyStore::open(&inner.store, &job)?;
             if let Some(mut state) = store.state(&job, &current)? {
@@ -119,7 +140,8 @@ impl NativeBackupCapture {
     /// Explicit full local catalog audit. Normal status reads only counters and
     /// the one active file; the coordinator must not poll this audit method.
     pub fn audit_file_dependencies(&self) -> StorageResult<BackupFileDependencyStatus> {
-        let _active = ActiveWork::acquire(&self.inner)?;
+        let active = ActiveWork::acquire(&self.inner)?;
+        active.require_exclusive()?;
         let (job, current) = selection(&self.inner)?;
         let store = DependencyStore::open(&self.inner.store, &job)?;
         let state = ready(&store, &job, &current)?;
@@ -256,6 +278,8 @@ pub(super) fn require_room(
         .saturating_add(state.catalog_bytes)
         .saturating_add(super::dependency_parts::metadata_reserve())
         .saturating_add(record.spool_bytes)
+        .saturating_add(inner.coordinator_spool_bytes.load(Ordering::Acquire))
+        .saturating_add(inner.assembly_spool_bytes.load(Ordering::Acquire))
         .saturating_add(extra)
         .saturating_add(1024 * 1024);
     if state.entries >= ENTRIES_MAX
@@ -270,7 +294,7 @@ pub(super) fn require_room(
 
 pub(super) struct ActiveWork {
     inner: Arc<ExportInner>,
-    _work: tokio::sync::OwnedMutexGuard<()>,
+    _work: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 impl ActiveWork {
     pub fn acquire(inner: &Arc<ExportInner>) -> StorageResult<Self> {
@@ -290,8 +314,23 @@ impl ActiveWork {
         inner.readers.fetch_add(1, Ordering::AcqRel);
         Ok(Self {
             inner: Arc::clone(inner),
-            _work: work,
+            _work: Some(work),
         })
+    }
+
+    pub fn require_exclusive(&self) -> StorageResult<()> {
+        if self.inner.readers.load(Ordering::Acquire) != 1 {
+            return Err(invalid(
+                "backup readers must stop before dependency changes",
+            ));
+        }
+        Ok(())
+    }
+
+    /// An opened immutable file keeps the reader count and session alive, but
+    /// releases the transition mutex so other bounded readers can open.
+    pub fn release_work(&mut self) {
+        self._work = None;
     }
 }
 impl Drop for ActiveWork {

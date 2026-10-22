@@ -43,7 +43,7 @@ impl Closure {
     fn use_receipt(&mut self, id: &Digest) -> Result<()> {
         let raw = raw_digest(id)?;
         if !self.used.contains(&raw) {
-            self.charge(192)?;
+            self.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
             self.used.insert(raw);
         }
         Ok(())
@@ -181,7 +181,7 @@ async fn load_references(session: &RestoreSession, source: &dyn RestoreSource) -
             index.validate_page(&page)?;
             for receipt in page.objects {
                 // Fixed scalars plus owned map key and conservative BTree node charge.
-                closure.charge(512)?;
+                closure.charge(lastdb_storage_policy::backup_decode::RECEIPT_MEMORY_BYTES)?;
                 let key = raw_digest(&receipt.receipt_id)?;
                 // Normalize string capacities to bounded canonical scalar lengths.
                 if closure.receipts.insert(key, receipt.clone()).is_some() {
@@ -204,7 +204,7 @@ async fn restore_page(
         let path_id = raw_digest(&cloud_backup_protocol::bytes_sha256(
             entry.path.as_str().as_bytes(),
         ))?;
-        closure.charge(192)?;
+        closure.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
         if !closure.paths.insert(path_id) {
             return Err(RestoreError::Invalid("duplicate native path"));
         }
@@ -241,7 +241,7 @@ async fn restore_page(
             fold_db::storage::disk_pack::file_recovery::RecoveryFile::from_dependency(dependency)
                 .map_err(|_| RestoreError::Unsupported("file dependency bounds"))?;
         let id = raw_digest(&cloud_backup_protocol::bytes_sha256(file.key().as_bytes()))?;
-        closure.charge(192)?;
+        closure.charge(lastdb_storage_policy::backup_decode::IDENTITY_MEMORY_BYTES)?;
         if !closure.paths.insert(id) {
             return Err(RestoreError::Invalid("duplicate file dependency"));
         }

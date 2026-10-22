@@ -14,7 +14,7 @@ impl NativeBackupCapture {
     }
 
     pub fn open_file_part(&self, index: u64, part: u16) -> StorageResult<NativeBackupFileReader> {
-        let active = ActiveWork::acquire(&self.inner)?;
+        let mut active = ActiveWork::acquire(&self.inner)?;
         let (job, current) = selection(&self.inner)?;
         let store = DependencyStore::open(&self.inner.store, &job)?;
         let state = ready(&store, &job, &current)?;
@@ -37,6 +37,7 @@ impl NativeBackupCapture {
             entry.dependency.expected_stored_bytes,
         )?;
         file.seek(SeekFrom::Start(selected.offset))?;
+        active.release_work();
         Ok(NativeBackupFileReader {
             _active: active,
             file: Some(file),

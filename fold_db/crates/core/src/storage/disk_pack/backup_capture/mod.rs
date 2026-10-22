@@ -5,7 +5,9 @@
 //! file capture reuses native CAS bytes and copies authenticated external files.
 //! This module does not activate a cloud worker or publish a backup.
 
+mod assembly;
 mod capture;
+pub(crate) use assembly::AssemblySelection;
 mod catalog;
 mod dependencies;
 mod dependency_confirm;
@@ -17,13 +19,14 @@ mod dependency_reader;
 mod dependency_state;
 mod dependency_status;
 mod dependency_store;
+mod inspect;
 mod reader;
 mod state;
 mod store;
 mod terminal;
 
 pub use catalog::{BackupCaptureFile, BackupCaptureObject, BackupCapturePage};
-pub use dependencies::AuthorizedFileSource;
+pub use dependencies::{AuthorizedFileSource, FileSource};
 pub use dependency_parts::BackupFilePart;
 pub use dependency_reader::NativeBackupFileReader;
 pub use dependency_state::{BackupFileDependencyEntry, BackupFileDependencyStatus, FileCoverage};
@@ -35,12 +38,13 @@ use cloud_backup_protocol::jobs::JobBeginInput;
 use cloud_backup_protocol::publication::BackupHead;
 use cloud_backup_protocol::{BackupJob, ProtocolError, RecoveryDescriptor};
 use laststore::disk_pack::backup::export::SnapshotExport;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Caller-supplied immutable job identity and account recovery descriptor.
 /// The selected native cut is supplied by the writer under its capture gate.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NativeBackupCaptureRequest {
     pub job: BackupJob,
     pub recovery: RecoveryDescriptor,
@@ -59,6 +63,8 @@ struct ExportInner {
     source: Option<SnapshotExport>,
     source_error: Option<String>,
     readers: AtomicUsize,
+    coordinator_spool_bytes: AtomicU64,
+    assembly_spool_bytes: AtomicU64,
     dependency_work: Arc<tokio::sync::Mutex<()>>,
     _admission: Admission,
 }
