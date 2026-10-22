@@ -1,18 +1,20 @@
 # Native disk home API
 
-CAUTION: This page records the October 15 implementation step.
-Its limits and unfinished-work statements describe that step, not the current candidate.
-Use the [current source status](lastdb-disk-rollout-status.md) for the present boundaries and receipt links.
-The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) report the later candidate's measured costs.
+Updated October 22, 2026 for the direct snapshot writer.
+The [active snapshot protocol](lastdb-snapshot-commits.md) defines the commit and recovery boundary.
+The [source review](lastdb-searchable-snapshot-code-review.md) separates current source from recorded product results.
 
-This change binds the disk reader and journal to saved LastStore placement and key identities.
-It does not select a native node backend, change the memory ack, or activate a primary home.
+The disk reader and snapshot writer use saved LastStore placement and key identities.
+Native disk storage is the product default; this document does not activate or change a primary home.
 The artifact format remains separate. No existing home upgrades implicitly.
 
 ## Home descriptor
 
 The exact marker `laststore-pack-home-v1` contains 4,096 bytes.
-Every committed CURRENT requires feature `0x4`, in addition to features `0x1` and `0x2`.
+Every native CURRENT requires native-home feature `0x4` and snapshot feature `0x100` (`256`).
+Complete object bounds, packed keys, and atom records retain their feature checks.
+The reader refuses retired journal feature `0x2` before writer file creation.
+Startup performs no migration, and no old-native-journal converter exists.
 CURRENT bytes 160..192 contain the SHA-256 of the entire descriptor, including its stored checksum.
 A valid but different descriptor therefore cannot silently change the destination of a key.
 An older reader refuses the unknown feature before any value read.
@@ -60,22 +62,31 @@ The batch shares all call-local metadata and block buffers. No error resets its 
 A range derives its groups and borrows the same call through every page.
 The existing limits remain: 4,096 metadata pages, 16,384 blocks, 256 MiB, and 10,000 examined keys.
 These APIs keep no logical records or storage objects after the call ends.
-The node's 10,000-record warm set remains a separate integration requirement.
+The node's warm set uses a separate 256 MiB default byte budget, with no fixed record-count cap.
 
-`HomeJournal` derives every mutation group from the held descriptor.
-A complete append reaches the recovery journal. It does not release logical write protection.
-Publication updates the complete directory before a caller can release that protection.
-Reopen recovers complete pending batches and starts a fresh checkpoint stream before admission.
-All generation files remain in place. This change grants no deletion authority.
+`HomeSnapshot` derives every mutation group from the held descriptor.
+A complete commit writes immutable payload files and changed directory and locator pages.
+One generation receipt and one atomic CURRENT publication select the complete stored batch.
+All required barriers finish before durable success.
+The node installs the committed view before it retires covered memory changes and completes the queue receipt.
+
+Reopen verifies the selected snapshot and its generation receipt; it performs no local mutation replay.
+Interrupted private output remains outside that snapshot.
+Read holds and explicit references protect files until safe reclaim.
+The [file lifetime protocol](lastdb-disk-file-lifetime.md) defines that removal authority.
 
 ## Explicit command
 
 `lastdb-disk-home` requires an explicit `--home` path. It has no primary default.
-`build` streams generated or converted records in directory-key order, then full-key order within each group.
-The initial physical version is `(0,0)`. An existing destination is refused.
+`build` retains its generic builder interface, but the atom-record fence refuses its unsupported native result before file creation.
+It does not create a current product home or convert an old journal home.
+The product factory creates fresh homes with the required atom-record authority.
 `read` accepts collected collection/key coordinates. `range` accepts one complete encoded hash and range bounds.
-`append` writes one complete recovery batch. `write` also publishes it. `publish` recovers and checkpoints pending work.
+`plan` quotes a complete snapshot batch without a writer. `write` commits that batch directly to the snapshot.
+The former `append` and `publish` commands are removed.
 The command returns costs and disk receipts. Its JSON hex output adds command-level space beyond native body buffers.
 Artifact-only commands refuse native homes. The legacy LastStore opener also refuses an incomplete native home before any write.
 
-Native node reads, memory admission, conversion handoff, backup, rollback, and fresh-node proof remain unfinished.
+Local backup and restore use `lastdb-native-backup-2`, without journal state.
+Native cloud startup and activation remain blocked.
+Atomic snapshot/log capture and an old-native-journal converter remain separate work.

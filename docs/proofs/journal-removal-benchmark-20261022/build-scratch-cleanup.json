@@ -1,0 +1,20 @@
+{
+  "all_recorded_node_pids_absent": true,
+  "all_six_generated_homes_removed": true,
+  "at_unix_ns": 1792692865006627000,
+  "baseline_checkout": "/Users/tomtang/.fkanban/worktrees/lastdb-journal-before-benchmark-20261022",
+  "baseline_checkout_removed": true,
+  "baseline_checkout_was_clean": true,
+  "baseline_revision": "6d8aa0d573e91a94fd4fd308a7f0eacca022e852",
+  "binary_open_handles": false,
+  "ownership": {
+    "device": 16777231,
+    "inode": 1500889379,
+    "owner_uid": 501,
+    "primary_data": false,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jcmp.NVSNjn",
+    "run_id": "baa18a727cde4569a032ef0585b38dd0",
+    "version": 1
+  },
+  "removed": true
+}

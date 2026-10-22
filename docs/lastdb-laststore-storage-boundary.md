@@ -2,11 +2,16 @@
 
 Selected engine and boundary design, 16 October 2026.
 
+Source status updated 2026-10-22 for the snapshot-commit branch, based on main `6d8aa0d57`.
+The local native writer no longer uses an internal journal.
+The [snapshot protocol](lastdb-snapshot-commits.md) defines the implemented local commit and recovery path.
+The [implementation plan](lastdb-searchable-snapshot-implementation-plan.md) separates that change from future sync and resource work.
+
 Tom selected the original native LastStore packed-file engine for completion.
 R5′ finds file positions through directory and locator pages.
-R6′ reads the required bytes from journal or packed files.
+R6′ reads the required bytes from ordinary packed files.
 The final node work reuses these parts and preserves existing atom and tip records.
-The default backend and primary remain separate adoption decisions.
+Native packed storage is now the startup default. Primary deployment remains a separate decision.
 The [7110c7f5 node receipts](proofs/layer2-completion-20261016/node-final-off-summary.json) include complete 256-record durable writes and normal reopen.
 See the [current source status](lastdb-disk-rollout-status.md) for the supported boundaries.
 
@@ -16,8 +21,10 @@ The two components can stay in one process and share one release.
 Their boundary is a complete batch, a captured read view, and explicit resource limits.
 
 Preserve molecule sharing, atom sharing, ordered ranges, and existing current-record semantics.
-This unit preserves existing history records and their reference rules.
-The separate current-only proposal remains future work.
+Keep current values, required conflict records, and their reference rules.
+The current query route refuses old-value `as_of` reads.
+The default conflict-record retention is 30 days.
+Atom, blob, and molecule counters remain live correctness data.
 Keep physical file positions out of molecule tips and cloud records.
 Use one storage engine for tips, atom bytes, and required control records.
 The selected engine is the existing native LastStore engine.
@@ -33,7 +40,7 @@ An alternate engine comparison is optional later work, not a completion prerequi
 | Key encoding, OPE range meaning, and storage scope | Byte order within the supplied key bounds |
 | Current tips, write order, conditions, and tombstones | Complete batch publication and recovery |
 | Atom identity, exact body references, and shared use | File positions, pages, large-value pages, and file handles |
-| The 10000 logical records in the warm set | Bounded temporary storage objects for each call |
+| The byte-budgeted warm set, with no record-count cap | Bounded temporary storage objects for each call |
 | The memory ack and the 500 ms flush schedule | The separate durable disk receipt |
 | Cloud mutation order, pending cloud work, and cloud receipts | Captured read and export views |
 | Permission to delete an atom key | Safe physical reclaim after storage holds end |
@@ -53,7 +60,7 @@ An atom entry holds the stored bytes under that key.
 Different protein molecules can refer to the same entry.
 
 A locator tree maps each exact key to a 128-byte physical location.
-The location names record bytes in a journal batch or packed file.
+The location names record bytes in a packed file.
 Atom bytes do not sit inside locator leaves.
 The payload writer places many records in parts of at most 8 MiB.
 Compaction and artifact construction share one payload writer across hash groups.
@@ -63,7 +70,7 @@ Large file blobs keep their separate file service and references.
 
 Compaction can move an atom without a logical change to any referencing tip.
 LastStore changes its internal page references and protects earlier captured views.
-Normal writes create immutable journal and map parts.
+Normal writes create immutable payload and map parts.
 Reclaim returns obsolete whole files to the filesystem after the required holds and grace period end.
 The selected engine has no allocator that reuses holes inside a part.
 
@@ -158,7 +165,7 @@ LastStore can combine page work across submitted batches while it preserves thei
 Repeated operations on one key retain the complete ordered input.
 LastDB can reduce input only after it proves that no condition or required side action depends on the removed operation.
 
-LastDB writes state changes and the required pending cloud work in the same durable batch.
+The future sync contract requires state changes and required pending cloud work in the same durable batch.
 The pending record can contain the bytes or retain their body references.
 LastStore treats those records as ordinary keys and values.
 The cloud upload occurs later and does not delay an ordinary memory ack.
@@ -170,12 +177,12 @@ Count other reservations, held exports, incomplete maintenance, and replacement 
 Take no credit for future compaction.
 Refuse a batch before the memory change when the complete reservation cannot fit.
 
-New native homes require feature `0x20` and permit at most 16,384 ordered storage operations in one complete batch.
-The initial synced root records that feature before journal admission; older readers refuse it.
-Existing homes without the feature and standalone artifacts retain their 4,096-operation limit.
-This release does not upgrade them implicitly.
+New native homes require features `0x20` and `0x100` and permit at most 16,384 ordered storage operations in one complete batch.
+The initial root records these features before write admission; older readers refuse the new snapshot feature.
+Standalone artifacts retain their 4,096-operation limit.
+Old native journal homes receive an explicit refusal. This change includes no old-native-journal converter or implicit upgrade.
 The 128 MiB batch cap and existing part and dependency bounds remain unchanged.
-These storage-operation limits are separate from query limits and the 10,000 logical records in the warm set.
+These storage-operation limits are separate from query limits and the warm-set byte budget. The old warm-record count cap is retired.
 
 An accepted batch remains owned after caller cancellation.
 Normal shutdown drains accepted work.
@@ -191,7 +198,7 @@ Receipt cleanup needs a durable coordinator frontier and explicit bounds.
 
 An implementation must report unsupported guarantees before admission.
 A sequence of independent writes followed by a flush does not satisfy the complete-batch contract.
-The engine can use its own journal or page publication method.
+The selected engine uses immutable files and atomic root publication.
 LastDB does not prescribe either physical format.
 
 ## Deletes and safe reclaim

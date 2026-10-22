@@ -20,15 +20,12 @@ pub(super) struct PackWriter {
     part_start: u64,
     part_bytes: u32,
     file: Option<File>,
-    source: Source,
-    sequence: u64,
     logical_bytes: u64,
     physical_bytes: u64,
 }
 
 pub(super) struct WrittenData {
     pub(super) object: Uuid,
-    pub(super) sequence: u64,
     pub(super) data_parts: u64,
     pub(super) map_pages: u64,
     pub(super) logical_bytes: u64,
@@ -39,29 +36,10 @@ impl PackWriter {
     pub(super) fn new(root: &Path, generation: u64) -> Result<Self> {
         let object = Uuid::new_v4();
         let path = root.join("packs").join(object.to_string());
-        Self::at(path, object, generation, Source::Pack, 0)
+        Self::at(path, object, generation)
     }
 
-    pub(super) fn journal(
-        root: &Path,
-        stream: Uuid,
-        sequence: u64,
-        generation: u64,
-    ) -> Result<Self> {
-        let path = root
-            .join("journal")
-            .join(stream.to_string())
-            .join(format!("batch-{sequence:016x}"));
-        Self::at(path, stream, generation, Source::Journal, sequence)
-    }
-
-    fn at(
-        path: PathBuf,
-        object: Uuid,
-        generation: u64,
-        source: Source,
-        sequence: u64,
-    ) -> Result<Self> {
+    fn at(path: PathBuf, object: Uuid, generation: u64) -> Result<Self> {
         directory(&path)?;
         let map = PageWriter::new(path.join("map"), object, generation)?;
         Ok(Self {
@@ -76,8 +54,6 @@ impl PackWriter {
             part_start: 0,
             part_bytes: 128,
             file: None,
-            source,
-            sequence,
             logical_bytes: 0,
             physical_bytes: 0,
         })
@@ -111,7 +87,7 @@ impl PackWriter {
         }
         let blocks = (record_bytes + u64::from(first_position)).div_ceil(BLOCK_BYTES as u64);
         Ok(Location {
-            source: self.source,
+            source: Source::Pack,
             version,
             record_bytes,
             object: self.object,
@@ -128,11 +104,7 @@ impl PackWriter {
         self.append_raw(bytes)
     }
 
-    pub(super) fn position(&self) -> u64 {
-        self.logical_bytes
-    }
-
-    pub(super) fn append_raw(&mut self, mut bytes: &[u8]) -> Result<()> {
+    fn append_raw(&mut self, mut bytes: &[u8]) -> Result<()> {
         self.logical_bytes = self
             .logical_bytes
             .checked_add(bytes.len() as u64)
@@ -167,10 +139,9 @@ impl PackWriter {
         let mut header = [0; 128];
         header[..8].copy_from_slice(b"LDPART1\0");
         put16(&mut header, 8, 1);
-        header[10] = if self.source == Source::Pack { 1 } else { 2 };
+        header[10] = 1;
         put32(&mut header, 12, 128);
         header[16..32].copy_from_slice(self.object.as_bytes());
-        put64(&mut header, 32, self.sequence);
         put32(&mut header, 40, self.part);
         put32(&mut header, 44, self.part_bytes);
         put64(&mut header, 48, self.part_start);
@@ -192,7 +163,7 @@ impl PackWriter {
         if self.block.is_empty() {
             return Ok(());
         }
-        let frame = super::frame::encode(&self.block, self.object, self.sequence, self.ordinal)?;
+        let frame = super::frame::encode(&self.block, self.object, self.ordinal)?;
         if u64::from(self.part_bytes) + frame.len() as u64 > PART_BYTES {
             self.finish_part()?;
             self.part = self
@@ -271,7 +242,6 @@ impl PackWriter {
         durability::sync_directory(&File::open(&self.directory)?)?;
         Ok(WrittenData {
             object: self.object,
-            sequence: self.sequence,
             data_parts,
             map_pages,
             logical_bytes: self.logical_bytes,

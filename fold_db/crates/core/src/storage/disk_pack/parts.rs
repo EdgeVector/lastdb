@@ -18,7 +18,7 @@ mod orphans;
 mod worker;
 
 /// Parts after which maintenance starts. Every publication writes the receipt
-/// in full (80 bytes a part, twice for each batch), so a write costs more as the
+/// in full (80 bytes a part for each batch), so a write costs more as the
 /// count grows. A receipt of this size is about 330 KiB. A smaller mark costs
 /// more maintenance runs, because each run packs every live record again.
 const DEFAULT_HIGH_WATER: u64 = 4096;

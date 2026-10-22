@@ -6,7 +6,6 @@ use crate::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use uuid::Uuid;
 
 /// Finite limits shared by all work in one read call. Zero is never unlimited.
 #[derive(Clone, Copy, Debug)]
@@ -78,9 +77,6 @@ pub(super) struct Buffer {
 }
 
 impl Buffer {
-    pub(super) fn into_vec(self) -> Vec<u8> {
-        self.bytes
-    }
     pub(super) fn from_vec(bytes: Vec<u8>) -> Self {
         let charge = TemporaryBytes::new(bytes.capacity());
         Self {
@@ -98,7 +94,7 @@ pub struct ReadCall {
     pub(super) budget: ReadBudget,
     pub(super) costs: ReadCosts,
     pub(super) pages: HashMap<PageAddress, Arc<Page>>,
-    pub(super) blocks: HashMap<(Uuid, u64, u64), Arc<Buffer>>,
+    pub(super) blocks: HashMap<super::block_plan::BlockId, Arc<Buffer>>,
     pub(super) parts: HashMap<PathBuf, (u64, u64)>,
     pub(super) files: super::call_io::CallFiles,
     pub(super) _generation_hold: Option<super::lifetime::GenerationHold>,
@@ -348,11 +344,6 @@ impl ReadCall {
     pub(super) fn data_path(&self, location: &Location) -> PathBuf {
         match location.source {
             Source::Pack => self.root.join("packs").join(location.object.to_string()),
-            Source::Journal => self
-                .root
-                .join("journal")
-                .join(location.object.to_string())
-                .join(format!("batch-{:016x}", location.version.batch)),
             Source::Tombstone => unreachable!("tombstone has no data path"),
         }
     }

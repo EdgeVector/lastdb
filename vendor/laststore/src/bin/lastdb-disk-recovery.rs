@@ -13,7 +13,7 @@ fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
         println!("usage: lastdb-disk-recovery <backup|restore> --home PATH --backup PATH");
         println!("       lastdb-disk-recovery <convert|reverse|finish-conversion> --home PATH --target PATH");
-        println!("backup: explicit native root; checkpoint and export to a new bundle");
+        println!("backup: explicit native root; export its complete snapshot to a new bundle");
         println!("restore: verify the bundle and create a new native root; no source required");
         println!("backup/restore include data only; retain the original node identity and encryption keys separately");
         println!("convert/reverse: stopped source only; create a new destination and seal the old source");

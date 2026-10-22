@@ -1,0 +1,28 @@
+{
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target/release/lastdbd",
+  "binary_sha256": "3b863a0540a1a4d7cadfb137a230145413ec8c1c1825f897e19533bea01796ab",
+  "body_bytes": 1024,
+  "claim_limit": "Product run and process interruption; no power-loss proof",
+  "clock": "perf_counter_ns",
+  "deleted": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "driver_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+  "filesystem_cache": "uncontrolled",
+  "records": 64,
+  "recreated": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "source_revision": "47088b89c",
+  "update_rounds": 5
+}

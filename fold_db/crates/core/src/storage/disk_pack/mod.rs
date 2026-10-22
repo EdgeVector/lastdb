@@ -3,7 +3,7 @@
 use super::error::{StorageError, StorageResult};
 use super::traits::{KvStore, NamespacedStore};
 use crate::resident::PersistLaneMetrics;
-use laststore::disk_pack::home::{DiskHome, HomeJournal, HomeMutation};
+use laststore::disk_pack::home::{DiskHome, HomeMutation, HomeSnapshot};
 use laststore::disk_pack::maintenance::SpaceReservation;
 use laststore::disk_pack::{Current, ReadBudget};
 use std::path::Path;
@@ -42,12 +42,12 @@ const NODE_MARKER: &str = "laststore-pack-node-v1";
 const REGISTRY: &str = "__native_home";
 const NAMESPACES: &str = "namespaces\0";
 
-/// Shared native home, complete published root, and exclusive journal owner.
+/// Shared native home, complete published root, and exclusive snapshot writer.
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
     home: Arc<DiskHome>,
     view: RwLock<view::NativeReadView>,
-    journal: Mutex<HomeJournal>,
+    writer: Mutex<HomeSnapshot>,
     read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     maintenance_gate: Arc<tokio::sync::Mutex<()>>,
@@ -60,7 +60,7 @@ pub struct PackRuntime {
     failed: AtomicBool,
     initializing: AtomicBool,
     node_home: Option<initialization::NodeHome>,
-    // Failed journal publication retains its space charge until this runtime drops.
+    // Failed snapshot publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
     space_policy: laststore::disk_pack::maintenance::SpacePolicy,
     parts: Arc<parts::PartsLedger>,
@@ -129,10 +129,10 @@ impl PackNamespacedStore {
         let space_policy = space::policy_from_env()?;
         space::validate_resident_policy()?;
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
-        let journal = home.journal().map_err(map)?;
-        let read_lease = journal.read_lease();
-        let current = journal.current().clone();
-        let parts = parts::PartsLedger::from_env(journal.dependency_parts(), &current);
+        let writer = home.snapshot().map_err(map)?;
+        let read_lease = writer.read_lease();
+        let current = writer.current().clone();
+        let parts = parts::PartsLedger::from_env(writer.dependency_parts(), &current);
         let metrics = Arc::new(PersistLaneMetrics::new());
         Ok(Self {
             runtime: Arc::new(PackRuntime {
@@ -143,7 +143,7 @@ impl PackNamespacedStore {
                     revision: 0,
                     sequence: 0,
                 }),
-                journal: Mutex::new(journal),
+                writer: Mutex::new(writer),
                 read_lease,
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 maintenance_gate: Arc::new(tokio::sync::Mutex::new(())),

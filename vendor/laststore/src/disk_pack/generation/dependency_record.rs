@@ -17,15 +17,12 @@ pub(super) fn decode(current: &Current, entry: &[u8]) -> Result<Coordinate> {
         batch: u64_at(entry, 24),
         part: u32_at(entry, 4),
     };
-    if !matches!(
-        (coordinate.kind, coordinate.batch),
-        (1 | 2 | 5, 0) | (3, _) | (4, 1..)
-    ) {
+    if !matches!((coordinate.kind, coordinate.batch), (1 | 2 | 3 | 5, 0)) {
         return Err(corrupt("generation dependency kind or batch identity"));
     }
     let length = u64_at(entry, 32);
     let generation = u64_at(entry, 72);
-    let data = matches!(coordinate.kind, 4 | 5);
+    let data = coordinate.kind == 5;
     if length == 0
         || length > PART_BYTES
         || (data && length < 128)

@@ -1,12 +1,11 @@
 # LastDB read receipts
 
-The additive `journal_replay_bytes` field counts frame reads during explicit disk-pack recovery.
-An ordinary addressed payload read leaves that field at zero, including a direct journal extent.
-The [artifact journal](lastdb-disk-journal.md) uses this distinction.
+The native reader uses the [selected snapshot](lastdb-snapshot-commits.md), with no internal journal or local mutation replay.
+Legacy replay counters remain available for their existing legacy paths.
 
 A read receipt measures the storage work for one query. It identifies extra
 file reads, bytes, and time before the pack file and disk directory changes.
-The receipt does not change the file format or the 10,000-record warm set cap.
+The receipt does not change the file format or the warm-set byte budget.
 
 ## Request and response
 
@@ -46,7 +45,6 @@ scope can carry the partial receipt.
 | `directory_entries` | Directory entries returned to the caller. |
 | `read_operations` | File read calls, including EOF and failed calls. |
 | `legacy_replay_bytes` | Bytes read for legacy group replay or append-tail replay. |
-| `journal_replay_bytes` | Bytes read during explicit native journal recovery; ordinary addressed payload reads leave this counter at zero. |
 | `footer_bytes` | Bytes read for sorted footers and key sidecars. |
 | `payload_bytes` | Bytes read from addressed record or sorted-block extents. |
 | `format_probe_bytes` | Bytes read for format, manifest, part, or allocation-bound probes. |
@@ -66,7 +64,6 @@ scope can carry the partial receipt.
 | `temporary_bytes_scope` | `instrumented_byte_buffers`: the scope of the transient byte peak. |
 
 The addressed-read byte classes are legacy replay, footer, payload, and format-probe bytes.
-Explicit journal recovery has its separate replay counter.
 They measure userspace reads from the operating system. They do not measure
 the bytes that a disk device transfers. A warm miss does not prove a cold
 filesystem page. A group open does not prove a new file open.
@@ -241,8 +238,8 @@ Do not label that result as a cold disk measurement.
 
 For each comparison, preserve the candidate commit, node configuration,
 generated record count and sizes, query shape, returned values, elapsed time,
-and receipt. Keep the 10,000-record cap at its default. Use an ordinary status
-read for the node's logical warm-set count; the receipt peak uses different units.
+and receipt. Keep the warm-set byte budget at its default. Use an ordinary status
+read for the node's warm-set bytes and count; the receipt peak uses different units.
 
 Stop the owned node after the final read. Preserve the required proof files
 outside its temporary home. Check the exact temporary path, realpath, owner,

@@ -1,17 +1,17 @@
 //! Conservative physical publication dimensions for one complete stored batch.
 
 use super::{HomeDescriptor, HomeMutation};
-use crate::disk_pack::journal::JournalQuote;
+use crate::disk_pack::snapshot::SnapshotQuote;
 use crate::disk_pack::{corrupt, PAGE_BYTES, PAGE_PAYLOAD};
 use crate::Result;
 use std::collections::BTreeMap;
 
-/// A quote includes journal frames, worst-case map paths and splits, complete
-/// generation receipts, and fixed checkpoint publications. It assumes no
+/// A quote includes payload frames, worst-case map paths and splits, complete
+/// generation receipts, and one root publication. It assumes no
 /// immediate file deletion and grants no memory acknowledgement by itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MutationQuote {
-    journal: JournalQuote,
+    payload: SnapshotQuote,
     map_pages: u64,
     dependency_parts: u64,
     physical_bytes: u64,
@@ -21,26 +21,26 @@ impl MutationQuote {
     /// Extend a prefix from the new request's dimensions only. Repeated map
     /// and dependency bounds are conservative; fixed publication space is paid once.
     pub(super) fn extended(self, incoming: Self, limit: usize) -> Result<Self> {
-        let journal = self.journal.extended(incoming.journal, limit)?;
+        let payload = self.payload.extended(incoming.payload, limit)?;
         let map_pages = add(self.map_pages, incoming.map_pages)?;
         let dependency_parts = add(self.dependency_parts, incoming.dependency_parts)?;
         Ok(Self {
-            journal,
+            payload,
             map_pages,
             dependency_parts,
-            physical_bytes: physical_bytes(journal, map_pages)?,
+            physical_bytes: physical_bytes(payload, map_pages)?,
         })
     }
 
-    /// Exact journal dimensions for all original ordered operations.
-    pub fn journal(&self) -> JournalQuote {
-        self.journal
+    /// Exact payload dimensions for all original ordered operations.
+    pub fn payload(&self) -> SnapshotQuote {
+        self.payload
     }
     /// Worst-case private map pages, including new groups and key overflow.
     pub fn map_pages(&self) -> u64 {
         self.map_pages
     }
-    /// Upper bound on additional directory, locator, and journal parts.
+    /// Upper bound on additional directory, locator, and payload parts.
     pub fn dependency_parts(&self) -> u64 {
         self.dependency_parts
     }
@@ -61,7 +61,7 @@ impl HomeDescriptor {
         operations: &[HomeMutation],
         operation_limit: usize,
     ) -> Result<MutationQuote> {
-        let journal = self.quote_with_limit(operations, operation_limit)?;
+        let payload = self.quote_with_limit(operations, operation_limit)?;
         let mut groups = BTreeMap::<(&str, u16), BTreeMap<&str, ()>>::new();
         for operation in operations {
             groups
@@ -86,28 +86,28 @@ impl HomeDescriptor {
         }
         map_pages = add(map_pages, directory_pages)?;
         dependency_parts = add(dependency_parts, directory_pages.div_ceil(508))?;
-        let blocks = journal.logical_bytes().div_ceil(4096);
+        let blocks = payload.logical_bytes().div_ceil(4096);
         dependency_parts = add(
             dependency_parts,
             blocks.div_ceil(2008) + blocks.div_ceil(677).div_ceil(512),
         )?;
         Ok(MutationQuote {
-            journal,
+            payload,
             map_pages,
             dependency_parts,
-            physical_bytes: physical_bytes(journal, map_pages)?,
+            physical_bytes: physical_bytes(payload, map_pages)?,
         })
     }
 }
 
-fn physical_bytes(journal: JournalQuote, map_pages: u64) -> Result<u64> {
-    // Publication and stream rotation each save a complete receipt.
+fn physical_bytes(payload: SnapshotQuote, map_pages: u64) -> Result<u64> {
+    // Each direct commit saves one complete receipt.
     let receipt_pages = 1 + (65_536u64 - 150).div_ceil(201);
     let metadata_bytes = map_pages
-        .checked_add(2 * receipt_pages)
+        .checked_add(receipt_pages)
         .and_then(|pages| pages.checked_mul(PAGE_BYTES as u64))
         .ok_or_else(|| corrupt("complete mutation metadata reserve overflow"))?;
-    add(add(journal.physical_reserve(), metadata_bytes)?, 8 * 4096)
+    add(add(payload.physical_reserve(), metadata_bytes)?, 2 * 4096)
 }
 
 fn overflow(bytes: usize) -> u64 {

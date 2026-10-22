@@ -154,11 +154,10 @@ impl PackRuntime {
         self.validate_initialization_write(&operations)?;
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(
-                "native writer requires complete journal recovery after a failed publication"
-                    .into(),
+                "native writer requires a snapshot reopen after a failed publication".into(),
             ));
         }
-        let writer = self.journal.lock().expect("native journal owner");
+        let writer = self.writer.lock().expect("native snapshot writer");
         let accepted_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| StorageError::BackendError(error.to_string()))?
@@ -230,7 +229,7 @@ impl PackRuntime {
                 })
                 .collect()
         };
-        let mut writer = self.journal.lock().expect("native journal owner");
+        let mut writer = self.writer.lock().expect("native snapshot writer");
         let result = writer.commit_mutation(operations, accepted_ms, reservation);
         let publication = match result {
             Ok(publication) => {

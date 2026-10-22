@@ -1,0 +1,84 @@
+{
+  "format": "lastdb-request-samples-v1",
+  "full_generated_payload_captures_retained_locally": true,
+  "runs": [
+    {
+      "compact_bytes": 108754,
+      "compact_path": "before-1/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "a32d0811dd7f605c09cf2d27f718143758d21b8589df68c747aae4fd18b20e18",
+      "full_uncompressed_bytes": 21912987,
+      "full_uncompressed_sha256": "9dcf6a3783a8e94babe676eaf35d11ca8b52f93e2798a5db056e35e06df5a4fd",
+      "original_lines": 673,
+      "retained_local_compressed_bytes": 8050700,
+      "retained_local_compressed_sha256": "cbc08e9f14bc849d78194d85e70fb13570c4ddb9a2e02ea528ca73040a06da23",
+      "retained_local_full_path": "before-1/receipts.full.local.gz",
+      "run": "before-1"
+    },
+    {
+      "compact_bytes": 108406,
+      "compact_path": "after-1/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "65b77abd04a0a52bdd4fe702fe79904b0167ed8ed2d6a4720d6244011ff788b2",
+      "full_uncompressed_bytes": 21914608,
+      "full_uncompressed_sha256": "8eb74ac9af7c1438c1b369058b8859c93b13eb268396850266ab2b1d549b2bcb",
+      "original_lines": 674,
+      "retained_local_compressed_bytes": 8050116,
+      "retained_local_compressed_sha256": "507bca3cfbcc35c404c8c009fe2c7b8ad5a4ac8581691d66cce261fc715f3695",
+      "retained_local_full_path": "after-1/receipts.full.local.gz",
+      "run": "after-1"
+    },
+    {
+      "compact_bytes": 108481,
+      "compact_path": "after-2/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "79232effdad80839ec2b56c4cea503c99d68c4b7c6807302af7570785e15adfe",
+      "full_uncompressed_bytes": 21912005,
+      "full_uncompressed_sha256": "f4f87360e91fe748f4ae8edcd501822a0d5951f86fb9c37c71fa04afcf194dae",
+      "original_lines": 673,
+      "retained_local_compressed_bytes": 8049984,
+      "retained_local_compressed_sha256": "4f8d70eb9f78dacd5a16257c008236944a277bf9607f3986f1a16ca6fb477028",
+      "retained_local_full_path": "after-2/receipts.full.local.gz",
+      "run": "after-2"
+    },
+    {
+      "compact_bytes": 108767,
+      "compact_path": "before-2/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "506b621399d4e3d555eef953a60c03544d5d07e93f818f611c810052f587399b",
+      "full_uncompressed_bytes": 21913024,
+      "full_uncompressed_sha256": "1ebd5a197ead9d7966730ad4533660556df711836455ca537da243079295952a",
+      "original_lines": 673,
+      "retained_local_compressed_bytes": 8050699,
+      "retained_local_compressed_sha256": "8588bdffe46fc25bb356c48dab50b2d574fb6280ff9780a1c64965aaf55f8cfe",
+      "retained_local_full_path": "before-2/receipts.full.local.gz",
+      "run": "before-2"
+    },
+    {
+      "compact_bytes": 108824,
+      "compact_path": "before-3/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "e84b11c0cc9eabf40a8e7a9feab4650e2f98e881fb8b92fdae512482293ce7d3",
+      "full_uncompressed_bytes": 21910424,
+      "full_uncompressed_sha256": "601b18931c0427359d51a894ec82ee8b1bbde38bd1c8409aa4b4c9924f98579a",
+      "original_lines": 672,
+      "retained_local_compressed_bytes": 8051026,
+      "retained_local_compressed_sha256": "45a8e2bebc77bd1c88ee58dc44374bc2958b15fd28ca90cf6c99b7208ed88e9d",
+      "retained_local_full_path": "before-3/receipts.full.local.gz",
+      "run": "before-3"
+    },
+    {
+      "compact_bytes": 108365,
+      "compact_path": "after-3/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "78903f61a43e7612198737aa86a776d75ddf79f27e5e716c2bbd7113c9be9cd3",
+      "full_uncompressed_bytes": 21912101,
+      "full_uncompressed_sha256": "4f170385b45dbbc14066d588aef4effb18ba996d6849eea48ba633d37f62ae32",
+      "original_lines": 673,
+      "retained_local_compressed_bytes": 8049927,
+      "retained_local_compressed_sha256": "49a68557b6bcef07001ad076b790174571117f279c0850c4920028704ad4f058",
+      "retained_local_full_path": "after-3/receipts.full.local.gz",
+      "run": "after-3"
+    }
+  ]
+}

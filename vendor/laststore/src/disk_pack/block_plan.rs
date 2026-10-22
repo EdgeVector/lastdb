@@ -2,13 +2,13 @@
 
 use super::bytes::u32_at;
 use super::call::Buffer;
-use super::{corrupt, Location, ReadCall, Source, BLOCK_BYTES};
+use super::{corrupt, Location, ReadCall, BLOCK_BYTES};
 use crate::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub(super) type BlockId = (Uuid, u64, u64);
+pub(super) type BlockId = (Uuid, u64);
 
 pub(super) struct BlockPlan {
     pub(super) identity: BlockId,
@@ -19,12 +19,7 @@ pub(super) struct BlockPlan {
 }
 
 pub(super) fn block_id(location: &Location, ordinal: u64) -> BlockId {
-    let sequence = if location.source == Source::Journal {
-        location.version.batch
-    } else {
-        0
-    };
-    (location.object, sequence, ordinal)
+    (location.object, ordinal)
 }
 
 impl ReadCall {
@@ -82,8 +77,8 @@ impl ReadCall {
             return Err(super::resource());
         }
         self.charge(plan.decoded as u64)?;
-        let (object, sequence, ordinal) = plan.identity;
-        let bytes = super::frame::decode(frame, object, sequence, ordinal, plan.decoded)?;
+        let (object, ordinal) = plan.identity;
+        let bytes = super::frame::decode(frame, object, ordinal, plan.decoded)?;
         let block = Arc::new(Buffer::from_vec(bytes));
         self.costs.payload_blocks += 1;
         self.blocks.insert(plan.identity, Arc::clone(&block));

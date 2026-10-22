@@ -89,11 +89,6 @@ pub(in crate::disk_pack) fn reclaim_at(
     let mut dirty = Dirty::default();
     cleanup_retired(root, policy.max_files, &mut receipt, &mut dirty)?;
     dirty.flush()?;
-    let tail = crate::disk_pack::journal::JournalTail::read(root)?;
-    if !concurrent && (tail.stream != current.journal_stream || tail.last_batch != current.frontier)
-    {
-        return Err(corrupt("reclaim requires a complete journal checkpoint"));
-    }
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
@@ -192,7 +187,6 @@ fn validate_roots(root: &Path) -> Result<()> {
         "directory",
         "locator",
         "packs",
-        "journal",
     ] {
         match std::fs::symlink_metadata(root.join(name)) {
             Ok(metadata) if metadata.is_dir() => {}
@@ -328,10 +322,6 @@ fn remove_empty_parents(root: &Path, path: &Path, dirty: &mut Dirty) -> Result<(
             break;
         };
         if directory == root || directory.parent() == Some(root) {
-            break;
-        }
-        // Keep the active journal stream available for its next append/archive.
-        if directory.parent() == Some(root.join("journal").as_path()) {
             break;
         }
         match std::fs::remove_dir(directory) {

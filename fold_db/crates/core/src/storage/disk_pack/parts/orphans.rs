@@ -45,7 +45,7 @@ impl PackRuntime {
             grace_ms: min_age_ms,
             ..self.space_policy.clone()
         };
-        let writer = self.journal.lock().expect("native journal owner");
+        let writer = self.writer.lock().expect("native snapshot writer");
         // Install the exact deletion floor before new reads capture their root.
         let mut view = self.view.write().expect("native complete read view");
         if !view.accepted.is_empty() {

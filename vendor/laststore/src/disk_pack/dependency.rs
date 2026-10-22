@@ -13,20 +13,20 @@ pub(super) const MAX_DEPENDENCIES: usize = 65_536;
 pub(super) struct Coordinate {
     pub(super) kind: u8,
     pub(super) object: Uuid,
+    /// Reserved in the snapshot format; always zero.
     pub(super) batch: u64,
     pub(super) part: u32,
 }
 
 impl Coordinate {
     pub(super) fn path(&self, root: &Path) -> Result<PathBuf> {
+        if self.batch != 0 {
+            return Err(corrupt("snapshot dependency has a nonzero reserved batch"));
+        }
         let base = match self.kind {
             1 => root.join("directory").join(self.object.to_string()),
             2 => root.join("locator").join(self.object.to_string()),
-            3 | 4 if self.batch > 0 => root
-                .join("journal")
-                .join(self.object.to_string())
-                .join(format!("batch-{:016x}", self.batch)),
-            3 | 5 if self.batch == 0 => root.join("packs").join(self.object.to_string()),
+            3 | 5 => root.join("packs").join(self.object.to_string()),
             _ => return Err(corrupt("unsupported local dependency kind")),
         };
         let base = if self.kind == 3 {
@@ -41,7 +41,7 @@ impl Coordinate {
         let path = self.path(root)?;
         let mut file = measured::open(&path)?;
         let length = file.metadata()?.len();
-        let data = self.kind == 4 || self.kind == 5;
+        let data = self.kind == 5;
         if length == 0 || length > PART_BYTES || (!data && length % PAGE_BYTES as u64 != 0) {
             return Err(corrupt("generation dependency length"));
         }
@@ -53,7 +53,7 @@ impl Coordinate {
             zero(&bytes[112..])?;
             if &bytes[..8] != b"LDPART1\0"
                 || u16_at(&bytes, 8) != 1
-                || bytes[10] != if self.kind == 4 { 2 } else { 1 }
+                || bytes[10] != 1
                 || bytes[11] != 0
                 || u32_at(&bytes, 12) != 128
                 || uuid_at(&bytes, 16) != self.object
@@ -156,6 +156,11 @@ impl Dependencies {
         data_parts: u64,
         map_pages: u64,
     ) -> Result<()> {
+        if batch != 0 {
+            return Err(corrupt(
+                "snapshot payload dependency has a nonzero reserved batch",
+            ));
+        }
         let map_parts = map_pages.div_ceil(512);
         if data_parts
             .checked_add(map_parts)
@@ -173,7 +178,7 @@ impl Dependencies {
         }
         for part in 0..data_parts {
             self.add(Coordinate {
-                kind: if batch > 0 { 4 } else { 5 },
+                kind: 5,
                 object,
                 batch,
                 part: part as u32,

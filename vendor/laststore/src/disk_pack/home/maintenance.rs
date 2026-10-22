@@ -1,10 +1,10 @@
-use super::HomeJournal;
+use super::HomeSnapshot;
 use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy};
 use crate::Result;
 
-impl HomeJournal {
+impl HomeSnapshot {
     /// Capture the installed deletion floor before the node releases its write gate.
-    pub fn capture_reclaim(&self) -> Result<crate::disk_pack::journal::ReclaimPlan> {
+    pub fn capture_reclaim(&self) -> Result<crate::disk_pack::snapshot::ReclaimPlan> {
         self.writer.capture_reclaim()
     }
 

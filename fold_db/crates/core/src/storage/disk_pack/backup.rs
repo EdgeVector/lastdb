@@ -22,7 +22,10 @@ impl PackRuntime {
                     "native backup requires writer recovery".into(),
                 ));
             }
-            let writer = runtime.journal.lock().expect("native backup journal");
+            let writer = runtime
+                .writer
+                .lock()
+                .expect("native backup snapshot writer");
             let reference = DurableReference::create(
                 runtime.home.path(),
                 writer.current(),

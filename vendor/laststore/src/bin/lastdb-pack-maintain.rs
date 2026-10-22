@@ -85,8 +85,8 @@ fn run() -> Result<()> {
         ..SpacePolicy::default()
     };
     let output = match command.as_str() {
-        "compact" => maintenance(home.journal()?.compact(&policy)?),
-        "reclaim" => maintenance(home.journal()?.reclaim(&policy)?),
+        "compact" => maintenance(home.snapshot()?.compact(&policy)?),
+        "reclaim" => maintenance(home.snapshot()?.reclaim(&policy)?),
         "inventory" => inventory(&path)?,
         "reference" => reference(&path, &values, number("--expiry-ms", 0)?)?,
         "references" => json!({"references":list_references(&path)?.iter().map(|item|json!({
@@ -128,16 +128,16 @@ fn hold_writer(home: &DiskHome, policy: &SpacePolicy, seconds: u64) -> Result<Va
         return Err(invalid("hold seconds require 1..3600").into());
     }
     let root = std::fs::canonicalize(home.path())?;
-    let mut journal = home.journal()?;
-    let current = journal.current().clone();
-    let lease = journal.read_lease();
+    let mut snapshot = home.snapshot()?;
+    let current = snapshot.current().clone();
+    let lease = snapshot.read_lease();
     let (hold, reads) =
         laststore::observe_disk_reads(|| GenerationHold::from_writer(&lease, &root, &current));
     let _hold = hold?;
-    let reclaim = journal.reclaim(policy)?;
+    let reclaim = snapshot.reclaim(policy)?;
     // The hold alone retains the operating-system writer lease after these drops.
     drop(lease);
-    drop(journal);
+    drop(snapshot);
     println!(
         "{}",
         json!({"held":true,"generation":current.generation,
