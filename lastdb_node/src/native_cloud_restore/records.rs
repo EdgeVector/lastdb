@@ -22,68 +22,71 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
     admit_count(external_count)?;
     let home =
         DiskHome::open(&session.physical()).map_err(|_| RestoreError::Invalid("native home"))?;
-    let mut start = Vec::new();
     let mut atoms = 0u64;
     let mut covered = BTreeSet::new();
-    loop {
-        let page = {
-            let mut read = home
-                .read(budget(directory::ATOM_INVENTORY_READ_BYTES, 10000))
-                .map_err(|_| RestoreError::Limit("native atom read"))?;
-            let mut cursor = directory::atom_inventory(&mut read, &start)
-                .map_err(|_| RestoreError::Limit("native atom inventory"))?;
-            cursor
-                .next_page_yielding(1, 0, 0)
-                .map_err(|_| RestoreError::Limit("native atom page"))?
-        }; // No native reader/block cache survives the atom decode.
-        let next = page.resume.clone().or_else(|| {
-            page.records
-                .last()
-                .map(|record| record.key.as_bytes().to_vec())
-        });
-        for record in page.records {
-            fold_db::storage::disk_pack::validate_restored_atom_key(&record.key)
-                .map_err(|_| RestoreError::Invalid("native atom key format"))?;
-            let Some((scope, id)) = directory::atom_coordinate(&record.key)
-                .map_err(|_| RestoreError::Invalid("native atom coordinate"))?
-            else {
-                continue;
-            };
-            let atom = directory::open_atom(key, &record.body)
-                .map_err(|_| RestoreError::Invalid("native atom envelope"))?;
-            if atom.uuid() != id {
-                return Err(RestoreError::Invalid("atom identity"));
+    for group in 0..1024u16 {
+        let mut start = Vec::new();
+        loop {
+            let page = {
+                let mut read = home
+                    .read(budget(directory::ATOM_INVENTORY_READ_BYTES, 10000))
+                    .map_err(|_| RestoreError::Limit("native atom read"))?;
+                let mut cursor = directory::atom_inventory(&mut read, group, &start)
+                    .map_err(|_| RestoreError::Limit("native atom inventory"))?;
+                cursor
+                    .next_page_yielding(1, 0, 0)
+                    .map_err(|_| RestoreError::Limit("native atom page"))?
+            }; // No native reader/block cache survives the atom decode.
+            let next = page.resume.clone().or_else(|| {
+                page.records
+                    .last()
+                    .map(|record| record.key.as_bytes().to_vec())
+            });
+            for record in page.records {
+                fold_db::storage::disk_pack::validate_restored_atom_key(&record.key)
+                    .map_err(|_| RestoreError::Invalid("native atom key format"))?;
+                let Some((scope, id)) = directory::atom_coordinate(&record.key)
+                    .map_err(|_| RestoreError::Invalid("native atom coordinate"))?
+                else {
+                    continue;
+                };
+                let atom = directory::open_atom(key, &record.body)
+                    .map_err(|_| RestoreError::Invalid("native atom envelope"))?;
+                if atom.uuid() != id {
+                    return Err(RestoreError::Invalid("atom identity"));
+                }
+                let expected = directory::expected(&atom)
+                    .map_err(|_| RestoreError::Unsupported("uncertified native file reference"))?;
+                drop(atom);
+                drop(record);
+                let mut read = home
+                    .read(budget(DIRECTORY_READ_BYTES, 3))
+                    .map_err(|_| RestoreError::Limit("native file directory"))?;
+                directory::read_directories(&mut read, scope.as_deref(), &id, &expected, key)
+                    .map_err(|_| RestoreError::Invalid("native file directory coverage"))?;
+                drop(read);
+                for dependency in expected {
+                    verify_dependency(session, &home, key, &dependency, &mut covered)?;
+                }
+                atoms = atoms
+                    .checked_add(1)
+                    .ok_or(RestoreError::Limit("atom inventory"))?;
             }
-            let expected = directory::expected(&atom)
-                .map_err(|_| RestoreError::Unsupported("uncertified native file reference"))?;
-            drop(atom);
-            drop(record);
-            let mut read = home
-                .read(budget(DIRECTORY_READ_BYTES, 3))
-                .map_err(|_| RestoreError::Limit("native file directory"))?;
-            directory::read_directories(&mut read, scope.as_deref(), &id, &expected, key)
-                .map_err(|_| RestoreError::Invalid("native file directory coverage"))?;
-            drop(read);
-            for dependency in expected {
-                verify_dependency(session, &home, key, &dependency, &mut covered)?;
+            if page.exhausted {
+                break;
             }
-            atoms = atoms
-                .checked_add(1)
-                .ok_or(RestoreError::Limit("atom inventory"))?;
-        }
-        if page.exhausted {
-            if covered.len() as u64 != external_count {
-                return Err(RestoreError::Invalid("exact external file coverage"));
+            let mut next = next.ok_or(RestoreError::Invalid("atom continuation"))?;
+            if next.len() >= 65535 || (!start.is_empty() && next < start) {
+                return Err(RestoreError::Invalid("atom continuation"));
             }
-            return Ok(atoms);
+            next.push(0);
+            start = next;
         }
-        let mut next = next.ok_or(RestoreError::Invalid("atom continuation"))?;
-        if next.len() >= 65535 || (!start.is_empty() && next < start) {
-            return Err(RestoreError::Invalid("atom continuation"));
-        }
-        next.push(0);
-        start = next;
     }
+    if covered.len() as u64 != external_count {
+        return Err(RestoreError::Invalid("exact external file coverage"));
+    }
+    Ok(atoms)
 }
 
 fn verify_dependency(
