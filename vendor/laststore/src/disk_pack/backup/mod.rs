@@ -5,8 +5,10 @@ pub mod export;
 mod files;
 mod manifest;
 mod prepare;
+mod validate;
 
 pub use prepare::{prepare_referenced_backup, PreparedBackup, ReservedBackup};
+pub use validate::{prepare_snapshot_directories, validate_snapshot, ValidatedSnapshot};
 
 use super::home::DiskHome;
 use super::lifetime::{generation_inventory, DurableReference, ReferencePurpose};
@@ -120,7 +122,6 @@ pub fn restore_backup(backup: &Path, destination: &Path) -> Result<BackupReceipt
         &staging,
         manifest.entries.iter().map(|entry| entry.path.as_path()),
     )?;
-    drop(home);
     files::publish(&staging, &destination)?;
     Ok(manifest.receipt())
 }

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 const INITIALIZING: &str = "laststore-current-keys-v2-initializing";
 const STAGING: &str = "physical";
-const NODE_BYTES: &[u8] = b"format=1\nhome=disk-pack\n";
+pub(super) const NODE_BYTES: &[u8] = b"format=1\nhome=disk-pack\n";
 
 /// The stable node-marker inode serializes creation and remains locked for the
 /// runtime's lifetime. The directory marker authorizes only this new protocol.

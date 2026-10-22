@@ -3063,6 +3063,7 @@ dependencies = [
  "bip39",
  "chrono",
  "clap",
+ "cloud_backup_protocol",
  "env_flag",
  "fold_db",
  "folddb_profile",
@@ -3095,6 +3096,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

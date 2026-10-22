@@ -86,6 +86,22 @@ pub fn seal_atom_binary_row(key: &[u8; 32], atom: &Value) -> CryptoResult<Vec<u8
 
 /// Parse a binary atom row into its plain header and sealed content bytes.
 pub fn parse_atom_binary_row(stored: &[u8]) -> CryptoResult<Option<(Value, &[u8])>> {
+    let Some((header_bytes, sealed)) = atom_binary_row_parts(stored)? else {
+        return Ok(None);
+    };
+    let header: Value = serde_json::from_slice(header_bytes)
+        .map_err(|e| CryptoError::InvalidFormat(format!("deserialize atom header: {e}")))?;
+    if !header.is_object() || header.get("content").is_some() {
+        return Err(CryptoError::InvalidFormat(
+            "binary atom header must be an object without content".into(),
+        ));
+    }
+    Ok(Some((header, sealed)))
+}
+
+/// Existing frame boundaries without JSON allocation. An offline importer can
+/// enforce its own decoded-memory budget before it accepts the header.
+pub fn atom_binary_row_parts(stored: &[u8]) -> CryptoResult<Option<(&[u8], &[u8])>> {
     if !stored.starts_with(ATOM_BINARY_ROW_PREFIX) {
         return Ok(None);
     }
@@ -109,20 +125,16 @@ pub fn parse_atom_binary_row(stored: &[u8]) -> CryptoResult<Option<(Value, &[u8]
         .ok_or_else(|| {
             CryptoError::InvalidFormat("binary atom row has a truncated header".to_string())
         })?;
-    let header: Value = serde_json::from_slice(&stored[ATOM_BINARY_ROW_FIXED_BYTES..content_start])
-        .map_err(|e| CryptoError::InvalidFormat(format!("deserialize atom header: {e}")))?;
-    if !header.is_object() || header.get("content").is_some() {
-        return Err(CryptoError::InvalidFormat(
-            "binary atom header must be an object without content".to_string(),
-        ));
-    }
     let sealed = &stored[content_start..];
     if !sealed.starts_with(crate::crypto::AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
         return Err(CryptoError::InvalidFormat(
             "binary atom content must use an ENB envelope".to_string(),
         ));
     }
-    Ok(Some((header, sealed)))
+    Ok(Some((
+        &stored[ATOM_BINARY_ROW_FIXED_BYTES..content_start],
+        sealed,
+    )))
 }
 
 /// Open a binary atom row and restore its logical JSON `content` field.
