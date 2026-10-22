@@ -88,12 +88,20 @@ async fn resolve_recovered_pointer(
     };
     let pointer = cloud_backup_protocol::logical_pointer_sha256(pointer)
         .map_err(|_| FoldDbError::SecurityError("file recovery pointer format".into()))?;
-    let access = access.clone();
+    let access = RecoveryAccess(access.clone());
     tokio::task::spawn_blocking(move || {
         runtime
-            .resolve_recovered_file(&pointer, kind, &access)
+            .resolve_recovered_file(&pointer, kind, &access.0)
             .map_err(FoldDbError::from)
     })
     .await
     .map_err(|_| FoldDbError::Other("file recovery read task failed".into()))?
+}
+
+struct RecoveryAccess(FileBlobAccess);
+impl Drop for RecoveryAccess {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.0.dek.zeroize();
+    }
 }
