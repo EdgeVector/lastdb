@@ -27,6 +27,7 @@ class ProductRun(base.Capture):
         self.timings = []
         self.compactions = []
         self.long_keys = []
+        self.recovery = args.recovery.resolve(strict=True)
         base.save(self.output / "recipe.json", {
             "records": self.records, "batch": 64, "body_bytes": 1024,
             "writer_threads": 2, "rounds_per_writer": 12,
@@ -179,6 +180,53 @@ class ProductRun(base.Capture):
         self.start()
         self.verify("interrupted-copy-reopen")
 
+    def backup_during_copy(self):
+        self.bundle = self.root / "native-bundle"
+        self.backup_expected = self.expected.copy()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            request = pool.submit(self.compact, True)
+            observed = False
+            for _ in range(500):
+                state = self.call("/api/db/native-status")["native_disk"]["parts"]
+                if state.get("compaction_phase") == "copy":
+                    observed = True
+                    break
+                if request.done():
+                    break
+                time.sleep(0.02)
+            receipt = self.call("/api/db/native-backup", {"destination": str(self.bundle)})["native_backup"]
+            request.result()
+        if receipt.get("complete") is not True or receipt.get("includes_identity") is not False:
+            raise RuntimeError("The backup lacks a complete data-only receipt")
+        manifest = json.loads((self.bundle / "BACKUP.json").read_text())
+        if manifest.get("format") != "lastdb-native-backup-2":
+            raise RuntimeError("The backup has an unexpected format")
+        allowed = {"CURRENT", "directory", "locator", "packs", "generations",
+                   "laststore-pack-home-v1", "laststore-layout-v1", "CONVERSION_COMPLETE"}
+        if any(Path(item["path"]).parts[0] not in allowed for item in manifest["files"]):
+            raise RuntimeError("The data-only backup includes an unexpected namespace")
+        self.remember("backup-during-copy", observed_copy=observed, receipt=receipt,
+                      manifest_sha256=base.file_hash(self.bundle / "BACKUP.json"))
+        if not observed:
+            raise RuntimeError("The backup lacks a copy-phase observation")
+
+    def restore_bundle(self):
+        self.stop()
+        physical = self.home / "data" / "disk-pack"
+        source = self.root / "owned-source-before-restore"
+        physical.rename(source)
+        command = [str(self.recovery), "restore", "--home", str(physical), "--backup", str(self.bundle)]
+        process = subprocess.run(command, text=True, capture_output=True, timeout=120)
+        self.remember("bundle-restore", argv=command, exit_code=process.returncode,
+                      stdout=process.stdout, stderr=process.stderr)
+        if process.returncode or json.loads(process.stdout).get("complete") is not True:
+            raise RuntimeError("The local bundle restore did not complete")
+        if base.file_hash(physical / "CURRENT") != base.file_hash(self.bundle / "CURRENT"):
+            raise RuntimeError("The restored root differs from the bundle root")
+        self.expected = self.backup_expected
+        self.start()
+        self.verify("bundle-restored")
+
     def writer(self, offset):
         for revision in range(12):
             self.mutate("update", range(offset, offset + 16), 100 + revision, durability="durable")
@@ -206,6 +254,7 @@ class ProductRun(base.Capture):
         self.mutate("delete", range(80, 88), 0, durability="durable")
         self.compact()
         self.verify("tombstones")
+        self.backup_during_copy()
         self.stop()
         self.start()
         self.verify("graceful-reopen")
@@ -216,6 +265,7 @@ class ProductRun(base.Capture):
         self.interrupt_copy()
         self.compact()
         self.verify("compacted-after-forced-reopen")
+        self.restore_bundle()
         self.flush("final")
         base.save(self.output / "compactions.json", self.compactions)
         if not any(report.get("catch_up_records", 0) > 0 for report in self.compactions):
@@ -234,6 +284,7 @@ def main():
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--recovery", type=Path, required=True)
     parser.add_argument("--records", type=int, default=4096)
     args = parser.parse_args()
     if not 128 <= args.records <= 100000:
