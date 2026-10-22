@@ -6,7 +6,6 @@ use laststore::disk_pack::home::DiskHome;
 use laststore::disk_pack::ReadBudget;
 use std::collections::BTreeSet;
 
-const ATOM_READ_BYTES: u64 = 64 * 1024 * 1024;
 const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
 // The two charged atom JSON trees use 64 MiB; release them before any CAS decode.
 // This separate 8 MiB identity cap leaves the complete active proof below 96 MiB.
@@ -29,12 +28,9 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
     loop {
         let page = {
             let mut read = home
-                .read(budget(ATOM_READ_BYTES, 10000))
+                .read(budget(directory::ATOM_INVENTORY_READ_BYTES, 10000))
                 .map_err(|_| RestoreError::Limit("native atom read"))?;
-            let mut cursor = read
-                // Native document IDs are UTF-8. 0xff is above every valid ID.
-                // An empty end is an empty range, not an unbounded range.
-                .administrative_range("atoms", &start, &[0xff])
+            let mut cursor = directory::atom_inventory(&mut read, &start)
                 .map_err(|_| RestoreError::Limit("native atom inventory"))?;
             cursor
                 .next_page_yielding(1, 0, 0)
