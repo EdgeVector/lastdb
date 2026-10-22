@@ -21,7 +21,7 @@ pub fn storage_parts_status_line(snapshot: &StatusSnapshot) -> String {
             parts.maintenance_worker_restarts
         )
     } else if parts.maintenance_running {
-        "maintenance running".to_string()
+        format!("maintenance {}", parts.compaction.compaction_phase)
     } else {
         format!("maintenance starts at {}", parts.dependency_trigger)
     };
@@ -29,10 +29,11 @@ pub fn storage_parts_status_line(snapshot: &StatusSnapshot) -> String {
         "no run yet".to_string()
     } else {
         format!(
-            "last run {} -> {} parts in {} ms",
+            "last run {} -> {} parts in {} ms (swap {} ms)",
             parts.maintenance_last_parts_before,
             parts.maintenance_last_parts_after,
-            parts.maintenance_last_millis
+            parts.maintenance_last_millis,
+            parts.compaction.compaction_swap_millis
         )
     };
     let mut line = format!(

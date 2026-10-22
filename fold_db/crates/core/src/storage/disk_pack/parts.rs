@@ -15,6 +15,8 @@ use std::sync::{Mutex, Weak};
 use tokio::sync::Notify;
 
 mod orphans;
+mod progress;
+pub use progress::NativeCompactionStatus;
 mod worker;
 
 /// Parts after which maintenance starts. Every publication writes the receipt
@@ -30,11 +32,12 @@ const TRIGGER_CEILING_PERCENT: u64 = 75;
 const MIN_GROWTH: u64 = 1024;
 /// Above this share of the limit (percent) a new write waits for maintenance
 /// instead of risking a refusal at the limit.
-const SOFT_LIMIT_PERCENT: u64 = 90;
+const SOFT_LIMIT_PERCENT: u64 = 85;
 
 /// Counters and settings. Atomics only: a status read never takes a lock that a
 /// writer holds.
 pub(super) struct PartsLedger {
+    pub(super) progress: Arc<progress::Progress>,
     current: AtomicU64,
     /// Last root seen by a publication or a maintenance run. A status read uses
     /// it while maintenance holds the view lock, so status never waits for reclaim.
@@ -123,6 +126,8 @@ pub struct NativePartsStatus {
     /// The last reclaim error, until a reclaim ends without error. A reclaim that
     /// cannot run leaves old generations on disk, so the disk grows with each pack.
     pub reclaim_last_error: Option<String>,
+    #[serde(flatten)]
+    pub compaction: NativeCompactionStatus,
 }
 
 impl PartsLedger {
@@ -133,6 +138,7 @@ impl PartsLedger {
             .unwrap_or(DEFAULT_HIGH_WATER)
             .min(ceiling);
         Arc::new(Self {
+            progress: Arc::default(),
             current: AtomicU64::new(opened),
             generation: AtomicU64::new(root.generation),
             frontier: AtomicU64::new(root.frontier),
@@ -272,6 +278,7 @@ impl PartsLedger {
 
     pub(super) fn status(&self) -> NativePartsStatus {
         NativePartsStatus {
+            compaction: self.progress.status(),
             dependency_parts: self.current.load(Relaxed),
             dependency_parts_limit: MAX_DEPENDENCY_PARTS,
             dependency_high_water: self.high_water,

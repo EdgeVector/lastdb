@@ -32,6 +32,15 @@ pub(in crate::disk_pack) fn sweep_orphans_at(
         generation: current.generation,
         ..Default::default()
     };
+    // Private compaction output has no receipt yet. Its typed lease excludes
+    // the orphan sweep until publication or abandonment, including cancellation.
+    if lock
+        .compaction_active
+        .load(std::sync::atomic::Ordering::Acquire)
+    {
+        receipt.reclaim_deferred = true;
+        return Ok(receipt);
+    }
     if current.required_features & FEATURE_FILE_LIFETIME == 0 {
         receipt.reclaim_deferred = true;
         return Ok(receipt);

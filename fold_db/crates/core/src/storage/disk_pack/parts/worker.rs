@@ -54,20 +54,18 @@ impl PackRuntime {
     /// waits for the worker, for at most a minute, and then proceeds to its own
     /// admission, which refuses it with a retry hint if no room appeared.
     /// Call it before the write gate: maintenance needs that gate to make room.
-    pub(in crate::storage::disk_pack) async fn wait_for_part_room(self: &Arc<Self>) {
+    pub(in crate::storage::disk_pack) async fn wait_for_part_room(
+        self: &Arc<Self>,
+    ) -> StorageResult<()> {
         self.ensure_parts_worker();
         let ledger = &self.parts;
-        if !ledger.auto || !ledger.over_soft_limit() {
-            return;
-        }
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-        while ledger.over_soft_limit()
-            && !ledger.failing.load(Relaxed)
-            && tokio::time::Instant::now() < deadline
-        {
+        if ledger.auto && ledger.over_soft_limit() {
             ledger.wake.notify_one();
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            return Err(StorageError::WriteResourceLimit {
+                detail: "compaction_behind: storage parts reached the 85 percent soft limit; retry after maintenance".into(),
+            });
         }
+        Ok(())
     }
 
     /// Wake the worker when a write was refused for part capacity.

@@ -40,6 +40,12 @@ pub struct WriterWatch {
 }
 
 impl WriterWatch {
+    /// Measure only this task's native write scopes, including any sealed flush wait.
+    pub async fn measure<F: std::future::Future>(work: F) -> (F::Output, Duration, u64) {
+        let (output, cost) = crate::storage::disk_pack::transaction::blocked::measure(work).await;
+        (output, cost.blocked, cost.scopes)
+    }
+
     /// Start a watch at the current count. The quiet period is read from the
     /// environment.
     #[must_use]

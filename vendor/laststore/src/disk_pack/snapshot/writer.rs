@@ -21,6 +21,7 @@ pub struct SnapshotWriter {
     pub(super) dependencies: u64,
     pub(super) lock: Arc<WriteLock>,
     admission: Arc<AdmissionLedger>,
+    pub(super) compaction: crate::disk_pack::maintenance::CompactionPolicy,
 }
 
 impl SnapshotWriter {
@@ -43,6 +44,7 @@ impl SnapshotWriter {
             dependencies: receipt.dependencies,
             lock: Arc::new(lock),
             admission: Arc::default(),
+            compaction: Default::default(),
         })
     }
 

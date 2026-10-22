@@ -39,6 +39,9 @@ pub(crate) fn core_memory_get<T: Any + Send + Sync>(
     let Some(context) = super::ReadContext::captured(&runtime) else {
         return Ok(None);
     };
+    if context.hidden_prefix {
+        return Ok(None);
+    }
     if let Some(value) = context.core_model.memory_get(owner, name) {
         return super::snapshots::read_snapshot_insert_arc(
             Some(runtime),
@@ -81,6 +84,10 @@ pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
     }
     let runtime = runtime.ok_or_else(lock_error)?;
     let context = super::ReadContext::captured(&runtime).ok_or_else(lock_error)?;
+    if context.hidden_prefix {
+        let value = CoreWarmSet::memory_uncached(value);
+        return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
+    }
     if let Some(value) = context.core_model.memory_get(owner, &name) {
         return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
     }

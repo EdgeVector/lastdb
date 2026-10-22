@@ -48,6 +48,21 @@ impl PackRuntime {
         }
     }
 
+    pub(super) fn preparation_prefix(&self) -> (Arc<Vec<Arc<transaction::PendingBatch>>>, bool) {
+        let queue = self.queue.lock().expect("native preparation prefix");
+        let hidden = queue.requests.iter().any(|request| !request.visible);
+        (
+            Arc::new(
+                queue
+                    .requests
+                    .iter()
+                    .map(|request| Arc::clone(&request.pending))
+                    .collect(),
+            ),
+            hidden,
+        )
+    }
+
     /// Quote only new operations; the accepted prefix retains its owned quota.
     pub(super) fn prepare_queued(
         &self,
@@ -77,9 +92,10 @@ impl PackRuntime {
         self: &Arc<Self>,
         pending: Arc<transaction::PendingBatch>,
         prepared: Option<write::PreparedAppend>,
+        visible: bool,
         delay: Option<std::time::Duration>,
     ) -> StorageResult<u64> {
-        let delay = delay.filter(|_| pending.has_reserved_raw_memory());
+        let visible = visible && pending.has_reserved_raw_memory();
         let mut queue = self.queue.lock().expect("native accepted queue");
         let sequence = queue.next_sequence.checked_add(1).ok_or_else(|| {
             StorageError::BackendError("native accepted sequence exhausted".into())
@@ -94,7 +110,6 @@ impl PackRuntime {
         }
         // Read-held core values require retained quota. Private durable work
         // seals the queue so later writers wait for its committed state.
-        let visible = delay.is_some();
         if visible {
             self.install_accepted(Arc::clone(&pending), sequence)?;
         }

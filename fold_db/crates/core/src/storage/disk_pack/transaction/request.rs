@@ -60,7 +60,7 @@ where
         Reply::Background => Some(std::time::Duration::from_millis(500)),
         Reply::Durable => None,
     };
-    runtime.wait_for_part_room().await;
+    runtime.wait_for_part_room().await?;
     let gate = runtime.enter_prepare().await;
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
@@ -112,9 +112,14 @@ where
     let wait = reply != Reply::Memory || delay.is_none();
     // A batch with no early publication seals the queue: every later writer waits
     // in `enter_prepare` until the batch is durable, though the gate is free.
-    let sealed = delay.is_none();
+    let collection_delay = if reply == Reply::Background {
+        Some(std::time::Duration::from_millis(500))
+    } else {
+        delay
+    };
+    let sealed = collection_delay.is_none();
     // Publication, ownership transfer and worker creation contain no await.
-    let sequence = runtime.accept_queued(pending, prepared, delay)?;
+    let sequence = runtime.accept_queued(pending, prepared, delay.is_some(), collection_delay)?;
     drop(gate);
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     if wait {

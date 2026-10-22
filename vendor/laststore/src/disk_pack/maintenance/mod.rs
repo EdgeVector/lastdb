@@ -1,11 +1,15 @@
 //! Bounded same-home compaction and exact-reference reclaim under the writer lease.
 
 mod cache;
+mod catch_up;
 mod compact;
+mod concurrent;
 mod quote;
 mod reclaim;
 mod space;
 mod stream;
+mod tier;
+mod tier_policy;
 mod visit;
 
 pub use space::{reserve_space, space_usage, SpacePolicy, SpaceReservation, SpaceUsage};
@@ -24,6 +28,13 @@ pub struct MaintenanceReceipt {
     pub parts_before: u64,
     /// Complete replacement part count, at most 65,536.
     pub parts_after: u64,
+    /// Zero for a full copy; otherwise only parts newer than this boundary moved.
+    pub tier_boundary: u64,
+    /// Copy and off-gate catch-up time, before the final writer handoff.
+    pub copy_millis: u64,
+    /// Catch-up rounds and changed locators across those rounds.
+    pub catch_up_rounds: u64,
+    pub catch_up_records: u64,
     /// Verified obsolete file count removed after protection and grace checks.
     pub files_removed: u64,
     /// Exact removed bytes from regular file metadata.
@@ -36,3 +47,7 @@ pub struct MaintenanceReceipt {
 
 pub(super) use compact::compact_locked;
 pub(super) use reclaim::{reclaim_at, reclaim_locked, sweep_orphans_at, sweep_orphans_locked};
+
+pub use concurrent::{CompactionPlan, PreparedCompaction};
+
+pub(in crate::disk_pack) use tier_policy::CompactionPolicy;
