@@ -115,9 +115,10 @@ tried again for five seconds, which gives a running worker time to make room. Af
 same named 503 body. With `LASTDB_AUTO_MAINTENANCE=0` a home at the limit therefore answers in about five seconds
 with the named error and not with the generic "handler deadline exceeded".
 
-A pack of a large home can hold the gate for longer than the 90 second handler deadline (17 to 186 seconds under
-load on a synthetic home). A request that waits behind it gets a 503 and can retry. A cheaper incremental pack is
-not built.
+A pack of a large home holds the gate for its whole run. Before the pack kept its facts for the whole pack, the run
+on a synthetic home of 1.4 million records took 149 seconds in a node, and 4 of the waiting requests passed the
+90 second handler deadline and got a 503. Now it takes 49 seconds, and no request failed. The cost still follows the
+number of records. An incremental pack is not built.
 
 ## What to read
 
@@ -192,8 +193,13 @@ Write latency with the worker on or off differs by less than the round-to-round 
 
 ## Limits
 
-- The pack copies every live record. Its hold of the gate grows with the home (184 s for 1.1 million records on a
-  loaded host).
+- The pack copies every live record. Its hold of the gate grows with the home. Measured on a synthetic home with
+  `lastdb-pack-maintain compact` (a cold clone, so the file cache holds none of it): 98,553 records in 2.6 s,
+  980,553 records in 40 s, 1,400,553 records in 59 s (171 s before the pack kept its facts for the whole pack).
+  A second pack of a home that is already packed takes 10 s for 1.4 million records (107 s before).
+- During the pack, the cache holds at most 64 MiB of block-map pages (it reaches that only for a home with more than
+  4,000 batches), 1 MiB of decoded blocks, 6 MiB of part records and 64 open part files. The measured peak of
+  resident memory was 31 MB at 1.4 million records.
 - A home with more than 67,108,864 records, 65,536 hash groups, or 1,000,000 records in one group cannot pack, and
   can still reach the limit.
 - With no grace (the default of an automatic run), reclaim keeps no old generation except `CURRENT`, named
