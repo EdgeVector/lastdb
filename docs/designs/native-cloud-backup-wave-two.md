@@ -8,7 +8,7 @@ The [first source wave](native-cloud-backup-wave-one.md) records the earlier sou
 
 The public source API uses **backup capture** in place of **native exporter**.
 Backup capture selects existing native pack files and retains their exact bytes.
-Large files stream directly. Small files share bounded upload objects with exact extents.
+Large native files stream directly. Small files share bounded upload objects with exact extents.
 The stored format-one job and its existing path stay compatible across a restart.
 
 This wave supplies B2 file coverage and S2 cloud acceptance source.
@@ -23,6 +23,8 @@ The directory holds the whole pointer digest, file kind, original file identity,
 The original encrypted pointer keeps the file key.
 
 Backup capture checks each atom and its three known dependency keys at the retained root.
+It also checks file references in each selected molecule record against that record's exact atom and directory.
+The existing selection and delete rules choose the current record. Inactive records add no new coverage requirement.
 Local file bytes already in native packs need no separate upload.
 Capture authenticates those bytes under the original file key and checks their plaintext identity.
 
@@ -39,6 +41,7 @@ Restore never changes the selected native root or file pointers.
 
 The [file capture design](native-backup-file-capture-v1.md) gives the exact source and memory bounds.
 The current per-file plaintext limit is 16 MiB.
+Restore also limits external pointer and kind identities to 43,690 within an eight MiB allowance.
 Larger files and older pointer atoms without certificates receive an explicit refusal.
 No automatic migration or primary access occurs.
 
@@ -57,16 +60,25 @@ The service supplies accepted-backup discovery, head reads, and authorized read 
 Each read grant requires exact membership in the selected accepted backup.
 An incomplete newer job cannot hide the previous accepted backup.
 No mutable provider head, automatic deletion, or required-object expiry exists.
+Closed byte reservations remain reserved, including reservations with no issued grant.
+This source has no automatic reservation release path.
 
 ## Review fixes
 
 - Capture and restore share a nonempty native atom range. An empty upper bound could skip all atom checks.
+- Each atom page uses one known native locator. It does not reopen all 1,024 locators per page.
 - Bounded native reads reject an excessive located record before payload allocation.
 - Native read work budgets include file, decoded, and returned bytes. Separate bounds cover retained memory.
 - The account decoder releases intermediate buffers between its bounded phases.
-- File key copies use zeroed storage after use.
+- New decoded file key buffers and retained dependency key copies clear after use.
 - Terminal cleanup repeats disk barriers and removes only the exact job's private dependency files.
+- A disk task retains its source and work guards after cancellation. A source reader prevents concurrent copy removal.
 - Verified local recovery ciphertext precedes an external download on the next backup.
+- File references in a molecule record can differ from its shared atom. Capture and restore now check both before completion.
+
+Dependency status uses durable counters and one active file.
+The full capture status still checks native catalog page sizes.
+The Mini worker must keep that cost outside frequent progress updates.
 
 These findings come from source review. They do not establish a live cloud result.
 
@@ -78,9 +90,12 @@ Expose clear product refusals for unsupported files and uncertified old pointers
 
 Before activation, isolate legacy grants or move them to the same quota ledger.
 Complete native usage views and exclude native objects from legacy purge paths.
+Expose reserved bytes, retained bytes, the blocked job, and the last accepted backup through product status.
+The API Gateway still exposes only the legacy sync route for this service.
+The native route, activation configuration, and deployment require approved infrastructure work.
 Keep new service effects and cloud deletion off.
 
 P1 then uses normal product commands and fresh synthetic data in an approved service environment.
-It must establish cloud-only recovery, restart recovery, provider byte verification, signed headers, and runtime deadlines.
+It must establish cloud-only recovery, restart recovery, unknown responses, close races, byte verification, signed headers, and runtime deadlines.
 No tests, fixture harness, primary copy, service deployment, or live recovery check occurs in this source wave.
 Tom's approval precedes shared service, infrastructure, deployment, routine, CI, or primary changes.
