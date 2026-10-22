@@ -9,14 +9,15 @@ use cloud_backup_protocol::{
     Digest, ManifestPage, NativeBackupManifest, NativeFileEntry, ObjectKind, Version,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
+mod native;
+use native::install_file;
 
 #[derive(Clone, Copy)]
 pub(super) struct Inventory {
     pub files: u64,
     pub bytes: u64,
+    pub dependencies: u64,
 }
 struct Closure {
     receipts: BTreeMap<[u8; 32], ObjectReceipt>,
@@ -70,11 +71,14 @@ pub(super) async fn restore(
     let path = download::fetch(session, source, grant, true).await?;
     let manifest: NativeBackupManifest = decrypt_json(&path, &keys.content)?;
     manifest.validate_for_accepted(accepted)?;
-    if manifest.external_dependency_count.get() != 0 {
-        return Err(RestoreError::Unsupported("file dependencies need B2"));
-    }
+    super::records::admit_count(manifest.external_dependency_count.get())?;
+    super::dependencies::prepare(session)?;
     let mut closure = load_references(session, source).await?;
-    let mut total = Inventory { files: 0, bytes: 0 };
+    let mut total = Inventory {
+        files: 0,
+        bytes: 0,
+        dependencies: 0,
+    };
     for expected_batch in manifest.pages.chunks(4) {
         let selectors = expected_batch
             .iter()
@@ -98,8 +102,12 @@ pub(super) async fn restore(
             if page.context.page_index != expected.page_index {
                 return Err(RestoreError::Invalid("manifest page index"));
             }
-            if !page.external_dependencies.is_empty() {
-                return Err(RestoreError::Unsupported("file dependencies need B2"));
+            total.dependencies = total
+                .dependencies
+                .checked_add(page.external_dependencies.len() as u64)
+                .ok_or(RestoreError::Limit("file dependency count"))?;
+            if total.dependencies > manifest.external_dependency_count.get() {
+                return Err(RestoreError::Invalid("file dependency total"));
             }
             restore_page(session, source, &mut closure, &page).await?;
             for entry in &page.native_files {
@@ -121,6 +129,7 @@ pub(super) async fn restore(
     }
     if total.files != manifest.native_file_count as u64
         || total.bytes != manifest.native_bytes.get()
+        || total.dependencies != manifest.external_dependency_count.get()
         || closure.used.len() != closure.receipts.len()
     {
         return Err(RestoreError::Invalid("complete manifest closure"));
@@ -224,6 +233,26 @@ async fn restore_page(
             objects.insert(entry.extent.receipt_id.clone());
         }
     }
+    for dependency in &page.external_dependencies {
+        let file =
+            fold_db::storage::disk_pack::file_recovery::RecoveryFile::from_dependency(dependency)
+                .map_err(|_| RestoreError::Unsupported("file dependency bounds"))?;
+        let id = raw_digest(&cloud_backup_protocol::bytes_sha256(file.key().as_bytes()))?;
+        closure.charge(192)?;
+        if !closure.paths.insert(id) {
+            return Err(RestoreError::Invalid("duplicate file dependency"));
+        }
+        for extent in &dependency.extents {
+            closure.use_receipt(&extent.receipt_id)?;
+        }
+    }
+    super::dependencies::restore_page(
+        session,
+        source,
+        &page.external_dependencies,
+        &closure.receipts,
+    )
+    .await?;
     let objects: Vec<_> = objects.into_iter().collect();
     for ids in objects.chunks(4) {
         let request = ReadGrantRequest {
@@ -252,73 +281,6 @@ async fn restore_page(
                 install_file(session, &path, entry)?;
             }
         }
-    }
-    Ok(())
-}
-
-fn install_file(session: &RestoreSession, object: &Path, entry: &NativeFileEntry) -> Result<()> {
-    let path = session.physical().join(entry.path.as_str());
-    let mut parent = session.physical();
-    let components: Vec<_> = entry.path.as_str().split('/').collect();
-    for component in &components[..components.len() - 1] {
-        parent.push(component);
-        match fs::create_dir(&parent) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        if !fs::symlink_metadata(&parent)?.is_dir() {
-            return Err(RestoreError::Invalid("native parent"));
-        }
-    }
-    if path.try_exists()? {
-        download::verify_file(&path, &entry.native_sha256, entry.native_bytes.get())?;
-    } else {
-        download::check_capacity(&session.root, entry.native_bytes.get())?;
-        let pending = session.root.join("native.pending");
-        if pending.try_exists()? && !fs::symlink_metadata(&pending)?.is_file() {
-            return Err(RestoreError::Invalid("native temporary"));
-        }
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&pending)?;
-        let mut input = File::open(object)?;
-        input.seek(SeekFrom::Start(entry.extent.offset.get()))?;
-        let mut left = entry.native_bytes.get();
-        let mut buffer = [0; 65536];
-        while left > 0 {
-            let count = left.min(buffer.len() as u64) as usize;
-            input.read_exact(&mut buffer[..count])?;
-            output.write_all(&buffer[..count])?;
-            left -= count as u64;
-        }
-        output.sync_all()?;
-        download::verify_file(&pending, &entry.native_sha256, entry.native_bytes.get())?;
-        fs::rename(&pending, &path)?;
-        File::open(&parent)?.sync_all()?;
-        File::open(&session.root)?.sync_all()?;
-    }
-    let ledger = session
-        .root
-        .join("entries")
-        .join(download::path_key(entry.path.as_str()));
-    if ledger.try_exists()? {
-        let existing: NativeFileEntry = session::read_json(&ledger, 256 * 1024)?;
-        if existing != *entry {
-            return Err(RestoreError::Invalid("saved native entry"));
-        }
-    } else {
-        session.remove_spool_file(&ledger.with_extension("pending"))?;
-        session.reserve_spool(4096)?;
-        if let Err(error) = session::atomic_json(&ledger, entry) {
-            if ledger.with_extension("pending").try_exists()? {
-                session.add_spool_file(&ledger.with_extension("pending"))?;
-            }
-            return Err(error);
-        }
-        session.add_spool_file(&ledger)?;
     }
     Ok(())
 }

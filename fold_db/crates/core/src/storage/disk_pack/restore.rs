@@ -16,7 +16,7 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
         let entry = entry?;
         if !matches!(
             entry.file_name().to_str(),
-            Some("disk-pack" | NODE_MARKER | "laststore-layout-v1")
+            Some("disk-pack" | NODE_MARKER | "laststore-layout-v1" | "native-file-recovery-v1")
         ) {
             return Err(refusal("unexpected restore wrapper member"));
         }

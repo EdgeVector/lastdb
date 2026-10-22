@@ -1,14 +1,14 @@
 //! Disabled native restore importer. This module registers no route or command.
 //! A source supplies authenticated protocol responses and bounded object streams.
-//! R1 refuses file dependencies, including undeclared pointers in native atoms.
-//! B2 must add certified pointer coverage and the persistent dependency resolver.
+//! Restore proves exact native directory coverage for main, thumbnail and poster.
+//! Native CAS stays in native files; remote ciphertext uses a durable local resolver.
 //!
 //! R1 enforces per-restore allocation and spool admission. Restore holds the
 //! shared core NativeCloudWorkGuard for the complete active operation;
 //! B1 export uses that same process guard to prevent combined budget overruns.
 //! This draft registers no caller and cannot activate normal native cloud sync.
-mod budget_json;
 mod closure;
+mod dependencies;
 mod download;
 mod install;
 mod keys;

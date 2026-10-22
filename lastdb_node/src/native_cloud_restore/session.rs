@@ -20,6 +20,8 @@ pub struct RestoreReport {
     pub native_bytes: u64,
     pub verified_atoms: u64,
     pub file_dependencies_verified: bool,
+    #[serde(default)]
+    pub verified_external_files: u64,
     pub destination: PathBuf,
 }
 
@@ -143,7 +145,7 @@ impl RestoreSession {
             return Err(RestoreError::Invalid("authoritative accepted selection"));
         }
         let inventory = super::closure::restore(self, source, keys).await?;
-        let atoms = super::records::verify(&self.physical(), &keys.content)?;
+        let atoms = super::records::verify(self, &keys.content, inventory.dependencies)?;
         super::install::finish(self, keys, inventory, atoms)
     }
 

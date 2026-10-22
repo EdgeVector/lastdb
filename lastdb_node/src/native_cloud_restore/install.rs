@@ -99,6 +99,7 @@ pub(super) fn finish(
         native_bytes: inventory.bytes,
         verified_atoms: atoms,
         file_dependencies_verified: true,
+        verified_external_files: inventory.dependencies,
         destination: session.selection.destination.clone(),
     };
     session::atomic_json(
