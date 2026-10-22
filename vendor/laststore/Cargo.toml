@@ -40,12 +40,6 @@ test = false
 name = "lastdb-pack"
 path = "src/bin/lastdb-pack.rs"
 
-[[bin]]
-bench = false
-test = false
-name = "lastdb-journal"
-path = "src/bin/lastdb-journal.rs"
-
 [lib]
 test = false
 doctest = false

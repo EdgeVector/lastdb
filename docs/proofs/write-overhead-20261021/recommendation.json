@@ -1,0 +1,35 @@
+{
+  "measured_source_revision": "8067843c4f9626470edc971ab10c10e829f021d8",
+  "headline_profile": "default",
+  "immediate_action": {
+    "change": "Use the existing mutation batch API for related writes that callers currently send separately",
+    "engine_code_change": false,
+    "measured_io_reduction_factor": 6.221664925113201,
+    "limit": "Preserve caller commit boundaries; measured timing depends on this small shared-host workload"
+  },
+  "smallest_engine_candidate": {
+    "change": "Keep ordinary durable publication; defer internal disk-journal stream rotation until its byte or batch limit",
+    "source": "vendor/laststore/src/disk_pack/journal/resume.rs:37",
+    "current_cost": "Each physical commit publishes its mutations, then rotates the stream and publishes a second full metadata receipt with no mutations",
+    "estimated_retained_growth_reduction_single_update_phases_percent": [
+      16.2498,
+      23.7749
+    ],
+    "estimated_retained_growth_reduction_all_update_phases_percent": 10.543538517730811,
+    "estimate_scope": "One fewer receipt per commit, estimated from current measured traffic; no patch performance measurement",
+    "measured_speedup": null,
+    "constraints": [
+      "Keep durability barriers for the retained ordinary publication",
+      "Rotate before the full encoded stream reaches the byte or batch ceiling",
+      "Retain the active stream directory during compaction and reclaim",
+      "Verify crash recovery, clean restart, and backup compatibility on fresh generated homes before ship"
+    ],
+    "remaining_cost": "Part growth and whole-home compaction write pauses remain"
+  },
+  "rejected_candidate": {
+    "change": "Sparse zero padding for metadata pages",
+    "measured_allocated_space_saved_percent": 0.6627,
+    "reason": "Actual space benefit is too small on the measured filesystem"
+  },
+  "recommendation": "Use existing batches first; measure deferred internal journal rotation before a searchable-snapshot rewrite"
+}

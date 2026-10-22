@@ -1,30 +1,18 @@
 use super::bytes::*;
-use super::{corrupt, Location, ReadCall, Source, BLOCK_BYTES};
+use super::{corrupt, Location, ReadCall, BLOCK_BYTES};
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
 use std::path::Path;
 use uuid::Uuid;
 
-pub(super) fn decode(
-    bytes: &[u8],
-    object: Uuid,
-    sequence: u64,
-    ordinal: u64,
-    expected: usize,
-) -> Result<Vec<u8>> {
+pub(super) fn decode(bytes: &[u8], object: Uuid, ordinal: u64, expected: usize) -> Result<Vec<u8>> {
     measured::decode(
-        || decode_inner(bytes, object, sequence, ordinal, expected),
+        || decode_inner(bytes, object, ordinal, expected),
         |output| (output.len(), output.capacity()),
     )
 }
 
-fn decode_inner(
-    bytes: &[u8],
-    object: Uuid,
-    sequence: u64,
-    ordinal: u64,
-    expected: usize,
-) -> Result<Vec<u8>> {
+fn decode_inner(bytes: &[u8], object: Uuid, ordinal: u64, expected: usize) -> Result<Vec<u8>> {
     if bytes.len() < 80
         || &bytes[..8] != b"LDBLK1\0\0"
         || u16_at(bytes, 8) != 1
@@ -33,7 +21,7 @@ fn decode_inner(
         || u32_at(bytes, 24) as usize != expected
         || !(1..=BLOCK_BYTES).contains(&expected)
         || uuid_at(bytes, 32) != object
-        || u64_at(bytes, 48) != sequence
+        || u64_at(bytes, 48) != 0
     {
         return Err(corrupt("block frame identity or length"));
     }
@@ -77,7 +65,7 @@ fn decode_inner(
     Ok(output)
 }
 
-pub(super) fn encode(payload: &[u8], object: Uuid, sequence: u64, ordinal: u64) -> Result<Vec<u8>> {
+pub(super) fn encode(payload: &[u8], object: Uuid, ordinal: u64) -> Result<Vec<u8>> {
     if payload.is_empty() || payload.len() > BLOCK_BYTES {
         return Err(corrupt("block encode length"));
     }
@@ -97,7 +85,6 @@ pub(super) fn encode(payload: &[u8], object: Uuid, sequence: u64, ordinal: u64) 
     put32(&mut bytes, 24, payload.len() as u32);
     put32(&mut bytes, 28, stored.len() as u32);
     bytes[32..48].copy_from_slice(object.as_bytes());
-    put64(&mut bytes, 48, sequence);
     bytes[80..].copy_from_slice(stored);
     let crc = crc32fast::hash(&bytes);
     put32(&mut bytes, 64, crc);
@@ -120,23 +107,13 @@ impl ReadCall {
         }
         let bytes = self.read_extent(path, 0, 128, false, ReadClass::FormatProbe)?;
         let bytes = &bytes.bytes;
-        let kind = if location.source == Source::Pack {
-            1
-        } else {
-            2
-        };
-        let sequence = if location.source == Source::Pack {
-            0
-        } else {
-            location.version.batch
-        };
         if &bytes[..8] != b"LDPART1\0"
             || u16_at(bytes, 8) != 1
-            || bytes[10] != kind
+            || bytes[10] != 1
             || bytes[11] != 0
             || u32_at(bytes, 12) != 128
             || uuid_at(bytes, 16) != location.object
-            || u64_at(bytes, 32) != sequence
+            || u64_at(bytes, 32) != 0
             || u32_at(bytes, 40) != part
             || !(128..=super::PART_BYTES).contains(&u64::from(u32_at(bytes, 44)))
             || u64_at(bytes, 64) != 0

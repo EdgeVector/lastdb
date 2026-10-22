@@ -1,3 +1,8 @@
+> Historical format draft, October 22, 2026. The journal portions below are retired.
+> Read [Native snapshot commits](lastdb-snapshot-commits.md) for mandatory feature 256 and the active commit protocol.
+> The active native path has no journal files or recovery suffix and refuses old journal formats.
+> The remaining page and payload history does not override the current source feature checks.
+
 # LastDB disk directory and pack format v1
 
 Draft, October 14, 2026. This document completes the format part of Stage 1.

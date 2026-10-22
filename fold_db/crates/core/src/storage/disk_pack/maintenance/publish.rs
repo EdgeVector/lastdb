@@ -1,6 +1,6 @@
 //! The short owner handoff before concurrent old-file cleanup.
 use super::*;
-use laststore::disk_pack::journal::ReclaimPlan;
+use laststore::disk_pack::snapshot::ReclaimPlan;
 
 impl PackRuntime {
     pub(super) fn prepare_maintenance(
@@ -8,7 +8,7 @@ impl PackRuntime {
         options: NativeMaintenanceOptions,
         policy: &SpacePolicy,
     ) -> StorageResult<(MaintenanceReceipt, u64, ReclaimPlan, Current)> {
-        let mut writer = self.journal.lock().expect("native journal owner");
+        let mut writer = self.writer.lock().expect("native snapshot writer");
         let mut receipt = MaintenanceReceipt::default();
         let mut pack_millis = 0;
         if !options.dry_run && !options.reclaim_only {

@@ -57,7 +57,7 @@ impl<P: TreePages> TreeEdit<P> {
     }
 
     /// Install sorted final locators, copying each touched old page only once.
-    /// Journal operations and their original physical versions remain unchanged.
+    /// Stored operations and their original physical versions remain unchanged.
     pub(super) fn put_many(&mut self, call: &mut ReadCall, changes: &[MapChange]) -> Result<()> {
         if self.failed
             || changes.len() > call.current.batch_operation_limit()

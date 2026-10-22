@@ -21,7 +21,7 @@ pub use admission::MutationReservation;
 pub use build::{HomeBuilder, HomeGroupWriter};
 pub use mutation_quote::MutationQuote;
 pub use read::HomeRead;
-pub use write::{HomeJournal, HomeMutation};
+pub use write::{HomeMutation, HomeSnapshot};
 
 pub(super) const MARKER: &str = "laststore-pack-home-v1";
 /// FNV-1a-64, 1024 groups, first-NUL-inclusive hash prefix, configured 1..16 fanout.

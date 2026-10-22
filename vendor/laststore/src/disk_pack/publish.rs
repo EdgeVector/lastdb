@@ -1,8 +1,8 @@
 use super::dependency::Dependencies;
-use super::dependency_walk;
 use super::generation;
-use super::journal::{JournalRecovery, RecoveredMutation};
 use super::locator_forest::LocatorChanges;
+use super::pack_write::WrittenData;
+use super::snapshot::PreparedMutation;
 use super::tree_edit::TreeEdit;
 use super::write_lock::WriteLock;
 use super::{artifact, corrupt, Current, DirectoryEntry};
@@ -21,7 +21,7 @@ pub struct PublishedGeneration {
     pub receipt: Uuid,
     /// Complete retained dependency parts, including conservative prior references.
     pub dependency_parts: u64,
-    /// Operations included from complete captured journal batches.
+    /// Operations included in this complete snapshot commit.
     pub mutations: u64,
     /// New tree pages, including superseded private intermediate roots.
     pub metadata_pages_written: u64,
@@ -40,43 +40,16 @@ struct Publisher<'a> {
     dependencies: Dependencies,
 }
 
-/// Recover complete batches into immutable path copies, then atomically publish
-/// a separate artifact. This is not the LastStore home writer or ack path.
-/// The exclusive journal lock excludes an artifact writer for the whole command.
-pub fn publish_artifact_journal(root: &Path) -> Result<PublishedGeneration> {
-    let lock = WriteLock::acquire(root)?;
-    publish_locked(&lock)
-}
-
-pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
+/// Publish prepared direct payload locations with one complete root change.
+pub(super) fn publish_prepared(
+    lock: &WriteLock,
+    previous: &Current,
+    proposed: Current,
+    mutations: Vec<PreparedMutation>,
+    payload: Option<WrittenData>,
+) -> Result<PublishedGeneration> {
     let root = lock.root();
-    let previous = artifact::current(root)?;
-    if previous.required_features & super::FEATURE_OBJECT_METADATA == 0 {
-        return Err(corrupt("publication requires complete object bounds"));
-    }
-    let tail = super::journal::JournalTail::read(root)?;
-    tail.validate_for_current(root, &previous)?;
-    if tail.stream != previous.journal_stream {
-        return super::stream_checkpoint::publish_stream(lock, &previous, &tail);
-    }
-    let mut recovery = JournalRecovery::open(root)?;
-    let old_receipt = ensure_generation(lock, &previous)?;
-    if recovery.tail().last_batch == previous.frontier {
-        return Ok(PublishedGeneration {
-            current: previous,
-            receipt: old_receipt.object,
-            dependency_parts: old_receipt.dependencies,
-            mutations: 0,
-            metadata_pages_written: 0,
-            metadata_parts_written: 0,
-        });
-    }
-    let mut proposed = previous.clone();
-    proposed.generation = fresh_generation(root, previous.generation)?;
-    proposed.previous_generation = previous.generation;
-    proposed.frontier = recovery.tail().last_batch;
-    proposed.journal_frontier = recovery.tail().last_batch;
-    proposed.published_ms = artifact::unix_ms();
+    let old_receipt = ensure_generation(lock, previous)?;
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
@@ -88,12 +61,15 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
         mutations: 0,
         dependencies: Dependencies::from_coordinates(old_receipt.coordinates.clone())?,
     };
-    while let Some(batch) = recovery.next_batch()? {
-        publisher.batch(recovery.tail().stream, batch.sequence, batch.mutations)?;
+    if let Some(payload) = payload {
+        publisher.dependencies.add_payload(
+            payload.object,
+            0,
+            payload.data_parts,
+            payload.map_pages,
+        )?;
     }
-    if !recovery.is_complete() {
-        return Err(corrupt("publication did not reach captured TAIL"));
-    }
+    publisher.batch(mutations)?;
     for output in publisher.locators.finish()? {
         publisher.pages += output.pages;
         publisher.parts += output.parts.len() as u64;
@@ -112,7 +88,7 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
     let receipt =
         generation::write_carried(root, &publisher.proposed, &dependencies, &old_receipt)?;
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
-    if artifact::current(root)? != previous {
+    if artifact::current(root)? != *previous {
         return Err(corrupt("CURRENT changed during publication"));
     }
     publish_current(root, &publisher.proposed)?;
@@ -128,42 +104,36 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
 }
 
 impl Publisher<'_> {
-    fn batch(
-        &mut self,
-        stream: Uuid,
-        sequence: u64,
-        mut mutations: Vec<RecoveredMutation>,
-    ) -> Result<()> {
+    fn batch(&mut self, mut mutations: Vec<PreparedMutation>) -> Result<()> {
         self.mutations += mutations.len() as u64;
-        self.batch_dependencies(stream, sequence)?;
-        // Sorting changes only physical work order, after complete COMMIT verification.
+        // Physical sort preserves the original operation version for repeated keys.
         mutations.sort_by(|a, b| {
-            a.mutation
-                .collection
+            a.collection
                 .as_bytes()
-                .cmp(b.mutation.collection.as_bytes())
-                .then(a.mutation.group.cmp(&b.mutation.group))
-                .then(a.mutation.key.as_bytes().cmp(b.mutation.key.as_bytes()))
+                .cmp(b.collection.as_bytes())
+                .then(a.group.cmp(&b.group))
+                .then(a.key.as_bytes().cmp(b.key.as_bytes()))
                 .then(a.location.version.cmp(&b.location.version))
         });
         let mut items = mutations.into_iter().peekable();
         let mut directory_changes = BTreeMap::new();
         while let Some(first) = items.next() {
-            let collection = first.mutation.collection.clone();
-            let group = first.mutation.group;
+            let collection = first.collection.clone();
+            let group = first.group;
             let mut changes = BTreeMap::new();
             changes.insert(
-                first.mutation.key.into_bytes(),
+                first.key.into_bytes(),
                 first
                     .location
                     .encode_for_features(self.proposed.required_features)?,
             );
-            while items.peek().is_some_and(|item| {
-                item.mutation.collection == collection && item.mutation.group == group
-            }) {
+            while items
+                .peek()
+                .is_some_and(|item| item.collection == collection && item.group == group)
+            {
                 let item = items.next().expect("peeked operation");
                 changes.insert(
-                    item.mutation.key.into_bytes(),
+                    item.key.into_bytes(),
                     item.location
                         .encode_for_features(self.proposed.required_features)?,
                 );
@@ -201,17 +171,6 @@ impl Publisher<'_> {
             &directory_changes.into_iter().collect::<Vec<_>>(),
         )
     }
-
-    fn batch_dependencies(&mut self, stream: Uuid, sequence: u64) -> Result<()> {
-        let mut call = artifact::metadata_call(self.root, self.proposed.clone());
-        let object = call.journal_object_metadata(stream, sequence)?;
-        self.dependencies.add_payload(
-            stream,
-            sequence,
-            object.data_parts,
-            object.blocks.div_ceil(super::MAP_ENTRIES),
-        )
-    }
 }
 
 pub(super) fn ensure_generation(
@@ -220,20 +179,10 @@ pub(super) fn ensure_generation(
 ) -> Result<generation::Generation> {
     let root = lock.root();
     let checked = lock.checked(current)?;
-    let generation = if root
-        .join("generations")
-        .join(current.generation.to_string())
-        .try_exists()?
-    {
-        if checked {
-            generation::read_receipt(root, current)?
-        } else {
-            generation::verify(root, current)?
-        }
-    } else if checked {
-        return Err(corrupt("checked generation receipt is missing"));
+    let generation = if checked {
+        generation::read_receipt(root, current)?
     } else {
-        generation::write(root, current, &dependency_walk::collect(root, current)?)?
+        generation::verify(root, current)?
     };
     lock.remember_checked(current)?;
     Ok(generation)

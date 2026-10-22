@@ -89,7 +89,7 @@ impl ArtifactBuilder {
             marker.write_all(b"artifact-only=1\nformat=1\n")?;
             durability::sync_dirty_file(&marker)?;
         }
-        for name in ["directory", "locator", "packs", "journal"] {
+        for name in ["directory", "locator", "packs"] {
             directory(&root.join(name))?;
         }
         let directory = TreeWriter::new(root, TreeKind::Directory, generation)?;
@@ -111,7 +111,7 @@ impl ArtifactBuilder {
             },
             required_features: super::FEATURE_OBJECT_METADATA
                 | super::FEATURE_PACKED_KEYS
-                | super::FEATURE_JOURNAL_LIFECYCLE
+                | super::FEATURE_SNAPSHOT_COMMIT
                 | super::FEATURE_FILE_LIFETIME
                 | if native.is_some() {
                     super::FEATURE_NATIVE_HOME | super::FEATURE_LARGE_BATCHES
@@ -154,12 +154,8 @@ impl ArtifactBuilder {
             ));
         }
         let data = self.pack.finish()?;
-        self.dependencies.add_payload(
-            data.object,
-            data.sequence,
-            data.data_parts,
-            data.map_pages,
-        )?;
+        self.dependencies
+            .add_payload(data.object, 0, data.data_parts, data.map_pages)?;
         if let Some(locators) = self.locators {
             let output = locators.finish()?;
             self.dependencies.add_tree(&output.tree, output.parts)?;
@@ -170,11 +166,9 @@ impl ArtifactBuilder {
             generation: self.generation,
             previous_generation: 0,
             frontier: self.frontier,
-            journal_frontier: self.frontier,
             directory,
             placement_codec: self.placement_codec,
             key_codec: self.key_codec,
-            journal_stream: Uuid::new_v4(),
             published_ms: unix_ms(),
             required_features: self.required_features,
             home_digest: self.home_digest,

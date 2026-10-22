@@ -25,11 +25,6 @@ pub(in crate::disk_pack) fn compact_locked(
 ) -> Result<(Current, MaintenanceReceipt)> {
     let root = lock.root();
     let previous = artifact::current(root)?;
-    let tail = crate::disk_pack::journal::JournalTail::read(root)?;
-    tail.validate_for_current(root, &previous)?;
-    if tail.stream != previous.journal_stream || tail.last_batch != previous.frontier {
-        return Err(corrupt("compaction requires a complete journal checkpoint"));
-    }
     let old = publish::ensure_generation(lock, &previous)?;
     let reserve = super::quote::replacement_bytes(root, &previous)?;
     let _space = reserve_replacement(root, policy, reserve)?;
@@ -60,12 +55,9 @@ pub(in crate::disk_pack) fn compact_locked(
         call = artifact::metadata_call(root, previous.clone());
     }
     let data = pack.finish()?;
-    compactor.dependencies.add_payload(
-        data.object,
-        data.sequence,
-        data.data_parts,
-        data.map_pages,
-    )?;
+    compactor
+        .dependencies
+        .add_payload(data.object, 0, data.data_parts, data.map_pages)?;
     let output = locators.finish()?;
     compactor
         .dependencies

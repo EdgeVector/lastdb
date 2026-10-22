@@ -27,11 +27,13 @@ impl WriteLock {
 
     fn acquire_inner(root: &Path, conversion: Option<uuid::Uuid>) -> Result<Self> {
         let root = std::fs::canonicalize(root)?;
+        // Reject an unsupported format before creating any new writer-owned file.
+        artifact::current(&root)?;
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
-            .open(root.join("journal").join("LOCK"))?;
+            .open(root.join("SNAPSHOT_LOCK"))?;
         rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
             .map_err(std::io::Error::from)?;
         if root.join(super::conversion::REVERSE_FENCE).try_exists()? {
@@ -117,11 +119,11 @@ impl WriteLock {
 }
 
 /// Temporary files a publication writes in the root before it renames them.
-const PUBLICATION_TEMPORARIES: [&str; 2] = ["CURRENT.pending-", "TAIL.pending-"];
+const PUBLICATION_TEMPORARIES: [&str; 1] = ["CURRENT.pending-"];
 
 /// Remove the temporary files that a writer killed inside a publication left.
 ///
-/// A publication writes `CURRENT` or `JOURNAL_TAIL` to a `.pending-<uuid>` file
+/// A publication writes `CURRENT` to a `.pending-<uuid>` file
 /// and renames it over the target. Only the holder of this lock publishes, so
 /// when the lock is held every such file is the leftover of a dead writer. No
 /// recovery state names them, and each kill inside a publication would leave

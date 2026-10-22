@@ -205,7 +205,7 @@ fn run() -> Result<()> {
         "map_pages":costs.map_pages,"payload_blocks":costs.payload_blocks,"shared_pages":costs.shared_pages,"shared_blocks":costs.shared_blocks,
         "batch_read_runs":costs.batch_read_runs,"file_handles_peak":costs.file_handles_peak,"file_handle_reuses":costs.file_handle_reuses,
         "file_bytes":costs.file_bytes,"budget_bytes":costs.budget_bytes,"examined_keys":costs.examined_keys},
-        "disk":{"group_opens":disk.group_opens,"legacy_replay_bytes":disk.legacy_replay_bytes,"journal_replay_bytes":disk.journal_replay_bytes,
+        "disk":{"group_opens":disk.group_opens,"legacy_replay_bytes":disk.legacy_replay_bytes,
         "footer_bytes":disk.footer_bytes,"directory_reads":disk.directory_reads,"file_opens":disk.file_opens,"read_operations":disk.read_operations,
         "format_probe_bytes":disk.format_probe_bytes,"payload_bytes":disk.payload_bytes,"temporary_bytes_peak":disk.temporary_bytes_peak},
         "filesystem_pages":"unknown","elapsed_nanos":started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64})

@@ -1,15 +1,18 @@
 # Native disk file lifetime and packing
 
-The native writer now supports a shared file lifetime protocol and explicit file maintenance.
-The primary remains unchanged.
+The native snapshot writer uses a shared file lifetime protocol and explicit file maintenance.
+The [active snapshot protocol](lastdb-snapshot-commits.md) defines the complete commit and reopen boundary.
+This document reflects the reclaim handoff from PR 267 and the later journal removal.
+It does not establish a primary result.
 
 ## Generation protection
 
 The mandatory `FEATURE_FILE_LIFETIME` bit is 8.
 New homes and artifacts set this bit at creation.
 Older binaries refuse that home before they trust its root.
-Existing native homes without this bit retain every file.
-This change does not silently convert their compatibility contract.
+Snapshot roots without this bit retain every file.
+Every supported root also requires snapshot feature `256` and refuses retired journal feature `2`.
+Old journal homes receive an explicit refusal; startup performs no migration.
 
 Each ordinary read takes a shared `LIFETIME_LOCK` before it captures `CURRENT`.
 A read with a cached root checks its immutable generation receipt under that lock.
@@ -25,7 +28,9 @@ A separate process cannot acquire the writer lease while that call exists.
 An atomic local gate counts the active calls for each generation.
 Reclaim does not defer for them: it keeps every generation that an active call holds, with its whole closure.
 A call therefore finds every file that its own receipt names, and a tight loop of reads cannot starve reclaim.
-The gate also refuses new holds during reclaim and refuses roots below its retained generation floor.
+Concurrent reclaim permits new holds on the installed root or a newer root.
+It refuses roots below its retained generation floor.
+Standalone writer maintenance excludes new local holds until reclaim ends.
 Standalone reads keep the cross-process `LIFETIME_LOCK` protocol.
 
 Named references use a checksummed kind-12 page and a directory barrier.
@@ -37,13 +42,13 @@ Only an explicit owner release removes it.
 
 `generation_inventory` returns exact relative dependency paths, lengths, and creation generations.
 It includes the generation receipt and immutable format descriptors.
-It excludes mutable `CURRENT` and `JOURNAL_TAIL`.
-A physical backup encodes the selected root and a matching empty tail separately.
-It also holds the source generation throughout each copy.
+It excludes mutable `CURRENT`.
+A format-2 physical backup encodes the selected root separately and holds its generation throughout each copy.
+The bundle contains no journal tail or empty journal stream.
 
 ## Packing and space
 
-`HomeJournal::compact` first completes the journal checkpoint under the existing exclusive writer lease.
+`HomeSnapshot::compact` uses the existing exclusive writer lease and the selected complete snapshot.
 It quotes worst-case uncompressed output from the live map before it writes replacements.
 It then streams current records and tombstones into new pack parts and map pages.
 Each record keeps its stored body, full key, collection, and physical mutation version.
@@ -72,8 +77,8 @@ No reservation takes credit for later file removal.
 
 ## Reclaim
 
-Reclaim requires a complete journal checkpoint and the lifetime feature bit.
-It verifies the full closure of `CURRENT`, named references, generations that active local reads hold, and generations inside the grace period.
+Reclaim requires a complete selected snapshot and the lifetime feature bit.
+It verifies the files for its captured root, named references, active local read generations, and generations inside the grace period.
 The writer lease verifies each retained generation once; a later call reads its receipt only, so a drain of many calls does not open every part again.
 The retained generations can name at most 262,144 parts. A home above that bound stops reclaim with an error that says so and that nothing was deleted; release stale references to resume it.
 The default grace period is 24 hours.
@@ -85,8 +90,15 @@ It refuses symlink namespaces.
 Old receipt directories move atomically into an owned retirement namespace after their dependencies no longer need retention.
 A later call can finish an interrupted receipt cleanup.
 Reclaim removes only a receipt that is provably unfinished (see `docs/lastdb-storage-parts.md`).
-Any other unreadable receipt, unknown file, or failed private output stops reclaim with an error that names the directory, and the directory stays; this command does not invent ownership for them.
-The sweep of part files that no receipt names is a separate step. It removes those files after a minimum age.
+Any other unreadable old receipt stops reclaim with an error that names its directory, and the directory stays.
+This command does not invent ownership for unknown output.
+The sweep of part files that no receipt names is a separate step.
+It removes those files after a minimum age.
+
+A concurrent reclaim plan holds its captured generation and excludes generations at or above its floor from old-file removal.
+Later ordinary writes can publish new generations while cleanup runs.
+A concurrent orphan sweep also checks each part's creation generation.
+New, incomplete, or unknown output stays outside its removal plan.
 
 ## Product commands
 
@@ -94,7 +106,7 @@ The sweep of part files that no receipt names is a separate step. It removes tho
 Its commands are `compact`, `reclaim`, `inventory`, `reference`, `references`, `release`, `hold`, `hold-writer`, and `records`.
 `records` prints body hashes and original mutation versions through the supported administrative stream.
 `hold` retains a read generation for a bounded period.
-`hold-writer` reports the local hold costs and retains the writer lease after the journal handle ends.
+`hold-writer` reports the local hold costs and retains the writer lease after the snapshot handle ends.
 The mutation commands require the exclusive native writer lease.
 They refuse a writer that already owns that home.
 No command stops a node or activates this format on the primary.
@@ -108,16 +120,22 @@ Pass `{"dry_run":false,"reclaim_only":true}` to reclaim without a rewrite.
 An optional `grace_ms` sets an explicit grace period.
 A named collection is refused because native parts share one committed root.
 
-The runtime waits for the complete write gate before maintenance starts.
-Compaction rewrites the whole home and holds that gate until its work ends.
-New writes wait; this path has no incremental job or wall-clock work limit.
+The runtime owns a separate maintenance gate before it starts a pack or cleanup.
+It waits for earlier accepted writes and takes the complete write gate before the pack.
+Compaction rewrites the whole home while that gate remains held.
+New writes wait during the pack; it has no incremental job or wall-clock work limit.
 The long pack copy permits reads from the old root.
-After publication, the runtime takes the read-view write lock and installs the new root.
-It then attempts reclaim before it releases that lock.
-Older active calls keep their generations: reclaim retains each held generation and deletes nothing in its closure.
-Another process that holds the shared lifetime lock still defers reclaim.
+
+After publication, a short read-view write lock installs the new root and captures the reclaim plan.
+The runtime then releases the read-view lock, writer mutex, and complete write gate before old-file cleanup.
+The maintenance gate still excludes another pack or cleanup.
+Ordinary writes and reads can continue during reclaim.
+Older active calls retain their complete generations, and new calls can hold the installed root or a newer root.
+An external shared lifetime lock still defers removal.
+
 New calls acquire their generation hold before they release the view read lock.
-Thus no call can capture a root after its files retire.
+No call can capture an old root after its files retire.
+Cancellation of the request does not cancel the owned maintenance work or release its holds early.
 
 The ordinary cap-disabled space check uses filesystem capacity and active tickets only.
 It does not enumerate files for each write.

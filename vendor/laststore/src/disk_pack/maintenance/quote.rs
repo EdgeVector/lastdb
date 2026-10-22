@@ -10,7 +10,7 @@ const MAX_HOME_RECORDS: u64 = 67_108_864;
 /// Worst-case uncompressed output, calculated from exact live locator entries.
 /// Compression can never reduce this reservation and then enlarge its output beyond it.
 pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
-    // Complete receipt, its private publication, empty-tree floors, and checkpoint slack.
+    // Complete receipt, its private publication, empty-tree floors, and publication slack.
     let mut bytes = 8 * 1024 * 1024u64;
     let mut records = 0u64;
     let mut groups = 0u64;

@@ -1,0 +1,18 @@
+{
+  "bundle": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/snap.URO9cq/backup-bundle",
+  "complete": true,
+  "credential_file_paths_absent": true,
+  "exact_and_range_values_matched": true,
+  "expected_live_records": 60,
+  "format": "lastdb-native-backup-2",
+  "frontier": 38,
+  "generation": 40,
+  "identity_bytes_read_or_copied": false,
+  "journal_paths_absent": true,
+  "key63_revision99_matched": true,
+  "node_identity_key_excluded": true,
+  "restored_physical_root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/snap.URO9cq/home/data/disk-pack",
+  "same_home_identity_file_metadata": true,
+  "scope": "One owned local backup/restore and product readback; no cloud or power-loss claim",
+  "source_physical_root_renamed": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/snap.URO9cq/source-disk-pack-before-restore"
+}

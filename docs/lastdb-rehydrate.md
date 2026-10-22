@@ -183,7 +183,8 @@ The private disk queue owns prepared bytes and completion work until flush.
 Ordinary reads cannot query that queue.
 The prepared disk commit owns its disk-space reservation directly.
 A failed commit retains that reservation; the sealed queue retains its pending request owners.
-The native journal supports recovery of stored writes. It does not replace the current core state.
+Reopen verifies the [selected native snapshot](lastdb-snapshot-commits.md), without local mutation replay.
+Accepted memory retains newer writes until the flush commits them.
 Local mutations in one batch share one logical revision and receive consecutive author times in caller order.
 The durable clock reservation covers the final time before the batch can flush.
 Imported signed clocks remain unchanged. Random mutation identities do not order repeated local writes.
@@ -253,7 +254,7 @@ Definitions, complete keys, and write metadata keep their separate allowances.
 Host pressure uses the same native measurements and clean-record purge.
 These controls do not enforce the planned warm byte admission limit.
 
-Each queued disk extension reserves only its additional file and journal bytes.
+Each queued disk extension reserves only its additional snapshot output bytes.
 The earlier request keeps its reservations until the extension succeeds.
 Acceptance transfers those owners without a second charge. Refusal releases only the private extension.
 A failed disk commit retains the complete reservation for its required output.

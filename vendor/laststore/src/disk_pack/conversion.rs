@@ -26,7 +26,7 @@ pub struct ReverseReceipt {
 
 /// Create a new legacy destination from the current native data, including writes
 /// after the original conversion. Caller excludes other source processes/admins.
-/// The exclusive journal owner refuses an active native node. A durable source
+/// The exclusive snapshot owner refuses an active native node. A durable source
 /// fence prevents a later native reopen from accepting writes in the old home.
 pub fn reverse_to_legacy(home: &DiskHome, destination: &Path) -> Result<ReverseReceipt> {
     if destination.try_exists()? {
@@ -34,7 +34,7 @@ pub fn reverse_to_legacy(home: &DiskHome, destination: &Path) -> Result<ReverseR
             "reverse destination already exists".into(),
         ));
     }
-    let writer = home.journal()?;
+    let writer = home.snapshot()?;
     let current = writer.current().clone();
     let reference = DurableReference::create(home.path(), &current, ReferencePurpose::Rollback, 0)?;
     let mut options = LastStoreOptions::hash_group();
@@ -142,8 +142,6 @@ pub fn finish_conversion(source: &Path, destination: &Path) -> Result<()> {
         let current = super::Current::decode(fixed)?;
         super::home::HomeDescriptor::read(&destination)?.check_current(&current)?;
         let _inventory = super::lifetime::generation_inventory(&destination, &current)?;
-        super::journal::JournalTail::read(&destination)?
-            .validate_for_current(&destination, &current)?;
         if !source.join(fence::FORWARD_FENCE).try_exists()? {
             fence::publish(source, fence::FORWARD_FENCE, &value)?;
         }

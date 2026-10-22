@@ -15,7 +15,7 @@ pub struct GenerationFile {
     pub creation_generation: u64,
 }
 
-/// Complete physical snapshot metadata. CURRENT and TAIL require snapshot encodings.
+/// Complete physical snapshot metadata. CURRENT requires its complete encoding.
 pub struct GenerationInventory {
     /// Exact root to encode as the restored CURRENT.
     pub current: Current,

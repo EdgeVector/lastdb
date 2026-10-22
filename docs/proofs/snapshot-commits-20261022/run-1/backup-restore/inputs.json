@@ -1,0 +1,21 @@
+{
+  "driver_sha256": "3fc0f9b285072764df1a4e32ac0d2e6f50909aebc6a8b5aa424ff0e196a5244c",
+  "expected_last_revision": 99,
+  "expected_records": 60,
+  "identity_bytes_read_or_copied": false,
+  "node_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target/release/lastdbd",
+  "node_binary_sha256": "3b863a0540a1a4d7cadfb137a230145413ec8c1c1825f897e19533bea01796ab",
+  "ownership": {
+    "creator_pid": 45027,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/snap.URO9cq/home",
+    "inode": 1500853876,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "23fea1e10ecd44a98e4c7bf4814e8707",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/snap.URO9cq",
+    "version": 1
+  },
+  "recovery_binary": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target/release/lastdb-disk-recovery",
+  "recovery_binary_sha256": "1bcae6a7e7a2a597334c6426e3acc243eeb645423d42bb0b584d3d4839282f22"
+}

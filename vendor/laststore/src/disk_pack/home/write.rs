@@ -1,9 +1,9 @@
 use super::{DiskHome, HomeDescriptor};
-use crate::disk_pack::journal::{
-    DurableBatch, JournalMutation, JournalMutationShape, JournalPressure, JournalQuote,
-    JournalReservation, JournalWriter,
+use crate::disk_pack::snapshot::{
+    SnapshotMutation, SnapshotMutationShape, SnapshotPressure, SnapshotQuote, SnapshotReservation,
+    SnapshotWriter,
 };
-use crate::disk_pack::{Current, PublishedGeneration};
+use crate::disk_pack::Current;
 use crate::Result;
 
 /// Complete native stored mutation. The home derives its physical group.
@@ -16,22 +16,22 @@ pub struct HomeMutation {
     pub body: Option<Vec<u8>>,
 }
 
-/// Exclusive native journal owner. A durable append is distinct from root publication.
+/// Exclusive native snapshot owner. Each stored batch publishes one complete root.
 /// This API does not acknowledge a logical memory mutation or release its token.
-pub struct HomeJournal {
+pub struct HomeSnapshot {
     pub(super) descriptor: HomeDescriptor,
-    pub(super) writer: JournalWriter,
+    pub(super) writer: SnapshotWriter,
 }
 
 impl HomeDescriptor {
-    /// Derive the native group before a journal-only capacity calculation.
+    /// Derive the native group before a snapshot-only capacity calculation.
     pub fn mutation_shape(
         &self,
         collection: &str,
         key: &str,
         body_bytes: Option<u64>,
-    ) -> Result<JournalMutationShape> {
-        Ok(JournalMutationShape::new(
+    ) -> Result<SnapshotMutationShape> {
+        Ok(SnapshotMutationShape::new(
             collection.len(),
             self.group(key)?,
             key.len(),
@@ -40,7 +40,7 @@ impl HomeDescriptor {
     }
 
     /// Quote a complete native batch without copying or retaining its bodies.
-    pub fn quote(&self, operations: &[HomeMutation]) -> Result<JournalQuote> {
+    pub fn quote(&self, operations: &[HomeMutation]) -> Result<SnapshotQuote> {
         self.quote_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
     }
 
@@ -48,7 +48,7 @@ impl HomeDescriptor {
         &self,
         operations: &[HomeMutation],
         operation_limit: usize,
-    ) -> Result<JournalQuote> {
+    ) -> Result<SnapshotQuote> {
         if operations.is_empty() || operations.len() > operation_limit {
             return Err(crate::Error::Config(format!(
                 "native batch requires 1..{operation_limit} operations"
@@ -65,22 +65,22 @@ impl HomeDescriptor {
                 operation.body.as_ref().map(|body| body.len() as u64),
             )?);
         }
-        JournalQuote::from_iter_with_limit(shapes, operation_limit)
+        SnapshotQuote::from_iter_with_limit(shapes, operation_limit)
     }
 }
 
 impl DiskHome {
-    pub(crate) fn journal_conversion(&self, token: uuid::Uuid) -> Result<HomeJournal> {
-        let writer = JournalWriter::open_conversion(&self.root, token)?;
+    pub(crate) fn snapshot_conversion(&self, token: uuid::Uuid) -> Result<HomeSnapshot> {
+        let writer = SnapshotWriter::open_conversion(&self.root, token)?;
         self.descriptor.check_current(writer.current())?;
-        Ok(HomeJournal {
+        Ok(HomeSnapshot {
             descriptor: self.descriptor.clone(),
             writer,
         })
     }
 
-    /// Recover complete pending work and checkpoint a fresh stream before admission.
-    pub fn journal(&self) -> Result<HomeJournal> {
+    /// Open the selected complete snapshot without mutation replay.
+    pub fn snapshot(&self) -> Result<HomeSnapshot> {
         if self
             .root
             .join(crate::disk_pack::conversion::REVERSE_FENCE)
@@ -96,16 +96,16 @@ impl DiskHome {
                 "native descriptor changed before writer admission",
             ));
         }
-        let writer = JournalWriter::open(&self.root)?;
+        let writer = SnapshotWriter::open(&self.root)?;
         self.descriptor.check_current(writer.current())?;
-        Ok(HomeJournal {
+        Ok(HomeSnapshot {
             descriptor: self.descriptor.clone(),
             writer,
         })
     }
 }
 
-impl HomeJournal {
+impl HomeSnapshot {
     /// Pack live records without a logical mutation; retain held and grace-period files.
     pub fn compact(
         &mut self,
@@ -154,9 +154,9 @@ impl HomeJournal {
         self.writer.is_poisoned()
     }
 
-    /// Own journal capacity before the batch transfers its stored bodies.
+    /// Own snapshot capacity before the batch transfers its stored bodies.
     /// This does not reserve directory space or authorize a memory ack.
-    pub fn reserve(&self, operations: &[HomeMutation]) -> Result<JournalReservation> {
+    pub fn reserve(&self, operations: &[HomeMutation]) -> Result<SnapshotReservation> {
         self.writer.reserve_quote(
             self.descriptor
                 .quote_with_limit(operations, self.current().batch_operation_limit())?,
@@ -164,50 +164,21 @@ impl HomeJournal {
     }
 
     /// Include unappended reservations in the bounded suffix pressure.
-    pub fn pressure(&self) -> Result<JournalPressure> {
+    pub fn pressure(&self) -> Result<SnapshotPressure> {
         self.writer.pressure()
     }
 
-    /// Make one complete batch recoverable. It becomes readable only at publication.
-    pub fn append(
-        &mut self,
-        operations: Vec<HomeMutation>,
-        accepted_ms: u64,
-    ) -> Result<DurableBatch> {
-        let reservation = self.reserve(&operations)?;
-        self.append_reserved(operations, accepted_ms, reservation)
-    }
-
-    /// Consume only capacity owned by this exact writer instance.
-    pub fn append_reserved(
-        &mut self,
-        operations: Vec<HomeMutation>,
-        accepted_ms: u64,
-        reservation: JournalReservation,
-    ) -> Result<DurableBatch> {
-        let operation_limit = self.current().batch_operation_limit();
-        if operations.is_empty() || operations.len() > operation_limit {
-            return Err(crate::Error::Config(format!(
-                "native batch requires 1..{operation_limit} operations"
-            )));
-        }
-        let addressed: Result<Vec<_>> = operations
+    pub(super) fn address(&self, operations: Vec<HomeMutation>) -> Result<Vec<SnapshotMutation>> {
+        operations
             .into_iter()
             .map(|operation| {
-                Ok(JournalMutation {
+                Ok(SnapshotMutation {
                     group: self.descriptor.group(&operation.key)?,
                     collection: operation.collection,
                     key: operation.key,
                     body: operation.body,
                 })
             })
-            .collect();
-        self.writer
-            .append_reserved(addressed?, accepted_ms, reservation)
-    }
-
-    /// Commit the complete directory boundary before a caller releases write protection.
-    pub fn publish(&mut self) -> Result<PublishedGeneration> {
-        self.writer.publish()
+            .collect()
     }
 }

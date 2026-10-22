@@ -37,7 +37,7 @@ impl Manifest {
             })
             .collect();
         let bytes = serde_json::to_vec(&json!({
-            "format":"lastdb-native-backup-1", "generation":self.generation,
+            "format":"lastdb-native-backup-2", "generation":self.generation,
             "frontier":self.frontier, "files":files
         }))
         .map_err(|_| corrupt("backup manifest encoding"))?;
@@ -60,9 +60,9 @@ impl Manifest {
 
     pub(super) fn output_bytes(&self) -> Result<u64> {
         let mut directories = BTreeSet::new();
-        // The root, four writer namespaces and empty checkpoint stream need space,
+        // The root and the three snapshot namespaces need space,
         // even when no live file currently depends on one of those namespaces.
-        let mut bytes = 6 * 4096u64;
+        let mut bytes = 4 * 4096u64;
         for entry in &self.entries {
             super::files::validate_path(&entry.path)?;
             bytes = allocated_add(bytes, entry.bytes)?;
@@ -100,7 +100,7 @@ impl Manifest {
         }
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| corrupt("backup manifest JSON"))?;
-        if value["format"] != "lastdb-native-backup-1" {
+        if value["format"] != "lastdb-native-backup-2" {
             return Err(corrupt("backup format"));
         }
         let rows = value["files"]
