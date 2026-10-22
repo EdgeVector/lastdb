@@ -15,7 +15,9 @@ The cloud-repair commands, peer adoption records, and restart workers are remove
 Retired repair state and cloud generations that need adoption receive an explicit refusal.
 The sync mutation log and authenticated retired sync source records remain.
 
-The repeat benchmark uses three fresh-home pairs against the original journal-backed baseline `6d8aa0d57`. Durable-single request p50 falls from 86.1 to 48.9 ms. Process write bytes per durable update fall from 912.0 to 723.3 KiB. Batch latency shows mixed results. The focused compaction write delay remains about 2.2 seconds. Automatic maintenance is off in both versions. The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) separates these results from the [first report](proofs/journal-removal-benchmark-20261022/RESULTS.md). Neither comparison isolates the extra erase-meter removal.
+The repeat benchmark uses three fresh-home pairs against the original journal-backed baseline `6d8aa0d57`. Durable-single request p50 falls from 86.1 to 48.9 ms. Process write bytes per durable update fall from 912.0 to 723.3 KiB. Batch latency shows mixed results.
+
+The focused compaction write delay remains about 2.2 seconds. Automatic maintenance is off in both versions. The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) separates these results from the [first report](proofs/journal-removal-benchmark-20261022/RESULTS.md). Neither comparison isolates the extra erase-meter removal.
 
 The snapshot contains current molecule keys, atom references, required bodies, and search pages. A read checks accepted memory first, then fetches missing logical records by key. A range supplies one hash and ordered bounds. It merges bounded snapshot pages with newer memory changes and deletes. Each request captures a fresh view; ascending keyed continuations use the last key, while other forms retain their current offset rules. Optional selected-schema key preload remains supported under its separate budget; neither read route uses the sync log.
 
