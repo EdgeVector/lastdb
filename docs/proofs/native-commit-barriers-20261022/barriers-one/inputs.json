@@ -1,0 +1,27 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/pr.CoU0Kt/barriers",
+  "binary_sha256": "e9ac2149f91f8038cc2c14265abf246f0b02451718c671f958b834a3b35d73cf",
+  "source_commit": "8319a6ad3bc29263448f6062d42175a74426f28d",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/pr.CoU0Kt/b1",
+  "generated_data": true,
+  "mode": "candidate",
+  "count": 1000,
+  "clients": 1,
+  "schemas": 64,
+  "uds_workers": 8,
+  "records_per_batch": 1,
+  "value_bytes": 64,
+  "dependency_high_water": 4096,
+  "maintenance_start_delay_seconds": 0,
+  "memory_flush_interval_ms": 500,
+  "disk_cap_bytes": null,
+  "durability_parameter": "default; omitted",
+  "numeric_latency_trace": false,
+  "shared_schema_between_clients": false,
+  "load_before": [
+    2.6005859375,
+    3.00244140625,
+    2.85107421875
+  ],
+  "method": "Closed-loop real batch API calls; each client rotates through separate generated schemas. Every latency sample is retained."
+}

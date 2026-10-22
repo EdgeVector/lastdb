@@ -10,6 +10,9 @@ use std::fs::File;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+#[cfg(target_os = "macos")]
+mod ordered;
+
 static DATA_SYNCS: AtomicU64 = AtomicU64::new(0);
 static DATA_SYNC_MICROS: AtomicU64 = AtomicU64::new(0);
 static SIDECAR_SYNCS: AtomicU64 = AtomicU64::new(0);
@@ -20,10 +23,28 @@ static SCOPE_FLUSHES_SERIAL: AtomicU64 = AtomicU64::new(0);
 static SCOPE_FLUSHES_PARALLEL: AtomicU64 = AtomicU64::new(0);
 static WHOLE_FLUSHES_SERIAL: AtomicU64 = AtomicU64::new(0);
 static WHOLE_FLUSHES_PARALLEL: AtomicU64 = AtomicU64::new(0);
+static FULL_SYNCS: AtomicU64 = AtomicU64::new(0);
+static FULL_SYNC_MICROS: AtomicU64 = AtomicU64::new(0);
+static ORDERED_SYNCS: AtomicU64 = AtomicU64::new(0);
+static ORDERED_SYNC_MICROS: AtomicU64 = AtomicU64::new(0);
+static FILE_SET_SYNCS: AtomicU64 = AtomicU64::new(0);
+static FILE_SET_SYNC_MICROS: AtomicU64 = AtomicU64::new(0);
 
 /// Process lifetime counts of durability barriers, by kind.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SyncStats {
+    /// Apple device-cache drains, including final complete-commit barriers.
+    pub full_syncs: u64,
+    /// Total time in Apple device-cache drains, in microseconds.
+    pub full_sync_micros: u64,
+    /// Ordered Apple file/directory barriers inside complete native commits.
+    pub ordered_syncs: u64,
+    /// Total time in those ordered barriers, in microseconds.
+    pub ordered_sync_micros: u64,
+    /// Bounded native file sets flushed before a publication or final device drain.
+    pub file_set_syncs: u64,
+    /// Wall time for those file sets, including any scoped worker setup.
+    pub file_set_sync_micros: u64,
     /// Group data files made durable (`F_FULLFSYNC` on Apple).
     pub data_syncs: u64,
     /// Total time spent in those barriers, in microseconds.
@@ -50,6 +71,12 @@ pub struct SyncStats {
 #[must_use]
 pub fn sync_stats() -> SyncStats {
     SyncStats {
+        full_syncs: FULL_SYNCS.load(Ordering::Relaxed),
+        full_sync_micros: FULL_SYNC_MICROS.load(Ordering::Relaxed),
+        ordered_syncs: ORDERED_SYNCS.load(Ordering::Relaxed),
+        ordered_sync_micros: ORDERED_SYNC_MICROS.load(Ordering::Relaxed),
+        file_set_syncs: FILE_SET_SYNCS.load(Ordering::Relaxed),
+        file_set_sync_micros: FILE_SET_SYNC_MICROS.load(Ordering::Relaxed),
         data_syncs: DATA_SYNCS.load(Ordering::Relaxed),
         data_sync_micros: DATA_SYNC_MICROS.load(Ordering::Relaxed),
         sidecar_syncs: SIDECAR_SYNCS.load(Ordering::Relaxed),
@@ -98,10 +125,20 @@ fn timed(
 
 #[cfg(target_os = "macos")]
 fn barrier(file: &File) -> Result<()> {
+    if ordered::sync_if_active(file)? {
+        return Ok(());
+    }
     // Rust's sync_data also issues F_FULLFSYNC on Apple. Use the explicit
     // strongest barrier once and propagate errors; never fall back to fsync.
-    rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)?;
-    Ok(())
+    full_barrier(file)
+}
+
+#[cfg(target_os = "macos")]
+fn full_barrier(file: &File) -> Result<()> {
+    timed(&FULL_SYNCS, &FULL_SYNC_MICROS, || {
+        rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)?;
+        Ok(())
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -115,6 +152,18 @@ pub(crate) fn sync_dirty_file(file: &File) -> Result<()> {
     timed(&DATA_SYNCS, &DATA_SYNC_MICROS, || barrier(file))
 }
 
+/// Order every private dependency and this file before its visible rename.
+/// The enclosing native commit still requires a final full device sync.
+pub(crate) fn sync_publication_file(file: &File) -> Result<()> {
+    timed(&DATA_SYNCS, &DATA_SYNC_MICROS, || {
+        #[cfg(target_os = "macos")]
+        if ordered::publication_if_active(file)? {
+            return Ok(());
+        }
+        barrier(file)
+    })
+}
+
 /// Make a key sidecar durable before it replaces the previous one. Only a
 /// group at or above the sidecar flush floor calls this.
 pub(crate) fn sync_sidecar_file(file: &File) -> Result<()> {
@@ -124,7 +173,27 @@ pub(crate) fn sync_sidecar_file(file: &File) -> Result<()> {
 /// Make a directory entry durable.
 pub(crate) fn sync_directory(dir: &File) -> Result<()> {
     timed(&DIR_SYNCS, &DIR_SYNC_MICROS, || {
-        dir.sync_all()?;
-        Ok(())
+        #[cfg(target_os = "macos")]
+        return barrier(dir);
+        #[cfg(not(target_os = "macos"))]
+        {
+            dir.sync_all()?;
+            Ok(())
+        }
     })
+}
+
+/// Keep intermediate native publications ordered, then drain the device once.
+/// Other platforms retain their existing per-file durability barriers.
+pub(crate) fn complete_native_commit<T>(
+    root: &std::path::Path,
+    commit: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    #[cfg(target_os = "macos")]
+    return ordered::complete(root, commit);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = root;
+        commit()
+    }
 }

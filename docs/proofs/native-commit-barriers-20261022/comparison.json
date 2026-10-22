@@ -1,0 +1,30 @@
+{
+  "main": {
+    "count": 1000,
+    "errors": 0,
+    "average_ms": 165.53628128,
+    "median_ms": 142.884792,
+    "p95_ms": 273.229916,
+    "p99_ms": 351.3395,
+    "max_ms": 1430.703458,
+    "wall_seconds": 165.564635541,
+    "batches_per_second": 6.039937192700567,
+    "records_per_second": 6.039937192700567,
+    "latency_unit": "whole batch request; no division by record count"
+  },
+  "barriers": {
+    "count": 1000,
+    "errors": 0,
+    "average_ms": 34.167716771,
+    "median_ms": 30.004417,
+    "p95_ms": 42.961875,
+    "p99_ms": 58.056917,
+    "max_ms": 1688.542125,
+    "wall_seconds": 34.182398208,
+    "batches_per_second": 29.254822728206396,
+    "records_per_second": 29.254822728206396,
+    "latency_unit": "whole batch request; no division by record count"
+  },
+  "average_reduction_percent": 79.35937879792874,
+  "p99_reduction_percent": 83.4755508560808
+}

@@ -37,8 +37,15 @@ impl HomeJournal {
         accepted_ms: u64,
         reservation: MutationReservation,
     ) -> Result<crate::disk_pack::PublishedGeneration> {
-        self.append_mutation(operations, accepted_ms, reservation)?;
-        self.publish()
+        let root = self.writer.root().to_path_buf();
+        let result = crate::durability::complete_native_commit(&root, || {
+            self.append_mutation(operations, accepted_ms, reservation)?;
+            self.publish()
+        });
+        if result.is_err() {
+            self.writer.require_recovery();
+        }
+        result
     }
 
     /// Reserve journal and directory dependency capacity for all stored parts.
