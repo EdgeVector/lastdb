@@ -6,6 +6,7 @@ use laststore::disk_pack::home::DiskHome;
 use laststore::disk_pack::ReadBudget;
 use std::collections::BTreeSet;
 
+const ATOM_READ_BYTES: u64 = 64 * 1024 * 1024;
 const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
 // The two charged atom JSON trees use 64 MiB; release them before any CAS decode.
 // This separate 8 MiB identity cap leaves the complete active proof below 96 MiB.
@@ -28,10 +29,12 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
     loop {
         let page = {
             let mut read = home
-                .read(budget(DIRECTORY_READ_BYTES, 10000))
+                .read(budget(ATOM_READ_BYTES, 10000))
                 .map_err(|_| RestoreError::Limit("native atom read"))?;
             let mut cursor = read
-                .administrative_range("atoms", &start, &[])
+                // Native document IDs are UTF-8. 0xff is above every valid ID.
+                // An empty end is an empty range, not an unbounded range.
+                .administrative_range("atoms", &start, &[0xff])
                 .map_err(|_| RestoreError::Limit("native atom inventory"))?;
             cursor
                 .next_page_yielding(1, 0, 0)
@@ -96,12 +99,15 @@ fn verify_dependency(
 ) -> Result<()> {
     let row = {
         let mut read = home
-            // The native budget also charges physical pages and block bytes.
-            // 48 MiB of reader state + 32 MiB row + 8 MiB identities stays below96.
-            .read(budget(
-                directory::NATIVE_CAS_ROW_MAX_BYTES + 16 * 1024 * 1024,
-                1,
-            ))
+            // This is a cumulative I/O/decode charge, not a memory allowance.
+            // The helper bounds a row before allocation. One read retains <=32MiB
+            // row +32MiB decoded blocks +8MiB pages +8MiB proof identities.
+            .read(ReadBudget {
+                pages: 512,
+                blocks: 16384,
+                bytes: 128 * 1024 * 1024,
+                keys: 1,
+            })
             .map_err(|_| RestoreError::Limit("native file read"))?;
         directory::read_native_cas(&mut read, dependency)
             .map_err(|_| RestoreError::Invalid("native file source"))?
