@@ -45,6 +45,8 @@ This closure does not remove all HashGroup writers. HashGroup restore and mainte
 
 Cancellation before admission drops the private erase and its meter candidate. Runtime meter snapshots retain an unclean verdict. `fold_db/crates/core/src/db_operations/atom_store/keep_small.rs` imports older versions as incomplete state, without journal replay. `fold_db/crates/core/src/db_operations/delete_ledger.rs` retains completed audit facts; those facts never drive recovery or another erase.
 
+Ordinary atom counters now retain their source schema. The erase debit uses that source, even when a protein peer removes the final reference. Older counters without a source reduce known global totals and mark per-schema meter trust incomplete. No extra body read is required.
+
 **Product receipts and limits**
 
 This receipt does not report a successful build, restart, crash interruption, cloud request, meter result, or performance result. Those results require separate receipts from the final candidate binary.

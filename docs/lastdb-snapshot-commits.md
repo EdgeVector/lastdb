@@ -152,6 +152,8 @@ The live debit follows the durable root.
 No pending debit, commit sequence, replay record, or journal prune remains.
 The meter format is version 2. Older snapshots keep their values but lose their trust claim.
 Ordinary final deletion audit facts remain in the snapshot.
+An atom counter retains the source schema for a debit when a protein peer removes the last reference.
+An older counter without that source makes the schema meter state incomplete; the code does not guess its owner.
 
 Erase preparation checks an 8 MiB aggregate copy quote before each full-state copy.
 One request retains one aggregate candidate; each new chunk replaces that candidate.

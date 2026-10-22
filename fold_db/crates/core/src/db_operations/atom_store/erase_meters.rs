@@ -9,7 +9,7 @@ use crate::storage::disk_pack::transaction::{self, publication};
 use chrono::Utc;
 
 struct EraseMeterPlan {
-    atoms: Vec<(String, String, u64)>,
+    atoms: Vec<(Option<String>, String, u64)>,
     tips: Vec<(String, String, u64, Option<MoleculeTipCounterSource>)>,
 }
 
@@ -23,7 +23,7 @@ impl EraseMeterPlan {
         for (schema, atom, bytes) in &self.atoms {
             meters.forget_pending_atom(atom);
             if *bytes > 0 {
-                meters.record_atom_delete(schema, *bytes);
+                meters.record_atom_delete(schema.as_deref(), *bytes);
             }
         }
         for (key, schema, bytes, source) in &self.tips {
@@ -75,7 +75,7 @@ impl AtomStore {
     pub(crate) async fn stage_erase_meters(
         &self,
         fallback_schema: &str,
-        atoms: &[(String, String, u64)],
+        atoms: &[(Option<String>, String, u64)],
         tips: &[TipDebit],
     ) -> Result<(), SchemaError> {
         let runtime = self
@@ -158,16 +158,20 @@ impl AtomStore {
         runtime: &Arc<crate::storage::disk_pack::PackRuntime>,
         owner: usize,
         fallback_schema: &str,
-        atoms: &[(String, String, u64)],
+        atoms: &[(Option<String>, String, u64)],
         tips: &[TipDebit],
     ) -> Result<(), SchemaError> {
         let mut bytes =
             publication::get::<usize>(Some(Arc::clone(runtime)), owner, "erase-effect-bytes")?
                 .map_or(0, |value| *value);
         for (schema, atom, _) in atoms {
-            bytes = bytes
-                .saturating_add(256)
-                .saturating_add(schema.len().saturating_add(atom.len()).saturating_mul(2));
+            bytes = bytes.saturating_add(256).saturating_add(
+                schema
+                    .as_ref()
+                    .map_or(0, String::len)
+                    .saturating_add(atom.len())
+                    .saturating_mul(2),
+            );
         }
         let schema_bytes = fallback_schema.len().max(
             self.keep_small
@@ -203,7 +207,7 @@ impl AtomStore {
     fn resolve_erase_meter_plan(
         &self,
         fallback_schema: &str,
-        atoms: &[(String, String, u64)],
+        atoms: &[(Option<String>, String, u64)],
         tips: &[TipDebit],
     ) -> EraseMeterPlan {
         let tips = tips

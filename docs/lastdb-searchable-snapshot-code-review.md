@@ -1,6 +1,7 @@
 # LastDB storage code review
 
-Reviewed 2026-10-22 against commit `47088b89c0bff5142a519db685051849112a787a` and the current fixes after that commit.
+Reviewed 2026-10-22 against the current branch and its recorded source commits.
+Commit `47088b89c0bff5142a519db685051849112a787a` supplies the initial native writer.
 The implementation starts from main `6d8aa0d573e91a94fd4fd308a7f0eacca022e852`.
 It retains the macOS barriers from PR 266 and the reclaim handoff from PR 267.
 This document separates source facts, the first product run, and historical performance evidence.
@@ -40,6 +41,8 @@ The live meter debit follows the durable root.
 No debit intent, sequence checkpoint, replay, or prune remains.
 Version 2 prevents an older meter snapshot from claiming complete counts without a replay.
 Final deletion audit facts remain ordinary snapshot data.
+Atom counters retain their source schema for an exact per-schema erase debit.
+Older counters without that metadata mark meter trust incomplete instead of a guessed schema debit.
 
 The node no longer starts a cloud-repair worker or replays a local home switch.
 The selected-device replacement, peer adoption, and cloud atom-rewrite commands and routes are removed.
