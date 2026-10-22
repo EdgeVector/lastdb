@@ -21,7 +21,8 @@ impl Work<'_> {
     pub fn checkpoint(&mut self, phase: Phase) -> Result<()> {
         self.saved.phase = phase;
         self.saved.blocked_reason = None;
-        self.saved.retained_source_bytes = self.capture.status()?.retained_source_bytes;
+        // Setup binds the fixed native hold size; terminal cleanup releases it.
+        // Phase updates need no repeated catalogue filesystem census.
         self.store.save(self.saved)
     }
     pub fn check_close(&self) -> Result<()> {
