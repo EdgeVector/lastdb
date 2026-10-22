@@ -64,8 +64,8 @@ for run, (name, bindir) in enumerate(order, 1):
         # journal files are in the cache. Reading them here (not timed) gives the same state.
         began = time.time()
         for base, _dirs, files in os.walk(ldc.pack_root(clone) / 'journal'):  # walk-ok: my own temp clone
-            for name in files:
-                with open(os.path.join(base, name), 'rb') as handle:
+            for file_name in files:
+                with open(os.path.join(base, file_name), 'rb') as handle:
                     while handle.read(1 << 20):
                         pass
         warm_s = round(time.time() - began, 1)

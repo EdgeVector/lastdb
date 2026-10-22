@@ -35,7 +35,8 @@ proc = subprocess.Popen([str(Path(args.bin) / 'lastdb-pack-maintain'), 'compact'
                          str(ldc.pack_root(clone)), '--grace-ms', '0'],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(args.after)
-raw = tempfile.mktemp(prefix='s1s2.sample.', dir=os.environ.get('TMPDIR') or '/tmp')
+raw_dir = tempfile.mkdtemp(prefix='s1s2.sample.', dir=os.environ.get('TMPDIR') or '/tmp')
+raw = os.path.join(raw_dir, 'sample.txt')
 subprocess.run(['/usr/bin/sample', str(proc.pid), str(args.seconds), '-file', raw],
                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 alive = proc.poll() is None
@@ -48,5 +49,5 @@ rows = [line.strip() for line in table.splitlines() if line.strip()]
 Path(args.out).write_text('\n'.join(rows[:40]) + '\n')
 print('process still running at the end of the sample:', alive)
 print('\n'.join(rows[:25]))
-Path(raw).unlink(missing_ok=True)
+ldc.remove_owned(raw_dir)
 ldc.remove_owned(clone)
