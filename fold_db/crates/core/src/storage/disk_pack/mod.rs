@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex, RwLock};
 mod backup;
 pub mod cloud_export;
 mod cloud_work;
+#[cfg(feature = "sharing")]
+pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
 mod initialization;
 mod kv;
