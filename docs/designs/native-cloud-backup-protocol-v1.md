@@ -3,7 +3,7 @@
 Status: unreleased draft, revision 5. Runtime support stays disabled.
 This revision consumes snapshot commits from main and adds read-only file source grants and native usage observations.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
-Source baseline: LastDB 8067843c4f9626470edc971ab10c10e829f021d8 and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
+Source baseline: LastDB 4118c7baa12539c8c6bcf4391c497159f2a1529a and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
 ## 1. Release boundary and authority
 
