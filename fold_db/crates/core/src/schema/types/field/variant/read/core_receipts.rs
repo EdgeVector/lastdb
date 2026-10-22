@@ -38,8 +38,8 @@ impl FieldVariant {
                 .as_ref()
                 .is_some_and(|selected| selected.sources.is_some() || selected.tip_source.is_none())
         {
-            // Complete candidate sources already exist. A location-only receipt
-            // cannot gain direct authority from reconstructed candidates either.
+            // Complete sources already exist. A location-only receipt cannot
+            // gain direct authority from a reconstructed key either.
             return Ok(());
         }
         if !matching {
@@ -85,10 +85,10 @@ impl FieldVariant {
         if selected.is_none_or(|selected| selected.tip_source.is_none()) {
             return Ok(());
         }
-        let candidates = db_ops
+        let base = db_ops
             .atoms()
             .key_codec_for_molecule(molecule)?
-            .api_hash_range_record_keys_for_read(
+            .api_hash_range_record_key(
                 molecule,
                 api_key.hash.as_deref().unwrap_or_default(),
                 api_key.range.as_deref().unwrap_or_default(),
@@ -100,7 +100,7 @@ impl FieldVariant {
             molecule,
             api_key,
             atom_uuid,
-            &candidates,
+            std::slice::from_ref(&base),
         )?;
         Ok(())
     }

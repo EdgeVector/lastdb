@@ -85,11 +85,10 @@ fn listed_hash(
 ) -> Result<Option<String>, SchemaError> {
     let scalar = value.and_then(scalar_key_coordinate);
     let recovered = match scalar.as_deref() {
-        Some(hash) => codec
-            .storage_hash_read_candidates(request.molecule, hash)
+        Some(hash) => (codec
+            .storage_hash(request.molecule, hash)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-            .iter()
-            .any(|form| form == storage_hash)
+            == storage_hash)
             .then_some(hash),
         None => None,
     };
