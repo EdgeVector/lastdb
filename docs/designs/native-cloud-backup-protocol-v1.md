@@ -1,7 +1,8 @@
 # Native cloud backup protocol, version 1
 
 Status: unreleased draft, revision 3. Runtime support stays disabled.
-This revision closes both revision-two review gaps. Wire Version remains 1 because no runtime consumer uses these drafts.
+This revision closes the revision-two review gaps and requires atomic transfer admission for each batch.
+Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 8067843c4f9626470edc971ab10c10e829f021d8 and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
 ## 1. Release boundary and authority
@@ -539,14 +540,17 @@ A restore implementation must prove native record and file recovery through norm
 Format, type, lint, and build checks establish source consistency only.
 No new test suite or fixture harness supplies product proof.
 
-The next packages remain B1 native export, S1 cloud jobs and transfers, and R1 restore.
+B1 native export, S1 cloud jobs and transfers, and R1 restore now have disabled source implementations.
+The [source status](native-cloud-backup-wave-one.md) records their exact boundaries and source checks.
 B2 supplies atomic dependency records and backup-owned blob copies.
 S2 supplies reference verification and the single acceptance transaction.
 P1 proves cloud-only recovery on fresh synthetic data in an approved service environment.
 
-The service later imports this crate through its existing fold submodule at ../../../fold/cloud_backup_protocol from exemem_service/lambdas/storage_service/Cargo.toml.
+The S1 service worktree imports this crate through its existing fold submodule.
+Its dependency path is ../../../fold/cloud_backup_protocol from exemem_service/lambdas/storage_service/Cargo.toml.
 That consumer build requires the Lambda's explicit manifest path.
-This draft does not update the submodule or establish that build.
+The storage and storage-admin Lambda builds and strict Clippy checks pass in that worktree.
+Those source checks do not prove deployed behavior or provider effects.
 
 Automatic cloud deletion and required-object expiry remain disabled.
 Unresolved byte reservations and accepted roots cannot disappear through TTL.

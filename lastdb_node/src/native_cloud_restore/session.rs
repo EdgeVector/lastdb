@@ -129,6 +129,8 @@ impl RestoreSession {
         source: &dyn RestoreSource,
         keys: &RecoveryKeys,
     ) -> Result<RestoreReport> {
+        let _admission = fold_db::storage::disk_pack::NativeCloudWorkGuard::acquire()
+            .map_err(|_| RestoreError::Limit("active native cloud operation"))?;
         keys.validate_for(self.accepted())?;
         // Reconcile partial writes after any prior failed call, including disk errors.
         self.check_spool()?;

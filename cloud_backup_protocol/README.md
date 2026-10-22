@@ -11,12 +11,13 @@ The initial manifest read binds its grant to the accepted receipt ID through `Re
 Private upload targets use the complete frozen transfer digest, so separate jobs keep separate physical allocations.
 
 Runtime support remains disabled.
-No production crate imports this package at stage one.
+The native core exporter, Mini importer, and service Lambda now consume this source with runtime activation disabled.
 Private worker records, provider locations, multipart uploads, external retention holds, and future sync types stay outside this wire contract.
 
-The service later consumes this exact package through its existing `fold` submodule after the canonical source merges.
+The service consumes this exact package through its existing `fold` submodule in its S1 DEV worktree.
 Do not duplicate its types in the service.
-Compile the eventual storage Lambda explicitly through its manifest path.
+Compile the storage Lambda explicitly through its manifest path.
+The [source status](../docs/designs/native-cloud-backup-wave-one.md) records the current boundaries and remaining work.
 
 Allowed local checks:
 
