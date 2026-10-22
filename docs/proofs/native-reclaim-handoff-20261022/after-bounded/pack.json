@@ -1,0 +1,29 @@
+{
+  "compact": {
+    "native_disk": {
+      "bytes_after": 192005714,
+      "bytes_before": 145801434,
+      "bytes_removed": 0,
+      "disk_cap_bytes": 0,
+      "dry_run": false,
+      "executed": true,
+      "files_after": 2689,
+      "files_before": 2679,
+      "files_removed": 0,
+      "frontier": 279,
+      "generation": 561,
+      "pack_millis": 900,
+      "parts_after": 9,
+      "parts_before": 1833,
+      "reclaim_deferred": false,
+      "reclaim_error": null,
+      "reclaim_millis": 19808,
+      "reclaim_only": false,
+      "reclaim_remaining": false,
+      "records_copied": 5846,
+      "tombstones_copied": 0
+    }
+  },
+  "ok": true,
+  "user_hash": "f6b7aa53f5fa671cd3bc8d3afa5a05ce"
+}

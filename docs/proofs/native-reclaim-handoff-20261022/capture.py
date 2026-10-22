@@ -25,6 +25,10 @@ save = workload.save
 
 
 class Node(owner.Node):
+    def __init__(self, args):
+        super().__init__(args)
+        self.disk_cap = args.disk_cap
+
     def start(self):
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(('LASTDB_', 'FOLDDB_')) and k not in ('OBS_SENTRY_DSN', 'SENTRY_DSN')}
@@ -32,6 +36,8 @@ class Node(owner.Node):
                    FOLDDB_DISABLE_KEYCHAIN='1', LASTDB_AUTO_MAINTENANCE='0',
                    LASTDB_RESIDENT_PERSIST_MS='500', LASTDB_UDS_WORKERS='8',
                    RUST_MIN_STACK='67108864', RUST_LOG='warn')
+        if self.disk_cap is not None:
+            env['LASTDB_DISK_CAP_BYTES'] = str(self.disk_cap)
         self.process = subprocess.Popen([str(self.binary), '--data-dir', str(self.home)],
                                         env=env, stdout=self.log, stderr=self.log)
         until = time.monotonic()+90
@@ -135,6 +141,7 @@ def main():
     parser.add_argument('--mode', default='main')
     parser.add_argument('--count', type=int, default=1000)
     parser.add_argument('--backlog', type=int, default=64)
+    parser.add_argument('--disk-cap', type=int)
     args = parser.parse_args()
     if args.home.exists() or args.count < 64 or args.count % 4 or args.backlog < 64:
         raise RuntimeError('use a fresh generated home and valid counts')
@@ -147,7 +154,7 @@ def main():
         'source_commit': args.source_commit, 'home': str(args.home.resolve()), 'generated_data': True,
         'count': args.count, 'backlog': args.backlog, 'schemas': 64, 'clients': 4,
         'records_per_batch': 8, 'durability_parameter': 'durable', 'automatic_maintenance': False,
-        'memory_flush_ms': 500, 'disk_cap_bytes': None, 'load_before': os.getloadavg()})
+        'memory_flush_ms': 500, 'disk_cap_bytes': args.disk_cap, 'load_before': os.getloadavg()})
     node = Node(args)
     try:
         node.start()

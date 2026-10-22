@@ -1,0 +1,20 @@
+{
+  "binary_sha256": "9d68a4105a68b5b53f39f15cb6f461274990c419755042bb0477a234f258a284",
+  "source_commit": "a5f7dcb34",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/pr.CoU0Kt/r3",
+  "generated_data": true,
+  "count": 1000,
+  "backlog": 64,
+  "schemas": 64,
+  "clients": 4,
+  "records_per_batch": 8,
+  "durability_parameter": "durable",
+  "automatic_maintenance": false,
+  "memory_flush_ms": 500,
+  "disk_cap_bytes": null,
+  "load_before": [
+    2.49169921875,
+    2.42333984375,
+    2.5107421875
+  ]
+}
