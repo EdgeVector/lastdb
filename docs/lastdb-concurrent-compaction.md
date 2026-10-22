@@ -16,6 +16,8 @@ It changes no snapshot format bit.
 8. The node installs that root, opens the gate, and reclaims old files.
 
 The retained closure also includes the empty locator template that later new hash groups need.
+Private output uses the source generation plus one as its age.
+Receipt allocation occurs only at the final publication, after concurrent writers stop at the gate.
 The final delta includes tombstones. It uses original mutation sequence numbers.
 A copy changes no atom counter, field value, or conflict record.
 A final delta above its bound returns `compaction_behind` without publication.

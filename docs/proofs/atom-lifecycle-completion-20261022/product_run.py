@@ -128,6 +128,8 @@ class ProductRun(LifecycleOperations, base.Capture):
                 query["cursor"] = cursor
             result = self.call("/api/list?" + urlencode(query))["list"]
             keys = result.get("keys", result.get("records", []))
+            self.remember("list-page", phase=phase, requested=1000, returned=len(keys),
+                          has_more=result.get("has_more"), has_cursor=bool(result.get("next_cursor")))
             current = {item["range"] for item in keys}
             if current.intersection(listed):
                 raise RuntimeError("The list continuation repeated a key")

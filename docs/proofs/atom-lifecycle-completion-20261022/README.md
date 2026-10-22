@@ -19,6 +19,20 @@ The change now retains the empty template for each grafted locator object.
 `recover_run.py` uses the supported offline compact command on that stopped, owned generated home.
 Its result remains separate from the failed first result.
 
+## Second run
+
+`run-2` records a refusal during the concurrent copy. The durable writers continued, and shutdown succeeded.
+The copy selected a random future generation after a writer took the next receipt name.
+The catch-up read then refused those private pages because their age exceeded its root.
+The stopped home confirmed private age 2,604,637,533 and selected generation 59.
+
+The copy now stamps private objects at the source generation plus one.
+It selects a receipt generation only under the final publication boundary.
+The separate recovery confirmed all accepted values before the offline compact.
+It also confirmed a new-key write, zero counter mismatches, and a successful reopen.
+Both failed temporary homes were removed after their separate recovery checks.
+Their original results remain `complete: false`.
+
 ## Product operations
 
 The capture uses these operations:

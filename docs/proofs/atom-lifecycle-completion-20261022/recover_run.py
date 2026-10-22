@@ -44,6 +44,7 @@ class Recovery(ProductRun):
             raise ValueError("Expected the stopped failed first capture")
         self.binary = args.binary.resolve(strict=True)
         self.maintain = args.maintain.resolve(strict=True)
+        self.accepted_state = args.accepted_state
         self.output = args.run / "recovery"
         self.output.mkdir(mode=0o700, exist_ok=False)
         base.save(self.output / "ownership.json", ownership)
@@ -73,6 +74,10 @@ class Recovery(ProductRun):
         self.long_keys = [long_key]
 
     def recover(self):
+        if self.accepted_state == "copy-age-failure":
+            self.start()
+            self.verify("failed-copy-selected-values-before-compact")
+            self.stop()
         command = [str(self.maintain), "compact", "--home", str(self.home / "data" / "disk-pack"),
                    "--grace-ms", "0"]
         result = subprocess.run(command, text=True, capture_output=True, timeout=180)
