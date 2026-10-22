@@ -1,0 +1,82 @@
+{
+  "app": {
+    "attributed_bytes": 0,
+    "budget_bytes": 1073741824,
+    "complete": false,
+    "heavy": false,
+    "incomplete_reason": "reused_atom_live_transition_requires_repair",
+    "live_total_bytes": 480657,
+    "measured_at": "2026-10-22T20:39:14.105822Z",
+    "meters_origin": "incomplete",
+    "owners": [
+      {
+        "atom_count": 382,
+        "kind": "system",
+        "live_bytes": 208737,
+        "owner": "system",
+        "schema_count": 2,
+        "schemas": [
+          "DiskGrowthMeasure",
+          "DiskGrowthMeasureById"
+        ]
+      },
+      {
+        "atom_count": 0,
+        "kind": "unattributed",
+        "live_bytes": 271920,
+        "owner": "unattributed",
+        "schema_count": 0,
+        "schemas": []
+      }
+    ],
+    "reconciliation_lag": {
+      "last_pass_at": null,
+      "resume_after": null,
+      "unresolved_schema_bytes": 0,
+      "unresolved_schema_count": 0
+    },
+    "system_bytes": 208737,
+    "unattributable_plane_bytes": 271920,
+    "unattributed_bytes": 271920,
+    "unresolved_schema_bytes": 0
+  },
+  "live_records": 127,
+  "schemas": {
+    "DiskGrowthMeasure": {
+      "active_slot_count": 508,
+      "complete": false,
+      "counter_epoch": 386,
+      "declared_molecule_count": 4,
+      "deduplicated_across_schemas": false,
+      "deduplicated_within_schema": false,
+      "incomplete_reason": "reused_atom_live_transition_requires_repair",
+      "logical_value_bytes": 234315,
+      "measured_at": "2026-10-22T20:39:14.105498Z",
+      "metric": "logical_current_schema_bytes",
+      "missing_molecule_counters": 0,
+      "pending_protein_folds": 0,
+      "retained_history_bytes": 0,
+      "schema_binding": "DiskGrowthMeasure",
+      "schema_current_bytes": 370279,
+      "schema_structure_bytes": 135964
+    },
+    "DiskGrowthMeasureById": {
+      "active_slot_count": 508,
+      "complete": false,
+      "counter_epoch": 386,
+      "declared_molecule_count": 4,
+      "deduplicated_across_schemas": false,
+      "deduplicated_within_schema": false,
+      "incomplete_reason": "reused_atom_live_transition_requires_repair",
+      "logical_value_bytes": 234315,
+      "measured_at": "2026-10-22T20:39:14.105518Z",
+      "metric": "logical_current_schema_bytes",
+      "missing_molecule_counters": 0,
+      "pending_protein_folds": 0,
+      "retained_history_bytes": 0,
+      "schema_binding": "DiskGrowthMeasureById",
+      "schema_current_bytes": 370271,
+      "schema_structure_bytes": 135956
+    }
+  }
+}

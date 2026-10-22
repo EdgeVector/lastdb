@@ -1,0 +1,8 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "failure_diagnosis": "docs/proofs/journal-removal-review-benchmark-20261022/erase-operational/failure-diagnosis.json",
+  "original_summary": "docs/proofs/journal-removal-review-benchmark-20261022/erase-operational/summary.json",
+  "scope": "Cleanup readiness only after diagnosed helper error; parent product capture remains complete=false",
+  "source_receipts_sha256": "2bf2ced1d6e692d721852a9c65cc0b8549b7188c674eddd1aa534bf825b58e1f"
+}

@@ -1,6 +1,7 @@
 # Implementation plan: snapshot-owned recovery and sync-only mutation log
 
-Revised 2026-10-22. Local journal removal is implemented in this branch, based on main `6d8aa0d57`.
+Revised 2026-10-22. Local journal removal merged in PR 268 as `4118c7baa`.
+PR 271 contains the follow-up erase recovery and cloud repair removal.
 The initial implementation commit is `47088b89c`; later fixes and receipts accompany it.
 The October 21 growth measurements use `8067843c4f9626470edc971ab10c10e829f021d8`.
 The [code review](lastdb-searchable-snapshot-code-review.md) separates implemented behavior, approved policy, and new proposals.
@@ -18,6 +19,9 @@ No old-native-journal converter exists in this change.
 The [active protocol](lastdb-snapshot-commits.md) describes the exact implemented local path.
 The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
 The later [matched benchmark](proofs/journal-removal-benchmark-20261022/RESULTS.md) records three controlled before/after pairs.
+The [repeat benchmark and review](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) uses final product source `5919abbfb`.
+It confirms lower update write bytes; batch latency and compaction pauses show mixed results.
+The separate erase capture checks aggregate restore after a forced stop, before any value fetch.
 The second review removes erase debit intents, replay, prune, and journal bootstrap fields.
 Erase accounting writes its final aggregate header and changed schema slices with the delete.
 The live meter debit follows the durable snapshot root.

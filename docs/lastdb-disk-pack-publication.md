@@ -1,3 +1,7 @@
+> Retired publication protocol, October 22, 2026. The internal journal, its suffix publisher, and the `lastdb-journal` command are removed.
+> Read [Native snapshot commits](lastdb-snapshot-commits.md) for the active writer and root publication protocol.
+> The text below remains historical evidence and does not authorize the retired command or an old-format reopen.
+
 # Separate artifact root publication
 
 The disk-pack module can publish complete journal batches in a separate artifact.

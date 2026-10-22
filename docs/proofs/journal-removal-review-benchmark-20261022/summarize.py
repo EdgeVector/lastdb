@@ -10,6 +10,7 @@ import sys
 sys.dont_write_bytecode = True
 from reuse import ROOT, helper_files, original, validate_revisions
 from focused import timing_stats
+import erase_benchmark
 
 
 def validate_probes(role, compact, dispatched):
@@ -129,10 +130,12 @@ def main():
             for number in (1, 2, 3) for label in ("before", "after")}
     comparison = compare_focus(runs)
     summary.update(benchmark_round=2, focused_compaction={"comparisons": comparison, "runs": runs},
-                   round2_driver_sha256=analyzer.digest(Path(__file__)))
+                   round2_driver_sha256=analyzer.digest(Path(__file__)),
+                   erase_benchmark=erase_benchmark.summarize(root))
     (root / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     with (root / "summary.txt").open("a") as stream:
         stream.write(focus_report(comparison))
+        stream.write(erase_benchmark.report(summary["erase_benchmark"]))
     print(json.dumps({"complete": True, "round": 2, "matched_phases": 6, "focused_phase_separate": True}))
 
 

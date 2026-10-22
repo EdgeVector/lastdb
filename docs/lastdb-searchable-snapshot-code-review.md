@@ -6,6 +6,8 @@ The implementation starts from main `6d8aa0d573e91a94fd4fd308a7f0eacca022e852`.
 It retains the macOS barriers from PR 266 and the reclaim handoff from PR 267.
 This document separates source facts, the first product run, and historical performance evidence.
 The second review also removes erase recovery records and journal-based cloud repair.
+The native writer merged in PR 268 as `4118c7baa`.
+The second review uses final product source `5919abbfbf2263993ea99700b73bd9c8d43d689b` in PR 271.
 
 ## Current source
 
@@ -55,6 +57,14 @@ Payload reservations no longer charge a phantom journal prefix.
 The complete-batch policy cap stays 128 MiB.
 The offline write command now holds a complete disk-space reservation through publication.
 Its default free-space and replacement allowances remain 64 MiB each.
+
+The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) records three pairs against the original journal-backed baseline.
+All exact-key, range, delete, and graceful-reopen checks pass.
+Process write bytes fall across all four update workloads in all pairs.
+Batch latency and compaction write delay remain mixed.
+The separate erase capture restores numeric counters before any value fetch after a forced stop following explicit flush.
+It also checks removed commands and the refusal of retired repair state.
+These receipts establish no power-loss or primary result.
 
 ## Actual commit route
 

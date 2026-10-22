@@ -37,9 +37,15 @@ class EraseCapture(Benchmark):
             connection.request("POST", path, json.dumps(value), {"Content-Type": "application/json",
                                "X-LastDB-Client": "owned-erase-capture"})
             response = connection.getresponse()
-            raw = response.read()
-            result = json.loads(raw)
-            self.remember("removed-route", path=path, http_status=response.status, response=result)
+            raw = response.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024:
+                raise RuntimeError("The removed route response exceeds its 64 KiB bound")
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                result = None
+            self.remember("removed-route", path=path, http_status=response.status, response=result,
+                          response_body_bytes=len(raw), response_body_sha256=hashlib.sha256(raw).hexdigest())
             if response.status != status:
                 raise RuntimeError("The removed route returned an unexpected status")
         finally:
@@ -47,11 +53,16 @@ class EraseCapture(Benchmark):
 
     def erase(self, numbers):
         numbers = list(numbers)
-        mutations = [{"type": "mutation", "schema": SCHEMA, "mutation_type": "delete",
-                      "durability": "durable", "key_value": {"hash": "measure", "range": f"key-{n:06d}"},
-                      "fields_and_values": {}} for n in numbers]
+        mutations = []
+        for number in numbers:
+            key = f"key-{number:06d}"
+            for schema, coordinate in [(SCHEMA, {"hash": "measure", "range": key}),
+                                       (PEER, {"hash": key})]:
+                mutations.append({"type": "mutation", "schema": schema, "mutation_type": "delete",
+                                  "durability": "durable", "key_value": coordinate,
+                                  "fields_and_values": {}})
         reply = self.call("/api/mutations/batch", {"mutations": mutations})
-        if reply.get("count") != len(numbers) or reply.get("durability") != "durable":
+        if reply.get("count") != 2 * len(numbers) or reply.get("durability") != "durable":
             raise RuntimeError("The erase lacks its complete durable acknowledgement")
         for number in numbers:
             self.expected.pop(f"key-{number:06d}")
@@ -161,7 +172,7 @@ def inspect_meters(capture, disk_binary, label):
         raise RuntimeError("The native snapshot lacks an aggregate header or schema slice")
     if rows["keep_small:hard_erase_totals"] is not None:
         raise RuntimeError("The retired aggregate recovery key exists in the generated home")
-    if any(body is not None and not body.startswith(b"ENC:") for body in rows.values()):
+    if any(body is not None and not body.startswith((b"ENC:", b"ENZ:", b"ENB:")) for body in rows.values()):
         raise RuntimeError("A generated meter value lacks its encrypted envelope")
     inventory = bounded_inventory(capture.home)
     if any("journal" in name.lower() or "JOURNAL_TAIL" in name for name in inventory["_files"]):
@@ -244,7 +255,7 @@ def run(capture, args):
     capture.stop()
     seed_disk = inspect_meters(capture, args.disk_binary, "seed")
     capture.start()
-    capture.phase = "three-chunk-protein-erase"
+    capture.phase = "three-chunk-explicit-layout-erase"
     capture.erase(range(129))
     erased = capture.verify("after-129")
     capture.stop(force=True)
@@ -264,7 +275,7 @@ def run(capture, args):
     if reopened["app"]["owners"] != erased["app"]["owners"]:
         raise RuntimeError("Direct aggregate restore changed owner counts or bytes")
     capture.verify("reopened-129")
-    capture.phase = "erase-remainder"
+    capture.phase = "two-chunk-explicit-layout-erase-remainder"
     capture.erase(range(129, COUNT))
     empty = capture.verify("empty")
     capture.expected_http("/api/sync/cloud-purge-resync", {"action": "status"}, 404)
@@ -280,7 +291,9 @@ def run(capture, args):
     capture.start()
     capture.meters("final-empty-before-any-value-fetch")
     capture.verify("final-empty-reopen")
-    return {"complete": True, "records": COUNT, "first_erase": 129, "first_erase_chunks_per_schema": 3,
+    return {"complete": True, "records_per_schema": COUNT, "explicit_layouts_per_key": 2,
+            "first_erase_keys_per_schema": 129, "first_erase_mutations": 258,
+            "first_erase_chunks_per_schema": 3, "remaining_erase_mutations": 254,
             "shared_field_schemas": [SCHEMA, PEER], "seed": seeded, "after_129": erased,
             "reopened_129": reopened, "empty": empty, "persisted": [seed_disk, erased_disk, empty_disk],
             "retired_route_absent": True, "retired_commands_absent": True,
@@ -299,6 +312,8 @@ def main():
     capture = EraseCapture(args)
     metadata = json.loads((capture.output / "inputs.json").read_text())
     metadata.update(records=COUNT, shared_field_schemas=[SCHEMA, PEER], erasures=[129, COUNT - 129],
+                    seed={"durability": "durable", "requests": 1, "width": COUNT},
+                    explicit_layouts_per_key=2, delete_request_mutations=[258, 254],
                     erase_chunks_per_schema=[3, 2], driver_sha256=file_hash(Path(__file__)),
                     cli_binary=str(args.cli_binary), cli_binary_sha256=file_hash(args.cli_binary),
                     disk_binary=str(args.disk_binary), disk_binary_sha256=file_hash(args.disk_binary))

@@ -1,0 +1,53 @@
+{
+  "failed_cleanup_readiness_scope": "Cleanup only; does not change the failed product summary",
+  "failed_input_seed_erratum": "First two inputs inherit a benchmark seed description; their raw requests use one durable batch of 256",
+  "failed_summaries_preserved": [
+    "erase-operational/summary.json",
+    "erase-operational-2/summary.json"
+  ],
+  "format": "lastdb-request-samples-v1",
+  "full_generated_payload_captures_retained_locally": true,
+  "runs": [
+    {
+      "compact_bytes": 5688,
+      "compact_path": "erase-operational/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "64a4d205c984adf9f7c5d1f9b0f692838bf3e744669f7dd0ec1f939b8ed002e5",
+      "full_uncompressed_bytes": 2997477,
+      "full_uncompressed_sha256": "2bf2ced1d6e692d721852a9c65cc0b8549b7188c674eddd1aa534bf825b58e1f",
+      "original_lines": 36,
+      "retained_local_compressed_bytes": 1041475,
+      "retained_local_compressed_sha256": "75d6bb5fe732a1708abdd406414af98ac45e5d3289eed8a1fde3527f3a4698fe",
+      "retained_local_full_path": "erase-operational/receipts.full.local.gz",
+      "run": "erase-operational"
+    },
+    {
+      "compact_bytes": 10155,
+      "compact_path": "erase-operational-2/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "1523fb806ea06feaaea148eef0ca775bd4565b26260e34a47cb2c130127fa440",
+      "full_uncompressed_bytes": 4146337,
+      "full_uncompressed_sha256": "f5ec7a058c7f5927059f1945ddd58ff5be6353828d989146e062e98c7106296f",
+      "original_lines": 77,
+      "retained_local_compressed_bytes": 1350227,
+      "retained_local_compressed_sha256": "aca5a8b95cd73884fa1d5135afea5efed9cf4e25d80c8cbe0f2e3084be05cdc8",
+      "retained_local_full_path": "erase-operational-2/receipts.full.local.gz",
+      "run": "erase-operational-2"
+    },
+    {
+      "compact_bytes": 12050,
+      "compact_path": "erase-operational-3/request-samples.json.gz",
+      "compact_payload_fields_replaced_with_hashes": true,
+      "compact_sha256": "dc936cf1c594682af9e5a4c8c857d9bd06aac38731d78edbf8207bd5a6ab06a1",
+      "full_uncompressed_bytes": 4281308,
+      "full_uncompressed_sha256": "959637ea452cac8c098b08e797d1e981c2c8f53b8ffda5cde9532e96f7b03a97",
+      "original_lines": 99,
+      "retained_local_compressed_bytes": 1354911,
+      "retained_local_compressed_sha256": "44cb95d91b0fbb89bb8d72250e3cd796db51d55c7fccee6a3acae1d02bd098fd",
+      "retained_local_full_path": "erase-operational-3/receipts.full.local.gz",
+      "run": "erase-operational-3"
+    }
+  ],
+  "scope": "First two captures contain diagnosed helper errors; third capture is the corrected product operation",
+  "successful_summary": "erase-operational-3/summary.json"
+}

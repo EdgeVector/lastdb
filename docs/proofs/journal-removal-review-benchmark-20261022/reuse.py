@@ -23,7 +23,7 @@ def original(name):
 
 
 def helper_files():
-    paths = [ROOT / name for name in ("reuse.py", "benchmark.py", "focused.py", "run_pairs.py", "summarize.py")]
+    paths = [ROOT / name for name in ("reuse.py", "benchmark.py", "focused.py", "run_pairs.py", "summarize.py", "erase_benchmark.py")]
     paths += [ORIGINAL / name for name in ("benchmark.py", "benchmark_support.py", "run_pairs.py", "summarize.py")]
     paths += [ROOT.parent / "snapshot-commits-20261022" / name for name in ("capture.py", "cleanup.py")]
     paths += [ROOT.parent / "write-overhead-20261021" / name for name in ("measure.py", "io_probe.py")]
@@ -39,7 +39,11 @@ def capture(args):
                     focused_probe_sweep={"requests_per_role": 64, "first_delay_seconds": 0.02,
                                          "nominal_interval_seconds": 0.05,
                                          "warm_read_key": 1, "durable_write_key": 400,
-                                         "position": "After complete matched sequence and graceful reopen"})
+                                         "position": "After complete matched sequence and graceful reopen"},
+                    erase_workload={"single_requests": 64, "single_first_key": 0,
+                                    "batch_requests": 1, "batch_width": 129, "batch_first_key": 64,
+                                    "survivors": 319, "position": "After matched phases and focused compaction",
+                                    "scope": "Combined native-journal and erase-meter change; no isolated meter-removal claim"})
     save(value.output / "inputs.json", metadata)
     return value
 

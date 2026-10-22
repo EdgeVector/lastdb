@@ -9,6 +9,7 @@ import sys
 sys.dont_write_bytecode = True
 from reuse import capture as owned_capture, original
 import focused
+import erase_benchmark
 from benchmark_support import save
 
 
@@ -29,6 +30,7 @@ def run(capture):
     save(capture.output / "focused-compaction.json", extra)
     result["extra_focus"] = {"file": "focused-compaction.json", "all_values_verified": True,
                              "graceful_reopen_verified": True, "matched_measurements_unchanged": True}
+    result["extra_erase"] = erase_benchmark.run(capture)
     return result
 
 
