@@ -36,6 +36,7 @@ They rewrite recent tree pages and recent payload objects.
 They retain older subtrees through their existing page addresses.
 Every rewritten key receives a new overflow chain when it needs one.
 The copy checks the age order, key order, page height, and parent intervals.
+The copy closes each output file between trees. The final flush reopens and checks each unfinished file.
 
 Eight recent outputs merge into one output above the base boundary.
 New payload bytes above one quarter of the base start a full copy.

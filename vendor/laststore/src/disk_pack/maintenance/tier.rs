@@ -118,6 +118,17 @@ impl<'a> TierCopy<'a> {
                 root: true,
             },
         )?;
+        // A source can retain several locator objects from concurrent grafts.
+        // Close each output descriptor between trees; finish reopens its tail
+        // for the final barrier, with the same checked length as foreground edits.
+        let kind = if tree.kind == TreeKind::Directory {
+            1
+        } else {
+            2
+        };
+        if let Some(pages) = self.pages.get_mut(&(kind, tree.object)) {
+            pages.park();
+        }
         Ok(output)
     }
 
