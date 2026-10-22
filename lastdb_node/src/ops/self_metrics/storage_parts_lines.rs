@@ -12,7 +12,10 @@ pub fn storage_parts_status_line(snapshot: &StatusSnapshot) -> String {
         return "Storage parts: unsupported by daemon (no part count)".to_string();
     };
     let percent = parts.dependency_parts.saturating_mul(100) / parts.dependency_parts_limit.max(1);
-    let maintenance = if !parts.auto_maintenance {
+    let phase = parts.compaction.compaction_phase.as_str();
+    let maintenance = if !phase.is_empty() && phase != "idle" {
+        format!("maintenance {phase}")
+    } else if !parts.auto_maintenance {
         "automatic maintenance off".to_string()
     } else if !parts.maintenance_worker_alive && parts.maintenance_worker_restarts > 0 {
         // The worker died. The supervisor restarts it, so this reads as a gap.

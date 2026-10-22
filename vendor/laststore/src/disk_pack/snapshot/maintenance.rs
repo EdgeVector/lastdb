@@ -44,8 +44,7 @@ impl SnapshotWriter {
                 return Err(error);
             }
         };
-        self.compaction
-            .completed(current.generation, receipt.tier_boundary);
+        self.compaction.completed(&receipt);
         self.current = current;
         self.dependencies = receipt.parts_after;
         self.poisoned = false;
@@ -74,12 +73,19 @@ impl SnapshotWriter {
 
 impl SnapshotWriter {
     /// Capture a source without retaining the writer mutex during the copy.
-    pub fn prepare_pack(&self) -> Result<crate::disk_pack::maintenance::CompactionPlan> {
+    pub fn prepare_pack(
+        &self,
+        full_copy: bool,
+    ) -> Result<crate::disk_pack::maintenance::CompactionPlan> {
         self.check_admission()?;
         crate::disk_pack::maintenance::CompactionPlan::capture(
             std::sync::Arc::clone(&self.lock),
             &self.current,
-            self.compaction,
+            if full_copy {
+                Default::default()
+            } else {
+                self.compaction
+            },
         )
     }
 
@@ -111,8 +117,7 @@ impl SnapshotWriter {
                 return Err(error);
             }
         };
-        self.compaction
-            .completed(current.generation, receipt.tier_boundary);
+        self.compaction.completed(&receipt);
         self.current = current;
         self.dependencies = receipt.parts_after;
         self.poisoned = false;

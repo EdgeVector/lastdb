@@ -331,6 +331,7 @@ async fn run_once(
     let options = NativeMaintenanceOptions {
         dry_run: false,
         reclaim_only,
+        full_copy: false,
         grace_ms: Some(ledger.grace_ms),
         report_usage: false,
         reclaim_generations: Some(generations),

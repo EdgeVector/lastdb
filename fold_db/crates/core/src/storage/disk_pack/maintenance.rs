@@ -14,6 +14,8 @@ pub struct NativeMaintenanceOptions {
     pub dry_run: bool,
     /// Release only unneeded generation files; do not rewrite live data.
     pub reclaim_only: bool,
+    /// Copy all live payloads; an explicit compact defaults to a full copy.
+    pub full_copy: bool,
     /// An explicit grace override; None keeps the product's 24-hour default.
     pub grace_ms: Option<u64>,
     /// Measure the native root before and after. The measure walks every file,

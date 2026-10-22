@@ -36,6 +36,9 @@ The copy checks the age order, key order, page height, and parent intervals.
 
 Eight recent outputs merge into one output above the base boundary.
 New payload bytes above one quarter of the base start a full copy.
+Changes above one quarter of the base record count also start a full copy.
+The record bound also reclaims dead base payloads after a large delete.
+An explicit compact defaults to a full copy. `full_copy: false` permits a recent tier.
 This conservative byte count includes obsolete recent payload bytes.
 The policy resets after a reopen; it needs no format change or durable policy record.
 

@@ -132,8 +132,8 @@ class ProductRun(base.Capture):
         digest = hashlib.sha256(json.dumps(actual, sort_keys=True).encode()).hexdigest()
         self.remember("known-key-readback", phase=phase, live_records=len(actual), sha256=digest)
 
-    def compact(self):
-        report = self.call("/api/db/compact", {"dry_run": False, "grace_ms": 0})
+    def compact(self, full_copy=False):
+        report = self.call("/api/db/compact", {"dry_run": False, "grace_ms": 0, "full_copy": full_copy})
         self.compactions.append(report["compact"]["native_disk"])
         return report
 
@@ -150,13 +150,18 @@ class ProductRun(base.Capture):
             self.long_keys.append(key)
 
     def interrupt_copy(self):
+        packs = self.home / "data" / "disk-pack" / "packs"
+        previous = {path.name for path in packs.iterdir()}
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             request = pool.submit(self.compact)
             observed = None
             for _ in range(500):
                 state = self.call("/api/db/native-status")["native_disk"]["parts"]
-                if state.get("compaction_phase") == "copy":
-                    observed = state
+                private = [path for path in packs.iterdir() if path.name not in previous]
+                wrote = any(part.stat().st_size > 128 for path in private
+                            for part in path.glob("part-*"))
+                if state.get("compaction_phase") == "copy" and wrote:
+                    observed = {**state, "private_payload_objects": len(private)}
                     self.stop(force=True)
                     break
                 if request.done():

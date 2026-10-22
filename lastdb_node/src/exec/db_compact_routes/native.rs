@@ -15,6 +15,7 @@ pub(super) async fn execute(
         #[serde(default)]
         reclaim_only: bool,
         grace_ms: Option<u64>,
+        full_copy: Option<bool>,
     }
     let body: Body = if req.body.is_empty() {
         Body::default()
@@ -40,6 +41,7 @@ pub(super) async fn execute(
     let options = NativeMaintenanceOptions {
         dry_run: body.dry_run.unwrap_or(true),
         reclaim_only: body.reclaim_only,
+        full_copy: body.full_copy.unwrap_or(true),
         grace_ms: body.grace_ms,
         report_usage: true,
         reclaim_generations: None,

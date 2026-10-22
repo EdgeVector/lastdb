@@ -21,7 +21,7 @@ impl PackRuntime {
                 .writer
                 .lock()
                 .expect("native snapshot writer")
-                .prepare_pack()
+                .prepare_pack(options.full_copy)
                 .map_err(map)
         })
         .await?;

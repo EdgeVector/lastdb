@@ -22,8 +22,11 @@ impl HomeSnapshot {
 
 impl HomeSnapshot {
     /// Capture a protected source for concurrent compaction.
-    pub fn prepare_pack(&self) -> Result<crate::disk_pack::maintenance::CompactionPlan> {
-        self.writer.prepare_pack()
+    pub fn prepare_pack(
+        &self,
+        full_copy: bool,
+    ) -> Result<crate::disk_pack::maintenance::CompactionPlan> {
+        self.writer.prepare_pack(full_copy)
     }
     /// Capture a protected current root for a catch-up round.
     pub fn capture_pack_root(&self) -> Result<crate::disk_pack::lifetime::GenerationHold> {

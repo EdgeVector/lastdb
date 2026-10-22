@@ -8,11 +8,13 @@ pub(in crate::disk_pack) struct CompactionPolicy {
     base: u64,
     latest: u64,
     tiers: u8,
+    base_records: u64,
+    changed_records: u64,
 }
 
 impl CompactionPolicy {
     pub(super) fn boundary(&self, root: &Path, current: &Current) -> Result<u64> {
-        if self.base == 0 {
+        if self.base == 0 || self.changed_records >= (self.base_records / 4).max(1) {
             return Ok(0);
         }
         let receipt = generation::read_receipt(root, current)?;
@@ -40,15 +42,26 @@ impl CompactionPolicy {
         })
     }
 
-    pub(in crate::disk_pack) fn completed(&mut self, generation: u64, boundary: u64) {
-        if boundary == 0 {
-            self.base = generation;
+    pub(in crate::disk_pack) fn completed(&mut self, receipt: &super::MaintenanceReceipt) {
+        let copied = receipt
+            .records_copied
+            .saturating_add(receipt.tombstones_copied);
+        if receipt.tier_boundary == 0 {
+            self.base = receipt.generation;
             self.tiers = 0;
-        } else if boundary == self.base {
-            self.tiers = 1;
+            self.base_records = copied;
+            self.changed_records = 0;
         } else {
-            self.tiers = self.tiers.saturating_add(1);
+            self.changed_records = self
+                .changed_records
+                .saturating_add(copied)
+                .saturating_add(receipt.catch_up_records);
+            self.tiers = if receipt.tier_boundary == self.base {
+                1
+            } else {
+                self.tiers.saturating_add(1)
+            };
         }
-        self.latest = generation;
+        self.latest = receipt.generation;
     }
 }
