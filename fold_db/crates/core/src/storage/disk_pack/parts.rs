@@ -22,7 +22,7 @@ mod worker;
 /// Parts after which maintenance starts. Every publication writes the receipt
 /// in full (80 bytes a part for each batch), so a write costs more as the
 /// count grows. A receipt of this size is about 330 KiB. A smaller mark costs
-/// more maintenance runs, because each run packs every live record again.
+/// more maintenance runs, including recent-tier copies and periodic full copies.
 const DEFAULT_HIGH_WATER: u64 = 4096;
 /// Never trigger above this share of the limit (percent), so a write that needs
 /// room for its own parts still fits while maintenance runs.
@@ -30,8 +30,8 @@ const TRIGGER_CEILING_PERCENT: u64 = 75;
 /// Parts that must accrue after a run before the next run starts, however high the count is
 /// (at most half the high-water mark, so a small mark still works).
 const MIN_GROWTH: u64 = 1024;
-/// Above this share of the limit (percent) a new write waits for maintenance
-/// instead of risking a refusal at the limit.
+/// Above this share of the limit (percent) admission refuses a new write until
+/// maintenance restores room, before the hard receipt limit.
 const SOFT_LIMIT_PERCENT: u64 = 85;
 
 /// Counters and settings. Atomics only: a status read never takes a lock that a
@@ -72,8 +72,7 @@ pub(super) struct PartsLedger {
     reclaim_failures: AtomicU64,
     reclaim_error: Mutex<Option<String>>,
     running: AtomicBool,
-    /// Set by a failed run, cleared by a published replacement. A failing worker
-    /// cannot make room, so a writer does not wait for it.
+    /// Set by a failed run, cleared by a published replacement.
     failing: AtomicBool,
     runs: AtomicU64,
     failures: AtomicU64,
@@ -257,7 +256,7 @@ impl PartsLedger {
     }
 
     /// The worker task panicked. The supervisor restarts it, and a writer above the
-    /// soft limit stops waiting for it until a run succeeds.
+    /// soft limit remains refused until a run restores room.
     pub(super) fn record_worker_panic(&self, detail: &str) {
         self.worker_restarts.fetch_add(1, Relaxed);
         self.failures.fetch_add(1, Relaxed);

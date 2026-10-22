@@ -74,8 +74,8 @@ impl PackRuntime {
 }
 
 /// Runs the worker and starts it again after a panic. A panic would otherwise end
-/// the task for good, with the ledger still reporting a worker and every writer
-/// above the soft limit waiting a minute for it.
+/// the task for good, with the ledger still reporting a worker while admission
+/// above the soft limit remains refused.
 async fn supervise(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
     let mut restarts = 0u32;
     loop {
@@ -106,7 +106,7 @@ async fn supervise(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
         if runtime.strong_count() == 0 {
             return;
         }
-        // Writers above the soft limit wait for a run, so the restart starts one.
+        // Admission above the soft limit needs room, so the restart starts a run.
         ledger.wake.notify_one();
     }
 }
@@ -316,8 +316,8 @@ enum Call {
     Drain(usize),
 }
 
-/// One bounded maintenance call. Each call holds the write gate and the view
-/// lock for a bounded time, so waiting writers and readers run between calls.
+/// One maintenance call. Copy and reclaim run outside the write gate; capture
+/// and final handoff hold it, so ordinary writes proceed during the copy.
 async fn run_once(
     runtime: &Arc<PackRuntime>,
     ledger: &PartsLedger,

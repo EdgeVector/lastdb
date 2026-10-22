@@ -4,7 +4,7 @@ use crate::Result;
 use std::path::Path;
 
 /// Most live records one compaction quotes across the home. The quote and the copy each
-/// walk every record, so a larger home makes a longer hold of the write gate, not a failure.
+/// walk every record outside the node's write gate, under the protected source hold.
 const MAX_HOME_RECORDS: u64 = 67_108_864;
 
 /// Worst-case uncompressed output, calculated from exact live locator entries.
