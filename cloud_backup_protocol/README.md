@@ -11,7 +11,7 @@ The initial manifest read binds its grant to the accepted receipt ID through `Re
 Private upload targets use the complete frozen transfer digest, so separate jobs keep separate physical allocations.
 
 Runtime support remains disabled.
-The native core exporter, Mini importer, and service Lambda now consume this source with runtime activation disabled.
+The native backup capture code, Mini importer, and service Lambda consume this source with runtime activation disabled.
 Private worker records, provider locations, multipart uploads, external retention holds, and future sync types stay outside this wire contract.
 
 The service consumes this exact package through its existing `fold` submodule in its S1 DEV worktree.

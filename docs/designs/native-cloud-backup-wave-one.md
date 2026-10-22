@@ -18,15 +18,15 @@ The source does not change the primary, shared services, CI, routines, or provid
 
 ## Native file packing and capture
 
-The exporter uses the existing native disk-pack files and their exact stored bytes.
+Backup capture uses the existing native disk-pack files and their exact stored bytes.
 It does not create a second record layout.
 Files of at least 64 KiB stream directly from the retained native source.
 Smaller files share metadata objects of at most 8 MiB, with explicit member extents and hashes.
-The exporter releases the local write gate before hashes, metadata assembly, or network work.
+Backup capture releases the local write gate before hashes, metadata assembly, or network work.
 
 The saved cut includes its CURRENT bytes, generation, frontier, native hold, inventory, and frozen transfer inputs.
 A restart resumes that cut. It cannot substitute a newer root.
-The exporter saves the remote terminal result before it releases its native hold.
+Backup capture saves the remote terminal result before it releases its native hold.
 Open readers retain that hold until their release.
 A missing source still permits an exact close request and terminal confirmation.
 
@@ -35,7 +35,7 @@ Only one active operation can use the cloud memory allowance.
 The limits cover cloud allocations. They do not cap the entire Mini process.
 
 The Mini owner adapter must derive the RecoveryDescriptor from the actual source account and key context.
-The low-level exporter cannot establish that authority from caller metadata alone.
+The low-level capture code cannot establish that authority from caller metadata alone.
 
 ## Service jobs and transfers
 

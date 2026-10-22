@@ -23,7 +23,7 @@ Each part owns one result:
 | --- | --- | --- |
 | Capture | Native store | One committed root and its protected source files |
 | Transfer | Cloud object service | One authoritative receipt for exact backup-owned bytes |
-| Manifest | Exporter and importer | One authenticated map from native paths and file pointers to those bytes |
+| Manifest | Backup capture and restore | One authenticated map from native paths and file pointers to those bytes |
 | Acceptance | Cloud control service | One accepted record and pointer from one conditional transaction |
 | Restore | Native importer | One verified fresh destination with recoverable record and file data |
 
@@ -73,7 +73,7 @@ Native generation, native frontier, backup ordinal, and private control revision
 The first accepted backup has ordinal 1. A successor has its predecessor's ordinal plus one.
 Native generation and frontier cannot decrease within a stream.
 An unchanged generation requires the same NativeRoot summary.
-The exporter and importer also compare that summary against exact native bytes.
+Backup capture and restore also compare that summary against exact native bytes.
 
 bytes_sha256 hashes exact stored bytes with SHA-256.
 An ETag is not a byte-integrity proof.
@@ -98,7 +98,7 @@ A client-created receipt with a valid hash does not establish that authority.
 
 ## 3. Capture and protected backup files
 
-The native exporter completes a full-root cut and creates its durable file hold.
+Backup capture selects one complete committed root and creates its durable file hold.
 It requires frontier == journal_frontier and the native snapshot's empty JOURNAL_TAIL boundary.
 It releases the local write gate before network work.
 Ordinary local reads and writes use their existing memory and disk rules.
@@ -111,7 +111,7 @@ A generation hold protects that cut; it does not retain journal files from later
 NativeRoot is a service-visible summary:
 home identity and digest, full CURRENT digest, native generation, frontier, journal frontier, and required native features.
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
-The exporter and importer use the native decoder to check those details.
+Backup capture and restore use the native decoder to check those details.
 The current native profile supports mask 0xff, requires 0xc7, uses codecs 0x0101, and requires logical marker layout:v3:keys with ASCII value 4.
 Unsupported features cause refusal before destination publication.
 
@@ -121,14 +121,20 @@ Ordinary native packed files need no second database layout or encryption pass.
 The current native physical frames remain plain; upper layers protect stored values where configured.
 
 File-pointer changes and dependency-directory changes share the same native mutation batch.
-The exporter captures that directory with the same root.
+Backup capture reads that directory from the same protected root.
 The current local cache is not the dependency authority.
 An old pointer without a certified dependency prevents a complete backup.
+
+A local cas_blobs record already belongs to the native packed file set.
+An exact directory record, native key, and authenticated file check can certify those bytes as native-covered.
+Those bytes require no second blob upload or external manifest dependency.
+The importer verifies that coverage against the restored native root and the original pointer.
+An external file needs a verified backup-owned copy and a persistent restore resolver.
 
 All required file blob bytes use backup-owned objects.
 Copy authorized external bytes once, then reuse verified backup objects in later snapshots.
 Do not retain a dependency on an external owner's deletion policy.
-If the exporter lacks permission to copy required bytes, it refuses completion.
+If backup capture lacks permission to copy required bytes, it refuses completion.
 
 Preserve each stored source hash, length, encryption suite, and encrypted key reference.
 The dependency map key is the pair logical_pointer_sha256 and FileDependencyKind.
@@ -137,9 +143,10 @@ It includes all optional pointer members and excludes the atom ID, atom metadata
 Main selects the parent blob_ref, dek, and cipher_suite.
 Thumbnail selects thumbnail with kind image. Poster selects thumbnail with kind video-poster.
 Both nested forms select their own blob_ref and access.dek / access.cipher_suite.
-The exporter and importer use the existing pointer validator and compare the selected suite with the dependency.
+Backup capture and restore use the existing pointer validator and compare the selected suite with the dependency.
 There is no second key-reference digest. The existing encrypted pointer retains the key material.
-Legacy $blob_ref or metadata-only file references require certified native coverage or explicit refusal; the exporter cannot silently omit them.
+Legacy $blob_ref or metadata-only file references require certified native coverage or explicit refusal.
+Backup capture cannot silently omit them.
 Large blob streams use ordered extents over objects of at most 64 MiB.
 The first profile supports the existing convergent and legacy DEK file suites.
 The account content key does not replace a per-file DEK.
@@ -525,7 +532,7 @@ All totals use checked arithmetic and complete final encodings.
 The aggregate memory budget includes serialization, encryption copies, decoded values, and stream buffers.
 It does not cap the whole LastDB process.
 The native hold also requires native disk admission and visible retained-byte accounting.
-The exporter cannot delete held files to satisfy a cap.
+Backup capture cannot delete held files to satisfy a cap.
 
 The current service stores control JSON as a Dynamo DB string.
 Count complete stored attribute names and values, including base64 inside that string.

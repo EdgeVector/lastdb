@@ -118,7 +118,10 @@ pub struct ExternalFileDependency {
 /// The caller validates the existing pointer format before this pure hash step.
 /// Atom identifiers, atom metadata and encryption envelopes are not inputs.
 pub fn logical_pointer_sha256(pointer: &serde_json::Value) -> Result<Digest, ProtocolError> {
-    Ok(bytes_sha256(&canonical_bytes(pointer)?))
+    // The input already is a JSON value; canonical_bytes would clone its tree.
+    let bytes =
+        json_canon::to_vec(pointer).map_err(|_| ProtocolError::invalid("canonical_json"))?;
+    Ok(bytes_sha256(&bytes))
 }
 
 impl ExternalFileDependency {
