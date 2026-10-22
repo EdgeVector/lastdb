@@ -122,6 +122,8 @@ pub struct NativeBackupStatus {
     pub manifest_pages_verified: u64,
     pub retained_source_bytes: Option<u64>,
     pub reserved_cloud_bytes: Option<u64>,
+    pub cloud_usage: Option<cloud_backup_protocol::usage::UsageReadResponse>,
+    pub cloud_usage_observed_at_ms: Option<u64>,
     pub blocked_reason: Option<String>,
     pub last_accepted_backup: Option<AcceptedBackup>,
 }

@@ -1,7 +1,7 @@
 # Native cloud backup protocol, version 1
 
-Status: unreleased draft, revision 4. Runtime support stays disabled.
-This revision adds read-only account context and records the Mini source integration.
+Status: unreleased draft, revision 5. Runtime support stays disabled.
+This revision consumes snapshot commits from main and adds read-only file source grants and native usage observations.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 8067843c4f9626470edc971ab10c10e829f021d8 and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
@@ -107,21 +107,25 @@ A client-created receipt with a valid hash does not establish that authority.
 ## 3. Capture and protected backup files
 
 Backup capture selects one complete committed root and creates its durable file hold.
-It requires frontier == journal_frontier and the native snapshot's empty JOURNAL_TAIL boundary.
+It selects the complete snapshot CURRENT after the required flush and retains its exact immutable file inventory.
+The snapshot has no journal frontier, stream, or tail file.
 It releases the local write gate before network work.
 Ordinary local reads and writes use their existing memory and disk rules.
 
 The source job saves its hold identity, root, exact inventory, and initial transfer inputs before cloud work.
 A restart resumes those files. It does not substitute a newer root.
 A full local backup copy is not required.
-A generation hold protects that cut; it does not retain journal files from later writes.
+A generation hold protects that exact cut while later writes and compaction proceed.
 
 NativeRoot is a service-visible summary:
-home identity and digest, full CURRENT digest, native generation, frontier, journal frontier, and required native features.
+home identity and digest, full CURRENT digest, native generation, frontier, and required native features.
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
-The current native profile supports mask 0xff, requires 0xc7, uses codecs 0x0101, and requires logical marker layout:v3:keys with ASCII value 4.
+The current native profile supports mask 0x1fd, requires 0x1c5, uses codecs 0x0101, and requires logical marker layout:v3:keys with ASCII value 4.
 Unsupported features cause refusal before destination publication.
+The snapshot-commit bit 0x100 is required. The retired journal bit 0x2 is refused.
+Native readers and this unreleased cloud profile refuse the old journal format without automatic conversion.
+Saved job identities, bytes, and hashes cannot change to bypass that format boundary.
 
 Native files retain their exact stored bytes and hashes.
 Small metadata files may share an 8 MiB transport object with explicit member extents.
@@ -456,6 +460,8 @@ An authenticated request body never grants authority by itself.
 | heads/read | HeadReadRequest | HeadReadResult |
 | streams/list | StreamsListRequest | StreamsListResponse |
 | objects/read | ReadGrantRequest | ReadGrantResponse |
+| source/read | SourceReadRequest | SourceReadResponse |
+| usage/read | UsageReadRequest | UsageReadResponse |
 
 ProtocolError is the typed error body where no operation result exists.
 NotFound maps to 404; input errors to 400; authority failure to 403; identity, generation, job, and predecessor conflicts to 409.
@@ -466,6 +472,22 @@ Valid batch envelopes return 200 with each item's state or error; top-level requ
 No response code permits a new identity merely because an earlier outcome is unknown.
 
 Private service state includes stream subject bindings, revisions, provider targets, verification evidence, quota reservations, submission certificates, and usage obligations.
+
+source/read authorizes only an existing personal consumer copy, under the current account generation.
+One bounded transactional read binds current control to at most four exact reference records.
+Each selector names its original owner scope, optional app, file identity, kind, and expected ciphertext length.
+The service derives the consumer from authentication and verifies the exact saved copy identity, path, provider, length, and proof.
+The first source profile supports Main only. Other kinds and missing copies receive explicit refusal.
+The grant uses the configured B2 target and one saved strong ETag through signed If-Match.
+No source request creates, registers, releases, adopts, or copies an object.
+The capture still checks the complete original encryption, plaintext identity, exact length, and EOF.
+
+usage/read binds an account-wide observation to the authenticated personal account.
+It reads the same reserved and retained counters that native quota admission changes.
+Its total also includes observed legacy bytes. Those bytes exclude future unreserved legacy grants.
+The response supplies quota bytes and a checked total across all generations.
+Mini saves the observation with a timestamp. Missing, invalid, or failed observations stay unknown or retain their prior timestamp.
+A usage observation cannot change transfer receipts, acceptance, source release, or byte obligations.
 These records stay outside the shared wire crate.
 Worker implementation must define conditional durable transitions before its provider code runs.
 
@@ -570,8 +592,9 @@ No new test suite or fixture harness supplies product proof.
 B1 backup capture, S1 cloud jobs and transfers, R1 restore, B2 file coverage, and S2 acceptance now have disabled source implementations.
 The [second source wave](native-cloud-backup-wave-two.md) records their original boundaries.
 The [Mini integration wave](native-cloud-backup-mini-v1.md) supplies the saved worker, manifest assembler, native client, and normal commands.
-Read-only scoped file grants, native usage views, legacy grant isolation, and purge exclusion remain source release gates.
-Reserved cloud bytes stay unknown in Mini status until the native usage view exists.
+The source now supplies read-only scoped Main-file grants and timestamped native usage observations.
+Legacy grant isolation, complete allocation reconciliation, and purge exclusion remain release gates.
+Scoped thumbnails and posters require a separate exact source grant. Missing consumer copies refuse before backup completion.
 P1 proves cloud-only recovery on fresh synthetic data in an approved service environment.
 
 The S1 service worktree imports this crate through its existing fold submodule.

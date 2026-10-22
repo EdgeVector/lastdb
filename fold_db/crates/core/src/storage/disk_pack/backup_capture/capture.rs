@@ -62,9 +62,9 @@ impl PackRuntime {
                 }
             }
             let writer = runtime
-                .journal
+                .writer
                 .lock()
-                .map_err(|_| invalid("backup capture journal lock failed"))?;
+                .map_err(|_| invalid("backup capture writer lock failed"))?;
             let current = writer.current().clone();
             let begin = JobBeginInput {
                 version: Version::V1,
@@ -238,7 +238,6 @@ fn root(runtime: &PackRuntime, current: &Current) -> StorageResult<NativeRoot> {
         current_sha256: bytes_sha256(&current.encode().map_err(super::super::map)?),
         generation: DecimalU64::new(current.generation),
         frontier: DecimalU64::new(current.frontier),
-        journal_frontier: DecimalU64::new(current.journal_frontier),
         required_features: DecimalU64::new(current.required_features),
     };
     root.validate().map_err(protocol)?;

@@ -62,9 +62,9 @@ impl NativeBackupCapture {
     ) -> StorageResult<laststore::disk_pack::maintenance::SpaceReservation> {
         self.inner
             .runtime
-            .journal
+            .writer
             .lock()
-            .map_err(|_| invalid("backup journal lock failed"))?
+            .map_err(|_| invalid("backup writer lock failed"))?
             .reserve_space(bytes, &self.inner.runtime.space_policy)
             .map_err(super::super::map)
     }

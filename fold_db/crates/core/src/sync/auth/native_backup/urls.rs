@@ -15,17 +15,23 @@ pub(super) fn https(value: &str) -> Result<Url> {
 }
 
 pub(super) fn signed(value: &str, upload: bool) -> Result<Url> {
+    signed_headers(
+        value,
+        if upload {
+            "content-length;host;if-none-match"
+        } else {
+            "host"
+        },
+    )
+}
+
+pub(super) fn signed_headers(value: &str, expected: &str) -> Result<Url> {
     let url = https(value)?;
     let names: Vec<_> = url
         .query_pairs()
         .filter(|(name, _)| name.eq_ignore_ascii_case("x-amz-signedheaders"))
         .map(|(_, value)| value.into_owned())
         .collect();
-    let expected = if upload {
-        "content-length;host;if-none-match"
-    } else {
-        "host"
-    };
     if names.len() != 1 || names[0] != expected {
         return Err(NativeBackupError::InvalidResponse("signed headers"));
     }

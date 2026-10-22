@@ -1,6 +1,8 @@
 //! Exact-key body copies with bounded block and metadata ownership.
 
-use crate::disk_pack::{corrupt, resource, Location, ReadBudget, ReadCall, ReadCosts, BLOCK_BYTES};
+use crate::disk_pack::{
+    corrupt, resource, Location, ReadBudget, ReadCall, ReadCosts, Source, BLOCK_BYTES,
+};
 use crate::Result;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -27,6 +29,9 @@ pub(super) fn copy_body_to(
     let Some(location) = call.locate(collection, group, key)? else {
         return Ok(None);
     };
+    if location.source != Source::Pack {
+        return Err(corrupt("streamed record does not select a snapshot pack"));
+    }
     let mut stream = stream_call(call, &location)?;
     // No old decoded payload or locator cache coexists with the copy buffers.
     clear(call);
@@ -79,6 +84,13 @@ fn copy_record(
     location: &Location,
     output: &mut dyn Write,
 ) -> Result<StreamedRecord> {
+    let body_bytes = location
+        .record_bytes
+        .checked_sub(96 + key.len() as u64)
+        .ok_or_else(|| corrupt("streamed record shorter than complete key"))?;
+    if body_bytes > lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES {
+        return Err(corrupt("streamed record body exceeds native format"));
+    }
     if let Some(object) = call.object_metadata(location)? {
         let end = location
             .first_block
@@ -90,10 +102,6 @@ fn copy_record(
             return Err(corrupt("streamed record outside published object"));
         }
     }
-    let body_bytes = location
-        .record_bytes
-        .checked_sub(96 + key.len() as u64)
-        .ok_or_else(|| corrupt("streamed record shorter than complete key"))?;
     let header =
         super::super::record::record_header(collection, key, body_bytes, location.version)?;
     call.charge(location.record_bytes)?;

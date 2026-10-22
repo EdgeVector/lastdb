@@ -64,7 +64,6 @@ pub(super) fn finish(
         || hex::encode(native.current.home_digest) != expected.home_digest.as_str()
         || native.current.generation != expected.generation.get()
         || native.current.frontier != expected.frontier.get()
-        || native.current.journal_frontier != expected.journal_frontier.get()
         || native.current.required_features != expected.required_features.get()
         || native.files.len() as u64 != inventory.files
     {

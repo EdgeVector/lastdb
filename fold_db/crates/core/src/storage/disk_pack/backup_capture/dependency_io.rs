@@ -59,9 +59,9 @@ pub(super) fn verify_blob(
 pub(super) fn reserve(inner: &ExportInner, bytes: u64) -> StorageResult<SpaceReservation> {
     inner
         .runtime
-        .journal
+        .writer
         .lock()
-        .map_err(|_| invalid("backup journal lock failed"))?
+        .map_err(|_| invalid("backup writer lock failed"))?
         .reserve_space(
             bytes
                 .checked_add(65536)

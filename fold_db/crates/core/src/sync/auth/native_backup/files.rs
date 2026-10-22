@@ -1,16 +1,18 @@
-//! The two existing unscoped GET-grant actions have no legacy client admission.
-//! Owner-scoped main-file requests are deliberately unsupported: that service
-//! action registers independent consumer copies and is not a read-only grant.
+//! Scoped main files read only an existing native-authorized consumer copy.
+//! Unscoped GET actions bypass legacy client admission. No request registers
+//! a consumer copy, adopts a generation, or substitutes a main file for a thumb.
 use super::*;
 use crate::storage::disk_pack::{backup_capture::FileSource, file_dependencies::FileDependency};
 use crate::storage::error::{StorageError, StorageResult};
-use cloud_backup_protocol::{FileDependencyKind, Text};
+use cloud_backup_protocol::source::{SourceReadRequest, SourceReadResult, SourceReadSelector};
+use cloud_backup_protocol::{CloudScope, DecimalU64, FileDependencyKind, Text, Version};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Clone)]
 pub struct NativeAuthorizedFileSource {
     client: NativeBackupClient,
+    scope: CloudScope,
 }
 
 #[derive(Serialize)]
@@ -32,15 +34,16 @@ struct FileGrant {
 }
 
 impl NativeAuthorizedFileSource {
-    pub(super) fn new(client: NativeBackupClient) -> Self {
-        Self { client }
+    pub(super) fn new(client: NativeBackupClient, scope: CloudScope) -> Self {
+        Self { client, scope }
     }
 
     /// The capture reserves disk capacity and authenticates the exact original
     /// encryption after this bounded download. An incomplete file stays private.
     pub async fn fetch_to_file(&self, dependency: &FileDependency, path: &Path) -> Result<()> {
-        if dependency.access().owner_scope.is_some() {
-            return Err(NativeBackupError::UnsupportedFileScope);
+        self.scope.validate()?;
+        if let Some(owner) = &dependency.access().owner_scope {
+            return self.scoped_file(dependency, owner, path).await;
         }
         let action = match dependency.kind() {
             FileDependencyKind::Main => "presign_file_download",
@@ -76,6 +79,42 @@ impl NativeAuthorizedFileSource {
         .map_err(|_| NativeBackupError::Source)?
         .ok_or(NativeBackupError::Source)
     }
+
+    async fn scoped_file(
+        &self,
+        dependency: &FileDependency,
+        owner: &str,
+        path: &Path,
+    ) -> Result<()> {
+        if dependency.kind() != FileDependencyKind::Main {
+            return Err(NativeBackupError::UnsupportedFileScope);
+        }
+        let selector = SourceReadSelector {
+            kind: dependency.kind(),
+            owner_scope: Text::try_from(owner.to_owned())?,
+            // The current pointer codec carries no app namespace. Never infer one.
+            app_id: None,
+            file_hash: dependency.file_hash().clone(),
+            expected_ciphertext_bytes: DecimalU64::new(dependency.expected_stored_bytes()),
+        };
+        let request = SourceReadRequest {
+            version: Version::V1,
+            scope: self.scope.clone(),
+            objects: vec![selector.clone()],
+        };
+        let response = self.client.source_read(&request).await?;
+        match response
+            .results
+            .into_iter()
+            .next()
+            .ok_or(NativeBackupError::InvalidResponse("file source grant"))?
+        {
+            SourceReadResult::Grant { grant, .. } => {
+                self.client.download_source(&selector, &grant, path).await
+            }
+            SourceReadResult::Error { error, .. } => Err(NativeBackupError::Protocol(error)),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -85,6 +124,11 @@ impl FileSource for NativeAuthorizedFileSource {
             .await
             .map_err(|error| {
                 let message = match error {
+                    NativeBackupError::Protocol(error)
+                        if error.code == cloud_backup_protocol::ErrorCode::SourceUnavailable =>
+                    {
+                        "native authorized file consumer copy is unavailable"
+                    }
                     NativeBackupError::UnsupportedFileScope => {
                         "native file source owner scope needs a read-only grant"
                     }

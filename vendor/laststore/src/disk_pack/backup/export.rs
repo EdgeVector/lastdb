@@ -3,7 +3,7 @@
 //! The caller owns terminal confirmation and explicit reference release. Drop
 //! never releases the durable reference. No complete backup copy is created.
 
-use super::{files, snapshot_tail};
+use super::files;
 use crate::disk_pack::lifetime::{
     DurableReference, GenerationHold, ReferencePurpose, WriterReadLease,
 };
@@ -29,7 +29,6 @@ pub struct SnapshotExport {
     reference: DurableReference,
     files: Vec<SnapshotFile>,
     current_bytes: [u8; 4096],
-    tail_bytes: [u8; 4096],
     bytes: u64,
 }
 
@@ -44,7 +43,6 @@ impl SnapshotExport {
             ));
         }
         let current_bytes = reference.current().encode()?;
-        let tail_bytes = snapshot_tail(reference.current())?.encode()?;
         let inventory = reference.inventory()?;
         let mut entries: Vec<_> = inventory
             .files
@@ -56,10 +54,6 @@ impl SnapshotExport {
             .collect();
         entries.push(SnapshotFile {
             path: "CURRENT".into(),
-            bytes: 4096,
-        });
-        entries.push(SnapshotFile {
-            path: "JOURNAL_TAIL".into(),
             bytes: 4096,
         });
         entries.sort_by(|left, right| left.path.cmp(&right.path));
@@ -82,7 +76,6 @@ impl SnapshotExport {
             reference,
             files: entries,
             current_bytes,
-            tail_bytes,
             bytes,
         })
     }
@@ -97,7 +90,7 @@ impl SnapshotExport {
         &self.files
     }
 
-    /// Sum of every original file and the two snapshot selectors.
+    /// Sum of every original file and the exact CURRENT selector.
     pub fn bytes(&self) -> u64 {
         self.bytes
     }
@@ -118,7 +111,6 @@ impl SnapshotExport {
         let hold = GenerationHold::from_writer(lease, self.reference.home_path(), self.current())?;
         let input = match path.to_str() {
             Some("CURRENT") => Input::Memory(Cursor::new(self.current_bytes.to_vec())),
-            Some("JOURNAL_TAIL") => Input::Memory(Cursor::new(self.tail_bytes.to_vec())),
             _ => {
                 let file = files::open(self.reference.home_path(), path)?;
                 if file.metadata()?.len() != selected.bytes {

@@ -147,9 +147,9 @@ pub(super) fn build(
         return Err(invalid("backup capture spool quote exceeds its limit"));
     }
     let _space = runtime
-        .journal
+        .writer
         .lock()
-        .map_err(|_| invalid("backup capture journal lock failed"))?
+        .map_err(|_| invalid("backup capture writer lock failed"))?
         .reserve_space(quote, &runtime.space_policy)
         .map_err(super::super::map)?;
     store.cleanup_pages(record)?;

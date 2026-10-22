@@ -54,7 +54,16 @@ pub(super) async fn external(
 ) -> Result<()> {
     work.checkpoint(Phase::CopyingFiles)?;
     let entries = work.capture.file_dependency_status()?.entries;
-    let source = work.client.authorized_file_source();
+    let scope = work
+        .saved
+        .begin
+        .as_ref()
+        .ok_or(BackupError::Invalid)?
+        .job
+        .stream
+        .scope
+        .clone();
+    let source = work.client.authorized_file_source(scope);
     let mut confirmed = 0;
     for index in 0..entries {
         work.check_close()?;

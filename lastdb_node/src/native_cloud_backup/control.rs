@@ -111,7 +111,18 @@ fn launch(source: Source, store: Store, mut saved: Saved, permit: Permit) -> Res
                 .build()
                 .map_err(|_| BackupError::Source)
                 .and_then(|runtime| {
-                    runtime.block_on(super::worker::run(&source, &store, &mut saved))
+                    runtime.block_on(async {
+                        let result = super::worker::run(&source, &store, &mut saved).await;
+                        if saved.begin.is_some() {
+                            if let Ok(client) =
+                                crate::native_backup_access::client_for_recovery(&source.home)
+                            {
+                                let _ =
+                                    super::usage::refresh(&store, &client, &source.account).await;
+                            }
+                        }
+                        result
+                    })
                 });
             if let Err(error) = result {
                 saved.blocked_reason = Some(error.label().into());
@@ -222,6 +233,8 @@ fn status_for(home: &Path, selection: Option<Id>) -> Result<NativeBackupStatus> 
         manifest_pages_verified: 0,
         retained_source_bytes: None,
         reserved_cloud_bytes: None,
+        cloud_usage: None,
+        cloud_usage_observed_at_ms: None,
         blocked_reason: None,
         last_accepted_backup: None,
     };
@@ -239,6 +252,13 @@ fn status_for(home: &Path, selection: Option<Id>) -> Result<NativeBackupStatus> 
     saved.validate()?;
     if saved.request_id != id {
         return Err(BackupError::Invalid);
+    }
+    if let Ok(Some(cached)) = store::read::<super::usage::CachedUsage>(&base.join("usage.json")) {
+        if cached.validate(&saved.account).is_ok() {
+            value.reserved_cloud_bytes = Some(cached.usage.reserved_bytes.get());
+            value.cloud_usage_observed_at_ms = Some(cached.observed_at_ms);
+            value.cloud_usage = Some(cached.usage);
+        }
     }
     value.job = saved.intent.as_ref().map(|intent| intent.job.clone());
     value.phase = Some(saved.phase);

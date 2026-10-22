@@ -9,8 +9,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-pub const NATIVE_SUPPORTED_FEATURES_V1: u64 = 0xff;
-pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0xc7;
+pub const NATIVE_SUPPORTED_FEATURES_V1: u64 = 0x1fd;
+pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0x1c5;
 
 /// Service-visible summary. Exact CURRENT and home bytes remain authoritative
 /// for directory roots, codecs, logical markers and all native format details.
@@ -22,7 +22,6 @@ pub struct NativeRoot {
     pub current_sha256: Digest,
     pub generation: DecimalU64,
     pub frontier: DecimalU64,
-    pub journal_frontier: DecimalU64,
     pub required_features: DecimalU64,
 }
 
@@ -30,7 +29,6 @@ impl NativeRoot {
     pub fn validate(&self) -> Result<(), ProtocolError> {
         let features = self.required_features.get();
         if self.generation.get() == 0
-            || self.frontier != self.journal_frontier
             || self.frontier.get() == u64::MAX
             || features & !NATIVE_SUPPORTED_FEATURES_V1 != 0
             || features & NATIVE_REQUIRED_FEATURES_V1 != NATIVE_REQUIRED_FEATURES_V1
@@ -81,6 +79,8 @@ impl NativeFileEntry {
         if self.native_bytes.get() == 0
             || self.native_bytes.get() > NATIVE_PART_MAX_BYTES
             || self.native_bytes != self.extent.length
+            || self.path.as_str() == "JOURNAL_TAIL"
+            || self.path.as_str().starts_with("journal/")
         {
             return Err(ProtocolError::invalid("native_file"));
         }
@@ -312,7 +312,6 @@ impl NativeBackupManifest {
             if (file.path.as_str() == "CURRENT"
                 && (file.native_bytes.get() != 4096
                     || file.native_sha256 != self.native_root.current_sha256))
-                || (file.path.as_str() == "JOURNAL_TAIL" && file.native_bytes.get() != 4096)
                 || (file.path.as_str() == "laststore-pack-home-v1"
                     && (file.native_bytes.get() != 4096
                         || file.native_sha256 != self.native_root.home_digest))

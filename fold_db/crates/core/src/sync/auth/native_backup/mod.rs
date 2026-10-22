@@ -13,6 +13,8 @@ mod files;
 mod http;
 mod jobs;
 mod publication;
+mod source;
+mod source_download;
 mod transfers;
 mod upload;
 mod urls;
@@ -62,9 +64,12 @@ impl NativeBackupClient {
         })
     }
 
-    /// Construct only the bounded read-only source adapter. No request starts here.
-    /// An owner-scoped pointer refuses until its source grant has a read-only API.
-    pub fn authorized_file_source(&self) -> NativeAuthorizedFileSource {
-        NativeAuthorizedFileSource::new(self.clone())
+    /// Bind file reads to the frozen consumer scope. No request starts here.
+    /// Existing scoped main-file copies use only the native read-only grant API.
+    pub fn authorized_file_source(
+        &self,
+        scope: cloud_backup_protocol::CloudScope,
+    ) -> NativeAuthorizedFileSource {
+        NativeAuthorizedFileSource::new(self.clone(), scope)
     }
 }

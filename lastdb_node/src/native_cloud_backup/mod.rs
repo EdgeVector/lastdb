@@ -10,6 +10,7 @@ mod setup;
 mod store;
 mod terminal;
 mod transfer;
+mod usage;
 mod worker;
 
 pub use control::request;
@@ -34,6 +35,7 @@ pub enum BackupError {
     Disk,
     Source,
     UnsupportedFileScope,
+    FileSourceUnavailable,
     UncertifiedFile,
     Limit,
     Waiting,
@@ -55,6 +57,7 @@ impl BackupError {
                 "native backup needs a read-only grant for the original file"
             }
             Self::UncertifiedFile => "native backup needs complete file pointers and certificates",
+            Self::FileSourceUnavailable => "native backup has no existing authorized file copy; the saved job retains its source",
             Self::Limit => "native backup resource limit reached",
             Self::Waiting => "native backup awaits cloud verification; resume this job",
             Self::Closing => "native backup closure is requested",
@@ -126,6 +129,9 @@ impl From<fold_db::storage::StorageError> for BackupError {
             | StorageError::MutationLimit { .. } => Self::Limit,
             StorageError::StorageFull { .. } | StorageError::IoError(_) => Self::Disk,
             StorageError::InvalidOperation(detail) => match detail.as_str() {
+                "native authorized file consumer copy is unavailable" => {
+                    Self::FileSourceUnavailable
+                }
                 "native file source owner scope needs a read-only grant" => {
                     Self::UnsupportedFileScope
                 }

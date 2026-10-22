@@ -43,10 +43,9 @@ where
     );
     // Settle every sibling before returning any error. A positive response is
     // still authoritative on retry, and normal failures release source readers.
-    futures::future::join_all(futures)
-        .await
-        .into_iter()
-        .collect()
+    let results = futures::future::join_all(futures).await;
+    let _ = super::usage::refresh(work.store, work.client, &work.source.account).await;
+    results.into_iter().collect()
 }
 
 async fn settle<F>(

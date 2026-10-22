@@ -11,7 +11,7 @@ pub use prepare::{prepare_referenced_backup, PreparedBackup, ReservedBackup};
 pub use validate::{prepare_snapshot_directories, validate_snapshot, ValidatedSnapshot};
 
 use super::home::DiskHome;
-use super::lifetime::{generation_inventory, DurableReference, ReferencePurpose};
+use super::lifetime::{DurableReference, ReferencePurpose};
 use super::{corrupt, Current};
 use crate::Result;
 use std::collections::BTreeMap;
@@ -92,22 +92,17 @@ pub fn restore_backup(backup: &Path, destination: &Path) -> Result<BackupReceipt
             Some(&entry.digest),
         )?;
     }
-    let home = DiskHome::open(&staging)?;
-    let mut current_file = std::fs::File::open(staging.join("CURRENT"))?;
-    let mut bytes = [0; 4096];
-    std::io::Read::read_exact(&mut current_file, &mut bytes)?;
-    let current = Current::decode(&bytes)?;
+    let validated = validate_snapshot(&staging)?;
+    let current = &validated.current;
     if current.generation != manifest.generation || current.frontier != manifest.frontier {
         return Err(corrupt("backup CURRENT differs from manifest boundary"));
     }
     snapshot_directories(&staging)?;
-    let inventory = generation_inventory(home.path(), &current)?;
-    let mut expected: BTreeMap<_, _> = inventory
+    let expected: BTreeMap<_, _> = validated
         .files
         .into_iter()
         .map(|file| (file.path, file.bytes))
         .collect();
-    expected.insert("CURRENT".into(), 4096);
     let actual: BTreeMap<_, _> = manifest
         .entries
         .iter()

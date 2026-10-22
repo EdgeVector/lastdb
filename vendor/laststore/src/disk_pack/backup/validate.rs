@@ -1,7 +1,6 @@
 //! Reuse the native decoder before a cloud importer exposes its owned output.
 use super::{files, snapshot_directories};
 use crate::disk_pack::home::DiskHome;
-use crate::disk_pack::journal::JournalTail;
 use crate::disk_pack::lifetime::{generation_inventory, GenerationFile};
 use crate::disk_pack::Current;
 use crate::Result;
@@ -16,7 +15,7 @@ pub struct ValidatedSnapshot {
     pub current: Current,
     /// Immutable native home identity.
     pub home_id: Uuid,
-    /// Exact native dependencies plus CURRENT and the empty JOURNAL_TAIL.
+    /// Exact native dependencies plus the complete CURRENT.
     pub files: Vec<GenerationFile>,
 }
 
@@ -31,15 +30,12 @@ pub fn validate_snapshot(root: &Path) -> Result<ValidatedSnapshot> {
     input.read_exact(&mut bytes)?;
     let current = Current::decode(&bytes)?;
     let home = DiskHome::open(root)?;
-    JournalTail::read(root)?.validate_for_snapshot(&current)?;
     let mut inventory = generation_inventory(root, &current)?.files;
-    for name in ["CURRENT", "JOURNAL_TAIL"] {
-        inventory.push(GenerationFile {
-            path: name.into(),
-            bytes: 4096,
-            creation_generation: current.generation,
-        });
-    }
+    inventory.push(GenerationFile {
+        path: "CURRENT".into(),
+        bytes: 4096,
+        creation_generation: current.generation,
+    });
     Ok(ValidatedSnapshot {
         current,
         home_id: home.descriptor().identity,
@@ -51,5 +47,5 @@ pub fn validate_snapshot(root: &Path) -> Result<ValidatedSnapshot> {
 /// The caller owns this inactive root and retains the exact validated CURRENT.
 pub fn prepare_snapshot_directories(root: &Path, current: &Current) -> Result<()> {
     current.encode()?;
-    snapshot_directories(root, current)
+    snapshot_directories(root)
 }

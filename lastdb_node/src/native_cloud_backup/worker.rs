@@ -60,6 +60,7 @@ pub(super) async fn run(source: &Source, store: &Store, saved: &mut Saved) -> Re
     } else {
         source.client()?
     };
+    let _ = super::usage::refresh(store, &client, &source.account).await;
     super::setup::intent(source, store, saved, &client).await?;
     if super::terminal::cancel_uncaptured(source, store, saved)? {
         return Ok(());
