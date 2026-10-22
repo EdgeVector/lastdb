@@ -34,7 +34,7 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
                 let mut cursor = directory::atom_inventory(&mut read, group, &start)
                     .map_err(|_| RestoreError::Limit("native atom inventory"))?;
                 cursor
-                    .next_page_yielding(1, 0, 0)
+                    .next_page_yielding_bounded(1, 0, 0, 4 * 1024 * 1024)
                     .map_err(|_| RestoreError::Limit("native atom page"))?
             }; // No native reader/block cache survives the atom decode.
             let next = page.resume.clone().or_else(|| {
@@ -87,6 +87,29 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
         return Err(RestoreError::Invalid("exact external file coverage"));
     }
     Ok(atoms)
+}
+
+pub(super) fn verify_metadata(session: &RestoreSession, key: &[u8; 32]) -> Result<()> {
+    // The coverage set from verify() is gone before this separate bounded pass.
+    let physical = session.physical();
+    let bytes = super::download::bytes(&physical.join("CURRENT"), 4096)?;
+    if cloud_backup_protocol::bytes_sha256(&bytes) != session.accepted().native_root.current_sha256
+    {
+        return Err(RestoreError::Invalid("metadata accepted native root"));
+    }
+    let fixed: [u8; 4096] = bytes
+        .try_into()
+        .map_err(|_| RestoreError::Invalid("metadata native root size"))?;
+    let current = laststore::disk_pack::Current::decode(&fixed)
+        .map_err(|_| RestoreError::Invalid("metadata native root"))?;
+    let home = DiskHome::open(&physical).map_err(|_| RestoreError::Invalid("native home"))?;
+    directory::verify_metadata_coverage(&current, key, |budget| {
+        home.read_committed(current.clone(), budget).map_err(|_| {
+            fold_db::storage::StorageError::InvalidOperation("metadata native read".into())
+        })
+    })
+    .map_err(|_| RestoreError::Unsupported("uncertified live file metadata"))?;
+    Ok(())
 }
 
 fn verify_dependency(

@@ -146,6 +146,7 @@ impl RestoreSession {
         }
         let inventory = super::closure::restore(self, source, keys).await?;
         let atoms = super::records::verify(self, &keys.content, inventory.dependencies)?;
+        super::records::verify_metadata(self, &keys.content)?;
         super::install::finish(self, keys, inventory, atoms)
     }
 
