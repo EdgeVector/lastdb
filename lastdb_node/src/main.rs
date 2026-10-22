@@ -231,12 +231,6 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         let _ = host.own_boot_identity.set(ledger.own_record());
     }
     let shutdown_flag = Arc::new(AtomicBool::new(false));
-    runtime
-        .block_on(lastdb_node::cloud_purge_runtime::attach(
-            &host,
-            Arc::clone(&shutdown_flag),
-        ))
-        .map_err(&note_fatal)?;
     let (sampler_task, home_fold_task) = spawn_background_tasks(&runtime, &host, &shutdown_flag);
 
     let socket = UdsSocket::bind_at(
@@ -358,7 +352,6 @@ fn main() -> Result<(), String> {
     // Schema resolve/register must go to the same environment the home syncs
     // to (papercut-lastdbd-connect-env-dev-still-uses-prod-schema-service).
     cloud::pin_schema_service_environment_from_home(&home);
-    runtime.block_on(lastdb_node::cloud_purge_adoption::before_boot(&home))?;
 
     // A Rust panic => a durable local crash report. Under `panic = "abort"` the
     // hook is the last code to run, so the report lands before the process dies.

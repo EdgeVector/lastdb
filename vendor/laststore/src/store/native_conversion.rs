@@ -127,11 +127,6 @@ impl LastStore {
         Ok(())
     }
 
-    pub(crate) fn open_pending_conversion(root: &Path) -> Result<Self> {
-        let options = resolve_layout_options(root, LastStoreOptions::default(), false)?;
-        Self::open_conversion(root.to_path_buf(), options, true)
-    }
-
     fn register_native_namespaces(
         &self,
         writer: &mut crate::disk_pack::home::HomeSnapshot,
@@ -267,6 +262,6 @@ fn commit(
     operations: Vec<HomeMutation>,
 ) -> Result<()> {
     let reservation = writer.reserve_mutation(&operations)?;
-    writer.commit_mutation(operations, 0, reservation)?;
+    writer.commit_mutation(operations, reservation)?;
     Ok(())
 }

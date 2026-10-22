@@ -27,7 +27,9 @@ impl AuthClient {
             ));
         }
         let control = self.cloud_control_get(account).await?;
-        if control.notification_only
+        if control.protocol_required
+            || control.generation != 0
+            || control.notification_only
             || control.account.as_ref() != Some(account)
             || control.control.as_ref().is_some_and(|value| {
                 value.phase != CloudPurgePhase::Ready && value.unchanged_continuation().is_none()
@@ -38,7 +40,7 @@ impl AuthClient {
             ));
         }
         let enrolled: CloudRecipientEnrollment = self
-            .purge_call(
+            .control_call(
                 json!({
                     "account":account,"cloud_operation_id":enrollment_id,
                     "cloud_generation":control.generation,

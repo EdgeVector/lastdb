@@ -58,19 +58,6 @@ impl SyncCoordinator {
         }
     }
 
-    /// Packing lock and cloud-pause slot for [`SyncEngine::new_with_shared_packing`].
-    pub(crate) fn packing_slots(
-        &self,
-    ) -> (
-        crate::sync::capture::plane_compactor::BackupPublishTargetSlot,
-        Arc<tokio::sync::Mutex<Option<u64>>>,
-    ) {
-        (
-            Arc::clone(&self.backup_publish_target),
-            Arc::clone(&self.cloud_sync_disabled_at),
-        )
-    }
-
     /// Store the sync engine. Caller is responsible for registering any
     /// reloader callbacks on the engine before calling this.
     pub(crate) fn set_engine(&self, engine: Arc<SyncEngine>) {

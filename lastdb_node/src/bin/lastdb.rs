@@ -51,17 +51,11 @@ use std::time::{Duration, Instant, SystemTime};
 use base64::Engine as _;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-#[path = "lastdb/backup_atom_rewrite.rs"]
-mod backup_atom_rewrite;
-
 #[path = "lastdb/cloud_rescue_publish.rs"]
 mod cloud_rescue_publish;
 
 #[path = "lastdb/cloud_primary_resume.rs"]
 mod cloud_primary_resume;
-
-#[path = "lastdb/cloud_purge.rs"]
-mod cloud_purge;
 
 #[path = "lastdb/restore_checkpoint.rs"]
 mod restore_checkpoint;

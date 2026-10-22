@@ -13,16 +13,11 @@ pub(super) const MAX_DEPENDENCIES: usize = 65_536;
 pub(super) struct Coordinate {
     pub(super) kind: u8,
     pub(super) object: Uuid,
-    /// Reserved in the snapshot format; always zero.
-    pub(super) batch: u64,
     pub(super) part: u32,
 }
 
 impl Coordinate {
     pub(super) fn path(&self, root: &Path) -> Result<PathBuf> {
-        if self.batch != 0 {
-            return Err(corrupt("snapshot dependency has a nonzero reserved batch"));
-        }
         let base = match self.kind {
             1 => root.join("directory").join(self.object.to_string()),
             2 => root.join("locator").join(self.object.to_string()),
@@ -57,7 +52,7 @@ impl Coordinate {
                 || bytes[11] != 0
                 || u32_at(&bytes, 12) != 128
                 || uuid_at(&bytes, 16) != self.object
-                || u64_at(&bytes, 32) != self.batch
+                || u64_at(&bytes, 32) != 0
                 || u32_at(&bytes, 40) != self.part
                 || u64::from(u32_at(&bytes, 44)) != length
                 || u64_at(&bytes, 64) != 0
@@ -97,7 +92,6 @@ impl Coordinate {
         // Whole-part checksum is absent. Page/frame checksums remain mandatory.
         put32(&mut entry, 4, self.part);
         entry[8..24].copy_from_slice(self.object.as_bytes());
-        put64(&mut entry, 24, self.batch);
         put64(&mut entry, 32, length);
         put64(&mut entry, 72, generation);
         Ok(entry)
@@ -135,7 +129,6 @@ impl Dependencies {
                     2
                 },
                 object: tree.object,
-                batch: 0,
                 part,
             })?;
         }
@@ -152,15 +145,9 @@ impl Dependencies {
     pub(super) fn add_payload(
         &mut self,
         object: Uuid,
-        batch: u64,
         data_parts: u64,
         map_pages: u64,
     ) -> Result<()> {
-        if batch != 0 {
-            return Err(corrupt(
-                "snapshot payload dependency has a nonzero reserved batch",
-            ));
-        }
         let map_parts = map_pages.div_ceil(512);
         if data_parts
             .checked_add(map_parts)
@@ -172,7 +159,6 @@ impl Dependencies {
             self.add(Coordinate {
                 kind: 3,
                 object,
-                batch,
                 part: part as u32,
             })?;
         }
@@ -180,7 +166,6 @@ impl Dependencies {
             self.add(Coordinate {
                 kind: 5,
                 object,
-                batch,
                 part: part as u32,
             })?;
         }

@@ -120,11 +120,8 @@ pub(super) async fn signed_auth(host: &Host) -> Result<AuthClient, ()> {
     if principal != host.user_hash {
         return Err(());
     }
-    let config = crate::cloud_purge_job::read_cloud_config(&host.home).map_err(|_| ())?;
-    let engine = crate::cloud_purge_job::source_engine(host)
-        .await
-        .map_err(|_| ())?;
-    let auth = engine.cloud_purge_auth();
+    let config = crate::cloud_clients::read_cloud_config(&host.home).map_err(|_| ())?;
+    let auth = crate::cloud_clients::auth(host).map_err(|_| ())?;
     if !auth.cloud_org_authority_endpoint_matches(&config.api_url) {
         return Err(());
     }

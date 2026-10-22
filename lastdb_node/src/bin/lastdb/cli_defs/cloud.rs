@@ -26,11 +26,6 @@ pub(crate) enum CloudCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Replace the selected account's cloud data from this device.
-    PurgeResync {
-        #[command(subcommand)]
-        action: CloudPurgeResyncCommand,
-    },
     /// Prepare a source-free recovery home from this home's existing credentials.
     /// Reads credentials only; no daemon, store, registration, or cloud calls.
     PrepareRecoveryHome {
@@ -44,16 +39,6 @@ pub(crate) enum CloudCommand {
         #[arg(long, required = true)]
         api_key_stdin: bool,
         /// Emit a value-free receipt.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Owner-authorized removal of already-reclaimed main atom bodies from
-    /// exact prior cloud chunks. Dry-run by default; cloud must remain Off.
-    RewriteDeletedAtoms {
-        #[arg(long)]
-        plan: PathBuf,
-        #[arg(long)]
-        execute: bool,
         #[arg(long)]
         json: bool,
     },

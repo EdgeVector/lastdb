@@ -88,5 +88,10 @@ The command returns costs and disk receipts. Its JSON hex output adds command-le
 Artifact-only commands refuse native homes. The legacy LastStore opener also refuses an incomplete native home before any write.
 
 Local backup and restore use `lastdb-native-backup-2`, without journal state.
+The generic `lastdb-disk-recovery convert` and `reverse` commands are retired.
+An existing forward fence can complete without an open legacy store; reverse completion is retired.
+Cloud restore refuses a SegmentLog source or destination descriptor before destination file changes.
+Legacy offline maintenance also refuses SegmentLog homes before any file change.
+Historical layout decoders and conversion fences remain for explicit refusal and source inspection.
 Native cloud startup and activation remain blocked.
 Atomic snapshot/log capture and an old-native-journal converter remain separate work.

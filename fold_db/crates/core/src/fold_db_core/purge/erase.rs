@@ -264,6 +264,9 @@ async fn apply_plan(
         target_slots: u64::try_from(target_slots).unwrap_or(u64::MAX),
         spared_keys,
     };
+    // A schema refresh may persist meter state. Stage the final erased
+    // aggregate after that refresh, so its header cannot overwrite our debit.
+    store_and_reload_schema(db_ops, schema_manager, schema_name, schema).await?;
     if report.records_purged > 0 {
         record_erase(
             db_ops,
@@ -276,7 +279,6 @@ async fn apply_plan(
         )
         .await?;
     }
-    store_and_reload_schema(db_ops, schema_manager, schema_name, schema).await?;
     tracing::info!(
         schema = %schema_name,
         records = report.records_purged,
@@ -320,16 +322,10 @@ async fn record_erase(
         .filter(|atom| !atom.blobs.is_empty())
         .count() as u64;
     let atoms = db_ops.atoms();
-    let handle = atoms.begin_delete_ledger_row(None, entry).await?;
-    let meter_plan =
-        atoms.plan_keep_small_hard_erase(schema_name, &live_head_debits, tip_debits)?;
     atoms
-        .prepare_keep_small_hard_erase_plan(handle.key(), &meter_plan)
+        .stage_erase_meters(schema_name, &live_head_debits, tip_debits)
         .await?;
-    atoms
-        .commit_keep_small_hard_erase_plan(handle.key(), &meter_plan)
-        .await?;
-    atoms.commit_delete_ledger_row(handle, |_| {}).await;
+    atoms.record_atom_delete_audit(None, entry).await?;
     Ok(())
 }
 

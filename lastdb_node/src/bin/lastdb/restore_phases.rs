@@ -13,10 +13,7 @@ type Phase<T> = Result<T, RestoreFailure>;
 
 #[path = "restore_phases/cloud_generation.rs"]
 mod cloud_generation;
-pub(crate) use cloud_generation::try_restore_cloud_generation;
-pub(crate) use cloud_generation::{
-    bind_generation_reader, reset_continuation_seed, verify_legacy_continuation,
-};
+pub(crate) use cloud_generation::require_legacy_cloud_generation;
 
 fn preflight_failure(detail: impl Into<String>) -> RestoreFailure {
     RestoreFailure::new(Stage::Preflight, Code::OperationFailed, detail)
@@ -137,7 +134,6 @@ pub(crate) struct Source {
     pub(crate) paused_receipt: Option<lastdb_node::cloud::PausedHomeBackupReceipt>,
     pub(crate) resume_report: Option<LastStoreCloudRestoreReport>,
     pub(crate) local_db_hash: Option<String>,
-    pub(crate) recovery_control: Option<fold_db::sync::cloud_purge::protocol::CloudControlGet>,
 }
 
 /// Pin the cloud namespace and the paused or resumable state of the source.
@@ -209,7 +205,6 @@ pub(crate) fn resolve_source(homes: &Homes, flavor: &Flavor<'_>) -> Phase<Source
         paused_receipt,
         resume_report,
         local_db_hash,
-        recovery_control: None,
     })
 }
 
@@ -288,7 +283,6 @@ fn build_runtime() -> Phase<tokio::runtime::Runtime> {
 pub(crate) fn discover_remote_descriptor(
     flavor: &Flavor<'_>,
     identity: &Identity,
-    source: &Source,
 ) -> Phase<Option<RemoteRecovery>> {
     if !flavor.remote_only() {
         return Ok(None);
@@ -305,7 +299,6 @@ pub(crate) fn discover_remote_descriptor(
         fold_db::sync::auth::SyncAuth::ApiKey(identity.api_key.clone()),
     )
     .without_db_auto_claim();
-    let unscoped = bind_generation_reader(&unscoped, source)?;
     let key = identity.e2e.encryption_key();
     let discovered = if flavor.remote_s0_only {
         runtime.block_on(discover_remote_recovery_descriptor(

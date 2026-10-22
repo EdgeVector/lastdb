@@ -80,14 +80,6 @@ impl SyncEngine {
         self.cloud_sync_disabled_at().await.is_none()
     }
 
-    /// Arm the upload interlock before the paused home accepts new writes.
-    pub(crate) async fn set_backup_only_mode(&self) {
-        self.backup_only_mode
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        let mut disabled_at = self.cloud_sync_disabled_at.lock().await;
-        *disabled_at = Some(crate::clock::unix_secs());
-    }
-
     pub fn is_backup_only_mode(&self) -> bool {
         self.backup_only_mode
             .load(std::sync::atomic::Ordering::Acquire)

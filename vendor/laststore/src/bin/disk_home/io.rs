@@ -100,13 +100,14 @@ pub(super) fn write(home: &DiskHome, input: &Path) -> Result<Value> {
     let count = operations.len();
     let mut writer = home.snapshot()?;
     let previous_frontier = writer.current().frontier;
-    let accepted_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis()
-        .try_into()?;
     let reservation = writer.reserve_mutation(&operations)?;
-    let quote = quote_json(reservation.quote());
-    let publication = writer.commit_mutation(operations, accepted_ms, reservation)?;
+    let dimensions = reservation.quote();
+    let _space = writer.reserve_space(
+        dimensions.physical_bytes(),
+        &laststore::disk_pack::maintenance::SpacePolicy::default(),
+    )?;
+    let quote = quote_json(dimensions);
+    let publication = writer.commit_mutation(operations, reservation)?;
     Ok(json!({
         "previous_frontier":previous_frontier,
         "frontier":publication.current.frontier,

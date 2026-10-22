@@ -58,14 +58,6 @@ fn annotate_backup_chunk_error(err: SyncError, chunk: &BackupChunkRef) -> SyncEr
     }
 }
 
-pub(in crate::sync::engine) async fn download_backup_chunk(
-    auth: &AuthClient,
-    s3: &S3Client,
-    chunk: &BackupChunkRef,
-) -> SyncResult<Vec<u8>> {
-    download_backup_chunk_with_progress(auth, s3, chunk, None, None).await
-}
-
 pub(super) async fn download_backup_chunk_with_progress(
     auth: &AuthClient,
     s3: &S3Client,

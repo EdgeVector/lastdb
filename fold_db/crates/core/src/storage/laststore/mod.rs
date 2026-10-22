@@ -35,8 +35,6 @@ mod backup_manifest;
 mod compact_dispatch;
 pub mod high_water;
 mod key_routing;
-mod value_lengths;
-pub(crate) use value_lengths::raw_value_lengths;
 mod kv_store_impl;
 mod namespaced_maintenance;
 mod namespaced_store_impl;

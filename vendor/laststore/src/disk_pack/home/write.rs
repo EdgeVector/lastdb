@@ -1,7 +1,6 @@
 use super::{DiskHome, HomeDescriptor};
 use crate::disk_pack::snapshot::{
-    SnapshotMutation, SnapshotMutationShape, SnapshotPressure, SnapshotQuote, SnapshotReservation,
-    SnapshotWriter,
+    SnapshotMutation, SnapshotMutationShape, SnapshotQuote, SnapshotWriter,
 };
 use crate::disk_pack::Current;
 use crate::Result;
@@ -152,20 +151,6 @@ impl HomeSnapshot {
     /// True when a failed publication or maintenance requires a new writer.
     pub fn is_poisoned(&self) -> bool {
         self.writer.is_poisoned()
-    }
-
-    /// Own snapshot capacity before the batch transfers its stored bodies.
-    /// This does not reserve directory space or authorize a memory ack.
-    pub fn reserve(&self, operations: &[HomeMutation]) -> Result<SnapshotReservation> {
-        self.writer.reserve_quote(
-            self.descriptor
-                .quote_with_limit(operations, self.current().batch_operation_limit())?,
-        )
-    }
-
-    /// Include unappended reservations in the bounded suffix pressure.
-    pub fn pressure(&self) -> Result<SnapshotPressure> {
-        self.writer.pressure()
     }
 
     pub(super) fn address(&self, operations: Vec<HomeMutation>) -> Result<Vec<SnapshotMutation>> {

@@ -64,7 +64,9 @@
 pub mod auth;
 pub(crate) mod capture;
 pub mod cloud_purge;
-pub mod cloud_purge_peer;
+mod retired_cloud_repair;
+pub(crate) mod scope_alias;
+pub use retired_cloud_repair::check_retired_cloud_repair;
 pub mod cloud_share;
 pub mod engine;
 pub mod error;
