@@ -183,6 +183,7 @@ impl PackRuntime {
         // The gate protects generation-bound reservations during physical output.
         // Preparation proceeds during collection, but pauses during this commit.
         let gate = Arc::clone(&self.write_gate).lock_owned().await;
+        let gate_from = std::time::Instant::now();
         let runtime = Arc::clone(&self);
         let result = LastStoreKvStore::run_blocking(move || {
             let _gate = gate;
@@ -205,6 +206,10 @@ impl PackRuntime {
                 }
                 {
                     let mut queue = self.queue.lock().expect("native accepted queue");
+                    let blocked = gate_from.elapsed();
+                    for request in &requests {
+                        request.note_flush_blocked(blocked);
+                    }
                     queue.requests.clear();
                     queue.sealed = false;
                 }

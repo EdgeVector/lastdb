@@ -119,13 +119,20 @@ where
     };
     let sealed = collection_delay.is_none();
     // Publication, ownership transfer and worker creation contain no await.
+    let timing = Arc::clone(&pending);
     let sequence = runtime.accept_queued(pending, prepared, delay.is_some(), collection_delay)?;
     drop(gate);
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     if wait {
         runtime.wait_for_queue(sequence).await?;
     }
-    super::blocked::note(if sealed { held_from.elapsed() } else { hold });
+    super::blocked::note(if sealed {
+        held_from.elapsed()
+    } else if reply == Reply::Background {
+        hold.saturating_add(timing.flush_blocked())
+    } else {
+        hold
+    });
     Ok(result)
 }
 

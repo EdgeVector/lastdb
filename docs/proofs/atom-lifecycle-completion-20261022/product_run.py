@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 from urllib.parse import urlencode
+from product_maintenance import LifecycleOperations
 
 SUPPORT = Path(__file__).resolve().parents[1] / "snapshot-commits-20261022" / "capture.py"
 spec = importlib.util.spec_from_file_location("snapshot_capture", SUPPORT)
@@ -19,7 +20,7 @@ base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
 
-class ProductRun(base.Capture):
+class ProductRun(LifecycleOperations, base.Capture):
     def __init__(self, args):
         super().__init__(args)
         self.records = args.records
@@ -28,6 +29,11 @@ class ProductRun(base.Capture):
         self.compactions = []
         self.long_keys = []
         self.recovery = args.recovery.resolve(strict=True)
+        inputs = json.loads((self.output / "inputs.json").read_text())
+        inputs.update(records=self.records, driver_sha256=base.file_hash(Path(__file__)),
+                      update_rounds=12, deleted=list(range(80, 88)), recreated=[],
+                      recovery_sha256=base.file_hash(self.recovery))
+        base.save(self.output / "inputs.json", inputs)
         base.save(self.output / "recipe.json", {
             "records": self.records, "batch": 64, "body_bytes": 1024,
             "writer_threads": 2, "rounds_per_writer": 12,
@@ -56,7 +62,12 @@ class ProductRun(base.Capture):
             response = connection.getresponse()
             raw = response.read()
             elapsed = time.perf_counter_ns() - started
-            result = json.loads(raw)
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError as failure:
+                self.remember("non-json-response", path=path, http_status=response.status,
+                              response_bytes=len(raw), response_prefix=raw[:400].decode(errors="replace"))
+                raise RuntimeError(f"{path}: HTTP {response.status}, non-JSON response") from failure
             payload = result.get("data", result)
             detail = payload if path in ("/api/db/compact", "/api/db/flush", "/api/db/native-status") else None
             self.remember("request", path=path, http_status=response.status,
@@ -76,7 +87,8 @@ class ProductRun(base.Capture):
                        if not name.startswith(("LASTDB", "FOLD", "SENTRY"))}
         environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
                            LASTDB_HOME=str(self.home), FOLDDB_HOME=str(self.home),
-                           LASTDB_AUTO_MAINTENANCE="0", RUST_MIN_STACK="16777216")
+                           LASTDB_AUTO_MAINTENANCE="0", LASTDB_SELF_METRICS_SAMPLE_SECS="1",
+                           LASTDB_MOLECULE_DRAIN_MS="1000", RUST_MIN_STACK="16777216")
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen([str(self.binary), "--data-dir", str(self.home),
             "--socket-path", str(self.socket), "--full-socket-path", str(self.full_socket)],
@@ -266,6 +278,8 @@ class ProductRun(base.Capture):
         self.compact()
         self.verify("compacted-after-forced-reopen")
         self.restore_bundle()
+        self.ttl_and_drop()
+        self.verify_counters()
         self.flush("final")
         base.save(self.output / "compactions.json", self.compactions)
         if not any(report.get("catch_up_records", 0) > 0 for report in self.compactions):
@@ -297,7 +311,10 @@ def main():
         error = f"{type(failure).__name__}: {failure}"
         capture.remember("failure", error=error)
     finally:
-        capture.stop()
+        try:
+            capture.stop()
+        except Exception as failure:
+            complete, error = False, f"{error or ''}; shutdown: {failure}"
         base.save(capture.output / "summary.json", {"complete": complete, "error": error,
             "scratch": str(capture.root), "home": str(capture.home),
             "all_owned_processes_stopped": capture.process is None,

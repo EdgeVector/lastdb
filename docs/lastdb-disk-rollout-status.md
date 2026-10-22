@@ -64,7 +64,9 @@ One logical mutation can require many stored operations for its atoms, tips, sha
 The 16,384-operation feature keeps the same 32-bit operation numbers and 128 MiB batch byte cap.
 Older readers refuse the feature before data access. This change does not upgrade existing homes automatically.
 
-Compaction rewrites the complete native home under the complete write gate.
+Compaction copies outside the write gate and publishes after a bounded catch-up.
+Automatic runs can copy recent tiers. Explicit compaction defaults to a full copy.
+See `docs/lastdb-concurrent-compaction.md`.
 Its quote permits at most 65,536 coordinates and 1,000,000 records.
 It requires replacement space under a configured disk cap.
 Payload files share packed data; each hash group retains its locator files.

@@ -15,6 +15,7 @@ It changes no snapshot format bit.
 7. One complete receipt and one `CURRENT` rename publish the replacement.
 8. The node installs that root, opens the gate, and reclaims old files.
 
+The retained closure also includes the empty locator template that later new hash groups need.
 The final delta includes tombstones. It uses original mutation sequence numbers.
 A copy changes no atom counter, field value, or conflict record.
 A final delta above its bound returns `compaction_behind` without publication.
@@ -66,7 +67,8 @@ The phase owner survives cancellation of an HTTP caller.
 - The TTL sweep uses the same writer-cost measure and quiet-period watch as the other maintenance jobs.
 - Inventory gives the whole-home native compact command.
 - Private background batches can share the 500 ms collection window.
-  They still return after durability. Write preparation alone can read their owned prefix.
+  They still return after durability. The cost includes the shared flush hold and excludes the open collection window.
+  Write preparation alone can read their owned prefix.
   Ordinary reads retain the committed state. Shared definition caches are bypassed for that private prefix.
 
 ## Scope of proof

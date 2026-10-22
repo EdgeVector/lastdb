@@ -39,6 +39,7 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         proposed: &proposed,
     };
     let mut directory_changes = Vec::new();
+    let mut templates = std::collections::BTreeSet::new();
     while let Some((key, value)) = groups.next(&mut call)? {
         let live = DirectoryEntry::decode(&value)?;
         let mut output_call = artifact::metadata_call(root, proposed.clone());
@@ -58,6 +59,7 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
             budget.note()?;
             live.locator.clone()
         };
+        templates.insert(tree.object);
         let replacement = DirectoryEntry {
             locator: tree,
             ..live
@@ -78,6 +80,7 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         cut,
         job.source.current().generation,
         std::mem::take(&mut job.output.dependencies),
+        templates,
     )?;
     for output in locators.finish()? {
         dependencies.add_tree(&output.tree, output.parts)?;
@@ -102,8 +105,20 @@ fn carried_dependencies(
     cut: &Current,
     source_generation: u64,
     output: Vec<crate::disk_pack::dependency::Coordinate>,
+    templates: std::collections::BTreeSet<uuid::Uuid>,
 ) -> Result<Dependencies> {
     let mut dependencies = Dependencies::from_coordinates(output)?;
+    // New groups can retain a live locator object from before the source cut.
+    // The shared allocator also needs its empty page zero for later groups,
+    // even when none of the currently selected trees points to that page.
+    for object in templates {
+        dependencies.add(crate::disk_pack::dependency::Coordinate {
+            kind: 2,
+            object,
+            batch: 0,
+            part: 0,
+        })?;
+    }
     let receipt = generation::read_receipt(root, cut)?;
     for (coordinate, record) in receipt.coordinates.into_iter().zip(receipt.records) {
         if crate::disk_pack::bytes::u64_at(&record, 72) > source_generation {

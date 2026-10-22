@@ -194,6 +194,14 @@ second before it is read again. Memory does not grow with the number of markers.
 
 ## Pacing
 
+The current private background path shares the bounded collection window.
+Only write preparation reads its owned prefix. Ordinary reads retain the committed state.
+The job still returns after durability. Its cost normally measures the gate hold.
+A sealed fence also counts its flush wait.
+The measurements below describe the earlier sealed-batch path.
+See `docs/lastdb-concurrent-compaction.md` for the current protocol.
+
+
 A user of the queue deletes in batches, and each batch is durable work that seals
 the write queue. A writer that arrives while a batch is open waits for the write
 gate. And when the batch has the gate no more, the writer still waits in
