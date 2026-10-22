@@ -9,7 +9,8 @@ pub(super) fn record_header(
     body_bytes: u64,
     version: MutationVersion,
 ) -> Result<[u8; 96]> {
-    if key.len() > KEY_BYTES || body_bytes > u64::from(u32::MAX) {
+    if key.len() > KEY_BYTES || body_bytes > lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES
+    {
         return Err(corrupt("record exceeds legacy-compatible limits"));
     }
     let mut bytes = [0; 96];

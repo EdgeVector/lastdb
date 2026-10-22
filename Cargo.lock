@@ -1275,6 +1275,7 @@ name = "cloud_backup_protocol"
 version = "0.1.0"
 dependencies = [
  "json-canon",
+ "lastdb_storage_policy",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2029,10 +2030,12 @@ dependencies = [
  "hashbrown 0.17.0",
  "hkdf",
  "hmac 0.12.1",
+ "lastdb_storage_policy",
  "laststore",
  "libc",
  "mach2",
  "observability",
+ "openssl",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "schema_types",
@@ -3072,6 +3075,7 @@ dependencies = [
  "hkdf",
  "lastdb_host",
  "lastdb_identity",
+ "lastdb_storage_policy",
  "lastdb_uds",
  "laststore",
  "libc",
@@ -3100,6 +3104,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lastdb_storage_policy"
+version = "0.1.0"
+
+[[package]]
 name = "lastdb_uds"
 version = "0.1.0"
 dependencies = [
@@ -3117,6 +3125,7 @@ dependencies = [
  "aes-gcm",
  "crc32fast",
  "hkdf",
+ "lastdb_storage_policy",
  "nix",
  "rustix",
  "serde_json",

@@ -32,7 +32,10 @@ impl Closure {
             .checked_add(bytes)
             .ok_or(RestoreError::Limit("inventory memory"))?;
         // Leave four MiB within the decoded budget for the active metadata page.
-        if self.charged > DECODED_VALUES_MAX_BYTES - 4 * 1024 * 1024 {
+        if self.charged
+            > DECODED_VALUES_MAX_BYTES
+                - lastdb_storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES
+        {
             return Err(RestoreError::Limit("inventory memory"));
         }
         Ok(())
@@ -79,7 +82,7 @@ pub(super) async fn restore(
         bytes: 0,
         dependencies: 0,
     };
-    for expected_batch in manifest.pages.chunks(4) {
+    for expected_batch in manifest.pages.chunks(CONCURRENT_STREAMS_MAX) {
         let selectors = expected_batch
             .iter()
             .map(|page| ReadSelector::Receipt {
@@ -161,7 +164,7 @@ async fn load_references(session: &RestoreSession, source: &dyn RestoreSource) -
         paths: BTreeSet::new(),
         charged: 0,
     };
-    for descriptors in index.pages.chunks(4) {
+    for descriptors in index.pages.chunks(CONCURRENT_STREAMS_MAX) {
         let selectors = descriptors
             .iter()
             .map(|page| ReadSelector::ReferencePage {
@@ -254,7 +257,7 @@ async fn restore_page(
     )
     .await?;
     let objects: Vec<_> = objects.into_iter().collect();
-    for ids in objects.chunks(4) {
+    for ids in objects.chunks(CONCURRENT_STREAMS_MAX) {
         let request = ReadGrantRequest {
             version: Version::V1,
             job: session.accepted().job.clone(),

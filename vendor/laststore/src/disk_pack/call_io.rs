@@ -9,7 +9,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 /// An ordinary read call never retains descriptors beyond the call or grows with key count.
-const MAX_READ_HANDLES: usize = 32;
+const MAX_READ_HANDLES: usize = lastdb_storage_policy::native_read::MAX_READ_HANDLES;
 
 struct OpenPart {
     path: PathBuf,

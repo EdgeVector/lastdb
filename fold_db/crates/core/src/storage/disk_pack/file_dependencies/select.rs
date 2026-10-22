@@ -64,7 +64,7 @@ fn make(
         .encrypted_size_bytes
         .ok_or_else(|| invalid("file dependency size is missing"))?;
     if !(29..=FILE_DEPENDENCY_MAX_STORED_BYTES).contains(&stored) {
-        return Err(invalid("file dependency exceeds release byte limit"));
+        return Err(invalid("file dependency exceeds total backup policy"));
     }
     if atom.len() != 64
         || !atom

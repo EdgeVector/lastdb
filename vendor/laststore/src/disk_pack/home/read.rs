@@ -18,7 +18,8 @@ impl HomeRead {
         self.call.current()
     }
 
-    /// Fixed limits for this call, including the separately admitted write mode.
+    /// Ordinary in-memory read limits, including the admitted write mode.
+    /// `copy_body_to` uses a separate exact-record cumulative work allowance.
     pub fn budget(&self) -> ReadBudget {
         self.call.budget
     }
@@ -54,6 +55,27 @@ impl HomeRead {
         self.call.charge((collection.len() + key.len()) as u64)?;
         self.call
             .get_bounded(collection, self.descriptor.group(key)?, key, maximum)
+    }
+
+    /// Copy one exact stored body without retaining its complete decoded record.
+    /// The held root protects every streamed part. A record-scoped work budget
+    /// admits cumulative I/O separately from ordinary in-memory read limits.
+    /// Costs include all copy work, including work before a failed copy.
+    /// A failed copy can leave unverified bytes in `output`; discard those bytes.
+    pub fn copy_body_to(
+        &mut self,
+        collection: &str,
+        key: &str,
+        output: &mut dyn std::io::Write,
+    ) -> Result<Option<super::StreamedRecord>> {
+        self.call.charge((collection.len() + key.len()) as u64)?;
+        super::stream::copy_body_to(
+            &mut self.call,
+            collection,
+            self.descriptor.group(key)?,
+            key,
+            output,
+        )
     }
 
     /// Locate every exact key first and enforce each body cap before payload I/O.

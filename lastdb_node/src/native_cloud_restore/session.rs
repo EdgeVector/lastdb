@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 // Leave space inside the one-GiB spool cap for directory metadata, selection,
 // bounded atomic control temporaries, and the eight-MiB native output temporary.
-const TRACKED_SPOOL_MAX: u64 =
-    cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES - 16 * 1024 * 1024;
+const TRACKED_SPOOL_MAX: u64 = cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
+    - lastdb_storage_policy::backup_decode::RESTORE_SPOOL_RESERVE_BYTES;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

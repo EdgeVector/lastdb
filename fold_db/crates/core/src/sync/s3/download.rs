@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "download/file.rs"]
+mod file;
+
 impl S3Client {
     /// Download bytes from S3 using a presigned GET URL.
     ///

@@ -8,14 +8,12 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 mod files;
+mod verified;
 pub use files::{prepare_directory, save_entry};
+pub use verified::{open_verified_ciphertext, verify_remote_ciphertext, VerifiedRecoveredFile};
 
 pub const DIRECTORY: &str = "native-file-recovery-v1";
-/// The existing eager file API cannot authenticate arbitrary contract-sized files.
-/// The owned native decoder releases outer layers before the next allocation.
-pub const FILE_RECOVERY_MAX_PLAINTEXT_BYTES: u64 = 16 * 1024 * 1024;
-pub const FILE_RECOVERY_MAX_STORED_BYTES: u64 = FILE_RECOVERY_MAX_PLAINTEXT_BYTES + 29;
-
+const METADATA_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIRECTORY_MAX_BYTES;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveryDirectory {
@@ -55,7 +53,9 @@ impl RecoveryFile {
     }
 
     pub fn validate(&self) -> StorageResult<()> {
-        if !(29..=FILE_RECOVERY_MAX_STORED_BYTES).contains(&self.stored_source_bytes.get())
+        if !(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES
+            ..=cloud_backup_protocol::limits::BACKUP_STORED_BYTES_MAX)
+            .contains(&self.stored_source_bytes.get())
             || !file_blob_cipher_suite_supported(&self.encryption_suite)
         {
             return Err(invalid("unsupported recovered file size or suite"));
@@ -87,11 +87,13 @@ pub fn open_remote_file(
     ciphertext: &[u8],
     maximum: u64,
 ) -> StorageResult<Vec<u8>> {
-    let maximum = maximum.min(FILE_RECOVERY_MAX_PLAINTEXT_BYTES);
     if !file_blob_cipher_suite_supported(&access.cipher_suite)
         || ciphertext.first() != Some(&1)
-        || ciphertext.len() < 29
-        || ciphertext.len() as u64 > maximum.saturating_add(29)
+        || (ciphertext.len() as u64)
+            < cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES
+        || ciphertext.len() as u64
+            > maximum
+                .saturating_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
         || access.encrypted_size_bytes != Some(ciphertext.len() as u64)
     {
         return Err(invalid("recovered file envelope bounds"));
@@ -127,7 +129,7 @@ pub fn resolve(
     resolve_entry(data_root, home_id, &pointer_id, kind, access, maximum)
 }
 
-/// Restore uses the already validated whole-pointer digest after it drops atom JSON.
+/// Eager normal serving API. The local file API admission bounds its Vec result.
 pub fn resolve_entry(
     data_root: &Path,
     home_id: &Id,
@@ -143,24 +145,6 @@ pub fn resolve_entry(
     open_remote_file(access, &bytes, maximum).map(Some)
 }
 
-/// A subsequent backup copies these authenticated bytes into its owned spool.
-/// The original remote owner and source object are not a recovery dependency.
-pub fn read_verified_ciphertext(
-    data_root: &Path,
-    home_id: &Id,
-    pointer_id: &Digest,
-    kind: FileDependencyKind,
-    access: &FileBlobAccess,
-) -> StorageResult<Option<Vec<u8>>> {
-    let maximum = FILE_RECOVERY_MAX_PLAINTEXT_BYTES;
-    let Some(bytes) = read_ciphertext(data_root, home_id, pointer_id, kind, access, maximum)?
-    else {
-        return Ok(None);
-    };
-    drop(open_remote_file(access, &bytes, maximum)?);
-    Ok(Some(bytes))
-}
-
 fn read_ciphertext(
     data_root: &Path,
     home_id: &Id,
@@ -169,38 +153,13 @@ fn read_ciphertext(
     access: &FileBlobAccess,
     maximum: u64,
 ) -> StorageResult<Option<Vec<u8>>> {
-    let root = data_root.join(DIRECTORY);
-    if !files::directory_present(&root)? {
+    let Some(entry) = binding(data_root, home_id, pointer_id, kind, access)? else {
         return Ok(None);
-    }
-    for child in ["entries", "objects"] {
-        if !files::directory_present(&root.join(child))? {
-            return Err(invalid("recovery child directory"));
-        }
-    }
-    let directory: RecoveryDirectory = files::read_json(&root.join("directory.json"), 4096)?;
-    if directory.version != 1 || directory.home_id != *home_id {
-        return Err(invalid("recovered file home identity"));
-    }
-    let path = root.join("entries").join(entry_key(pointer_id, kind));
-    if !files::regular_present(&path)? {
-        return Ok(None);
-    }
-    let entry: RecoveryFile = files::read_json(&path, 4096)?;
-    entry.validate()?;
-    if entry.logical_pointer_sha256 != *pointer_id
-        || entry.kind != kind
-        || entry.encryption_suite != access.cipher_suite
-        || access.encrypted_size_bytes != Some(entry.stored_source_bytes.get())
-    {
-        return Err(invalid("recovered file pointer binding"));
-    }
+    };
     if entry.stored_source_bytes.get()
-        > maximum
-            .min(FILE_RECOVERY_MAX_PLAINTEXT_BYTES)
-            .saturating_add(29)
+        > maximum.saturating_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
     {
-        return Err(invalid("configured file recovery cap"));
+        return Err(invalid("configured local file API cap"));
     }
     let bytes = files::read_bytes(
         &object_path(data_root, &entry.stored_source_sha256),
@@ -210,6 +169,43 @@ fn read_ciphertext(
         return Err(invalid("recovered file stored identity"));
     }
     Ok(Some(bytes))
+}
+
+fn binding(
+    data_root: &Path,
+    home_id: &Id,
+    pointer_id: &Digest,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+) -> StorageResult<Option<RecoveryFile>> {
+    let root = data_root.join(DIRECTORY);
+    if !files::directory_present(&root)? {
+        return Ok(None);
+    }
+    for child in ["entries", "objects"] {
+        if !files::directory_present(&root.join(child))? {
+            return Err(invalid("recovery child directory"));
+        }
+    }
+    let directory: RecoveryDirectory =
+        files::read_json(&root.join("directory.json"), METADATA_MAX_BYTES)?;
+    if directory.version != 1 || directory.home_id != *home_id {
+        return Err(invalid("recovered file home identity"));
+    }
+    let path = root.join("entries").join(entry_key(pointer_id, kind));
+    if !files::regular_present(&path)? {
+        return Ok(None);
+    }
+    let entry: RecoveryFile = files::read_json(&path, METADATA_MAX_BYTES)?;
+    entry.validate()?;
+    if entry.logical_pointer_sha256 != *pointer_id
+        || entry.kind != kind
+        || entry.encryption_suite != access.cipher_suite
+        || access.encrypted_size_bytes != Some(entry.stored_source_bytes.get())
+    {
+        return Err(invalid("recovered file pointer binding"));
+    }
+    Ok(Some(entry))
 }
 
 impl PackRuntime {

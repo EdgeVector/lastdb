@@ -3,7 +3,7 @@
 use crate::{canonical_bytes, ProtocolError};
 use serde::Serialize;
 
-pub const NATIVE_PART_MAX_BYTES: u64 = 8 * 1024 * 1024;
+pub const NATIVE_PART_MAX_BYTES: u64 = lastdb_storage_policy::native_v1::PART_BYTES;
 pub const CLOUD_OBJECT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 pub const REQUEST_JSON_MAX_BYTES: u64 = 256 * 1024;
 pub const RECEIPT_JSON_MAX_BYTES: u64 = 16 * 1024;
@@ -13,13 +13,18 @@ pub const MANIFEST_PAGE_ENVELOPE_MAX_BYTES: u64 =
     MANIFEST_PAGE_PLAINTEXT_MAX_BYTES + ENCRYPTION_ENVELOPE_OVERHEAD_BYTES;
 pub const MANIFEST_PAGE_ENTRIES_MAX: usize = 512;
 pub const MANIFEST_PAGES_MAX: usize = 1024;
-pub const NATIVE_FILES_MAX: usize = 65_552;
-pub const BACKUP_STORED_BYTES_MAX: u64 = 1024 * 1024 * 1024 * 1024;
-pub const CLOUD_WORKING_ALLOCATION_MAX_BYTES: u64 = 96 * 1024 * 1024;
-pub const DECODED_VALUES_MAX_BYTES: u64 = 64 * 1024 * 1024;
-pub const STREAM_BUFFER_MAX_BYTES: u64 = 1024 * 1024;
-pub const CONCURRENT_STREAMS_MAX: usize = 4;
-pub const DURABLE_LOCAL_SPOOL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
+pub const NATIVE_FILES_MAX: usize = lastdb_storage_policy::native_v1::MAX_BACKUP_FILES;
+pub const BACKUP_STORED_BYTES_MAX: u64 = lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES;
+pub const CLOUD_WORKING_ALLOCATION_MAX_BYTES: u64 =
+    lastdb_storage_policy::BACKUP_RESOURCES.working_memory_bytes;
+pub const DECODED_VALUES_MAX_BYTES: u64 =
+    lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes;
+pub const STREAM_BUFFER_MAX_BYTES: u64 =
+    lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes;
+pub const CONCURRENT_STREAMS_MAX: usize =
+    lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams;
+pub const DURABLE_LOCAL_SPOOL_MAX_BYTES: u64 =
+    lastdb_storage_policy::BACKUP_RESOURCES.durable_spool_bytes;
 pub const CONTROL_STORED_ITEM_MAX_BYTES: u64 = 256 * 1024;
 pub const CONTROL_TRANSACTION_MAX_BYTES: u64 = 2 * 1024 * 1024;
 pub const CONTROL_TRANSACTION_UNIQUE_ITEMS_MAX: usize = 16;

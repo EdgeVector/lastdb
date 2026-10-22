@@ -1,6 +1,7 @@
 use super::*;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::OpenOptionsExt;
 
 pub(super) fn install_file(
     session: &RestoreSession,
@@ -24,7 +25,6 @@ pub(super) fn install_file(
     if path.try_exists()? {
         download::verify_file(&path, &entry.native_sha256, entry.native_bytes.get())?;
     } else {
-        download::check_capacity(&session.root, entry.native_bytes.get())?;
         let pending = session.root.join("native.pending");
         if pending.try_exists()? && !fs::symlink_metadata(&pending)?.is_file() {
             return Err(RestoreError::Invalid("native temporary"));
@@ -33,11 +33,14 @@ pub(super) fn install_file(
             .write(true)
             .create(true)
             .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&pending)?;
+        download::check_capacity(&session.root, entry.native_bytes.get())?;
         let mut input = File::open(object)?;
         input.seek(SeekFrom::Start(entry.extent.offset.get()))?;
         let mut left = entry.native_bytes.get();
-        let mut buffer = [0; 65536];
+        let mut buffer = vec![0; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
         while left > 0 {
             let count = left.min(buffer.len() as u64) as usize;
             input.read_exact(&mut buffer[..count])?;

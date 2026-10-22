@@ -42,13 +42,15 @@ pub(super) fn held_inventory(root: &Path, current: &Current) -> Result<Generatio
         });
     }
     let pages = 1 + generation.dependencies.saturating_sub(150).div_ceil(201);
-    for part in 0..pages.div_ceil(512) {
+    for part in 0..pages.div_ceil(crate::disk_pack::PAGES_PER_PART) {
         files.push(GenerationFile {
             path: PathBuf::from(format!(
                 "generations/{}/part-{part:08x}",
                 current.generation
             )),
-            bytes: (pages - part * 512).min(512) * PAGE_BYTES as u64,
+            bytes: (pages - part * crate::disk_pack::PAGES_PER_PART)
+                .min(crate::disk_pack::PAGES_PER_PART)
+                * PAGE_BYTES as u64,
             creation_generation: current.generation,
         });
     }

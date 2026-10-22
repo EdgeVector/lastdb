@@ -30,9 +30,10 @@ Capture authenticates those bytes under the original file key and checks their p
 
 An external main file, thumbnail, or poster needs a backup-owned copy.
 Capture first checks the local recovery directory, then the existing authorized download APIs.
-One exact ciphertext copy stays on disk until its authoritative verified receipt reaches disk.
-Unknown upload results retain that copy and its frozen transfer identity.
-Several atoms with the same pointer and file kind share one capture entry and one receipt.
+One exact ciphertext copy stays on disk until all of its authoritative part receipts reach disk.
+Each cloud part holds at most 64 MiB and keeps its own frozen transfer identity.
+Unknown upload results retain that copy and those identities.
+Several atoms with the same pointer and file kind share one capture entry and its receipt extents.
 
 Restore saves external ciphertext under the restored home and records its exact pointer and kind.
 Normal file reads use that directory after a native file miss.
@@ -40,9 +41,17 @@ A later backup can reuse that ciphertext without access to the original owner's 
 Restore never changes the selected native root or file pointers.
 
 The [file capture design](native-backup-file-capture-v1.md) gives the exact source and memory bounds.
-The current per-file plaintext limit is 16 MiB.
+The disk-stream path removes the former 16 MiB backup authentication guard and 32 MiB native-CAS allocation guard.
+Native copy, envelope authentication, JSON extraction, and restored file proof use bounded buffers and private disk files.
+The [shared resource policy](native-backup-resource-policy-v1.md) separates fixed native V1 format sizes from editable source resource values.
+Native physical parts stay at eight MiB. External ciphertext still obeys the 64 MiB object and 512 extent limits.
+
+The one GiB metadata allowance does not cap a private payload file; filesystem capacity admission protects payload and scratch space separately.
+The normal local file API keeps its separate owner-configurable 16 MiB default.
 Restore also limits external pointer and kind identities to 43,690 within an eight MiB allowance.
-Larger files and older pointer atoms without certificates receive an explicit refusal.
+Files outside the actual format, extent, metadata, or disk bounds receive an explicit refusal.
+Older pointer atoms without certificates still receive an explicit refusal.
+
 No automatic migration or primary access occurs.
 
 ## Cloud acceptance and read access

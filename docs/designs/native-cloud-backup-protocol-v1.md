@@ -518,22 +518,30 @@ All totals use checked arithmetic and complete final encodings.
 | Manifest and reference pages | 1024 each, subject to index byte bounds |
 | Native files | 65,552 |
 | Referenced backup bytes | 1 TiB, plus separately admitted metadata and temporary bytes |
-| One external file | At most 512 extents or 32 GiB, subject to page bytes |
+| One external file | At most 512 extents and 32 GiB, subject to page bytes |
 | Active backup jobs | One per process and one per stream |
 | Concurrent object streams and request batches | Four |
 | Cloud-owned working allocations | 96 MiB total |
 | Decoded cloud values within that budget | 64 MiB |
 | Stream buffer | 1 MiB per stream |
-| Durable local cloud spool | 1 GiB |
+| Tracked local metadata or temporary object cache | 1 GiB |
+| Large payload and decode scratch files | Separate filesystem capacity admission |
 | Full stored control item | 256 KiB |
 | Control transaction | 16 unique items and 2 MiB |
 | Account and record keys | 256 and 512 UTF-8 bytes |
 
 The aggregate memory budget includes serialization, encryption copies, decoded values, and stream buffers.
 It does not cap the whole LastDB process.
-The current file codec accepts at most 16 MiB of plaintext per file.
-The wire extent limit does not promise a larger source implementation.
-The [file capture design](native-backup-file-capture-v1.md) records stricter source allocation and dependency count bounds.
+The [resource policy](native-backup-resource-policy-v1.md) identifies `lastdb_storage_policy/src/lib.rs` as the shared source for native sizes and resource values.
+Native V1 pages and physical parts remain fixed at 16 KiB and 8 MiB.
+A native format change requires compatible versioned readers; resource values are editable source policy, not runtime memory settings.
+Capture and restore use bounded buffers and private disk files for the existing encryption formats.
+The former 16 MiB backup authentication and 32 MiB native-CAS allocation guards no longer control those stream paths.
+
+The existing native record body bound remains `u32::MAX` bytes.
+External ciphertext still obeys the 64 MiB object, 512 extent, manifest page byte, and total backup limits.
+The normal local file API keeps its separate owner-configurable 16 MiB default.
+The [file capture design](native-backup-file-capture-v1.md) records the exact disk, allocation, and dependency count rules.
 The native hold also requires native disk admission and visible retained-byte accounting.
 Backup capture cannot delete held files to satisfy a cap.
 

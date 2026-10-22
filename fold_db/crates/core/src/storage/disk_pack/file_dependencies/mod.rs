@@ -12,9 +12,8 @@ mod select;
 pub use atom::open_atom;
 pub use cloud_backup_protocol::FileDependencyKind;
 pub use metadata::verify_metadata_coverage;
-pub use native::{
-    read_directories, read_native_cas, verify_native_cas, NativeCasProof, NativeCasRecord,
-};
+pub(crate) use native::scratch::Scratch as NativeCasOutput;
+pub use native::{read_directories, read_native_cas, verify_native_cas, NativeCasProof};
 pub use select::expected;
 
 use super::{StorageError, StorageResult};
@@ -22,12 +21,12 @@ use crate::sharing::delivery_wire::FileBlobAccess;
 use cloud_backup_protocol::Digest;
 use serde::{Deserialize, Serialize};
 
-/// Conservative release limits, separate from the wire-format maximum.
-pub const FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES: u64 = 16 * 1024 * 1024;
-pub const FILE_DEPENDENCY_MAX_STORED_BYTES: u64 = FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES + 29;
-pub const NATIVE_CAS_ROW_MAX_BYTES: u64 = 32 * 1024 * 1024;
-pub const DIRECTORY_MAX_BYTES: u64 = 4096;
-pub const ATOM_INVENTORY_READ_BYTES: u64 = 64 * 1024 * 1024;
+/// Declared source bound is independent of buffers and external transport.
+pub const FILE_DEPENDENCY_MAX_STORED_BYTES: u64 = lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES;
+pub const NATIVE_CAS_ROW_MAX_BYTES: u64 = lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES;
+pub const DIRECTORY_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIRECTORY_MAX_BYTES;
+pub const ATOM_INVENTORY_READ_BYTES: u64 =
+    lastdb_storage_policy::backup_decode::ATOM_INVENTORY_READ_BYTES;
 
 /// The complete native atom coordinate range. Empty end means an empty range
 /// in the physical reader, so both capture and restore use this exact boundary.

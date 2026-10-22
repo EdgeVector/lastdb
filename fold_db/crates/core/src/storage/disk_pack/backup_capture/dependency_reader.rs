@@ -1,16 +1,19 @@
 use super::dependencies::{ready, selection, ActiveWork};
-use super::dependency_state::FileCoverage;
 use super::dependency_store::DependencyStore;
 use super::{invalid, NativeBackupCapture, StorageResult};
 use cloud_backup_protocol::transfer::TransferInput;
 use sha2::{Digest as _, Sha256};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 
 impl NativeBackupCapture {
     /// Read only a saved, unconfirmed backup-owned object. No external source
     /// request or native CAS conversion occurs through this reader.
     pub fn open_file_object(&self, index: u64) -> StorageResult<NativeBackupFileReader> {
+        self.open_file_part(index, 0)
+    }
+
+    pub fn open_file_part(&self, index: u64, part: u16) -> StorageResult<NativeBackupFileReader> {
         let active = ActiveWork::acquire(&self.inner)?;
         let (job, current) = selection(&self.inner)?;
         let store = DependencyStore::open(&self.inner.store, &job)?;
@@ -18,29 +21,26 @@ impl NativeBackupCapture {
         if index >= state.entries {
             return Err(invalid("backup dependency does not exist"));
         }
-        let entry = store.entry(&job, index)?;
-        let FileCoverage::BackupOwned {
-            input,
-            receipt: None,
-            ..
-        } = entry.coverage
-        else {
-            return Err(invalid("backup file has no unconfirmed frozen object"));
-        };
+        let selected = self.file_part(index, part)?;
+        if selected.receipt.is_some() {
+            return Err(invalid("backup file part is already verified"));
+        }
         let record = self
             .inner
             .record
             .lock()
             .map_err(|_| invalid("backup capture state lock failed"))?;
         record.require_ready()?;
-        let file = super::store::regular(&store.blob_path(index))?;
-        if file.metadata()?.len() != input.object.bytes.get() {
-            return Err(invalid("backup file object length differs"));
-        }
+        let entry = store.entry(&job, index)?;
+        let mut file = super::dependency_io::input(
+            &store.blob_path(index),
+            entry.dependency.expected_stored_bytes,
+        )?;
+        file.seek(SeekFrom::Start(selected.offset))?;
         Ok(NativeBackupFileReader {
             _active: active,
             file: Some(file),
-            input: *input,
+            input: selected.input,
             read: 0,
             hash: Sha256::new(),
             failed: false,
@@ -71,8 +71,12 @@ impl Read for NativeBackupFileReader {
         if output.is_empty() {
             return Ok(0);
         }
+        if self.read == self.input.object.bytes.get() {
+            return Ok(0);
+        }
         let maximum = output
             .len()
+            .min((self.input.object.bytes.get() - self.read) as usize)
             .min(cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize);
         let count = match self
             .file

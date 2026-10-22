@@ -8,8 +8,11 @@
 mod capture;
 mod catalog;
 mod dependencies;
+mod dependency_confirm;
 mod dependency_copy;
 mod dependency_io;
+mod dependency_native;
+mod dependency_parts;
 mod dependency_reader;
 mod dependency_state;
 mod dependency_status;
@@ -21,6 +24,7 @@ mod terminal;
 
 pub use catalog::{BackupCaptureFile, BackupCaptureObject, BackupCapturePage};
 pub use dependencies::AuthorizedFileSource;
+pub use dependency_parts::BackupFilePart;
 pub use dependency_reader::NativeBackupFileReader;
 pub use dependency_state::{BackupFileDependencyEntry, BackupFileDependencyStatus, FileCoverage};
 pub use reader::NativeBackupObjectReader;
@@ -97,6 +101,7 @@ impl NativeBackupCapture {
             {
                 let coverage = dependency_status::status(&store, &state)?;
                 status.spool_bytes += coverage.spool_bytes;
+                status.payload_spool_bytes = coverage.payload_spool_bytes;
                 if status.spool_bytes > cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
                 {
                     return Err(invalid("backup capture combined spool exceeds its cap"));

@@ -122,7 +122,7 @@ impl TreeWriter {
 
     pub(super) fn finish_with_parts(self) -> Result<(TreeRoot, u64)> {
         let (tree, pages) = self.finish_tree()?;
-        let parts = pages.next_page().div_ceil(512);
+        let parts = pages.next_page().div_ceil(crate::disk_pack::PAGES_PER_PART);
         pages.finish()?;
         Ok((tree, parts))
     }

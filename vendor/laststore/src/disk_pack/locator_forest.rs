@@ -97,7 +97,7 @@ impl LocatorForest {
     pub(super) fn finish(mut self) -> Result<LocatorOutput> {
         let pages = self.take_pages()?;
         let written = pages.next_page();
-        let parts = written.div_ceil(512);
+        let parts = written.div_ceil(crate::disk_pack::PAGES_PER_PART);
         if parts > MAX_DEPENDENCIES as u64 {
             return Err(super::resource());
         }

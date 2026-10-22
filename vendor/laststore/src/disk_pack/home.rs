@@ -15,12 +15,14 @@ mod build;
 mod maintenance;
 mod mutation_quote;
 mod read;
+mod stream;
 mod write;
 
 pub use admission::MutationReservation;
 pub use build::{HomeBuilder, HomeGroupWriter};
 pub use mutation_quote::MutationQuote;
 pub use read::HomeRead;
+pub use stream::StreamedRecord;
 pub use write::{HomeMutation, HomeSnapshot};
 
 pub(super) const MARKER: &str = "laststore-pack-home-v1";

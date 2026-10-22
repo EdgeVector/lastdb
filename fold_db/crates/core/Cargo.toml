@@ -11,6 +11,7 @@ env_flag = { workspace = true }
 base64.workspace = true
 ed25519-dalek = { version = "2.0", features = ["rand_core", "serde"] }
 aes-gcm = "0.10"
+openssl = "0.10.76"
 hkdf = "0.12"
 hmac = { workspace = true }
 sha2 = { workspace = true }
@@ -30,6 +31,7 @@ hashbrown = { version = "0.17", default-features = false }
 # Storage
 laststore = { path = "../../../vendor/laststore" }
 cloud_backup_protocol = { path = "../../../cloud_backup_protocol" }
+lastdb_storage_policy = { path = "../../../lastdb_storage_policy" }
 
 # Core utilities
 uuid = { workspace = true, features = ["v4", "serde"] }

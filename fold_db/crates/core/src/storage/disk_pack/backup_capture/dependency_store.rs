@@ -115,12 +115,13 @@ impl DependencyStore {
             + optional_size(&self.alias_path(
                 &entry.dependency.logical_pointer_sha256,
                 entry.dependency.kind,
-            ))?)
+            ))?
+            + self.part_bytes(entry.index, parts_for(entry))?)
     }
 
     pub fn tracked_spool_bytes(&self, state: &DependencyState) -> StorageResult<u64> {
         let mut bytes = state.catalog_bytes;
-        for name in ["state.json", "state.pending", "source.pending"] {
+        for name in ["state.json", "state.pending"] {
             bytes += optional_size(&self.root.join(name))?;
         }
         if let Some(index) = state.active_external {
@@ -129,7 +130,7 @@ impl DependencyStore {
                 .ok_or_else(|| invalid("backup catalog byte count differs"))?
                 + self.entry_bytes(index)?
                 + optional_size(&self.entry_path(index).with_extension("pending"))?
-                + optional_size(&self.blob_path(index))?;
+                + self.part_bytes(index, parts_for(&self.entry(&state.job, index)?))?;
         }
         if bytes > cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES {
             return Err(invalid("backup dependency spool exceeds its cap"));
@@ -143,7 +144,7 @@ impl DependencyStore {
         self.root.join("source.pending")
     }
 
-    fn read<T: DeserializeOwned + Serialize>(&self, path: &Path) -> StorageResult<T> {
+    pub(super) fn read<T: DeserializeOwned + Serialize>(&self, path: &Path) -> StorageResult<T> {
         let checked: Checked<T> = read_json(path, ENTRY_MAX)?;
         if cloud_backup_protocol::input_digest("lastdb:backup-capture:local:v1", &checked.value)
             .map_err(super::protocol)?
@@ -154,7 +155,7 @@ impl DependencyStore {
         Ok(checked.value)
     }
 
-    fn write<T: Serialize>(&self, path: &Path, value: &T) -> StorageResult<()> {
+    pub(super) fn write<T: Serialize>(&self, path: &Path, value: &T) -> StorageResult<()> {
         let checked = Checked {
             sha256: cloud_backup_protocol::input_digest("lastdb:backup-capture:local:v1", value)
                 .map_err(super::protocol)?,
@@ -163,9 +164,10 @@ impl DependencyStore {
         write_json(path, &checked, ENTRY_MAX).map(|_| ())
     }
 
-    pub fn spool_bytes(&self, entries: u64) -> StorageResult<u64> {
+    pub fn spool_bytes(&self, state: &DependencyState) -> StorageResult<u64> {
+        let entries = state.entries;
         let mut bytes = 0u64;
-        for name in ["state.json", "state.pending", "source.pending"] {
+        for name in ["state.json", "state.pending"] {
             bytes += optional_size(&self.root.join(name))?;
         }
         for index in 0..entries.saturating_add(3).min(ENTRIES_MAX) {
@@ -174,13 +176,17 @@ impl DependencyStore {
                 .checked_add(
                     optional_size(&path)?
                         + optional_size(&path.with_extension("pending"))?
-                        + optional_size(&self.blob_path(index))?,
+                        + if index < entries {
+                            self.part_bytes(index, parts_for(&self.entry(&state.job, index)?))?
+                        } else {
+                            0
+                        },
                 )
                 .ok_or_else(|| invalid("backup dependency spool overflow"))?;
         }
         for index in 0..entries {
             // Entries carry the exact alias key; no arbitrary directory lookup.
-            let entry: BackupFileDependencyEntry = self.read(&self.entry_path(index))?;
+            let entry = self.entry(&state.job, index)?;
             let path = self.alias_path(
                 &entry.dependency.logical_pointer_sha256,
                 entry.dependency.kind,
@@ -205,6 +211,35 @@ impl DependencyStore {
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
+
+    pub(super) fn remove_owned(&self, path: &Path) -> StorageResult<()> {
+        if path.parent() != Some(self.root.as_path()) {
+            return Err(invalid("backup scratch parent"));
+        }
+        remove(path)?;
+        File::open(&self.root)?.sync_all()?;
+        Ok(())
+    }
+
+    pub(super) fn payload_bytes(&self, state: &DependencyState) -> StorageResult<u64> {
+        let mut bytes = 0u64;
+        for name in [
+            "source.pending",
+            "native-cas.pending",
+            "native-cas.json.pending",
+            "native-cas.inner.pending",
+        ] {
+            bytes = bytes
+                .checked_add(optional_size(&self.root.join(name))?)
+                .ok_or_else(|| invalid("backup payload size overflow"))?;
+        }
+        if let Some(index) = state.active_external {
+            bytes = bytes
+                .checked_add(optional_size(&self.blob_path(index))?)
+                .ok_or_else(|| invalid("backup payload size overflow"))?;
+        }
+        Ok(bytes)
+    }
 }
 
 /// Terminal cleanup uses only the private flat directory of the exact saved job.
@@ -223,7 +258,11 @@ pub(super) fn cleanup_owned(store: &LocalStore, job: &BackupJob) -> StorageResul
     for entry in fs::read_dir(&root)? {
         let entry = entry?;
         count += 1;
-        if count > 5 * (ENTRIES_MAX + 3) + 3 {
+        if count
+            > (2 * cloud_backup_protocol::limits::MANIFEST_PAGE_ENTRIES_MAX as u64 + 5)
+                * (ENTRIES_MAX + 3)
+                + 6
+        {
             return Err(invalid(
                 "backup dependency cleanup file count exceeds its cap",
             ));
@@ -232,7 +271,15 @@ pub(super) fn cleanup_owned(store: &LocalStore, job: &BackupJob) -> StorageResul
         let name = name
             .to_str()
             .ok_or_else(|| invalid("backup dependency cleanup name"))?;
-        let simple = matches!(name, "state.json" | "state.pending" | "source.pending");
+        let simple = matches!(
+            name,
+            "state.json"
+                | "state.pending"
+                | "source.pending"
+                | "native-cas.pending"
+                | "native-cas.json.pending"
+                | "native-cas.inner.pending"
+        );
         let numbered = name
             .strip_prefix("entry-")
             .and_then(|s| {
@@ -254,8 +301,28 @@ pub(super) fn cleanup_owned(store: &LocalStore, job: &BackupJob) -> StorageResul
                         .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
                     && matches!(kind, "main" | "thumbnail" | "poster")
             });
+        let chunk = name
+            .strip_prefix("chunk-")
+            .and_then(|tail| {
+                tail.strip_suffix(".json")
+                    .or_else(|| tail.strip_suffix(".pending"))
+            })
+            .and_then(|tail| tail.split_once('-'))
+            .is_some_and(|(index, part)| {
+                index.len() == 6
+                    && part.len() == 3
+                    && index
+                        .bytes()
+                        .chain(part.bytes())
+                        .all(|byte| byte.is_ascii_digit())
+                    && index.parse::<u64>().is_ok_and(|value| value < ENTRIES_MAX)
+                    && part.parse::<usize>().is_ok_and(|value| {
+                        value < cloud_backup_protocol::limits::MANIFEST_PAGE_ENTRIES_MAX
+                    })
+            });
         if !simple
             && !pointer
+            && !chunk
             && !numbered.is_some_and(|n| {
                 n.len() == 6
                     && n.bytes().all(|b| b.is_ascii_digit())
@@ -273,7 +340,7 @@ pub(super) fn cleanup_owned(store: &LocalStore, job: &BackupJob) -> StorageResul
     Ok(())
 }
 
-fn optional_size(path: &Path) -> StorageResult<u64> {
+pub(super) fn optional_size(path: &Path) -> StorageResult<u64> {
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_file() => {
             regular(path)?;
@@ -282,6 +349,24 @@ fn optional_size(path: &Path) -> StorageResult<u64> {
         Ok(_) => Err(invalid("backup dependency path is not regular")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(error) => Err(error.into()),
+    }
+}
+
+fn parts_for(entry: &BackupFileDependencyEntry) -> u16 {
+    match entry.coverage {
+        FileCoverage::BackupOwnedExtents { parts, .. } => parts,
+        FileCoverage::ExternalNeeded => {
+            let parts = entry
+                .dependency
+                .expected_stored_bytes
+                .div_ceil(cloud_backup_protocol::limits::CLOUD_OBJECT_MAX_BYTES);
+            if parts <= cloud_backup_protocol::limits::MANIFEST_PAGE_ENTRIES_MAX as u64 {
+                parts as u16
+            } else {
+                0
+            }
+        }
+        _ => 0,
     }
 }
 

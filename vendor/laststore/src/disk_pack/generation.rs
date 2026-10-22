@@ -249,10 +249,10 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
             break;
         }
         number = next;
-        let part = number / 512;
+        let part = number / crate::disk_pack::PAGES_PER_PART;
         let bytes = call.read_extent(
             &path.join(format!("part-{part:08x}")),
-            number % 512 * PAGE_BYTES as u64,
+            number % crate::disk_pack::PAGES_PER_PART * PAGE_BYTES as u64,
             PAGE_BYTES,
             true,
             ReadClass::FormatProbe,

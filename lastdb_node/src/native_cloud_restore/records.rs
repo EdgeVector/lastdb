@@ -2,14 +2,18 @@
 use super::{dependencies, RestoreError, RestoreSession, Result};
 use cloud_backup_protocol::Digest;
 use fold_db::storage::disk_pack::{file_dependencies as directory, file_recovery};
+use lastdb_storage_policy::backup_decode::{
+    ATOM_BODY_MAX_BYTES, ATOM_INVENTORY_PAGES, DIRECTORY_READ_BYTES, FILE_COVERAGE_IDENTITY_BYTES,
+    FILE_COVERAGE_MEMORY_BYTES, NATIVE_STREAM_BLOCKS,
+};
 use laststore::disk_pack::home::DiskHome;
 use laststore::disk_pack::ReadBudget;
 use std::collections::BTreeSet;
+mod native_file;
 
-const DIRECTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
 // The two charged atom JSON trees use 64 MiB; release them before any CAS decode.
 // This separate 8 MiB identity cap leaves the complete active proof below 96 MiB.
-const COVERAGE_MAX: usize = 8 * 1024 * 1024 / 192;
+const COVERAGE_MAX: usize = FILE_COVERAGE_MEMORY_BYTES / FILE_COVERAGE_IDENTITY_BYTES;
 
 pub(super) fn admit_count(external_count: u64) -> Result<()> {
     if external_count > COVERAGE_MAX as u64 {
@@ -34,7 +38,7 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
                 let mut cursor = directory::atom_inventory(&mut read, group, &start)
                     .map_err(|_| RestoreError::Limit("native atom inventory"))?;
                 cursor
-                    .next_page_yielding_bounded(1, 0, 0, 4 * 1024 * 1024)
+                    .next_page_yielding_bounded(1, 0, 0, ATOM_BODY_MAX_BYTES)
                     .map_err(|_| RestoreError::Limit("native atom page"))?
             }; // No native reader/block cache survives the atom decode.
             let next = page.resume.clone().or_else(|| {
@@ -119,37 +123,19 @@ fn verify_dependency(
     dependency: &directory::FileDependency,
     covered: &mut BTreeSet<[u8; 32]>,
 ) -> Result<()> {
-    let row = {
-        let mut read = home
-            // This is a cumulative I/O/decode charge, not a memory allowance.
-            // The helper bounds a row before allocation. One read retains <=32MiB
-            // row +32MiB decoded blocks +8MiB pages +8MiB proof identities.
-            .read(ReadBudget {
-                pages: 512,
-                blocks: 16384,
-                bytes: 128 * 1024 * 1024,
-                keys: 1,
-            })
-            .map_err(|_| RestoreError::Limit("native file read"))?;
-        directory::read_native_cas(&mut read, dependency)
-            .map_err(|_| RestoreError::Invalid("native file source"))?
-    }; // Release native block buffers before account/base64/inner decrypt.
-    if let Some(row) = row {
-        directory::verify_native_cas(row, key, dependency)
-            .map_err(|_| RestoreError::Invalid("native file proof"))?;
+    if native_file::verify(session, home, key, dependency)? {
         return Ok(());
     }
-    let bytes = file_recovery::resolve_entry(
+    let file = file_recovery::open_verified_ciphertext(
         &dependencies::data_root(session),
         &session.accepted().native_root.home_id,
         dependency.logical_pointer_sha256(),
         dependency.kind(),
         dependency.access(),
-        file_recovery::FILE_RECOVERY_MAX_PLAINTEXT_BYTES,
     )
     .map_err(|_| RestoreError::Invalid("backup-owned file proof"))?
     .ok_or(RestoreError::Invalid("missing backup-owned file source"))?;
-    drop(bytes);
+    drop(file);
     let identity = file_recovery::entry_key(dependency.logical_pointer_sha256(), dependency.kind());
     let hash = cloud_backup_protocol::bytes_sha256(identity.as_bytes());
     let raw = raw_digest(&hash)?;
@@ -162,8 +148,8 @@ fn verify_dependency(
 
 fn budget(bytes: u64, keys: u64) -> ReadBudget {
     ReadBudget {
-        pages: 4096,
-        blocks: 16384,
+        pages: ATOM_INVENTORY_PAGES,
+        blocks: NATIVE_STREAM_BLOCKS,
         bytes,
         keys,
     }

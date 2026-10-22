@@ -128,7 +128,7 @@ pub(super) fn verify_file(path: &Path, sha: &Digest, length: u64) -> Result<()> 
         return Err(RestoreError::Invalid("file length"));
     }
     let mut digest = Sha256::new();
-    let mut buffer = [0u8; 65536];
+    let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
     loop {
         let count = input.read(&mut buffer)?;
         if count == 0 {

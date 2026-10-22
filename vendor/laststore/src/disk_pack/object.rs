@@ -22,7 +22,7 @@ impl ObjectMetadata {
             || data_parts == 0
             || data_parts > blocks
             || data_parts > maximum_parts
-            || map_pages > maximum_parts * 512
+            || map_pages > maximum_parts * crate::disk_pack::PAGES_PER_PART
         {
             return Err(corrupt("complete object bounds exceed format limits"));
         }

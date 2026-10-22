@@ -20,7 +20,7 @@ pub fn prepare_directory(data_root: &Path, expected: &RecoveryDirectory) -> Stor
     }
     let path = root.join("directory.json");
     if regular_present(&path)? {
-        let actual: RecoveryDirectory = read_json(&path, 4096)?;
+        let actual: RecoveryDirectory = read_json(&path, METADATA_MAX_BYTES)?;
         if actual != *expected {
             return Err(invalid("recovery directory identity"));
         }
@@ -41,7 +41,7 @@ pub fn save_entry(data_root: &Path, entry: &RecoveryFile) -> StorageResult<()> {
     }
     let path = root.join("entries").join(entry.key());
     if regular_present(&path)? {
-        let actual: RecoveryFile = read_json(&path, 4096)?;
+        let actual: RecoveryFile = read_json(&path, METADATA_MAX_BYTES)?;
         if actual != *entry {
             return Err(invalid("recovery entry differs"));
         }
@@ -68,6 +68,22 @@ fn present(path: &Path, directory: bool) -> StorageResult<bool> {
 }
 
 pub(super) fn read_bytes(path: &Path, expected: u64) -> StorageResult<Vec<u8>> {
+    let mut file = open_bytes(path, expected)?;
+    let capacity = usize::try_from(expected).map_err(|_| invalid("local file addressable size"))?;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(capacity)
+        .map_err(|_| invalid("local file allocation"))?;
+    bytes.resize(capacity, 0);
+    file.read_exact(&mut bytes)?;
+    let mut extra = [0u8; 1];
+    if bytes.len() as u64 != expected || file.read(&mut extra)? != 0 {
+        return Err(invalid("recovery ciphertext changed"));
+    }
+    Ok(bytes)
+}
+
+pub(super) fn open_bytes(path: &Path, expected: u64) -> StorageResult<File> {
     if !regular_present(path)? {
         return Err(invalid("missing recovered ciphertext"));
     }
@@ -75,15 +91,10 @@ pub(super) fn read_bytes(path: &Path, expected: u64) -> StorageResult<Vec<u8>> {
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)?;
-    if file.metadata()?.len() != expected || expected > FILE_RECOVERY_MAX_STORED_BYTES {
+    if !file.metadata()?.is_file() || file.metadata()?.len() != expected {
         return Err(invalid("recovery byte bounds"));
     }
-    let mut bytes = Vec::with_capacity(expected as usize);
-    file.take(expected + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 != expected {
-        return Err(invalid("recovery ciphertext changed"));
-    }
-    Ok(bytes)
+    Ok(file)
 }
 
 pub(super) fn read_json<T: serde::de::DeserializeOwned>(
@@ -108,7 +119,7 @@ pub(super) fn read_json<T: serde::de::DeserializeOwned>(
 fn save_json(path: &Path, value: &impl Serialize) -> StorageResult<()> {
     let bytes =
         cloud_backup_protocol::canonical_bytes(value).map_err(|_| invalid("recovery metadata"))?;
-    if bytes.len() > 4096 {
+    if bytes.len() as u64 > METADATA_MAX_BYTES {
         return Err(invalid("recovery metadata bounds"));
     }
     let pending = path.with_extension("pending");

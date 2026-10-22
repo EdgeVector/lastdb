@@ -14,6 +14,7 @@ pub(super) fn status(
         external_prepared: 0,
         external_confirmed: state.external_confirmed,
         spool_bytes: store.tracked_spool_bytes(state)?,
+        payload_spool_bytes: store.payload_bytes(state)?,
     };
     if let Some(index) = state.active_external {
         match store.entry(&state.job, index)?.coverage {
@@ -21,6 +22,15 @@ pub(super) fn status(
                 receipt: Some(_), ..
             } => status.external_confirmed += 1,
             FileCoverage::BackupOwned { .. } => status.external_prepared += 1,
+            FileCoverage::BackupOwnedExtents {
+                parts, confirmed, ..
+            } => {
+                if parts == confirmed {
+                    status.external_confirmed += 1;
+                } else {
+                    status.external_prepared += 1;
+                }
+            }
             FileCoverage::ExternalNeeded => {}
             FileCoverage::NativeCovered { .. } => {
                 return Err(invalid(
@@ -47,7 +57,8 @@ pub(super) fn audit(
         external_needed: 0,
         external_prepared: 0,
         external_confirmed: 0,
-        spool_bytes: store.spool_bytes(state.entries)?,
+        spool_bytes: store.spool_bytes(state)?,
+        payload_spool_bytes: store.payload_bytes(state)?,
     };
     for index in 0..state.entries {
         let entry = store.entry(&state.job, index)?;
@@ -61,13 +72,29 @@ pub(super) fn audit(
                 "backup dependency lookup differs from full inventory",
             ));
         }
-        match entry.coverage {
+        match &entry.coverage {
             FileCoverage::NativeCovered { .. } => checked.native_covered += 1,
             FileCoverage::ExternalNeeded => checked.external_needed += 1,
             FileCoverage::BackupOwned {
                 receipt: Some(_), ..
             } => checked.external_confirmed += 1,
             FileCoverage::BackupOwned { .. } => checked.external_prepared += 1,
+            FileCoverage::BackupOwnedExtents {
+                parts, confirmed, ..
+            } => {
+                let mut count = 0;
+                for part in 0..*parts {
+                    count += u16::from(store.part(&entry, part)?.receipt.is_some());
+                }
+                if *confirmed != count {
+                    return Err(invalid("backup part receipt count differs"));
+                }
+                if parts == confirmed {
+                    checked.external_confirmed += 1;
+                } else {
+                    checked.external_prepared += 1;
+                }
+            }
         }
     }
     let expected = status(store, state)?;

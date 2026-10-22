@@ -46,6 +46,7 @@ sentry-telemetry = ["dep:sentry", "observability/sentry"]
 purging-allocator = ["dep:mimalloc", "dep:libmimalloc-sys"]
 
 [dependencies]
+lastdb_storage_policy = { path = "../lastdb_storage_policy" }
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }

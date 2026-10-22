@@ -42,7 +42,9 @@ pub struct TreeRoot {
 impl TreeRoot {
     pub(super) fn validate(&self) -> Result<()> {
         nonnil(self.object)?;
-        if !(1..=8).contains(&self.height) || self.page / 512 > u64::from(u32::MAX) {
+        if !(1..=8).contains(&self.height)
+            || self.page / crate::disk_pack::PAGES_PER_PART > u64::from(u32::MAX)
+        {
             return Err(corrupt("tree root outside format limits"));
         }
         Ok(())

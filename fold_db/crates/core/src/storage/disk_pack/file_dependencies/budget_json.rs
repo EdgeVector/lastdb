@@ -4,7 +4,7 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 use std::fmt;
 
-const HEAP_MAX: usize = 32 * 1024 * 1024;
+const HEAP_MAX: usize = lastdb_storage_policy::backup_decode::ATOM_JSON_TREE_MAX_BYTES as usize;
 struct Seed<'a> {
     left: &'a mut usize,
 }

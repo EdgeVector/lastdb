@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
-const MAX_FILES: usize = 65_552;
+const MAX_FILES: usize = lastdb_storage_policy::native_v1::MAX_BACKUP_FILES;
 
 /// One original immutable file, or an exact generated snapshot selector.
 #[derive(Clone, Debug)]

@@ -29,7 +29,7 @@ The directory does not guess a stored ciphertext digest at write time.
 
 Unsupported local writes stay valid.
 Their absent directory record cannot certify a later backup.
-The first release refuses incomplete pointers, extra metadata-only references, unsupported key modes, and files above its byte limits.
+The first release refuses incomplete pointers, extra metadata-only references, unsupported key modes, and files outside the existing format and wire bounds.
 It also refuses old pointer atoms without a matching directory record.
 This source change adds no automatic backfill or migration.
 
@@ -59,15 +59,21 @@ An older atom-certified sidecar can obtain this proof without loss of frozen cop
 The capture directory uses one durable lookup for each `(whole_pointer_digest, kind)`.
 Several atoms can name one pointer.
 Every atom still needs its own valid atomic directory records.
-The capture reuses one coverage entry, frozen transfer, and receipt for that pointer and kind.
+The capture reuses one coverage entry and its frozen part transfers and receipts for that pointer and kind.
 
-For a local CAS record, capture reads only the exact `cas_blobs` key at the held root.
+For a local CAS record, capture copies only the exact `cas_blobs` key at the held root into private scratch.
 Its proof digest names the raw outer account-encrypted record bytes.
 The native inventory already includes those bytes.
 Capture does not add a second BlobPart for them.
 
-The proof opens the account envelope and the inner per-file envelope.
+The native copy checks the complete record header, key, mutation version, and record digest before success.
+It returns the exact stored body length and digest without a body-sized allocation.
+The proof opens the account envelope and the inner per-file envelope through bounded buffers and private disk files.
 It uses the original pointer DEK and checks the plaintext digest and size.
+Authentication requires the final encryption tag and exact EOF.
+Compressed data also requires its complete deflate end marker and no trailing bytes.
+Private output cannot become a successful proof before those checks finish.
+
 The directory suite remains exactly the original pointer suite.
 The local constructor labels its shared at-rest codec with the convergent suite, even for a legacy pointer DEK.
 The verifier permits that specific legacy-pointer/current-local-label pair.
@@ -89,33 +95,48 @@ Thus a restored home can make its next backup after the original owner's object 
 An absent external source causes refusal.
 There is no external-owner retention promise.
 
-The S3 client checks the response length and enforces a streamed byte cap before buffer growth.
+The S3 client writes authorized response bytes into a new private file.
+It checks the declared response length when present and always checks the exact body length.
+It uses a bounded buffer and syncs the complete file before success.
 The existing version-one file envelope must authenticate under the original pointer key.
 The plaintext digest, blob reference, suite, and complete stored size must match.
 Capture then hashes the complete encrypted source bytes.
 
-Capture saves the verified ciphertext in its private job spool before it saves the frozen transfer input.
-A retry uses the same request identity and exact ciphertext digest.
-A different remote ciphertext cannot replace a frozen input.
+Capture saves and authenticates the complete ciphertext in its private job directory before it freezes the transport parts.
+Each part contains at most 64 MiB of the original ciphertext.
+One file has at most 512 ordered parts under the existing manifest format.
+Each part has its own saved request identity, exact digest, length, and authoritative receipt.
+Each part uses an ordinary complete-object transfer, without a provider multipart upload.
+
+A retry keeps those identities and bytes.
+A different remote ciphertext cannot replace a frozen part.
 One unconfirmed external file is active at a time.
 
-`confirm_file_transfer` accepts an exact authoritative authenticated `TransferView::Verified` from its caller.
+The capture API exposes the following operations:
+
+- `prepare_external_file` obtains and authenticates the complete private ciphertext.
+- `file_part` returns one saved `BackupFilePart` and its transfer input.
+- `open_file_part` reads only that part through a bounded reader.
+- `confirm_file_part` accepts its exact authoritative authenticated `TransferView::Verified`.
+- `external_file_dependency` returns ordered manifest extents only after all part receipts exist.
+
 A locally computed receipt does not establish authority.
-Capture saves the verified receipt before it removes the local copy and repeats the directory barrier.
+Capture saves each verified receipt before it changes the complete-file counters.
+It removes the local ciphertext only after all part receipts reach disk, then repeats the directory barrier.
 Pending, rejected, missing, and uncertain responses retain the exact source copy.
 The service obligation protects a confirmed object until the job reaches its authoritative terminal result.
 
-The spool therefore holds one active file, not all external bytes of the backup.
-Backup data can exceed one GiB when the metadata reservation still fits.
+The private directory therefore holds one active file, not all external bytes of the backup.
+The one GiB metadata allowance does not cap that file's payload size.
+Payload and decode scratch files require separate filesystem capacity under the native space policy.
 The next worker must connect these source APIs to the shared transfer and acceptance APIs.
 
 ## Source bounds
 
 | Item | First release bound |
 |---|---:|
-| File plaintext | 16 MiB |
-| Remote file ciphertext | 16 MiB + 29 bytes |
-| Native CAS stored or decoded record | 32 MiB |
+| External file ciphertext | At most 512 parts of 64 MiB; manifest page bytes also apply |
+| Native stored record body | At most `u32::MAX` bytes in the existing native V1 format |
 | Atom stored envelope or decoded byte buffer | 4 MiB |
 | Each charged atom JSON tree | 32 MiB |
 | Directory plaintext | 4 KiB |
@@ -125,36 +146,45 @@ The next worker must connect these source APIs to the shared transfer and accept
 | Restore external identity set | 8 MiB / 43,690 pointer and kind pairs |
 | Concurrent source streams, including capture work | 4 |
 | Each source stream buffer | 1 MiB |
-| Combined durable capture spool | 1 GiB |
+| Capture metadata and native catalog allowance | 1 GiB |
+| Active ciphertext and decode scratch | Separate filesystem capacity admission |
+| Native copy run | 16 decoded blocks, then cache release |
+| Native payload file handles | 32 |
 
-The capture reserves two 16 KiB metadata files per unique dependency, plus three crash slots and one MiB of fixed metadata.
-It also includes the existing native catalog bytes and two maximum external ciphertext buffers in the disk reservation.
-This conservative admission can refuse roughly thirty thousand unique dependencies before the wire-format record maximum.
-The exact count depends on the native catalog size.
-It does not claim support for every possible wire-format maximum at once.
+The [resource policy](native-backup-resource-policy-v1.md) identifies the shared source for these values.
+The normal local file API keeps its separate, owner-configurable 16 MiB default.
+That API default does not create a backup authentication limit.
+Metadata admission includes dependency records, aliases, part receipts, atomic-write scratch, and the native catalog.
+The exact count depends on the complete encoded metadata size.
+The first byte, count, format, or disk bound controls admission.
 Metadata proof refuses noncanonical file references and unsupported stale overlay metadata.
 It also refuses returned tip bodies or entry controls above the limits, even when those records are unrelated to a file.
 
 Native `ReadBudget.bytes` counts cumulative file, decoded, and returned bytes.
 It is not a retained-memory limit.
-The native CAS read uses 128 MiB of cumulative work, 512 metadata pages, and one exact key.
+The native CAS lookup uses a bounded ordinary read budget and one exact key.
+`HomeRead::copy_body_to` then uses a separate cumulative work allowance derived from that exact record.
+It keeps bounded block and metadata caches as the copy advances.
+The complete copy costs remain visible in the read receipt.
+
 The new `get_bounded` checks the located body size before payload I/O or body allocation.
 The three directory reads use `get_many_bounded` before a batch payload plan.
 
-The source allocation bounds use separate phases:
+The source uses separate phases:
 
-- Native CAS read: at most 32 MiB of body, about 32 MiB of decoded blocks, eight MiB of metadata pages, and bounded maps.
-- Account decode: the owned helper drops the stored buffer before decrypt, then drops ciphertext before bounded inflate.
-- Flat CAS JSON decode: a fixed borrowed view ignores unrelated metadata and copies only the selected inner envelope before JSON release.
-- Per-file decode: the helper consumes the inner envelope string before decrypt or inflate; plaintext stays at most 16 MiB.
+- Native CAS copy: bounded block runs copy the exact stored record body into private disk scratch.
+- Account decode: bounded encryption and deflate buffers write private JSON scratch.
+- CAS JSON decode: a bounded parser copies the selected inner envelope into a private file.
+- Per-file proof: bounded encryption and deflate buffers check the original key, plaintext digest, size, tag, and EOF.
 - Atom decode: at most two charged 32 MiB JSON trees, small raw buffers, and bounded canonical JSON byte buffers.
 
-The caller drops the native read transaction before CAS decode.
+The caller drops the native read before CAS decode.
 The caller also drops atom JSON before CAS proof or external authentication.
-The fixed-capacity inflate loop rejects the first excess bytes before a vector can double past its cap.
 At most three other one-MiB source buffers coexist with capture work.
-These source bounds leave space below the 96 MiB cloud work cap.
-They are source conclusions, not measurements from a live node.
+File length does not select the buffer allocation.
+
+The 96 MiB cloud work policy does not cap the whole LastDB process.
+These source bounds do not establish measured memory or transfer speed.
 
 ## Restart, terminal result, and cleanup
 
@@ -162,6 +192,10 @@ The existing `cloud-export-v1/job.json` path and format-one job schema stay unch
 The public API name changes to `backup_capture::NativeBackupCapture`.
 File progress uses the private `dependencies-{commit_id}` directory with its own checksummed format-one records.
 The directory records contain job and root identities, but no credentials or DEKs.
+New multi-part progress keeps the whole ciphertext digest and counts in the dependency record.
+Each `chunk-{dependency}-{part}.json` file keeps one bounded transfer input and receipt.
+Existing single-object `BackupOwned` records remain readable.
+`open_file_object` and `confirm_file_transfer` retain their part-zero compatibility path.
 
 A partial certification can discard only its exact owned local metadata and repeat the held-root proof.
 A complete certification retains its per-file copy and receipt progress across restart.
@@ -186,6 +220,7 @@ The Mini worker, manifest assembler, service client, and product commands still 
 The S2 service acceptance, discovery, and read-grant source exists separately.
 Activation, a cache-free product restore, and provider behavior remain separate gates.
 No live cloud result follows from these source checks.
-Files above 16 MiB need an existing-format streaming authentication API before this release can admit them.
+The new disk-stream source path removes the former 16 MiB backup authentication guard.
+It does not enlarge native V1 physical parts or the existing cloud object and extent limits.
 Old uncertified pointer records need an explicit migration decision or a clear refusal in the product command.
 GC stays disabled until a complete retained-root and external-object closure passes its own release gate.

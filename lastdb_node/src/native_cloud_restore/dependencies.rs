@@ -61,7 +61,6 @@ pub(super) async fn restore_page(
                 entry.stored_source_bytes.get(),
             )?;
         } else {
-            download::check_capacity(&session.root, entry.stored_source_bytes.get())?;
             let pending = path.with_extension("pending");
             if pending.try_exists()? && !fs::symlink_metadata(&pending)?.is_file() {
                 return Err(RestoreError::Invalid("file recovery temporary"));
@@ -73,6 +72,8 @@ pub(super) async fn restore_page(
                 .mode(0o600)
                 .custom_flags(libc::O_NOFOLLOW)
                 .open(pending)?;
+            // Discard the old unverified prefix before admitting its replacement.
+            download::check_capacity(&session.root, entry.stored_source_bytes.get())?;
             ids.extend(
                 dependency
                     .extents
@@ -83,7 +84,7 @@ pub(super) async fn restore_page(
     }
     // Every selector is known before RPCs. Metadata stays bounded to four grants.
     let ids: Vec<_> = ids.into_iter().collect();
-    for batch in ids.chunks(4) {
+    for batch in ids.chunks(cloud_backup_protocol::limits::CONCURRENT_STREAMS_MAX) {
         let selectors = batch
             .iter()
             .map(|receipt_id| ReadSelector::Receipt {
@@ -137,7 +138,7 @@ fn copy_object(
     dependencies: &[ExternalFileDependency],
 ) -> Result<()> {
     let mut input = File::open(object)?;
-    let mut buffer = [0u8; 65536];
+    let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
     for dependency in dependencies {
         let path =
             file_recovery::object_path(&data_root(session), &dependency.stored_source_sha256);

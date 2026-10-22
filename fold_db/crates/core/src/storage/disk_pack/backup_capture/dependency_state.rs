@@ -3,7 +3,7 @@ use super::super::file_dependencies::{
 };
 use super::{invalid, protocol, StorageResult};
 use cloud_backup_protocol::transfer::{ObjectReceipt, TransferInput};
-use cloud_backup_protocol::{BackupJob, Digest, ObjectKind};
+use cloud_backup_protocol::{BackupJob, DecimalU64, Digest, ObjectKind};
 use serde::{Deserialize, Serialize};
 
 pub(super) const ENTRIES_MAX: u64 = 512 * 1024;
@@ -33,6 +33,14 @@ pub enum FileCoverage {
         input_sha256: Digest,
         receipt: Option<ObjectReceipt>,
     },
+    /// Complete authenticated ciphertext, split only for transport. Per-part
+    /// frozen inputs and receipts live in separate bounded metadata files.
+    BackupOwnedExtents {
+        stored_source_sha256: Digest,
+        stored_source_bytes: DecimalU64,
+        parts: u16,
+        confirmed: u16,
+    },
 }
 
 impl BackupFileDependencyEntry {
@@ -42,6 +50,11 @@ impl BackupFileDependencyEntry {
         &self,
     ) -> StorageResult<Option<cloud_backup_protocol::ExternalFileDependency>> {
         self.validate(&self.job, self.index)?;
+        if matches!(self.coverage, FileCoverage::BackupOwnedExtents { .. }) {
+            return Err(invalid(
+                "segmented backup file needs NativeBackupCapture::external_file_dependency",
+            ));
+        }
         let FileCoverage::BackupOwned {
             input,
             receipt: Some(receipt),
@@ -79,6 +92,9 @@ impl BackupFileDependencyEntry {
             || self.index != index
             || index >= ENTRIES_MAX
             || self.dependency.version != 1
+            || !(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES
+                ..=lastdb_storage_policy::BACKUP_TOTAL_STORED_BYTES)
+                .contains(&self.dependency.expected_stored_bytes)
         {
             return Err(invalid("backup dependency entry identity"));
         }
@@ -114,6 +130,24 @@ impl BackupFileDependencyEntry {
                     if receipt.scope != job.stream.scope || receipt.object != input.object {
                         return Err(invalid("backup file receipt identity"));
                     }
+                }
+            }
+            FileCoverage::BackupOwnedExtents {
+                stored_source_bytes,
+                parts,
+                confirmed,
+                ..
+            } => {
+                let count = stored_source_bytes
+                    .get()
+                    .div_ceil(cloud_backup_protocol::limits::CLOUD_OBJECT_MAX_BYTES);
+                if stored_source_bytes.get() != self.dependency.expected_stored_bytes
+                    || count == 0
+                    || count > cloud_backup_protocol::limits::MANIFEST_PAGE_ENTRIES_MAX as u64
+                    || u64::from(*parts) != count
+                    || confirmed > parts
+                {
+                    return Err(invalid("backup file extent inventory"));
                 }
             }
         }
@@ -170,4 +204,5 @@ pub struct BackupFileDependencyStatus {
     pub external_prepared: u64,
     pub external_confirmed: u64,
     pub spool_bytes: u64,
+    pub payload_spool_bytes: u64,
 }

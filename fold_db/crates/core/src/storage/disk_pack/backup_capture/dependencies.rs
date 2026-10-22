@@ -5,6 +5,7 @@ use super::dependency_status::{audit, status};
 use super::dependency_store::DependencyStore;
 use super::{invalid, ExportInner, NativeBackupCapture, StorageResult};
 use cloud_backup_protocol::{BackupJob, Digest, FileDependencyKind};
+use lastdb_storage_policy::backup_decode as budget;
 use laststore::disk_pack::home::HomeRead;
 use laststore::disk_pack::ReadBudget;
 use std::sync::{atomic::Ordering, Arc};
@@ -17,7 +18,11 @@ pub struct AuthorizedFileSource {
 }
 
 impl AuthorizedFileSource {
-    pub(super) async fn fetch(&self, dependency: &files::FileDependency) -> StorageResult<Vec<u8>> {
+    pub(super) async fn fetch_to_file(
+        &self,
+        dependency: &files::FileDependency,
+        path: &std::path::Path,
+    ) -> StorageResult<()> {
         let url = match dependency.kind() {
             FileDependencyKind::Main => {
                 self.auth
@@ -34,16 +39,12 @@ impl AuthorizedFileSource {
             }
         }
         .map_err(|_| invalid("authorized backup file source request failed"))?;
-        let bytes = self
-            .s3
-            .download_limited(&url, Some(dependency.expected_stored_bytes() as usize))
+        self.s3
+            .download_to_file_limited(&url, path, dependency.expected_stored_bytes())
             .await
             .map_err(|_| invalid("authorized backup file source download failed"))?
             .ok_or_else(|| invalid("authorized backup file source is absent"))?;
-        if bytes.len() as u64 != dependency.expected_stored_bytes() {
-            return Err(invalid("authorized backup file source length differs"));
-        }
-        Ok(bytes)
+        Ok(())
     }
 }
 
@@ -155,7 +156,7 @@ fn certify(
             let mut read = held_read(inner, files::ATOM_INVENTORY_READ_BYTES)?;
             let mut cursor = files::atom_inventory(&mut read, group, &start)?;
             let page = cursor
-                .next_page_yielding_bounded(1, 0, 0, 4 * 1024 * 1024)
+                .next_page_yielding_bounded(1, 0, 0, budget::ATOM_BODY_MAX_BYTES)
                 .map_err(super::super::map)?;
             let next = page.resume.clone().or_else(|| {
                 page.records
@@ -192,10 +193,18 @@ pub(super) fn held_read(inner: &ExportInner, bytes: u64) -> StorageResult<HomeRe
         .read_from_writer(
             source.current().clone(),
             ReadBudget {
-                pages: if bytes == 64 * 1024 * 1024 { 4096 } else { 512 },
-                blocks: 16384,
+                pages: if bytes == files::ATOM_INVENTORY_READ_BYTES {
+                    budget::ATOM_INVENTORY_PAGES
+                } else {
+                    budget::NATIVE_STREAM_PAGES
+                },
+                blocks: budget::NATIVE_STREAM_BLOCKS,
                 bytes,
-                keys: if bytes == 128 * 1024 * 1024 { 1 } else { 10000 },
+                keys: if bytes == budget::NATIVE_STREAM_LOOKUP_READ_BYTES {
+                    1
+                } else {
+                    10000
+                },
             },
             &inner.runtime.read_lease,
         )
@@ -244,7 +253,8 @@ pub(super) fn require_room(
         .entries
         .saturating_add(3)
         .saturating_mul(2 * ENTRY_MAX)
-        .saturating_add(2 * files::FILE_DEPENDENCY_MAX_STORED_BYTES)
+        .saturating_add(state.catalog_bytes)
+        .saturating_add(super::dependency_parts::metadata_reserve())
         .saturating_add(record.spool_bytes)
         .saturating_add(extra)
         .saturating_add(1024 * 1024);
@@ -307,7 +317,7 @@ fn certify_atom(
     let dependencies = files::expected(&atom)?;
     drop(atom);
     drop(record);
-    let mut read = held_read(inner, 8 * 1024 * 1024)?;
+    let mut read = held_read(inner, budget::DIRECTORY_READ_BYTES)?;
     files::read_directories(&mut read, scope.as_deref(), &id, &dependencies, key)?;
     drop(read);
     for dependency in dependencies {
@@ -327,13 +337,9 @@ fn certify_atom(
             continue;
         }
         require_room(inner, state, ENTRY_MAX)?;
-        let mut read = held_read(inner, 128 * 1024 * 1024)?;
-        let native = files::read_native_cas(&mut read, &dependency)?;
-        drop(read);
+        let native = super::dependency_native::verify(inner, store, key, &dependency)?;
         let coverage = match native {
-            Some(row) => FileCoverage::NativeCovered {
-                proof: files::verify_native_cas(row, key, &dependency)?,
-            },
+            Some(proof) => FileCoverage::NativeCovered { proof },
             None => FileCoverage::ExternalNeeded,
         };
         let native = matches!(coverage, FileCoverage::NativeCovered { .. });

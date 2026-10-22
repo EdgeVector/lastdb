@@ -33,6 +33,7 @@ members = [
 
     # Canonical native cloud backup wire contract; no runtime activation.
     "cloud_backup_protocol",
+    "lastdb_storage_policy",
 
     # shared Unix-domain-socket transport (bind/perms/peer-cred gate, minimal
     # HTTP/1.1 framing, control-socket route classifier). A leaf crate
