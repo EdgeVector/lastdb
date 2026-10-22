@@ -48,6 +48,13 @@ An empty end would describe an empty native range.
 Each continuation seeks only that group; it does not reopen all 1024 groups per record.
 For each body, it derives the exact scope and validates all three known dependency keys in one bounded batch.
 An unexpected or absent kind refuses certification.
+The final coverage check also examines live tip and active generation metadata.
+Those file references must match a certified pointer on the selected atom.
+The check uses the existing selection, merge, and delete rules and the exact scoped atom directory.
+It does not rewrite a separate metadata map.
+An atom-only proof cannot cover independent metadata after atom deduplication.
+Capture saves a separate metadata coverage flag before it admits cloud eligibility.
+An older atom-certified sidecar can obtain this proof without loss of frozen copy or receipt progress.
 
 The capture directory uses one durable lookup for each `(whole_pointer_digest, kind)`.
 Several atoms can name one pointer.
@@ -112,6 +119,8 @@ The next worker must connect these source APIs to the shared transfer and accept
 | Atom stored envelope or decoded byte buffer | 4 MiB |
 | Each charged atom JSON tree | 32 MiB |
 | Directory plaintext | 4 KiB |
+| Returned tip record body | 4 MiB |
+| Tip entry controls | 16 KiB |
 | Each local dependency entry or lookup file | 16 KiB |
 | Restore external identity set | 8 MiB / 43,690 pointer and kind pairs |
 | Concurrent source streams, including capture work | 4 |
@@ -123,6 +132,8 @@ It also includes the existing native catalog bytes and two maximum external ciph
 This conservative admission can refuse roughly thirty thousand unique dependencies before the wire-format record maximum.
 The exact count depends on the native catalog size.
 It does not claim support for every possible wire-format maximum at once.
+Metadata proof refuses noncanonical file references and unsupported stale overlay metadata.
+It also refuses returned tip bodies or entry controls above the limits, even when those records are unrelated to a file.
 
 Native `ReadBudget.bytes` counts cumulative file, decoded, and returned bytes.
 It is not a retained-memory limit.
@@ -134,7 +145,7 @@ The source allocation bounds use separate phases:
 
 - Native CAS read: at most 32 MiB of body, about 32 MiB of decoded blocks, eight MiB of metadata pages, and bounded maps.
 - Account decode: the owned helper drops the stored buffer before decrypt, then drops ciphertext before bounded inflate.
-- Flat CAS JSON decode: at most 32 MiB of JSON bytes and 32 MiB of owned strings; it then drops the JSON bytes.
+- Flat CAS JSON decode: a fixed borrowed view ignores unrelated metadata and copies only the selected inner envelope before JSON release.
 - Per-file decode: the helper consumes the inner envelope string before decrypt or inflate; plaintext stays at most 16 MiB.
 - Atom decode: at most two charged 32 MiB JSON trees, small raw buffers, and bounded canonical JSON byte buffers.
 
@@ -154,7 +165,8 @@ The directory records contain job and root identities, but no credentials or DEK
 
 A partial certification can discard only its exact owned local metadata and repeat the held-root proof.
 A complete certification retains its per-file copy and receipt progress across restart.
-Normal file status reads saved counters, fixed state files, and only the one active external entry.
+Normal dependency status reads saved counters, fixed state files, and only the one active external entry.
+Overall capture status still checks each native inventory page's file size.
 The explicit `audit_file_dependencies` method checks every local entry and byte count.
 The next worker must call that audit after restart and before manifest construction; it must not poll that audit.
 The active-file intent precedes its first source request.

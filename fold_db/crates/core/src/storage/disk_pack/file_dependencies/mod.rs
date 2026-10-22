@@ -5,11 +5,13 @@
 
 mod atom;
 mod budget_json;
+mod metadata;
 mod native;
 mod select;
 
 pub use atom::open_atom;
 pub use cloud_backup_protocol::FileDependencyKind;
+pub use metadata::verify_metadata_coverage;
 pub use native::{
     read_directories, read_native_cas, verify_native_cas, NativeCasProof, NativeCasRecord,
 };

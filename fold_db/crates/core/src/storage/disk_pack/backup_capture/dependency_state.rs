@@ -128,6 +128,8 @@ pub(super) struct DependencyState {
     pub job: BackupJob,
     pub current_sha256: Digest,
     pub certified: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub metadata_covered: bool,
     pub entries: u64,
     pub native_covered: u64,
     pub external_confirmed: u64,

@@ -7,7 +7,7 @@ pub(super) fn status(
     state: &DependencyState,
 ) -> StorageResult<BackupFileDependencyStatus> {
     let mut status = BackupFileDependencyStatus {
-        certified: state.certified,
+        certified: state.certified && state.metadata_covered,
         entries: state.entries,
         native_covered: state.native_covered,
         external_needed: 0,
@@ -41,7 +41,7 @@ pub(super) fn audit(
     state: &DependencyState,
 ) -> StorageResult<BackupFileDependencyStatus> {
     let mut checked = BackupFileDependencyStatus {
-        certified: state.certified,
+        certified: state.certified && state.metadata_covered,
         entries: state.entries,
         native_covered: 0,
         external_needed: 0,

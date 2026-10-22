@@ -60,8 +60,13 @@ impl NativeBackupCapture {
             let _active = ActiveWork::acquire(&inner)?;
             let (job, current) = selection(&inner)?;
             let store = DependencyStore::open(&inner.store, &job)?;
-            if let Some(state) = store.state(&job, &current)? {
+            if let Some(mut state) = store.state(&job, &current)? {
                 if state.certified {
+                    if !state.metadata_covered {
+                        certify_metadata(&inner, &key)?;
+                        state.metadata_covered = true;
+                        store.save_state(&state)?;
+                    }
                     return status(&store, &state);
                 }
                 super::dependency_store::cleanup_owned(&inner.store, &job)?;
@@ -72,6 +77,7 @@ impl NativeBackupCapture {
                 job,
                 current_sha256: current,
                 certified: false,
+                metadata_covered: false,
                 entries: 0,
                 native_covered: 0,
                 external_confirmed: 0,
@@ -81,6 +87,8 @@ impl NativeBackupCapture {
             };
             store.save_state(&state)?;
             certify(&inner, &store, &mut state, &key)?;
+            certify_metadata(&inner, &key)?;
+            state.metadata_covered = true;
             state.certified = true;
             store.save_state(&state)?;
             status(&store, &state)
@@ -118,6 +126,23 @@ impl NativeBackupCapture {
     }
 }
 
+fn certify_metadata(inner: &ExportInner, key: &[u8; 32]) -> StorageResult<()> {
+    let current = inner
+        .source
+        .as_ref()
+        .ok_or_else(|| invalid("backup retained source is unavailable"))?
+        .current()
+        .clone();
+    files::verify_metadata_coverage(&current, key, |budget| {
+        inner
+            .runtime
+            .home
+            .read_from_writer(current.clone(), budget, &inner.runtime.read_lease)
+            .map_err(super::super::map)
+    })?;
+    Ok(())
+}
+
 fn certify(
     inner: &Arc<ExportInner>,
     store: &DependencyStore,
@@ -130,7 +155,7 @@ fn certify(
             let mut read = held_read(inner, files::ATOM_INVENTORY_READ_BYTES)?;
             let mut cursor = files::atom_inventory(&mut read, group, &start)?;
             let page = cursor
-                .next_page_yielding(1, 0, 0)
+                .next_page_yielding_bounded(1, 0, 0, 4 * 1024 * 1024)
                 .map_err(super::super::map)?;
             let next = page.resume.clone().or_else(|| {
                 page.records
@@ -200,7 +225,7 @@ pub(super) fn ready(
     let state = store
         .state(job, current)?
         .ok_or_else(|| invalid("backup file coverage is uncertified"))?;
-    if !state.certified {
+    if !state.certified || !state.metadata_covered {
         return Err(invalid("backup file coverage is incomplete"));
     }
     Ok(state)

@@ -1,7 +1,5 @@
 use super::*;
-use crate::sharing::delivery_wire::{
-    ContentAddressedBlob, FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_LEGACY,
-};
+use crate::sharing::delivery_wire::{FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_LEGACY};
 use cloud_backup_protocol::bytes_sha256;
 use laststore::disk_pack::home::HomeRead;
 
@@ -21,6 +19,18 @@ pub struct NativeCasProof {
 pub struct NativeCasRecord {
     proof: NativeCasProof,
     stored: Vec<u8>,
+}
+
+/// Fixed ASCII fields borrow the account-opened JSON. Unrelated fields are
+/// skipped without owned strings or an arbitrary metadata tree. Current CAS
+/// writers do not escape these selectors or their base64 envelope field.
+#[derive(Deserialize)]
+struct NativeCasView<'a> {
+    blob_ref: &'a str,
+    content_sha256: &'a str,
+    bytes_b64: &'a str,
+    size: u64,
+    local_cipher_suite: Option<&'a str>,
 }
 
 pub fn read_native_cas(
@@ -62,38 +72,38 @@ pub fn verify_native_cas(
         NATIVE_CAS_ROW_MAX_BYTES,
     )
     .map_err(|_| invalid("native CAS account envelope"))?;
-    let blob: ContentAddressedBlob =
-        serde_json::from_slice(&plain).map_err(|_| invalid("native CAS record format"))?;
-    drop(plain);
-    if blob.blob_ref != dependency.record.blob_ref
-        || blob.content_sha256 != dependency.record.file_hash.as_str()
-        || blob.size > FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES
-        || blob.size.checked_add(29) != Some(dependency.expected_stored_bytes())
-    {
-        return Err(invalid("native CAS record differs from file dependency"));
-    }
-    let size = blob.size;
-    let bytes = match blob.local_cipher_suite.as_deref() {
-        Some(suite) if compatible_local_suite(suite, dependency.encryption_suite()) => {
-            let key = zeroize::Zeroizing::new(
-                crate::hex::hex_decode_array::<32>(&dependency.access().dek)
-                    .ok_or_else(|| invalid("file dependency key format"))?,
-            );
-            crate::crypto::at_rest::open_at_rest_bounded_owned(
-                &key,
-                blob.bytes_b64.into_bytes(),
-                NATIVE_CAS_ROW_MAX_BYTES,
-                FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES,
-            )
-            .map_err(|_| invalid("native CAS per-file envelope"))?
+    let (size, sealed) = {
+        let blob: NativeCasView<'_> =
+            serde_json::from_slice(&plain).map_err(|_| invalid("native CAS record format"))?;
+        if blob.blob_ref != dependency.record.blob_ref
+            || blob.content_sha256 != dependency.record.file_hash.as_str()
+            || blob.size > FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES
+            || blob.size.checked_add(29) != Some(dependency.expected_stored_bytes())
+        {
+            return Err(invalid("native CAS record differs from file dependency"));
         }
-        None => {
+        if !blob
+            .local_cipher_suite
+            .is_some_and(|suite| compatible_local_suite(suite, dependency.encryption_suite()))
+        {
             return Err(invalid(
-                "legacy native CAS without per-file encryption is uncertified",
-            ))
+                "native CAS per-file encryption suite is uncertified",
+            ));
         }
-        _ => return Err(invalid("native CAS encryption suite")),
+        (blob.size, blob.bytes_b64.as_bytes().to_vec())
     };
+    drop(plain);
+    let key = zeroize::Zeroizing::new(
+        crate::hex::hex_decode_array::<32>(&dependency.access().dek)
+            .ok_or_else(|| invalid("file dependency key format"))?,
+    );
+    let bytes = crate::crypto::at_rest::open_at_rest_bounded_owned(
+        &key,
+        sealed,
+        NATIVE_CAS_ROW_MAX_BYTES,
+        FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES,
+    )
+    .map_err(|_| invalid("native CAS per-file envelope"))?;
     if bytes.len() as u64 != size
         || bytes.len() as u64 > FILE_DEPENDENCY_MAX_PLAINTEXT_BYTES
         || bytes_sha256(&bytes) != dependency.record.file_hash
