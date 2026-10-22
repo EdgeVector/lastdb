@@ -8,10 +8,10 @@
 //! a blob raises the blob counter, a deleted one lowers it, and a tip record that
 //! names a blob in its metadata raises it, a replaced or removed one lowers it.
 
-use super::commit::DeletedAtom;
 use super::plan::{AtomPlan, SuspectKind};
 use super::read::Offer;
 use super::report::CounterEvent;
+use super::DeletedAtom;
 use super::{AtomCounter, TipCommit};
 use crate::atom::atom_key_codec;
 use crate::db_operations::atom_store::blob_counter::BlobDeltas;

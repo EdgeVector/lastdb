@@ -63,6 +63,17 @@ pub use verify::{VerifyReport, VerifyRequest, VerifySummary};
 
 use serde::{Deserialize, Serialize};
 
+/// An atom whose body a planner run deleted, with the blob references it held.
+#[derive(Debug)]
+pub(crate) struct DeletedAtom {
+    pub uuid: String,
+    /// Atom owner from its stored counter, independent of the erased peer.
+    pub source_schema: Option<String>,
+    pub blobs: Vec<String>,
+    /// The size its counter held, for the keep-small meters.
+    pub size: Option<AtomSize>,
+}
+
 /// Format version of a counter record.
 pub const ATOM_COUNTER_VERSION: u8 = 1;
 

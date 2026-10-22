@@ -12,7 +12,7 @@ use super::plan::{plan_atom, AtomBefore, AtomPlan, BodyOffer, PlanError};
 use super::read::Offer;
 use super::records::{dedupe_records, with_new_record_rows};
 use super::report::CounterEvent;
-use super::AtomSize;
+use super::{AtomSize, DeletedAtom};
 use crate::atom::{molecule_key_codec, Atom};
 use crate::db_operations::atom_store::{AtomStore, PerKeyRecord, SealedAtom};
 use crate::schema::SchemaError;
@@ -91,17 +91,6 @@ pub(crate) struct TipChangeSet<'a> {
 pub(super) struct BodySources<'a> {
     pub bodies: &'a [SealedAtom],
     pub source: Option<Option<&'a str>>,
-}
-
-/// An atom whose body a planner run deleted, with the blob references it held.
-#[derive(Debug)]
-pub(crate) struct DeletedAtom {
-    pub uuid: String,
-    /// Atom owner from its stored counter, independent of the erased peer.
-    pub source_schema: Option<String>,
-    pub blobs: Vec<String>,
-    /// The size its counter held, for the keep-small meters.
-    pub size: Option<AtomSize>,
 }
 
 /// The keep-small debit of one removed tip: its storage key, its stored row

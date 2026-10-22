@@ -110,6 +110,18 @@ impl MutationManager {
             .await
         {
             Ok(result) => result,
+            Err(
+                error @ (SchemaError::ReadResourceLimit { .. }
+                | SchemaError::WriteResourceLimit { .. }),
+            ) if crate::storage::disk_pack::transaction::publication::active(
+                self.db_ops.namespaced_store().disk_pack_runtime(),
+            ) =>
+            {
+                // The complete native scope still owns every private erase
+                // stage. A deterministic cap refusal drops that scope and
+                // completes the caller; retry cannot create more capacity.
+                return Err(PurgeAttemptError::Rejected(error));
+            }
             Err(error) => {
                 // The core can fail after its destructive store step. Keep
                 // this obligation until one later attempt completes every

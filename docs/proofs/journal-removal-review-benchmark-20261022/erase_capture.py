@@ -201,6 +201,7 @@ def retired_state_refusal(capture):
     marker.mkdir(mode=0o700)
     (marker / "owned-marker.json").write_text('{"generated_owned_marker":true}\n')
     before = home_metadata(capture.home)
+    log_start = (capture.output / "node.log").stat().st_size
     try:
         try:
             capture.start()
@@ -210,6 +211,11 @@ def retired_state_refusal(capture):
         else:
             raise RuntimeError("The candidate accepted retired repair state")
         capture.stop(force=True)
+        log_path = capture.output / "node.log"
+        if log_path.stat().st_size > 8 * 1024 * 1024:
+            raise RuntimeError("The owned node log exceeds its eight MiB bound")
+        if b"unsupported retired cloud repair state" not in log_path.read_bytes()[log_start:]:
+            raise RuntimeError("The failed boot lacks the expected retired-state refusal")
         after = home_metadata(capture.home)
         if before != after:
             raise RuntimeError("The retired-state refusal changed owned home files")
@@ -258,7 +264,9 @@ def run(capture, args):
     capture.expected_http("/api/sync/cloud-purge-resync", {"action": "status"}, 404)
     for label, arguments in [("removed-purge-command", ["cloud", "purge-resync", "status", "--json"]),
                              ("removed-rewrite-command", ["cloud", "rewrite-deleted-atoms", "--help"])]:
-        command(capture, args.cli_binary, arguments, label, expected="nonzero")
+        refused = command(capture, args.cli_binary, arguments, label, expected="nonzero")
+        if b"unrecognized subcommand" not in refused.stderr or arguments[1].encode() not in refused.stderr:
+            raise RuntimeError("The CLI did not explicitly refuse the removed subcommand")
     capture.stop()
     empty_disk = inspect_meters(capture, args.disk_binary, "empty")
     retired_state_refusal(capture)
