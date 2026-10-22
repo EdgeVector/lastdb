@@ -142,36 +142,38 @@ def command(capture, binary, arguments, label, expected=0):
 def inspect_meters(capture, disk_binary, label):
     if capture.process is not None:
         raise RuntimeError("Native inspection requires the owned node to stop")
-    request = {"collection": "keep_small", "prefix": "keep_small:", "page_size": 128, "max_pages": 4,
+    keys = ["keep_small:meters"]
+    keys += ["keep_small:meters:schema:" + schema.encode().hex() for schema in (SCHEMA, PEER)]
+    keys += ["keep_small:meters:unattributed", "keep_small:hard_erase_totals"]
+    request = {"coordinates": [{"collection": "keep_small", "key": key} for key in keys],
                "budget": {"pages": 1024, "blocks": 1024, "bytes": 8 * 1024 * 1024, "keys": 512}}
     request_path = capture.output / f"{label}-native-input.json"
     save(request_path, request)
-    output = command(capture, disk_binary, ["range", "--home", str(capture.home / "data" / "disk-pack"),
+    output = command(capture, disk_binary, ["read", "--home", str(capture.home / "data" / "disk-pack"),
                      "--input", str(request_path)], f"{label}-native")
     listing = json.loads(output.stdout)
-    if listing.get("exhausted") is not True:
-        raise RuntimeError("The bounded meter prefix did not exhaust")
-    rows = {row["key"]: bytes.fromhex(row["body_hex"])
-            for page in listing["pages"] for row in page["records"]}
-    if any(not key.startswith("keep_small:meters") for key in rows):
-        raise RuntimeError("A retired recovery key remains in the generated meter namespace")
-    expected_keys = {"keep_small:meters"}
-    for schema in (SCHEMA, PEER):
-        expected_keys.add("keep_small:meters:schema:" + schema.encode().hex())
-    if not expected_keys.issubset(rows):
+    if len(listing["results"]) != len(keys) or any("error" in row for row in listing["results"]):
+        raise RuntimeError("The exact native meter read did not complete")
+    rows = {key: bytes.fromhex(row["body_hex"]) if row.get("body_hex") is not None else None
+            for key, row in zip(keys, listing["results"])}
+    if any(rows[key] is None for key in keys[:3]):
         raise RuntimeError("The native snapshot lacks an aggregate header or schema slice")
-    if any(not body.startswith(b"ENC:") for body in rows.values()):
+    if rows["keep_small:hard_erase_totals"] is not None:
+        raise RuntimeError("The retired aggregate recovery key exists in the generated home")
+    if any(body is not None and not body.startswith(b"ENC:") for body in rows.values()):
         raise RuntimeError("A generated meter value lacks its encrypted envelope")
     inventory = bounded_inventory(capture.home)
     if any("journal" in name.lower() or "JOURNAL_TAIL" in name for name in inventory["_files"]):
         raise RuntimeError("The generated native home contains a recovery journal file")
     save(capture.output / f"{label}-stored-meters.json", {
          key: {"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(), "encrypted": True}
-         for key, body in rows.items()})
+         if body is not None else None for key, body in rows.items()})
     save(capture.output / f"{label}-native-inventory.json", inventory)
     return {"generation": listing["generation"], "frontier": listing["frontier"],
-            "meter_keys": sorted(rows), "no_recovery_keys_or_files": True,
-            "stored_values_encrypted": True, "format_version_2_is_source_guarantee": True,
+            "exact_meter_coordinates": keys, "retired_aggregate_key_absent": True,
+            "no_recovery_files": True, "stored_values_encrypted": True,
+            "format_version_2_is_source_guarantee": True,
+            "key_absence_scope": "Exact retired aggregate key only; random journal-key absence is a zero-writer source fact",
             "numeric_restore_verification": "Ordinary owner APIs before and after reopen; no identity or key read"}
 
 
