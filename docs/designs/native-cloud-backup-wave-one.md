@@ -1,6 +1,7 @@
 # Native cloud backup: first source wave
 
 Status: source implementation, with no deployment or runtime activation.
+This page records the first wave. The [second source wave](native-cloud-backup-wave-two.md) gives the current source boundary.
 The [shared contract](native-cloud-backup-protocol-v1.md) remains the complete release requirement.
 This wave supplies B1, S1, and R1 source interfaces. It does not supply a complete cloud backup.
 

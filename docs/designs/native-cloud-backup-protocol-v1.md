@@ -531,6 +531,9 @@ All totals use checked arithmetic and complete final encodings.
 
 The aggregate memory budget includes serialization, encryption copies, decoded values, and stream buffers.
 It does not cap the whole LastDB process.
+The current file codec accepts at most 16 MiB of plaintext per file.
+The wire extent limit does not promise a larger source implementation.
+The [file capture design](native-backup-file-capture-v1.md) records stricter source allocation and dependency count bounds.
 The native hold also requires native disk admission and visible retained-byte accounting.
 Backup capture cannot delete held files to satisfy a cap.
 
@@ -547,10 +550,9 @@ A restore implementation must prove native record and file recovery through norm
 Format, type, lint, and build checks establish source consistency only.
 No new test suite or fixture harness supplies product proof.
 
-B1 native export, S1 cloud jobs and transfers, and R1 restore now have disabled source implementations.
-The [source status](native-cloud-backup-wave-one.md) records their exact boundaries and source checks.
-B2 supplies atomic dependency records and backup-owned blob copies.
-S2 supplies reference verification and the single acceptance transaction.
+B1 backup capture, S1 cloud jobs and transfers, R1 restore, B2 file coverage, and S2 acceptance now have disabled source implementations.
+The [source status](native-cloud-backup-wave-two.md) records their exact boundaries and next work.
+The Mini worker, manifest assembler, authorized service client, and normal product commands still need integration.
 P1 proves cloud-only recovery on fresh synthetic data in an approved service environment.
 
 The S1 service worktree imports this crate through its existing fold submodule.

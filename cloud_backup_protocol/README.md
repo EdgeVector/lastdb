@@ -17,7 +17,7 @@ Private worker records, provider locations, multipart uploads, external retentio
 The service consumes this exact package through its existing `fold` submodule in its S1 DEV worktree.
 Do not duplicate its types in the service.
 Compile the storage Lambda explicitly through its manifest path.
-The [source status](../docs/designs/native-cloud-backup-wave-one.md) records the current boundaries and remaining work.
+The [source status](../docs/designs/native-cloud-backup-wave-two.md) records the current boundaries and remaining work.
 
 Allowed local checks:
 
