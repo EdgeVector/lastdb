@@ -60,6 +60,8 @@ def run(node, args):
         if receipt.get('durability') != 'durable':
             raise RuntimeError('setup write did not complete on disk')
         expected[name] = values
+        if (turn+1) % 64 == 0:
+            print(json.dumps({'setup_batches': turn+1}), flush=True)
     save(args.output/'pack.json', node.call('/api/db/compact', {'dry_run': False, 'grace_ms': 86400000}))
     save(args.output/'before.json', node.call('/api/db/native-status'))
     barrier = threading.Barrier(5)
@@ -132,7 +134,7 @@ def main():
     parser.add_argument('--source-commit', required=True)
     parser.add_argument('--mode', default='main')
     parser.add_argument('--count', type=int, default=1000)
-    parser.add_argument('--backlog', type=int, default=500)
+    parser.add_argument('--backlog', type=int, default=64)
     args = parser.parse_args()
     if args.home.exists() or args.count < 64 or args.count % 4 or args.backlog < 64:
         raise RuntimeError('use a fresh generated home and valid counts')

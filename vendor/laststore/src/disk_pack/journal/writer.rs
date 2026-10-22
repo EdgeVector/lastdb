@@ -16,6 +16,9 @@ use uuid::Uuid;
 mod dependency;
 #[path = "writer_maintenance.rs"]
 mod maintenance;
+#[path = "reclaim.rs"]
+mod reclaim;
+pub use reclaim::ReclaimPlan;
 
 /// A complete journal batch with durable recovery bytes and exact record extents.
 pub struct DurableBatch {
