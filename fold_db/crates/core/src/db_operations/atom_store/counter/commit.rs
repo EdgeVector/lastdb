@@ -97,6 +97,8 @@ pub(super) struct BodySources<'a> {
 #[derive(Debug)]
 pub(crate) struct DeletedAtom {
     pub uuid: String,
+    /// Atom owner from its stored counter, independent of the erased peer.
+    pub source_schema: Option<String>,
     pub blobs: Vec<String>,
     /// The size its counter held, for the keep-small meters.
     pub size: Option<AtomSize>,
@@ -377,6 +379,7 @@ fn plan_all(
         let offer = offers.get(atom).map(|offer| BodyOffer {
             blobs: offer.blobs.as_slice(),
             size: offer.size,
+            source_schema: offer.atom.source_schema_name(),
         });
         let plan = plan_atom(state, *delta, offer.as_ref()).map_err(|error| match error {
             PlanError::NoBody => SchemaError::InvalidData(format!(

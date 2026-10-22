@@ -22,6 +22,8 @@ The second review removes erase debit intents, replay, prune, and journal bootst
 Erase accounting writes its final aggregate header and changed schema slices with the delete.
 The live meter debit follows the durable snapshot root.
 Meter snapshot version 2 marks older values incomplete without journal replay.
+The ordinary atom counter retains its source schema for a correct debit when a protein peer removes the last reference.
+An older counter without that source makes schema meter state incomplete instead of a guessed owner debit.
 Erase preparation checks an 8 MiB aggregate copy quote before a full-state copy.
 It retains one aggregate candidate and allows at most eight aggregate working allocations, with a conservative 64 MiB total quote.
 Retained post-root debit effects have a separate 8 MiB cap per request.

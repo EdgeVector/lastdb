@@ -306,7 +306,7 @@ async fn record_erase(
     } else {
         format!("<bulk:{} keys>", erased_keys.len())
     };
-    let live_head_debits = live_head_debits(db_ops, schema_name, commit);
+    let live_head_debits = live_head_debits(db_ops, commit);
     let mut entry = crate::db_operations::AtomDeleteLedgerEntry::erasure(
         options.verb.ledger_verb(),
         options.caller,
@@ -334,15 +334,14 @@ async fn record_erase(
 /// measures them.
 fn live_head_debits(
     db_ops: &Arc<DbOperations>,
-    schema_name: &str,
     commit: &TipCommit,
-) -> Vec<(String, String, u64)> {
+) -> Vec<(Option<String>, String, u64)> {
     let meters = db_ops.atoms().keep_small();
     let mut debits = Vec::new();
     for atom in &commit.deleted {
         match atom.size {
             Some(size) => debits.push((
-                schema_name.to_string(),
+                atom.source_schema.clone(),
                 atom.uuid.clone(),
                 size.atom_bytes(),
             )),

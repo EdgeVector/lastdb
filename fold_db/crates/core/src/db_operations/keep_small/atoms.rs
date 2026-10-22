@@ -138,16 +138,20 @@ impl KeepSmallMeters {
     /// Only call this for the current tip body. A superseded atom already
     /// left the live gauge on [`Self::replace_live_atom`]; charging it again
     /// would under-report.
-    pub fn record_atom_delete(&self, schema: &str, logical_bytes: u64) {
+    pub fn record_atom_delete(&self, schema: Option<&str>, logical_bytes: u64) {
         self.sub_atom_bytes(logical_bytes);
         let count = self.atom_count.load(Ordering::Relaxed);
         if count > 0 {
             self.atom_count.fetch_sub(1, Ordering::Relaxed);
         }
-        self.with_schema(schema, |meter| {
-            meter.live_bytes = meter.live_bytes.saturating_sub(logical_bytes);
-            meter.atom_count = meter.atom_count.saturating_sub(1);
-        });
+        if let Some(schema) = schema.filter(|name| !name.is_empty()) {
+            self.with_schema(schema, |meter| {
+                meter.live_bytes = meter.live_bytes.saturating_sub(logical_bytes);
+                meter.atom_count = meter.atom_count.saturating_sub(1);
+            });
+        } else {
+            self.mark_incomplete("erase_atom_source_schema_unknown");
+        }
     }
 
     /// Drop a just-stored atom's pending size so a later replace cannot
