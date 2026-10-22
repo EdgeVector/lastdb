@@ -8,6 +8,7 @@ mod batch;
 mod marker;
 mod quote;
 mod reader;
+mod reclaim;
 mod resume;
 mod stream;
 mod tail;
@@ -18,6 +19,7 @@ use batch::BatchPlan;
 pub use batch::{JournalMutation, RecoveredBatch, RecoveredMutation};
 pub use quote::{JournalMutationShape, JournalQuote};
 pub use reader::JournalRecovery;
+pub use reclaim::ReclaimPlan;
 pub use tail::{JournalTail, TailPredecessor};
 pub use writer::{DurableBatch, JournalWriter};
 

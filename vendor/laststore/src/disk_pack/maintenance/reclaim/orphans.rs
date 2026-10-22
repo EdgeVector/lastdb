@@ -19,8 +19,16 @@ pub(in crate::disk_pack) fn sweep_orphans_locked(
     lock: &WriteLock,
     policy: &SpacePolicy,
 ) -> Result<MaintenanceReceipt> {
+    sweep_orphans_at(lock, policy, artifact::current(lock.root())?, false)
+}
+
+pub(in crate::disk_pack) fn sweep_orphans_at(
+    lock: &WriteLock,
+    policy: &SpacePolicy,
+    current: Current,
+    concurrent: bool,
+) -> Result<MaintenanceReceipt> {
     let root = lock.root();
-    let current = artifact::current(root)?;
     let mut receipt = MaintenanceReceipt {
         generation: current.generation,
         ..Default::default()
@@ -31,7 +39,12 @@ pub(in crate::disk_pack) fn sweep_orphans_locked(
     }
     // The sweep removes only files that no receipt on disk names. A local read
     // holds a generation whose receipt stays, so no active read defers the sweep.
-    let Some(_local) = lock.exclude_local_reads(&current)? else {
+    let local = if concurrent {
+        lock.retire_before(&current)?
+    } else {
+        lock.exclude_local_reads(&current)?
+    };
+    let Some(local) = local else {
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     };
@@ -41,7 +54,8 @@ pub(in crate::disk_pack) fn sweep_orphans_locked(
     };
     validate_roots(root)?;
     let tail = JournalTail::read(root)?;
-    if tail.stream != current.journal_stream || tail.last_batch != current.frontier {
+    if !concurrent && (tail.stream != current.journal_stream || tail.last_batch != current.frontier)
+    {
         return Err(corrupt(
             "orphan sweep requires a complete journal checkpoint",
         ));
@@ -53,11 +67,20 @@ pub(in crate::disk_pack) fn sweep_orphans_locked(
             .iter()
             .map(|item| item.generation),
     );
-    let named = named_paths(root, policy.max_files, &published)?;
+    published.extend(local.held().iter().copied());
+    let named = named_paths(
+        root,
+        policy.max_files,
+        &published,
+        concurrent.then_some(current.generation),
+    )?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     let mut dirty = Dirty::default();
     for path in part_files(root, policy.max_files)? {
         if named.contains(&path) {
+            continue;
+        }
+        if concurrent && !super::concurrent::old_part(&path, current.generation)? {
             continue;
         }
         validate_parents(root, &path)?;
@@ -84,9 +107,10 @@ fn named_paths(
     root: &Path,
     max_files: usize,
     published: &BTreeSet<u64>,
+    ceiling: Option<u64>,
 ) -> Result<BTreeSet<PathBuf>> {
     let mut named = BTreeSet::new();
-    for number in generations(root, max_files, published)? {
+    for number in generations(root, max_files, published, ceiling)? {
         let held = at_generation(generation::load_current(root, number), root, number)?;
         let receipt = at_generation(generation::read_receipt(root, &held), root, number)?;
         for coordinate in receipt.coordinates {

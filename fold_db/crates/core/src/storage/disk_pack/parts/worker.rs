@@ -3,8 +3,8 @@
 //! The worker is a loop over bounded steps. A pack has priority: it runs whenever
 //! the count passes the trigger, even while old generations wait for reclaim or
 //! a reclaim waits for its next try. Reclaim, the drain of old generations, and
-//! the orphan sweep run only when no pack is due. Each step holds the write gate
-//! for a bounded time, so a waiting writer runs between two steps.
+//! the orphan sweep run only when no pack is due. Cleanup releases the write gate
+//! after its installed-root capture, before file inventories and deletion.
 
 use super::*;
 use std::time::{Duration, Instant};

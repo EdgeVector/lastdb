@@ -7,30 +7,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+mod concurrent;
+mod inventory;
+mod retained;
 mod unfinished;
+use inventory::generations;
+use retained::live_parts;
 use unfinished::{at_generation, remove_unfinished};
 
 const MAX_RETAINED_PARTS: usize = 262_144;
 
-/// The generations that must stay name too many parts for one reclaim to plan.
-/// The error says what keeps them. Nothing was deleted, so the home is safe and
-/// only grows until the references end.
-fn retained_parts_limit(
-    retained: &BTreeSet<u64>,
-    references: usize,
-    local_reads: usize,
-) -> crate::Error {
-    crate::Error::Config(format!(
-        "disk-pack reclaim: the {} retained generations ({references} durable references, \
-         {local_reads} held by active reads) name more than {MAX_RETAINED_PARTS} parts; \
-         release stale backup or recovery references to resume reclaim; nothing was deleted",
-        retained.len()
-    ))
-}
-
 mod orphans;
 mod scan;
-pub(in crate::disk_pack) use orphans::sweep_orphans_locked;
+pub(in crate::disk_pack) use orphans::{sweep_orphans_at, sweep_orphans_locked};
 use scan::scan_old;
 
 /// Directories whose entries changed. One barrier per directory after a whole
@@ -64,8 +53,16 @@ pub(in crate::disk_pack) fn reclaim_locked(
     lock: &WriteLock,
     policy: &SpacePolicy,
 ) -> Result<MaintenanceReceipt> {
+    reclaim_at(lock, policy, artifact::current(lock.root())?, false)
+}
+
+pub(in crate::disk_pack) fn reclaim_at(
+    lock: &WriteLock,
+    policy: &SpacePolicy,
+    current: Current,
+    concurrent: bool,
+) -> Result<MaintenanceReceipt> {
     let root = lock.root();
-    let current = artifact::current(root)?;
     let mut receipt = MaintenanceReceipt {
         generation: current.generation,
         ..Default::default()
@@ -75,7 +72,12 @@ pub(in crate::disk_pack) fn reclaim_locked(
         return Ok(receipt);
     }
     // An active local read does not defer reclaim: its generation stays retained.
-    let Some(local) = lock.exclude_local_reads(&current)? else {
+    let local = if concurrent {
+        lock.retire_before(&current)?
+    } else {
+        lock.exclude_local_reads(&current)?
+    };
+    let Some(local) = local else {
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     };
@@ -88,14 +90,20 @@ pub(in crate::disk_pack) fn reclaim_locked(
     cleanup_retired(root, policy.max_files, &mut receipt, &mut dirty)?;
     dirty.flush()?;
     let tail = crate::disk_pack::journal::JournalTail::read(root)?;
-    if tail.stream != current.journal_stream || tail.last_batch != current.frontier {
+    if !concurrent && (tail.stream != current.journal_stream || tail.last_batch != current.frontier)
+    {
         return Err(corrupt("reclaim requires a complete journal checkpoint"));
     }
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
     retained.extend(references.iter().map(|item| item.generation));
     retained.extend(local.held().iter().copied());
-    let mut generations = generations(root, policy.max_files, &retained)?;
+    let mut generations = generations(
+        root,
+        policy.max_files,
+        &retained,
+        concurrent.then_some(current.generation),
+    )?;
     generations.sort_unstable();
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
@@ -126,39 +134,6 @@ pub(in crate::disk_pack) fn reclaim_locked(
     };
     plan.apply(root, policy, &live, &mut receipt, &mut dirty)?;
     Ok(receipt)
-}
-
-/// The parts that the retained generations name.
-///
-/// Every part of a retained generation is checked once per lease. A later call
-/// reads its receipt only, so a drain of many calls does not open every part of
-/// the current generation again for each call.
-fn live_parts(
-    lock: &WriteLock,
-    retained: &BTreeSet<u64>,
-    references: usize,
-    local_reads: usize,
-) -> Result<BTreeSet<Coordinate>> {
-    let root = lock.root();
-    let mut live = BTreeSet::new();
-    for number in retained {
-        let held = at_generation(generation::load_current(root, *number), root, *number)?;
-        let generation = if lock.verified(&held)? {
-            at_generation(generation::read_receipt(root, &held), root, *number)?
-        } else {
-            let verified = at_generation(generation::verify(root, &held), root, *number)?;
-            lock.remember_verified(&held)?;
-            verified
-        };
-        for coordinate in generation.coordinates {
-            live.insert(coordinate);
-            if live.len() > MAX_RETAINED_PARTS {
-                return Err(retained_parts_limit(retained, references, local_reads));
-            }
-        }
-    }
-    lock.keep_verified(retained)?;
-    Ok(live)
 }
 
 /// A validated plan: exact part files to remove, then the receipts that list them.
@@ -229,31 +204,6 @@ fn validate_roots(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn generations(root: &Path, max_files: usize, published: &BTreeSet<u64>) -> Result<Vec<u64>> {
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(root.join("generations"))? {
-        let entry = entry?;
-        // Each generation owns a receipt file. Use the home inventory budget;
-        // a lower independent limit can permanently prevent valid cleanup.
-        if out.len() >= max_files || !entry.file_type()?.is_dir() {
-            return Err(corrupt(
-                "generation inventory exceeds bound or contains a non-directory",
-            ));
-        }
-        let number = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u64>().ok())
-            .filter(|number| *number > 0)
-            .ok_or_else(|| corrupt("invalid generation directory"))?;
-        if !published.contains(&number) && remove_unfinished(&entry.path())? {
-            continue;
-        }
-        out.push(number);
-    }
-    Ok(out)
-}
-
 fn removable(
     root: &Path,
     current: &Current,
@@ -312,7 +262,10 @@ fn retire_receipt(root: &Path, number: u64, dirty: &mut Dirty) -> Result<()> {
     let target = parent.join(number.to_string());
     // Leave the complete receipt readable until it atomically leaves the live set.
     // A restart can finish deletion in this exclusively owned retirement namespace.
-    std::fs::rename(&path, target)?;
+    {
+        let _inventory = super::space::inventory_guard()?;
+        std::fs::rename(&path, target)?;
+    }
     dirty.mark(&root.join("generations"));
     dirty.mark(&parent);
     Ok(())
@@ -375,6 +328,10 @@ fn remove_empty_parents(root: &Path, path: &Path, dirty: &mut Dirty) -> Result<(
             break;
         };
         if directory == root || directory.parent() == Some(root) {
+            break;
+        }
+        // Keep the active journal stream available for its next append/archive.
+        if directory.parent() == Some(root.join("journal").as_path()) {
             break;
         }
         match std::fs::remove_dir(directory) {

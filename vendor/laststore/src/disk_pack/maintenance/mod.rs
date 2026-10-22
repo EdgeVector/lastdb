@@ -34,4 +34,4 @@ pub struct MaintenanceReceipt {
 }
 
 pub(super) use compact::compact_locked;
-pub(super) use reclaim::{reclaim_locked, sweep_orphans_locked};
+pub(super) use reclaim::{reclaim_at, reclaim_locked, sweep_orphans_at, sweep_orphans_locked};
