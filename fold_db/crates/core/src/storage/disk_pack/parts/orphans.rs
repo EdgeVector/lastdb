@@ -46,7 +46,7 @@ impl PackRuntime {
             ..self.space_policy.clone()
         };
         let writer = self.journal.lock().expect("native journal owner");
-        // Keep new reads out while the sweep excludes the reads that already run.
+        // Install the exact deletion floor before new reads capture their root.
         let mut view = self.view.write().expect("native complete read view");
         if !view.accepted.is_empty() {
             return Err(StorageError::BackendError(

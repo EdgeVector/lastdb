@@ -4,8 +4,8 @@
 //! rename of `CURRENT` leaves files that no receipt lists. Reclaim removes only
 //! files that an old receipt lists, so these files stay for ever. A sweep under
 //! the writer lease finds them: every part file that no receipt on disk names
-//! is an orphan, because the lease excludes any other writer and the journal
-//! checkpoint is complete. A minimum age guards against any unforeseen writer.
+//! is an orphan under a complete checkpoint. Concurrent cleanup also checks the
+//! part generation: output at or above its captured floor stays untouched.
 
 use super::*;
 use crate::disk_pack::journal::JournalTail;
