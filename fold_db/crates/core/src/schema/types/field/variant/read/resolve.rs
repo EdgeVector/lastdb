@@ -129,8 +129,18 @@ impl FieldVariant {
         window: Option<KeyWindow>,
         include_tombstones: bool,
     ) -> Result<Option<HashMap<KeyValue, FieldValue>>, SchemaError> {
-        let Some(HashRangeFilter::HashKey(hash)) = filter else {
+        let Some(filter) = filter else {
             return Ok(None);
+        };
+        let hash = match filter {
+            HashRangeFilter::HashKey(hash) => hash,
+            HashRangeFilter::HashRangePrefix { hash, .. }
+            | HashRangeFilter::HashRangeRange { hash, .. }
+                if self.kind == FieldKind::HashRange && window.is_some() =>
+            {
+                hash
+            }
+            _ => return Ok(None),
         };
         let Some(molecule_uuid) = self.common().molecule_uuid().cloned() else {
             return Ok(None);
@@ -157,7 +167,7 @@ impl FieldVariant {
                 Self::hash_range_tip_matches(
                     db_ops,
                     &molecule_uuid,
-                    hash,
+                    filter,
                     storage_prefix,
                     &window,
                     include_tombstones,
@@ -200,12 +210,12 @@ impl FieldVariant {
             .collect())
     }
 
-    /// Tip records for a `HashRange` partition, plus whether the window was
+    /// Tip records for a selector under one hash, plus whether the window was
     /// already applied while selecting them.
     pub(super) async fn hash_range_tip_matches(
         db_ops: &Arc<DbOperations>,
         molecule_uuid: &str,
-        hash: &str,
+        filter: &HashRangeFilter,
         storage_prefix: Option<&str>,
         window: &Option<KeyWindow>,
         include_tombstones: bool,
@@ -213,7 +223,7 @@ impl FieldVariant {
         Self::scan_hash_range_matches(
             db_ops,
             molecule_uuid,
-            hash,
+            filter,
             storage_prefix,
             window,
             include_tombstones,

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::atom::molecule_key_codec;
-use crate::schema::types::field::{build_storage_key, FilterUtils, KeyWindow};
+use crate::schema::types::field::{build_storage_key, FilterUtils, HashRangeFilter, KeyWindow};
 use crate::schema::SchemaError;
 
 use super::super::types::{
@@ -13,6 +13,8 @@ use super::super::AtomStore;
 
 mod live;
 
+use super::HashTipSelection;
+
 type TipRow = (String, PerKeyRecord);
 type TipSlots = (Option<PerKeyRecord>, Option<MoleculeGenerationSlot>);
 type TipRows = BTreeMap<String, TipSlots>;
@@ -20,7 +22,8 @@ type TipRows = BTreeMap<String, TipSlots>;
 /// One independently ordered stream of tips under a hash.
 struct TipLane {
     prefix: String,
-    lane: String,
+    start: String,
+    end: String,
 }
 
 /// Paging state shared by the rounds of `scan_hash_tip_window`.
@@ -77,6 +80,7 @@ fn codec_err(e: impl std::fmt::Display) -> SchemaError {
 fn hash_tip_lanes(
     codec: &molecule_key_codec::MoleculeKeyCodec,
     prefixes: &[String],
+    selection: &HashTipSelection<'_>,
 ) -> Result<Vec<TipLane>, SchemaError> {
     prefixes
         .iter()
@@ -89,51 +93,60 @@ fn hash_tip_lanes(
             } else {
                 prefix.clone()
             };
+            let lane_end = FilterUtils::create_prefix_end(&lane)?;
+            let start = lane.max(format!("{prefix}{}", selection.range_start));
+            let end = match &selection.range_end {
+                Some(end) => format!("{prefix}{end}"),
+                None => FilterUtils::create_prefix_end(&format!(
+                    "{prefix}{}",
+                    selection.range_prefix.as_deref().unwrap_or("")
+                ))?,
+            };
             Ok(TipLane {
                 prefix: prefix.clone(),
-                lane,
+                start,
+                end: end.min(lane_end),
             })
         })
         .collect()
 }
 
 impl AtomStore {
-    /// Select a HashKey page from ordered encrypted-key streams.
+    /// Select a bounded hash/range page from ordered encrypted-key streams.
     pub(crate) async fn scan_hash_tip_window(
         &self,
         molecule: &str,
-        hash: &str,
+        filter: &HashRangeFilter,
         storage_prefix: Option<&str>,
         window: &KeyWindow,
         include_tombstones: bool,
     ) -> Result<Option<Vec<TipRow>>, SchemaError> {
+        let codec = self.key_codec_for_molecule(molecule)?;
+        let Some(selection) = HashTipSelection::new(&codec, molecule, filter, window)? else {
+            return Ok(None);
+        };
+        if selection.empty {
+            return Ok(Some(Vec::new()));
+        }
         if let Some(rows) = self
-            .preloaded_window(molecule, hash, storage_prefix, window, include_tombstones)
+            .preloaded_window(molecule, &selection, storage_prefix, include_tombstones)
             .await?
         {
             return Ok(Some(rows));
         }
-        let codec = self.key_codec_for_molecule(molecule)?;
         let prefix = codec
-            .api_hash_range_scan_prefix_for_hash(molecule, hash)
+            .api_hash_range_scan_prefix_for_hash(molecule, selection.api_hash)
             .map_err(codec_err)?;
         let prefixes = [prefix];
-        let (skip, limit, after) = match window {
-            KeyWindow::Offset { offset, limit } => (*offset, *limit, None),
-            KeyWindow::After { after, limit } if after.hash.as_deref() == Some(hash) => {
-                (0, *limit, Some(after.range.clone().unwrap_or_default()))
-            }
-            // An arbitrary cross-hash cursor uses the general comparator path.
-            KeyWindow::After { .. } => return Ok(None),
-        };
+        let limit = selection.limit;
         // A range call may decode legacy sidecars. Match larger requested
         // pages without repeatedly decoding them, while bounding offset walks
         // and large internal callers to at most 1,024 tips per stream.
         let batch_limit = limit.clamp(128, 1024);
-        let lanes = hash_tip_lanes(&codec, &prefixes)?;
+        let lanes = hash_tip_lanes(&codec, &prefixes, &selection)?;
         let mut page = TipPageCursor {
-            skip,
-            after,
+            skip: selection.skip,
+            after: selection.after.clone(),
             output: Vec::new(),
             limit,
             include_tombstones,
@@ -144,7 +157,10 @@ impl AtomStore {
                 .saturating_add(limit - page.output.len())
                 .clamp(1, batch_limit);
             let mut union = BTreeMap::new();
-            if page.after.is_none() && codec.range_encoding().writes_ope() {
+            if page.after.is_none()
+                && selection.accepts_empty()
+                && codec.range_encoding().writes_ope()
+            {
                 self.seed_empty_range_rows(&prefixes, storage_prefix, &mut union)
                     .await?;
             }
@@ -211,7 +227,13 @@ impl AtomStore {
             .transpose()
             .map_err(codec_err)?;
         let rows = self
-            .scan_logical_tip_page(&lane.lane, cursor.as_deref(), storage_prefix, want)
+            .scan_logical_tip_range(
+                &lane.start,
+                &lane.end,
+                cursor.as_deref(),
+                storage_prefix,
+                want,
+            )
             .await?;
         let full = rows.len() == want;
         let mut last = None;
@@ -238,24 +260,38 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<TipRow>, SchemaError> {
-        if limit == 0 {
+        let end = FilterUtils::create_prefix_end(prefix)?;
+        self.scan_logical_tip_range(prefix, &end, after, storage_prefix, limit)
+            .await
+    }
+
+    /// Both physical streams share the selector's half-open bounds. A later
+    /// cursor is exclusive; the initial lower bound remains inclusive.
+    async fn scan_logical_tip_range(
+        &self,
+        start: &str,
+        end: &str,
+        after: Option<&str>,
+        storage_prefix: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<TipRow>, SchemaError> {
+        if limit == 0 || start >= end || after.is_some_and(|after| after >= end) {
             return Ok(Vec::new());
         }
-        let molecule = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
+        let molecule = molecule_key_codec::molecule_uuid_from_storage_key(start)
             .ok_or_else(|| SchemaError::InvalidData("tip page needs a molecule prefix".into()))?;
         let changes = self.captured_tip_changes(storage_prefix, molecule)?;
         let pointer = self
             .active_molecule_generation(molecule, storage_prefix)
             .await?;
-        let end = FilterUtils::create_prefix_end(prefix)?;
         let mut cursor = after.map(str::to_owned);
         let mut output = Vec::new();
         while output.len() < limit {
             let remaining = limit - output.len();
             let scan = TipScan {
                 storage_prefix,
-                start: cursor.as_deref().unwrap_or(prefix),
-                end: &end,
+                start: cursor.as_deref().map_or(start, |cursor| start.max(cursor)),
+                end,
                 ask: remaining.saturating_add(usize::from(cursor.is_some())),
                 cursor: cursor.as_deref(),
             };

@@ -5,18 +5,26 @@ impl FieldVariant {
     pub(super) async fn scan_hash_range_matches(
         db_ops: &Arc<DbOperations>,
         molecule_uuid: &str,
-        hash: &str,
+        filter: &HashRangeFilter,
         storage_prefix: Option<&str>,
         window: &Option<KeyWindow>,
         include_tombstones: bool,
     ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
+        let (HashRangeFilter::HashKey(hash)
+        | HashRangeFilter::HashRangePrefix { hash, .. }
+        | HashRangeFilter::HashRangeRange { hash, .. }) = filter
+        else {
+            return Err(SchemaError::InvalidData(
+                "tip page requires one hash".into(),
+            ));
+        };
         let mut window_applied = false;
         let paged = if let Some(window) = &window {
             db_ops
                 .atoms()
                 .scan_hash_tip_window(
                     molecule_uuid,
-                    hash,
+                    filter,
                     storage_prefix,
                     window,
                     include_tombstones,
@@ -29,7 +37,13 @@ impl FieldVariant {
             window_applied = true;
             paged
         } else {
-            // Storage-form hash (single path).
+            // Complete hash reads retain their resource fence. A range must
+            // never fall back to a broader, unfiltered hash read here.
+            if !matches!(filter, HashRangeFilter::HashKey(_)) {
+                return Err(SchemaError::InvalidData(
+                    "hash range selection requires a bounded page".into(),
+                ));
+            }
             let prefix = db_ops
                 .atoms()
                 .key_codec_for_molecule(molecule_uuid)?
