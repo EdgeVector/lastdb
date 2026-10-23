@@ -1,67 +1,92 @@
-name: Bench
+name: LastDB benchmarks
 
-# Performance-regression guard for the fold_db criterion benches
-# (fold_db/crates/core/benches/{query_path_bench,db_operations_bench,
-# encrypt_scan_bench}.rs). db_operations_bench includes storage metering
-# attribution coverage.
-#
-# DELIBERATELY OFF THE MERGE-QUEUE CRITICAL PATH. The benches seed up to 120K
-# records per case and take many minutes; putting them on every PR / in the
-# merge queue would re-inflate the queue build time that #959 + #964 just
-# halved (see project_fold_ci_build_time). So this workflow NEVER triggers on
-# `pull_request` / `merge_group` and is NOT a member of the `ci-required`
-# umbrella in ci.yml — it cannot block a merge.
-#
-# It runs instead:
-#   - on a weekly schedule (catches drift that lands without the label), and
-#   - on demand, when a maintainer adds the `run-benches` label to a PR
-#     (opt-in perf check for a change that's expected to move the curves), or
-#   - via manual workflow_dispatch.
-#
-# It runs the benches, then scripts/lints/bench-compare.py compares the fresh
-# criterion medians against the committed baseline
-# (fold_db/crates/core/benches/baseline/baseline.json) and FAILS on a >2x
-# regression of a guarded case (FLAT point-lookups guarded tighter at 1.6x).
-# Because it's not a required check, that failure is a loud signal to a human,
-# not a merge block.
-
+# Slowdowns are advisory. Build failures and incomplete measurements are errors.
+# Keep this workflow separate from the ci-required merge gate.
 on:
-  schedule:
-    # Mondays 08:00 UTC — a quiet window; weekly is enough for drift detection.
-    - cron: "0 8 * * 1"
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "27 9 * * *"
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Benchmark size
+        type: choice
+        options: [standard, nightly]
+        default: standard
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  # One bench run per ref; a newer push/label supersedes an in-flight one.
-  group: bench-${{ github.ref }}
-  cancel-in-progress: true
+  # Supersede PR measurements only. Every main push keeps its own run.
+  group: lastdb-bench-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  bench:
-    name: fold_db benches + regression guard
-    # On a PR, run ONLY when the `run-benches` label was just added — every
-    # other label event is a no-op. (schedule / workflow_dispatch have no
-    # label, so the guard is PR-event-specific.)
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.label.name == 'run-benches'
-    runs-on: ubuntu-latest
-    # The benches seed up to 120K-record corpora across several cardinalities for
-    # multiple groups; allow ample headroom on a shared runner.
-    timeout-minutes: 90
+  benchmark:
+    name: Reads, durable writes, and concurrency (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     env:
-      # Match the rest of the workspace's CI: no debuginfo, cap link parallelism.
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: "4"
+      CARGO_TERM_COLOR: always
+      BENCH_PROFILE: ${{ github.event_name == 'schedule' && 'nightly' || inputs.profile || 'standard' }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Prepare external result directory
+        run: |
+          result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$result_dir"
+          echo "BENCH_OUTPUT=$result_dir" >> "$GITHUB_ENV"
 
-      - name: Free disk space
+      - name: Checkout benchmark driver from the workflow revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: benchmark-driver
+          sparse-checkout: scripts/benchmarks
+          persist-credentials: false
+
+      - name: Checkout exact candidate source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Select exact revisions
+        id: revisions
+        working-directory: candidate
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse HEAD)"
+          baseline_sha="${PR_BASE:-${PUSH_BASE:-}}"
+          if [ -z "$baseline_sha" ] || [[ "$baseline_sha" =~ ^0+$ ]]; then
+            baseline_sha="$(git rev-parse HEAD^)"
+          fi
+          [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$baseline_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "candidate=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "baseline=$baseline_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check benchmark script syntax
+        run: python3 -m py_compile benchmark-driver/scripts/benchmarks/*.py
+
+      - name: Checkout baseline
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.revisions.outputs.baseline }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Reserve disk space for both builds and the nightly corpus
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
@@ -70,64 +95,96 @@ jobs:
           haskell: true
           large-packages: true
           docker-images: true
-          swap-storage: true
+          swap-storage: false
 
-      - name: Install Rust
-        run: rustup show active-toolchain
-
-      - name: Configure git for private dependencies
-        # Org-level GH_PAT — see gbrain preferences/edgevector-gh-pat.
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1-bench"
-
-      - name: Reset criterion output
-        run: rm -rf target/criterion
-
-      # Run benches. Criterion writes per-case estimates under
-      # target/criterion/<group>/<id>/new/estimates.json, which the guard reads.
-      # The query-path bench is split by guarded group so one long process cannot
-      # starve late-suite guarded cases before the regression guard runs.
-      # FOLD_BENCH_FAST_GUARD keeps the scheduled guard bounded; local full
-      # benchmark runs keep Criterion's default warmup/measurement windows.
-      - name: Run benches
+      - name: Select one Rust toolchain for both builds
+        working-directory: candidate
         run: |
-          for query_group in \
-            indexed_point_lookup \
-            point_lookup_vs_schema_count \
-            realistic_message_lookup \
-            indexed_full_read \
-            value_filter_scan \
-            hashrange_page_list_vs_N \
-            count_rows_vs_field_count \
-            count_rows_vs_row_count \
-            concurrent_list_reads \
-            concurrent_mixed_read_write
-          do
-            echo "::group::query_path_bench ${query_group}"
-            FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
-              --bench query_path_bench -- "${query_group}"
-            echo "::endgroup::"
-          done
-          FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
-            --bench db_operations_bench
-          cargo bench -p fold_db --bench encrypt_scan_bench
-          # (api_query_latency_bench was deleted with the fold_db_node crate
-          # in the Mini-only cutover, 2026-07-12.)
+          set -euo pipefail
+          rustup show active-toolchain
+          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
-      - name: Regression guard (vs committed baseline)
-        run: python3 scripts/lints/bench-compare.py
-
-      # Keep the raw criterion output as an artifact so a maintainer can inspect
-      # the full report / HTML when the guard flags a regression.
-      - name: Upload criterion report
-        if: always()
-        uses: actions/upload-artifact@v7
+      - name: Cache dependency downloads only
+        uses: actions/cache@v4
         with:
-          name: criterion-report
-          path: target/criterion
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+          key: benchmark-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
+          restore-keys: benchmark-downloads-${{ runner.os }}-
+
+      - name: Build both optimized daemons
+        env:
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+          BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$BENCH_OUTPUT"
+          rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
+          for version in baseline candidate; do
+            if [ "$version" = baseline ]; then revision="$BASELINE_SHA"; else revision="$CANDIDATE_SHA"; fi
+            (
+              cd "$version"
+              # Separate fresh targets avoid stale cached storage libraries.
+              export CARGO_TARGET_DIR="$RUNNER_TEMP/bench-target-$version"
+              export FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision"
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+            ) 2>&1 | tee "$BENCH_OUTPUT/build-$version.log"
+          done
+
+      - name: Measure alternating baseline and candidate pairs
+        env:
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+          BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 65m \
+            python3 benchmark-driver/scripts/benchmarks/run.py \
+              --baseline "$RUNNER_TEMP/bench-target-baseline/dev-release/lastdbd" \
+              --candidate "$RUNNER_TEMP/bench-target-candidate/dev-release/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT"
+
+      - name: Publish benchmark summary
+        if: always()
+        env:
+          MEASUREMENT_OUTCOME: ${{ job.status }}
+        run: python3 benchmark-driver/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
+
+      - name: Upload measurements and build receipts
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-benchmarks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
           retention-days: 14
-          if-no-files-found: ignore
+          if-no-files-found: error
+
+      - name: Verify upload and record its download receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/benchmark-artifact-metadata.json"
+          python3 benchmark-driver/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/benchmark-artifact-metadata.json" \
+            --output "$RUNNER_TEMP/benchmark-download-receipt"
+
+      - name: Retain the compact download receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-benchmark-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/benchmark-download-receipt/artifact.json
+          retention-days: 14
+          if-no-files-found: error

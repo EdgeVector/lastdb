@@ -211,6 +211,11 @@ impl LocatorChanges {
 
     /// The empty tree of the object that receives new groups, or None when the
     /// directory has no group yet or page zero of the object is not an empty leaf.
+    /// The empty tree of the object that receives new groups, or None when the
+    /// directory has no group yet or page zero of the object is not an empty leaf.
+    /// Migration safety: homes written by older builds may have locator objects whose
+    /// page zero is not an empty leaf. This function validates the empty-tree invariant
+    /// and returns None if violated, forcing creation of a new object.
     fn shared_empty_tree(
         &mut self,
         call: &mut ReadCall,
@@ -239,7 +244,15 @@ impl LocatorChanges {
             kind: TreeKind::Locator,
         };
         let page = call.tree_page(&empty, 0)?;
-        Ok((page.level() == 0 && page.count() == 0).then_some(empty))
+        // Validate that page zero is an empty leaf. If not (e.g., an object written by an
+        // older build or a future incompatible layout), refuse to reuse it and force a new
+        // object. This prevents corruption from merging into the wrong tree.
+        if page.level() != 0 || page.count() != 0 {
+            // Reset shared choice so subsequent groups also get a new object.
+            self.shared = None;
+            return Ok(None);
+        }
+        Ok(Some(empty))
     }
 
     pub(super) fn edit(
