@@ -7,11 +7,13 @@ import os
 from pathlib import Path
 import re
 
+from node import file_hash
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metadata", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--archive", type=Path, required=True)
     args = parser.parse_args()
     if args.metadata.stat().st_size > 1024 ** 2:
         raise RuntimeError("The uploaded artifact metadata exceeds oneMiB")
@@ -28,18 +30,13 @@ def main():
     expected_url = run_url + "/artifacts/" + os.environ["ARTIFACT_ID"]
     if os.environ["ARTIFACT_URL"] != expected_url:
         raise RuntimeError("The upload URL differs from the current workflow run and artifact")
-    receipt = {"url": expected_url, "sha256": expected,
-        "source_revision": os.environ["CANDIDATE_SHA"],
-        "command": "python3 scripts/benchmarks/range_continuation/run.py --baseline <base-binary> --candidate <head-binary> --baseline-revision " + os.environ["BASELINE_SHA"] + " --candidate-revision " + os.environ["CANDIDATE_SHA"] + " --output <RUNNER_TEMP/output>",
-        "expires_at": value["expires_at"],
-        "note": "14-day raw artifact; exact base=" + os.environ["BASELINE_SHA"] + "; actual upload verified through GitHub API; runner removes evidence only after this job"}
-    raw = json.dumps(receipt, indent=2, sort_keys=True) + "\n"
-    if len(raw.encode()) > 4096:
-        raise RuntimeError("The compact artifact receipt exceeds4096bytes")
-    args.output.mkdir(exist_ok=False)
-    (args.output / "artifact.json").write_text(raw)
+    if args.archive.stat().st_size > 8 * 1024 ** 3 or file_hash(args.archive) != expected:
+        raise RuntimeError("The downloaded artifact differs from the verified archive SHA256")
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
-        stream.write("\nVerified artifact: [download](" + expected_url + ")\n\nSHA256: `" + expected + "`\n\nExpires: " + value["expires_at"] + "\n\n" + raw)
+        stream.write("\nVerified artifact: [download](" + expected_url + ")\n\nSHA256: `" + expected
+            + "`\n\nCandidate: `" + os.environ["CANDIDATE_SHA"] + "`\n\nBaseline: `"
+            + os.environ["BASELINE_SHA"] + "`\n\nExpires: " + value["expires_at"]
+            + "\n\nThe downloaded archive SHA256 matches the upload and GitHub metadata.\n")
 
 
 if __name__ == "__main__":

@@ -95,7 +95,6 @@ def main():
             "Candidate preload coverage requires actual ready-domain and memory-selection counters; otherwise the result explicitly omits that claim.",
             "No cloud, cross-device sync, or broad-baseline latency improvement is established."])
     text = "\n".join(lines) + "\n"
-    (args.output / "summary.md").write_text(text)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)
     save(args.output / "artifact-files.json", {"files": inventory(args.output),

@@ -158,7 +158,6 @@ jobs:
 
       - name: Verify uploaded evidence identity and expiry
         if: ${{ always() && steps.upload.outcome == 'success' }}
-        id: receipt
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
@@ -169,15 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/range-artifact-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/range-artifact.zip"
           python3 candidate/scripts/benchmarks/range_continuation/artifact.py \
             --metadata "$RUNNER_TEMP/range-artifact-metadata.json" \
-            --output "$RUNNER_TEMP/range-artifact-receipt"
-
-      - name: Retain compact download receipt
-        if: ${{ always() && steps.receipt.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: range-continuation-receipt-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/range-artifact-receipt/artifact.json
-          retention-days: 14
-          if-no-files-found: error
+            --archive "$RUNNER_TEMP/range-artifact.zip"

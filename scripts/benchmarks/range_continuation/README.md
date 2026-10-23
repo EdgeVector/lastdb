@@ -64,6 +64,7 @@ The complete-read key limit stays unchanged.
 Full requests, responses, storage receipts, samples, and logs stay under `RUNNER_TEMP`, outside Git.
 The verified artifact retains them for 14 days.
 The job summary records the actual upload URL, archive SHA256, exact sources, and expiration.
+The download must match the upload checksum. No separate report or `artifact.json` is created.
 The artifact file manifest gives each retained file's hash and size.
 Only useful source scripts and this method enter Git.
 Generated evidence follows the shared 10-file/100,000-byte policy; this PR adds no raw evidence file.
