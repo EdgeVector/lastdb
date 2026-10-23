@@ -62,16 +62,13 @@ impl AtomStore {
         Ok(changes)
     }
 
-    pub(crate) fn merge_captured_tip_prefixes(
+    pub(crate) fn merge_captured_tip_prefix(
         &self,
         scope: Option<&str>,
-        prefixes: &[String],
+        prefix: &str,
         rows: Vec<TipRow>,
     ) -> Result<Vec<TipRow>, SchemaError> {
-        let Some(molecule) = prefixes
-            .first()
-            .and_then(|prefix| molecule_key_codec::molecule_uuid_from_storage_key(prefix))
-        else {
+        let Some(molecule) = molecule_key_codec::molecule_uuid_from_storage_key(prefix) else {
             return Ok(rows);
         };
         let changes = self.captured_tip_changes(scope, molecule)?;
@@ -79,7 +76,7 @@ impl AtomStore {
             rows,
             changes
                 .into_iter()
-                .filter(|(key, _)| prefixes.iter().any(|prefix| key.starts_with(prefix))),
+                .filter(|(key, _)| key.starts_with(prefix)),
         ))
     }
 

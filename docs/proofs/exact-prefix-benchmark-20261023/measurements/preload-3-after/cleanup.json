@@ -1,0 +1,12 @@
+{
+  "run_id": "c6c1c9a61a494bde94a97254e50f58b7",
+  "home": "/workspace/prefix-pairs/preload-3-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1591,
+  "allocated_bytes_removed": 502005760,
+  "free_bytes_before": 20715364352,
+  "free_bytes_after": 21220536320
+}

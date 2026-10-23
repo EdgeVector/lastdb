@@ -210,9 +210,9 @@ impl AtomStore {
             storage_prefix,
             ..
         } = target;
-        let prefixes = [molecule_key_codec::molecule_record_prefix(molecule_uuid)];
+        let prefix = molecule_key_codec::molecule_record_prefix(molecule_uuid);
         let scanned = self
-            .scan_per_key_prefixes(&prefixes, storage_prefix)
+            .scan_per_key_prefix(&prefix, storage_prefix)
             .await
             .map_err(|e| {
                 SchemaError::InvalidData(format!("scan hash-only molecule {molecule_uuid}: {e}"))

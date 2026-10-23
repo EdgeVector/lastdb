@@ -1,0 +1,11 @@
+{
+  "creator_pid": 95740,
+  "device": 27,
+  "home": "/workspace/prefix-pairs/plain-3-after/home",
+  "inode": 690598,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "ccd3cf001f4b4b55805e9305573e9cea",
+  "scratch": "/workspace/prefix-pairs/plain-3-after",
+  "version": 1
+}
