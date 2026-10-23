@@ -34,10 +34,25 @@ It builds one set of metadata and publishes one complete disk root.
 The delta keeps each original mutation version and each tombstone.
 The new mutations receive the next normal frontier.
 
-The merge reads at most 4096 recent records and retains at most 16 MiB of keys.
+The final root capture starts a temporary exact change capture in the existing writer.
+Each successful physical commit contributes only its new keys and file locations.
+One generation hold protects each captured commit, including after another physical rewrite.
+No payload bytes, page caches, file handles, or disk journal enter this capture.
+
+At most two captures exist, each with at most 4096 operations and 16 MiB of metadata.
+The memory charge includes key lengths and conservative commit-hold overhead.
+The final merge reads this bounded metadata without file access or old record visits.
 It also obeys the home operation limit and reserves extra metadata space first.
 A refused merge leaves the accepted client ticket intact for its normal commit.
 The compaction reports that refusal; it does not claim success.
+
+A capture accepts only a continuous sequence of complete roots from its exact start.
+It retains original mutation versions and tombstones.
+Tracking failure invalidates only the optional capture, after the ordinary disk guarantee stays complete.
+The writer never converts a successful durable commit into an ack failure because capture allocation fails.
+The output owns the original arrays until its off-lock drop.
+The registry also retains each capture until explicit off-lock retirement.
+A temporary writer reference therefore cannot free these arrays under the write lock.
 
 The queue keeps the offered output across the current worker's delivery phase.
 Only the worker that takes a physical prefix claims that output.
@@ -46,6 +61,7 @@ This check delays only maintenance. Client writes have no collection timer.
 The bounded final delta adds work to the normal metadata commit.
 The commit reports this work as `compaction_merge_prepare_us`.
 CI must measure its effect on client latency and require active compaction progress.
+The capture must publish in the final quarter of the write interval.
 
 An independent task owns the offer through a canceled call or a failed writer.
 It releases an unclaimed offer outside the write lock when the writer fails.

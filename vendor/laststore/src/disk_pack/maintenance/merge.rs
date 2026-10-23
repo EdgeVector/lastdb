@@ -1,22 +1,32 @@
-//! Carry a bounded recent locator delta into the normal writer's next commit.
+//! Merge exact captured locations; never enumerate neighboring stored records.
 use super::PreparedCompaction;
 use crate::disk_pack::lifetime::GenerationHold;
+use crate::disk_pack::snapshot::changes::{CapturedBatch, ChangeCapture};
 use crate::disk_pack::snapshot::PreparedMutation;
-use crate::disk_pack::tree_cursor::TreeCursor;
-use crate::disk_pack::{artifact, corrupt, Current, DirectoryEntry, Location};
+use crate::disk_pack::{corrupt, Current};
 use crate::Result;
+use std::sync::Arc;
 
 pub(in crate::disk_pack) struct MergeDelta {
     pub(in crate::disk_pack) identity: uuid::Uuid,
     pub(in crate::disk_pack) expected: Current,
     pub(in crate::disk_pack) mutations: Vec<PreparedMutation>,
     _cut: GenerationHold,
+    _batches: Vec<Arc<CapturedBatch>>,
 }
 
-struct Budget {
-    limit: usize,
-    examined: usize,
-    bytes: usize,
+impl MergeDelta {
+    /// A captured location can outlive a physical rewrite of its source root.
+    /// Each referenced block needs at most one data part and one block-map part.
+    /// Count those older inputs separately from the latest root's closure.
+    pub(in crate::disk_pack) fn payload_part_bound(&self) -> u64 {
+        self.mutations
+            .iter()
+            .filter(|mutation| mutation.location.source == crate::disk_pack::Source::Pack)
+            .fold(0u64, |parts, mutation| {
+                parts.saturating_add(u64::from(mutation.location.blocks).saturating_mul(2))
+            })
+    }
 }
 
 impl PreparedCompaction {
@@ -35,7 +45,7 @@ impl PreparedCompaction {
     }
 
     pub(in crate::disk_pack) fn dependency_parts(&self) -> u64 {
-        self.live.coordinates().len() as u64
+        self.live.len() as u64
     }
 
     pub(in crate::disk_pack) fn reserve_merge(&mut self, bytes: u64) -> Result<()> {
@@ -49,8 +59,25 @@ impl PreparedCompaction {
         Ok(())
     }
 
-    /// No output is written here. The next normal publication builds one set
-    /// of metadata for both these existing locations and the incoming writes.
+    /// The node calls this before it acquires the next capture's write gate.
+    /// Old change arrays and generation holds drop outside that gate.
+    pub fn clear_merge_capture(&mut self) {
+        self.merge_capture.take();
+    }
+
+    pub(in crate::disk_pack) fn require_no_merge_capture(&self) -> Result<()> {
+        if self.merge_capture.is_some() {
+            return Err(corrupt("clear the previous merge capture before recapture"));
+        }
+        Ok(())
+    }
+
+    pub(in crate::disk_pack) fn set_merge_capture(&mut self, capture: Arc<ChangeCapture>) {
+        debug_assert!(self.merge_capture.is_none());
+        self.merge_capture = Some(capture);
+    }
+
+    /// This reads bounded in-memory key/location metadata, with no file access.
     pub(in crate::disk_pack) fn merge_delta(
         &self,
         cut: GenerationHold,
@@ -61,100 +88,16 @@ impl PreparedCompaction {
         if cut.root() != self.lock.root() {
             return Err(corrupt("compaction merge cut belongs to another home"));
         }
-        let mut delta = MergeDelta {
+        let capture = self.merge_capture.as_ref().ok_or_else(|| {
+            crate::Error::WriteCapacity("compaction_behind: exact change capture is absent".into())
+        })?;
+        let captured = capture.snapshot(self.caught.current(), cut.current(), limit)?;
+        Ok(MergeDelta {
             identity: self.identity,
             expected: cut.current().clone(),
-            mutations: Vec::new(),
+            mutations: captured.mutations,
             _cut: cut,
-        };
-        if delta.expected.frontier == self.caught.current().frontier {
-            return Ok(delta);
-        }
-        let root = self.lock.root();
-        let current = &delta.expected;
-        let mut call = artifact::metadata_call(root, current.clone());
-        let mut groups = TreeCursor::recent(
-            &mut call,
-            current.directory.clone(),
-            self.caught.current().generation,
-        )?;
-        let mut examined = 0usize;
-        let mut budget = Budget {
-            limit: limit.min(4096),
-            examined: 0,
-            bytes: 0,
-        };
-        while let Some((key, value)) = groups.next(&mut call)? {
-            examined += 1;
-            if examined > 4096 {
-                return Err(behind());
-            }
-            let entry = DirectoryEntry::decode(&value)?;
-            let collection = super::compact::collection(&key, entry.group)?;
-            self.collect_merge_group(
-                current,
-                &collection,
-                entry,
-                &mut budget,
-                &mut delta.mutations,
-            )?;
-            call = artifact::metadata_call(root, current.clone());
-        }
-        Ok(delta)
+            _batches: captured.batches,
+        })
     }
-
-    fn collect_merge_group(
-        &self,
-        current: &Current,
-        collection: &str,
-        entry: DirectoryEntry,
-        budget: &mut Budget,
-        mutations: &mut Vec<PreparedMutation>,
-    ) -> Result<()> {
-        let mut call = artifact::metadata_call(self.lock.root(), current.clone());
-        let mut records =
-            TreeCursor::recent(&mut call, entry.locator, self.caught.current().generation)?;
-        while let Some((key, value)) = records.next(&mut call)? {
-            budget.examined += 1;
-            if budget.examined > 4096 {
-                return Err(behind());
-            }
-            let location = Location::decode_for_current(&value, current)?;
-            if location.version.batch > current.frontier {
-                return Err(corrupt(
-                    "compaction merge location exceeds its current frontier",
-                ));
-            }
-            if location.version.batch > self.caught.current().frontier {
-                budget.bytes = budget
-                    .bytes
-                    .saturating_add(key.len())
-                    .saturating_add(collection.len())
-                    .saturating_add(256);
-                if mutations.len() >= budget.limit || budget.bytes > 16 * 1024 * 1024 {
-                    return Err(behind());
-                }
-                mutations
-                    .try_reserve(1)
-                    .map_err(|_| crate::disk_pack::resource())?;
-                mutations.push(PreparedMutation {
-                    collection: collection.to_owned(),
-                    group: entry.group,
-                    key: String::from_utf8(key)
-                        .map_err(|_| corrupt("compaction merge key is not UTF-8"))?,
-                    location,
-                });
-            }
-            if budget.examined % 128 == 0 {
-                call = artifact::metadata_call(self.lock.root(), current.clone());
-            }
-        }
-        Ok(())
-    }
-}
-
-fn behind() -> crate::Error {
-    crate::Error::WriteCapacity(
-        "compaction_behind: merge delta exceeds its bounded metadata budget".into(),
-    )
 }

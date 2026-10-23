@@ -252,12 +252,19 @@ def compaction_progress(output, mode):
                if first <= row['time_us'] <= last]
     before = writes['before']['native_disk']['parts']['maintenance_runs']
     runs = max([row['native']['native_disk']['parts']['maintenance_runs'] for row in samples] + [before]) - before
+    final_quarter_start = first + (last - first) * 3 // 4
+    quarter_before = max([row['native']['native_disk']['parts']['maintenance_runs']
+                          for row in samples if row['time_us'] <= final_quarter_start] + [before])
+    quarter_after = max([row['native']['native_disk']['parts']['maintenance_runs']
+                         for row in samples] + [before])
+    final_quarter_runs = quarter_after - quarter_before
     rows = json.loads((output / 'compactions.json').read_text())
     active = [row for row in rows if row.get('status') == 200
               and first <= row['start_unix_us'] <= row['end_unix_us'] <= last]
     reports = [row['receipt']['compact']['native_disk'] for row in active]
     removed = sum(row['bytes_removed'] for row in reports)
     result = {'maintenance_runs_observed_during_writes': runs,
+              'maintenance_runs_final_quarter': final_quarter_runs,
               'explicit_completed_during_writes': len(active),
               'explicit_bytes_removed_during_writes': removed,
               'observed_inventory_peak_bytes': max((row['bytes'] for row in samples), default=None),
@@ -268,6 +275,8 @@ def compaction_progress(output, mode):
         raise RuntimeError('CI capture does not establish active compaction and explicit space release')
     if mode == 'tier' and not result['tier_publications']:
         raise RuntimeError('CI tier capture contains no active tier publication')
+    if final_quarter_runs == 0:
+        raise RuntimeError('CI capture contains no compaction publication in the final write quarter')
 
 
 def main():

@@ -11,6 +11,13 @@ pub struct PackMerge {
     quote: MutationQuote,
 }
 
+impl PackMerge {
+    /// Exact captured locations added to the client's normal metadata work.
+    pub fn operations(&self) -> usize {
+        self.delta.mutations.len()
+    }
+}
+
 impl HomeSnapshot {
     /// Only bounded metadata reads and extra quota occur here. A refusal leaves
     /// the original client operations and reservation untouched.
@@ -42,6 +49,7 @@ impl HomeSnapshot {
         let bound = output
             .dependency_parts()
             .saturating_add(self.dependency_parts())
+            .saturating_add(delta.payload_part_bound())
             .saturating_add(parts)
             .saturating_add(reservation.quote.dependency_parts());
         if bound > MAX_DEPENDENCY_PARTS {

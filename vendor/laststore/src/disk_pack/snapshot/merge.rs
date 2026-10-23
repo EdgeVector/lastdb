@@ -10,6 +10,38 @@ pub(super) struct MergePublication<'a> {
 }
 
 impl SnapshotWriter {
+    pub(super) fn publish_mutations(
+        &mut self,
+        proposed: crate::disk_pack::Current,
+        mut prepared: Vec<super::PreparedMutation>,
+        payload: Option<crate::disk_pack::pack_write::WrittenData>,
+        base: Option<MergePublication<'_>>,
+    ) -> Result<PublishedGeneration> {
+        if let Some(base) = base {
+            prepared
+                .try_reserve_exact(base.delta.mutations.len())
+                .map_err(|_| crate::disk_pack::resource())?;
+            prepared.extend(base.delta.mutations);
+            return crate::disk_pack::publish::publish_prepared_base(
+                &self.lock,
+                &self.current,
+                proposed,
+                prepared,
+                payload,
+                base.output.publication_base(),
+            );
+        }
+        let legacy_live = self.legacy_live.take();
+        crate::disk_pack::publish::publish_prepared(
+            &self.lock,
+            &self.current,
+            proposed,
+            prepared,
+            payload,
+            legacy_live,
+        )
+    }
+
     pub(in crate::disk_pack) fn commit_reserved_merged(
         &mut self,
         mutations: Vec<SnapshotMutation>,

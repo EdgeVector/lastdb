@@ -121,8 +121,10 @@ impl PackRuntime {
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let _gate = gate;
-            runtime.commit(operations)
+            let result = runtime.commit(operations);
+            drop(gate);
+            runtime.capture_cleanup.release_idle();
+            result
         })
         .await
     }

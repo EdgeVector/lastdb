@@ -124,12 +124,11 @@ impl PackRuntime {
                         .inspect_err(|error| {
                             runtime.parts.record_failure(error);
                         })?;
-                    runtime
-                        .publish_native_pack(output)
-                        .await
-                        .inspect_err(|error| {
-                            runtime.parts.record_failure(error);
-                        })?
+                    let published = runtime.publish_native_pack(output).await;
+                    runtime.capture_cleanup.release_idle();
+                    published.inspect_err(|error| {
+                        runtime.parts.record_failure(error);
+                    })?
                 } else {
                     let capture = Arc::clone(&runtime);
                     super::super::laststore::LastStoreKvStore::run_blocking(move || {

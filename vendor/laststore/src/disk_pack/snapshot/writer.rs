@@ -22,6 +22,7 @@ pub struct SnapshotWriter {
     pub(in crate::disk_pack) lock: Arc<WriteLock>,
     admission: Arc<AdmissionLedger>,
     pub(super) compaction: crate::disk_pack::maintenance::CompactionPolicy,
+    pub(super) changes: super::changes::ChangeCaptures,
 }
 
 impl SnapshotWriter {
@@ -58,6 +59,7 @@ impl SnapshotWriter {
             lock: Arc::new(lock),
             admission: Arc::default(),
             compaction: Default::default(),
+            changes: Default::default(),
         })
     }
 
@@ -133,11 +135,20 @@ impl SnapshotWriter {
         reservation.begin()?;
         self.poisoned = true;
         let root = self.root.clone();
-        let publication =
+        let committed =
             durability::complete_native_commit(&root, || self.commit(mutations, actual, base))?;
         reservation.complete()?;
+        let publication = committed.publication;
+        let previous = self.current.clone();
         self.current = publication.current.clone();
         self.dependencies = publication.dependency_parts;
+        self.changes.committed(
+            &previous,
+            &self.current,
+            &self.root,
+            &self.read_lease(),
+            committed.changes,
+        );
         self.poisoned = false;
         Ok(publication)
     }
@@ -147,7 +158,7 @@ impl SnapshotWriter {
         mutations: Vec<SnapshotMutation>,
         quote: SnapshotQuote,
         base: Option<super::merge::MergePublication<'_>>,
-    ) -> Result<PublishedGeneration> {
+    ) -> Result<super::changes::CapturedPublication> {
         let mut proposed = self.current.clone();
         proposed.generation = publish::fresh_generation(&self.root, self.current.generation)?;
         proposed.previous_generation = self.current.generation;
@@ -206,28 +217,11 @@ impl SnapshotWriter {
             return Err(corrupt("snapshot payload exceeded its admitted dimensions"));
         }
         drop(payload_timing);
-        if let Some(base) = base {
-            prepared
-                .try_reserve_exact(base.delta.mutations.len())
-                .map_err(|_| super::super::resource())?;
-            prepared.extend(base.delta.mutations);
-            return publish::publish_prepared_base(
-                &self.lock,
-                &self.current,
-                proposed,
-                prepared,
-                payload,
-                base.output.publication_base(),
-            );
-        }
-        let legacy_live = self.legacy_live.take();
-        publish::publish_prepared(
-            &self.lock,
-            &self.current,
-            proposed,
-            prepared,
-            payload,
-            legacy_live,
-        )
+        let changes = self.changes.prepare(&self.current, &self.root, &prepared);
+        let publication = self.publish_mutations(proposed, prepared, payload, base)?;
+        Ok(super::changes::CapturedPublication {
+            publication,
+            changes,
+        })
     }
 }

@@ -157,6 +157,10 @@ impl LiveParts {
         self.counts.keys().copied().collect()
     }
 
+    pub(super) fn len(&self) -> usize {
+        self.counts.len()
+    }
+
     pub(super) fn reference_count(&self, coordinate: &Coordinate) -> Result<u64> {
         self.counts
             .get(coordinate)

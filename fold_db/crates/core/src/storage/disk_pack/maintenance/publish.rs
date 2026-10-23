@@ -20,32 +20,7 @@ impl PackRuntime {
     ) -> StorageResult<MaintenanceReady> {
         for retry in 0..8 {
             self.parts.progress.phase(3);
-            let runtime = Arc::clone(self);
-            let (next, mut staged) =
-                super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                    let capturing = std::time::Instant::now();
-                    // A client can own the gate before its blocking commit
-                    // takes the writer mutex. Capture after that publication,
-                    // never an old root inside its already reserved boundary.
-                    let boundary = runtime.write_gate.blocking_lock();
-                    let cut = runtime
-                        .writer
-                        .lock()
-                        .expect("native snapshot writer")
-                        .capture_pack_root()
-                        .map_err(map)?;
-                    drop(boundary);
-                    let capture_ms = millis_since(capturing);
-                    let prepared_from = std::time::Instant::now();
-                    let frontier = cut.current().frontier;
-                    let staged = output.catch_up_and_prepare(cut).map_err(map)?;
-                    tracing::debug!(target: "fold_db::compaction", retry, frontier, capture_ms,
-                        prepared_ms = millis_since(prepared_from),
-                        tier_boundary = output.tier_boundary(),
-                        parts = staged.dependency_parts(), "private compaction prepared");
-                    Ok((output, staged))
-                })
-                .await?;
+            let (next, mut staged) = self.prepare_native_publication(output, retry).await?;
             output = next;
             self.parts.progress.phase(4);
             let runtime = Arc::clone(self);
@@ -111,6 +86,40 @@ impl PackRuntime {
         Err(StorageError::WriteResourceLimit {
             detail: "compaction_behind: the root or admitted prefix changed across 8 publication attempts; retry maintenance".into(),
         })
+    }
+
+    async fn prepare_native_publication(
+        self: &Arc<Self>,
+        mut output: PreparedCompaction,
+        retry: u64,
+    ) -> StorageResult<(PreparedCompaction, CompactionPublication)> {
+        let runtime = Arc::clone(self);
+        super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+            output.clear_merge_capture();
+            runtime.capture_cleanup.release_idle();
+            let capturing = std::time::Instant::now();
+            // A client can own the gate before its blocking commit takes the
+            // writer mutex. Capture after that already reserved publication.
+            let boundary = runtime.write_gate.blocking_lock();
+            let (cut, retired) = runtime
+                .writer
+                .lock()
+                .expect("native snapshot writer")
+                .capture_pack_handoff(&mut output)
+                .map_err(map)?;
+            drop(boundary);
+            drop(retired);
+            let capture_ms = millis_since(capturing);
+            let prepared_from = std::time::Instant::now();
+            let frontier = cut.current().frontier;
+            let staged = output.catch_up_and_prepare(cut).map_err(map)?;
+            tracing::debug!(target: "fold_db::compaction", retry, frontier, capture_ms,
+                prepared_ms = millis_since(prepared_from),
+                tier_boundary = output.tier_boundary(),
+                parts = staged.dependency_parts(), "private compaction prepared");
+            Ok((output, staged))
+        })
+        .await
     }
 
     pub(in crate::storage::disk_pack) fn finish_merged_pack(

@@ -62,6 +62,7 @@ impl PackRuntime {
             async move {
                 let result = runtime.wait_pack_handoff(handoff, receive).await;
                 let _ = complete.send(result);
+                runtime.capture_cleanup.release_idle();
             }
             .in_current_span(),
         );
@@ -141,6 +142,7 @@ impl PackRuntime {
                 let _ = send.send(result);
             };
         }
+        self.capture_cleanup.release_idle();
     }
 }
 
@@ -174,6 +176,7 @@ impl PackHandoff {
         };
         drop(timing);
         tracing::debug!(target: "fold_db::compaction", prepared_ms = millis_since(preparing),
+            captured_locations = merge.operations(),
             retry = self.retry, "compaction merge prepared for normal commit");
         match writer.commit_mutation_merged(operations, reservation, output, merge) {
             Ok((publication, mut receipt)) => {

@@ -143,12 +143,12 @@ jobs:
               fi
             done
             echo ''
-            echo '| Compaction | Active publications | Active explicit completions | Bytes removed during writes | Mean ms | P99 ms |'
-            echo '| --- | --- | --- | --- | --- | --- |'
+            echo '| Compaction | Active publications | Final-quarter publications | Active explicit completions | Bytes removed during writes | Mean ms | P99 ms |'
+            echo '| --- | --- | --- | --- | --- | --- | --- |'
             for mode in automatic tier full; do
               path="$EVIDENCE_ROOT/compaction-$mode/$mode/compaction-progress.json"
               if [ -f "$path" ]; then
-                jq -r '"| \(.mode) | \(.maintenance_runs_observed_during_writes) | \(.explicit_completed_during_writes) | \(.explicit_bytes_removed_during_writes) | \(.latency.average_ms) | \(.latency.p99_ms) |"' "$path"
+                jq -r '"| \(.mode) | \(.maintenance_runs_observed_during_writes) | \(.maintenance_runs_final_quarter) | \(.explicit_completed_during_writes) | \(.explicit_bytes_removed_during_writes) | \(.latency.average_ms) | \(.latency.p99_ms) |"' "$path"
               fi
             done
             echo ''

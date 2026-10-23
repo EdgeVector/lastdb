@@ -58,6 +58,7 @@ pub struct PackRuntime {
     view: RwLock<view::NativeReadView>,
     writer: Mutex<HomeSnapshot>,
     read_lease: laststore::disk_pack::lifetime::WriterReadLease,
+    capture_cleanup: laststore::disk_pack::snapshot::CaptureCleanup,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
     compaction_slots: Arc<tokio::sync::Semaphore>,
@@ -138,6 +139,7 @@ impl PackNamespacedStore {
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let writer = home.snapshot().map_err(map)?;
         let read_lease = writer.read_lease();
+        let capture_cleanup = writer.capture_cleanup();
         let current = writer.current().clone();
         let parts = parts::PartsLedger::from_env(writer.dependency_parts(), &current);
         let metrics = Arc::new(PersistLaneMetrics::new());
@@ -150,6 +152,7 @@ impl PackNamespacedStore {
                 }),
                 writer: Mutex::new(writer),
                 read_lease,
+                capture_cleanup,
                 prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
                 compaction_slots: Arc::new(tokio::sync::Semaphore::new(2)),
