@@ -8,7 +8,7 @@ use std::sync::Mutex;
 /// A typed proof of exclusive artifact write ownership. No caller can forge it.
 pub(super) struct WriteLock {
     root: PathBuf,
-    pub(super) compaction_active: std::sync::atomic::AtomicBool,
+    pub(super) files: std::sync::Arc<super::private_files::FileRegistry>,
     _file: File,
     checked_current: Mutex<Option<[u8; 32]>>,
     /// Retained generations whose parts this lease already verified, with the
@@ -56,7 +56,7 @@ impl WriteLock {
         }
         Ok(Self {
             root,
-            compaction_active: std::sync::atomic::AtomicBool::new(false),
+            files: std::sync::Arc::default(),
             _file: file,
             checked_current: Mutex::new(None),
             verified: Mutex::new(BTreeMap::new()),
@@ -144,6 +144,14 @@ fn sweep_unfinished_publications(root: &Path) {
         });
         if leftover && entry.file_type().is_ok_and(|kind| kind.is_file()) {
             let _ = std::fs::remove_file(entry.path());
+        }
+        if name
+            .to_str()
+            .and_then(|name| name.strip_prefix(super::maintenance::PENDING_GENERATION))
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+            && entry.file_type().is_ok_and(|kind| kind.is_dir())
+        {
+            super::maintenance::cleanup_abandoned(&entry.path());
         }
     }
 }

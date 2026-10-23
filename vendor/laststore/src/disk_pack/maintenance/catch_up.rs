@@ -27,8 +27,19 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         .checked_add(1)
         .ok_or_else(|| corrupt("generation exhaustion"))?;
     proposed.directory = job.output.current.directory.clone();
-    let mut directory = TreeEdit::new(root, proposed.directory.clone(), proposed.generation)?;
-    let mut locators = LocatorChanges::new(root, proposed.generation);
+    if cut.frontier == previous.frontier {
+        // A physical rewrite changes addresses, not values. The private output
+        // already has these values; replay would carry a second payload copy.
+        job.output.current = proposed;
+        return Ok(0);
+    }
+    let mut directory = TreeEdit::protected(
+        root,
+        proposed.directory.clone(),
+        proposed.generation,
+        job.protection.clone(),
+    )?;
+    let mut locators = LocatorChanges::protected(root, proposed.generation, job.protection.clone());
     let mut call = artifact::metadata_call(root, cut.clone());
     let mut groups = TreeCursor::recent(&mut call, cut.directory.clone(), previous.generation)?;
     let mut budget = DeltaBudget { changed: 0, limit };

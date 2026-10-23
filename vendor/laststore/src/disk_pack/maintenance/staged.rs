@@ -1,0 +1,109 @@
+//! Fully prepared receipt and pointer; only conditional installation spans publication.
+use super::PreparedCompaction;
+use crate::disk_pack::write_lock::WriteLock;
+use crate::disk_pack::{artifact, corrupt, generation, publish, Current};
+use crate::{durability, Result};
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use uuid::Uuid;
+
+pub const PENDING_GENERATION: &str = "GENERATION.pending-";
+
+/// Bytes and generation identity are immutable after preparation.
+pub struct CompactionPublication {
+    pub(in crate::disk_pack) expected: Current,
+    pub(in crate::disk_pack) current: Current,
+    pub(in crate::disk_pack) parts: u64,
+    root: PathBuf,
+    receipt: PathBuf,
+    pointer: PathBuf,
+    pointer_file: File,
+}
+
+impl PreparedCompaction {
+    /// No writer or publication lock is required for this complete preparation.
+    pub fn prepare_publication(&mut self) -> Result<CompactionPublication> {
+        let root = self.lock.root();
+        let expected = self.caught.current().clone();
+        let mut current = self.output.current.clone();
+        current.generation =
+            publish::fresh_generation(root, expected.generation.max(current.generation - 1))?;
+        current.previous_generation = expected.generation;
+        current.frontier = expected.frontier;
+        current.published_ms = artifact::unix_ms();
+        let receipt = root.join(format!("{PENDING_GENERATION}{}", Uuid::new_v4()));
+        let pointer = root.join(format!("CURRENT.pending-{}", Uuid::new_v4()));
+        let pointer_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&pointer)?;
+        let mut staged = CompactionPublication {
+            expected,
+            current,
+            parts: 0,
+            root: root.to_path_buf(),
+            receipt,
+            pointer,
+            pointer_file,
+        };
+        let written = generation::write_at(
+            root,
+            &staged.current,
+            &self.output.dependencies,
+            None,
+            staged.receipt.clone(),
+        )?;
+        staged.parts = written.dependencies;
+        staged.pointer_file.write_all(&staged.current.encode()?)?;
+        durability::sync_dirty_file(&staged.pointer_file)?;
+        self.prepared();
+        Ok(staged)
+    }
+}
+
+impl CompactionPublication {
+    pub(in crate::disk_pack) fn install(&mut self, lock: &WriteLock) -> Result<bool> {
+        if lock.root() != self.root || artifact::current(&self.root)? != self.expected {
+            return Err(corrupt(
+                "prepared compaction disk root differs from its writer",
+            ));
+        }
+        let generations = self.root.join("generations");
+        let canonical = generations.join(self.current.generation.to_string());
+        // Atomic mkdir is a portable no-replace claim. Existing receipts are
+        // never overwritten or verified under the writer boundary.
+        match fs::create_dir(&canonical) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+            Err(error) => return Err(error.into()),
+        }
+        lock.files.invalidate()?;
+        // The format's 65,536 dependency limit fits its receipt in one part.
+        fs::rename(
+            self.receipt.join("part-00000000"),
+            canonical.join("part-00000000"),
+        )?;
+        durability::sync_directory(&File::open(&canonical)?)?;
+        durability::sync_directory(&File::open(&generations)?)?;
+        // This barrier also orders the newly installed receipt on macOS before
+        // CURRENT's rename, even though its bytes were flushed off-gate.
+        durability::sync_publication_file(&self.pointer_file)?;
+        fs::rename(&self.pointer, self.root.join("CURRENT"))?;
+        durability::sync_directory(&File::open(&self.root)?)?;
+        Ok(true)
+    }
+}
+
+impl Drop for CompactionPublication {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.pointer);
+        cleanup_abandoned(&self.receipt);
+    }
+}
+
+/// Exact temporary namespace only; unknown files remain for an operator.
+pub(in crate::disk_pack) fn cleanup_abandoned(path: &Path) {
+    let _ = fs::remove_file(path.join("part-00000000"));
+    let _ = fs::remove_dir(path);
+}

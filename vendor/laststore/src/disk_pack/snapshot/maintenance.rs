@@ -3,6 +3,52 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy, SpaceReserv
 use crate::Result;
 
 impl SnapshotWriter {
+    /// Caller checks the queue under its publication boundary. A stale root or
+    /// numeric receipt collision requests off-gate reprepare without any copy.
+    pub fn try_finish_pack(
+        &mut self,
+        output: &mut crate::disk_pack::maintenance::PreparedCompaction,
+        staged: &mut crate::disk_pack::maintenance::CompactionPublication,
+    ) -> Result<Option<MaintenanceReceipt>> {
+        self.check_admission()?;
+        if !output.belongs_to(&self.lock) {
+            return Err(crate::disk_pack::corrupt(
+                "compaction belongs to another writer lease",
+            ));
+        }
+        if self.current != staged.expected {
+            return Ok(None);
+        }
+        let previous = self.current.clone();
+        self.poisoned = true;
+        let installed =
+            crate::durability::complete_native_commit(&self.root, || staged.install(&self.lock));
+        let installed = match installed {
+            Ok(installed) => installed,
+            Err(error) => {
+                self.poisoned = !crate::disk_pack::artifact::current(&self.root)
+                    .is_ok_and(|disk| disk == previous);
+                return Err(error);
+            }
+        };
+        if !installed {
+            self.poisoned = false;
+            return Ok(None);
+        }
+        if let Err(error) = self.lock.remember_checked(&staged.current) {
+            self.poisoned = true;
+            return Err(error);
+        }
+        self.current = staged.current.clone();
+        self.dependencies = staged.parts;
+        let mut receipt = output.receipt();
+        receipt.generation = self.current.generation;
+        receipt.parts_after = self.dependencies;
+        self.compaction.completed(&receipt);
+        self.poisoned = false;
+        Ok(Some(receipt))
+    }
+
     /// Retain this writer's lease and its read/reclaim gate, without file access.
     pub fn read_lease(&self) -> crate::disk_pack::lifetime::WriterReadLease {
         crate::disk_pack::lifetime::WriterReadLease::new(std::sync::Arc::clone(&self.lock))
@@ -22,15 +68,6 @@ impl SnapshotWriter {
     /// read view before it calls `reclaim` under that view's exclusive lock.
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.check_admission()?;
-        if self
-            .lock
-            .compaction_active
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(crate::Error::WriteCapacity(
-                "compaction already active".into(),
-            ));
-        }
         self.poisoned = true;
         let packed = crate::disk_pack::maintenance::compact_locked(&self.lock, policy);
         let (current, receipt) = match packed {
@@ -54,17 +91,6 @@ impl SnapshotWriter {
     /// Release only obsolete unreferenced parts; never implicitly perform a rewrite.
     pub fn reclaim(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.check_admission()?;
-        if self
-            .lock
-            .compaction_active
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Ok(MaintenanceReceipt {
-                generation: self.current.generation,
-                reclaim_deferred: true,
-                ..Default::default()
-            });
-        }
         crate::disk_pack::maintenance::reclaim_locked(&self.lock, policy)
     }
 

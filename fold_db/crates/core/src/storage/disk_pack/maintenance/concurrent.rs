@@ -7,10 +7,8 @@ impl PackRuntime {
         self: &Arc<Self>,
         options: NativeMaintenanceOptions,
     ) -> StorageResult<PreparedCompaction> {
-        let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         let plan = super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let _gate = gate;
             runtime.require_initialized()?;
             if runtime.failed.load(Ordering::Acquire) {
                 return Err(StorageError::BackendError(

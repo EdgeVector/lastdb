@@ -1,51 +1,152 @@
-//! The short owner handoff before concurrent old-file cleanup.
+//! The only shared boundary installs prepared metadata after an exact root check.
 use super::*;
+use laststore::disk_pack::maintenance::{CompactionPublication, PreparedCompaction};
 use laststore::disk_pack::snapshot::ReclaimPlan;
 
+pub(super) type MaintenanceReady = (MaintenanceReceipt, u64, ReclaimPlan, Current);
+
+enum Attempt {
+    Ready(MaintenanceReady),
+    Queue(u64),
+    Changed,
+    Busy,
+}
+
 impl PackRuntime {
-    pub(super) fn prepare_maintenance(
+    pub(super) async fn publish_native_pack(
+        self: &Arc<Self>,
+        mut output: PreparedCompaction,
+    ) -> StorageResult<MaintenanceReady> {
+        for retry in 0..8 {
+            self.parts.progress.phase(3);
+            let runtime = Arc::clone(self);
+            let (next, mut staged) =
+                super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                    let cut = runtime
+                        .writer
+                        .lock()
+                        .expect("native snapshot writer")
+                        .capture_pack_root()
+                        .map_err(map)?;
+                    output.catch_up(cut).map_err(map)?;
+                    let staged = output.prepare_publication().map_err(map)?;
+                    Ok((output, staged))
+                })
+                .await?;
+            output = next;
+            self.parts.progress.phase(4);
+            let runtime = Arc::clone(self);
+            let (next, result) =
+                super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                    // Never hold the gate while waiting for a blocking thread.
+                    let Ok(boundary) = Arc::clone(&runtime.write_gate).try_lock_owned() else {
+                        drop(staged);
+                        return Ok((output, Ok(Attempt::Busy)));
+                    };
+                    let started = std::time::Instant::now();
+                    let result =
+                        runtime.attempt_native_pack(&mut output, &mut staged, started, retry);
+                    drop(boundary);
+                    // Large path maps and temporary files never drop under the gate.
+                    drop(staged);
+                    Ok((output, result))
+                })
+                .await?;
+            output = next;
+            match result? {
+                Attempt::Ready(ready) => return Ok(ready),
+                Attempt::Queue(target) => self.wait_for_queue(target).await?,
+                Attempt::Changed => tokio::task::yield_now().await,
+                Attempt::Busy => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+            }
+        }
+        Err(StorageError::WriteResourceLimit {
+            detail: "compaction_behind: publication changed or the write queue stayed busy across 8 attempts; retry maintenance".into(),
+        })
+    }
+
+    fn attempt_native_pack(
         &self,
-        output: Option<laststore::disk_pack::maintenance::PreparedCompaction>,
-    ) -> StorageResult<(MaintenanceReceipt, u64, ReclaimPlan, Current)> {
+        output: &mut PreparedCompaction,
+        staged: &mut CompactionPublication,
+        started: std::time::Instant,
+        retry: u64,
+    ) -> StorageResult<Attempt> {
+        self.require_initialized()?;
+        if self.failed.load(Ordering::Acquire) {
+            return Err(StorageError::BackendError(
+                "native compaction requires a recovered writer".into(),
+            ));
+        }
+        if let Some(target) = self
+            .queue
+            .lock()
+            .expect("native accepted queue")
+            .pending_target()
+        {
+            return Ok(Attempt::Queue(target));
+        }
         let mut writer = self.writer.lock().expect("native snapshot writer");
-        let mut receipt = MaintenanceReceipt::default();
-        let mut pack_millis = 0;
-        if let Some(output) = output {
-            let started = std::time::Instant::now();
-            receipt = match writer.finish_pack(output) {
-                Ok(receipt) => receipt,
-                Err(error) => {
-                    // A failure before the replacement is published leaves the
-                    // writer healthy; only a poisoned writer needs a restart.
-                    if writer.is_poisoned() {
-                        self.failed.store(true, Ordering::Release);
-                    }
-                    let error = map(error);
-                    self.parts.record_failure(&error);
-                    return Err(error);
+        if !self
+            .view
+            .read()
+            .expect("native complete read view")
+            .accepted
+            .is_empty()
+        {
+            self.failed.store(true, Ordering::Release);
+            return Err(StorageError::BackendError(
+                "empty native queue retained an accepted view; recovery required".into(),
+            ));
+        }
+        let mut receipt = match writer.try_finish_pack(output, staged) {
+            Ok(Some(receipt)) => receipt,
+            Ok(None) => return Ok(Attempt::Changed),
+            Err(error) => {
+                if writer.is_poisoned() {
+                    self.failed.store(true, Ordering::Release);
                 }
-            };
-            let swap_millis = millis_since(started);
-            pack_millis = receipt.copy_millis.saturating_add(swap_millis);
-            self.parts.progress.completed(&receipt, swap_millis);
-            // The replacement is published: the count is final even if reclaim fails.
-            let run = parts::RunCounts {
+                let error = map(error);
+                self.parts.record_failure(&error);
+                return Err(error);
+            }
+        };
+        receipt.publication_retries = retry;
+        let swap = millis_since(started);
+        self.parts.progress.completed(&receipt, swap);
+        let pack_millis = receipt.copy_millis.saturating_add(swap);
+        self.parts.record_run(
+            &parts::RunCounts {
                 parts_before: receipt.parts_before,
                 parts_after: receipt.parts_after,
                 records: receipt.records_copied + receipt.tombstones_copied,
-            };
-            self.parts.record_run(&run, pack_millis, writer.current());
-        }
-        // All older calls already hold their own generation. New calls take the
-        // view read lock before their lifetime hold, so no retired view can escape.
+            },
+            pack_millis,
+            writer.current(),
+        );
         let mut view = self.view.write().expect("native complete read view");
-        if !view.accepted.is_empty() {
-            return Err(StorageError::BackendError(
-                "native maintenance cannot replace an accepted write view".into(),
-            ));
-        }
         view.current = writer.current().clone();
         let plan = writer.capture_reclaim().map_err(map)?;
-        Ok((receipt, pack_millis, plan, view.current.clone()))
+        Ok(Attempt::Ready((
+            receipt,
+            pack_millis,
+            plan,
+            view.current.clone(),
+        )))
+    }
+
+    pub(super) fn capture_native_cleanup(&self) -> StorageResult<MaintenanceReady> {
+        self.require_initialized()?;
+        if self.failed.load(Ordering::Acquire) {
+            return Err(StorageError::BackendError(
+                "native cleanup requires a recovered writer".into(),
+            ));
+        }
+        // Commit installs its view before it releases this mutex. Accepted work
+        // keeps this durable root, so capture does not flush the queue.
+        let writer = self.writer.lock().expect("native snapshot writer");
+        let current = writer.current().clone();
+        let plan = writer.capture_reclaim().map_err(map)?;
+        Ok((MaintenanceReceipt::default(), 0, plan, current))
     }
 }

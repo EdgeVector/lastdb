@@ -5,23 +5,14 @@ use crate::disk_pack::lifetime::GenerationHold;
 use crate::disk_pack::write_lock::WriteLock;
 use crate::disk_pack::{artifact, corrupt, generation, publish, Current};
 use crate::Result;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-
-struct ActivePack(Arc<WriteLock>);
-
-impl Drop for ActivePack {
-    fn drop(&mut self) {
-        self.0.compaction_active.store(false, Ordering::Release);
-    }
-}
 
 /// Captured under the writer boundary. No copy or disk walk occurs at capture.
 pub struct CompactionPlan {
     lock: Arc<WriteLock>,
     source: GenerationHold,
     caught: GenerationHold,
-    active: ActivePack,
+    protection: crate::disk_pack::private_files::OutputFiles,
     policy: super::CompactionPolicy,
 }
 
@@ -31,10 +22,10 @@ pub struct PreparedCompaction {
     pub(super) source: GenerationHold,
     pub(super) caught: GenerationHold,
     pub(super) output: PackOutput,
-    _active: ActivePack,
+    pub(super) protection: crate::disk_pack::private_files::OutputFiles,
     _space: SpaceReservation,
     policy: SpacePolicy,
-    off_gate_millis: u64,
+    pub(super) off_gate_millis: u64,
     rounds: u64,
     changes: u64,
     started: std::time::Instant,
@@ -46,12 +37,7 @@ impl CompactionPlan {
         current: &Current,
         policy: super::CompactionPolicy,
     ) -> Result<Self> {
-        if lock.compaction_active.swap(true, Ordering::AcqRel) {
-            return Err(crate::Error::WriteCapacity(
-                "compaction already active".into(),
-            ));
-        }
-        let active = ActivePack(Arc::clone(&lock));
+        let protection = crate::disk_pack::private_files::OutputFiles::new(Arc::clone(&lock.files));
         let lease = crate::disk_pack::lifetime::WriterReadLease::new(Arc::clone(&lock));
         let source = GenerationHold::from_writer(&lease, lock.root(), current)?;
         let caught = GenerationHold::from_writer(&lease, lock.root(), current)?;
@@ -59,7 +45,7 @@ impl CompactionPlan {
             lock,
             source,
             caught,
-            active,
+            protection,
             policy,
         })
     }
@@ -77,9 +63,9 @@ impl CompactionPlan {
         };
         let space = super::space::reserve_replacement(root, policy, reserve)?;
         let mut output = if boundary == 0 {
-            super::compact::copy(&self.lock, current)?
+            super::compact::copy(&self.lock, current, &self.protection)?
         } else {
-            super::tier::TierCopy::copy(root, current, boundary)?
+            super::tier::TierCopy::copy(root, current, boundary, self.protection.clone())?
         };
         output.receipt.tier_boundary = boundary;
 
@@ -88,7 +74,7 @@ impl CompactionPlan {
             source: self.source,
             caught: self.caught,
             output,
-            _active: self.active,
+            protection: self.protection,
             _space: space,
             policy: policy.clone(),
             off_gate_millis: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
@@ -123,6 +109,12 @@ impl PreparedCompaction {
         }
         self.reserve_delta(cut.current())?;
         let count = super::catch_up::run(self, cut.current(), limit)?;
+        // Another compaction can replace an intermediate cut without changing
+        // mutation versions. Retain the exact grafted files before its hold ends.
+        for coordinate in &self.output.dependencies {
+            self.protection
+                .protect_path(&coordinate.path(self.lock.root())?)?;
+        }
         self.caught = cut;
         self.rounds += 1;
         self.changes = self.changes.saturating_add(count);
@@ -162,6 +154,26 @@ impl PreparedCompaction {
         self.rounds
     }
 
+    pub(in crate::disk_pack) fn belongs_to(&self, lock: &WriteLock) -> bool {
+        std::ptr::eq(lock, self.lock.as_ref())
+    }
+
+    pub(super) fn prepared(&mut self) {
+        self.off_gate_millis = self
+            .started
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
+    }
+
+    pub(in crate::disk_pack) fn receipt(&mut self) -> MaintenanceReceipt {
+        self.output.receipt.copy_millis = self.off_gate_millis;
+        self.output.receipt.catch_up_rounds = self.rounds;
+        self.output.receipt.catch_up_records = self.changes;
+        std::mem::take(&mut self.output.receipt)
+    }
+
     pub(in crate::disk_pack) fn finish(
         self,
         lock: &WriteLock,
@@ -196,6 +208,7 @@ pub(super) fn publish_output(
     output.current.frontier = previous.frontier;
     output.current.published_ms = artifact::unix_ms();
     let receipt = generation::write(root, &output.current, &output.dependencies)?;
+    lock.files.invalidate()?;
     publish::publish_current(root, &output.current)?;
     lock.remember_checked(&output.current)?;
     output.receipt.generation = output.current.generation;

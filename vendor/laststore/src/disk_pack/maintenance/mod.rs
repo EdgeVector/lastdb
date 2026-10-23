@@ -7,6 +7,7 @@ mod concurrent;
 mod quote;
 mod reclaim;
 mod space;
+mod staged;
 mod stream;
 mod tier;
 mod tier_policy;
@@ -37,6 +38,8 @@ pub struct MaintenanceReceipt {
     pub catch_up_rounds: u64,
     /// Changed locators or newly grafted groups across catch-up rounds.
     pub catch_up_records: u64,
+    /// Stale-root and normal-queue deferrals before conditional publication.
+    pub publication_retries: u64,
     /// Verified obsolete file count removed after protection and grace checks.
     pub files_removed: u64,
     /// Exact removed bytes from regular file metadata.
@@ -51,5 +54,7 @@ pub(super) use compact::compact_locked;
 pub(super) use reclaim::{reclaim_at, reclaim_locked, sweep_orphans_at, sweep_orphans_locked};
 
 pub use concurrent::{CompactionPlan, PreparedCompaction};
+pub use staged::CompactionPublication;
+pub(in crate::disk_pack) use staged::{cleanup_abandoned, PENDING_GENERATION};
 
 pub(in crate::disk_pack) use tier_policy::CompactionPolicy;

@@ -30,6 +30,7 @@ mod pack_write;
 mod packed_page;
 mod page;
 mod page_write;
+mod private_files;
 mod publish;
 mod record;
 mod selected_batch;

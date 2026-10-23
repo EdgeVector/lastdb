@@ -3,6 +3,8 @@ use super::*;
 
 #[derive(Default)]
 pub(in crate::storage::disk_pack) struct Progress {
+    jobs: AtomicU64,
+    retries: AtomicU64,
     phase: AtomicU64,
     copy_millis: AtomicU64,
     swap_millis: AtomicU64,
@@ -17,6 +19,8 @@ pub(in crate::storage::disk_pack) struct Progress {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct NativeCompactionStatus {
+    pub compaction_jobs: u64,
+    pub compaction_publication_retries: u64,
     pub compaction_phase: String,
     pub compaction_copy_millis: u64,
     pub compaction_swap_millis: u64,
@@ -30,7 +34,8 @@ pub(in crate::storage::disk_pack) struct PhaseGuard(Arc<Progress>);
 
 impl Drop for PhaseGuard {
     fn drop(&mut self) {
-        self.0.phase(0);
+        let remaining = self.0.jobs.fetch_sub(1, Relaxed) - 1;
+        self.0.phase(if remaining == 0 { 0 } else { 6 });
     }
 }
 
@@ -69,6 +74,7 @@ impl Progress {
     }
 
     pub(in crate::storage::disk_pack) fn begin(self: &Arc<Self>) -> PhaseGuard {
+        self.jobs.fetch_add(1, Relaxed);
         self.phase(1);
         PhaseGuard(Arc::clone(self))
     }
@@ -88,18 +94,24 @@ impl Progress {
         self.rounds.store(receipt.catch_up_rounds, Relaxed);
         self.changed.store(receipt.catch_up_records, Relaxed);
         self.boundary.store(receipt.tier_boundary, Relaxed);
+        self.retries.store(receipt.publication_retries, Relaxed);
     }
 
     pub(in crate::storage::disk_pack) fn status(&self) -> NativeCompactionStatus {
-        let phase = match self.phase.load(Relaxed) {
-            1 => "capture",
-            2 => "copy",
-            3 => "catch_up",
-            4 => "swap",
-            5 => "reclaim",
+        let jobs = self.jobs.load(Relaxed);
+        let phase = match (jobs, self.phase.load(Relaxed)) {
+            (2.., _) => "multiple",
+            (_, 1) => "capture",
+            (_, 2) => "copy",
+            (_, 3) => "catch_up",
+            (_, 4) => "swap",
+            (_, 5) => "reclaim",
+            (_, 6) => "active",
             _ => "idle",
         };
         NativeCompactionStatus {
+            compaction_jobs: jobs,
+            compaction_publication_retries: self.retries.load(Relaxed),
             compaction_phase: phase.into(),
             compaction_copy_millis: self.copy_millis.load(Relaxed),
             compaction_swap_millis: self.swap_millis.load(Relaxed),

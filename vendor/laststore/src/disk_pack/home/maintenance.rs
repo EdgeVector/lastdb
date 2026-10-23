@@ -3,6 +3,15 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy};
 use crate::Result;
 
 impl HomeSnapshot {
+    /// Conditional publication performs no catch-up or receipt construction.
+    pub fn try_finish_pack(
+        &mut self,
+        output: &mut crate::disk_pack::maintenance::PreparedCompaction,
+        staged: &mut crate::disk_pack::maintenance::CompactionPublication,
+    ) -> Result<Option<MaintenanceReceipt>> {
+        self.writer.try_finish_pack(output, staged)
+    }
+
     /// Capture the installed deletion floor before the node releases its write gate.
     pub fn capture_reclaim(&self) -> Result<crate::disk_pack::snapshot::ReclaimPlan> {
         self.writer.capture_reclaim()

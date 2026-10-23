@@ -16,11 +16,21 @@ pub(super) struct TreeWriter {
 
 impl TreeWriter {
     pub(super) fn new(root: &Path, kind: TreeKind, generation: u64) -> Result<Self> {
+        Self::protected(root, kind, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        kind: TreeKind,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         let object = Uuid::new_v4();
-        let mut pages = PageWriter::new(
+        let mut pages = PageWriter::protected(
             root.join(kind.directory()).join(object.to_string()),
             object,
             generation,
+            protection,
         )?;
         pages.append(tree_output::leaf_fields(kind, 0), &[])?;
         Self::from_pages(pages, kind)

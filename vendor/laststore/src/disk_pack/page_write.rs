@@ -26,6 +26,7 @@ pub(super) struct PageFields {
 }
 
 pub(super) struct PageWriter {
+    protection: super::private_files::OutputFiles,
     directory: PathBuf,
     object: Uuid,
     generation: u64,
@@ -35,12 +36,23 @@ pub(super) struct PageWriter {
 
 impl PageWriter {
     pub(super) fn new(path: PathBuf, object: Uuid, generation: u64) -> Result<Self> {
+        Self::protected(path, object, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        path: PathBuf,
+        object: Uuid,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         nonnil(object)?;
         if generation == 0 {
             return Err(corrupt("zero creation generation"));
         }
+        protection.protect_directory(&path)?;
         directory(&path)?;
         Ok(Self {
+            protection,
             directory: path,
             object,
             generation,
@@ -66,10 +78,8 @@ impl PageWriter {
         if self.next % 512 == 0 {
             self.sync_part()?;
             self.file = Some(
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(self.directory.join(format!("part-{part:08x}")))?,
+                self.protection
+                    .create_new(&self.directory.join(format!("part-{part:08x}")))?,
             );
         }
         let bytes = encode_page(self.object, self.generation, self.next, fields, payload)?;
