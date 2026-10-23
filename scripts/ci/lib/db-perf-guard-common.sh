@@ -9,9 +9,9 @@
 #   2) Wait for a free cargo window (then refuse with a named exit if the wait
 #      budget is exhausted) so the daily probe is not permanently starved by
 #      concurrent agent cargo; keep the exit-3 refuse as the hard stop.
-#   3) Hold a host-local exclusive cargo lock while the probe measures, and
-#      expose scripts/ci/with-fold-host-cargo-lock.sh so agent/routine cargo
-#      can queue behind the probe instead of thrashing the host.
+#   3) Coordinate measurements with the optional host lock after setup.
+#      Ordinary agent builds do not take this lock; it cannot promise an idle
+#      host. Defer noisy measurements instead of blocking development.
 #   4) Classify cold vs warm target + record HEAD so over-budget failures can
 #      be attributed to cold-compile vs product regression.
 
@@ -148,8 +148,8 @@ db_perf_emit_concurrent_cargo_finding() {
   done <<<"$list"
   # Structured FINDING for routine scrapers / card filing.
   echo "FINDING: concurrent-cargo label=${label} count=${count} waited_seconds=${waited}"
-  echo "FINDING: concurrent-cargo use scripts/ci/with-fold-host-cargo-lock.sh for agent cargo; refuse is exit 3"
-  echo "::error::${label} concurrent-cargo count=${count} waited_seconds=${waited} (abort to preserve setup budget; wait window exhausted — re-run when host is idle, wrap agent cargo with with-fold-host-cargo-lock.sh, or set FOLD_DB_PERF_ALLOW_CONCURRENT_CARGO=1)" >&2
+  echo "FINDING: concurrent-cargo defer the measurement; ordinary agent builds do not require the host lock; refuse is exit 3"
+  echo "::error::${label} concurrent-cargo count=${count} waited_seconds=${waited} (measurement wait window exhausted; re-run when host is idle; do not block ordinary builds)" >&2
 }
 
 # Wait for a free heavy-cargo window, then return 0; or refuse with exit 3.
@@ -221,7 +221,7 @@ db_perf_refuse_if_concurrent_cargo() {
 #
 # Env:
 #   FOLD_DB_PERF_HOST_LOCK_ACQUIRE_SECONDS  — default 60
-#   FOLD_DB_PERF_SKIP_HOST_CARGO_LOCK=1     — skip (tests / emergency)
+#   FOLD_DB_PERF_SKIP_HOST_CARGO_LOCK=1     — skip optional measurement coordination
 db_perf_acquire_host_cargo_lock() {
   local label="${1:-db-perf-guard}"
   if [[ "${FOLD_DB_PERF_SKIP_HOST_CARGO_LOCK:-0}" == "1" ]]; then
