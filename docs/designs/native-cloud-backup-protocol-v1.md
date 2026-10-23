@@ -1,7 +1,7 @@
 # Native cloud backup protocol, version 1
 
-Status: unreleased draft, revision 6. Runtime support stays disabled.
-This revision adds the shared account cutoff boundary after snapshot integration and read-only source grants.
+Status: unreleased draft, revision 7. Runtime support stays disabled.
+This revision separates bounded closure observations from exact allocation comparison and live provider proof.
 Wire Version remains 1. Source consumers exist, but this work does not activate or deploy them.
 Source baseline: LastDB 4118c7baa12539c8c6bcf4391c497159f2a1529a and Exemem Infra a4ecf4d73465370a8b3e08cbfb44fed677b4ca62.
 
@@ -73,6 +73,13 @@ Its cutoff hold fences new legacy admission and control changes through conditio
 The hold does not prove closure of old grants or provider effects.
 Native new effects and acceptance require explicit Ready authority in addition to their generation and job conditions.
 A later transition must bind complete old-effect proof to the exact cutoff and account generation.
+The internal closure audit reports bounded observations of known legacy records. It grants no closure authority.
+Page completion does not prove historical ownership coverage, raw-grant closure, or a complete serving and rollback floor.
+Native allocation comparison visits the exact account key across every saved generation, including closed jobs.
+Every allocation change advances a billing revision in the same transaction as its obligation and byte totals.
+A saved comparison requires that revision to stay unchanged across all pages and its final conditional write.
+The comparison checks exact forward and reverse allocation identities. It preserves unknown reservations and never repairs counters or deletes objects.
+Earlier service versions without that revision remain an external deployment-floor prerequisite.
 Reads, exact close, and positive-evidence recovery remain available during the hold.
 Legacy purge has no authority over native backup files or native obligations.
 
