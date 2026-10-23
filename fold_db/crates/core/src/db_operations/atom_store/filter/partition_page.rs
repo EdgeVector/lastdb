@@ -114,9 +114,10 @@ impl AtomStore {
             return Ok(Some(rows));
         }
         let codec = self.key_codec_for_molecule(molecule)?;
-        let prefixes = codec
-            .api_hash_range_scan_prefixes_for_read(molecule, hash)
+        let prefix = codec
+            .api_hash_range_scan_prefix_for_hash(molecule, hash)
             .map_err(codec_err)?;
+        let prefixes = [prefix];
         let (skip, limit, after) = match window {
             KeyWindow::Offset { offset, limit } => (*offset, *limit, None),
             KeyWindow::After { after, limit } if after.hash.as_deref() == Some(hash) => {

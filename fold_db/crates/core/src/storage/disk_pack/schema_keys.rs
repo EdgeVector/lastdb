@@ -195,25 +195,19 @@ impl PackRuntime {
     ) -> Result<(), SchemaError> {
         // Key identity must be established before an empty or cold domain loads.
         db_ops.atoms().load_molecule_key_bundle(molecule).await?;
-        let prefixes = db_ops
-            .atoms()
-            .key_codec_for_molecule(molecule)?
-            .molecule_record_prefixes_for_read(molecule);
-        for prefix in prefixes {
-            let Some(uid) =
-                crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(&prefix)
-            else {
-                return Err(SchemaError::InvalidData("invalid schema key domain".into()));
-            };
-            let Some(entry) = self
-                .schema_keys
-                .entry((scope.map(str::to_owned), uid.to_owned()))
-            else {
-                return Ok(());
-            };
-            self.check_key_encoding(&db_ops, &entry)?;
-            self.ensure_key_entry(Arc::clone(&db_ops), entry).await?;
-        }
+        let prefix = crate::atom::molecule_key_codec::molecule_record_prefix(molecule);
+        let Some(uid) = crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(&prefix)
+        else {
+            return Err(SchemaError::InvalidData("invalid schema key domain".into()));
+        };
+        let Some(entry) = self
+            .schema_keys
+            .entry((scope.map(str::to_owned), uid.to_owned()))
+        else {
+            return Ok(());
+        };
+        self.check_key_encoding(&db_ops, &entry)?;
+        self.ensure_key_entry(db_ops, entry).await?;
         Ok(())
     }
 }
@@ -227,10 +221,10 @@ fn encoding_identity(db_ops: &DbOperations, molecule: &str) -> Result<String, Sc
         codec.encoding(),
         codec.range_encoding(),
         codec
-            .storage_hash_read_candidates(molecule, "schema-preload-identity")
+            .storage_hash(molecule, "schema-preload-identity")
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
         codec
-            .storage_range_read_candidates(molecule, "\0")
+            .storage_range(molecule, "\0")
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?
     ))
 }

@@ -12,7 +12,7 @@ impl AtomStore {
         let runtime = self.schema_keys_runtime();
         let codec = self.key_codec_for_molecule(molecule)?;
         let mut output = vec![None; keys.len()];
-        let mut groups = Vec::new();
+        let mut slot_keys = Vec::new();
         let mut misses = Vec::new();
         for (at, key) in keys.iter().enumerate() {
             let known = runtime
@@ -33,9 +33,9 @@ impl AtomStore {
                 }
                 Some(None) => {}
                 None => {
-                    groups.push(
+                    slot_keys.push(
                         codec
-                            .api_hash_range_record_keys_for_read(
+                            .api_hash_range_record_key(
                                 molecule,
                                 key.hash.as_deref().unwrap_or_default(),
                                 key.range.as_deref().unwrap_or_default(),
@@ -46,18 +46,14 @@ impl AtomStore {
                 }
             }
         }
-        let fetched = self
-            .load_first_present_candidate_with_key(scope, &groups)
-            .await?;
-        for ((at, candidates), hit) in misses.into_iter().zip(&groups).zip(fetched) {
-            if let Some((base, record)) = &hit {
-                self.note_selected_query_tip_candidates(
-                    scope, molecule, &keys[at], record, base, candidates,
-                )?;
+        let fetched = self.load_visible_per_key_records(scope, &slot_keys).await?;
+        for ((at, base), hit) in misses.into_iter().zip(&slot_keys).zip(fetched) {
+            if let Some(record) = &hit {
+                self.note_selected_query_tip_key(scope, molecule, &keys[at], record, base)?;
             } else {
-                self.note_missing_query_key(scope, molecule, &keys[at], candidates)?;
+                self.note_missing_query_key(scope, molecule, &keys[at], base)?;
             }
-            output[at] = hit;
+            output[at] = hit.map(|record| (base.clone(), record));
         }
         Ok(output)
     }

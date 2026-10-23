@@ -130,27 +130,9 @@ impl MoleculeKeyCodec {
         }
     }
 
-    /// The storage hash for this molecule's fixed encryption key.
-    pub fn storage_hash_read_candidates(
-        &self,
-        molecule_uuid: &str,
-        api_hash: &str,
-    ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        Ok(vec![self.storage_hash(molecule_uuid, api_hash)?])
-    }
-
-    /// The storage range for this molecule's fixed encryption key.
-    pub fn storage_range_read_candidates(
-        &self,
-        molecule_uuid: &str,
-        api_range: &str,
-    ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        Ok(vec![self.storage_range(molecule_uuid, api_range)?])
-    }
-
     /// `mk:{M}:{esc(storage_hash)}\0{storage_range}` from API hash + range.
     ///
-    /// Write path: one key under the caller's exact `molecule_uuid`.
+    /// Reads and writes use one key under the caller's exact `molecule_uuid`.
     pub fn api_hash_range_record_key(
         &self,
         molecule_uuid: &str,
@@ -160,38 +142,6 @@ impl MoleculeKeyCodec {
         let h = self.storage_hash(molecule_uuid, api_hash)?;
         let r = self.storage_range(molecule_uuid, api_range)?;
         Ok(hash_range_record_key(molecule_uuid, &h, &r))
-    }
-
-    /// Point-read keys for one API slot under the supplied molecule identity.
-    pub fn api_hash_range_record_keys_for_read(
-        &self,
-        molecule_uuid: &str,
-        api_hash: &str,
-        api_range: &str,
-    ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        Ok(vec![self.api_hash_range_record_key(
-            molecule_uuid,
-            api_hash,
-            api_range,
-        )?])
-    }
-
-    /// Prefixes for one API hash under the supplied exact molecule identity.
-    pub fn api_hash_range_scan_prefixes_for_read(
-        &self,
-        molecule_uuid: &str,
-        api_hash: &str,
-    ) -> Result<Vec<String>, MoleculeKeyCodecError> {
-        Ok(vec![self.api_hash_range_scan_prefix_for_hash(
-            molecule_uuid,
-            api_hash,
-        )?])
-    }
-
-    /// The single `mk:{M}:` prefix for the supplied exact molecule identity.
-    #[must_use]
-    pub fn molecule_record_prefixes_for_read(&self, molecule_uuid: &str) -> Vec<String> {
-        vec![molecule_record_prefix(molecule_uuid)]
     }
 
     /// `mk:{M}:{esc(storage_hash(api_hash))}\0` scan prefix from API hash.

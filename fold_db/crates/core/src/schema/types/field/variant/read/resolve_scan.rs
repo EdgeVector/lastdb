@@ -30,11 +30,12 @@ impl FieldVariant {
             paged
         } else {
             // Storage-form hash (single path).
-            let prefixes = db_ops
+            let prefix = db_ops
                 .atoms()
                 .key_codec_for_molecule(molecule_uuid)?
-                .api_hash_range_scan_prefixes_for_read(molecule_uuid, hash)
+                .api_hash_range_scan_prefix_for_hash(molecule_uuid, hash)
                 .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+            let prefixes = [prefix];
             db_ops
                 .atoms()
                 .scan_per_key_prefixes(&prefixes, storage_prefix)

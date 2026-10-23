@@ -1,0 +1,12 @@
+{
+  "run_id": "f023d965fe0246e2b383e7cf2dd21d1c",
+  "home": "/workspace/eb-pairs/preload-2-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 8100,
+  "allocated_bytes_removed": 740257792,
+  "free_bytes_before": 15998074880,
+  "free_bytes_after": 16746692608
+}

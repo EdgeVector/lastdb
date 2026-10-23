@@ -39,13 +39,13 @@ impl MutationManager {
             ));
         }
         let atoms = self.db_ops.atoms();
-        let groups = job
+        let slot_keys = job
             .sibling_moves
             .iter()
             .map(|movement| {
                 atoms
                     .key_codec_for_molecule(&movement.molecule_uuid)?
-                    .api_hash_range_record_keys_for_read(
+                    .api_hash_range_record_key(
                         &movement.molecule_uuid,
                         movement.old_key.hash.as_deref().unwrap_or_default(),
                         movement.old_key.range.as_deref().unwrap_or_default(),
@@ -54,22 +54,22 @@ impl MutationManager {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let current = atoms
-            .load_first_present_candidate(job.storage_prefix.as_deref(), &groups)
+            .load_visible_per_key_records(job.storage_prefix.as_deref(), &slot_keys)
             .await?;
-        if current.len() != groups.len() {
+        if current.len() != slot_keys.len() {
             return Err(SchemaError::StorageRead {
                 detail: "protein old-key count differs".into(),
             });
         }
         let mut removals = BTreeMap::new();
-        for ((movement, candidates), current) in job.sibling_moves.iter().zip(groups).zip(current) {
+        for ((movement, base), current) in job.sibling_moves.iter().zip(slot_keys).zip(current) {
             if current.as_ref().is_none_or(|record| {
                 record.entry != movement.expected_old.entry
                     || record.meta != movement.expected_old.meta
             }) {
                 continue;
             }
-            plan_removals(movement, &candidates, &mut removals)?;
+            plan_removals(movement, &base, &mut removals)?;
         }
         for (_, slots) in removals.values_mut() {
             slots.sort();
@@ -95,32 +95,29 @@ impl MutationManager {
 
 fn plan_removals(
     movement: &SiblingMove,
-    candidates: &[String],
+    candidate: &str,
     removals: &mut RemovedMolecules,
 ) -> Result<(), SchemaError> {
-    for candidate in candidates {
-        let uuid =
-            molecule_key_codec::molecule_uuid_from_storage_key(candidate).ok_or_else(|| {
-                SchemaError::InvalidData("protein move has an invalid molecule key".into())
-            })?;
-        let suffix = candidate
-            .strip_prefix(&molecule_key_codec::molecule_record_prefix(uuid))
-            .and_then(molecule_key_codec::decode_hash_range_suffix)
-            .ok_or_else(|| {
-                SchemaError::InvalidData("protein move has an invalid key coordinate".into())
-            })?;
-        let (_, slots) = removals.entry(uuid.to_owned()).or_insert_with(|| {
-            (
-                MoleculeHashRange::from_write_records(
-                    uuid.to_owned(),
-                    movement.header.version,
-                    movement.header.updated_at,
-                    Vec::new(),
-                ),
+    let uuid = molecule_key_codec::molecule_uuid_from_storage_key(candidate).ok_or_else(|| {
+        SchemaError::InvalidData("protein move has an invalid molecule key".into())
+    })?;
+    let suffix = candidate
+        .strip_prefix(&molecule_key_codec::molecule_record_prefix(uuid))
+        .and_then(molecule_key_codec::decode_hash_range_suffix)
+        .ok_or_else(|| {
+            SchemaError::InvalidData("protein move has an invalid key coordinate".into())
+        })?;
+    let (_, slots) = removals.entry(uuid.to_owned()).or_insert_with(|| {
+        (
+            MoleculeHashRange::from_write_records(
+                uuid.to_owned(),
+                movement.header.version,
+                movement.header.updated_at,
                 Vec::new(),
-            )
-        });
-        slots.push(suffix);
-    }
+            ),
+            Vec::new(),
+        )
+    });
+    slots.push(suffix);
     Ok(())
 }

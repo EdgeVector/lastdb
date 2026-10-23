@@ -1,0 +1,11 @@
+{
+  "creator_pid": 22355,
+  "device": 27,
+  "home": "/workspace/eb-pairs/plain-0-after/home",
+  "inode": 1059770,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "806ed2c23f474d818675f7787ea58768",
+  "scratch": "/workspace/eb-pairs/plain-0-after",
+  "version": 1
+}

@@ -178,12 +178,12 @@ impl AtomStore {
                 &storage_range,
             );
             slots.push((api_hash.to_string(), api_range.to_string()));
-            groups.push(vec![key]);
+            groups.push(key);
         }
         // The shared helper reads each exact tip and Delete barrier in batches,
         // and probes this molecule's active generation only once.
         let selected = self
-            .load_first_present_candidate(storage_prefix, &groups)
+            .load_visible_per_key_records(storage_prefix, &groups)
             .await?;
         let records = slots
             .into_iter()

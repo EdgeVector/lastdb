@@ -63,52 +63,26 @@ impl AtomStore {
             .next())
     }
 
-    /// One grouped read for many candidate spellings of many caller keys.
-    ///
-    /// `groups[i]` lists the dual-read spellings of caller key `i`, in the
-    /// order [`Self::get_per_key`] would try them. The first spelling that is
-    /// present and not hidden by a Delete barrier wins. A later spelling of
-    /// that same row is ignored.
-    ///
-    /// Present spellings are read by one [`Self::load_exact_per_key_records`]
-    /// and checked by one [`Self::filter_delete_barriers_for_records`]. Keys
-    /// that share a hash group share one unpublished open. The group does
-    /// not stay. An empty candidate list reads nothing.
-    pub(crate) async fn load_first_present_candidate(
+    /// Resolve exact keys in request order, retaining duplicate positions.
+    /// Generation overlays and Delete barriers use the same captured read.
+    pub(crate) async fn load_visible_per_key_records(
         &self,
         storage_prefix: Option<&str>,
-        groups: &[Vec<String>],
+        keys: &[String],
     ) -> Result<Vec<Option<PerKeyRecord>>, SchemaError> {
-        Ok(self
-            .load_first_present_candidate_with_key(storage_prefix, groups)
-            .await?
-            .into_iter()
-            .map(|hit| hit.map(|(_, record)| record))
-            .collect())
-    }
-
-    /// Keep the winning physical coordinate until a caller records its tip.
-    pub(crate) async fn load_first_present_candidate_with_key(
-        &self,
-        storage_prefix: Option<&str>,
-        groups: &[Vec<String>],
-    ) -> Result<Vec<Option<(String, PerKeyRecord)>>, SchemaError> {
-        let mut seen = std::collections::HashSet::<&str>::new();
-        let mut unique = Vec::new();
-        for group in groups {
-            for key in group {
-                if seen.insert(key.as_str()) {
-                    unique.push(key.clone());
-                }
-            }
+        if keys.is_empty() {
+            return Ok(Vec::new());
         }
-        if unique.is_empty() {
-            return Ok(vec![None; groups.len()]);
-        }
+        let mut seen = std::collections::HashSet::new();
+        let unique: Vec<_> = keys
+            .iter()
+            .filter(|key| seen.insert(key.as_str()))
+            .cloned()
+            .collect();
         let loaded = self
             .load_exact_per_key_records(storage_prefix, &unique)
             .await?;
-        let present: Vec<(String, PerKeyRecord)> = unique
+        let present = unique
             .into_iter()
             .zip(loaded)
             .filter_map(|(key, record)| record.map(|record| (key, record)))
@@ -116,19 +90,7 @@ impl AtomStore {
         let visible = self
             .filter_delete_barriers_for_records(present, storage_prefix)
             .await?;
-        let visible_by_key: std::collections::HashMap<String, PerKeyRecord> =
-            visible.into_iter().collect();
-        let mut out = Vec::with_capacity(groups.len());
-        for group in groups {
-            let mut hit = None;
-            for key in group {
-                if let Some(record) = visible_by_key.get(key) {
-                    hit = Some((key.clone(), record.clone()));
-                    break;
-                }
-            }
-            out.push(hit);
-        }
-        Ok(out)
+        let visible: std::collections::HashMap<_, _> = visible.into_iter().collect();
+        Ok(keys.iter().map(|key| visible.get(key).cloned()).collect())
     }
 }

@@ -62,18 +62,14 @@ impl FieldVariant {
         let results = match self.common().molecule_uuid().map(String::as_str) {
             Some(mol_uuid) => {
                 let codec = db_ops.atoms().key_codec_for_molecule(mol_uuid)?;
-                let expanded = crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
-                    &effective_filter,
-                    &codec,
-                    mol_uuid,
-                )
-                .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-                let mut merged = std::collections::HashMap::new();
-                for f in expanded {
-                    let r = self.apply_filter(Some(f));
-                    merged.extend(r.matches);
-                }
-                crate::schema::types::field::HashRangeFilterResult::new(merged)
+                let storage_filter =
+                    crate::schema::types::field::filter_utils::filter_range_bounds_for_apply(
+                        &effective_filter,
+                        &codec,
+                        mol_uuid,
+                    )
+                    .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+                self.apply_filter(Some(storage_filter))
             }
             None => self.apply_filter(Some(effective_filter)),
         };
@@ -146,17 +142,14 @@ impl FieldVariant {
         filter: &HashRangeFilter,
     ) -> Result<Vec<(KeyValue, crate::atom::AtomEntry)>, SchemaError> {
         let codec = db_ops.atoms().key_codec_for_molecule(molecule_uuid)?;
-        let expanded =
-            crate::schema::types::field::filter_utils::expand_filter_range_bounds_for_apply(
+        let storage_filter =
+            crate::schema::types::field::filter_utils::filter_range_bounds_for_apply(
                 filter,
                 &codec,
                 molecule_uuid,
             )
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-        let mut raw_matches = HashMap::new();
-        for filter in expanded {
-            raw_matches.extend(self.apply_filter(Some(filter)).matches);
-        }
+        let raw_matches = self.apply_filter(Some(storage_filter)).matches;
         let remap_ope_range = db_ops.atoms().key_codec().range_encoding().writes_ope();
 
         let mut pending = Vec::with_capacity(raw_matches.len());

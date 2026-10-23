@@ -14,7 +14,7 @@ impl MutationManager {
             return Ok(vec![false; keys.len()]);
         };
         let mut requests = Vec::new();
-        let mut groups = Vec::new();
+        let mut slot_keys = Vec::new();
         for (index, key) in keys.iter().enumerate() {
             let mut count = 0;
             for (name, coordinate) in [
@@ -39,11 +39,11 @@ impl MutationManager {
                     valid[index] = false;
                     continue;
                 };
-                groups.push(
+                slot_keys.push(
                     self.db_ops
                         .atoms()
                         .key_codec_for_molecule(molecule)?
-                        .api_hash_range_record_keys_for_read(molecule, &hash, &range)
+                        .api_hash_range_record_key(molecule, &hash, &range)
                         .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
                 );
                 requests.push((index, coordinate));
@@ -53,7 +53,7 @@ impl MutationManager {
         let selected = self
             .db_ops
             .atoms()
-            .load_first_present_candidate_with_key(storage_prefix, &groups)
+            .load_visible_per_key_records(storage_prefix, &slot_keys)
             .await?;
         if selected.len() != requests.len() {
             return Err(SchemaError::StorageRead {
@@ -64,7 +64,7 @@ impl MutationManager {
             .into_iter()
             .zip(selected)
             .map(|((index, coordinate), record)| {
-                if let Some((_, record)) = record {
+                if let Some(record) = record {
                     Ok(Some((index, coordinate, record.entry.atom_uuid)))
                 } else {
                     valid[index] = false;

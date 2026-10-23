@@ -5,7 +5,7 @@ impl AtomStore {
     ///
     /// `base_keys` are already encoded
     /// ([`molecule_key_codec::hash_range_record_key`]). This does not re-encode
-    /// API hash/range candidates: a storage-form page key passed through
+    /// API hash/range coordinates: a storage-form page key passed through
     /// [`Self::load_per_key_records_for_slots`] would be blinded again, and
     /// that helper also reads deletes when no generation pointer exists.
     ///
@@ -118,7 +118,7 @@ impl AtomStore {
     /// One `get_many` over the storage layer (single `spawn_blocking` hop)
     /// instead of N sequential `get_per_key` calls. Missing keys yield no
     /// entry (sparse fields). Each output position matches its input slot and
-    /// retains the actual winning storage key, including fallback spellings.
+    /// retains the exact storage key.
     pub(crate) async fn load_per_key_records_for_slots(
         &self,
         molecule_uuid: &str,
