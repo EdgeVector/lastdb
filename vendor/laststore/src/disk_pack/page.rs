@@ -26,8 +26,7 @@ pub(super) struct EmptyLocator {
     root: std::path::PathBuf,
     tree: super::TreeRoot,
     page: Arc<Page>,
-    generation: u64,
-    required_features: u64,
+    current: super::Current,
 }
 
 impl Page {
@@ -243,8 +242,7 @@ impl ReadCall {
             root: self.root.clone(),
             tree,
             page,
-            generation: self.current.generation,
-            required_features: self.current.required_features,
+            current: self.current.clone(),
         }))
     }
 
@@ -254,10 +252,7 @@ impl ReadCall {
         &mut self,
         template: &EmptyLocator,
     ) -> Result<super::TreeRoot> {
-        if self.root != template.root
-            || self.current.generation != template.generation
-            || self.current.required_features != template.required_features
-        {
+        if self.root != template.root || self.current != template.current {
             return Err(corrupt(
                 "empty locator template belongs to another publication",
             ));
