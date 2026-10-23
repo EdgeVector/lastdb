@@ -14,15 +14,40 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 
 sys.dont_write_bytecode = True
-PROOF = Path(__file__).resolve().parent
-ROOT = PROOF.parents[2]
+SOURCE = Path(__file__).resolve().parent
+ROOT = SOURCE.parents[2]
+PROOF = None
 spec = importlib.util.spec_from_file_location(
-    'integrated', PROOF.parent / 'durable-write-integrated-20261022/capture.py')
+    'integrated', SOURCE.parent / 'durable-write-integrated-20261022/capture.py')
 old = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(old)
 capture, schemas, save = old.capture, old.schemas, old.save
+
+
+def external_path(path):
+    path = path.resolve()
+    if path == ROOT or ROOT in path.parents:
+        raise RuntimeError('generated output and daemon homes must stay outside the source tree')
+    return path
+
+
+def configure_output(path=None):
+    global PROOF
+    if path is None:
+        state = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state')))
+        root = Path(os.environ.get('LAST_STACK_EVIDENCE_ROOT',
+                    os.environ.get('RUNNER_TEMP', str(state / 'last-stack/artifacts/lastdb'))))
+        root = external_path(root)
+        root.mkdir(parents=True, exist_ok=True)
+        path = Path(tempfile.mkdtemp(prefix='eager-durable-', dir=root))
+    PROOF = external_path(path)
+    PROOF.mkdir(parents=True, exist_ok=True)
+    old.PROOF = PROOF
+    capture.PROOF = PROOF
+    return PROOF
 
 
 class Node(capture.Node):
@@ -80,13 +105,29 @@ def sustain(node, done, output):
     samples, compactions = [], []
     while not done.is_set():
         samples.append(inventory(node))
-        receipt = capture.base.compact(node)
-        compactions.append(receipt)
+        if node.compaction_mode != 'automatic':
+            compactions.append(compact(node))
         save(output / 'compactions.json', compactions)
         save(output / 'inventory.json', samples)
         done.wait(1)
     samples.append(inventory(node))
     save(output / 'inventory.json', samples)
+
+
+def compact(node):
+    began = time.time_ns() // 1000
+    connection = schemas.measure.UnixHTTP(node.socket)
+    try:
+        body = {'dry_run': False, 'grace_ms': 0, 'report_usage': True,
+                'full_copy': node.compaction_mode == 'full'}
+        status, receipt, _ = schemas.measure.request(connection, '/api/db/compact', body)
+        return {'start_unix_us': began, 'end_unix_us': time.time_ns() // 1000,
+                'status': status, 'receipt': receipt}
+    except Exception as error:
+        return {'start_unix_us': began, 'end_unix_us': time.time_ns() // 1000,
+                'error': str(error)}
+    finally:
+        connection.close()
 
 
 def recover(node, args, expected):
@@ -111,29 +152,38 @@ def recover(node, args, expected):
         json.dumps(events, separators=(',', ':')).encode(), mtime=0))
 
 
-def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, sustained=False, disk_cap=None):
+def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False,
+        sustained=False, disk_cap=None, compaction_mode='full', high_water=4096):
+    scratch = external_path(scratch)
+    if PROOF is None:
+        raise RuntimeError('configure an external output directory before the capture')
+    external_path(PROOF)
     output = PROOF / name
     output.mkdir()
     home = scratch / ('h' + str(len(list(scratch.glob('h*')))))
     home.mkdir()
     args = argparse.Namespace(output=output, count=count, schemas=64, clients=clients, batch_size=batch)
-    node = Node(binary, home, scratch / (name + '.log'), 4096, False, workers=8)
+    node = Node(binary, home, scratch / (name + '.log'), high_water, False, workers=8)
     node.profile, node.maintenance, node.disk_cap = profile, True, disk_cap
+    node.compaction_mode = compaction_mode
     save(output / 'inputs.json', {'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
          'home': str(home), 'generated_data_only': True, 'schemas': 64, 'calls': count,
          'clients': clients, 'batch': batch, 'distinct_schemas_between_clients': True,
          'profile': profile, 'auto_maintenance': True, 'sustained_compaction': sustained,
+         'compaction_mode': compaction_mode, 'dependency_high_water': high_water,
          'disk_cap_bytes': disk_cap,
          'durability': 'omitted; durable required', 'load_before': os.getloadavg()})
     done = threading.Event()
     try:
         node.start()
         schemas.seed(node, 64, output)
+        save(output / 'write-start.json', inventory(node))
         if sustained:
             with ThreadPoolExecutor(max_workers=1) as pool:
                 job = pool.submit(sustain, node, done, output)
                 try:
                     expected = schemas.measured_calls(node, args)
+                    save(output / 'write-end.json', inventory(node))
                 finally:
                     done.set()
                 job.result(timeout=90)
@@ -144,7 +194,7 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
         if not values['all_values_match']:
             raise RuntimeError('acknowledged values differ')
         recover(node, args, expected)
-        if name in ('groups-sustained', 'counts-sustained', 'barrier-sustained'):
+        if sustained:
             erase_after_compaction(node, output, expected)
         save(output / 'shutdown.json', {'exit_code': node.stop()})
         save(output / 'native-shutdown.json', json.loads((home / '.shutdown_flush_ready').read_text()))
@@ -185,112 +235,58 @@ def erase_after_compaction(node, output, expected):
         raise RuntimeError('post-compaction Delete/Purge recovery differs')
 
 
-def verify_refused(scratch, name='capped-recovery'):
-    output = PROOF / name
-    output.mkdir()
-    inputs = json.loads((PROOF / 'final-capped/inputs.json').read_text())
-    writes = json.loads((PROOF / 'final-capped/writes.json').read_text())
-    home = Path(inputs['home']).resolve(strict=True)
-    home.relative_to(scratch)
-    if home.stat().st_uid != os.getuid() or not inputs['generated_data_only']:
-        raise RuntimeError('capped home ownership differs')
-    node = Node(scratch / 'candidate', home, scratch / (name + '.log'),
-                4096, False, workers=8)
-    node.profile, node.maintenance, node.disk_cap = False, False, 1073741824
-    rows = writes['samples']
-    wanted = {identity for row in rows if row['ok'] for identity in row['receipt']['mutation_ids']}
-    if any(row['status'] != 507 for row in rows if not row['ok']):
-        raise RuntimeError('unexpected capped refusal')
-    try:
-        node.start()
-        values = schemas.check_values(node, writes['expected_sha256'])
-        events = old.notices(node)
-        found = [event['mutation_id'] for event in events]
-        failed = {row['schema'] for row in rows if not row['ok']} - writes['expected_sha256'].keys()
-        queries = [{'schema_name': name, 'fields': ['value'],
-                    'filter': {'HashRangeKeys': [[name, f'record-{n:03}'] for n in range(8)]},
-                    'limit': 8} for name in failed]
-        absent = old.independent_queries(node, queries)
-        space = inventory(node)
-        result = {'accepted_calls': sum(row['ok'] for row in rows),
-                  'refused_calls': sum(not row['ok'] for row in rows),
-                  'all_values_match': values['all_values_match'], 'wanted_notices': len(wanted),
-                  'actual_notices': len(found), 'notices_exact': len(found) == len(wanted) and set(found) == wanted,
-                  'failed_new_keys_absent': all(not r['results'] for r in absent),
-                  'inventory': space, 'cap': node.disk_cap,
-                  'binary_sha256': hashlib.sha256(node.binary.read_bytes()).hexdigest()}
-        save(output / 'result.json', result)
-        if not (result['all_values_match'] and result['notices_exact']
-                and result['failed_new_keys_absent'] and space['bytes'] <= node.disk_cap):
-            raise RuntimeError('capped refusal or acknowledged recovery differs')
-        save(output / 'shutdown.json', {'exit_code': node.stop()})
-    finally:
-        node.stop()
-        node.log.close()
-        old.preserve_log(scratch, name, output)
+def compaction_progress(output, mode):
+    writes = json.loads((output / 'writes.json').read_text())
+    first = min(row['start_unix_us'] for row in writes['samples'])
+    last = max(row['end_unix_us'] for row in writes['samples'])
+    samples = [row for row in json.loads((output / 'inventory.json').read_text())
+               if first <= row['time_us'] <= last]
+    before = writes['before']['native_disk']['maintenance_runs']
+    runs = max([row['native']['native_disk']['maintenance_runs'] for row in samples] + [before]) - before
+    rows = json.loads((output / 'compactions.json').read_text())
+    active = [row for row in rows if row.get('status') == 200
+              and first <= row['start_unix_us'] <= row['end_unix_us'] <= last]
+    reports = [row['receipt']['compact']['native_disk'] for row in active]
+    removed = sum(row['bytes_removed'] for row in reports)
+    result = {'maintenance_runs_observed_during_writes': runs,
+              'explicit_completed_during_writes': len(active),
+              'explicit_bytes_removed_during_writes': removed,
+              'observed_inventory_peak_bytes': max((row['bytes'] for row in samples), default=None),
+              'tier_publications': sum(row['tier_boundary'] > 0 for row in reports),
+              'mode': mode, 'latency': writes['summary']}
+    save(output / 'compaction-progress.json', result)
+    if runs == 0 or (mode != 'automatic' and removed == 0):
+        raise RuntimeError('CI capture does not establish active compaction and explicit space release')
+    if mode == 'tier' and not result['tier_publications']:
+        raise RuntimeError('CI tier capture contains no active tier publication')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--binary', type=Path, required=True)
+    parser.add_argument('--source-revision', required=True)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata', 'groups', 'counts', 'barrier'), required=True)
+    parser.add_argument('--output-root', type=Path)
+    parser.add_argument('--mode', choices=('automatic', 'tier', 'full'), required=True)
+    parser.add_argument('--calls', type=int, default=4096)
+    parser.add_argument('--high-water', type=int, default=128)
     args = parser.parse_args()
     if (os.environ.get('GITHUB_ACTIONS') != 'true'
             or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
         raise RuntimeError('captures require GitHub-hosted Actions; local benchmarks are retired')
-    scratch = args.scratch.resolve(strict=True)
+    if args.calls <= 0 or args.calls % 4 or args.high_water <= 0:
+        raise RuntimeError('use a positive call count divisible by four and a positive high water')
+    scratch = external_path(args.scratch.resolve(strict=True))
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    if args.mode in ('groups', 'counts', 'barrier'):
-        prefix = args.mode
-        run(scratch / 'candidate', scratch, prefix + '-smoke', 4, 8, 128, True)
-        run(scratch / 'candidate', scratch, prefix + '-sustained', 4, 8, 4096, True, True)
-        run(scratch / 'candidate', scratch, prefix + '-single', 1, 1, 1000, True)
-        run(scratch / 'before', scratch, prefix + '-before-single', 1, 1, 1000, True)
-        run(scratch / 'candidate', scratch, prefix + '-concurrent', 4, 8, 1000, True)
-        run(scratch / 'before', scratch, prefix + '-before-concurrent', 4, 8, 1000, True)
-        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
-                        '--name', prefix + '-semantics', '--home-name', 'hmo' if prefix == 'groups' else ('hcnt' if prefix == 'counts' else 'hbar')], check=True)
-        old.boundaries(scratch / 'candidate', scratch, prefix + '-boundaries', 'hgd' if prefix == 'groups' else ('hct' if prefix == 'counts' else 'hbr'))
-        verify_refused(scratch, prefix + '-capped-recovery')
-    elif args.mode == 'metadata':
-        run(scratch / 'candidate', scratch, 'metadata-smoke', 4, 8, 128, True)
-        run(scratch / 'candidate', scratch, 'metadata-sustained', 4, 8, 4096, True, True)
-        run(scratch / 'candidate', scratch, 'metadata-single', 1, 1, 1000, True)
-        run(scratch / 'before', scratch, 'metadata-before-single', 1, 1, 1000, True)
-        run(scratch / 'candidate', scratch, 'metadata-concurrent', 4, 8, 1000, True)
-        run(scratch / 'before', scratch, 'metadata-before-concurrent', 4, 8, 1000, True)
-        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
-                        '--name', 'metadata-semantics', '--home-name', 'hmg'], check=True)
-        old.PROOF = PROOF
-        old.boundaries(scratch / 'candidate', scratch, 'metadata-boundaries', 'hc')
-        verify_refused(scratch)
-    elif args.mode == 'final':
-        run(scratch / 'candidate', scratch, 'final-smoke', 4, 8, 128, True)
-        run(scratch / 'before', scratch, 'repeat-before-single')
-        run(scratch / 'candidate', scratch, 'final-single')
-        run(scratch / 'candidate', scratch, 'final-concurrent', 4, 8)
-        run(scratch / 'before', scratch, 'repeat-before-concurrent', 4, 8)
-        run(scratch / 'candidate', scratch, 'final-profile', 4, 8, 512, True)
-        run(scratch / 'before', scratch, 'repeat-before-single-profile', 1, 1, 512, True)
-        run(scratch / 'candidate', scratch, 'final-single-profile', 1, 1, 512, True)
-        run(scratch / 'candidate', scratch, 'final-sustained', 4, 8, 4096, True, True)
-        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
-                        '--name', 'final-semantics'], check=True)
-        old.PROOF = PROOF
-        old.boundaries(scratch / 'candidate', scratch, 'final-boundaries', 'hb')
-        run(scratch / 'candidate', scratch, 'final-capped', 4, 8, 512, True, True, 1073741824)
-    elif args.mode == 'smoke':
-        run(scratch / 'candidate', scratch, 'smoke', 4, 8, 128, True)
-    elif args.mode == 'bench':
-        for label in ('before', 'candidate'):
-            run(scratch / label, scratch, label + '-single')
-            run(scratch / label, scratch, label + '-concurrent', 4, 8)
-        run(scratch / 'candidate', scratch, 'candidate-profile', 4, 8, 512, True)
-        run(scratch / 'candidate', scratch, 'sustained', 4, 8, 4096, True, True)
-        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch)], check=True)
-    else:
-        run(scratch / 'candidate', scratch, 'sustained', 4, 8, 4096, True, True)
+    output = configure_output(args.output_root)
+    binary = args.binary.resolve(strict=True)
+    save(output / 'source-identity.json', {'source_revision': args.source_revision,
+         'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+         'command': sys.argv, 'generated_data_only': True})
+    run(binary, scratch, args.mode, 4, 8, args.calls, True, True,
+        compaction_mode=args.mode, high_water=args.high_water)
+    compaction_progress(output / args.mode, args.mode)
 
 
 if __name__ == '__main__':

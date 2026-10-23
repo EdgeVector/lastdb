@@ -8,8 +8,8 @@ PR #282 remains draft and unmerged.
 All captures in this report precede Tom's 2026-10-23 CI-only instruction.
 Further LastDB builds and benchmarks must use GitHub Actions.
 The local build runner is removed, and the capture entry points require a GitHub-hosted Actions runner.
-The owned local capture home is removed after the committed receipts are preserved.
-`local-cleanup.json` records its exact path, owner, process check, and completed removal.
+The owned local capture home is removed after its receipts are preserved.
+The raw evidence and cleanup receipt now stay outside Git under the LastDB state artifact root.
 
 ## Latest completed comparison
 
@@ -97,6 +97,8 @@ Required CI also passes for the rebased proof head `0f33ee9f1` in [run 400105023
 The checks include format, strict workspace Clippy, size, and the existing source rules.
 No tests or coverage checks run.
 These checks do not supply the pending equal-size benchmark or the continuous-write compaction result.
+The later FIFO compaction handoff also awaits its own CI build and operational result.
+It changes the publication turn, so the historical compaction results do not measure that revision.
 
 ## Next actions
 
@@ -106,5 +108,38 @@ These checks do not supply the pending equal-size benchmark or the continuous-wr
 4. Require active compaction progress and disk-space relief before the final merge review.
 
 The source review is in `SOURCE_REVIEW.md`.
-The raw capture receipts use gzip where their size exceeds 64 KiB.
-The `compressed.json` receipt records the original byte counts and hashes.
+
+## Evidence archive
+
+The external archive contains 920 historical raw files and their per-file checksums.
+Its source evidence revision is `b5995a173dd5d1aa0d6aca726ac2025d2c6f0abc`.
+The raw files total 27814802 bytes; the archive uses 23630317 bytes.
+The archive SHA-256 is `72e7ad223d13fe11fd976848ba33f92e56e129cf833b0665c55a278d48929047`.
+Each archived file passes a checksum readback.
+
+The archive is `/Users/tomtang/.local/state/last-stack/artifacts/lastdb/pr282-historical-b17n8uva/historical-evidence.tar.gz`.
+Its manifest records the original relative paths, byte counts, and checksums.
+No upload is verified yet, so no download URL or expiration date is claimed.
+Keep the external files and archive until the workflow artifact or durable archive upload is verified.
+Add its verified URL, checksum, source revision, and retention period before external cleanup.
+
+## CI reproduction commands
+
+CI builds the candidate daemon and supplies its exact binary and source revision.
+The compaction command uses generated data, four clients, eight records, and 4096 calls:
+
+```sh
+python3 docs/proofs/eager-durable-queue-20261023/run.py \
+  --binary "$CANDIDATE_BINARY" --source-revision "$CANDIDATE_REVISION" \
+  --scratch "$RUNNER_TEMP/owned-compaction-home" \
+  --output-root "$RUNNER_TEMP/compaction-output" --mode full
+```
+
+Create a fresh owned scratch directory for each mode.
+Repeat with `--mode tier` and `--mode automatic` in separate generated homes.
+The driver rejects output and daemon homes inside the source tree.
+It defaults to a unique directory under the evidence root or CI temporary root.
+The final report requires observed compaction publications during writes.
+The explicit modes also require space release before the write interval ends.
+The tier mode requires an actual tier publication, rather than a first-run full copy.
+These commands await an approved CI job; they do not establish a new measured result.

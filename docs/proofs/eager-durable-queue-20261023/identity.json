@@ -1,9 +1,0 @@
-{
-  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/wq.SL5jRo",
-  "uid": 501,
-  "baseline_source": "bcdcbba38b20188bbd8c506326d6c451f0363f50",
-  "candidate_source": "3be4c9ce734ddfe41f5ce8b2d929f9ac8dd14d42",
-  "baseline_binary_sha256": "9abbf878c01f6dc6a3462592a8ede52a3230ce4b3110acc0a7e87da1600c60aa",
-  "candidate_binary_sha256": "e2d4c1afeea8a7984b7accdebf31b0e2a91008445122815f1759658ee04e38de",
-  "source_diff_is_committed": true
-}

@@ -1,5 +1,16 @@
 # Cargo build output
 /target/
+
+# Raw evidence belongs in state artifacts or a CI runner temporary directory.
+# Tracked historical files still require the committed generated-evidence check.
+/docs/proofs/**/*.json
+!/docs/proofs/**/artifact.json
+/docs/proofs/**/*.gz
+/docs/proofs/**/*.zip
+/docs/proofs/**/*.tar
+/docs/proofs/**/*.csv
+/docs/proofs/**/*.tsv
+/docs/proofs/**/*.txt
 # Nested target dirs from building the workspace-excluded exemem lambdas
 # in their own directory (e.g. exemem_service/lambdas/*/target/). Without
 # this, `git add -A` sweeps thousands of build artifacts into a commit.

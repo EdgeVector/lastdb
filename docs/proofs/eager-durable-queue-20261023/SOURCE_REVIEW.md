@@ -42,6 +42,24 @@ A newly grafted group requests a complete count outside the gate.
 The failed intermediate revision omitted new metadata pages and refused compaction with a count error.
 The corrected capture found no such error; it still found publication races during writes.
 
+## Publication turn after private preparation
+
+The previous final handoff uses an immediate try-lock and discards prepared files when a client owns the gate.
+The revised handoff waits in the existing FIFO from inside the blocking storage worker.
+It owns no write gate during that wait.
+After admission, the same exact-root and accepted-prefix checks still control publication.
+A changed root requests another off-gate preparation round.
+The loop retains its eight-attempt bound.
+
+Copy, catch-up, receipt preparation, and temporary-file removal remain outside the gate.
+The final conditional installation and its required disk barrier still span the gate.
+The trace records wait time separately from gate hold time.
+This change removes the immediate busy-refusal path; CI must still establish progress when preparation trails client writes.
+The final disk barrier can delay a later client while the compacted root becomes durable.
+
+The storage helper executes synchronous work through `block_in_place` or `spawn_blocking`.
+Tokio documents these contexts for [the synchronous mutex operation](https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html#method.blocking_lock).
+
 ## Private files and final publication
 
 Private compaction preparation now completes each file's `fsync` without an extra full-device drain.

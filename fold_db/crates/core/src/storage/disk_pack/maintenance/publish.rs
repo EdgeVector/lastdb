@@ -10,7 +10,6 @@ enum Attempt {
     Ready(Box<MaintenanceReady>),
     Queue(u64),
     Changed,
-    Busy,
 }
 
 impl PackRuntime {
@@ -43,17 +42,18 @@ impl PackRuntime {
             let runtime = Arc::clone(self);
             let (next, result) =
                 super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                    // Never hold the gate while waiting for a blocking thread.
-                    let Ok(boundary) = Arc::clone(&runtime.write_gate).try_lock_owned() else {
-                        tracing::debug!(target: "fold_db::compaction", retry, "compaction publication busy");
-                        drop(staged);
-                        return Ok((output, Ok(Attempt::Busy)));
-                    };
+                    // Join the same FIFO as clients from inside the blocking
+                    // worker. Waiting owns no gate, and a busy client does not
+                    // discard prepared files before the exact-root check.
+                    let waiting = std::time::Instant::now();
+                    let boundary = runtime.write_gate.blocking_lock();
+                    let wait_ms = millis_since(waiting);
                     let started = std::time::Instant::now();
                     let mut result =
                         runtime.attempt_native_pack(&mut output, &mut staged, started, retry);
                     drop(boundary);
                     tracing::debug!(target: "fold_db::compaction", retry,
+                        wait_ms,
                         changed = matches!(&result, Ok(Attempt::Changed)),
                         ready = matches!(&result, Ok(Attempt::Ready(_))),
                         held_ms = millis_since(started), "compaction publication attempted");
@@ -72,11 +72,10 @@ impl PackRuntime {
                 Attempt::Ready(ready) => return Ok(*ready),
                 Attempt::Queue(target) => self.wait_for_queue(target).await?,
                 Attempt::Changed => tokio::task::yield_now().await,
-                Attempt::Busy => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
             }
         }
         Err(StorageError::WriteResourceLimit {
-            detail: "compaction_behind: publication changed or the write queue stayed busy across 8 attempts; retry maintenance".into(),
+            detail: "compaction_behind: the root or admitted prefix changed across 8 publication attempts; retry maintenance".into(),
         })
     }
 

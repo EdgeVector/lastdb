@@ -103,13 +103,15 @@ def main():
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--name', default='semantics')
     parser.add_argument('--home-name')
+    parser.add_argument('--output-root', type=Path)
     args = parser.parse_args()
     if (os.environ.get('GITHUB_ACTIONS') != 'true'
             or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
         raise RuntimeError('captures require GitHub-hosted Actions; local benchmarks are retired')
-    scratch = args.scratch.resolve(strict=True)
+    scratch = driver.external_path(args.scratch.resolve(strict=True))
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
+    driver.configure_output(args.output_root)
     output, home = driver.PROOF / args.name, scratch / (args.home_name or ('hm' if args.name == 'semantics' else 'hmf'))
     output.mkdir()
     home.mkdir()

@@ -7,6 +7,8 @@ Local builds, benchmarks, Cargo checks, Clippy, and host measurement locks are r
 The local build runner is removed.
 The capture entry points require a GitHub-hosted Actions runner.
 No local replacement capture is permitted while CI waits.
+Raw output stays outside the source tree and Git.
+CI must upload the output as a workflow artifact with a verified download URL, checksum, source revision, and retention period.
 
 The Complete atom lifecycle work chat owns the equal-size comparison and the narrow metadata change.
 The next comparison uses eight records per request with one client and four clients.
@@ -17,7 +19,7 @@ The PR remains draft until CI supplies these results and the final review accept
 
 ## Historical capture method
 
-The committed captures precede the CI-only instruction.
+The archived captures precede the CI-only instruction.
 The first control is main `bcdcbba38`; the latest completed control is main `9cb89c6776bd654aa8ac93b553db278e5938c33a`.
 Both programs use the optimized `dev-release` profile.
 All daemon homes contain fresh generated data.

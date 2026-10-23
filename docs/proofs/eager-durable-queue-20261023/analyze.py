@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Summarize shared commits without attributing their cost to exclusive requests."""
 
+import argparse
 from collections import Counter
 import gzip
 import json
 from pathlib import Path
 import statistics
-import sys
 
-ROOT = Path(__file__).resolve().parent
+SOURCE_ROOT = Path(__file__).resolve().parents[3]
 
 
-def analyze(name):
-    output = ROOT / name
+def analyze(output):
+    output = output.resolve()
+    if output == SOURCE_ROOT or SOURCE_ROOT in output.parents:
+        raise RuntimeError('analysis output must stay outside the source tree')
     path = output / 'writes.json'
     writes = json.loads(path.read_text() if path.exists() else gzip.decompress(path.with_suffix('.json.gz').read_bytes()))
     samples = writes['samples']
@@ -47,9 +49,11 @@ def analyze(name):
                                                        for k in next(iter(used.values()))['counts']})),
                'shared_flush_cost_is_not_exclusive_per_client': True}
     (output / 'timing-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
-    print(json.dumps({'name': name, **summary}, indent=2))
+    print(json.dumps({'name': output.name, **summary}, indent=2))
 
 
 if __name__ == '__main__':
-    for name in sys.argv[1:]:
-        analyze(name)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('captures', type=Path, nargs='+')
+    for directory in parser.parse_args().captures:
+        analyze(directory)
