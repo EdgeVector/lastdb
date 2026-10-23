@@ -19,3 +19,24 @@ impl HomeSnapshot {
         self.writer.pack(policy)
     }
 }
+
+impl HomeSnapshot {
+    /// Capture a protected source for concurrent compaction.
+    pub fn prepare_pack(
+        &self,
+        full_copy: bool,
+    ) -> Result<crate::disk_pack::maintenance::CompactionPlan> {
+        self.writer.prepare_pack(full_copy)
+    }
+    /// Capture a protected current root for a catch-up round.
+    pub fn capture_pack_root(&self) -> Result<crate::disk_pack::lifetime::GenerationHold> {
+        self.writer.capture_pack_root()
+    }
+    /// Publish completed private output after a bounded final catch-up.
+    pub fn finish_pack(
+        &mut self,
+        output: crate::disk_pack::maintenance::PreparedCompaction,
+    ) -> Result<MaintenanceReceipt> {
+        self.writer.finish_pack(output)
+    }
+}

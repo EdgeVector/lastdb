@@ -18,6 +18,15 @@ impl SnapshotWriter {
     /// maintenance callers. Later ordinary snapshot publications may proceed.
     pub fn capture_reclaim(&self) -> Result<ReclaimPlan> {
         self.check_admission()?;
+        if self
+            .lock
+            .compaction_active
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(crate::Error::WriteCapacity(
+                "compaction owns the maintenance lease".into(),
+            ));
+        }
         Ok(ReclaimPlan {
             lock: Arc::clone(&self.lock),
             current: self.current.clone(),

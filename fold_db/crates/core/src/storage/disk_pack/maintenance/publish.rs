@@ -5,15 +5,14 @@ use laststore::disk_pack::snapshot::ReclaimPlan;
 impl PackRuntime {
     pub(super) fn prepare_maintenance(
         &self,
-        options: NativeMaintenanceOptions,
-        policy: &SpacePolicy,
+        output: Option<laststore::disk_pack::maintenance::PreparedCompaction>,
     ) -> StorageResult<(MaintenanceReceipt, u64, ReclaimPlan, Current)> {
         let mut writer = self.writer.lock().expect("native snapshot writer");
         let mut receipt = MaintenanceReceipt::default();
         let mut pack_millis = 0;
-        if !options.dry_run && !options.reclaim_only {
+        if let Some(output) = output {
             let started = std::time::Instant::now();
-            receipt = match writer.pack(policy) {
+            receipt = match writer.finish_pack(output) {
                 Ok(receipt) => receipt,
                 Err(error) => {
                     // A failure before the replacement is published leaves the
@@ -26,7 +25,9 @@ impl PackRuntime {
                     return Err(error);
                 }
             };
-            pack_millis = millis_since(started);
+            let swap_millis = millis_since(started);
+            pack_millis = receipt.copy_millis.saturating_add(swap_millis);
+            self.parts.progress.completed(&receipt, swap_millis);
             // The replacement is published: the count is final even if reclaim fails.
             let run = parts::RunCounts {
                 parts_before: receipt.parts_before,

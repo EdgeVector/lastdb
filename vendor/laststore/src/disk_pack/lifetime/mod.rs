@@ -71,6 +71,10 @@ impl GenerationHold {
         })
     }
 
+    pub(in crate::disk_pack) fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// Complete root identity selected before any dependent file access.
     pub fn current(&self) -> &Current {
         &self.current

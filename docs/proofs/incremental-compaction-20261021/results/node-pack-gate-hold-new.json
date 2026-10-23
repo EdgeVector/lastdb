@@ -1,0 +1,1 @@
+{"ready_s": 2.5, "writers": 4, "ops": 100, "run_started_after_s": 6.0, "run_ms": 55391, "pack_millis_logged": 48474, "reclaim_millis_logged": 411, "writes_ok_total": 81, "failed": 0, "longest_gap_s": 48.0, "status_line": "Storage parts: 259 / 65536 (0%); maintenance starts at 5306; peak 13931; runs 1 failures 0; last run 13931 -> 113 parts in 55391 ms"}

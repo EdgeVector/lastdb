@@ -13,7 +13,8 @@
 //! does) makes every later writer wait in `enter_prepare` until the batch is
 //! durable, though the gate is free. So the time of a sealing batch runs from the
 //! moment it has the gate to the moment its flush is done. The time of a batch
-//! that does not seal is the hold of the gate. The wait for the gate itself is
+//! that shares a private background window includes its own gate hold and the
+//! shared flush hold, but excludes the open collection window. The wait for the gate itself is
 //! not part of it. A scope that an outer scope contains adds nothing: the outer
 //! scope holds the gate for both.
 //!

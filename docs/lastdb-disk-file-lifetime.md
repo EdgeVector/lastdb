@@ -122,9 +122,11 @@ A named collection is refused because native parts share one committed root.
 
 The runtime owns a separate maintenance gate before it starts a pack or cleanup.
 It waits for earlier accepted writes and takes the complete write gate before the pack.
-Compaction rewrites the whole home while that gate remains held.
-New writes wait during the pack; it has no incremental job or wall-clock work limit.
-The long pack copy permits reads from the old root.
+The runtime captures a protected root and releases the gate before the copy.
+A full copy or recent-tier copy runs outside the gate.
+Bounded catch-up rounds graft newer locators before a short final handoff.
+The source hold protects its files, and the orphan sweep defers while private output exists.
+See `docs/lastdb-concurrent-compaction.md` for the complete protocol.
 
 After publication, a short read-view write lock installs the new root and captures the reclaim plan.
 The runtime then releases the read-view lock, writer mutex, and complete write gate before old-file cleanup.
@@ -146,7 +148,8 @@ A configured cap therefore adds file-inventory work to each reservation.
 
 A generation receipt names every part file that the generation needs, and it holds at most 65,536 entries.
 Every publication adds entries, and only the pack step removes them. The node counts the parts after each
-publication and runs pack and reclaim by itself when the count passes 4,096. Above 90 percent of the limit a
-new write waits for that work, and a write at the limit is refused with HTTP 503 `write_resource_limit`.
+publication and starts maintenance at its adapted trigger, initially 4,096 parts.
+At the 85-percent soft limit a new automatic-maintenance write receives HTTP 503 `compaction_behind`.
+A write that exceeds the hard limit still receives `write_resource_limit`.
 The ledger, the worker, the settings, the `Storage parts` status line, the sweep of unreferenced part files
 and the fail-closed rule of reclaim are in `docs/lastdb-storage-parts.md`.

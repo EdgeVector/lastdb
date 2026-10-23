@@ -30,7 +30,7 @@ where
     .await
 }
 
-/// Return after durability; unreserved work seals the current collection window.
+/// Return after durability; private background work can share one bounded collection window.
 pub(crate) async fn background_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -60,7 +60,7 @@ where
         Reply::Background => Some(std::time::Duration::from_millis(500)),
         Reply::Durable => None,
     };
-    runtime.wait_for_part_room().await;
+    runtime.check_part_room()?;
     let gate = runtime.enter_prepare().await;
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
@@ -110,17 +110,29 @@ where
             .await?;
     let delay = protect_paths(&runtime, &pending, delay)?;
     let wait = reply != Reply::Memory || delay.is_none();
-    // A batch with no early publication seals the queue: every later writer waits
-    // in `enter_prepare` until the batch is durable, though the gate is free.
-    let sealed = delay.is_none();
+    // Background work remains private during collection. Write preparation reads
+    // its owned prefix; ordinary reads retain their committed view.
+    let collection_delay = if reply == Reply::Background {
+        Some(std::time::Duration::from_millis(500))
+    } else {
+        delay
+    };
+    let sealed = collection_delay.is_none();
     // Publication, ownership transfer and worker creation contain no await.
-    let sequence = runtime.accept_queued(pending, prepared, delay)?;
+    let timing = Arc::clone(&pending);
+    let sequence = runtime.accept_queued(pending, prepared, delay.is_some(), collection_delay)?;
     drop(gate);
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
     if wait {
         runtime.wait_for_queue(sequence).await?;
     }
-    super::blocked::note(if sealed { held_from.elapsed() } else { hold });
+    super::blocked::note(if sealed {
+        held_from.elapsed()
+    } else if reply == Reply::Background {
+        hold.saturating_add(timing.flush_blocked())
+    } else {
+        hold
+    });
     Ok(result)
 }
 

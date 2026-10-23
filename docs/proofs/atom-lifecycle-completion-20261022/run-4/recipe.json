@@ -1,0 +1,10 @@
+{
+  "batch": 64,
+  "body_bytes": 1024,
+  "driver_sha256": "d25c17456d4b65a60812bf4e2bab46300ada3e286e78ea675ffb4f59dcc3f246",
+  "records": 4096,
+  "rounds_per_writer": 12,
+  "scope": "Actual local node; generated data; no primary or cloud access",
+  "source_revision": "c1413d3d06256f3a37b84d73eed39a18a94d6136",
+  "writer_threads": 2
+}

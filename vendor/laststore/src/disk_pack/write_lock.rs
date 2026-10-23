@@ -8,6 +8,7 @@ use std::sync::Mutex;
 /// A typed proof of exclusive artifact write ownership. No caller can forge it.
 pub(super) struct WriteLock {
     root: PathBuf,
+    pub(super) compaction_active: std::sync::atomic::AtomicBool,
     _file: File,
     checked_current: Mutex<Option<[u8; 32]>>,
     /// Retained generations whose parts this lease already verified, with the
@@ -55,6 +56,7 @@ impl WriteLock {
         }
         Ok(Self {
             root,
+            compaction_active: std::sync::atomic::AtomicBool::new(false),
             _file: file,
             checked_current: Mutex::new(None),
             verified: Mutex::new(BTreeMap::new()),

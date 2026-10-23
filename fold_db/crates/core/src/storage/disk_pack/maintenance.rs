@@ -4,6 +4,7 @@ use super::*;
 use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePolicy, SpaceUsage};
 use tracing::Instrument;
 
+mod concurrent;
 mod publish;
 
 /// Explicit native maintenance options. Preview is the default at the node route.
@@ -13,6 +14,8 @@ pub struct NativeMaintenanceOptions {
     pub dry_run: bool,
     /// Release only unneeded generation files; do not rewrite live data.
     pub reclaim_only: bool,
+    /// Copy all live payloads; an explicit compact defaults to a full copy.
+    pub full_copy: bool,
     /// An explicit grace override; None keeps the product's 24-hour default.
     pub grace_ms: Option<u64>,
     /// Measure the native root before and after. The measure walks every file,
@@ -51,6 +54,9 @@ pub struct NativeMaintenanceReport {
     /// Milliseconds in the pack step and in the reclaim step.
     pub pack_millis: u64,
     pub reclaim_millis: u64,
+    pub tier_boundary: u64,
+    pub catch_up_rounds: u64,
+    pub catch_up_records: u64,
 }
 
 impl PackRuntime {
@@ -65,7 +71,7 @@ impl PackRuntime {
             != 0
     }
 
-    /// Publish replacements under the write gate, then release it before cleanup.
+    /// Copy outside the write gate, publish with a bounded catch-up, then reclaim.
     /// A separate maintenance owner excludes competing cleanup and pack calls.
     pub async fn maintain_native(
         self: &Arc<Self>,
@@ -94,11 +100,25 @@ impl PackRuntime {
         tokio::spawn(
             async move {
                 let maintenance = Arc::clone(&runtime.maintenance_gate).lock_owned().await;
+                let _progress = runtime.parts.progress.begin();
                 let measuring = Arc::clone(&runtime);
                 let before = super::super::laststore::LastStoreKvStore::run_blocking(move || {
                     measuring.maintenance_usage(options)
                 })
                 .await?;
+                let output = if !options.dry_run && !options.reclaim_only {
+                    Some(
+                        runtime
+                            .copy_native_pack(options)
+                            .await
+                            .inspect_err(|error| {
+                                runtime.parts.record_failure(error);
+                            })?,
+                    )
+                } else {
+                    None
+                };
+                runtime.parts.progress.phase(4);
                 let gate = runtime.enter_write().await;
                 super::super::laststore::LastStoreKvStore::run_blocking(move || {
                     let _maintenance = maintenance;
@@ -107,6 +127,7 @@ impl PackRuntime {
                         keep_pack_on_reclaim_error,
                         before,
                         gate,
+                        output,
                     )
                 })
                 .await
@@ -139,6 +160,7 @@ impl PackRuntime {
         keep_pack_on_reclaim_error: bool,
         before: SpaceUsage,
         gate: tokio::sync::OwnedMutexGuard<()>,
+        output: Option<laststore::disk_pack::maintenance::PreparedCompaction>,
     ) -> StorageResult<NativeMaintenanceReport> {
         self.require_initialized()?;
         if self.failed.load(Ordering::Acquire) {
@@ -147,11 +169,11 @@ impl PackRuntime {
             ));
         }
         let policy = self.maintenance_policy(options);
-        let (mut receipt, pack_millis, plan, current) =
-            self.prepare_maintenance(options, &policy)?;
+        let (mut receipt, pack_millis, plan, current) = self.prepare_maintenance(output)?;
         // The installed floor and all active old reads protect their complete
         // closures. Future output cannot appear in an older deletion plan.
         drop(gate);
+        self.parts.progress.phase(5);
         let mut reclaim_millis = 0;
         let mut reclaim_error = None;
         if !options.dry_run {
@@ -188,6 +210,9 @@ impl PackRuntime {
             reclaim_error,
             pack_millis,
             reclaim_millis,
+            tier_boundary: receipt.tier_boundary,
+            catch_up_rounds: receipt.catch_up_rounds,
+            catch_up_records: receipt.catch_up_records,
         })
     }
 }

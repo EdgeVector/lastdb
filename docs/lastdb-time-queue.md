@@ -194,14 +194,19 @@ second before it is read again. Memory does not grow with the number of markers.
 
 ## Pacing
 
-A user of the queue deletes in batches, and each batch is durable work that seals
-the write queue. A writer that arrives while a batch is open waits for the write
-gate. And when the batch has the gate no more, the writer still waits in
-`PackRuntime::enter_prepare` until the batch is durable. So the time that a batch
-keeps writers waiting is its hold of the gate (8 to 30 ms) plus its flush. The
-flush costs about 15 to 20 ms for each released record: 0.5 to 1 s for a batch of
-32, and it grows with the batch, so a larger batch does not release more in the same
-time and freezes the writers for longer.
+The current private background path shares the bounded collection window.
+Only write preparation reads its owned prefix. Ordinary reads retain the committed state.
+The job still returns after durability. Its cost includes the gate and shared flush holds.
+A sealed fence also counts its flush wait.
+The measurements below describe the earlier sealed-batch path.
+See `docs/lastdb-concurrent-compaction.md` for the current protocol.
+
+
+A user of the queue deletes in batches. Private background batches share a bounded collection window.
+Write preparation can read their owned prefix. Ordinary reads retain the committed state.
+The job returns after durability. The cost measure includes its gate hold and the shared flush hold.
+It excludes the open collection period, when new preparation can proceed.
+A job that requires a sealed fence also counts that fence's full wait.
 
 The user rests after each batch for `blocked * (100 - duty) / duty`, where `blocked`
 is that time and `duty` is a share of the time in percent (10 by default). The rest

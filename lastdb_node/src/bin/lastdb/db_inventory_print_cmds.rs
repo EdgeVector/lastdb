@@ -287,14 +287,8 @@ fn print_history_tips() {
     println!("  lastdb db clear-history --execute               # keep newest 1 per field key");
     println!("  lastdb db clear-history --keep-last 0           # dry-run full history purge");
     println!("  lastdb db clear-history --keep-last 0 --execute # purge all history (tip = only version)");
-    println!("  lastdb db compact --collection schemas          # dry-run reclaim preview");
-    println!("  lastdb db compact --collection schemas --execute # rewrite live + drop dead segs");
-    println!("  lastdb db compact --collection tips             # dry-run purged-tip reclaim");
-    println!("  lastdb db compact --collection tips --execute    # reclaim purged tip bytes");
-    println!("  lastdb db stamp-purged-atom-retirements         # dry-run; keep-set copy of disk");
-    println!(
-        "  lastdb db stamp-purged-atom-retirements --execute # stamp extras; not compact --execute"
-    );
+    println!("  lastdb db compact                              # preview whole-home space");
+    println!("  lastdb db compact --execute                    # compact the native home");
 }
 
 /// One line after a `compact --all` walk, so a plane left out of it (the

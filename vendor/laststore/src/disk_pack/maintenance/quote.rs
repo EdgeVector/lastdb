@@ -61,3 +61,48 @@ fn locator_bytes(key_bytes: usize) -> u64 {
     // separator minimum. The group floor reserves one partial page per level.
     overflow * PAGE_BYTES as u64 + 2 * ((descriptor + 132) + (descriptor + 12))
 }
+
+/// A recent tier quotes recent descriptors and payload bounds, never old subtrees.
+pub(super) fn tier_bytes(root: &Path, current: &Current, boundary: u64) -> Result<u64> {
+    let receipt = crate::disk_pack::generation::read_receipt(root, current)?;
+    let mut bytes = 8 * 1024 * 1024u64;
+    add(
+        &mut bytes,
+        super::tier_quote::tree_bytes(root, current, &receipt, boundary)?,
+    )?;
+    let mut payloads = std::collections::BTreeSet::new();
+    for (coordinate, record) in receipt.coordinates.iter().zip(&receipt.records) {
+        if crate::disk_pack::bytes::u64_at(record, 72) <= boundary {
+            continue;
+        }
+        match coordinate.kind {
+            // Keep the existing metadata/part slack in addition to the exact
+            // descriptor-based output bound. Old overflow chains can be referenced
+            // by recent pages, so recent part lengths alone cannot quote them.
+            1 | 2 => add(
+                &mut bytes,
+                crate::disk_pack::bytes::u64_at(record, 32).saturating_mul(16),
+            )?,
+            5 => {
+                payloads.insert(coordinate.object);
+            }
+            _ => {}
+        }
+    }
+    for object in payloads {
+        let mut call = artifact::metadata_call(root, current.clone());
+        let page = call.map_page(&root.join("packs").join(object.to_string()), object, 0)?;
+        let (logical, _) = page
+            .object_bounds()
+            .ok_or_else(|| corrupt("tier quote has no payload bounds"))?;
+        // A copy cannot emit more plaintext frames than its source objects.
+        // The second copy covers worst-case block framing, maps and part tails.
+        add(
+            &mut bytes,
+            logical
+                .checked_mul(2)
+                .ok_or_else(|| corrupt("tier quote overflow"))?,
+        )?;
+    }
+    Ok(bytes)
+}

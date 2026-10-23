@@ -1,0 +1,16 @@
+{
+  "cancelled_callers": 1,
+  "driver_sha256": "138fa0fffdb97dfaff42e9f402d368f7957ad2ff12f45962d835710bc7fdbf03",
+  "interrupted_copies": 2,
+  "keys_per_writer_round": 8,
+  "large_body_bytes": 131072,
+  "recent_copies": 9,
+  "records": 4096,
+  "rounds_per_writer": 16,
+  "scope": "Fresh generated product data; no primary, cloud, or power-loss claim",
+  "seed_batch": 48,
+  "seed_revision": 7,
+  "source_revision": "43ca120feb20ae6b95ab36dd3e2a088366522369",
+  "wide_key_bytes": 3512,
+  "writer_threads": 2
+}

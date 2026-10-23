@@ -1,29 +1,14 @@
 //! Batch size and pacing of the TTL sweep.
 //!
-//! One batch is one erasure job on the persist lane of its schema, with
-//! several durable barriers, and the sweep holds the local mutation admission
-//! while the batch runs. A snapshot cut waits for that admission, and every
-//! later writer queues behind the cut. So the stall that a sweep causes is as
-//! long as one batch. The sweep keeps a batch small, drops the admission
-//! between batches, and rests after each batch for a share of the batch time.
-//!
-//! Only the node environment sets the three knobs. A running process cannot
-//! change its environment, so a change needs a restart of the daemon. The
-//! sweep reads them at the start of each pass. A value that does not parse,
-//! or lies outside its range, is clamped into the range.
-//!
-//! The rest after a batch is `took * (100 - duty) / duty`, at least the
-//! minimum rest and at most [`MAX_PAUSE`]. The duty share is therefore exact
-//! for a batch that takes at most `MAX_PAUSE * duty / (100 - duty)`: 200 s at
-//! the default duty of 25 percent. After a slower batch the rest is
-//! `MAX_PAUSE`, and the real duty share is `took / (took + MAX_PAUSE)`.
+//! The duty share uses the time a batch keeps writers waiting. Reads before
+//! the write gate do not count. A writer watch preserves the duty share for
+//! sparse writers; an idle node uses only the minimum pause.
 
 use std::time::Duration;
 
 /// Environment name: keys erased in one batch.
 pub const TTL_SWEEP_BATCH_ENV: &str = "LASTDB_TTL_SWEEP_BATCH";
-/// Environment name: the share of wall time, in percent, that the sweep may
-/// spend inside batches.
+/// Environment name: the share of time, in percent, that the sweep may keep writers waiting.
 pub const TTL_SWEEP_DUTY_PCT_ENV: &str = "LASTDB_TTL_SWEEP_DUTY_PCT";
 /// Environment name: the shortest rest between two batches, in milliseconds.
 pub const TTL_SWEEP_MIN_PAUSE_MS_ENV: &str = "LASTDB_TTL_SWEEP_MIN_PAUSE_MS";
@@ -64,8 +49,11 @@ impl Pace {
 
     /// The rest after a batch that took `took`. With a duty share of `d`
     /// percent the rest is `took * (100 - d) / d`.
-    pub(super) fn pause_after(&self, took: Duration) -> Duration {
-        let work_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+    pub(super) fn pause_after(&self, blocked: Duration, others_wrote: bool) -> Duration {
+        if !others_wrote {
+            return self.min_pause;
+        }
+        let work_ms = u64::try_from(blocked.as_millis()).unwrap_or(u64::MAX);
         let rest_ms = work_ms.saturating_mul(100 - self.duty_pct) / self.duty_pct;
         Duration::from_millis(rest_ms)
             .max(self.min_pause)

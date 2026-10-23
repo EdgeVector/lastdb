@@ -6,12 +6,11 @@
 //! the orphan sweep run only when no pack is due. Cleanup releases the write gate
 //! after its installed-root capture, before file inventories and deletion.
 
+use super::retry::{after_pack, MAX_BACKOFF_SECS};
 use super::*;
 use std::time::{Duration, Instant};
 use tracing::Instrument;
 
-/// Longest pause between two failed packs.
-const MAX_BACKOFF_SECS: u64 = 60;
 /// Tries of a reclaim that another process deferred. The waits grow from 1 s to 30 s,
 /// so the worker keeps trying for about 20 minutes before it waits for the next pack.
 const RECLAIM_RETRIES: u32 = 40;
@@ -50,24 +49,18 @@ impl PackRuntime {
         }
     }
 
-    /// Backpressure before the hard limit: above 90% of the limit a new write
-    /// waits for the worker, for at most a minute, and then proceeds to its own
-    /// admission, which refuses it with a retry hint if no room appeared.
-    /// Call it before the write gate: maintenance needs that gate to make room.
-    pub(in crate::storage::disk_pack) async fn wait_for_part_room(self: &Arc<Self>) {
+    /// Refuse new work at the 85-percent soft limit and wake the worker.
+    /// The caller retries after maintenance; no admission waits behind the copy.
+    pub(in crate::storage::disk_pack) fn check_part_room(self: &Arc<Self>) -> StorageResult<()> {
         self.ensure_parts_worker();
         let ledger = &self.parts;
-        if !ledger.auto || !ledger.over_soft_limit() {
-            return;
-        }
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-        while ledger.over_soft_limit()
-            && !ledger.failing.load(Relaxed)
-            && tokio::time::Instant::now() < deadline
-        {
+        if ledger.auto && ledger.over_soft_limit() {
             ledger.wake.notify_one();
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            return Err(StorageError::WriteResourceLimit {
+                detail: "compaction_behind: storage parts reached the 85 percent soft limit; retry after maintenance".into(),
+            });
         }
+        Ok(())
     }
 
     /// Wake the worker when a write was refused for part capacity.
@@ -80,8 +73,8 @@ impl PackRuntime {
 }
 
 /// Runs the worker and starts it again after a panic. A panic would otherwise end
-/// the task for good, with the ledger still reporting a worker and every writer
-/// above the soft limit waiting a minute for it.
+/// the task for good, with the ledger still reporting a worker while admission
+/// above the soft limit remains refused.
 async fn supervise(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
     let mut restarts = 0u32;
     loop {
@@ -112,7 +105,7 @@ async fn supervise(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
         if runtime.strong_count() == 0 {
             return;
         }
-        // Writers above the soft limit wait for a run, so the restart starts one.
+        // Admission above the soft limit needs room, so the restart starts a run.
         ledger.wake.notify_one();
     }
 }
@@ -232,10 +225,11 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
     let mut debt = Debt::at_start();
     let mut pack_failures = 0u32;
     let mut booting = true;
-    // A pack that did not shrink the count waits for the next write.
+    // A normal pack that did not shrink waits for a write. Soft-limit recovery
+    // cannot wait for writes, because admission refuses them.
     let mut held = false;
     loop {
-        let pack_due = !held && ledger.wants_maintenance();
+        let pack_due = (!held || ledger.over_soft_limit()) && ledger.wants_maintenance();
         if !pack_due && !debt.reclaim_due() && !debt.sweep_due() {
             if let Some(pause) = debt.wait() {
                 tokio::select! {
@@ -260,7 +254,6 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
         if pack_due {
             match run_once(&strong, &ledger, Call::Pack).await {
                 Ok(report) => {
-                    pack_failures = 0;
                     tracing::info!(
                         parts_before = report.parts_before,
                         parts_after = report.parts_after,
@@ -269,7 +262,7 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
                         reclaim_millis = report.reclaim_millis,
                         "native storage maintenance reached the dependency high-water mark"
                     );
-                    held = report.parts_after >= report.parts_before;
+                    held = after_pack(&ledger, &report, &mut pack_failures).await;
                     debt.after_call(&report, true);
                 }
                 Err(error) => {
@@ -322,8 +315,8 @@ enum Call {
     Drain(usize),
 }
 
-/// One bounded maintenance call. Each call holds the write gate and the view
-/// lock for a bounded time, so waiting writers and readers run between calls.
+/// One maintenance call. Copy and reclaim run outside the write gate; capture
+/// and final handoff hold it, so ordinary writes proceed during the copy.
 async fn run_once(
     runtime: &Arc<PackRuntime>,
     ledger: &PartsLedger,
@@ -337,6 +330,9 @@ async fn run_once(
     let options = NativeMaintenanceOptions {
         dry_run: false,
         reclaim_only,
+        // A recent copy retains the older grafted base. Once admission refuses
+        // writes, a full copy can consolidate that quiesced source without growth.
+        full_copy: !reclaim_only && ledger.over_soft_limit(),
         grace_ms: Some(ledger.grace_ms),
         report_usage: false,
         reclaim_generations: Some(generations),
