@@ -156,8 +156,8 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
         old.preserve_log(scratch, name, output)
 
 
-def verify_refused(scratch):
-    output = PROOF / 'capped-recovery'
+def verify_refused(scratch, name='capped-recovery'):
+    output = PROOF / name
     output.mkdir()
     inputs = json.loads((PROOF / 'final-capped/inputs.json').read_text())
     writes = json.loads((PROOF / 'final-capped/writes.json').read_text())
@@ -165,7 +165,7 @@ def verify_refused(scratch):
     home.relative_to(scratch)
     if home.stat().st_uid != os.getuid() or not inputs['generated_data_only']:
         raise RuntimeError('capped home ownership differs')
-    node = Node(scratch / 'candidate', home, scratch / 'capped-recovery.log',
+    node = Node(scratch / 'candidate', home, scratch / (name + '.log'),
                 4096, False, workers=8)
     node.profile, node.maintenance, node.disk_cap = False, False, 1073741824
     rows = writes['samples']
@@ -188,7 +188,8 @@ def verify_refused(scratch):
                   'all_values_match': values['all_values_match'], 'wanted_notices': len(wanted),
                   'actual_notices': len(found), 'notices_exact': len(found) == len(wanted) and set(found) == wanted,
                   'failed_new_keys_absent': all(not r['results'] for r in absent),
-                  'inventory': space, 'cap': node.disk_cap}
+                  'inventory': space, 'cap': node.disk_cap,
+                  'binary_sha256': hashlib.sha256(node.binary.read_bytes()).hexdigest()}
         save(output / 'result.json', result)
         if not (result['all_values_match'] and result['notices_exact']
                 and result['failed_new_keys_absent'] and space['bytes'] <= node.disk_cap):
@@ -197,7 +198,7 @@ def verify_refused(scratch):
     finally:
         node.stop()
         node.log.close()
-        old.preserve_log(scratch, 'capped-recovery', output)
+        old.preserve_log(scratch, name, output)
 
 
 def main():

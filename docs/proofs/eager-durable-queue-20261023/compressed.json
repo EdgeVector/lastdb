@@ -8,5 +8,10 @@
     "path": "final-sustained/writes.json",
     "bytes": 3690522,
     "sha256": "64f2795f02bb4d287cf6ff218f65e67e61cf7f122adde87d77fc13b40038803c"
+  },
+  {
+    "path": "metadata-sustained/writes.json",
+    "bytes": 3687642,
+    "sha256": "5b4445662c9656290c80a80dedef3fdc1e84e988dc013b59460e2d3b507ce649"
   }
 ]

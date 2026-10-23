@@ -32,7 +32,14 @@ def main():
     subprocess.run(['cargo', 'build', '-p', 'lastdb_node', '--bin', 'lastdbd',
                     '--profile', 'dev-release', '--locked'], cwd=ROOT, check=True)
     binary = ROOT / 'target/dev-release/lastdbd'
-    latest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    raw = binary.read_bytes()
+    latest = hashlib.sha256(raw).hexdigest()
+    markers = {label: label.encode() in raw for label in (
+        'failed compaction must be discarded',
+        'immutable dependency facts changed during compaction')}
+    del raw
+    if not all(markers.values()):
+        raise RuntimeError('compiled storage implementation markers differ')
     if latest == hashlib.sha256((scratch / 'candidate').read_bytes()).hexdigest():
         raise RuntimeError('final program is unchanged from the first candidate')
     shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else 'frontier'))
@@ -40,7 +47,8 @@ def main():
     (scratch / 'candidate').chmod(0o755)
     (PROOF / (args.mode + '-identity.json')).write_text(json.dumps({
         'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-        'binary_sha256': latest, 'baseline_source': identity['baseline_source'],
+        'binary_sha256': latest, 'implementation_markers': markers,
+        'baseline_source': identity['baseline_source'],
         'baseline_binary_sha256': identity['baseline_binary_sha256'],
         'compiler_exclusion': True, 'other_host_work_controlled': False,
         'load_before': os.getloadavg()}, indent=2) + '\n')

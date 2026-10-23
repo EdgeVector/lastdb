@@ -43,9 +43,13 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         previous,
         proposed: &proposed,
     };
+    let mut prior = PriorGroups::new(root, previous);
     let mut directory_changes = Vec::new();
     let mut templates = std::collections::BTreeSet::new();
     while let Some((key, value)) = groups.next(&mut call)? {
+        if prior.unchanged(&key, &value)? {
+            continue;
+        }
         let live = DirectoryEntry::decode(&value)?;
         let mut output_call = artifact::metadata_call(root, proposed.clone());
         let existing = output_call
@@ -96,6 +100,40 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     job.output.current = proposed;
     job.output.dependencies = dependencies.finish();
     Ok(budget.changed)
+}
+
+/// A recent directory leaf also yields unchanged neighbors. Exact immutable
+/// entry equality proves that the prior round already includes that group.
+/// One bounded call shares directory pages across 128 comparisons.
+struct PriorGroups<'a> {
+    root: &'a std::path::Path,
+    previous: &'a Current,
+    call: crate::disk_pack::ReadCall,
+    checked: usize,
+}
+
+impl<'a> PriorGroups<'a> {
+    fn new(root: &'a std::path::Path, previous: &'a Current) -> Self {
+        Self {
+            root,
+            previous,
+            call: artifact::metadata_call(root, previous.clone()),
+            checked: 0,
+        }
+    }
+
+    fn unchanged(&mut self, key: &[u8], value: &[u8; 128]) -> Result<bool> {
+        if self.checked == 128 {
+            self.call = artifact::metadata_call(self.root, self.previous.clone());
+            self.checked = 0;
+        }
+        self.checked += 1;
+        let same = self.call.find(&self.previous.directory, key)?.as_ref() == Some(value);
+        if same {
+            crate::commit_timing::count("compaction_unchanged_groups", 1);
+        }
+        Ok(same)
+    }
 }
 
 fn behind() -> crate::Error {
