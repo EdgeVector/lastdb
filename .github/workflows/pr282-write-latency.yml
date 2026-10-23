@@ -47,6 +47,7 @@ jobs:
           {
             echo "RUSTUP_TOOLCHAIN=$toolchain"
             echo "EVIDENCE_ROOT=$RUNNER_TEMP/pr282-results"
+            echo "BINARY_ROOT=$RUNNER_TEMP/matched-binaries"
           } >> "$GITHUB_ENV"
       - name: Checkout the same PR source before the metadata writer change
         uses: actions/checkout@v5
@@ -71,9 +72,14 @@ jobs:
             esac
             (
               cd "$version"
-              export CARGO_TARGET_DIR="$RUNNER_TEMP/matched-target-$version"
+              # Cargo fingerprints each source; registry dependencies share a build.
+              export CARGO_TARGET_DIR="$RUNNER_TEMP/matched-target"
               export FOLDDB_BUILD_VERSION_OVERRIDE="matched-$revision"
               cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+              mkdir -p "$BINARY_ROOT/$version"
+              cp "$CARGO_TARGET_DIR/dev-release/lastdbd" "$BINARY_ROOT/$version/lastdbd"
+              actual="$("$BINARY_ROOT/$version/lastdbd" --version)"
+              [[ "$actual" == *"matched-$revision"* ]]
             ) 2>&1 | tee "$EVIDENCE_ROOT/build-$version.log"
           done
       - name: Compare identical eight-record requests
@@ -82,8 +88,8 @@ jobs:
           AFTER_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 candidate/docs/proofs/matched-write-concurrency-20261023/run_pairs.py \
-            --before-binary "$RUNNER_TEMP/matched-target-baseline/dev-release/lastdbd" \
-            --after-binary "$RUNNER_TEMP/matched-target-candidate/dev-release/lastdbd" \
+            --before-binary "$BINARY_ROOT/baseline/lastdbd" \
+            --after-binary "$BINARY_ROOT/candidate/lastdbd" \
             --before-revision "$BEFORE_SHA" --after-revision "$AFTER_SHA" \
             --pairs 3 --count 1000 --output "$EVIDENCE_ROOT/matched"
       - name: Capture numeric write phases separately
@@ -93,8 +99,8 @@ jobs:
           AFTER_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 candidate/docs/proofs/matched-write-concurrency-20261023/run_pairs.py \
-            --before-binary "$RUNNER_TEMP/matched-target-baseline/dev-release/lastdbd" \
-            --after-binary "$RUNNER_TEMP/matched-target-candidate/dev-release/lastdbd" \
+            --before-binary "$BINARY_ROOT/baseline/lastdbd" \
+            --after-binary "$BINARY_ROOT/candidate/lastdbd" \
             --before-revision "$BEFORE_SHA" --after-revision "$AFTER_SHA" \
             --pairs 1 --count 256 --profile --output "$EVIDENCE_ROOT/phases"
       - name: Require automatic, tier, and full compaction progress during writes
@@ -106,7 +112,7 @@ jobs:
           for mode in automatic tier full; do
             scratch="$(mktemp -d "$RUNNER_TEMP/c.XXXXXX")"
             python3 candidate/docs/proofs/eager-durable-queue-20261023/run.py \
-              --binary "$RUNNER_TEMP/matched-target-candidate/dev-release/lastdbd" \
+              --binary "$BINARY_ROOT/candidate/lastdbd" \
               --source-revision "$AFTER_SHA" --scratch "$scratch" \
               --output-root "$EVIDENCE_ROOT/compaction-$mode" --mode "$mode" || rc=1
           done
@@ -117,8 +123,8 @@ jobs:
           AFTER_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 candidate/docs/proofs/matched-write-concurrency-20261023/run_pairs.py \
-            --before-binary "$RUNNER_TEMP/matched-target-metadata-before/dev-release/lastdbd" \
-            --after-binary "$RUNNER_TEMP/matched-target-candidate/dev-release/lastdbd" \
+            --before-binary "$BINARY_ROOT/metadata-before/lastdbd" \
+            --after-binary "$BINARY_ROOT/candidate/lastdbd" \
             --before-revision "$METADATA_BEFORE_SHA" --after-revision "$AFTER_SHA" \
             --pairs 1 --count 1000 --profile --output "$EVIDENCE_ROOT/metadata-only"
       - name: Record measured results in the CI summary
