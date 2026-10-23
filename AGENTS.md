@@ -40,3 +40,20 @@ when you find them in CI, linters, agent instructions, or review rules.
 Use format, syntax, type, lint, and product build checks.
 This rule replaces all earlier test and test coverage requirements.
 Situation: `no-tests-all-repos-20261009`.
+
+## Cursor Cloud specific instructions
+
+The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
+`install` adds `libssl-dev` (the `openssl` crate), Ruby, and the pinned
+tree-sitter packages from `CLAUDE.md`, then builds `lastdb` / `lastdbd` and
+`lastdb_app_sdk`. `start` runs `lastdbd` in tmux session `lastdbd_dev` against
+`$HOME/.lastdb-dev` (leave `~/.lastdb` alone).
+
+- Health: `target/debug/lastdb --data-dir ~/.lastdb-dev status` (exit 0 when
+  `<home>/data/folddb.sock` answers).
+- Prove a write with a keyed read: `lastdb get <schema> --key-hash <id>`, or
+  `POST /api/query` with `filter.HashKey`. An unfiltered query is rejected.
+- Do not pass `--all-features`.
+- Checks for this repo: `cargo fmt --all -- --check`,
+  `cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd`, and
+  `npm run typecheck`, `npm run lint`, and `npm run build` in `lastdb_app_sdk`.
