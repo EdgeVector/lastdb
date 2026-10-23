@@ -1,7 +1,7 @@
 //! Graft newer immutable locators; never copy a foreground payload during catch-up.
 use super::concurrent::PreparedCompaction;
 use crate::disk_pack::dependency::Dependencies;
-use crate::disk_pack::live_parts::ReferenceCache;
+use crate::disk_pack::live_parts::{Changes, LocatorImports, ReferenceCache};
 use crate::disk_pack::locator_forest::LocatorChanges;
 use crate::disk_pack::tree_cursor::TreeCursor;
 use crate::disk_pack::tree_edit::TreeEdit;
@@ -46,9 +46,9 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     };
     let mut prior = PriorGroups::new(root, previous);
     let mut references = ReferenceCache::new(root, &proposed);
-    let mut recount = false;
+    let receipt = generation::read_receipt(root, cut)?;
+    let mut imported = LocatorImports::new(root, cut, &receipt.coordinates)?;
     let mut directory_changes = Vec::new();
-    let mut templates = std::collections::BTreeSet::new();
     while let Some((key, value)) = groups.next(&mut call)? {
         if prior.unchanged(&key, &value)? {
             // Keep the cursor's I/O budget bounded even across long runs of
@@ -72,11 +72,10 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
                 &mut references,
             )?
         } else {
-            recount = true;
             budget.note()?;
+            imported.add(&live.locator)?;
             live.locator.clone()
         };
-        templates.insert(tree.object);
         let replacement = DirectoryEntry {
             locator: tree,
             ..live
@@ -92,42 +91,32 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         let mut call = artifact::metadata_call(root, proposed.clone());
         directory.put_many(&mut call, &mut references, &directory_changes)?;
     }
-    finish_round(job, cut, proposed, directory, locators, templates, recount)?;
+    let imported = imported.finish()?;
+    finish_round(job, proposed, directory, locators, imported)?;
     Ok(budget.changed)
 }
 
 fn finish_round(
     job: &mut PreparedCompaction,
-    cut: &Current,
     mut proposed: Current,
     directory: TreeEdit,
     locators: LocatorChanges,
-    templates: std::collections::BTreeSet<uuid::Uuid>,
-    recount: bool,
+    mut changes: Changes,
 ) -> Result<()> {
-    let root = job.lock.root();
-    let mut dependencies = carried_dependencies(
-        root,
-        cut,
-        job.source.current().generation,
-        std::mem::take(&mut job.output.dependencies),
-        templates,
-    )?;
     let mut fresh = Dependencies::new();
-    let mut changes = crate::disk_pack::live_parts::Changes::default();
     for output in locators.finish()? {
         changes.merge(output.changes)?;
-        fresh.add_tree(&output.tree, output.parts.clone())?;
-        dependencies.add_tree(&output.tree, output.parts)?;
+        fresh.add_tree(&output.tree, output.parts)?;
     }
     let (tree, _, parts, directory_changes) = directory.finish_with_changes()?;
     changes.merge(directory_changes)?;
-    fresh.add_tree(&tree, parts.clone())?;
-    dependencies.add_tree(&tree, parts)?;
+    fresh.add_tree(&tree, parts)?;
     proposed.directory = tree;
-    finish_references(job, &proposed, &fresh.finish(), changes, recount)?;
+    finish_references(job, &proposed, &fresh.finish(), changes)?;
     job.output.current = proposed;
-    job.output.dependencies = dependencies.finish();
+    // A newly grafted locator may retain parts older than the original source.
+    // Protect the complete exact closure, including payload and block-map parts.
+    job.output.dependencies = job.live.coordinates();
     Ok(())
 }
 
@@ -135,22 +124,17 @@ fn finish_references(
     job: &mut PreparedCompaction,
     proposed: &Current,
     fresh: &[crate::disk_pack::dependency::Coordinate],
-    mut changes: crate::disk_pack::live_parts::Changes,
-    recount: bool,
+    mut changes: Changes,
 ) -> Result<()> {
     use crate::disk_pack::live_parts;
-    if recount {
-        job.live = None;
-    } else if let Some(live) = job.live.as_mut() {
-        let root = job.lock.root();
-        let mut references = ReferenceCache::new(root, proposed);
-        live_parts::observe_new_parts(root, proposed, fresh, &mut changes, &mut references)?;
-        drop(references);
-        live_parts::add_directory_empty_root(root, &job.output.current, -1, &mut changes)?;
-        live_parts::add_directory_empty_root(root, proposed, 1, &mut changes)?;
-        live.apply(root, proposed, changes)?;
-        crate::commit_timing::count("compaction_reference_deltas", fresh.len() as u64);
-    }
+    let root = job.lock.root();
+    let mut references = ReferenceCache::new(root, proposed);
+    live_parts::observe_new_parts(root, proposed, fresh, &mut changes, &mut references)?;
+    drop(references);
+    live_parts::add_directory_empty_root(root, &job.output.current, -1, &mut changes)?;
+    live_parts::add_directory_empty_root(root, proposed, 1, &mut changes)?;
+    job.live.apply(root, proposed, changes)?;
+    crate::commit_timing::count("compaction_reference_deltas", fresh.len() as u64);
     Ok(())
 }
 
@@ -193,36 +177,6 @@ fn behind() -> crate::Error {
         "compaction_behind: final catch-up exceeds its bounded key budget; retry after maintenance"
             .into(),
     )
-}
-
-fn carried_dependencies(
-    root: &std::path::Path,
-    cut: &Current,
-    source_generation: u64,
-    output: Vec<crate::disk_pack::dependency::Coordinate>,
-    templates: std::collections::BTreeSet<uuid::Uuid>,
-) -> Result<Dependencies> {
-    let mut dependencies = Dependencies::new();
-    for coordinate in output {
-        dependencies.add(coordinate)?;
-    }
-    // New groups can retain a live locator object from before the source cut.
-    // The shared allocator also needs its empty page zero for later groups,
-    // even when none of the currently selected trees points to that page.
-    for object in templates {
-        dependencies.add(crate::disk_pack::dependency::Coordinate {
-            kind: 2,
-            object,
-            part: 0,
-        })?;
-    }
-    let receipt = generation::read_receipt(root, cut)?;
-    for (coordinate, record) in receipt.coordinates.into_iter().zip(receipt.records) {
-        if crate::disk_pack::bytes::u64_at(&record, 72) > source_generation {
-            dependencies.add(coordinate)?;
-        }
-    }
-    Ok(dependencies)
 }
 
 struct DeltaBudget {

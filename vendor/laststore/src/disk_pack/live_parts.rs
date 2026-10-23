@@ -14,6 +14,7 @@ mod overflow;
 mod payload;
 mod scan;
 
+pub(super) use bootstrap::LocatorImports;
 pub(super) use changes::Changes;
 pub(super) use scan::{add_directory_empty_root, observe_new_parts};
 
