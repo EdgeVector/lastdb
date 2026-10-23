@@ -1,4 +1,4 @@
-//! Native space reservations and bounded memory-ack flush policy.
+//! Native disk-space reservation policy.
 
 use super::*;
 use laststore::disk_pack::maintenance::SpacePolicy;
@@ -23,20 +23,4 @@ pub(super) fn policy_from_env() -> StorageResult<SpacePolicy> {
         }
     }
     Ok(policy)
-}
-
-pub(super) fn validate_resident_policy() -> StorageResult<()> {
-    memory_flush_delay()?;
-    Ok(())
-}
-
-pub(super) fn memory_flush_delay() -> StorageResult<std::time::Duration> {
-    crate::resident::ResidentPolicy::from_env()
-        .persist_interval
-        .filter(|delay| *delay <= std::time::Duration::from_millis(500))
-        .ok_or_else(|| {
-            StorageError::ConfigurationError(
-                "native memory ack requires LASTDB_RESIDENT_PERSIST_MS between 1 and 500".into(),
-            )
-        })
 }
