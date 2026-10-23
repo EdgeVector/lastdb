@@ -1,0 +1,62 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "encrypted",
+  "phases": {
+    "focused_multiget32": {
+      "first_request_ms": 6.076464,
+      "max_ms": 7.624496,
+      "mean_ms": 3.8202481865234375,
+      "median_ms": 3.7465640000000002,
+      "p95_ms": 4.210988,
+      "requests": 1024,
+      "total_ms": 3911.934143
+    },
+    "hash_durable_write1": {
+      "acknowledgements": {
+        "durable": 256
+      },
+      "final_flush_ms": 0.30572,
+      "first_request_ms": 17.351993,
+      "max_ms": 22.498678,
+      "mean_ms": 17.49834176171875,
+      "median_ms": 17.7967665,
+      "p95_ms": 19.287251,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 56.84967818775117,
+      "requests": 256,
+      "total_ms": 4479.575491,
+      "wall_through_flush_seconds": 4.503103767
+    },
+    "range_durable_write32": {
+      "acknowledgements": {
+        "durable": 64
+      },
+      "final_flush_ms": 0.363978,
+      "first_request_ms": 87.291775,
+      "max_ms": 87.291775,
+      "mean_ms": 65.639899453125,
+      "median_ms": 65.09883,
+      "p95_ms": 70.383874,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 483.3170487819161,
+      "requests": 64,
+      "total_ms": 4200.953565,
+      "wall_through_flush_seconds": 4.237384146
+    }
+  },
+  "response_fingerprints": {
+    "hash-point": "73b2f5b4b29426da95b4cbeba82e23a9ffb959b4122557d3287fde8d4083dd5d",
+    "hidden-sort": "addcd2cde72c0676e2e909ca76a8508b197d4f6541b6e3e94f6d09b8095222b4",
+    "nested16": "5e2beb18886a1b4bf06465c5d9c74e96bf7a2a6c8dcf520ca94e42092098a547",
+    "nested256": "83b8c5048bdfb3f84c9bc1b4866a181545c934d63d4693f39ab02d13a2d6b66b",
+    "projection-desc": "addcd2cde72c0676e2e909ca76a8508b197d4f6541b6e3e94f6d09b8095222b4",
+    "range-duplicates": "972451231643b65f59019df329b553451418b04b2eca9f33b70593d3a36215f2",
+    "range-miss": "4be5b27981b21105b6447e8113a3479086497cd81cfa2cbeee2ed50998c5f9e3",
+    "range-point": "8d4e6ef07345a6c90056723ec621c9f924d3b0aa4e36ccfd77b8a496100d9291",
+    "range512": "02fb3b8a47bee3f783e4ffd2033ec52c24c77d1fe6ec59aede75974860cbdac9",
+    "range64": "a60f711aab0599997141a357ef824b12fc55d9958ac89d42ed63cc26153dbd42"
+  },
+  "source_revision": "bcdcbba38b20188bbd8c506326d6c451f0363f50",
+  "values_metadata_and_reopen_verified": true
+}

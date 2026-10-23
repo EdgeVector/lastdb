@@ -1,0 +1,30 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "preload",
+  "phases": {
+    "focused_multiget32": {
+      "first_request_ms": 6.158143,
+      "max_ms": 6.609328,
+      "mean_ms": 3.7878874541015626,
+      "median_ms": 3.728192,
+      "p95_ms": 4.165713,
+      "requests": 1024,
+      "total_ms": 3878.796753
+    }
+  },
+  "response_fingerprints": {
+    "hash-point": "06f268e7e35adda2474b9a14a41f5f021297b024ff236f4b1eb02eed4664dc68",
+    "hidden-sort": "6b3d2306f3ff459a087df69de28569d0f8c4fedd95e317a1b5681bc3945daa64",
+    "nested16": "83e7f92f31cbfc3a38415a85ac4bcf60c659d1c5ae30683a427185ae661b7502",
+    "nested256": "429175cb7e6c1d9da7b7f8eaad028575a83609aa205026bebcf0a28dc562fbba",
+    "projection-desc": "6b3d2306f3ff459a087df69de28569d0f8c4fedd95e317a1b5681bc3945daa64",
+    "range-duplicates": "18bead2bbea6a891d04827e112d45aab3658bffa8a163d0ab9df416d2bdee965",
+    "range-miss": "464dfca081067f13046bf2249fe4b178523075f7d2dbbdb23d9433e2ef9ea15f",
+    "range-point": "19ad544fccf99011645eb8444842d4b84b5e93f7b0493ea48fa20c9285e131d1",
+    "range512": "ea5bbc09462ccf3775afbb094b6bf491ea6549188d2f3366aeb418a61227801f",
+    "range64": "760ab2cf59f2626b88078377f321432dd1818c60b9ef0638fed48859152483b6"
+  },
+  "source_revision": "74355dfd67a7082254247ebd880f13ef21683273",
+  "values_metadata_and_reopen_verified": true
+}
