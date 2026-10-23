@@ -108,6 +108,11 @@ class Workload:
         # Reopen the same owned home. No seeded logical record remains warm.
         self.node.stop()
         self.node.start()
+        result, _, _ = self.node.call("/api/admin/shed", {})
+        boundary = result["shed"]
+        save(self.output / "cold-boundary.json", boundary)
+        if boundary.get("error") or boundary.get("target_met") is not True:
+            raise RuntimeError("The cold-read boundary did not purge the logical warm records")
 
     @staticmethod
     def validate_write(result, count):
@@ -149,10 +154,13 @@ class Workload:
                     validate_read(result, numbers)
                     if not receipt:
                         raise RuntimeError("The read lacks its storage receipt")
-                    if mode == "cold" and receipt["logical_warm_misses"] == 0:
-                        raise RuntimeError("The cold read did not report a warm-set miss")
-                    if mode == "hot" and receipt["logical_warm_misses"] != 0:
-                        raise RuntimeError("The hot read reported a warm-set miss")
+                    # Native unknown-path fallbacks do not increment the old
+                    # logical miss counter. Use the purge + first-key boundary
+                    # and actual disk bytes, rather than interpreting zero as hot.
+                    if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
+                        raise RuntimeError("The cold read did not fetch payload bytes from disk")
+                    if mode == "hot" and receipt["logical_warm_hits"] < len(FIELDS) * len(numbers):
+                        raise RuntimeError("The hot read did not report warm hits for the requested fields")
                 else:
                     self.validate_write(result, len(numbers))
             except Exception as failure:

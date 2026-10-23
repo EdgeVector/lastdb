@@ -77,7 +77,7 @@ def main():
               "read_batches": [1, 32], "write_batches": [1, 128], "clients": [1, 4, 16, 32],
               "writes": "durable acknowledgements; product default storage and maintenance",
               "reads": "known exact hash/range keys; storage receipts on every measured read",
-              "cold": "first reads of disjoint keys after reopen; OS filesystem pages uncontrolled",
+              "cold": "purged warm records after reopen; disjoint first keys; positive disk payload receipts; OS pages uncontrolled",
               "timing": "RPC through response bytes; payload construction and response validation excluded",
               "throughput": "closed-loop; includes Python client, validation, and scheduler overhead",
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",

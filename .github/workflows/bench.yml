@@ -78,6 +78,17 @@ jobs:
           path: baseline
           persist-credentials: false
 
+      - name: Reserve disk space for both builds and the nightly corpus
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
       - name: Select one Rust toolchain for both builds
         working-directory: candidate
         run: |

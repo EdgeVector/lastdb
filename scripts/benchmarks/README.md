@@ -31,7 +31,11 @@ Each case uses actual product requests through the daemon's Unix socket:
 - Mixed readers and writers use the same hot keys.
 
 Each read requires a complete result with valid generated values and a storage receipt.
-Cold reads require a reported warm-set miss. Hot reads require no reported warm-set miss.
+The cold boundary purges clean logical records after the daemon restarts.
+Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.
+Each hot read requires at least one warm hit per requested field and key.
+The native unknown-path fallback does not always increment the logical miss counter.
+The cold control therefore uses the purge boundary and actual disk-read receipts.
 These checks reject invalid measurements. They do not form a test suite.
 
 ## Base and candidate
