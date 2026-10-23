@@ -117,9 +117,18 @@ impl ChangeFeedStore {
         events: Vec<ChangeFeedEvent>,
         captured: Option<Captured>,
     ) -> Result<u64, SchemaError> {
-        // Every writer takes the native gate before this mutex. Holding the tip
-        // through publication cannot invert the lock order of a fallback append.
-        let mut tip = Arc::clone(&self.tip).lock_owned().await;
+        // Native preparation has one FIFO owner. The private prefix contains
+        // earlier accepted tips; ordinary readers still see the durable tip.
+        let legacy_tip = if self.native.is_none() {
+            Some(Arc::clone(&self.tip).lock_owned().await)
+        } else {
+            None
+        };
+        let tip = if let Some(tip) = &legacy_tip {
+            **tip
+        } else {
+            self.store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0)
+        };
         let first = tip
             .checked_add(1)
             .ok_or_else(|| SchemaError::InvalidData("change-feed sequence exhausted".into()))?;
@@ -167,8 +176,11 @@ impl ChangeFeedStore {
         }
         let store = self.clone();
         let deliver = async move {
-            *tip = end;
-            drop(tip);
+            if let Some(mut tip) = legacy_tip {
+                *tip = end;
+            } else {
+                *store.tip.lock().await = end;
+            }
             for event in ready {
                 if let Some(captured) = &captured {
                     captured

@@ -93,18 +93,6 @@ impl PackRuntime {
             return Ok(Attempt::Queue(target));
         }
         let mut writer = self.writer.lock().expect("native snapshot writer");
-        if !self
-            .view
-            .read()
-            .expect("native complete read view")
-            .accepted
-            .is_empty()
-        {
-            self.failed.store(true, Ordering::Release);
-            return Err(StorageError::BackendError(
-                "empty native queue retained an accepted view; recovery required".into(),
-            ));
-        }
         let mut receipt = match writer.try_finish_pack(output, staged) {
             Ok(Some(receipt)) => receipt,
             Ok(None) => return Ok(Attempt::Changed),

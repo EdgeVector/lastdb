@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::storage::laststore::LastStoreKvStore;
-use futures::FutureExt;
 use tracing::Instrument;
 
 const MAX_REQUESTS: usize = 1024;
@@ -10,7 +9,6 @@ const MAX_REQUESTS: usize = 1024;
 struct QueuedRequest {
     pending: Arc<transaction::PendingBatch>,
     sequence: u64,
-    visible: bool,
 }
 
 #[derive(Default)]
@@ -29,6 +27,10 @@ impl WriteQueue {
             .then_some(self.next_sequence)
     }
 
+    pub(super) fn request_count(&self) -> usize {
+        self.requests.len()
+    }
+
     pub(super) fn sequence(&self) -> u64 {
         self.next_sequence
     }
@@ -39,7 +41,7 @@ impl PackRuntime {
     pub(super) async fn enter_prepare(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
         self.ensure_parts_worker();
         loop {
-            let gate = Arc::clone(&self.write_gate).lock_owned().await;
+            let gate = Arc::clone(&self.prepare_gate).lock_owned().await;
             let target = {
                 let queue = self.queue.lock().expect("native accepted queue");
                 queue.sealed.then_some(queue.next_sequence)
@@ -55,7 +57,7 @@ impl PackRuntime {
 
     pub(super) fn preparation_prefix(&self) -> (Arc<Vec<Arc<transaction::PendingBatch>>>, bool) {
         let queue = self.queue.lock().expect("native preparation prefix");
-        let hidden = queue.requests.iter().any(|request| !request.visible);
+        let hidden = !queue.requests.is_empty();
         (
             Arc::new(
                 queue
@@ -75,7 +77,6 @@ impl PackRuntime {
     ) -> StorageResult<Option<write::PreparedAppend>> {
         let queue = self.queue.lock().expect("native accepted queue");
         if queue.requests.len() >= MAX_REQUESTS {
-            self.flush_notify.notify_one();
             return Err(StorageError::WriteResourceLimit {
                 detail: "native accepted queue reached 1024 requests; retry after flush".into(),
             });
@@ -83,13 +84,8 @@ impl PackRuntime {
         if incoming.is_empty() {
             return Ok(None);
         }
-        match self.prepare_append(incoming, queue.prepared.as_ref()) {
-            Ok(prepared) => Ok(Some(prepared)),
-            Err(error) => {
-                self.flush_notify.notify_one();
-                Err(error)
-            }
-        }
+        self.prepare_append(incoming, queue.prepared.as_ref())
+            .map(Some)
     }
 
     /// No await separates accepted publication from transfer to the queue owner.
@@ -97,52 +93,31 @@ impl PackRuntime {
         self: &Arc<Self>,
         pending: Arc<transaction::PendingBatch>,
         prepared: Option<write::PreparedAppend>,
-        visible: bool,
-        delay: Option<std::time::Duration>,
     ) -> StorageResult<u64> {
-        let visible = visible && pending.has_reserved_raw_memory();
         let mut queue = self.queue.lock().expect("native accepted queue");
         let sequence = queue.next_sequence.checked_add(1).ok_or_else(|| {
             StorageError::BackendError("native accepted sequence exhausted".into())
         })?;
         let first = queue.requests.is_empty();
-        if first {
-            // A completed immediate flush can leave one unused wake permit.
-            let _ = self.flush_notify.notified().now_or_never();
-        }
         if let Some(append) = &prepared {
             append.reserve_capacity(queue.prepared.as_mut())?;
         }
-        // Read-held core values require retained quota. Private background work
-        // is available only to later preparation, through preparation_prefix.
-        if visible {
-            self.install_accepted(Arc::clone(&pending), sequence)?;
-        }
-        queue.requests.push(QueuedRequest {
-            pending,
-            sequence,
-            visible,
-        });
+        queue.requests.push(QueuedRequest { pending, sequence });
         queue.next_sequence = sequence;
         if let Some(append) = prepared {
             let previous = queue.prepared.take();
             queue.prepared = Some(append.finish(previous));
         }
-        queue.sealed |= delay.is_none() || queue.requests.len() == MAX_REQUESTS;
-        let sealed = queue.sealed;
+        queue.sealed |= queue.requests.len() == MAX_REQUESTS;
         drop(queue);
         if first {
             let runtime = Arc::clone(self);
-            let deadline = tokio::time::Instant::now() + delay.unwrap_or_default();
             tokio::spawn(
                 async move {
-                    runtime.run_queue(deadline).await;
+                    runtime.run_queue().await;
                 }
                 .in_current_span(),
             );
-        }
-        if sealed {
-            self.flush_notify.notify_one();
         }
         Ok(sequence)
     }
@@ -151,7 +126,6 @@ impl PackRuntime {
         let mut queue = self.queue.lock().expect("native accepted queue");
         if !queue.requests.is_empty() {
             queue.sealed = true;
-            self.flush_notify.notify_one();
         }
         queue.next_sequence
     }
@@ -177,20 +151,16 @@ impl PackRuntime {
         }
     }
 
-    async fn run_queue(self: Arc<Self>, deadline: tokio::time::Instant) {
-        tokio::select! {
-            () = tokio::time::sleep_until(deadline) => {},
-            () = self.flush_notify.notified() => {},
-        }
-        // Close collection at the first request's deadline. Waiting preparers
-        // yield their gate rather than extending this prefix with new work.
+    async fn run_queue(self: Arc<Self>) {
+        // FIFO admits callers already waiting ahead of this worker. Later
+        // arrivals cannot extend this commit. There is no collection timer.
+        let preparation = Arc::clone(&self.prepare_gate).lock_owned().await;
         self.seal_queue();
-        // The gate protects generation-bound reservations during physical output.
-        // Preparation proceeds during collection, but pauses during this commit.
         let gate = Arc::clone(&self.write_gate).lock_owned().await;
         let gate_from = std::time::Instant::now();
         let runtime = Arc::clone(&self);
         let result = LastStoreKvStore::run_blocking(move || {
+            let _preparation = preparation;
             let _gate = gate;
             let result = runtime.commit_queue();
             if result.is_err() {
@@ -243,7 +213,6 @@ impl PackRuntime {
             let hidden = queue
                 .requests
                 .iter()
-                .filter(|request| !request.visible)
                 .flat_map(|request| request.pending.changed_coordinates())
                 .collect::<Vec<_>>();
             let requests = queue

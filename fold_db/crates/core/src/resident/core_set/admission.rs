@@ -41,7 +41,6 @@ impl CoreWarmSet {
         &mut self,
         path: &CorePath,
         mut value: CoreWarmSlot,
-        dirty_sequence: Option<u64>,
     ) -> Result<(), CoreCapacity> {
         if value.entry.atom_uuid != value.atom.uuid() {
             return Err(CoreCapacity {
@@ -80,7 +79,7 @@ impl CoreWarmSet {
         self.link_atom(id, value.atom, value.bytes);
         self.set_slot_tip(id, value.entry, value.metadata);
         self.refresh_tip_charge(id);
-        self.mark_slot(id, false, dirty_sequence);
+        self.mark_slot(id, false);
         self.slots.get_mut(id).expect("warm core slot").owned = owned;
         self.touch(path);
         self.trim_after_admit(path);
@@ -88,7 +87,7 @@ impl CoreWarmSet {
     }
 
     /// Retain a selected tip without a body. Identical full values keep their
-    /// body and reservation owner; an unflushed value cannot be replaced here.
+    /// body and reservation owner.
     /// The caller supplies the exact sources and authorizes the resulting tip.
     pub(crate) fn admit_tip(
         &mut self,
@@ -100,19 +99,6 @@ impl CoreWarmSet {
             slot.tip.as_ref() == Some(&tip.entry)
                 && slot.metadata.as_deref() == tip.metadata.as_ref()
         });
-        if !identical
-            && existing.is_some_and(|slot| {
-                slot.owners.iter().any(|owner| {
-                    self.paths
-                        .state(*owner)
-                        .is_some_and(|state| state.dirty.is_some())
-                })
-            })
-        {
-            return Err(CoreCapacity {
-                detail: "tip-only retention cannot replace an unflushed core value",
-            });
-        }
         let id = self.ensure_path(path)?;
         let retains_value = identical && self.slot_atom(id, &tip.entry.atom_uuid).is_some();
         if !retains_value {
@@ -120,7 +106,7 @@ impl CoreWarmSet {
         }
         self.set_slot_tip(id, tip.entry, tip.metadata);
         self.refresh_tip_charge(id);
-        self.mark_slot(id, false, None);
+        self.mark_slot(id, false);
         self.touch(path);
         self.trim_after_admit(path);
         Ok(retains_value)
@@ -128,15 +114,11 @@ impl CoreWarmSet {
 
     /// Admit a confirmed absent key under the caller's captured publication lock.
     /// The caller must link every possible winning source before authorization.
-    pub(crate) fn admit_absent(
-        &mut self,
-        path: &CorePath,
-        dirty_sequence: Option<u64>,
-    ) -> Result<(), CoreCapacity> {
+    pub(crate) fn admit_absent(&mut self, path: &CorePath) -> Result<(), CoreCapacity> {
         let id = self.ensure_path(path)?;
         self.forget_slot_sources(id);
         self.forget_slot_value(id);
-        self.mark_slot(id, true, dirty_sequence);
+        self.mark_slot(id, true);
         self.slots.get_mut(id).expect("warm core slot").owned =
             Some(model::CoreModelSlot::clean(None));
         self.touch(path);
@@ -167,7 +149,7 @@ impl CoreWarmSet {
     }
 
     /// The ordinary tip resolver can refresh a retained slot without loading
-    /// its atom again. Its existing flush protection and source edges remain.
+    /// its atom again. Its existing call holds and source edges remain.
     pub(crate) fn refresh_tip(
         &mut self,
         path: &CorePath,
@@ -288,7 +270,7 @@ impl CoreWarmSet {
         id
     }
 
-    fn mark_slot(&mut self, id: tables::SlotId, absent: bool, sequence: Option<u64>) {
+    fn mark_slot(&mut self, id: tables::SlotId, absent: bool) {
         let Some(slot) = self.slots.get(id) else {
             return;
         };
@@ -297,9 +279,6 @@ impl CoreWarmSet {
             state.known = true;
             state.absent = absent;
             state.tip_authorized = false;
-            if let Some(sequence) = sequence {
-                state.dirty = Some(state.dirty.map_or(sequence, |old| old.max(sequence)));
-            }
         }
     }
 

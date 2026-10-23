@@ -58,7 +58,9 @@ pub(super) fn commit(
         eprintln!(
             "LASTDB_SNAPSHOT_TIMING {}",
             serde_json::json!({
-                "kind": "commit", "sequence": sequence, "requests": requests, "ok": result.is_ok(),
+                "kind": "commit", "sequence": sequence,
+                "first_sequence": sequence.saturating_sub(requests.saturating_sub(1) as u64),
+                "requests": requests, "ok": result.is_ok(),
                 "started_us": report.started_us, "ended_us": report.ended_us,
                 "total_us": report.total_us, "phases_us": report.phases_us, "counts": report.counts,
             })

@@ -61,8 +61,7 @@ impl PackRuntime {
             atom: facts.atom,
             bytes,
         };
-        let sequence = (!view.accepted.is_empty()).then_some(view.sequence);
-        core.admit(&key, slot, sequence)
+        core.admit(&key, slot)
             .map_err(|error| StorageError::ReadResourceLimit {
                 detail: error.to_string(),
             })?;

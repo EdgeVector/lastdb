@@ -254,17 +254,26 @@ impl PackRuntime {
         Ok(target)
     }
 
-    pub(super) async fn enter_write(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
+    pub(super) async fn enter_write(self: &Arc<Self>) -> WriteGuard {
         loop {
             let gate = self.enter_prepare().await;
             let target = self.seal_queue();
             if target <= *self.completed.borrow() || self.failed.load(Ordering::Acquire) {
-                return gate;
+                let publication = Arc::clone(&self.write_gate).lock_owned().await;
+                return WriteGuard {
+                    _preparation: gate,
+                    _publication: publication,
+                };
             }
             drop(gate);
             let _ = self.wait_for_queue(target).await;
         }
     }
+}
+
+pub(super) struct WriteGuard {
+    _preparation: tokio::sync::OwnedMutexGuard<()>,
+    _publication: tokio::sync::OwnedMutexGuard<()>,
 }
 
 fn prefix_batch_bytes(

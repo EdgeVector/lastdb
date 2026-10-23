@@ -48,15 +48,14 @@ pub struct CoreWarmByteStats {
     pub link_bytes: usize,
     /// Atom allocations that only a running call keeps.
     pub held_bytes: usize,
-    /// Charges of unflushed write paths, current tip metadata, and atoms.
+    /// Retired unflushed warm-path charge; disk-first publication keeps this zero.
     pub dirty_bytes: usize,
     /// The share of the warm byte limit available to unflushed writes.
     pub dirty_limit_bytes: usize,
     pub tracked_atoms: usize,
     /// Charged bytes that the purge removed since start.
     pub purged_bytes: u64,
-    /// Admissions that left the charge over the limit because only held or
-    /// unflushed paths remained.
+    /// Admissions that left the charge over the limit because only held paths remained.
     pub over_limit_admissions: u64,
 }
 
@@ -231,45 +230,11 @@ impl CoreWarmSet {
             slot_bytes: self.bytes.slot_bytes,
             link_bytes: self.bytes.link_bytes,
             held_bytes,
-            dirty_bytes: self.dirty_bytes(),
+            dirty_bytes: 0,
             dirty_limit_bytes: crate::resident::core_warm_dirty_bytes(limit_bytes),
             tracked_atoms: self.bytes.atoms.len(),
             purged_bytes: self.bytes.purged_bytes,
             over_limit_admissions: self.bytes.over_limit_admissions,
         }
-    }
-
-    fn dirty_bytes(&self) -> usize {
-        let mut atoms = HashSet::new();
-        let mut slots = HashSet::new();
-        let mut bytes = 0;
-        for (_, state) in self.paths.iter() {
-            if state.dirty.is_none() {
-                continue;
-            }
-            bytes += state.charge;
-            if slots.insert(state.slot) {
-                bytes += self.slots.get(state.slot).map_or(0, |slot| slot.tip_charge);
-            }
-            let atom = self.slots.get(state.slot).and_then(|slot| {
-                slot.owned
-                    .as_ref()
-                    .and_then(|owned| owned.value.as_ref())
-                    .map(|value| Arc::as_ptr(&value.atom) as usize)
-                    .or_else(|| {
-                        slot.atom
-                            .as_ref()
-                            .map(|atom| Arc::as_ptr(&atom.value) as usize)
-                    })
-            });
-            if let Some(key) = atom.filter(|key| atoms.insert(*key)) {
-                bytes += self
-                    .bytes
-                    .atoms
-                    .get(&key)
-                    .map_or(0, |tracked| tracked.bytes);
-            }
-        }
-        bytes
     }
 }

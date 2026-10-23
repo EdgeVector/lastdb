@@ -16,7 +16,7 @@ impl CoreWarmSet {
             };
             let state = self.paths.state_mut(id).expect("warm core path");
             state.holds = state.holds.saturating_sub(1);
-            if !state.known && state.holds == 0 && state.dirty.is_none() {
+            if !state.known && state.holds == 0 {
                 self.drop_id(id);
             }
         }
@@ -24,28 +24,6 @@ impl CoreWarmSet {
         // dead allocations first, so the purge charges only live values.
         if !self.fits(0) {
             self.bytes.sweep();
-            self.trim_to_limit(0, &HashSet::new());
-        }
-    }
-
-    /// A completed older flush cannot clear the sequence of a newer write.
-    pub(crate) fn complete_flush(&mut self, sequence: u64) {
-        self.complete_model_flush(sequence);
-        let mut unknown = Vec::new();
-        for (id, state) in self.paths.iter_mut() {
-            if state.dirty.is_some_and(|dirty| dirty <= sequence) {
-                state.dirty = None;
-            }
-            if !state.known && state.holds == 0 && state.dirty.is_none() {
-                unknown.push(id);
-            }
-        }
-        for id in unknown {
-            self.drop_id(id);
-        }
-        // Flushed paths just became purgeable. Without this, a quiet node
-        // would stay over the limit until its next admission.
-        if !self.fits(0) {
             self.trim_to_limit(0, &HashSet::new());
         }
     }
@@ -59,8 +37,8 @@ impl CoreWarmSet {
     }
 
     /// Make room for the requested paths under the byte limit. Never refuses:
-    /// if only held or unflushed paths remain, the new paths enter over the
-    /// limit. Call release, flush, or a later admission purges again (design D5).
+    /// if only held paths remain, the new paths enter over the limit.
+    /// Call release or a later admission purges again (design D5).
     pub(super) fn make_room(&mut self, requested: &[CorePath]) -> Result<(), CoreCapacity> {
         let new_paths = requested
             .iter()
@@ -120,11 +98,7 @@ impl CoreWarmSet {
                 .order
                 .values()
                 .filter(|id| !keep.contains(*id))
-                .filter(|id| {
-                    self.paths
-                        .state(**id)
-                        .is_some_and(|state| state.holds == 0 && state.dirty.is_none())
-                })
+                .filter(|id| self.paths.state(**id).is_some_and(|state| state.holds == 0))
                 .take(PURGE_BATCH)
                 .copied()
                 .collect();

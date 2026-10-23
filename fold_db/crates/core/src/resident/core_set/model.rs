@@ -4,7 +4,6 @@ use super::*;
 use crate::memory_budget::DeferReservation;
 use crate::resident::core_keys::{CoreKeyBudget, CoreKeyReservation};
 
-mod coverage;
 mod prepare;
 mod snapshot;
 
@@ -56,13 +55,10 @@ struct ModelMolecule {
     charged_bytes: usize,
 }
 
-type PreparedMolecule = (ModelMolecule, Vec<(CorePath, Arc<CoreModelSlot>)>);
-
 #[derive(Default)]
 struct ModelRoot {
     molecules: HashMap<MoleculeKey, Arc<ModelMolecule>>,
     definitions: HashMap<memory::MemoryKey, PreparedCoreMemory>,
-    sequence: u64,
     _charge: Option<CoreKeyReservation>,
     charged_bytes: usize,
 }
@@ -95,7 +91,6 @@ pub(crate) struct CoreModelSnapshot {
 
 /// Fully prepared metadata and typed values. Installation cannot refuse quota.
 pub(crate) struct CoreModelUpdate {
-    root: ModelRoot,
     changes: Vec<(CorePath, Arc<CoreModelSlot>)>,
     definitions: Vec<PreparedCoreMemory>,
 }
@@ -150,20 +145,14 @@ impl CoreWarmSet {
     }
 
     /// All paths must already hold the ordinary core path reservation.
-    pub(crate) fn install_dirty(&mut self, mut update: CoreModelUpdate, sequence: u64) {
-        self.install_model_changes(&update, Some(sequence));
-        update.root.sequence = sequence;
-        self.model.root = Arc::new(update.root);
-    }
-
     /// Disk-first publication installs the same values without a new dirty root.
     pub(crate) fn install_clean(&mut self, update: &CoreModelUpdate) {
-        self.install_model_changes(update, None);
+        self.install_model_changes(update);
     }
 
-    fn install_model_changes(&mut self, update: &CoreModelUpdate, sequence: Option<u64>) {
+    fn install_model_changes(&mut self, update: &CoreModelUpdate) {
         for (path, value) in &update.changes {
-            self.install_owned(path, Arc::clone(value), sequence);
+            self.install_owned(path, Arc::clone(value));
             self.clear_sources(path);
             for (collection, key) in &value.sources {
                 let retained = self.link_source(path, collection, key);
@@ -176,15 +165,15 @@ impl CoreWarmSet {
         }
     }
 
-    fn install_owned(&mut self, path: &CorePath, value: Arc<CoreModelSlot>, sequence: Option<u64>) {
+    fn install_owned(&mut self, path: &CorePath, value: Arc<CoreModelSlot>) {
         // The immutable slot/root retains this allocation even if admission
         // shares an equal current atom. Both allocations must stay measured.
         if let Some(slot) = &value.value {
             self.track_atom(&slot.atom);
         }
         let result = match &value.value {
-            Some(slot) => self.admit(path, slot.clone(), sequence),
-            None => self.admit_absent(path, sequence),
+            Some(slot) => self.admit(path, slot.clone()),
+            None => self.admit_absent(path),
         };
         debug_assert!(result.is_ok(), "prepared and held core path");
         if let Some(slot) = self.slot_of(path).and_then(|id| self.slots.get_mut(id)) {
@@ -239,12 +228,6 @@ impl CoreWarmSet {
             body_reserved_used_bytes: body_used,
             body_reserved_retained_bytes: body_used.saturating_sub(body_current),
             body_reserved_peak_bytes: self.model.body_peak_bytes,
-        }
-    }
-
-    pub(super) fn complete_model_flush(&mut self, sequence: u64) {
-        if self.model.root.sequence <= sequence {
-            self.model.root = Arc::new(ModelRoot::default());
         }
     }
 
