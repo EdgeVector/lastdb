@@ -10,15 +10,13 @@ impl FieldVariant {
         window: &Option<KeyWindow>,
         include_tombstones: bool,
     ) -> Result<(Vec<TipMatch>, bool), SchemaError> {
-        let hash = match filter {
-            HashRangeFilter::HashKey(hash)
-            | HashRangeFilter::HashRangePrefix { hash, .. }
-            | HashRangeFilter::HashRangeRange { hash, .. } => hash,
-            _ => {
-                return Err(SchemaError::InvalidData(
-                    "tip page requires one hash".into(),
-                ))
-            }
+        let (HashRangeFilter::HashKey(hash)
+        | HashRangeFilter::HashRangePrefix { hash, .. }
+        | HashRangeFilter::HashRangeRange { hash, .. }) = filter
+        else {
+            return Err(SchemaError::InvalidData(
+                "tip page requires one hash".into(),
+            ));
         };
         let mut window_applied = false;
         let paged = if let Some(window) = &window {
