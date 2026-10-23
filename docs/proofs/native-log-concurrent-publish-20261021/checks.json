@@ -1,0 +1,19 @@
+{
+  "product_source_commit": "8de86bfca",
+  "optimized_build": "PASS: cargo build --profile dev-release -p lastdb_node --bin lastdbd",
+  "format": "PASS: cargo fmt --all -- --check",
+  "clippy": "PASS: cargo clippy -p laststore -p fold_db -p lastdb_node --lib --bins -- -D warnings",
+  "cargo_host_lock": true,
+  "file_size": "PASS: 233 changed files examined against c70e6fdc7810bb6291a2564ad8157d7938de0494",
+  "function_size": "PASS",
+  "new_allows": "PASS: 0 added, 0 removed",
+  "atom_counter_writers": "PASS",
+  "no_write_path_syncing_store": "PASS",
+  "byte_slice": "PASS",
+  "redaction": "PASS",
+  "no_hardcoded_urls": "PASS",
+  "receipt_helper_python_syntax": "PASS",
+  "tests_fixtures_mutation_probes_coverage": "not run: retired by user instruction",
+  "primary_or_shared_system_change": false,
+  "merged": false
+}

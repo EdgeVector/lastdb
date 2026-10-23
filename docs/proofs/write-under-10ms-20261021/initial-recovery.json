@@ -1,0 +1,8 @@
+{
+  "signal": "SIGKILL",
+  "expected_records": 501,
+  "actual_records": 501,
+  "mismatches": [],
+  "all_values_match": true,
+  "restart_cause": "crash"
+}

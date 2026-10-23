@@ -54,6 +54,9 @@ pub(crate) struct ChangeFeedReservation {
 
 impl ChangeFeedReservation {
     pub(crate) fn submit(self, events: Vec<ChangeFeedEvent>) {
+        if events.is_empty() {
+            return;
+        }
         let pending_task = self.pending_tasks.begin();
         let _sender = self.permit.send(ChangeFeedJob {
             events,

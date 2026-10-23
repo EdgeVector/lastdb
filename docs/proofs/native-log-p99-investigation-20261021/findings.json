@@ -1,0 +1,312 @@
+{
+  "previous_unprofiled": {
+    "requests": 1000,
+    "over_40_ms": 44,
+    "over_40_ms_without_publication_wait": 0,
+    "publication_blocked_requests": 44,
+    "publication_blocked_percent": 4.4,
+    "blocked_client_ms": {
+      "count": 44,
+      "median": 63.8954165,
+      "mean": 61.73107670454546,
+      "p99": 74.11175,
+      "maximum": 74.11175
+    },
+    "other_client_ms": {
+      "count": 956,
+      "median": 11.9073955,
+      "mean": 11.880862298117155,
+      "p99": 18.942667,
+      "maximum": 19.129334
+    },
+    "p99_request": {
+      "number": 613,
+      "sequence": 647,
+      "start_unix_us": 1792625168257647,
+      "end_unix_us": 1792625168324680,
+      "client_ms": 67.031459,
+      "scope_ms": 66.674,
+      "part_room_ms": 0.0,
+      "gate_wait_ms": 54.448,
+      "journal_accept_ms": 7.863,
+      "journal_full_sync_ms": 4.992,
+      "journal_ordered_sync_ms": 1.966,
+      "journal_file_set_sync_ms": 0.086,
+      "directory_overlap_ms": 51.649,
+      "delivery_overlap_ms": 2.66,
+      "other_scope_ms": 4.363,
+      "post_journal_ms": 0.011,
+      "pre_journal_ms": 4.352,
+      "directory_after_journal_ms": 0.0,
+      "client_outside_scope_ms": 0.35745899999999153,
+      "largest_stage": "gate_wait_ms"
+    },
+    "publications": 44,
+    "publication_ms": {
+      "count": 44,
+      "median": 48.8505,
+      "mean": 47.47993181818182,
+      "p99": 59.867,
+      "maximum": 59.867
+    },
+    "publication_records": {
+      "count": 44,
+      "median": 24.0,
+      "mean": 23.681818181818183,
+      "p99": 26,
+      "maximum": 26
+    },
+    "publication_first_half_ms": {
+      "count": 22,
+      "median": 43.3125,
+      "mean": 42.61809090909091,
+      "p99": 49.886,
+      "maximum": 49.886
+    },
+    "publication_second_half_ms": {
+      "count": 22,
+      "median": 52.346999999999994,
+      "mean": 52.341772727272726,
+      "p99": 59.867,
+      "maximum": 59.867
+    }
+  },
+  "fresh_profiled": {
+    "requests": 1000,
+    "over_40_ms": 44,
+    "over_40_ms_without_publication_wait": 0,
+    "publication_blocked_requests": 44,
+    "publication_blocked_percent": 4.4,
+    "blocked_client_ms": {
+      "count": 44,
+      "median": 63.074625,
+      "mean": 62.30868934090909,
+      "p99": 71.98125,
+      "maximum": 71.98125
+    },
+    "other_client_ms": {
+      "count": 956,
+      "median": 11.950562999999999,
+      "mean": 12.10394189958159,
+      "p99": 19.079709,
+      "maximum": 20.955125
+    },
+    "p99_request": {
+      "number": 797,
+      "sequence": 840,
+      "start_unix_us": 1792629526006018,
+      "end_unix_us": 1792629526073045,
+      "client_ms": 67.027125,
+      "scope_ms": 66.651,
+      "part_room_ms": 0.0,
+      "gate_wait_ms": 54.449,
+      "journal_accept_ms": 7.804,
+      "journal_full_sync_ms": 4.597,
+      "journal_ordered_sync_ms": 2.042,
+      "journal_file_set_sync_ms": 0.085,
+      "directory_overlap_ms": 51.538,
+      "delivery_overlap_ms": 2.767,
+      "other_scope_ms": 4.398,
+      "post_journal_ms": 0.013,
+      "pre_journal_ms": 4.385,
+      "directory_after_journal_ms": 0.0,
+      "client_outside_scope_ms": 0.3761250000000018,
+      "largest_stage": "gate_wait_ms"
+    },
+    "publications": 44,
+    "publication_ms": {
+      "count": 44,
+      "median": 47.959,
+      "mean": 47.44361363636364,
+      "p99": 56.0,
+      "maximum": 56.0
+    },
+    "publication_records": {
+      "count": 44,
+      "median": 23.0,
+      "mean": 23.34090909090909,
+      "p99": 25,
+      "maximum": 25
+    },
+    "publication_first_half_ms": {
+      "count": 22,
+      "median": 43.363,
+      "mean": 42.996545454545455,
+      "p99": 48.959,
+      "maximum": 48.959
+    },
+    "publication_second_half_ms": {
+      "count": 22,
+      "median": 51.922,
+      "mean": 51.89068181818182,
+      "p99": 56.0,
+      "maximum": 56.0
+    }
+  },
+  "process_sample": {
+    "method": "5-second process sample at 1 ms; categories are sample counts, not exact wall times",
+    "publication_stack_samples": 570,
+    "categories": [
+      {
+        "name": "lookup_file_update",
+        "samples": 293,
+        "percent": 51.40350877192982
+      },
+      {
+        "name": "generation_receipt",
+        "samples": 62,
+        "percent": 10.87719298245614
+      },
+      {
+        "name": "current_file_publication",
+        "samples": 54,
+        "percent": 9.473684210526315
+      },
+      {
+        "name": "final_device_flush",
+        "samples": 54,
+        "percent": 9.473684210526315
+      },
+      {
+        "name": "stream_rotation_other",
+        "samples": 45,
+        "percent": 7.894736842105263
+      },
+      {
+        "name": "journal_read_verification",
+        "samples": 39,
+        "percent": 6.842105263157895
+      },
+      {
+        "name": "other_publication",
+        "samples": 23,
+        "percent": 4.035087719298246
+      }
+    ],
+    "top_leaf_symbols": [
+      {
+        "symbol": "sha2::sha256::soft::compress",
+        "samples": 211
+      },
+      {
+        "symbol": "__fcntl",
+        "samples": 134
+      },
+      {
+        "symbol": "__open",
+        "samples": 78
+      },
+      {
+        "symbol": "close",
+        "samples": 52
+      },
+      {
+        "symbol": "write",
+        "samples": 14
+      },
+      {
+        "symbol": "laststore::disk_pack::bytes::zero",
+        "samples": 14
+      },
+      {
+        "symbol": "_$LT$core..slice..iter..ChunksExact$LT$T$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::__iterator_get_unchecked",
+        "samples": 10
+      },
+      {
+        "symbol": "__rename",
+        "samples": 8
+      },
+      {
+        "symbol": "mkdir",
+        "samples": 7
+      },
+      {
+        "symbol": "_platform_memmove",
+        "samples": 4
+      },
+      {
+        "symbol": "read",
+        "samples": 4
+      },
+      {
+        "symbol": "__ulock_wait",
+        "samples": 3
+      },
+      {
+        "symbol": "fstat",
+        "samples": 3
+      },
+      {
+        "symbol": "DYLD-STUB$$memcpy",
+        "samples": 2
+      },
+      {
+        "symbol": "laststore::disk_pack::page::Page::entry",
+        "samples": 2
+      },
+      {
+        "symbol": "_platform_memset",
+        "samples": 2
+      },
+      {
+        "symbol": "_RINvNvMs2_NtCsdBofyk9Yr2t_5alloc7raw_vecINtB8_11RawVecInnerpE7reserve21do_reserve_and_handleNtNtBa_5alloc6GlobalEBa_",
+        "samples": 2
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_32",
+        "samples": 1
+      },
+      {
+        "symbol": "_mi_theap_realloc_zero",
+        "samples": 1
+      },
+      {
+        "symbol": "_$LT$core..hash..sip..Hasher$LT$S$GT$$u20$as$u20$core..hash..Hasher$GT$::write",
+        "samples": 1
+      }
+    ]
+  },
+  "sha256_backend": {
+    "sha2_version": "0.10.9",
+    "backend_source": "/Users/tomtang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha2-0.10.9/src/sha256.rs",
+    "aarch64_backend_condition": "#[cfg(all(feature = \"asm\", target_arch = \"aarch64\"))]",
+    "compiled_feature_receipts": [
+      {
+        "path": "target/dev-release/.fingerprint/sha2-8432f0940407b78e/lib-sha2.json",
+        "features": [
+          "default",
+          "std"
+        ]
+      },
+      {
+        "path": "target/dev-release/.fingerprint/sha2-b7df5cc99c853fb2/lib-sha2.json",
+        "features": [
+          "default",
+          "std"
+        ]
+      },
+      {
+        "path": "target/dev-release/.fingerprint/sha2-d8a015849ca2a50c/lib-sha2.json",
+        "features": [
+          "default",
+          "std"
+        ]
+      },
+      {
+        "path": "target/dev-release/.fingerprint/sha2-63cd637a81b77f3c/lib-sha2.json",
+        "features": [
+          "default",
+          "std"
+        ]
+      }
+    ],
+    "observed_profile_leaf": "sha2::sha256::soft::compress",
+    "host": {
+      "architecture": "arm64",
+      "cpu": "Apple M4 Max",
+      "sysctl_hw_optional_arm_FEAT_SHA256": 1
+    },
+    "conclusion": "The measured native SHA-256 path uses software; the dependency gates its ARM hardware path on the absent asm feature.",
+    "limit": "No accelerated build is measured in this investigation."
+  }
+}

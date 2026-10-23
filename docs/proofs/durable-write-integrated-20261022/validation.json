@@ -1,0 +1,22 @@
+{
+  "initial_source": "d3b40a311f4381807499f625481fb50a3d5967ef",
+  "initial_main": "a02d25ed0337f9fe6ce01d7b6d68a71d547f2e72",
+  "checks_passed": [
+    "strict clippy laststore fold_db lastdb_node libraries and binaries",
+    "optimized dev-release lastdbd build",
+    "strict workspace clippy excluding the two ONNX packages",
+    "cargo fmt",
+    "changed Rust file and function size",
+    "new allows",
+    "atom-counter writer boundary",
+    "write-path syncing-store source gate",
+    "redaction",
+    "app registry shelf",
+    "workspace fastembed unification",
+    "heavy workspace coverage",
+    "artifact final tree before new receipts"
+  ],
+  "publication_range_finding": "Five historical proof blobs exceed 2 MiB although the final tree contains their lossless gzip versions. Publish the reviewed final tree from a clean branch; retain the original local branch for history.",
+  "retired_tests_run": false,
+  "primary_access": false
+}

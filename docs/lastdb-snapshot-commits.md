@@ -68,10 +68,10 @@ An uncertain file or publication result leaves it poisoned.
 The caller must reopen it before another write.
 The caller must not infer success from an uncertain return value.
 
-A memory ack still means that the accepted write is correct in memory.
-It does not mean that the snapshot commit is durable.
+In the durable-write branch, each native request waits for the complete snapshot and clean core memory publication before ack.
+No collection timer delays these requests.
 The native flush receipt identifies the completed sequence, generation, and frontier.
-This protocol does not change the normal 500 ms flush interval.
+This ack policy remains unmerged. Earlier reports describe their exact older source.
 
 ## Reopen and file lifetime
 
@@ -84,8 +84,12 @@ A damaged or incomplete selected generation causes an error; the code does not g
 Each read holds its selected generation until its last file access.
 A read lease from the writer also retains the system writer lease.
 Backup and conversion references retain their exact selected generation.
-Compaction publishes replacement files before the node installs the replacement read view.
-Reclaim starts after that handoff.
+Compaction copies a held snapshot outside the node write gate.
+It merges newer stored locations from another held snapshot into its private replacement.
+The final gate checks the exact included snapshot, publishes the replacement, and installs the read view.
+A changed boundary causes another private catch-up, with at most eight attempts.
+Continued writes can defer compaction with a capacity refusal; they never authorize an older replacement.
+Reclaim starts after the complete view handoff.
 
 The concurrent reclaim plan owns a hold on its captured generation.
 It retains active read generations and durable references.

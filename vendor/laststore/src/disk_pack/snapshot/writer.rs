@@ -139,6 +139,7 @@ impl SnapshotWriter {
             .checked_add(1)
             .ok_or_else(|| corrupt("snapshot commit sequence exhaustion"))?;
         proposed.published_ms = artifact::unix_ms();
+        let payload_timing = crate::commit_timing::stage("payload_us");
         let mut output = None;
         let mut prepared = Vec::new();
         prepared
@@ -186,6 +187,7 @@ impl SnapshotWriter {
         }) {
             return Err(corrupt("snapshot payload exceeded its admitted dimensions"));
         }
+        drop(payload_timing);
         publish::publish_prepared(&self.lock, &self.current, proposed, prepared, payload)
     }
 }

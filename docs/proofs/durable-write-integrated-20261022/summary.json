@@ -1,0 +1,102 @@
+{
+  "reviewed": {
+    "summary": {
+      "count": 1000,
+      "errors": 0,
+      "average_ms": 26.435365048,
+      "median_ms": 24.153166499999998,
+      "p95_ms": 37.308417,
+      "p99_ms": 82.714958,
+      "max_ms": 136.630375,
+      "wall_seconds": 26.451278333,
+      "batches_per_second": 37.805356225541026,
+      "records_per_second": 37.805356225541026,
+      "latency_unit": "whole batch request; no division by record count"
+    },
+    "recovered_values": true,
+    "clock_advanced": true,
+    "notification_count": 1000,
+    "all_notifications_once": true,
+    "shutdown": true
+  },
+  "integrated": {
+    "summary": {
+      "count": 1000,
+      "errors": 0,
+      "average_ms": 17.892674627,
+      "median_ms": 15.522562,
+      "p95_ms": 29.486791,
+      "p99_ms": 54.717417,
+      "max_ms": 137.831459,
+      "wall_seconds": 17.909423125000004,
+      "batches_per_second": 55.836527677102374,
+      "records_per_second": 55.836527677102374,
+      "latency_unit": "whole batch request; no division by record count"
+    },
+    "recovered_values": true,
+    "clock_advanced": true,
+    "notification_count": 1000,
+    "all_notifications_once": true,
+    "shutdown": true
+  },
+  "integrated-profile": {
+    "summary": {
+      "count": 1000,
+      "errors": 0,
+      "average_ms": 19.391779168,
+      "median_ms": 17.807625,
+      "p95_ms": 29.2645,
+      "p99_ms": 51.678542,
+      "max_ms": 256.529458,
+      "wall_seconds": 19.406473416000004,
+      "batches_per_second": 51.52919742623266,
+      "records_per_second": 51.52919742623266,
+      "latency_unit": "whole batch request; no division by record count"
+    },
+    "recovered_values": true,
+    "clock_advanced": true,
+    "notification_count": 1000,
+    "all_notifications_once": true,
+    "shutdown": true
+  },
+  "reviewed-concurrent": {
+    "summary": {
+      "count": 256,
+      "errors": 0,
+      "average_ms": 269.588627921875,
+      "median_ms": 157.335958,
+      "p95_ms": 575.13225,
+      "p99_ms": 4171.981416,
+      "max_ms": 4536.173708,
+      "wall_seconds": 17.941448542000003,
+      "batches_per_second": 14.26863608034308,
+      "records_per_second": 114.14908864274464,
+      "latency_unit": "whole batch request; no division by record count"
+    },
+    "recovered_values": true,
+    "clock_advanced": true,
+    "notification_count": 2048,
+    "all_notifications_once": true,
+    "shutdown": true
+  },
+  "integrated-concurrent": {
+    "summary": {
+      "count": 256,
+      "errors": 0,
+      "average_ms": 115.59040851171875,
+      "median_ms": 98.26887550000001,
+      "p95_ms": 274.954875,
+      "p99_ms": 359.494583,
+      "max_ms": 415.876458,
+      "wall_seconds": 7.505382291000004,
+      "batches_per_second": 34.10885549520636,
+      "records_per_second": 272.8708439616509,
+      "latency_unit": "whole batch request; no division by record count"
+    },
+    "recovered_values": true,
+    "clock_advanced": true,
+    "notification_count": 2048,
+    "all_notifications_once": true,
+    "shutdown": true
+  }
+}

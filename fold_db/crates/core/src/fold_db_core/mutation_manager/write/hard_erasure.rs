@@ -171,6 +171,7 @@ impl MutationManager {
             .map_or(1, |body| body.len() as u64)
             .max(1);
         let job = super::super::molecules::PurgeEnvelope {
+            notification_capture: crate::db_operations::ChangeFeedStore::capture_context(),
             author_clock_barrier: None,
             erasures,
             storage_prefix: storage_prefix.map(str::to_string),

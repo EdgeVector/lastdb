@@ -12,6 +12,8 @@ use tracing::Instrument;
 use crate::schema::SchemaError;
 use crate::storage::{KvStore, StorageError, TypedKvStore};
 
+pub(crate) mod native;
+
 const TIP_KEY: &str = "tip";
 const EVENT_PREFIX: &str = "event:";
 const EVENT_END: &str = "event;";
@@ -77,95 +79,37 @@ impl ChangeFeedStore {
         self.append_many(vec![event]).await
     }
 
-    /// Preserve caller order with one event/tip write per bounded chunk.
-    /// Native feed batches can share the bounded product flush deadline.
+    /// Preserve caller order in bounded chunks. Each native chunk acquires the
+    /// writer before the tip and publishes subscribers only after durability.
     pub async fn append_many(&self, events: Vec<ChangeFeedEvent>) -> Result<u64, SchemaError> {
         if events.is_empty() {
             return Ok(*self.tip.lock().await);
         }
-        // One feed lock keeps every caller's sequence range contiguous. Hold
-        // it through each bounded event/tip write and subscriber publication.
-        let lock_wait_started = std::time::Instant::now();
-        let mut tip = self.tip.lock().await;
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::ChangeRecordLockWait,
-            lock_wait_started.elapsed(),
-        );
-
-        let write_started = std::time::Instant::now();
-        let count = u64::try_from(events.len())
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-        let end = tip.checked_add(count).ok_or_else(|| {
-            SchemaError::InvalidData("change-feed sequence exhausted".to_string())
-        })?;
-        let first = *tip + 1;
-        let mut sequence = *tip;
-        let mut rows = Vec::new();
-        let mut ready = Vec::new();
+        let mut chunk = Vec::new();
         let mut bytes = 0usize;
-        for mut event in events {
-            sequence += 1;
-            event.seq = sequence;
-            let key = event_key(sequence).into_bytes();
-            let body = serde_json::to_vec(&event)
-                .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-            let length = key.len().saturating_add(body.len()).saturating_add(256);
+        let mut end = 0;
+        for event in events {
+            let length = serde_json::to_vec(&event)
+                .map_err(|e| SchemaError::InvalidData(e.to_string()))?
+                .len()
+                .saturating_add(512);
             if length > APPEND_BYTES {
                 return Err(SchemaError::InvalidData(
-                    "change-feed event exceeds its byte limit".to_string(),
+                    "change-feed event exceeds its byte limit".into(),
                 ));
             }
-            if !ready.is_empty() && (ready.len() == APPEND_EVENTS || bytes + length > APPEND_BYTES)
+            if !chunk.is_empty() && (chunk.len() == APPEND_EVENTS || bytes + length > APPEND_BYTES)
             {
-                self.append_ready(
-                    &mut tip,
-                    std::mem::take(&mut rows),
-                    std::mem::take(&mut ready),
-                )
-                .await?;
+                end = self.append_chunk(std::mem::take(&mut chunk)).await?;
                 bytes = 0;
             }
-            rows.push((key, body));
-            ready.push(event);
             bytes += length;
+            chunk.push(event);
         }
-        if !ready.is_empty() {
-            self.append_ready(&mut tip, rows, ready).await?;
+        if !chunk.is_empty() {
+            end = self.append_chunk(chunk).await?;
         }
-        // Drop the mutex before retention runs below: retention is best-effort
-        // and independent of tip ordering, so holding the node-wide lock
-        // across a second sequential storage round trip only serializes every
-        // other writer behind work that does not need serializing.
-        drop(tip);
-        crate::request_phases::add_phase(
-            crate::request_phases::RequestPhase::ChangeRecordWrite,
-            write_started.elapsed(),
-        );
-
-        self.prune(first, end);
         Ok(end)
-    }
-
-    async fn append_ready(
-        &self,
-        tip: &mut u64,
-        mut rows: Vec<(Vec<u8>, Vec<u8>)>,
-        events: Vec<ChangeFeedEvent>,
-    ) -> Result<(), SchemaError> {
-        let sequence = events.last().expect("nonempty change-feed batch").seq;
-        let body = serde_json::to_vec(&sequence)
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-        rows.push((TIP_KEY.as_bytes().to_vec(), body));
-        crate::storage::disk_pack::transaction::background_scope(
-            self.native.clone(),
-            self.store.inner().batch_put(rows),
-        )
-        .await?;
-        *tip = sequence;
-        for event in events {
-            let _ = self.subscribers.send(event);
-        }
-        Ok(())
     }
 
     fn prune(&self, first: u64, end: u64) {

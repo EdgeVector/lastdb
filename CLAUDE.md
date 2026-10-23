@@ -146,8 +146,8 @@ is not checked until you touch it.
 Normal startup and direct logical constructors use native packed storage.
 `CoreWarmSet` owns logical records, definitions, and complete selected keys.
 The private native queue retains prepared disk bytes until flush. Ordinary
-reads cannot use that queue. Explicit durability and resource limits can
-require disk completion before the ack.
+reads cannot use that queue. Native requests complete a durable snapshot and
+their clean core memory publication before the ack. No collection timer delays them.
 
 - `fold_db/crates/core/src/resident/` holds the core model, memory charges,
   the warm-set byte limit, and shared counters. Read its module doc and

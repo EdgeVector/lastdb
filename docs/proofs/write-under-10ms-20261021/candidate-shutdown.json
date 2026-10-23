@@ -1,0 +1,8 @@
+{
+  "signal": "SIGTERM",
+  "pid": 72834,
+  "exit_code": 0,
+  "task_drain_timeout": false,
+  "checkpoint_before_task_drain": true,
+  "idle_checkpoint_enabled": true
+}

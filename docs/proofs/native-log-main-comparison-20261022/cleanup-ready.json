@@ -1,0 +1,56 @@
+{
+  "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO",
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO",
+  "owner_uid": 501,
+  "children": [
+    "candidate",
+    "h0",
+    "h0.log",
+    "h1",
+    "h1.log",
+    "h2",
+    "h2.log",
+    "h3",
+    "h3.log",
+    "h4",
+    "h4.log",
+    "h5",
+    "h5.log",
+    "main"
+  ],
+  "owned_live_daemons": [],
+  "receipts_and_logs_preserved": true,
+  "final_owned_daemon_shutdowns": [
+    {
+      "run": "main-small",
+      "exit_code": 0
+    },
+    {
+      "run": "candidate-small",
+      "exit_code": 0
+    },
+    {
+      "run": "candidate-batch",
+      "exit_code": 0
+    },
+    {
+      "run": "main-batch",
+      "exit_code": 0
+    },
+    {
+      "run": "main-four-clients",
+      "exit_code": 0
+    },
+    {
+      "run": "candidate-four-clients",
+      "exit_code": 0
+    }
+  ],
+  "baseline_worktree": {
+    "path": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-write-ack-main-compare-20261022",
+    "head": "8067843c4f9626470edc971ab10c10e829f021d8",
+    "owner_uid": 501,
+    "status": "",
+    "created_for_this_comparison": true
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-22",
+  "main_commit": "8067843c4f9626470edc971ab10c10e829f021d8",
+  "candidate_commit": "756c4f09b1ad7e74acf49ca1ca749f8a01246ff2",
+  "candidate_product_commit": "550836f1b4a8bc18623fe2a7eb119cb7fe6d4f46",
+  "count_per_run": 1000,
+  "schemas": 64,
+  "value_bytes": 64,
+  "uds_workers": 8,
+  "dependency_high_water": 4096,
+  "maintenance_start_delay_seconds": 0,
+  "memory_flush_interval_ms": 500,
+  "disk_cap_bytes": null,
+  "latency_trace": false,
+  "durability_request_parameter": "omitted for both versions",
+  "same_schema_concurrent_requests": false,
+  "runs": [
+    {
+      "name": "main-small",
+      "mode": "main",
+      "clients": 1,
+      "records_per_batch": 1
+    },
+    {
+      "name": "candidate-small",
+      "mode": "candidate",
+      "clients": 1,
+      "records_per_batch": 1
+    },
+    {
+      "name": "candidate-batch",
+      "mode": "candidate",
+      "clients": 1,
+      "records_per_batch": 8
+    },
+    {
+      "name": "main-batch",
+      "mode": "main",
+      "clients": 1,
+      "records_per_batch": 8
+    },
+    {
+      "name": "main-four-clients",
+      "mode": "main",
+      "clients": 4,
+      "records_per_batch": 8
+    },
+    {
+      "name": "candidate-four-clients",
+      "mode": "candidate",
+      "clients": 4,
+      "records_per_batch": 8
+    }
+  ],
+  "method": "Fresh generated home per run; identical closed-loop batch calls over the real Unix API, all samples included. Main keeps its default memory-ack policy. Candidate requires every ack to be durable.",
+  "scope": "Implementation-version comparison. Candidate is not rebased onto current main; other main changes remain present in the baseline."
+}
