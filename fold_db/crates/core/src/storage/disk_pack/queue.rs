@@ -27,6 +27,16 @@ impl WriteQueue {
             .then_some(self.next_sequence)
     }
 
+    /// Compaction preserves the logical frontier and all owned quota. Only a
+    /// replacement that cannot leave the promised dependency room must wait.
+    pub(super) fn compaction_barrier(&self, parts: u64) -> Option<u64> {
+        self.prepared.as_ref().and_then(|prepared| {
+            (parts.saturating_add(prepared.dependency_parts())
+                > laststore::disk_pack::MAX_DEPENDENCY_PARTS)
+                .then_some(self.next_sequence)
+        })
+    }
+
     pub(super) fn request_count(&self) -> usize {
         self.requests.len()
     }

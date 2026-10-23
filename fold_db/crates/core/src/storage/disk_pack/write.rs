@@ -7,6 +7,12 @@ pub(super) struct PreparedCommit {
     space: SpaceReservation,
 }
 
+impl PreparedCommit {
+    pub(super) fn dependency_parts(&self) -> u64 {
+        self.reservation.quote().dependency_parts()
+    }
+}
+
 /// New operations and added space; the accepted prefix stays in the queue.
 pub(super) struct PreparedAppend {
     incoming: PreparedCommit,

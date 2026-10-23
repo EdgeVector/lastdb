@@ -12,12 +12,15 @@ Later callers wait behind the worker.
 Each caller waits for its own sequence to reach the completed durable boundary.
 Ordinary reads use the previous complete disk root until publication.
 Private preparation reads the accepted prefix in order.
-The change-feed sequence comes from that private prefix.
+The change-feed sequence comes from that private prefix and the durable in-memory tip.
 The in-memory tip changes after the disk commit.
 
 A separate publication lock protects physical generation checks and reservations.
 Compaction can publish an equivalent disk root during logical preparation.
-Compaction cannot replace a root after a queued reservation starts.
+Reservations bind to the logical frontier and format features.
+Compaction preserves both values and the existing reservation ledger.
+Its replacement must leave room for the queued dependency quote.
+A logical write still changes the frontier and invalidates an old reservation.
 Its file copy and catch-up remain outside the publication lock.
 
 The memory publication follows request order inside one view lock.

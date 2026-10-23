@@ -19,12 +19,12 @@
   },
   "mean_scope_ms": 51.2880625,
   "mean_request_phase_ms": {
-    "accept_us": 0.0715,
-    "admission_us": 7.793046875,
-    "capacity_prepare_us": 0.052390625,
-    "durable_wait_us": 38.165789062500004,
-    "logical_prepare_us": 5.20128125,
-    "part_room_us": 0.0
+    "accept_ms": 0.0715,
+    "admission_ms": 7.793046875,
+    "capacity_prepare_ms": 0.052390625,
+    "durable_wait_ms": 38.165789062500004,
+    "logical_prepare_ms": 5.20128125,
+    "part_room_ms": 0.0
   },
   "mean_physical_commit_ms": 29.121875,
   "physical_commit_counts": {

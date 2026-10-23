@@ -88,7 +88,7 @@ impl PackRuntime {
             .queue
             .lock()
             .expect("native accepted queue")
-            .pending_target()
+            .compaction_barrier(staged.dependency_parts())
         {
             return Ok(Attempt::Queue(target));
         }

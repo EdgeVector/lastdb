@@ -75,6 +75,11 @@ impl PreparedCompaction {
 }
 
 impl CompactionPublication {
+    /// Exact replacement dependency count for pending mutation headroom.
+    pub fn dependency_parts(&self) -> u64 {
+        self.parts
+    }
+
     pub(in crate::disk_pack) fn belongs_to(&self, output: &PreparedCompaction) -> bool {
         self.identity == output.identity && std::sync::Arc::ptr_eq(&self.owner, &output.lock)
     }

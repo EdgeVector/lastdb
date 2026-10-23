@@ -127,7 +127,7 @@ impl ChangeFeedStore {
         let tip = if let Some(tip) = &legacy_tip {
             **tip
         } else {
-            self.store.get_item::<u64>(TIP_KEY).await?.unwrap_or(0)
+            self.prepared_tip().await?
         };
         let first = tip
             .checked_add(1)
@@ -174,6 +174,9 @@ impl ChangeFeedStore {
             // second writer after an acknowledged event reaches retention.
             self.store.inner().batch_delete(expired).await?;
         }
+        if self.native.is_some() {
+            self.stage_prepared_tip(end)?;
+        }
         let store = self.clone();
         let deliver = async move {
             if let Some(mut tip) = legacy_tip {
@@ -202,5 +205,25 @@ impl ChangeFeedStore {
             deliver.await?;
         }
         Ok(end)
+    }
+
+    async fn prepared_tip(&self) -> Result<u64, SchemaError> {
+        let cache = Arc::as_ptr(&self.tip) as usize;
+        match transaction::publication::get::<u64>(self.native.clone(), cache, TIP_KEY)? {
+            Some(tip) => Ok(*tip),
+            None => Ok(*self.tip.lock().await),
+        }
+    }
+
+    fn stage_prepared_tip(&self, end: u64) -> Result<(), StorageError> {
+        // The existing private metadata prefix covers earlier queued calls and
+        // repeated stages in this call. The fallback is the durable memory tip.
+        transaction::publication::publish(
+            self.native.clone(),
+            Arc::as_ptr(&self.tip) as usize,
+            TIP_KEY.into(),
+            end,
+            || Ok(()),
+        )
     }
 }

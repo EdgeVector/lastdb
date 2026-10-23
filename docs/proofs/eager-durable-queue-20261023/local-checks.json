@@ -14,6 +14,19 @@
   ],
   "redaction": "pass",
   "build_artifacts_HEAD": "pass",
-  "strict_workspace_clippy": "pending for rebased source",
-  "tests": "not run; retired by user instruction"
+  "strict_workspace_clippy": {
+    "status": "pass on GitHub CI",
+    "commit": "0ad0f833e8a6564909839685d8f839d2562df1f4",
+    "job": "https://github.com/EdgeVector/lastdb/actions/runs/39985636975/job/120523956675",
+    "workspace_without_onnx": "pass",
+    "off_lane_fastembed_bins": "pass",
+    "duplicate_local_queue": "cancelled before execution after remote success"
+  },
+  "tests": "not run; retired by user instruction",
+  "required_ci": {
+    "status": "success",
+    "commit": "0ad0f833e8a6564909839685d8f839d2562df1f4",
+    "url": "https://github.com/EdgeVector/lastdb/actions/runs/39985636975"
+  },
+  "follow_up_source_checks": "pending after logical-frontier reservation and change-feed tip changes"
 }

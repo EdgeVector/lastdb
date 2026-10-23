@@ -77,7 +77,7 @@ where
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
     // Compaction can publish an equivalent physical root during logical
-    // preparation. Generation-bound reservations start at this boundary.
+    // preparation. Admission binds owned quota to this logical frontier.
     let publication = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);
     // A cancelled pre-admission caller cannot release the queue's older quota.

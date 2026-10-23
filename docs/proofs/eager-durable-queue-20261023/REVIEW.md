@@ -10,15 +10,16 @@ Private reads include the earlier accepted prefix.
 Ordinary reads retain the previous complete disk root.
 This separation protects conditions, counters, and metadata order.
 
-The native change feed reads its sequence from private stored state.
+The native change feed reads its sequence from private metadata or the durable in-memory tip.
 It does not retain the in-memory tip lock across the queue wait.
 The legacy path retains its existing tip lock.
 This change prevents a later preparer from waiting for a lock that the disk worker must release.
 
 Physical reservations start under the publication lock.
-Compaction cannot replace their generation after acceptance.
-Compaction can publish an equivalent physical root before acceptance.
-Its logical data stays unchanged.
+They retain their quota across an equivalent physical rewrite.
+The logical frontier and required format features must still match at commit.
+Compaction checks its exact dependency count against the queued quote before publication.
+A logical root change still invalidates an old reservation.
 
 Clean memory publication follows request order under one view lock.
 Every request invalidates its own changed sources before it installs clean values.
@@ -35,3 +36,10 @@ No automatic replay occurs after a condition check.
 The performance and sustained-progress conclusions require the daemon captures.
 Source review alone does not prove those results.
 A forced stop checks process recovery; it does not simulate a physical power loss.
+
+The first sustained capture exposed an incomplete design.
+Every compaction attempt during active writes returned `compaction_behind`.
+Disk size reached 5.98 GB before a compaction after the writes.
+Those receipts remain as evidence of the failure.
+The follow-up removes the empty-queue requirement with the logical-frontier reservation rule.
+A new capture must establish progress during active writes.

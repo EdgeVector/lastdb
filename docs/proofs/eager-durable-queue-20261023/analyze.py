@@ -32,7 +32,8 @@ def analyze(name):
         used[commit['sequence']] = commit
         rows.append({'sequence': scope['sequence'], 'commit_sequence': commit['sequence'],
                      'cohort': commit['requests'], 'scope_ms': scope['total_us'] / 1000,
-                     'phases_ms': {k: v / 1000 for k, v in scope['phases_us'].items()}})
+                     'phases_ms': {k.removesuffix('_us') + '_ms': v / 1000
+                                   for k, v in scope['phases_us'].items()}})
     if len(rows) != len(samples) or len({r['sequence'] for r in rows}) != len(rows):
         raise RuntimeError('foreground scope count differs from client call count')
     summary = {'client': writes['summary'], 'scopes': len(rows), 'physical_commits': len(used),
