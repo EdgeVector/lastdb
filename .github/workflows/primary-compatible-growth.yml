@@ -45,16 +45,22 @@ jobs:
           shared-key: primary-compatible-growth-macos-arm64
       - name: Build the deployed compatible baseline
         working-directory: baseline
+        env:
+          FOLDDB_BUILD_VERSION_OVERRIDE: 0.23.4-ci.${{ github.event.pull_request.base.sha }}
         run: |
           cargo build --profile dev-release --locked -p lastdb_node --bin lastdb --bin lastdbd -p laststore --bin lastdb-pack-maintain --bin lastdb-disk-home
           mkdir -p ../baseline-bin
           cp ../cargo-target/dev-release/lastdb ../cargo-target/dev-release/lastdbd ../cargo-target/dev-release/lastdb-pack-maintain ../cargo-target/dev-release/lastdb-disk-home ../baseline-bin/
       - name: Build the exact proposed source
         working-directory: candidate
+        env:
+          FOLDDB_BUILD_VERSION_OVERRIDE: 0.23.4-ci.${{ github.event.pull_request.head.sha }}
         run: |
           cargo build --profile dev-release --locked -p lastdb_node --bin lastdb --bin lastdbd -p laststore --bin lastdb-pack-maintain --bin lastdb-disk-home
           mkdir -p ../candidate-bin
           cp ../cargo-target/dev-release/lastdb ../cargo-target/dev-release/lastdbd ../cargo-target/dev-release/lastdb-pack-maintain ../cargo-target/dev-release/lastdb-disk-home ../candidate-bin/
+          [[ "$(../candidate-bin/lastdb --version)" == "lastdb $FOLDDB_BUILD_VERSION_OVERRIDE" ]]
+          [[ "$(../candidate-bin/lastdbd --version)" == "lastdbd $FOLDDB_BUILD_VERSION_OVERRIDE" ]]
       - name: Capture real generated-data operations
         env:
           SOURCE: ${{ github.event.pull_request.head.sha }}
