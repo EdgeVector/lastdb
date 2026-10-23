@@ -14,6 +14,16 @@ pub(super) enum HandoffResult {
     Retry(Box<PreparedCompaction>),
 }
 
+pub(super) async fn receive_handoff(
+    receive: tokio::sync::oneshot::Receiver<StorageResult<HandoffResult>>,
+) -> StorageResult<HandoffResult> {
+    receive.await.map_err(|_| {
+        StorageError::BackendError(
+            "compaction handoff owner stopped before its durable result".into(),
+        )
+    })?
+}
+
 pub(in crate::storage::disk_pack) struct PackHandoff {
     output: Mutex<Option<PreparedCompaction>>,
     result: Mutex<Option<StorageResult<publish::MaintenanceReady>>>,

@@ -95,11 +95,7 @@ impl PackRuntime {
             match result? {
                 Attempt::Ready(ready) => return Ok(*ready),
                 Attempt::Handoff(receive) => {
-                    match receive.await.map_err(|_| {
-                        StorageError::BackendError(
-                            "compaction handoff owner stopped before its durable result".into(),
-                        )
-                    })?? {
+                    match super::handoff::receive_handoff(receive).await? {
                         super::handoff::HandoffResult::Ready(ready) => return Ok(*ready),
                         super::handoff::HandoffResult::Retry(next) => {
                             output = *next;
