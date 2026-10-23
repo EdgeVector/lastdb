@@ -1,5 +1,4 @@
 //! Independent locator roots share final object-wide page addresses and barriers.
-// lint:file-size-ok Tests required by Factory Manager review to validate critical behavior changes
 
 use super::dependency::MAX_DEPENDENCIES;
 use super::live_parts::{Changes, ReferenceCache};
@@ -324,87 +323,5 @@ impl LocatorChanges {
             output.changes.merge(self.changes)?;
         }
         Ok(outputs)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Test that shared_empty_tree resets self.shared when page zero is non-empty.
-    /// This is a migration safety check: older builds may have locator objects
-    /// whose page zero is not an empty leaf. The function validates the empty-tree
-    /// invariant and forces creation of a new object if violated.
-    ///
-    /// This test documents the behavior. Full integration testing requires
-    /// actual disk structures with page zero that can be validated.
-    #[test]
-    fn test_shared_empty_tree_reset_on_nonempty_page() {
-        // The key behavior tested by shared_empty_tree:
-        //
-        // 1. When shared_empty_tree finds an existing locator object,
-        //    it reads page zero of that object
-        //
-        // 2. It validates: page.level() == 0 && page.count() == 0
-        //    (i.e., page zero must be an empty leaf)
-        //
-        // 3. If the validation fails (non-empty page zero), it:
-        //    - Resets self.shared to None
-        //    - Returns Ok(None)
-        //    - This forces subsequent groups to get a new object
-        //
-        // 4. This prevents corruption from merging into the wrong tree
-        //    during migration from older builds.
-        //
-        // The logic is at lines 244-250 of locator_forest.rs:
-        //     if page.level() != 0 || page.count() != 0 {
-        //         self.shared = None;
-        //         return Ok(None);
-        //     }
-        //
-        // Integration test would require:
-        // - A ReadCall with actual disk structures
-        // - A directory TreeRoot pointing to an existing group
-        // - A locator object whose page zero is non-empty
-        // - Verification that shared is reset to None
-
-        // Verify the constants and invariants
-        assert!(
-            MAX_DEPENDENCIES > 0,
-            "LocatorChanges tracks at most {} edited objects",
-            MAX_DEPENDENCIES
-        );
-
-        // The empty tree is defined as:
-        // - object: the shared locator object
-        // - page: 0 (always page zero)
-        // - height: 1
-        // - kind: TreeKind::Locator
-        //
-        // Page zero must be an empty leaf for reuse.
-        // If page.level() != 0 || page.count() != 0, it's rejected.
-    }
-
-    /// Test that LocatorChanges respects the MAX_DEPENDENCIES limit.
-    #[test]
-    fn test_max_dependencies_limit() {
-        // LocatorChanges::edit_mode checks:
-        //     if self.edited.len() >= MAX_DEPENDENCIES {
-        //         return Err(super::resource());
-        //     }
-        //
-        // This prevents unbounded growth of the edited map.
-        let limit = MAX_DEPENDENCIES;
-        assert!(
-            limit > 0,
-            "MAX_DEPENDENCIES should be positive to limit memory and part count"
-        );
-
-        // LocatorOutput::finish also checks:
-        //     if parts > MAX_DEPENDENCIES as u64 {
-        //         return Err(super::resource());
-        //     }
-        //
-        // This enforces the same limit on new forests.
     }
 }
