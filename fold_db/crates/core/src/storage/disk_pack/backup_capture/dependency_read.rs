@@ -36,12 +36,9 @@ pub(super) fn held_read(inner: &ExportInner, bytes: u64) -> StorageResult<HomeRe
 
 pub(super) fn held_read_budget(inner: &ExportInner, budget: ReadBudget) -> StorageResult<HomeRead> {
     inner
-        .runtime
-        .home
-        .read_from_writer(
-            held_current(inner)?.clone(),
-            budget,
-            &inner.runtime.read_lease,
-        )
+        .source
+        .as_ref()
+        .ok_or_else(|| invalid("backup retained source is unavailable"))?
+        .read_retained(&inner.runtime.home, budget, &inner.runtime.read_lease)
         .map_err(super::super::map)
 }

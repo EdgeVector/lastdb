@@ -17,6 +17,7 @@ use laststore::disk_pack::home::HomeRead;
 use laststore::disk_pack::{Current, RangeRecord, ReadBudget};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use std::collections::HashMap;
 
 mod generation;
 const ROW_MAX: u64 = 4 * 1024 * 1024;
@@ -105,18 +106,23 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
             return Ok(false);
         };
         let record = narrow(record)?;
-        let refs = refs(record.meta.as_ref())?;
-        if refs.is_empty() {
+        if refs(record.meta.as_ref())?.is_empty() {
             return Ok(false);
         }
         let atom_id = record.entry.atom_uuid.clone();
         Digest::try_from(atom_id.clone()).map_err(|_| invalid("metadata atom identity"))?;
+        let metadata = record.meta.as_ref().and_then(|meta| meta.metadata.clone());
         drop(record);
-        self.atom(scope.as_deref(), &atom_id, &refs)?;
+        self.atom(scope.as_deref(), &atom_id, metadata.as_ref())?;
         Ok(true)
     }
 
-    fn atom(&mut self, scope: Option<&str>, atom_id: &str, refs: &[String]) -> StorageResult<()> {
+    fn atom(
+        &mut self,
+        scope: Option<&str>,
+        atom_id: &str,
+        metadata: Option<&HashMap<String, String>>,
+    ) -> StorageResult<()> {
         let raw = build_storage_key(scope, &atom_key_codec::body_key(atom_id));
         let body = {
             let mut read = self.reader(24 * 1024 * 1024, 1)?;
@@ -129,6 +135,9 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
             return Err(invalid("metadata atom identity differs"));
         }
         let dependencies = expected(&atom)?;
+        // Only the authenticated exact atom can identify a duplicate private
+        // account-v2 plaintext hash. Independent metadata refs still need proof.
+        let refs = file_pointer::blob_refs_of_atom(atom.content(), metadata);
         if refs
             .iter()
             .any(|blob| !dependencies.iter().any(|item| item.blob_ref() == blob))
@@ -184,23 +193,23 @@ fn refs(meta: Option<&KeyMetadata>) -> StorageResult<Vec<String>> {
     Ok(refs)
 }
 
-/// Preserve only small selectors before another native read or atom decode.
+/// Preserve only small original selectors before another native read or decode.
+/// Their names matter: file_hash can be a private digest, while file_blob_ref
+/// always names storage. Classify them only against the authenticated atom.
 fn narrow(mut record: PerKeyRecord) -> StorageResult<PerKeyRecord> {
     let selected = refs(record.meta.as_ref())?;
     entry_bound(&record.entry)?;
     if let Some(meta) = &mut record.meta {
         meta.source_file_name = None;
-        meta.metadata = match selected.as_slice() {
-            [] => None,
-            [first] => Some(std::collections::HashMap::from([(
-                "file_blob_ref".into(),
-                first.clone(),
-            )])),
-            [first, second] => Some(std::collections::HashMap::from([
-                ("file_blob_ref".into(), first.clone()),
-                ("file_hash".into(), second[7..].to_owned()),
-            ])),
-            _ => return Err(invalid("metadata file reference count")),
+        meta.metadata = if selected.is_empty() {
+            None
+        } else {
+            meta.metadata.take().map(|mut metadata| {
+                ["file_blob_ref", "file_hash"]
+                    .into_iter()
+                    .filter_map(|name| metadata.remove(name).map(|value| (name.to_owned(), value)))
+                    .collect()
+            })
         };
     }
     Ok(record)

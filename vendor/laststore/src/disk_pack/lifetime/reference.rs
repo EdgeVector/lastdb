@@ -25,7 +25,7 @@ pub enum ReferencePurpose {
 }
 
 /// Verified durable reference identity. Expiry never authorizes file deletion.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReferenceInfo {
     /// Exact reference filename identity.
     pub identity: Uuid,
@@ -167,8 +167,12 @@ impl DurableReference {
     /// Keep every file protected for this active copy or restore operation.
     pub fn hold(&self) -> Result<GenerationHold> {
         let hold = GenerationHold::acquire(&self.root, &self.current)?;
-        if read(&self.root, self.info.identity)?.current_digest != self.info.current_digest {
+        let info = read(&self.root, self.info.identity)?;
+        if info != self.info {
             return Err(corrupt("durable reference changed"));
+        }
+        if info.expiry_ms != 0 && info.expiry_ms <= artifact::unix_ms() {
+            return Err(corrupt("reference expired; explicit release is required"));
         }
         Ok(hold)
     }

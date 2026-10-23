@@ -12,6 +12,7 @@ mod bytes;
 mod call;
 mod call_bounded;
 mod call_io;
+mod call_retained;
 pub mod conversion;
 pub(crate) mod conversion_fence;
 mod conversion_select;

@@ -86,6 +86,14 @@ Clear the scheduled UUID only after terminal evidence and source cleanup reconci
 Keep at most one active job and one latest pending frontier. Do not keep one job per mutation.
 New writes do not change an active job's frozen cut, exact ciphertext, transfer inputs, or predecessor.
 
+A daemon restart can advance the current generation beyond the saved backup cut.
+Resume reads through the exact saved backup reference.
+Admission checks the reference identity, purpose, generation, receipt, creation time, expiry, and complete root.
+The short file deletion lock stays held until the local reader protects that generation.
+Admission refuses while file deletion is active.
+The reader keeps its generation protected until all reads or upload bytes stop.
+File streams use the same admission. The ordinary read age floor stays unchanged.
+
 After Published, reconcile its receipt and finish source cleanup before a successor starts.
 Only [validated Published acceptance](../../lastdb_node/src/native_cloud_backup/terminal.rs#L69) advances the accepted frontier.
 Then read the current frontier again. Start one successor if the accepted cut does not cover it.

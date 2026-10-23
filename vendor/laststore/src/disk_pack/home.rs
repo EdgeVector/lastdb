@@ -262,6 +262,25 @@ impl DiskHome {
         Ok(HomeRead::new(self.descriptor.clone(), call))
     }
 
+    /// Read an exact durable reference, including one below the writer floor.
+    /// Reference validation and local registration exclude concurrent reclaim.
+    /// The returned reader retains the writer, not the filesystem deletion lock.
+    pub fn read_retained(
+        &self,
+        reference: &super::lifetime::DurableReference,
+        budget: ReadBudget,
+        lease: &super::lifetime::WriterReadLease,
+    ) -> Result<HomeRead> {
+        let call = ReadCall::from_reference(
+            &self.root,
+            self.descriptor.clone(),
+            reference,
+            budget,
+            lease,
+        )?;
+        Ok(HomeRead::new(self.descriptor.clone(), call))
+    }
+
     /// Prepare one atomic write under this home's exclusive writer lease.
     /// The call permits 40,000 examined keys; its page, block, and byte ceilings
     /// match an ordinary read. Each physical batch still permits 10,000 slots.

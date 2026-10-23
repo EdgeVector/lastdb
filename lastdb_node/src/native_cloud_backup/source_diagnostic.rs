@@ -41,6 +41,7 @@ fn static_reason(mut detail: &str) -> &'static str {
             ("laststore: ", "laststore_other"),
             ("corrupt: ", "laststore_corrupt_other"),
             ("config: ", "laststore_config_other"),
+            ("disk-pack v1: ", "native_pack_other"),
         ]
         .into_iter()
         .find_map(|(prefix, code)| detail.strip_prefix(prefix).map(|tail| (tail, code)));
@@ -54,13 +55,19 @@ fn static_reason(mut detail: &str) -> &'static str {
         return reason;
     }
     // These existing wrappers append private context. Emit only a fixed code.
-    const WRAPPERS: [(&str, &str); 3] = [
+    const WRAPPERS: [(&str, &str); 6] = [
         ("unwrap molecule key bundle: ", "molecule_key_unwrap"),
         ("decode molecule key bundle: ", "molecule_key_bundle_json"),
         (
             "molecule key wrap metadata mismatch for ",
             "molecule_key_wrap_metadata",
         ),
+        ("backup capture protocol ", "backup_capture_protocol"),
+        (
+            "backup capture state decode: ",
+            "backup_capture_state_decode",
+        ),
+        ("unsupported key format: ", "unsupported_key_format"),
     ];
     WRAPPERS
         .iter()
@@ -196,6 +203,8 @@ const REASONS: &[&str] = &[
     "coordinator spool exceeds backup policy",
     "decoded atom JSON allocation cap",
     "duplicate native CAS selector",
+    "durable reference belongs to another root",
+    "durable reference changed",
     "external capture lacks verified source",
     "external capture part receipt",
     "external file exceeds existing manifest extent capacity",
@@ -218,6 +227,7 @@ const REASONS: &[&str] = &[
     "generation metadata identity",
     "generation metadata key",
     "generation metadata molecule",
+    "held generation differs from its receipt",
     "invalid file dependency access",
     "invalid thumbnail dependency",
     "legacy metadata file identity",
@@ -301,6 +311,7 @@ const REASONS: &[&str] = &[
     "native-covered dependency cannot own the external spool",
     "native-covered file requires no external copy",
     "no saved backup capture exists",
+    "reference expired; explicit release is required",
     "same pointer dependency selectors differ",
     "saved accepted backup capture changed",
     "saved backup capture belongs to another home",
@@ -313,4 +324,7 @@ const REASONS: &[&str] = &[
     "unexpected backup dependency cleanup member",
     "unsupported thumbnail dependency kind",
     "unverified file transfer retains exact source bytes",
+    "writer read lease belongs to another root",
+    "writer read lifetime lock is poisoned",
+    "writer read root is retired or reclaim is active",
 ];

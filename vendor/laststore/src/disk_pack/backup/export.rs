@@ -4,10 +4,11 @@
 //! never releases the durable reference. No complete backup copy is created.
 
 use super::files;
+use crate::disk_pack::home::{DiskHome, HomeRead};
 use crate::disk_pack::lifetime::{
     DurableReference, GenerationHold, ReferencePurpose, WriterReadLease,
 };
-use crate::disk_pack::{corrupt, Current, PART_BYTES};
+use crate::disk_pack::{corrupt, Current, ReadBudget, PART_BYTES};
 use crate::Result;
 use std::fs::File;
 use std::io::{Cursor, Read};
@@ -100,6 +101,17 @@ impl SnapshotExport {
         self.reference.info().identity
     }
 
+    /// Read the exact retained root with the home's bounded native reader.
+    /// A restarted writer can admit this reference below its ordinary read floor.
+    pub fn read_retained(
+        &self,
+        home: &DiskHome,
+        budget: ReadBudget,
+        lease: &WriterReadLease,
+    ) -> Result<HomeRead> {
+        home.read_retained(&self.reference, budget, lease)
+    }
+
     /// A writer-owned reader retains only its generation. It does not hold the
     /// global filesystem deletion lock during a slow transfer.
     pub fn reader(&self, path: &Path, lease: &WriterReadLease) -> Result<SnapshotReader> {
@@ -108,7 +120,7 @@ impl SnapshotExport {
             .binary_search_by(|file| file.path.as_path().cmp(path))
             .map_err(|_| corrupt("snapshot export path is not in its inventory"))?;
         let selected = &self.files[position];
-        let hold = GenerationHold::from_writer(lease, self.reference.home_path(), self.current())?;
+        let hold = GenerationHold::from_reference(lease, &self.reference)?;
         let input = match path.to_str() {
             Some("CURRENT") => Input::Memory(Cursor::new(self.current_bytes.to_vec())),
             _ => {
