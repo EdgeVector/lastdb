@@ -1,0 +1,22 @@
+{
+  "at_ns": 1792772254892197000,
+  "machine": "arm64",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.7.1\nBuildVersion:\t\t25G241\n",
+  "hardware": {
+    "model": "Mac16,5",
+    "physical_cpus": "14",
+    "logical_cpus": "14",
+    "memory_bytes": "38654705664"
+  },
+  "load_average": [
+    41.16064453125,
+    37.0927734375,
+    41.7919921875
+  ],
+  "scope": "shared host; no cache purge or primary operation",
+  "temporary_volume_bytes": {
+    "total": 994662584320,
+    "used": 760911822848,
+    "free": 233750761472
+  }
+}

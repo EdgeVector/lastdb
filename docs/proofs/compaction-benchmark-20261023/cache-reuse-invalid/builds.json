@@ -1,0 +1,29 @@
+{
+  "profile": "dev-release",
+  "binary_directory": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin._b29w6dh",
+  "command": "cargo build -p lastdb_node --bin lastdbd --profile dev-release",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "before": {
+    "revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+    "sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+    "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin._b29w6dh/before",
+    "source": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-before-20261023",
+    "cargo_reported_build_seconds": 92
+  },
+  "after": {
+    "revision": "c94ec77605b40a1d99398ab24118b7856bff310d",
+    "sha256": "2eb078abab38b01c52fb7feaa71c259e17366d58816e394e1f2957e89ecd7e25",
+    "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin._b29w6dh/after",
+    "cargo_reported_build_seconds": 45.12,
+    "source": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023"
+  },
+  "profile_options": {
+    "inherits": "release",
+    "opt-level": 3,
+    "lto": "off",
+    "codegen-units": 16,
+    "debug": false,
+    "panic": "abort"
+  }
+}

@@ -1,0 +1,9 @@
+   Compiling laststore v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/vendor/laststore)
+   Compiling fold_db v0.3.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/fold_db/crates/core)
+   Compiling lastdb_node v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/lastdb_node)
+   Compiling schema_service_core v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/schema_service/crates/core)
+   Compiling schema_service_client v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/schema_service/crates/client)
+   Compiling lastdb_uds v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/lastdb_uds)
+   Compiling lastdb_identity v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/lastdb_identity)
+   Compiling lastdb_host v0.1.0 (/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/lastdb_host)
+    Finished `dev-release` profile [optimized] target(s) in 1m 24s

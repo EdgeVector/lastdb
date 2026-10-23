@@ -1,0 +1,12 @@
+{
+  "all_owned_processes_stopped": true,
+  "capacity_refusals": 0,
+  "complete": true,
+  "data_retained_for_review": true,
+  "error": null,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb0a.2igv0jw_/home",
+  "label": "after",
+  "pair": 0,
+  "records": 100000,
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb0a.2igv0jw_"
+}
