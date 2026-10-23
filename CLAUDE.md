@@ -1,5 +1,20 @@
 # CLAUDE.md — EdgeVector/lastdb monorepo
 
+## Builds and benchmarks run in CI (Tom, 2026-10-23)
+
+This rule supersedes the local build commands and coordination rules below.
+
+- Do not run benchmarks on Tom's machine.
+- Do not run local builds, `cargo check`, or `cargo clippy` for LastDB.
+- Make the code changes, then open or update the PR. Use GitHub Actions for builds and benchmarks.
+- Do not acquire or wait for the host build or measurement lock.
+- Stop and clean up a local benchmark that you own. Do not stop another agent's process.
+- Tell your subagents about this rule. Review the PR results before merge.
+- Lightweight source, syntax, and format checks can run locally. Tests remain retired.
+- PR updates and main pushes run the standard benchmarks. The nightly run uses a larger recipe.
+- Slowdowns are advisory. A build error or an incomplete measurement remains an error.
+- While CI waits, do not substitute a local build or benchmark.
+
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,
 > NOT a table/SQL database.** There is no scan, no WHERE-style field filter,
 > no JOIN. Everything is reached by a named key.
