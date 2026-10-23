@@ -30,6 +30,7 @@ impl PreparedCompaction {
         let root = self.lock.root().to_path_buf();
         let staged =
             durability::complete_native_commit(&root, || self.prepare_publication_inner())?;
+        self.failed = false;
         self.prepared();
         Ok(staged)
     }
@@ -40,11 +41,14 @@ impl PreparedCompaction {
         &mut self,
         cut: crate::disk_pack::lifetime::GenerationHold,
     ) -> Result<CompactionPublication> {
+        self.ensure_usable()?;
         let root = self.lock.root().to_path_buf();
+        self.failed = true;
         let staged = durability::complete_native_commit(&root, || {
             self.catch_up_inner(cut)?;
             self.prepare_publication_inner()
         })?;
+        self.failed = false;
         self.prepared();
         Ok(staged)
     }
@@ -96,6 +100,7 @@ impl PreparedCompaction {
         self.cached_receipt = Some(written);
         staged.pointer_file.write_all(&staged.current.encode()?)?;
         durability::sync_dirty_file(&staged.pointer_file)?;
+        self.failed = false;
         self.prepared();
         Ok(staged)
     }

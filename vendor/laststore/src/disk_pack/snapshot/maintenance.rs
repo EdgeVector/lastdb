@@ -11,6 +11,7 @@ impl SnapshotWriter {
         staged: &mut crate::disk_pack::maintenance::CompactionPublication,
     ) -> Result<Option<MaintenanceReceipt>> {
         self.check_admission()?;
+        output.ensure_usable()?;
         if !output.belongs_to(&self.lock) || !staged.belongs_to(output) {
             return Err(crate::disk_pack::corrupt(
                 "compaction belongs to another writer lease",
