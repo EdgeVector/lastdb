@@ -38,11 +38,18 @@ Catch-up skips directory entries that exactly match its previous protected root.
 The cursor and lookup caches keep their finite read budgets.
 
 Each private round counts retired pages, new metadata pages, changed payload references, and the directory's empty root.
-A newly grafted group requests a complete count outside the gate.
+A new hash group adds only its imported locator subtree to those counts.
+One work bound covers every import in the round.
+The output protects every file with a positive count, including old imported payload and map files.
 The failed intermediate revision omitted new metadata pages and refused compaction with a count error.
 The corrected capture found no such error; it still found publication races during writes.
 
 ## Publication turn after private preparation
+
+Root capture first waits for the current publication gate.
+It captures only the root and its file hold, then releases both locks before private preparation.
+This excludes an old root inside a client publication that already owns the gate.
+The trace separates capture time from private preparation time.
 
 The previous final handoff uses an immediate try-lock and discards prepared files when a client owns the gate.
 The revised handoff waits in the existing FIFO from inside the blocking storage worker.

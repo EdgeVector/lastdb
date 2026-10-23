@@ -2,8 +2,8 @@
 
 The queue change reduces the observed wait for concurrent batches.
 The clean memory publication also removes the obsolete unflushed-record guards.
-The latest capture does not meet the 20 ms average target or establish compaction progress during continuous writes.
-PR #282 remains draft and unmerged.
+These historical captures do not meet the 20 ms average target or establish compaction progress during continuous writes.
+The [PR checks](https://github.com/EdgeVector/lastdb/pull/282/checks) contain the current CI validation record.
 
 All captures in this report precede Tom's 2026-10-23 CI-only instruction.
 Further LastDB builds and benchmarks must use GitHub Actions.
@@ -11,7 +11,7 @@ The local build runner is removed, and the capture entry points require a GitHub
 The owned local capture home is removed after its receipts are preserved.
 The raw evidence and cleanup receipt now stay outside Git under the LastDB state artifact root.
 
-## Latest completed comparison
+## Historical local comparison
 
 The source is `e6e31dce37a6562d261d874230d422c17193c81a`.
 The control is durable main `9cb89c6776bd654aa8ac93b553db278e5938c33a`.

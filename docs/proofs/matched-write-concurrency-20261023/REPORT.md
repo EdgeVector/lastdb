@@ -5,7 +5,9 @@ The candidate retains one private metadata writer within each commit.
 It closes that writer when the object changes or the commit ends.
 All publication and disk barriers stay in place.
 
-## Current evidence
+## Historical evidence
+
+The [PR checks](https://github.com/EdgeVector/lastdb/pull/282/checks) contain the current CI validation record.
 
 The historical phase capture predates the CI-only instruction.
 It uses source `14da061a5a8dca6d2555a81de9241a77fd0deebf`, before the metadata change.
