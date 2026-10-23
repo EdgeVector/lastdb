@@ -106,7 +106,7 @@ def recover(node, args, expected):
     if len(found) != len(wanted) or set(found) != wanted:
         raise RuntimeError('acknowledged mutation notices differ after forced stop')
     save(args.output / 'notice-count.json', {'expected': len(wanted), 'found': len(found),
-                                           'all_once': True})
+                                           'all_once': True, 'last_cursor': cursor})
     (args.output / 'notices.json.gz').write_bytes(gzip.compress(
         json.dumps(events, separators=(',', ':')).encode(), mtime=0))
 
@@ -144,6 +144,8 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
         if not values['all_values_match']:
             raise RuntimeError('acknowledged values differ')
         recover(node, args, expected)
+        if name == 'groups-sustained':
+            erase_after_compaction(node, output, expected)
         save(output / 'shutdown.json', {'exit_code': node.stop()})
         save(output / 'native-shutdown.json', json.loads((home / '.shutdown_flush_ready').read_text()))
     except Exception as error:
@@ -154,6 +156,33 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
         node.stop()
         node.log.close()
         old.preserve_log(scratch, name, output)
+
+
+def erase_after_compaction(node, output, expected):
+    cursor = json.loads((output / 'notice-count.json').read_text())['last_cursor']
+    names = [schemas.schema_name(n) for n in range(2)]
+    body = {'mutations': [{'type': 'mutation', 'schema': name, 'mutation_type': operation,
+            'key_value': {'hash': name, 'range': 'record-000'}, 'fields_and_values': {}}
+            for name, operation in zip(names, ('delete', 'purge'))]}
+    receipt = node.call('/api/mutations/batch', body)
+    save(output / 'post-compaction-erase.json', receipt)
+    if receipt.get('durability') != 'durable' or len(receipt['mutation_ids']) != 2:
+        raise RuntimeError('post-compaction erase did not return two durable identities')
+    save(output / 'post-erase-forced-stop.json', {'exit_code': node.stop(signal.SIGKILL)})
+    node.start()
+    for name in names:
+        expected[name].pop('record-000')
+    expected[names[0]]['sentinel'] = hashlib.sha256(b'after-restart').hexdigest()
+    values = schemas.check_values(node, expected)
+    queries = [{'schema_name': name, 'fields': ['value'],
+                'filter': {'HashRangeKeys': [[name, 'record-000']]}, 'limit': 1} for name in names]
+    absent = old.independent_queries(node, queries)
+    notices = node.call('/api/app/changes', {'since_cursor': cursor, 'limit': 10})
+    result = {'values': values, 'erased': absent, 'notices': notices}
+    save(output / 'post-erase-recovery.json', result)
+    if (not values['all_values_match'] or any(row['results'] for row in absent)
+            or {row['mutation_id'] for row in notices['changes']} != set(receipt['mutation_ids'])):
+        raise RuntimeError('post-compaction Delete/Purge recovery differs')
 
 
 def verify_refused(scratch, name='capped-recovery'):
@@ -204,14 +233,26 @@ def verify_refused(scratch, name='capped-recovery'):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata'), required=True)
+    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata', 'groups'), required=True)
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the compiler exclusion for the whole capture')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    if args.mode == 'metadata':
+    if args.mode == 'groups':
+        run(scratch / 'candidate', scratch, 'groups-smoke', 4, 8, 128, True)
+        run(scratch / 'candidate', scratch, 'groups-sustained', 4, 8, 4096, True, True)
+        run(scratch / 'candidate', scratch, 'groups-single', 1, 1, 1000, True)
+        run(scratch / 'before', scratch, 'groups-before-single', 1, 1, 1000, True)
+        run(scratch / 'candidate', scratch, 'groups-concurrent', 4, 8, 1000, True)
+        run(scratch / 'before', scratch, 'groups-before-concurrent', 4, 8, 1000, True)
+        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
+                        '--name', 'groups-semantics', '--home-name', 'hmo'], check=True)
+        old.PROOF = PROOF
+        old.boundaries(scratch / 'candidate', scratch, 'groups-boundaries', 'hgd')
+        verify_refused(scratch, 'groups-capped-recovery')
+    elif args.mode == 'metadata':
         run(scratch / 'candidate', scratch, 'metadata-smoke', 4, 8, 128, True)
         run(scratch / 'candidate', scratch, 'metadata-sustained', 4, 8, 4096, True, True)
         run(scratch / 'candidate', scratch, 'metadata-single', 1, 1, 1000, True)

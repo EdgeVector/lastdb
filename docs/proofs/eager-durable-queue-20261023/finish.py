@@ -17,7 +17,7 @@ ROOT = PROOF.parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('final', 'metadata'), default='final')
+    parser.add_argument('--mode', choices=('final', 'metadata', 'groups'), default='final')
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the host compiler exclusion for build and captures')
@@ -37,12 +37,14 @@ def main():
     markers = {label: label.encode() in raw for label in (
         'failed compaction must be discarded',
         'immutable dependency facts changed during compaction')}
+    if args.mode == 'groups':
+        markers['compaction_unchanged_groups'] = b'compaction_unchanged_groups' in raw
     del raw
     if not all(markers.values()):
         raise RuntimeError('compiled storage implementation markers differ')
     if latest == hashlib.sha256((scratch / 'candidate').read_bytes()).hexdigest():
         raise RuntimeError('final program is unchanged from the first candidate')
-    shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else 'frontier'))
+    shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else ('frontier' if args.mode == 'metadata' else 'metadata')))
     shutil.copyfile(binary, scratch / 'candidate')
     (scratch / 'candidate').chmod(0o755)
     (PROOF / (args.mode + '-identity.json')).write_text(json.dumps({
