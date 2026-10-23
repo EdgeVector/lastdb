@@ -1,0 +1,71 @@
+name: Mini upgrade artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_oid:
+        description: 'Full accepted main commit to build; empty selects the workflow commit'
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/mini-upgrade-artifact.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mini-upgrade-artifact-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Matched macOS release pair
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '3'
+      RUSTC_WRAPPER: ''
+    steps:
+      # A workflow PR proves its build against the accepted base, not proposed code.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.source_oid || github.sha }}
+          fetch-depth: 0
+      - name: Require an accepted main source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_oid=$(git rev-parse HEAD)
+          git fetch origin main
+          git merge-base --is-ancestor "$source_oid" origin/main
+          test -z "$(git status --porcelain)"
+          echo "oid=$source_oid" >> "$GITHUB_OUTPUT"
+      - name: Install Rust toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          rustup show active-toolchain
+          rustup target add aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mini-upgrade-aarch64-apple-darwin
+      - name: Build the matched release pair
+        run: >-
+          cargo build --locked --release --target aarch64-apple-darwin
+          -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Package the pair and source receipt
+        env:
+          SOURCE_OID: ${{ steps.source.outputs.oid }}
+        run: |
+          bash scripts/release/package-lastdb-bundle.sh \
+            --target aarch64-apple-darwin \
+            --bin-dir target/aarch64-apple-darwin/release \
+            --out-dir upgrade-artifact \
+            --git-oid "$SOURCE_OID"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lastdb-mini-${{ steps.source.outputs.oid }}-aarch64-apple-darwin
+          path: upgrade-artifact/*
+          if-no-files-found: error
+          retention-days: 14
