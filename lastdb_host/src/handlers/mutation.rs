@@ -3,26 +3,42 @@
 //! `request` shows the single-request steps, and `plan` holds pure request
 //! rules. The write helpers here use the existing host interface directly.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use fold_db::fold_db_core::mutation_manager::MutationManager;
+use fold_db::access::AccessContext;
+use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
+use fold_db::fold_db_core::mutation_manager::{
+    CloudCapturePolicy, MutationManager, ResidentCommitOperations, ResidentCommitReceipt,
+    ResidentCommitStages, ResidentDurability,
+};
+use fold_db::request_phases::{self, RequestPhase};
+use fold_db::schema::types::operations::{
+    MutationCloudPublication, MutationConvergence, MutationDurability,
+};
+use fold_db::schema::types::{AggregateSet, KeyValue, Mutation, MutationType, SchemaError};
+use serde_json::Value;
 
+use crate::host_node::HostNode;
+use crate::qos::Lane;
+use crate::HostError;
+
+use self::cloud::attach_cloud_receipt;
+use self::fields::{fields_payload_bytes, require_durable_aggregate_receipt};
 use self::plan::MutationPlan;
-use super::*;
 
 mod plan;
 mod request;
 pub use request::execute_mutation;
 
 mod fields;
-pub use fields::*;
-mod cloud;
-pub(in crate::handlers) use cloud::*;
+pub use fields::{mutation_unknown_fields, mutation_writable_field_names, unknown_fields_body};
 mod aggregate;
-pub use aggregate::*;
+mod cloud;
+pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
-pub use batch::*;
+pub use batch::execute_mutations_batch;
 
 // ---------------------------------------------------------------------------
 // Mutation (POST /api/mutation)
@@ -186,15 +202,9 @@ fn configure_mutation(
     if durability.waits_for_persist() {
         mutation.synchronous = Some(true);
     }
-    if let Some(expectation) = expected {
-        mutation = mutation.with_expected(expectation);
-    }
-    if let Some(flag) = must_exist {
-        mutation = mutation.with_must_exist(flag);
-    }
-    if let Some(aggregate) = aggregate_set {
-        mutation = mutation.with_aggregate_set(aggregate);
-    }
+    mutation.expected = expected;
+    mutation.must_exist = must_exist;
+    mutation.aggregate_set = aggregate_set;
     mutation
 }
 

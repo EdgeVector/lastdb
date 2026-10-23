@@ -23,23 +23,12 @@
 use std::collections::{HashMap, HashSet};
 
 use fold_db::access::AccessContext;
-use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
 use fold_db::db_operations::HomeConflictAnnotation;
 use fold_db::error::FoldDbError;
-use fold_db::fold_db_core::mutation_manager::{
-    CloudCapturePolicy, CloudCaptureState, CloudMutationReceipt, CloudPublicationState,
-    ResidentCommitOperations, ResidentCommitReceipt, ResidentCommitStages, ResidentDurability,
-};
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
-use fold_db::schema::types::operations::{
-    MutationCloudPublication, MutationConvergence, MutationDurability, Query, QueryOrderBy,
-    SortOrder,
-};
-use fold_db::schema::types::{
-    AggregateFinalize, AggregateRepair, AggregateSet, KeyValue, Mutation, MutationType, Schema,
-    SchemaError,
-};
+use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
+use fold_db::schema::types::{KeyValue, Schema, SchemaError};
 use fold_db::schema::SchemaState;
 use futures::StreamExt;
 use lastdb_uds::uds_http::UdsResponse;
