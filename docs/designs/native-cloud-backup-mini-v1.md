@@ -95,6 +95,15 @@ Status keeps the frozen native file count and byte total after source cleanup.
 It also reports verified metadata-pack objects and verified packs with two or more original files.
 These counts come from the normal saved-plan upload pass. Status does not reopen the native inventory.
 Older saved jobs report unknown counts until the normal resume path obtains them.
+
+One batch invocation requests at most one upload URL, PUT, and verification queue admission per pending object.
+It then reads all pending transfer states through one bounded batch request per poll.
+The client waits at most 15 minutes for verification, with backoff between reads.
+That wait bounds the local coordinator lifetime. It does not declare a provider or worker failure.
+An unfinished job keeps its native source, exact transfer inputs, and service reservations.
+Normal `cloud backup resume` repairs an unknown upload or queue send through the same identities.
+The service worker uses conditional ranges and an initial allowance of 128 KiB per second plus connection and idle limits.
+These policies do not prove network progress. Durable worker progress survives a client wait limit or process exit.
 Status includes the last cloud usage observation and its timestamp, with reserved, retained, observed legacy, and quota byte totals.
 The worker refreshes that observation at start, after upload batches, and after completion.
 Status itself makes no cloud call. A missing or invalid observation stays unknown.

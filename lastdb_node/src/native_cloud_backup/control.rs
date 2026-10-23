@@ -125,6 +125,8 @@ fn launch(source: Source, store: Store, mut saved: Saved, permit: Permit) -> Res
                     })
                 });
             if let Err(error) = result {
+                // Waiting is nonterminal. Keep the same job and phase; the
+                // normal owner resume retries its exact saved inputs.
                 saved.blocked_reason = Some(error.label().into());
                 // Reconcile any uncertain previous write before a final error checkpoint.
                 if let Ok(fresh) = Store::open(&source.home, &saved.request_id) {

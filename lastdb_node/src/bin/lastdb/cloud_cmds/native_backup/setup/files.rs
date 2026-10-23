@@ -240,7 +240,7 @@ fn read_seed(directory: &File) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
         IDENTITY_KEY_FILE,
         32,
     )?);
-    let seed = zeroize::Zeroizing::new(
+    let seed: zeroize::Zeroizing<[u8; 32]> = zeroize::Zeroizing::new(
         bytes
             .as_slice()
             .try_into()
