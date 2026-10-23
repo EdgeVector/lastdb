@@ -1,0 +1,16 @@
+{
+  "active_writer_batch": 16,
+  "active_writer_keys": 64,
+  "baseline_seconds": 20,
+  "body_bytes": 1024,
+  "client_pause_seconds": 0.01,
+  "driver_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+  "native_entries": "measured full-copy records plus tombstones",
+  "readback": "all changed keys plus a fixed sample distributed across the seeded keys",
+  "recent_rounds": 3,
+  "recent_update_keys_each_round": 64,
+  "scope": "actual local node; generated data only; no primary or cloud access",
+  "seed_batch": 128,
+  "source_revision": "43ca120feb20ae6b95ab36dd3e2a088366522369",
+  "user_records": 4096
+}

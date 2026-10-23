@@ -1,0 +1,19 @@
+{
+  "active_writer_batch": 16,
+  "auto_high_water": null,
+  "auto_maintenance": false,
+  "baseline_seconds": 20.0,
+  "benchmark": "same fresh home; adjacent sequential phases; no cache reset",
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-atom-scale-review-20261022/target/dev-release/lastdbd",
+  "binary_sha256": "54b090091922cfe5c55c8a1f81a96ad3ffa6c8bc89a5afffb16a40158321e794",
+  "body_bytes": 1024,
+  "claim_limit": "Product run and process interruption; no power-loss proof",
+  "clock": "perf_counter_ns",
+  "driver_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+  "expected_native_entries": "measured by full-copy receipt",
+  "filesystem_cache": "uncontrolled",
+  "records": 4096,
+  "scope": "generated data only; no primary or copied home",
+  "seed_batch": 128,
+  "source_revision": "43ca120feb20ae6b95ab36dd3e2a088366522369"
+}
