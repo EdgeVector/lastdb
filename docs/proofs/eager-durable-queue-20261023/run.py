@@ -161,7 +161,11 @@ def verify_refused(scratch):
     output.mkdir()
     inputs = json.loads((PROOF / 'final-capped/inputs.json').read_text())
     writes = json.loads((PROOF / 'final-capped/writes.json').read_text())
-    node = Node(scratch / 'candidate', Path(inputs['home']), scratch / 'capped-recovery.log',
+    home = Path(inputs['home']).resolve(strict=True)
+    home.relative_to(scratch)
+    if home.stat().st_uid != os.getuid() or not inputs['generated_data_only']:
+        raise RuntimeError('capped home ownership differs')
+    node = Node(scratch / 'candidate', home, scratch / 'capped-recovery.log',
                 4096, False, workers=8)
     node.profile, node.maintenance, node.disk_cap = False, False, 1073741824
     rows = writes['samples']

@@ -54,6 +54,14 @@ impl CompactionPlan {
 
     /// Reserve space and copy outside the write gate; the source lease protects all input.
     pub fn copy(self, policy: &SpacePolicy) -> Result<PreparedCompaction> {
+        let root = self.lock.root().to_path_buf();
+        let mut output =
+            crate::durability::complete_native_commit(&root, || self.copy_inner(policy))?;
+        output.prepared();
+        Ok(output)
+    }
+
+    fn copy_inner(self, policy: &SpacePolicy) -> Result<PreparedCompaction> {
         let started = std::time::Instant::now();
         let root = self.lock.root();
         let current = self.source.current();
@@ -93,6 +101,16 @@ impl PreparedCompaction {
     /// Replay only keys whose original mutation sequence is newer than the previous cut.
     /// The hold keeps that cut's files until the complete round ends.
     pub fn catch_up(&mut self, cut: GenerationHold) -> Result<u64> {
+        if cut.current() == self.caught.current() {
+            return Ok(0);
+        }
+        let root = self.lock.root().to_path_buf();
+        let count = crate::durability::complete_native_commit(&root, || self.catch_up_inner(cut))?;
+        self.prepared();
+        Ok(count)
+    }
+
+    pub(super) fn catch_up_inner(&mut self, cut: GenerationHold) -> Result<u64> {
         let count = self.catch_up_bounded(cut, u64::MAX)?;
         self.off_gate_millis = self
             .started

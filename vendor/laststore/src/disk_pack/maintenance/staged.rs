@@ -27,6 +27,29 @@ pub struct CompactionPublication {
 impl PreparedCompaction {
     /// No writer or publication lock is required for this complete preparation.
     pub fn prepare_publication(&mut self) -> Result<CompactionPublication> {
+        let root = self.lock.root().to_path_buf();
+        let staged =
+            durability::complete_native_commit(&root, || self.prepare_publication_inner())?;
+        self.prepared();
+        Ok(staged)
+    }
+
+    /// One off-gate durability scope covers catch-up and its prepared receipt.
+    /// Every file is synced before one complete device drain on Apple.
+    pub fn catch_up_and_prepare(
+        &mut self,
+        cut: crate::disk_pack::lifetime::GenerationHold,
+    ) -> Result<CompactionPublication> {
+        let root = self.lock.root().to_path_buf();
+        let staged = durability::complete_native_commit(&root, || {
+            self.catch_up_inner(cut)?;
+            self.prepare_publication_inner()
+        })?;
+        self.prepared();
+        Ok(staged)
+    }
+
+    fn prepare_publication_inner(&mut self) -> Result<CompactionPublication> {
         let root = self.lock.root();
         for coordinate in &self.output.dependencies {
             self.protection.protect_path(&coordinate.path(root)?)?;

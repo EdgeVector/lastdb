@@ -33,7 +33,7 @@ def main():
                     '--profile', 'dev-release', '--locked'], cwd=ROOT, check=True)
     binary = ROOT / 'target/dev-release/lastdbd'
     latest = hashlib.sha256(binary.read_bytes()).hexdigest()
-    if latest == identity['candidate_binary_sha256']:
+    if latest == hashlib.sha256((scratch / 'candidate').read_bytes()).hexdigest():
         raise RuntimeError('final program is unchanged from the first candidate')
     shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else 'frontier'))
     shutil.copyfile(binary, scratch / 'candidate')
@@ -46,6 +46,8 @@ def main():
         'load_before': os.getloadavg()}, indent=2) + '\n')
     subprocess.run([sys.executable, str(PROOF / 'run.py'), '--scratch', str(scratch), '--mode', args.mode],
                    cwd=ROOT, check=True)
+    (PROOF / (args.mode + '-completed.json')).write_text(
+        json.dumps({'ok': True, 'binary_sha256': latest}) + '\n')
 
 
 if __name__ == '__main__':

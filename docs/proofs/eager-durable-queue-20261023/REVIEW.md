@@ -43,3 +43,10 @@ Disk size reached 5.98 GB before a compaction after the writes.
 Those receipts remain as evidence of the failure.
 The follow-up removes the empty-queue requirement with the logical-frontier reservation rule.
 A new capture must establish progress during active writes.
+
+The frontier-only revision also failed the active-write compaction check.
+The next source change reuses immutable dependency facts from the protected cut and the prior private output.
+Every new receipt still validates each dependency record for its current generation.
+Conflicting cached facts cause an error.
+The cache lasts for one compaction and holds at most one bounded generation receipt.
+No disk format or durability barrier changes.

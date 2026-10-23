@@ -29,8 +29,7 @@ impl PackRuntime {
                         .expect("native snapshot writer")
                         .capture_pack_root()
                         .map_err(map)?;
-                    output.catch_up(cut).map_err(map)?;
-                    let staged = output.prepare_publication().map_err(map)?;
+                    let staged = output.catch_up_and_prepare(cut).map_err(map)?;
                     Ok((output, staged))
                 })
                 .await?;
