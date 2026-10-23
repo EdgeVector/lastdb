@@ -12,10 +12,13 @@ The [design](../../lastdb-compaction-minimal-locks.md) gives the complete lifeti
 | `large-run1` | `b9e7434e48a5a4b752b5c94dde74af317deb9155` | Complete; exact temporary home removed |
 | `lifecycle-integrated` | `b9e7434e48a5a4b752b5c94dde74af317deb9155` | Complete; exact temporary home removed |
 | `automatic-integrated` | `b9e7434e48a5a4b752b5c94dde74af317deb9155` | Complete; exact temporary home removed |
+| `lifecycle-final` | `93729bfbbe2062711c29008b40516b86fd7fbe72` | Complete; exact temporary home removed |
+| `automatic-final` | `93729bfbbe2062711c29008b40516b86fd7fbe72` | Complete; exact temporary home removed |
 
 Each capture names the executable hash, source, driver hashes, exact owned home, process IDs, requests, read results, and cleanup.
 Every home starts empty with generated data. The primary and its archive remain untouched.
 No tests run. A process interruption does not establish power-loss behavior.
+The captures do not include external file blobs or the physical 85-percent part-limit transition.
 
 ## Lifecycle and unchanged-value overlap
 
@@ -43,7 +46,7 @@ Four complete readbacks agree with accepted values after interruption, both over
 Three complete counter checks each read 600,108 counters and bodies plus 400,004 tips.
 Every tally is complete, with zero mismatches and zero suspect atoms.
 
-| Window | Copies | Catch-up entries per copy | Publication retries | Selected dependency files |
+| Window | Reported pack time | Catch-up entries per copy | Publication retries | Selected dependency files |
 |---|---|---|---|---|
 | Concurrent writes | 21.134 / 21.220 seconds | 27,047 | 0 / 1 | 1,318 / 1,318 |
 | Unchanged values | 11.972 / 12.005 seconds | 0 | 0 / 1 | 108 / 108 |
@@ -87,13 +90,29 @@ The correction retries only an exact active-deletion conflict.
 It preserves the path-budget `compaction_behind` refusal and removes the exact new empty file before its local guard ends.
 The correction changes no successful copy or publication path.
 The records above retain their original source and driver hashes.
+No operation in these captures exhausts the 64 MiB path budget.
+Source review covers that refusal and its exact empty-file cleanup.
+
+## Final binary
+
+The corrected binary repeats the complete lifecycle and automatic-worker operations on two fresh homes.
+The lifecycle completes 13 exact readbacks, two complete zero-mismatch counter tallies, backup restore, and observed process interruption.
+Its final overlap publishes generations 161 and 162 with zero and one retries.
+Both outputs select 12 dependency files. The final status records a 37 ms maximum boundary since that process reopen.
+The automatic worker completes with 36,686 catch-up entries, a healthy writer, zero failures, and zero worker restarts.
+Its 253 selected keys include every updated key; its complete counter tally reports zero mismatches.
+Its observed publication boundary is 16 ms.
+Both exact owned homes are absent, with cleanup receipts.
+No fixed latency guarantee or paired performance claim follows from these observations.
 
 ## Local checks
 
-- Workspace and vendored Rust format checks pass for the reviewed source.
-- Package and full-workspace clippy pass with warnings as errors at integrated source `b9e7434e`.
-- The optimized daemon, recovery command, and maintenance command build for source `6560` and integrated source `b9e7434e`.
+- Workspace and vendored Rust format checks pass for the final source.
+- Package and full-workspace clippy pass with warnings as errors at final source `93729bfbb`.
+- The optimized daemon, recovery command, and maintenance command build at final source `93729bfbb`.
 - File size, function size, and new-allow checks pass against main after integration.
-- Two independent reviewers approve source `6560` and its unchanged integration at `b9e7434e48a5a4b752b5c94dde74af317deb9155`.
+- Two independent reviewers approve final source `93729bfbb` and its evidence.
+  Their reports are [safety](SAFETY-REVIEW.md) and [scale](SCALE-REVIEW.md).
 
-The final correction build, current-binary lifecycle and automatic operations, final reviewer reports, and current-head CI remain completion gates.
+All heavy local checks and product windows use the existing shared host lock.
+No required gate is changed or bypassed. Current-head GitHub CI remains the merge gate.
