@@ -107,7 +107,7 @@ class Node:
         if process.poll() is None:
             process.terminate()
             try:
-                process.wait(timeout=20)
+                process.wait(timeout=45)
             except subprocess.TimeoutExpired:
                 forced = True
                 process.kill()
@@ -119,7 +119,8 @@ class Node:
         receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
         save(self.output / "shutdown.json", {"exit_code": process.returncode, "forced": forced,
                                              "receipt": receipt})
-        if forced or process.returncode != 0 or not receipt or receipt.get("flush_ok") is not True:
+        if (forced or process.returncode != 0 or not receipt
+                or receipt.get("pid") != process.pid or receipt.get("flush_ok") is not True):
             raise RuntimeError("The owned daemon lacks a successful shutdown receipt")
 
     def close(self):

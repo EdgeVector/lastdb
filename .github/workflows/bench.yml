@@ -121,7 +121,7 @@ jobs:
           CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
           BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
         run: |
-          timeout --signal=TERM --kill-after=30s 65m \
+          timeout --signal=TERM --kill-after=120s 65m \
             python3 candidate/scripts/benchmarks/run.py \
               --baseline "$RUNNER_TEMP/bench-target-baseline/dev-release/lastdbd" \
               --candidate "$RUNNER_TEMP/bench-target-candidate/dev-release/lastdbd" \
