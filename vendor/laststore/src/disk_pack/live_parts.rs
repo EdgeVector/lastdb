@@ -20,11 +20,32 @@ pub(super) use scan::{add_directory_empty_root, observe_new_parts};
 /// Each page resolves its references before another page enters the ledger.
 /// Live counts and signed part deltas each admit 65536 entries (16 MiB at a
 /// conservative 256 bytes/entry). Pending descriptors/extents admit 4096 entries
-/// (1 MiB). Resolvers retain at most 26 pages and 25 part-header identities;
-/// bootstrap uses a height-bounded stack. No payload is decoded.
+/// (1 MiB). A commit-local cache retains at most 26 pages and 25 part-header
+/// identities; bootstrap uses a height-bounded stack. No payload is decoded.
 /// Ordinary metadata copies exclude payload references. Only changed keys send
 /// old/new extents to the resolver; full seeds account complete locator pages.
 pub(super) const MAX_REFERENCE_CHANGES: usize = 4096;
+
+/// Share checked immutable pages and part headers only within one publication.
+/// The caller drops this cache before final count application and receipt write.
+/// Its captured directory root is unused: resolution needs only immutable file
+/// identities and the publication's fixed generation and feature checks.
+pub(super) struct ReferenceCache {
+    call: ReadCall,
+}
+
+impl ReferenceCache {
+    pub(super) fn new(root: &Path, current: &Current) -> Self {
+        Self {
+            call: artifact::metadata_call(root, current.clone()),
+        }
+    }
+
+    /// Work is charged afresh for every pending ledger, including cache hits.
+    pub(super) fn resolve(&mut self, changes: &mut Changes) -> Result<()> {
+        resolve_with_call(&mut self.call, changes, None, &mut Work::publication())
+    }
+}
 
 /// A pending extent has at most u32::MAX blocks; an overflow chain has at most
 /// five pages. This ceiling exceeds every valid pending ledger plus every page
@@ -96,7 +117,8 @@ impl LiveParts {
         let mut changes = changes;
         resolve_pending(root, current, &mut changes, allowed, work)?;
         let parts = changes.parts;
-        let resolver = Resolver::new(root, current, allowed, work);
+        let mut call = artifact::metadata_call(root, current.clone());
+        let resolver = Resolver::new(&mut call, allowed, work);
         // Apply removals first: an equal-size replacement must not exceed the
         // part ceiling merely because its positive coordinates sort first.
         for (&coordinate, &delta) in parts.iter().filter(|(_, delta)| **delta < 0) {
@@ -142,16 +164,6 @@ impl LiveParts {
     }
 }
 
-/// Reduce page-local descriptor and extent references to signed part counts.
-/// Only these bounded coordinates survive between edits; payload spans do not.
-pub(super) fn resolve_references(
-    root: &Path,
-    current: &Current,
-    changes: &mut Changes,
-) -> Result<()> {
-    resolve_pending(root, current, changes, None, &mut Work::publication())
-}
-
 fn resolve_pending(
     root: &Path,
     current: &Current,
@@ -159,7 +171,19 @@ fn resolve_pending(
     allowed: Option<&[Coordinate]>,
     work: &mut Work,
 ) -> Result<()> {
-    let mut resolver = Resolver::new(root, current, allowed, work);
+    let mut call = artifact::metadata_call(root, current.clone());
+    resolve_with_call(&mut call, changes, allowed, work)
+}
+
+/// Reduce page-local references before another ledger enters the count maps.
+/// Payload spans never survive a resolution; only bounded file caches do.
+fn resolve_with_call(
+    call: &mut ReadCall,
+    changes: &mut Changes,
+    allowed: Option<&[Coordinate]>,
+    work: &mut Work,
+) -> Result<()> {
+    let mut resolver = Resolver::new(call, allowed, work);
     for (key, delta) in std::mem::take(&mut changes.overflows) {
         overflow::resolve(&mut resolver, key, delta, &mut changes.parts)?;
     }
@@ -206,33 +230,24 @@ impl Work {
 }
 
 struct Resolver<'a> {
-    root: &'a Path,
-    current: &'a Current,
     allowed: Option<&'a [Coordinate]>,
     work: &'a mut Work,
-    call: ReadCall,
+    call: &'a mut ReadCall,
 }
 
 impl<'a> Resolver<'a> {
-    fn new(
-        root: &'a Path,
-        current: &'a Current,
-        allowed: Option<&'a [Coordinate]>,
-        work: &'a mut Work,
-    ) -> Self {
+    fn new(call: &'a mut ReadCall, allowed: Option<&'a [Coordinate]>, work: &'a mut Work) -> Self {
         Self {
-            root,
-            current,
             allowed,
             work,
-            call: artifact::metadata_call(root, current.clone()),
+            call,
         }
     }
 
     fn step(&mut self) -> Result<()> {
         self.work.charge()?;
         if self.call.pages.len() >= 24 || self.call.parts.len() >= 24 {
-            self.call = artifact::metadata_call(self.root, self.current.clone());
+            *self.call = artifact::metadata_call(&self.call.root, self.call.current.clone());
         }
         Ok(())
     }

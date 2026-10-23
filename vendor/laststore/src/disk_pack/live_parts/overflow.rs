@@ -22,7 +22,11 @@ pub(super) fn resolve(
     } else {
         "locator"
     };
-    let directory = resolver.root.join(namespace).join(key.object.to_string());
+    let directory = resolver
+        .call
+        .root
+        .join(namespace)
+        .join(key.object.to_string());
     let mut seen = BTreeSet::new();
     let mut number = key.first;
     let mut bytes = 0u64;

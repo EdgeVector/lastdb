@@ -1,6 +1,6 @@
 use super::dependency::Dependencies;
 use super::generation;
-use super::live_parts::{self, Changes, LiveParts};
+use super::live_parts::{self, Changes, LiveParts, ReferenceCache};
 use super::locator_forest::LocatorChanges;
 use super::pack_write::WrittenData;
 use super::snapshot::PreparedMutation;
@@ -59,6 +59,7 @@ pub(super) fn publish_prepared(
             .ok_or_else(|| corrupt("uncounted writer lacks its admitted live-part bootstrap"))?
     };
     proposed.required_features |= super::FEATURE_LIVE_PART_COUNTS;
+    let mut references = ReferenceCache::new(root, &proposed);
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
@@ -77,7 +78,7 @@ pub(super) fn publish_prepared(
             payload.map_pages,
         )?;
     }
-    publisher.batch(mutations)?;
+    publisher.batch(mutations, &mut references)?;
     let mut changes = Changes::default();
     for output in publisher.locators.finish()? {
         changes.merge(output.changes)?;
@@ -96,7 +97,14 @@ pub(super) fn publish_prepared(
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
-    live_parts::observe_new_parts(root, &publisher.proposed, &dependencies, &mut changes)?;
+    live_parts::observe_new_parts(
+        root,
+        &publisher.proposed,
+        &dependencies,
+        &mut changes,
+        &mut references,
+    )?;
+    drop(references);
     live_parts::add_directory_empty_root(root, previous, -1, &mut changes)?;
     live_parts::add_directory_empty_root(root, &publisher.proposed, 1, &mut changes)?;
     live.apply(root, &publisher.proposed, changes)?;
@@ -118,7 +126,11 @@ pub(super) fn publish_prepared(
 }
 
 impl Publisher<'_> {
-    fn batch(&mut self, mut mutations: Vec<PreparedMutation>) -> Result<()> {
+    fn batch(
+        &mut self,
+        mut mutations: Vec<PreparedMutation>,
+        references: &mut ReferenceCache,
+    ) -> Result<()> {
         self.mutations += mutations.len() as u64;
         // Physical sort preserves the original operation version for repeated keys.
         mutations.sort_by(|a, b| {
@@ -164,12 +176,12 @@ impl Publisher<'_> {
             let changes: Vec<_> = changes.into_iter().collect();
             let tree = if let Some(entry) = &entry {
                 self.locators
-                    .edit(&mut call, entry.locator.clone(), &changes)?
+                    .edit(&mut call, references, entry.locator.clone(), &changes)?
             } else {
                 if changes.len() > self.proposed.batch_operation_limit() {
                     return Err(corrupt("invalid new locator change count"));
                 }
-                self.locators.create(&call, &changes)?
+                self.locators.create(&call, references, &changes)?
             };
             let value = DirectoryEntry {
                 group,
@@ -182,6 +194,7 @@ impl Publisher<'_> {
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
         self.directory.put_many(
             &mut call,
+            references,
             &directory_changes.into_iter().collect::<Vec<_>>(),
         )
     }

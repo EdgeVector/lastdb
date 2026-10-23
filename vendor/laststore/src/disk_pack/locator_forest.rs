@@ -1,7 +1,7 @@
 //! Independent locator roots share final object-wide page addresses and barriers.
 
 use super::dependency::MAX_DEPENDENCIES;
-use super::live_parts::Changes;
+use super::live_parts::{Changes, ReferenceCache};
 use super::page_write::PageWriter;
 use super::sparse_pages::SparsePages;
 use super::tree_edit::{MapChange, TreeEdit};
@@ -57,6 +57,7 @@ impl LocatorForest {
     fn edit(
         &mut self,
         call: &mut ReadCall,
+        references: &mut ReferenceCache,
         tree: TreeRoot,
         changes: &[MapChange],
     ) -> Result<TreeRoot> {
@@ -64,7 +65,7 @@ impl LocatorForest {
             return Err(corrupt("locator forest edit identity differs"));
         }
         let mut edit = TreeEdit::with_pages(tree, self.take_pages()?)?;
-        edit.put_many(call, changes)?;
+        edit.put_many(call, references, changes)?;
         let (tree, pages, changes) = edit.finish_tree()?;
         self.changes.merge(changes)?;
         self.restore_pages(&tree, pages)?;
@@ -132,7 +133,12 @@ impl LocatorChanges {
         }
     }
 
-    pub(super) fn create(&mut self, call: &ReadCall, changes: &[MapChange]) -> Result<TreeRoot> {
+    pub(super) fn create(
+        &mut self,
+        call: &ReadCall,
+        references: &mut ReferenceCache,
+        changes: &[MapChange],
+    ) -> Result<TreeRoot> {
         if self.new.is_none() {
             self.new = Some(LocatorForest::new(&self.root, self.generation)?);
         }
@@ -140,7 +146,7 @@ impl LocatorChanges {
         let mut writer = forest.tree()?;
         for (key, value) in changes {
             self.changes.observe_location(value, &call.current, 1)?;
-            super::live_parts::resolve_references(&call.root, &call.current, &mut self.changes)?;
+            references.resolve(&mut self.changes)?;
             writer.add(key, *value)?;
         }
         forest.complete_tree(writer)
@@ -149,6 +155,7 @@ impl LocatorChanges {
     pub(super) fn edit(
         &mut self,
         call: &mut ReadCall,
+        references: &mut ReferenceCache,
         tree: TreeRoot,
         changes: &[MapChange],
     ) -> Result<TreeRoot> {
@@ -157,7 +164,7 @@ impl LocatorChanges {
             .as_mut()
             .filter(|forest| forest.object == tree.object)
         {
-            return forest.edit(call, tree, changes);
+            return forest.edit(call, references, tree, changes);
         }
         let pages = match self.edited.remove(&tree.object) {
             Some((_, pages)) => pages,
@@ -169,7 +176,7 @@ impl LocatorChanges {
             }
         };
         let mut edit = TreeEdit::from_pages(tree, pages)?;
-        edit.put_many(call, changes)?;
+        edit.put_many(call, references, changes)?;
         let (tree, mut pages, changes) = edit.finish_tree()?;
         self.changes.merge(changes)?;
         pages.park();

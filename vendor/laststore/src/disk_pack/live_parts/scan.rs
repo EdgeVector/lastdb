@@ -1,4 +1,4 @@
-use super::{add_delta, resolve_references, Changes, Work};
+use super::{add_delta, Changes, ReferenceCache, Work};
 use crate::disk_pack::dependency::{Coordinate, MAX_DEPENDENCIES};
 use crate::disk_pack::{artifact, corrupt, Current, TreeKind, PAGE_BYTES, PART_BYTES};
 use crate::Result;
@@ -11,6 +11,7 @@ pub(in crate::disk_pack) fn observe_new_parts(
     current: &Current,
     coordinates: &[Coordinate],
     changes: &mut Changes,
+    references: &mut ReferenceCache,
 ) -> Result<()> {
     if coordinates.len() > MAX_DEPENDENCIES || coordinates.windows(2).any(|pair| pair[0] >= pair[1])
     {
@@ -46,7 +47,7 @@ pub(in crate::disk_pack) fn observe_new_parts(
                 return Err(corrupt("new live metadata part contains an old page"));
             }
             changes.observe_page(kind, coordinate.object, number, &page, current, 1)?;
-            resolve_references(root, current, changes)?;
+            references.resolve(changes)?;
         }
     }
     Ok(())

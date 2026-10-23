@@ -1,4 +1,4 @@
-use super::live_parts::Changes;
+use super::live_parts::{Changes, ReferenceCache};
 use super::page::Page;
 use super::sparse_pages::SparsePages;
 use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
@@ -61,7 +61,12 @@ impl<P: TreePages> TreeEdit<P> {
 
     /// Install sorted final locators, copying each touched old page only once.
     /// Stored operations and their original physical versions remain unchanged.
-    pub(super) fn put_many(&mut self, call: &mut ReadCall, changes: &[MapChange]) -> Result<()> {
+    pub(super) fn put_many(
+        &mut self,
+        call: &mut ReadCall,
+        references: &mut ReferenceCache,
+        changes: &[MapChange],
+    ) -> Result<()> {
         if self.failed
             || changes.len() > call.current.batch_operation_limit()
             || changes.iter().any(|(key, _)| key.len() > super::KEY_BYTES)
@@ -81,7 +86,7 @@ impl<P: TreePages> TreeEdit<P> {
             upper: None,
             is_root: true,
         };
-        let mut children = self.edit(call, path, changes)?;
+        let mut children = self.edit(call, references, path, changes)?;
         let mut height = self.root.height;
         while children.len() > 1 {
             children = self.parents(height, &children)?;
@@ -96,6 +101,7 @@ impl<P: TreePages> TreeEdit<P> {
     fn edit(
         &mut self,
         call: &mut ReadCall,
+        references: &mut ReferenceCache,
         path: PathStep,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
@@ -109,9 +115,9 @@ impl<P: TreePages> TreeEdit<P> {
             &call.current,
             -1,
         )?;
-        super::live_parts::resolve_references(&call.root, &call.current, &mut self.changes)?;
+        references.resolve(&mut self.changes)?;
         if path.level == 0 {
-            return self.edit_leaf(call, &page, changes);
+            return self.edit_leaf(call, references, &page, changes);
         }
         let mut children = vec![Child {
             minimum: path.minimum,
@@ -146,6 +152,7 @@ impl<P: TreePages> TreeEdit<P> {
             }
             out.extend(self.edit(
                 call,
+                references,
                 PathStep {
                     number: child.number,
                     level: path.level - 1,
@@ -181,6 +188,7 @@ impl<P: TreePages> TreeEdit<P> {
     fn edit_leaf(
         &mut self,
         call: &mut ReadCall,
+        references: &mut ReferenceCache,
         page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
@@ -191,7 +199,7 @@ impl<P: TreePages> TreeEdit<P> {
             let key = call.full_key(&self.root, entry)?;
             while updates.peek().is_some_and(|(next, _)| *next < key) {
                 let (key, value) = updates.next().expect("peeked change");
-                self.change_value(call, None, value)?;
+                self.change_value(call, references, None, value)?;
                 entries.push((
                     tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
                     *value,
@@ -200,7 +208,7 @@ impl<P: TreePages> TreeEdit<P> {
             let descriptor = entry[..key_layout::descriptor_bytes(entry)].to_vec();
             let value = if updates.peek().is_some_and(|(next, _)| *next == key) {
                 let (_, value) = updates.next().expect("peeked replacement");
-                self.change_value(call, Some(key_layout::value(entry)), value)?;
+                self.change_value(call, references, Some(key_layout::value(entry)), value)?;
                 *value
             } else {
                 key_layout::value(entry).try_into().expect("leaf value")
@@ -208,7 +216,7 @@ impl<P: TreePages> TreeEdit<P> {
             entries.push((descriptor, value));
         }
         for (key, value) in updates {
-            self.change_value(call, None, value)?;
+            self.change_value(call, references, None, value)?;
             entries.push((
                 tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
                 *value,
@@ -220,13 +228,19 @@ impl<P: TreePages> TreeEdit<P> {
             .collect()
     }
 
-    fn change_value(&mut self, call: &ReadCall, old: Option<&[u8]>, new: &[u8; 128]) -> Result<()> {
+    fn change_value(
+        &mut self,
+        call: &ReadCall,
+        references: &mut ReferenceCache,
+        old: Option<&[u8]>,
+        new: &[u8; 128],
+    ) -> Result<()> {
         if self.root.kind == super::TreeKind::Locator {
             if let Some(old) = old {
                 self.changes.observe_location(old, &call.current, -1)?;
             }
             self.changes.observe_location(new, &call.current, 1)?;
-            super::live_parts::resolve_references(&call.root, &call.current, &mut self.changes)?;
+            references.resolve(&mut self.changes)?;
         }
         Ok(())
     }
