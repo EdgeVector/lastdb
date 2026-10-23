@@ -48,6 +48,9 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     let mut templates = std::collections::BTreeSet::new();
     while let Some((key, value)) = groups.next(&mut call)? {
         if prior.unchanged(&key, &value)? {
+            // Keep the cursor's I/O budget bounded even across long runs of
+            // unchanged neighbors. PriorGroups owns the shared lookup cache.
+            call = artifact::metadata_call(root, cut.clone());
             continue;
         }
         let live = DirectoryEntry::decode(&value)?;
