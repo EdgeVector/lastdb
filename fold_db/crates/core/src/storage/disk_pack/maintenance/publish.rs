@@ -71,7 +71,7 @@ impl PackRuntime {
                         {
                             super::handoff::Offer::Retry(next) => output = Some(*next),
                             super::handoff::Offer::Queued(receive) => {
-                                result = Ok(Attempt::Handoff(receive))
+                                result = Ok(Attempt::Handoff(receive));
                             }
                         }
                     }
