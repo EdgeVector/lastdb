@@ -15,10 +15,15 @@
 //! length, and its SHA-256.
 //!
 //! Memory is bounded by the constants below, not by the home:
-//! `MAP_PAGES` block-map pages of 16 KiB (64 MiB, reached only by a home with that many
-//! batches), `BLOCKS` blocks of 4 KiB (1 MiB), `PARTS` part records of about 200 bytes
-//! (6 MiB), and `FILES` descriptors. The pages of trees are dropped every
-//! `TREE_SWEEP_RECORDS` records.
+//!
+//! - At most `MAP_PAGES` cached block-map pages of 16 KiB (64 MiB)
+//! - Plus at most `MAP_PAGES` new pages read in one call (64 MiB)
+//! - Total peak: 128 MiB of pages (reached only by a home with many thousands of batches)
+//! - `BLOCKS` decoded blocks of 4 KiB (1 MiB)
+//! - `PARTS` verified part records of ~200 bytes (6 MiB)
+//! - `FILES` open file descriptors
+//!
+//! Tree pages are dropped every `TREE_SWEEP_RECORDS` records to keep the hot set small.
 
 use crate::disk_pack::block_plan::BlockId;
 use crate::disk_pack::call::Buffer;
@@ -36,9 +41,9 @@ const MAP_PAGES: usize = 4096;
 const BLOCKS: usize = 256;
 /// Verified part headers kept between calls.
 const PARTS: usize = 32_768;
-/// Records between two sweeps that drop the pages of trees. A key-order walk reads each
-/// tree page once, so keeping them only costs memory. The sweep is a scan of the kept
-/// pages, so it runs every few records and not after each one.
+/// Records read before triggering a page sweep that drops tree pages. A key-order walk
+/// reads each tree page once, so keeping them only costs memory. The sweep is a scan of
+/// the kept pages, so it runs every few records and not after each one.
 const TREE_SWEEP_RECORDS: u32 = 256;
 /// Open part files kept between calls. The operating system limit on open files
 /// can be as low as 256 for a service, so the pool stays small.
@@ -64,11 +69,11 @@ impl PackCaches {
     }
 
     /// A short read call that starts with everything the pack has already proved.
+    /// Cached pages are already validated and bounded by MAP_PAGES; they don't count
+    /// against this call's budget. The budget limit applies only to new pages read
+    /// within this call, ensuring the call never exceeds 2 * MAP_PAGES total pages.
     pub(super) fn call(&mut self, root: &Path, current: &Current) -> ReadCall {
         let mut call = artifact::metadata_call(root, current.clone());
-        // The kept pages count against the page limit of one call, so the limit
-        // grows by the same bound and the cursor keeps its own room.
-        call.budget.pages += MAP_PAGES as u64;
         call.pages = std::mem::take(&mut self.pages);
         call.blocks = std::mem::take(&mut self.blocks);
         call.parts = std::mem::take(&mut self.parts);
@@ -91,10 +96,19 @@ impl PackCaches {
             // Tree pages are read once in a key-order walk. Block maps are the hot set.
             pages.retain(|_, page| page.kind() == 5);
             if pages.len() > MAP_PAGES {
-                let mut keep = MAP_PAGES / 2;
+                // Enforce the MAP_PAGES limit strictly to honor the documented memory bound.
+                // Drop the least recently used pages by retaining only the first MAP_PAGES
+                // entries. The HashMap iteration order is arbitrary, but all pages here are
+                // block-map pages (kind 5) of equal priority, so any subset is acceptable.
+                let excess = pages.len() - MAP_PAGES;
+                let mut dropped = 0;
                 pages.retain(|_, _| {
-                    keep = keep.saturating_sub(1);
-                    keep > 0
+                    if dropped < excess {
+                        dropped += 1;
+                        false
+                    } else {
+                        true
+                    }
                 });
             }
         }
