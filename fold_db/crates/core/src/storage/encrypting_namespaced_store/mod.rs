@@ -1,5 +1,4 @@
 mod checkpoints;
-mod legacy;
 mod reap_chunks;
 mod reseal;
 
@@ -36,10 +35,9 @@ use std::sync::Arc;
 /// boot cost, 2026-07-20). The product path that needed that exception is
 /// gone; keeping a plaintext special case for a dead collection only preserved
 /// a first-class decrypt migration and backup-policy coupling for no product
-/// benefit. Residual cold-home `native_index` keys (if any) are not special-
-/// cased here: dual-read `migration_mode` still serves legacy plaintext rows
-/// when a namespace is default-encrypted, and one-shot maintain purge is the
-/// path for deliberate cleanup — not a primary-boot decrypt walk.
+/// benefit. Residual `native_index` keys receive the same policy as any other
+/// encrypted namespace: un-enveloped values read as absent. Startup performs
+/// no plaintext conversion sweep.
 ///
 /// Future exceptions need a comment naming the data and why disclosure is
 /// acceptable. Only *values* are encrypted; keys stay plaintext (accepted leak,
@@ -162,10 +160,8 @@ pub const PLAINTEXT_NAMESPACES: &[&str] = &[];
 /// Trinity surface, plus a matching entry in `backup_manifest` (either
 /// backup-excluded or declared cleartext-shippable) — the coupling is enforced
 /// by `backup_role_matches_at_rest_encryption_exemption`. Removing one is not a
-/// doc change: see `DEFAULT_ENCRYPT_FLIPPED_NAMESPACES` and the strict-marker
-/// clearing in `fold_db_core::factory::local::migrations` (#877) for the
-/// migration a namespace must go through when it leaves or rejoins the
-/// encrypted set.
+/// doc change: changing the policy requires an explicit data-conversion design.
+/// Startup does not run namespace conversion sweeps or migrate older homes.
 ///
 /// Threat model: `docs/security/at-rest-threat-model.md` §4.5.
 pub const LASTSTORE_PLAINTEXT_NAMESPACES: &[&str] = &[
@@ -184,58 +180,12 @@ pub const LASTSTORE_PLAINTEXT_NAMESPACES: &[&str] = &[
     "lineage_reverse",
 ];
 
-/// Reserved namespace holding at-rest sentinels keyed by namespace name.
+/// Reserved namespace containing historical at-rest marker data.
 ///
-/// It once held the per-store strict-mode markers of Gap G1 §5.3, which let a
-/// boot adopt strict without re-running an O(rows) clean scan. Those markers
-/// and that scan are gone
-/// (`decision-2026-09-14-drop-dual-read-unsealed-is-gone`): an un-enveloped row
-/// in an encrypted namespace reads as absent, so there is nothing left to prove
-/// at boot and nothing to record having proved. The name is kept because homes
-/// on disk still carry the namespace.
-///
-/// What still lives here is the `plaintext-sweep:<ns>` sentinel set, which
-/// gates the catalog unwrap sweeps. It holds only namespace-name provenance, so
-/// the namespace is plaintext-by-policy and must stay that way: its
-/// bootstrap-time read would otherwise recurse through the seam it configures.
+/// The old strict-mode and plaintext-sweep writers are retired. Keep existing
+/// marker rows plaintext and excluded from `reap-unsealed`, so removing the
+/// unused migration APIs does not reinterpret or delete stored provenance.
 pub const STRICT_MARKER_NAMESPACE: &str = "__at_rest_strict_markers";
-
-/// Key prefix for plaintext-policy sweep completion sentinels stored in
-/// [`STRICT_MARKER_NAMESPACE`].
-const PLAINTEXT_SWEEP_MARKER_PREFIX: &str = "plaintext-sweep:";
-
-/// Sentinel value written once a plaintext-policy namespace has been scanned
-/// and all residual `ENC:` rows have been unwrapped.
-const PLAINTEXT_SWEEP_MARKER_VALUE: &[u8] = b"1";
-
-/// Namespaces that flipped from plaintext to default-encrypt when the
-/// [`PLAINTEXT_NAMESPACES`] allowlist was inverted (Gap G1 of
-/// `docs/security/at-rest-threat-model.md`, §5.3). A node upgraded across that
-/// flip still holds **legacy plaintext rows** for these namespaces on disk;
-/// `migration_mode` dual-read keeps them readable, but lazy rewrite-on-write
-/// would never touch rows of records that are never rewritten, so they would
-/// linger in plaintext indefinitely. The boot-time sweep
-/// (`EncryptingNamespacedStore::encrypt_legacy_plaintext_namespace`, driven
-/// from `fold_db_core::factory`) re-encrypts them once.
-///
-/// Deliberately **excludes** the namespaces that were already encrypted before
-/// the flip and therefore hold no legacy plaintext: `main` and `metadata`
-/// (the prior hand-curated allowlist). Also excludes the retired `native_index`
-/// collection — residual rows (if any) are not re-encrypted on every boot; dual
-/// read covers legacy plaintext and deliberate cleanup is a maintain path, not
-/// a first-class product migration. Excluding `main` also bounds the sweep
-/// cost — it is the large user-data namespace and is never rescanned here; the
-/// namespaces below hold small-to-moderate schema/index/lineage metadata.
-pub const DEFAULT_ENCRYPT_FLIPPED_NAMESPACES: &[&str] = &[
-    "schemas",
-    "schema_states",
-    "schema_superseded_by",
-    "node_id_schema_permissions",
-    "public_keys",
-    "idempotency",
-    "lineage_forward",
-    "lineage_reverse",
-];
 
 /// A decorator over any `NamespacedStore` that wraps returned `KvStore`
 /// instances in `EncryptingKvStore` so their values are AES-256-GCM encrypted

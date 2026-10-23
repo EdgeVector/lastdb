@@ -318,17 +318,18 @@ namespaces adds boot-time AES on exactly the catalogs the startup path reads
 for the strict flip — but it is also why `native_index` was moved *back* to
 plaintext in 2026-07, where value-level AES on ~20k rows dominated cold boot.
 Any change here is per namespace and must be measured, not a blanket revert,
-and it must go through the strict-marker clearing path (#877) rather than a
-bare edit to the constant.
+and requires an explicit conversion design rather than a bare edit to the
+constant. Startup no longer runs namespace conversion sweeps or migrates older
+homes; the unused strict-marker clearing and plaintext-sweep APIs are removed.
 
 **2026-08-03 update — gap G1 first card (SUPERSEDED, see below).** The four
 entries called out above
 as "worth arguing about" (`schemas`, `node_id_schema_permissions`,
 `lineage_forward`, `lineage_reverse`) moved off `LASTSTORE_PLAINTEXT_NAMESPACES`
 onto the encrypted set via the strict-marker clearing path (#877); they are
-picked up automatically by the existing `DEFAULT_ENCRYPT_FLIPPED_NAMESPACES`
-boot migration. `public_keys`, `schema_states`, and `idempotency` stay
-plaintext (uninteresting content, per above). `native_index` and `schema_index`
+picked up automatically by the then-existing flipped-namespace boot migration
+(retired with the unused namespace conversion APIs). `public_keys`,
+`schema_states`, and `idempotency` stay plaintext (uninteresting content, per above). `native_index` and `schema_index`
 stay plaintext on the boot-cost precedent this section already documents for
 `native_index`; `schema_index` was not independently re-measured in this pass.
 `schema_superseded_by`, `process_results`, `views`, `view_states`, and
