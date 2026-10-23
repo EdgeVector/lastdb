@@ -7,10 +7,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import signal
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 
@@ -67,11 +70,12 @@ def execute(command, log):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--builds", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=default_output('compaction-benchmark-20261023'))
     parser.add_argument("--pair", type=int, required=True)
     parser.add_argument("--records", type=int, default=100000)
     parser.add_argument("--only-this-pair", action="store_true")
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     if not 0 <= args.pair < 3:
         parser.error("pair must be 0..2")
     builds = json.loads(args.builds.read_text())
