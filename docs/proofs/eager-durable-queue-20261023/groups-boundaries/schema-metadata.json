@@ -1,0 +1,86 @@
+{
+  "IndependentBatch000": {
+    "ok": true,
+    "schema": {
+      "descriptive_name": "IndependentBatch000",
+      "field_descriptions": {
+        "bucket": "generated IndependentBatch000 bucket",
+        "id": "generated IndependentBatch000 id",
+        "value": "generated IndependentBatch000 value"
+      },
+      "field_hashes": {
+        "bucket": "b6216f0033cd3e863f070565526ee6729d922f4f3ae49e225e8299dee47c5294",
+        "id": "d883485d433a51f47f9e4ba0faa2c5ef5abe54809db57fdcda1e8fb50772dd30",
+        "value": "9f0c90c4e3735e7c296bfbb8d5aa904b4194c537ec2a6434e6a151d116e4ead3"
+      },
+      "field_molecule_uuids": {
+        "bucket": "CcCMrBX5vSYfEKixaqaPAcx0EMlFMb2dVjlpYcjbvl8",
+        "id": "vK1SbGdAWDrVQKWzFqaIDhI9KmS0zvDA_3_rSE13DQU",
+        "value": "8LSXCHvkWaq0rNyBHHd58DhDn2sii4pWurpiJpSnS6s"
+      },
+      "field_versions": {
+        "bucket": 1,
+        "id": 1,
+        "value": 1
+      },
+      "fields": [
+        "bucket",
+        "id",
+        "value"
+      ],
+      "identity_hash": "cd7c43323796424abd4ea0d8e924a484c1fa3ac0483bb826df8caf9a3df52675",
+      "identity_hash_algo_version": 2,
+      "key": {
+        "hash_field": "bucket",
+        "range_field": "id"
+      },
+      "name": "IndependentBatch000",
+      "schema_type": "HashRange",
+      "source": "system_seed",
+      "state": "Available"
+    },
+    "user_hash": "f20335acd629d7a53dbb988422858e43"
+  },
+  "IndependentBatch001": {
+    "ok": true,
+    "schema": {
+      "descriptive_name": "IndependentBatch001",
+      "field_descriptions": {
+        "bucket": "generated IndependentBatch001 bucket",
+        "id": "generated IndependentBatch001 id",
+        "value": "generated IndependentBatch001 value"
+      },
+      "field_hashes": {
+        "bucket": "0645f4b1e4222ee09b542a479ba2c7a79214ad3d678b161fe57a3f4b7243bb6f",
+        "id": "b51e7c0f638911133ac16fc7376fb5f9e177792bf1895e549c2645269b97f746",
+        "value": "b336bc105d08a0328b2914f3700806a3082ca980378b51e71dd9deafe547d7b0"
+      },
+      "field_molecule_uuids": {
+        "bucket": "JjBvYVeOaaxx--JPMPe1zQBkxmSz_7uqQM7LHf29NPM",
+        "id": "1yxJhkEvGtR4CWDGayA2L6qacmQ2sEmVK62hKhB1w58",
+        "value": "yqwAb83VHOPtHA9pQcd5_DnWDbKzcfCm7jx1kDhvqlQ"
+      },
+      "field_versions": {
+        "bucket": 1,
+        "id": 1,
+        "value": 1
+      },
+      "fields": [
+        "bucket",
+        "id",
+        "value"
+      ],
+      "identity_hash": "2c386049390d682d1326e50289aa8ec302cc5bf6c919234753474d3915d46c57",
+      "identity_hash_algo_version": 2,
+      "key": {
+        "hash_field": "bucket",
+        "range_field": "id"
+      },
+      "name": "IndependentBatch001",
+      "schema_type": "HashRange",
+      "source": "system_seed",
+      "state": "Available"
+    },
+    "user_hash": "f20335acd629d7a53dbb988422858e43"
+  }
+}

@@ -144,7 +144,7 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
         if not values['all_values_match']:
             raise RuntimeError('acknowledged values differ')
         recover(node, args, expected)
-        if name == 'groups-sustained':
+        if name in ('groups-sustained', 'counts-sustained'):
             erase_after_compaction(node, output, expected)
         save(output / 'shutdown.json', {'exit_code': node.stop()})
         save(output / 'native-shutdown.json', json.loads((home / '.shutdown_flush_ready').read_text()))
@@ -233,25 +233,25 @@ def verify_refused(scratch, name='capped-recovery'):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata', 'groups'), required=True)
+    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata', 'groups', 'counts'), required=True)
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the compiler exclusion for the whole capture')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    if args.mode == 'groups':
-        run(scratch / 'candidate', scratch, 'groups-smoke', 4, 8, 128, True)
-        run(scratch / 'candidate', scratch, 'groups-sustained', 4, 8, 4096, True, True)
-        run(scratch / 'candidate', scratch, 'groups-single', 1, 1, 1000, True)
-        run(scratch / 'before', scratch, 'groups-before-single', 1, 1, 1000, True)
-        run(scratch / 'candidate', scratch, 'groups-concurrent', 4, 8, 1000, True)
-        run(scratch / 'before', scratch, 'groups-before-concurrent', 4, 8, 1000, True)
+    if args.mode in ('groups', 'counts'):
+        prefix = args.mode
+        run(scratch / 'candidate', scratch, prefix + '-smoke', 4, 8, 128, True)
+        run(scratch / 'candidate', scratch, prefix + '-sustained', 4, 8, 4096, True, True)
+        run(scratch / 'candidate', scratch, prefix + '-single', 1, 1, 1000, True)
+        run(scratch / 'before', scratch, prefix + '-before-single', 1, 1, 1000, True)
+        run(scratch / 'candidate', scratch, prefix + '-concurrent', 4, 8, 1000, True)
+        run(scratch / 'before', scratch, prefix + '-before-concurrent', 4, 8, 1000, True)
         subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
-                        '--name', 'groups-semantics', '--home-name', 'hmo'], check=True)
-        old.PROOF = PROOF
-        old.boundaries(scratch / 'candidate', scratch, 'groups-boundaries', 'hgd')
-        verify_refused(scratch, 'groups-capped-recovery')
+                        '--name', prefix + '-semantics', '--home-name', 'hmo' if prefix == 'groups' else 'hcnt'], check=True)
+        old.boundaries(scratch / 'candidate', scratch, prefix + '-boundaries', 'hgd' if prefix == 'groups' else 'hct')
+        verify_refused(scratch, prefix + '-capped-recovery')
     elif args.mode == 'metadata':
         run(scratch / 'candidate', scratch, 'metadata-smoke', 4, 8, 128, True)
         run(scratch / 'candidate', scratch, 'metadata-sustained', 4, 8, 4096, True, True)
