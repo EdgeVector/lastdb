@@ -1,0 +1,80 @@
+[
+  {
+    "start_unix_us": 1792780465909991,
+    "end_unix_us": 1792780468267626,
+    "status": 503,
+    "error": "{\"error\":\"compaction_behind\",\"message\":\"compaction_behind: publication changed or the write queue stayed busy across 8 attempts; retry maintenance\",\"retry_after_secs\":2,\"retryable\":true}"
+  },
+  {
+    "start_unix_us": 1792780469297159,
+    "end_unix_us": 1792780477096275,
+    "status": 503,
+    "error": "{\"error\":\"compaction_behind\",\"message\":\"compaction_behind: publication changed or the write queue stayed busy across 8 attempts; retry maintenance\",\"retry_after_secs\":2,\"retryable\":true}"
+  },
+  {
+    "start_unix_us": 1792780478140105,
+    "end_unix_us": 1792780481567433,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780482621700,
+    "end_unix_us": 1792780484968426,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780486034710,
+    "end_unix_us": 1792780489128200,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780490192776,
+    "end_unix_us": 1792780492996811,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780494088365,
+    "end_unix_us": 1792780499287528,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780500350613,
+    "end_unix_us": 1792780504849382,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780505932435,
+    "end_unix_us": 1792780510495850,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780511579908,
+    "end_unix_us": 1792780516357090,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780517469468,
+    "end_unix_us": 1792780522333193,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780523450761,
+    "end_unix_us": 1792780528955731,
+    "status": 500,
+    "error": "Internal Server Error"
+  },
+  {
+    "start_unix_us": 1792780530059625,
+    "end_unix_us": 1792780536333316,
+    "status": 500,
+    "error": "Internal Server Error"
+  }
+]

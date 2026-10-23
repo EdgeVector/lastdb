@@ -1,0 +1,20 @@
+{
+  "binary_sha256": "a5508ec0e185e543cbba50d336af6eb968aa040b48a4634316e2f4b370870f04",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/wq.SL5jRo/h28",
+  "generated_data_only": true,
+  "schemas": 64,
+  "calls": 128,
+  "clients": 4,
+  "batch": 8,
+  "distinct_schemas_between_clients": true,
+  "profile": true,
+  "auto_maintenance": true,
+  "sustained_compaction": false,
+  "disk_cap_bytes": null,
+  "durability": "omitted; durable required",
+  "load_before": [
+    30.9013671875,
+    17.37255859375,
+    13.67724609375
+  ]
+}

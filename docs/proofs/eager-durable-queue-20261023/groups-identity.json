@@ -1,0 +1,18 @@
+{
+  "source": "55adb69f4cd34e654091ca9a1d45f1ea7b4177d9",
+  "binary_sha256": "a5508ec0e185e543cbba50d336af6eb968aa040b48a4634316e2f4b370870f04",
+  "implementation_markers": {
+    "failed compaction must be discarded": true,
+    "immutable dependency facts changed during compaction": true,
+    "compaction_unchanged_groups": true
+  },
+  "baseline_source": "9cb89c6776bd654aa8ac93b553db278e5938c33a",
+  "baseline_binary_sha256": "dd1e464cfdbeb0113e69df53bf7e73e35a5329e98e9ec3c156952217605f5435",
+  "compiler_exclusion": true,
+  "other_host_work_controlled": false,
+  "load_before": [
+    30.9013671875,
+    17.37255859375,
+    13.67724609375
+  ]
+}

@@ -92,6 +92,20 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         let mut call = artifact::metadata_call(root, proposed.clone());
         directory.put_many(&mut call, &mut references, &directory_changes)?;
     }
+    finish_round(job, cut, proposed, directory, locators, templates, recount)?;
+    Ok(budget.changed)
+}
+
+fn finish_round(
+    job: &mut PreparedCompaction,
+    cut: &Current,
+    mut proposed: Current,
+    directory: TreeEdit,
+    locators: LocatorChanges,
+    templates: std::collections::BTreeSet<uuid::Uuid>,
+    recount: bool,
+) -> Result<()> {
+    let root = job.lock.root();
     let mut dependencies = carried_dependencies(
         root,
         cut,
@@ -99,23 +113,45 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         std::mem::take(&mut job.output.dependencies),
         templates,
     )?;
+    let mut fresh = Dependencies::new();
     let mut changes = crate::disk_pack::live_parts::Changes::default();
     for output in locators.finish()? {
         changes.merge(output.changes)?;
+        fresh.add_tree(&output.tree, output.parts.clone())?;
         dependencies.add_tree(&output.tree, output.parts)?;
     }
     let (tree, _, parts, directory_changes) = directory.finish_with_changes()?;
     changes.merge(directory_changes)?;
+    fresh.add_tree(&tree, parts.clone())?;
     dependencies.add_tree(&tree, parts)?;
     proposed.directory = tree;
+    finish_references(job, &proposed, &fresh.finish(), changes, recount)?;
+    job.output.current = proposed;
+    job.output.dependencies = dependencies.finish();
+    Ok(())
+}
+
+fn finish_references(
+    job: &mut PreparedCompaction,
+    proposed: &Current,
+    fresh: &[crate::disk_pack::dependency::Coordinate],
+    mut changes: crate::disk_pack::live_parts::Changes,
+    recount: bool,
+) -> Result<()> {
+    use crate::disk_pack::live_parts;
     if recount {
         job.live = None;
     } else if let Some(live) = job.live.as_mut() {
-        live.apply(root, &proposed, changes)?;
+        let root = job.lock.root();
+        let mut references = ReferenceCache::new(root, proposed);
+        live_parts::observe_new_parts(root, proposed, fresh, &mut changes, &mut references)?;
+        drop(references);
+        live_parts::add_directory_empty_root(root, &job.output.current, -1, &mut changes)?;
+        live_parts::add_directory_empty_root(root, proposed, 1, &mut changes)?;
+        live.apply(root, proposed, changes)?;
+        crate::commit_timing::count("compaction_reference_deltas", fresh.len() as u64);
     }
-    job.output.current = proposed;
-    job.output.dependencies = dependencies.finish();
-    Ok(budget.changed)
+    Ok(())
 }
 
 /// A recent directory leaf also yields unchanged neighbors. Exact immutable
