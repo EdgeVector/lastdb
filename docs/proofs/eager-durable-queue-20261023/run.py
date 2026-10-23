@@ -235,8 +235,9 @@ def main():
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata', 'groups', 'counts', 'barrier'), required=True)
     args = parser.parse_args()
-    if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
-        raise RuntimeError('hold the compiler exclusion for the whole capture')
+    if (os.environ.get('GITHUB_ACTIONS') != 'true'
+            or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
+        raise RuntimeError('captures require GitHub-hosted Actions; local benchmarks are retired')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')

@@ -4,6 +4,8 @@ The source keeps the disk guarantee.
 The write queue starts without a collection timer.
 The latest operational capture must still establish compaction progress during client writes.
 The PR remains unmerged.
+The captures below precede Tom's CI-only instruction.
+Further build and operational results must come from GitHub Actions.
 
 ## Write order and disk guarantee
 

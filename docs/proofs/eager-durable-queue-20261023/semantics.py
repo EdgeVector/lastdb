@@ -104,8 +104,9 @@ def main():
     parser.add_argument('--name', default='semantics')
     parser.add_argument('--home-name')
     args = parser.parse_args()
-    if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
-        raise RuntimeError('hold the host compiler exclusion')
+    if (os.environ.get('GITHUB_ACTIONS') != 'true'
+            or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'):
+        raise RuntimeError('captures require GitHub-hosted Actions; local benchmarks are retired')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')

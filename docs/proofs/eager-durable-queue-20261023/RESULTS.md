@@ -5,6 +5,12 @@ The clean memory publication also removes the obsolete unflushed-record guards.
 The latest capture does not meet the 20 ms average target or establish compaction progress during continuous writes.
 PR #282 remains draft and unmerged.
 
+All captures in this report precede Tom's 2026-10-23 CI-only instruction.
+Further LastDB builds and benchmarks must use GitHub Actions.
+The local build runner is removed, and the capture entry points require a GitHub-hosted Actions runner.
+The owned local capture home is removed after the committed receipts are preserved.
+`local-cleanup.json` records its exact path, owner, process check, and completed removal.
+
 ## Latest completed comparison
 
 The source is `e6e31dce37a6562d261d874230d422c17193c81a`.
@@ -22,7 +28,7 @@ Other host work overlaps this capture, so the results describe those observed pe
 | One client and one record per call | 24.60 ms | 42.95 ms | 63.88 ms | 106.63 ms |
 | Four clients and eight records per call | 162.76 ms | 95.48 ms | 542.75 ms | 180.47 ms |
 
-The next matched comparison uses eight records per call with both one client and four clients.
+The next CI comparison uses eight records per call with both one client and four clients.
 The Complete atom lifecycle work chat owns that comparison and the remaining metadata optimization.
 
 ## Queue and commit costs
@@ -87,14 +93,16 @@ The source still requires the ordered publication and the final full-device flus
 All homes contain fresh generated data; the primary and archive remain unchanged.
 
 Required CI passes for the measured source in [run 40006535358](https://github.com/EdgeVector/lastdb/actions/runs/40006535358).
+Required CI also passes for the rebased proof head `0f33ee9f1` in [run 40010502360](https://github.com/EdgeVector/lastdb/actions/runs/40010502360).
 The checks include format, strict workspace Clippy, size, and the existing source rules.
 No tests or coverage checks run.
+These checks do not supply the pending equal-size benchmark or the continuous-write compaction result.
 
 ## Next actions
 
-1. Integrate the latest main and the measured metadata optimization.
-2. Repeat the equal-size client comparison in a coordinated quiet window.
-3. Check automatic tier compaction and explicit full compaction during writes.
+1. Integrate the metadata change with the rebased PR and preserve the disk barriers.
+2. Run the equal-size client comparison in GitHub Actions.
+3. Check automatic tier compaction and explicit full compaction during writes in CI.
 4. Require active compaction progress and disk-space relief before the final merge review.
 
 The source review is in `SOURCE_REVIEW.md`.
