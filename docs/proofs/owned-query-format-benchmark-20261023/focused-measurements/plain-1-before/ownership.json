@@ -1,0 +1,11 @@
+{
+  "creator_pid": 199280,
+  "device": 27,
+  "home": "/workspace/oqf-pairs/plain-1-before/home",
+  "inode": 554133,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "dcee99797f824e9495ad367228a82b7f",
+  "scratch": "/workspace/oqf-pairs/plain-1-before",
+  "version": 1
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "5298f3f2bc34444abb0aea603130c212",
+  "home": "/workspace/oqf-pairs/fixture-encrypted/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 385,
+  "allocated_bytes_removed": 187973632,
+  "free_bytes_before": 18138456064,
+  "free_bytes_after": 18327310336
+}

@@ -29,35 +29,29 @@ pub struct Record {
 /// Convert field->(key->value) map into key->Record with field->value.
 /// Does not return JSON; this is a typed structure for backend consumption.
 ///
-/// Builds each `Record` directly in a single `HashMap<KeyValue, Record>`
-/// instead of two parallel by-key maps joined at the end. The prior two-map
-/// shape paid for a full `HashMap<String, FieldMetadata>` deep-clone per row
-/// (`metadata_by_key.get(&k).cloned()`) purely to move ownership from one map
-/// into the other — a redundant O(fields) clone on every single row of every
-/// query result. Measured cost: `lastdb-hydrate-per-row-floor-measured-20260803`
-/// (brain).
+/// Consumes the field map so keys, JSON values, and atom metadata move into
+/// their records. The caller no longer needs the field-oriented representation;
+/// borrowing it here would deep-clone every value merely to discard the input.
 pub fn records_from_field_map(
-    results: &HashMap<String, HashMap<KeyValue, FieldValue>>,
+    results: HashMap<String, HashMap<KeyValue, FieldValue>>,
 ) -> HashMap<KeyValue, Record> {
     let mut records: HashMap<KeyValue, Record> = HashMap::new();
 
     for (field_name, key_map) in results {
         for (key_value, field_val) in key_map {
-            let record = records.entry(key_value.clone()).or_insert_with(|| Record {
+            let record = records.entry(key_value).or_insert_with(|| Record {
                 fields: HashMap::new(),
                 metadata: HashMap::new(),
             });
-            record
-                .fields
-                .insert(field_name.clone(), field_val.value.clone());
+            record.fields.insert(field_name.clone(), field_val.value);
             record.metadata.insert(
                 field_name.clone(),
                 FieldMetadata {
-                    atom_uuid: field_val.atom_uuid.clone(),
-                    source_file_name: field_val.source_file_name.clone(),
-                    metadata: field_val.metadata.clone(),
-                    molecule_uuid: field_val.molecule_uuid.clone(),
-                    writer_pubkey: field_val.writer_pubkey.clone(),
+                    atom_uuid: field_val.atom_uuid,
+                    source_file_name: field_val.source_file_name,
+                    metadata: field_val.metadata,
+                    molecule_uuid: field_val.molecule_uuid,
+                    writer_pubkey: field_val.writer_pubkey,
                 },
             );
         }

@@ -147,7 +147,7 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
     };
 
     let mut results = format_rows(
-        &result_map,
+        result_map,
         sort_order.as_ref(),
         order_by.as_ref(),
         sort_helper.as_deref(),
@@ -166,7 +166,7 @@ pub(in crate::handlers) async fn execute_query_rows_windowed<H: HostNode>(
 /// deterministic `(range, hash)` total order. Conditions already selected the
 /// keys in the core's captured first pass.
 pub(in crate::handlers) fn format_rows(
-    result_map: &HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
+    result_map: HashMap<String, HashMap<KeyValue, fold_db::schema::types::field::FieldValue>>,
     sort_order: Option<&SortOrder>,
     order_by: Option<&QueryOrderBy>,
     sort_helper: Option<&str>,
@@ -182,7 +182,7 @@ pub(in crate::handlers) fn format_rows(
             let author_pub_key = record
                 .metadata
                 .values()
-                .find_map(|m| m.writer_pubkey.clone())
+                .find_map(|m| m.writer_pubkey.as_deref())
                 .filter(|s| !s.is_empty());
             serde_json::json!({
                 "key": key,
