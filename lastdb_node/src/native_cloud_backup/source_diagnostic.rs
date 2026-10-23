@@ -24,7 +24,7 @@ pub(super) fn report(error: &StorageError) {
         StorageError::LockContention { .. } => ("lock_contention", None),
         StorageError::EncryptionError(detail) => ("encryption", Some(detail.as_str())),
     };
-    let reason = detail.map(static_reason).unwrap_or("source_other");
+    let reason = detail.map_or("source_other", static_reason);
     tracing::warn!(
         source_class = class,
         source_reason = reason,
