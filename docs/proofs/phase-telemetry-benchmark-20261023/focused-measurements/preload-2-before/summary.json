@@ -1,0 +1,35 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "preload",
+  "phases": {
+    "range_long_durable_write32": {
+      "acknowledgements": {
+        "durable": 128
+      },
+      "final_flush_ms": 0.437944,
+      "first_request_ms": 84.778737,
+      "max_ms": 181.158302,
+      "mean_ms": 74.961194265625,
+      "median_ms": 67.0110495,
+      "p95_ms": 117.22141,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 423.1994622861521,
+      "requests": 128,
+      "total_ms": 9595.032866,
+      "wall_through_flush_seconds": 9.678651239
+    },
+    "telemetry_forensics": {
+      "first_request_ms": 7.687433,
+      "max_ms": 11.653856,
+      "mean_ms": 6.544253125,
+      "median_ms": 6.303,
+      "p95_ms": 7.753243,
+      "requests": 64,
+      "total_ms": 418.8322
+    }
+  },
+  "source_revision": "46e30246f946ac6ca25c8078878e82c01313ac8c",
+  "telemetry_samples_and_aggregates_verified": true,
+  "values_and_write_reopen_verified": true
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "44b5a35987b54a09adc01ebffda59e65",
+  "home": "/workspace/pt-pairs/fixture-plain/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 327,
+  "allocated_bytes_removed": 156426240,
+  "free_bytes_before": 18321387520,
+  "free_bytes_after": 18478571520
+}
