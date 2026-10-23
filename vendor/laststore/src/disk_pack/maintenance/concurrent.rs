@@ -194,6 +194,11 @@ impl PreparedCompaction {
         self.rounds
     }
 
+    /// Selected adaptive tier boundary; zero denotes a full copy.
+    pub fn tier_boundary(&self) -> u64 {
+        self.output.receipt.tier_boundary
+    }
+
     /// A failed private file or barrier operation invalidates this whole job.
     pub(in crate::disk_pack) fn ensure_usable(&self) -> Result<()> {
         if self.failed {

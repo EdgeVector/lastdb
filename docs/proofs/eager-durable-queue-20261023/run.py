@@ -20,6 +20,9 @@ sys.dont_write_bytecode = True
 SOURCE = Path(__file__).resolve().parent
 ROOT = SOURCE.parents[2]
 PROOF = None
+base_spec = importlib.util.spec_from_file_location('tier_base', SOURCE / 'tier_base.py')
+tier_base = importlib.util.module_from_spec(base_spec)
+base_spec.loader.exec_module(tier_base)
 spec = importlib.util.spec_from_file_location(
     'integrated', SOURCE.parent / 'durable-write-integrated-20261022/capture.py')
 old = importlib.util.module_from_spec(spec)
@@ -53,6 +56,7 @@ def configure_output(path=None):
 class Node(capture.Node):
     warm_bytes = 268435456
     disk_cap = None
+    base_mutations = 0
 
     def start(self):
         env = {key: value for key, value in os.environ.items()
@@ -136,7 +140,7 @@ def recover(node, args, expected):
     rows = json.loads((args.output / 'writes.json').read_text())['samples']
     wanted = {identity for row in rows for identity in row['receipt']['mutation_ids']}
     events, cursor = [], None
-    for _ in range((len(wanted) + 500) // 500 + 2):
+    for _ in range((len(wanted) + node.base_mutations + 500) // 500 + 2):
         page = node.call('/api/app/changes', {'since_cursor': cursor, 'limit': 500})
         events.extend(page['changes'])
         cursor = page['next_cursor']
@@ -165,12 +169,12 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False,
     home.mkdir()
     args = argparse.Namespace(output=output, count=count, schemas=64, clients=clients, batch_size=batch)
     node = Node(binary, home, scratch / (name + '.log'), high_water, False, workers=8)
-    node.profile, node.maintenance, node.disk_cap = profile, True, disk_cap
+    node.profile, node.maintenance, node.disk_cap = profile, compaction_mode != 'tier', disk_cap
     node.compaction_mode = compaction_mode
     save(output / 'inputs.json', {'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
          'home': str(home), 'generated_data_only': True, 'schemas': 64, 'calls': count,
          'clients': clients, 'batch': batch, 'distinct_schemas_between_clients': True,
-         'profile': profile, 'auto_maintenance': True, 'sustained_compaction': sustained,
+         'profile': profile, 'auto_maintenance': node.maintenance, 'sustained_compaction': sustained,
          'compaction_mode': compaction_mode, 'dependency_high_water': high_water,
          'disk_cap_bytes': disk_cap,
          'durability': 'omitted; durable required', 'load_before': os.getloadavg()})
@@ -178,6 +182,7 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False,
     try:
         node.start()
         schemas.seed(node, 64, output)
+        base = tier_base.seed(node, schemas, save, output) if compaction_mode == 'tier' else {}
         save(output / 'write-start.json', inventory(node))
         if sustained:
             with ThreadPoolExecutor(max_workers=1) as pool:
@@ -190,6 +195,9 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False,
                 job.result(timeout=90)
         else:
             expected = schemas.measured_calls(node, args)
+        for schema, values in base.items():
+            expected.setdefault(schema, {}).update(values)
+        save(output / 'expected-values.json', expected)
         values = schemas.check_values(node, expected)
         save(output / 'readback.json', values)
         if not values['all_values_match']:

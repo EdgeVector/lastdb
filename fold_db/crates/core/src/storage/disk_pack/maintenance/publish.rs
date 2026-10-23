@@ -40,6 +40,7 @@ impl PackRuntime {
                     let staged = output.catch_up_and_prepare(cut).map_err(map)?;
                     tracing::debug!(target: "fold_db::compaction", retry, frontier, capture_ms,
                         prepared_ms = millis_since(prepared_from),
+                        tier_boundary = output.tier_boundary(),
                         parts = staged.dependency_parts(), "private compaction prepared");
                     Ok((output, staged))
                 })
