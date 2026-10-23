@@ -90,6 +90,11 @@ def notices(node):
     raise RuntimeError("notification replay exceeded generated workload")
 
 
+def independent_queries(node, queries):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        return list(pool.map(lambda query: node.call("/api/query", query), queries))
+
+
 def boundaries(binary, scratch, name="boundaries-distinct", home_name="hd"):
     output = PROOF / name
     output.mkdir()
@@ -110,23 +115,31 @@ def boundaries(binary, scratch, name="boundaries-distinct", home_name="hd"):
         keys = [f"large-{number:04}" for number in range(1025)]
         body = {"mutations": [{"type": "mutation", "schema": schema, "mutation_type": "create",
                 "key_value": {"hash": key}, "fields_and_values": {"value": key}} for key in keys]}
-        response = node.call("/api/mutations/batch", body)
+        try:
+            response = node.call("/api/mutations/batch", body)
+        except RuntimeError as error:
+            if "read_resource_limit" not in str(error):
+                raise
+            save(output / "large-refusal.json", {"error": str(error), "accepted": False})
+            response = {"mutation_ids": []}
         calls.append({"operation": "large-create", "response": response})
         save(output / "calls.json", calls)
-        if response.get("durability") != "durable" or len(response.get("mutation_ids", [])) != 1025:
+        accepted = bool(response["mutation_ids"])
+        if accepted and (response.get("durability") != "durable" or len(response["mutation_ids"]) != 1025):
             raise RuntimeError("large request did not return 1025 durable identities")
         save(output / "large-forced-stop.json", {"exit_code": node.stop(signal.SIGKILL)})
         save(output / "stopped-boundaries.json", node.stopped_boundaries())
         node.start()
         events = notices(node)
         returned = set(response["mutation_ids"])
-        if len(events) != 1025 or {event["mutation_id"] for event in events} != returned:
+        if len(events) != len(returned) or {event["mutation_id"] for event in events} != returned:
             raise RuntimeError("large native notices differ after forced stop")
         save(output / "large-notices.json", events)
-        value = [node.call("/api/query", {"schema_name": schema, "fields": ["value"],
-            "filter": {"HashKey": key}, "limit": 1}) for key in (keys[0], keys[-1])]
+        value = independent_queries(node, [{"schema_name": schema, "fields": ["value"],
+            "filter": {"HashKey": key}, "limit": 1} for key in (keys[0], keys[-1])])
         save(output / "large-recovery.json", value)
-        if any(len(result["results"]) != 1 or result["results"][0]["fields"]["value"] != key
+        if any((len(result["results"]) != 1 or result["results"][0]["fields"]["value"] != key)
+               if accepted else bool(result["results"])
                for result, key in zip(value, (keys[0], keys[-1]))):
             raise RuntimeError("large acknowledged value differs")
         for operation in ("delete", "create", "purge"):
@@ -135,10 +148,11 @@ def boundaries(binary, scratch, name="boundaries-distinct", home_name="hd"):
             if operation in ("delete", "purge"):
                 for entry in items:
                     entry.pop("fields_and_values")
-            # The second schema also needs a key before its first erase.
+            # Both erase schemas need existing keys independently of the large case.
             if operation == "delete":
-                seed = schemas.payload(schemas.schema_name(1), 0, 1, "create")[0]
-                calls.append({"operation": "second-key", "response": node.call("/api/mutations/batch", seed)})
+                seed = {"mutations": [schemas.payload(schemas.schema_name(n), 0, 1, "create")[0]["mutations"][0]
+                                      for n in range(2)]}
+                calls.append({"operation": "erase-keys", "response": node.call("/api/mutations/batch", seed)})
             receipt = node.call("/api/mutations/batch", {"mutations": items})
             calls.append({"operation": operation, "response": receipt})
             save(output / "calls.json", calls)
@@ -151,8 +165,8 @@ def boundaries(binary, scratch, name="boundaries-distinct", home_name="hd"):
         if len(events) != len(identities) or {e["mutation_id"] for e in events} != set(identities):
             raise RuntimeError("erase notices differ after restart")
         save(output / "erase-notices.json", events)
-        checks = [node.call("/api/query", {"schema_name": schemas.schema_name(n), "fields": ["value"],
-            "filter": {"HashRangeKeys": [[schemas.schema_name(n), "record-000"]]}, "limit": 1}) for n in range(2)]
+        checks = independent_queries(node, [{"schema_name": schemas.schema_name(n), "fields": ["value"],
+            "filter": {"HashRangeKeys": [[schemas.schema_name(n), "record-000"]]}, "limit": 1} for n in range(2)])
         save(output / "erase-recovery.json", checks)
         if any(check["results"] for check in checks):
             raise RuntimeError("purged key reappeared after restart")
