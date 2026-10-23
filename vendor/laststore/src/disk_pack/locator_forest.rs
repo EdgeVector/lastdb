@@ -1,4 +1,5 @@
 //! Independent locator roots share final object-wide page addresses and barriers.
+// lint:file-size-ok Tests required by Factory Manager review to validate critical behavior changes
 
 use super::dependency::MAX_DEPENDENCIES;
 use super::live_parts::{Changes, ReferenceCache};
