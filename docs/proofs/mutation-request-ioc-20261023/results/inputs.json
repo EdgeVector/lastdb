@@ -1,0 +1,26 @@
+{
+  "rounds": 4,
+  "value_bytes": 1024,
+  "schema": "c010ab517caf93bb988f2e961cd5f169e0584609718caf183d80b9f484e7864e",
+  "requests_per_phase": 300,
+  "warmup_writes": 128,
+  "concurrent_clients": 4,
+  "concurrent_requests": 400,
+  "profile": "dev-release: opt-level=3, lto=off, codegen-units=16",
+  "cloud": false,
+  "primary_data_used": false,
+  "default_worker_stack": true,
+  "binaries": {
+    "before": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lastdb-ioc-bench.PbYyEV/before",
+      "sha256": "7672157699cf44b494aa26389722cd8eed507bcac2e623c44f0686ea565ee864",
+      "version": "lastdbd 0.23.4-pre.0-274-gf4abfaaed"
+    },
+    "after": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lastdb-ioc-bench.PbYyEV/after",
+      "sha256": "258ecc97368cab4b39e12ba3d86f6f0799241eb9228ab2c50426e2278a686e0f",
+      "version": "lastdbd 0.23.4-pre.0-274-gf4abfaaed"
+    }
+  },
+  "driver_sha256": "2f8b8922c85497e06fb5b86514705d4f43759c00013d2048d7496e9d2cd9467d"
+}
