@@ -208,8 +208,6 @@ impl LocatorChanges {
 
     /// The empty tree of the object that receives new groups, or None when the
     /// directory has no group yet or page zero of the object is not an empty leaf.
-    /// The empty tree of the object that receives new groups, or None when the
-    /// directory has no group yet or page zero of the object is not an empty leaf.
     /// Migration safety: homes written by older builds may have locator objects whose
     /// page zero is not an empty leaf. This function validates the empty-tree invariant
     /// and returns None if violated, forcing creation of a new object.
