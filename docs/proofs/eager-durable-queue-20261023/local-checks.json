@@ -1,0 +1,19 @@
+{
+  "baseline_optimized_build": "pass",
+  "candidate_optimized_build": "pass",
+  "cargo_fmt_all_check": "pass",
+  "changed_rust_file_size": "pass: 22 files",
+  "changed_function_size": "pass",
+  "new_allows": "pass: zero added",
+  "atom_counter_writers": "pass",
+  "no_write_path_syncing_store": "pass",
+  "redaction_scopes": [
+    "fold_db/crates",
+    "lastdb_node",
+    "lastdb_host"
+  ],
+  "redaction": "pass",
+  "build_artifacts_HEAD": "pass",
+  "strict_workspace_clippy": "pending for rebased source",
+  "tests": "not run; retired by user instruction"
+}
