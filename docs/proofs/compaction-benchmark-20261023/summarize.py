@@ -170,6 +170,12 @@ def write_report(output, result):
     lines = ["# Compaction benchmark: PR #275", "",
         "The report compares three matched pairs on fresh generated homes with 100,000 records each.",
         "The baseline is c6b4f7ed9. The candidate is c94ec7760.",
+        "",
+        "CAUTION: This comparison describes those historical revisions, not the current default write behavior.",
+        "The normal-write rows use a memory ack. The durable-write rows require completion on disk.",
+        "Later commit 0deeafc5e requires disk completion before every native write ack on main.",
+        "These results do not measure that later change.",
+        "",
         "Values below are medians of the three per-run measures. Brackets show the per-run range.", "",
         "| Measure | Before | After | Change |", "|---|---:|---:|---:|"]
     for title, key, unit in columns:

@@ -2,6 +2,9 @@
 
 The comparison isolates PR #275. The baseline is its parent, `c6b4f7ed9`.
 The candidate is its merge, `c94ec7760`. Later main changes remain outside the comparison.
+CAUTION: The write modes below describe those two historical revisions.
+Later commit `0deeafc5e` requires disk completion before every native write ack on main.
+The normal-write rows do not describe the current default behavior.
 Both executables use the same Rust toolchain and optimized `dev-release` profile.
 The build receipts retain the complete revisions and executable hashes.
 Each build first removes the cached `laststore`, `fold_db`, and `lastdb_node` artifacts.

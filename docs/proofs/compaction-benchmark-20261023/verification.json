@@ -8,10 +8,11 @@
   },
   "comparison_sha256": "cbe6c8adec56c1695522128ce3dd595808cbe9dccf1ec563b5c3014fd17f90da",
   "final_source_check_at_ns": 1792778008190512000,
+  "historical_scope_notice_at_ns": 1792780402449497000,
   "identical_final_value_digest": true,
   "published_copy_calls": 36,
   "record_checks": 600000,
-  "report_sha256": "73e17420892987838425c74949b5e361addec5be435eaf0857861d8899e45bf4",
+  "report_sha256": "e797c002783c372e63e17f83485b3e723410120478d2e8e1748d01532dcd1e8a",
   "runs": [
     {
       "all_copy_calls_published": true,
@@ -154,9 +155,9 @@
     },
     {
       "largest_function_lines": 71,
-      "lines": 205,
+      "lines": 211,
       "path": "summarize.py",
-      "sha256": "22ee610a864848e30f4601a48f35c7085a3d7ded2dd7b3afb64719aa3714558a"
+      "sha256": "6d5b817ec6bab0f3d94a6b9e74b7f5c7534b44e969e511819d2cd7e7f1915702"
     },
     {
       "largest_function_lines": 34,
