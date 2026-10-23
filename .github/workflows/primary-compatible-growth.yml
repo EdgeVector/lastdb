@@ -59,7 +59,7 @@ jobs:
         env:
           SOURCE: ${{ github.event.pull_request.head.sha }}
         run: |
-          python3 candidate/docs/proofs/primary-growth-ci-20261023/run.py --baseline-bin "$PWD/baseline-bin" --candidate-bin "$PWD/candidate-bin" --report "$PWD/growth-report" --source "$SOURCE"
+          python3 candidate/docs/proofs/primary-growth-ci-20261023/run.py --baseline-bin "$PWD/baseline-bin" --candidate-bin "$PWD/candidate-bin" --report "$RUNNER_TEMP/primary-compatible-growth-report" --source "$SOURCE"
       - name: Record exact program hashes
         env:
           SOURCE: ${{ github.event.pull_request.head.sha }}
@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: primary-compatible-growth-receipts
-          path: growth-report
+          path: ${{ runner.temp }}/primary-compatible-growth-report
           if-no-files-found: error
           retention-days: 14
       - name: Upload the checked Apple silicon programs
