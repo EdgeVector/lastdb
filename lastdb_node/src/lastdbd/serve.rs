@@ -87,6 +87,9 @@ fn route_request(
     ctx: &AccessContext,
 ) -> UdsResponse {
     let path = req.target.split(['?', '#']).next();
+    if req.method == "GET" && path == Some("/health") {
+        return storage_health_response(host);
+    }
     // Setup verbs first on the full socket; everything else shares the narrow
     // socket's dispatch table. Local app-schema declaration is also on the
     // owner socket so collapsed Mini nodes can run `brain init` without the
@@ -110,6 +113,26 @@ fn route_request(
         // answers 404.
         uds_router::no_pairing_mint,
     )
+}
+
+/// A reachable daemon cannot report success while storage refuses record calls.
+/// This probe uses only the admission failure atomic, without database I/O or locks.
+fn storage_health_response(host: &Host) -> UdsResponse {
+    let failed = host
+        .db
+        .db_ops()
+        .namespaced_store()
+        .disk_pack_runtime()
+        .is_some_and(|runtime| runtime.requires_recovery());
+    if failed {
+        return UdsResponse::new(
+            503,
+            "Service Unavailable",
+            br#"{"status":"error","error":"storage_requires_recovery"}"#.to_vec(),
+        )
+        .with_header("Content-Type", "application/json");
+    }
+    uds_router::health_response()
 }
 
 /// The pool already wrote the 503 on `QueueFull` and `ShutDown`; log why.

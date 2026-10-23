@@ -3,34 +3,22 @@ use crate::disk_pack::{artifact, corrupt, Current, DirectoryEntry, Location, Sou
 use crate::Result;
 use std::path::Path;
 
-/// Most live records one compaction quotes across the home. The quote and the copy each
-/// walk every record outside the node's write gate, under the protected source hold.
-const MAX_HOME_RECORDS: u64 = 67_108_864;
-
 /// Worst-case uncompressed output, calculated from exact live locator entries.
 /// Compression can never reduce this reservation and then enlarge its output beyond it.
+/// Stream the complete selected trees; record and group counts are not format limits.
+/// Each cursor path retains its own I/O budget, and output retains its space reservation.
 pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
     // Complete receipt, its private publication, empty-tree floors, and publication slack.
     let mut bytes = 8 * 1024 * 1024u64;
-    let mut records = 0u64;
-    let mut groups = 0u64;
     let mut call = artifact::metadata_call(root, current.clone());
     let mut directory = TreeCursor::seek(&mut call, current.directory.clone(), b"")?;
     while let Some((key, value)) = directory.next(&mut call)? {
-        groups += 1;
-        if groups > 65_536 {
-            return Err(crate::disk_pack::resource());
-        }
         let entry = DirectoryEntry::decode(&value)?;
         super::compact::collection(&key, entry.group)?;
         let mut cursor = TreeCursor::seek(&mut call, entry.locator, b"")?;
         // Include directory long-key overflow, initial tree pages, part headers, map tails.
         add(&mut bytes, 128 * 1024 + key.len() as u64)?;
         while let Some((key, value)) = cursor.next(&mut call)? {
-            records += 1;
-            if records > MAX_HOME_RECORDS {
-                return Err(crate::disk_pack::resource());
-            }
             let location = Location::decode_for_current(&value, current)?;
             if location.version.batch > current.frontier {
                 return Err(corrupt("compaction quote frontier"));

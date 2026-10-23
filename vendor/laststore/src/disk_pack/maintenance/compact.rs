@@ -111,12 +111,7 @@ impl Compactor<'_> {
         let mut locator = locators.tree()?;
         let mut call = caches.call(root, previous);
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
-        let mut records = 0u64;
         while let Some((key, value)) = cursor.next(&mut call)? {
-            records += 1;
-            if records > 67_108_864 {
-                return Err(crate::disk_pack::resource());
-            }
             let location = Location::decode_for_current(&value, previous)?;
             if location.version.batch > previous.frontier {
                 return Err(corrupt("compaction record beyond source frontier"));
