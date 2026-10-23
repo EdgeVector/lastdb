@@ -1,5 +1,5 @@
 use crate::disk_pack::record::record_header;
-use crate::disk_pack::{corrupt, Location, ReadCall, BLOCK_BYTES};
+use crate::disk_pack::{artifact, corrupt, Location, ReadCall, BLOCK_BYTES};
 use crate::Result;
 use sha2::{Digest, Sha256};
 use std::io::{self, Read};
@@ -10,6 +10,7 @@ pub(super) struct RecordBody<'a> {
     location: Location,
     position: u64,
     hash: Sha256,
+    block: Option<u64>,
 }
 
 impl<'a> RecordBody<'a> {
@@ -35,12 +36,12 @@ impl<'a> RecordBody<'a> {
         {
             return Err(corrupt("compaction record outside its object"));
         }
-        call.charge(location.record_bytes)?;
         let mut stream = Self {
             call,
             location,
             position: 0,
             hash: Sha256::new(),
+            block: None,
         };
         let mut prefix = vec![0; 96 + key.len()];
         stream.read_exact(&mut prefix)?;
@@ -64,10 +65,26 @@ impl Read for RecordBody<'_> {
         }
         let absolute = u64::from(self.location.first_position) + self.position;
         let ordinal = self.location.first_block + absolute / BLOCK_BYTES as u64;
+        // A record can exceed one read call's block/byte budget. The stream
+        // resets the finite I/O budget at each block boundary, so the block
+        // cache never grows with the record. The initial call can reuse the
+        // caller's bounded caches and metadata checks.
+        if self.block.is_some_and(|previous| previous != ordinal) {
+            *self.call = artifact::metadata_call(&self.call.root, self.call.current.clone());
+        }
+        self.block = Some(ordinal);
         let block = self
             .call
             .read_block(&self.location, ordinal)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+            .map_err(|error| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "compaction record body at {}/{} bytes: {error}",
+                        self.position, self.location.record_bytes
+                    ),
+                )
+            })?;
         let start = (absolute % BLOCK_BYTES as u64) as usize;
         if start >= block.bytes.len() {
             return Err(io::Error::new(

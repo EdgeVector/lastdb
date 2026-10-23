@@ -1,0 +1,11 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "plain",
+  "fixture_digest": {
+    "bytes": 187171737,
+    "files": 385,
+    "sha256": "2ae522bb2e4f0d2b1a564c9d7f1d401ab425a977e502e0033fdab64373e3d885"
+  },
+  "source_revision": "bcdcbba38b20188bbd8c506326d6c451f0363f50"
+}

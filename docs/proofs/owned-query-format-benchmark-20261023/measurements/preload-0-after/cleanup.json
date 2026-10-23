@@ -1,0 +1,12 @@
+{
+  "run_id": "cfb2fb66cfdf45298caa1e2f9ccd05d7",
+  "home": "/workspace/oq2-pairs/preload-0-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 2751,
+  "allocated_bytes_removed": 969936896,
+  "free_bytes_before": 17058873344,
+  "free_bytes_after": 18034667520
+}

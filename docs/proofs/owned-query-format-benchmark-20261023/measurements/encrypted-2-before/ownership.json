@@ -1,0 +1,11 @@
+{
+  "creator_pid": 196820,
+  "device": 27,
+  "home": "/workspace/oq2-pairs/encrypted-2-before/home",
+  "inode": 524292,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "d3c1937675e54a88b55d3d113fba196b",
+  "scratch": "/workspace/oq2-pairs/encrypted-2-before",
+  "version": 1
+}

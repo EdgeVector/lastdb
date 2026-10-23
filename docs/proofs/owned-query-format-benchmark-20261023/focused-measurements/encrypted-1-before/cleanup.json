@@ -1,0 +1,12 @@
+{
+  "run_id": "d30f04d74572498283da1ca1e65b560b",
+  "home": "/workspace/oqf-pairs/encrypted-1-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 2325,
+  "allocated_bytes_removed": 652304384,
+  "free_bytes_before": 17351409664,
+  "free_bytes_after": 18008682496
+}

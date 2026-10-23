@@ -1,0 +1,11 @@
+{
+  "creator_pid": 199280,
+  "device": 27,
+  "home": "/workspace/oqf-pairs/encrypted-0-after/home",
+  "inode": 554720,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "e3da877d98924e6fbc173fb94c6f50d6",
+  "scratch": "/workspace/oqf-pairs/encrypted-0-after",
+  "version": 1
+}
