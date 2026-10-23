@@ -51,7 +51,7 @@ impl MutationManager {
         );
         let _guard_lock = self
             .aggregate_named_lock(format!("aggregate_guard_lock\u{1f}{guard_key}"))
-            .lock_owned()
+            .write_owned()
             .await;
         let guard = self
             .read_reconciled_aggregate_guard(&guard_key, storage_prefix.as_deref())
@@ -70,7 +70,7 @@ impl MutationManager {
         );
         let _target_lock = self
             .aggregate_named_lock(target_lock_key)
-            .lock_owned()
+            .write_owned()
             .await;
         self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
             .await?;

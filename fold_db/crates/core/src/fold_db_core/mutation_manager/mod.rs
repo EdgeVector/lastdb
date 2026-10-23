@@ -143,7 +143,7 @@ pub struct MutationManager {
     /// Aggregate guard and target ownership spans several native transactions.
     /// Ordinary write conditions use the native write boundary. Idle aggregate
     /// lock entries leave this map on the next lock acquisition.
-    aggregate_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    aggregate_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>,
     /// Resident high-water author clock for this device. Boot point-loads the
     /// durable state once; requests only serialize the small in-memory
     /// advance/sign step. Ordered persistence runs behind the T0 ACK.

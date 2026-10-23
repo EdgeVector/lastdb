@@ -102,7 +102,7 @@ impl MutationManager {
         let ctx = self.build_apply_ctx(&source, storage_prefix, origin)?;
         let _guard_lock = self
             .aggregate_named_lock(format!("aggregate_guard_lock\u{1f}{}", ctx.guard_key))
-            .lock_owned()
+            .write_owned()
             .await;
         let (raw_current, raw_pending, matching_provisional_retry) =
             self.load_raw_guards(&ctx).await?;

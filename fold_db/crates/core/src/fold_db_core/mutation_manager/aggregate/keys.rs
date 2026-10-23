@@ -48,7 +48,7 @@ impl MutationManager {
         Ok(receipt)
     }
 
-    pub(super) fn aggregate_named_lock(&self, key: String) -> Arc<tokio::sync::Mutex<()>> {
+    pub(super) fn aggregate_named_lock(&self, key: String) -> Arc<tokio::sync::RwLock<()>> {
         let mut locks = self
             .aggregate_locks
             .lock()
@@ -63,12 +63,12 @@ impl MutationManager {
     pub(super) async fn acquire_aggregate_named_locks(
         &self,
         mut keys: Vec<String>,
-    ) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
+    ) -> Vec<tokio::sync::OwnedRwLockWriteGuard<()>> {
         keys.sort_unstable();
         keys.dedup();
         let mut guards = Vec::with_capacity(keys.len());
         for key in keys {
-            guards.push(self.aggregate_named_lock(key).lock_owned().await);
+            guards.push(self.aggregate_named_lock(key).write_owned().await);
         }
         guards
     }

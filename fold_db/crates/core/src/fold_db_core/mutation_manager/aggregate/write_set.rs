@@ -89,14 +89,24 @@ impl MutationManager {
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let candidates = self.collect_invalidation_candidates(&mutations, storage_prefix)?;
-        let _guard_locks = self
-            .acquire_aggregate_named_locks(
+        let guard_locks = self
+            .acquire_ordinary_source_guards(
                 candidates
                     .iter()
-                    .map(|candidate| format!("aggregate_guard_lock\u{1f}{}", candidate.guard_key))
+                    .map(|candidate| candidate.guard_key.clone())
                     .collect(),
             )
-            .await;
+            .await?;
+        if guard_locks.unenrolled() {
+            return self
+                .write_mutations_batch_inner_with_clock(
+                    mutations,
+                    storage_prefix,
+                    origin,
+                    author_clock_barrier,
+                )
+                .await;
+        }
 
         let by_target = self
             .resolve_invalidation_targets(candidates, &mutations, storage_prefix)
