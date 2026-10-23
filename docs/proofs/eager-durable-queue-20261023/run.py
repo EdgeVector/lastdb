@@ -97,8 +97,9 @@ def inventory(node):
                 files += 1
             except FileNotFoundError:
                 pass
+    status = node.call('/api/db/native-status')
     return {'time_us': time.time_ns() // 1000, 'bytes': total, 'files': files,
-            'deepest': deepest, 'native': node.call('/api/db/native-status')}
+            'deepest': deepest, 'native': status}
 
 
 def sustain(node, done, output):
@@ -241,8 +242,8 @@ def compaction_progress(output, mode):
     last = max(row['end_unix_us'] for row in writes['samples'])
     samples = [row for row in json.loads((output / 'inventory.json').read_text())
                if first <= row['time_us'] <= last]
-    before = writes['before']['native_disk']['maintenance_runs']
-    runs = max([row['native']['native_disk']['maintenance_runs'] for row in samples] + [before]) - before
+    before = writes['before']['native_disk']['parts']['maintenance_runs']
+    runs = max([row['native']['native_disk']['parts']['maintenance_runs'] for row in samples] + [before]) - before
     rows = json.loads((output / 'compactions.json').read_text())
     active = [row for row in rows if row.get('status') == 200
               and first <= row['start_unix_us'] <= row['end_unix_us'] <= last]
