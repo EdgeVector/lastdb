@@ -54,8 +54,11 @@ def main():
         parser.add_argument(f"--{label}", type=Path, required=True)
         parser.add_argument(f"--{label}-revision", required=True)
     parser.add_argument("--profile", choices=PROFILES, default="standard")
+    parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if not re.fullmatch(r"[0-9a-f]{40}", args.driver_revision):
+        parser.error("The driver revision must be a complete commit SHA")
     signal.signal(signal.SIGTERM, interrupted)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -83,7 +86,7 @@ def main():
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",
               "disk": "sum of file lengths in the generated home; allocated blocks not measured"}
     manifest = {"format_version": 1, "profile": args.profile, "recipe": recipe,
-                "driver_revision": os.environ.get("GITHUB_SHA"),
+                "driver_revision": args.driver_revision,
                 "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "report.py", "artifact.py")}}

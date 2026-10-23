@@ -1,0 +1,52 @@
+name: LastDB historical benchmark comparison
+
+# Manual comparisons have no benchmark-complete check and cannot satisfy a PR gate.
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_revision:
+        description: Full baseline SHA (empty selects the candidate parent)
+        type: string
+        default: ""
+      candidate_revision:
+        description: Full candidate SHA (empty selects this workflow revision)
+        type: string
+        default: ""
+      profile:
+        description: Benchmark size
+        type: choice
+        options: [standard, nightly]
+        default: standard
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      baseline: ${{ steps.plan.outputs.baseline }}
+      candidate: ${{ steps.plan.outputs.candidate }}
+      driver: ${{ steps.plan.outputs.driver }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select historical product revisions with this workflow's driver
+        id: plan
+        env:
+          BASE_SHA: ${{ inputs.baseline_revision }}
+          HEAD_SHA: ${{ inputs.candidate_revision || github.sha }}
+        run: python3 scripts/benchmarks/plan.py --always --output "$RUNNER_TEMP/benchmark-plan.json"
+
+  comparison:
+    needs: plan
+    uses: ./.github/workflows/bench-run.yml
+    with:
+      baseline: ${{ needs.plan.outputs.baseline }}
+      candidate: ${{ needs.plan.outputs.candidate }}
+      driver: ${{ needs.plan.outputs.driver }}
+      profile: ${{ inputs.profile }}
