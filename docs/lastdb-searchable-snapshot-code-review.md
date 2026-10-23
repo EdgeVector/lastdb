@@ -1,6 +1,6 @@
 # LastDB storage code review
 
-Revised 2026-10-23 for integration with main `bcdcbba38`.
+Revised 2026-10-23 for integration with main `0f07ddeb1` and the PR 271 squash merge `192ea406a`.
 The earlier October 22 review and performance reports retain their recorded source commits.
 Commit `47088b89c0bff5142a519db685051849112a787a` supplies the initial native writer.
 The implementation starts from main `6d8aa0d573e91a94fd4fd308a7f0eacca022e852`.
@@ -15,6 +15,7 @@ Commit `e79b71151` implements the bounded cache within each publication.
 Profiles, three controlled pairs, six product operations, and three default-maintenance runs are complete.
 Those results precede this integration and do not measure its performance.
 Tom approved the code merges on October 23. The primary stays unchanged.
+The [integration report](proofs/journal-receipt-integration-20261023/README.md) records the final source checks and their local execution limit.
 
 ## Current source
 
