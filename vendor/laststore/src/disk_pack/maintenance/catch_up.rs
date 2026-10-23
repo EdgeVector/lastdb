@@ -1,6 +1,7 @@
 //! Graft newer immutable locators; never copy a foreground payload during catch-up.
 use super::concurrent::PreparedCompaction;
 use crate::disk_pack::dependency::Dependencies;
+use crate::disk_pack::live_parts::ReferenceCache;
 use crate::disk_pack::locator_forest::LocatorChanges;
 use crate::disk_pack::tree_cursor::TreeCursor;
 use crate::disk_pack::tree_edit::TreeEdit;
@@ -44,6 +45,8 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         proposed: &proposed,
     };
     let mut prior = PriorGroups::new(root, previous);
+    let mut references = ReferenceCache::new(root, &proposed);
+    let mut recount = false;
     let mut directory_changes = Vec::new();
     let mut templates = std::collections::BTreeSet::new();
     while let Some((key, value)) = groups.next(&mut call)? {
@@ -66,8 +69,10 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
                 &mut locators,
                 &mut output_call,
                 &mut budget,
+                &mut references,
             )?
         } else {
+            recount = true;
             budget.note()?;
             live.locator.clone()
         };
@@ -78,14 +83,14 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         };
         directory_changes.push((key, replacement.encode()?));
         if directory_changes.len() == cut.batch_operation_limit().min(256) {
-            directory.put_many_untracked(&mut output_call, &directory_changes)?;
+            directory.put_many(&mut output_call, &mut references, &directory_changes)?;
             directory_changes.clear();
         }
         call = artifact::metadata_call(root, cut.clone());
     }
     if !directory_changes.is_empty() {
         let mut call = artifact::metadata_call(root, proposed.clone());
-        directory.put_many_untracked(&mut call, &directory_changes)?;
+        directory.put_many(&mut call, &mut references, &directory_changes)?;
     }
     let mut dependencies = carried_dependencies(
         root,
@@ -94,12 +99,20 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         std::mem::take(&mut job.output.dependencies),
         templates,
     )?;
+    let mut changes = crate::disk_pack::live_parts::Changes::default();
     for output in locators.finish()? {
+        changes.merge(output.changes)?;
         dependencies.add_tree(&output.tree, output.parts)?;
     }
-    let (tree, _, parts, _) = directory.finish_with_changes()?;
+    let (tree, _, parts, directory_changes) = directory.finish_with_changes()?;
+    changes.merge(directory_changes)?;
     dependencies.add_tree(&tree, parts)?;
     proposed.directory = tree;
+    if recount {
+        job.live = None;
+    } else if let Some(live) = job.live.as_mut() {
+        live.apply(root, &proposed, changes)?;
+    }
     job.output.current = proposed;
     job.output.dependencies = dependencies.finish();
     Ok(budget.changed)
@@ -205,6 +218,7 @@ impl Graft<'_> {
         locators: &mut LocatorChanges,
         output_call: &mut crate::disk_pack::ReadCall,
         budget: &mut DeltaBudget,
+        references: &mut ReferenceCache,
     ) -> Result<crate::disk_pack::TreeRoot> {
         let mut source = artifact::metadata_call(self.root, self.cut.clone());
         let mut records = TreeCursor::recent(&mut source, live, self.previous.generation)?;
@@ -222,14 +236,14 @@ impl Graft<'_> {
             budget.note()?;
             changes.push((key, value));
             if changes.len() == self.cut.batch_operation_limit().min(256) {
-                tree = locators.edit_untracked(output_call, tree, &changes)?;
+                tree = locators.edit(output_call, references, tree, &changes)?;
                 changes.clear();
                 source = artifact::metadata_call(self.root, self.cut.clone());
                 *output_call = artifact::metadata_call(self.root, self.proposed.clone());
             }
         }
         if !changes.is_empty() {
-            tree = locators.edit_untracked(output_call, tree, &changes)?;
+            tree = locators.edit(output_call, references, tree, &changes)?;
         }
         Ok(tree)
     }

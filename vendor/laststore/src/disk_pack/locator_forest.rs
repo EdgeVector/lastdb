@@ -249,7 +249,7 @@ impl LocatorChanges {
         self.edit_mode(call, Some(references), tree, changes)
     }
 
-    /// Catch-up fully seeds its final root; private graft edits need no deltas.
+    /// A synthetic empty allocator has no selected old root to retire.
     pub(super) fn edit_untracked(
         &mut self,
         call: &mut ReadCall,

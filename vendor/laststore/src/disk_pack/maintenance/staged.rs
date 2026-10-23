@@ -86,18 +86,24 @@ impl PreparedCompaction {
             pointer,
             pointer_file,
         };
-        // Recompute live counts outside the gate. Receipt caches carry only
-        // immutable part facts; their snapshot-local counts are never reused.
-        let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
-            root,
-            &staged.current,
-            &self.output.dependencies,
-        )?;
+        // Existing groups carry exact edit deltas between private rounds. A
+        // newly grafted group requests one complete off-gate recount instead.
+        if self.live.is_none() {
+            self.live = Some(crate::disk_pack::live_parts::LiveParts::bootstrap(
+                root,
+                &staged.current,
+                &self.output.dependencies,
+            )?);
+        }
+        let live = self
+            .live
+            .as_ref()
+            .expect("complete private live references");
         let cut = generation::read_receipt(root, self.caught.current())?;
         let written = generation::write_live_at_with_cache(
             root,
             &staged.current,
-            &live,
+            live,
             Some(&cut),
             self.cached_receipt.as_ref(),
             staged.receipt.clone(),

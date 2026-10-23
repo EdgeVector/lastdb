@@ -25,6 +25,7 @@ pub struct PreparedCompaction {
     pub(super) output: PackOutput,
     pub(super) protection: crate::disk_pack::private_files::OutputFiles,
     pub(super) cached_receipt: Option<generation::Generation>,
+    pub(super) live: Option<crate::disk_pack::live_parts::LiveParts>,
     pub(super) failed: bool,
     _space: SpaceReservation,
     policy: SpacePolicy,
@@ -79,6 +80,11 @@ impl CompactionPlan {
             super::tier::TierCopy::copy(root, current, boundary, self.protection.clone())?
         };
         output.receipt.tier_boundary = boundary;
+        let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
+            root,
+            &output.current,
+            &output.dependencies,
+        )?;
 
         Ok(PreparedCompaction {
             identity: uuid::Uuid::new_v4(),
@@ -88,6 +94,7 @@ impl CompactionPlan {
             output,
             protection: self.protection,
             cached_receipt: None,
+            live: Some(live),
             failed: false,
             _space: space,
             policy: policy.clone(),
