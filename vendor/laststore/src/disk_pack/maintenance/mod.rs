@@ -10,6 +10,7 @@ mod space;
 mod stream;
 mod tier;
 mod tier_policy;
+mod tier_quote;
 mod visit;
 
 pub use space::{reserve_space, space_usage, SpacePolicy, SpaceReservation, SpaceUsage};

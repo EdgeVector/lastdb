@@ -46,8 +46,9 @@ An explicit compact defaults to a full copy. `full_copy: false` permits a recent
 This conservative byte count includes obsolete recent payload bytes.
 The policy resets after a reopen; it needs no format change or durable policy record.
 
-A tier quote reads the receipt and recent payload bounds.
-It does not walk old records. The reservation includes an uncompressed payload bound.
+A tier quote reads the receipt, recent reachable tree descriptors, and recent payload bounds.
+It charges every rewritten page and every new key overflow chain, including chains that the recent descriptors reference in old files.
+It skips old subtrees and reads no old key contents. The reservation includes an uncompressed payload bound.
 
 ## Part limits and status
 

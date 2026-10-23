@@ -74,19 +74,23 @@ fn locator_bytes(key_bytes: usize) -> u64 {
     overflow * PAGE_BYTES as u64 + 2 * ((descriptor + 132) + (descriptor + 12))
 }
 
-/// A recent tier quotes only its receipt and payload-object bounds, never old keys.
+/// A recent tier quotes recent descriptors and payload bounds, never old subtrees.
 pub(super) fn tier_bytes(root: &Path, current: &Current, boundary: u64) -> Result<u64> {
     let receipt = crate::disk_pack::generation::read_receipt(root, current)?;
     let mut bytes = 8 * 1024 * 1024u64;
+    add(
+        &mut bytes,
+        super::tier_quote::tree_bytes(root, current, &receipt, boundary)?,
+    )?;
     let mut payloads = std::collections::BTreeSet::new();
     for (coordinate, record) in receipt.coordinates.iter().zip(&receipt.records) {
         if crate::disk_pack::bytes::u64_at(record, 72) <= boundary {
             continue;
         }
         match coordinate.kind {
-            // Rebuilt separators may each need their own overflow chain. The
-            // height is at most eight; sixteen times all recent tree bytes
-            // also covers private part tails and headers.
+            // Keep the existing metadata/part slack in addition to the exact
+            // descriptor-based output bound. Old overflow chains can be referenced
+            // by recent pages, so recent part lengths alone cannot quote them.
             1 | 2 => add(
                 &mut bytes,
                 crate::disk_pack::bytes::u64_at(record, 32).saturating_mul(16),

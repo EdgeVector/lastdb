@@ -33,7 +33,7 @@ It also confirmed a new-key write, zero counter mismatches, and a successful reo
 Both failed temporary homes were removed after their separate recovery checks.
 Their original results remain `complete: false`.
 
-## Final run
+## First successful full capture
 
 `run-3/summary.json` records `complete: true` for 4,096 generated records and two long keys.
 The final state contains 4,090 records after eight deletes.
@@ -68,6 +68,46 @@ The final PR head retains its own required GitHub check.
 The automatic GitHub code review completed without findings at `3535235fce28d9190ddec17590ae66ddaf5c09a7`.
 The later result commit adds receipts and this report. It changes no Rust implementation.
 The separate safety and performance reviews remain necessary before merge.
+
+## Independent resource finding
+
+The scale reviewer found that a recent-tier copy kept one output descriptor for each touched tree object.
+A source can retain several locator objects after concurrent grafts.
+The old bound therefore followed the home size rather than the active operation.
+
+Commit `c1413d3d06256f3a37b84d73eed39a18a94d6136` closes each output descriptor between trees.
+A partial file reopens with its exact expected length before the final flush.
+A full file already receives its flush before the close.
+The final file and directory barriers remain in place.
+Both independent reviewers accepted the source correction.
+The required GitHub check passed for this revision.
+
+The earlier capture uses the same copy selection and publication behavior.
+Its timing results do not measure the additional file reopen cost.
+The final capture and review reports retain their own source revisions and executable hashes.
+
+`run-4` passed the full product capture with the descriptor correction.
+Its binary SHA-256 is `5d507e6bb664b9d0a35e07fab36e3fc37291694d7ef39dfccc59ec066668aaa4`.
+It retains source revision `c1413d3d06256f3a37b84d73eed39a18a94d6136`.
+The concurrent full copy caught 2,824 changed entries across four rounds.
+The four later recent copies took 36 to 43 ms on this host.
+The exact data, backup restore, process interruption, expiry, drain, and counter checks passed.
+The list returned 72 successful partial pages across 84 total pages.
+The owned node stopped, and the owned home was removed after the receipt checks.
+
+## Independent space finding
+
+The reviewers found that a recent page can reference an old long-key overflow chain.
+The tier copy rewrites that chain, but the previous reservation counted only recent file lengths.
+That reservation can understate the required space for long keys.
+
+The quote now visits only recent reachable tree pages.
+It charges each emitted page and each external key descriptor's complete overflow length.
+It uses the same directory and locator inline limits as the output format.
+It skips old subtrees and reads no old key contents.
+The previous metadata slack and uncompressed payload bound remain in the reservation.
+Both independent reviewers accepted the source correction.
+The earlier timing receipts exclude this additional quote work.
 
 ## Product operations
 
