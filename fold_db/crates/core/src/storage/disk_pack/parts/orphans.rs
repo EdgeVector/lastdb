@@ -8,7 +8,7 @@ use tracing::Instrument;
 impl PackRuntime {
     /// Remove part files that no receipt names and that are older than `min_age_ms`.
     /// Returns the files and bytes removed, and whether active reads deferred the sweep.
-    /// It releases the write gate and view lock before any inventory or deletion.
+    /// Capture uses only the writer mutex; inventory and deletion need no node lock.
     pub(super) async fn sweep_orphans_native(
         self: &Arc<Self>,
         min_age_ms: u64,

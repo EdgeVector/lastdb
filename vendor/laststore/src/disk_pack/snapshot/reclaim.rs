@@ -15,8 +15,8 @@ pub struct ReclaimPlan {
 }
 
 impl SnapshotWriter {
-    /// The node captures this root under its view boundary and serializes
-    /// maintenance callers. Later ordinary snapshot publications may proceed.
+    /// The node captures this root under the writer mutex. Later ordinary
+    /// snapshot publications may proceed alongside exact obsolete-file cleanup.
     pub fn capture_reclaim(&self) -> Result<ReclaimPlan> {
         self.check_admission()?;
         Ok(ReclaimPlan {

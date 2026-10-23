@@ -22,7 +22,7 @@ pub struct NativeMaintenanceOptions {
     /// so the automatic high-water run leaves it off.
     pub report_usage: bool,
     /// Most old generations one reclaim retires, oldest first. `None` reclaims all
-    /// of them under one hold; a bounded call lets writers in between calls.
+    /// of them under one hold; a bounded call limits one cleanup step.
     pub reclaim_generations: Option<usize>,
 }
 

@@ -3,14 +3,14 @@
 Tom requested this change after PR #270. The snapshot format and the memory ack rule stay unchanged.
 The primary, its archive, cloud sync, CI policy, and installed programs are outside this change.
 
-## Current state
+## Previous behavior
 
-The node holds a maintenance mutex through the complete copy and cleanup.
-The final write gate also covers a key delta, output tree writes, dependency checks, and receipt creation.
-The orphan sweep defers for every active copy because private output has no receipt.
-These restrictions protect more work than the final shared pointer needs.
+The node held a maintenance mutex through the complete copy and cleanup.
+The final write gate also covered a key delta, output tree writes, dependency checks, and receipt creation.
+The orphan sweep deferred for every active copy because private output had no receipt.
+These restrictions protected more work than the final shared pointer needed.
 
-## Required result
+## New behavior
 
 Copy, catch-up, space checks, receipt creation, and temporary-file flushes occur without the node write gate or writer mutex.
 An output file receives exact deletion protection before it exists.
@@ -51,9 +51,9 @@ This rule covers captured plans that start after publication as well as cleanup 
 1. Capture the durable root and its read hold under the writer mutex, without the write gate or a queue flush.
 2. Copy and catch up outside both locks.
 3. Prepare and flush the complete receipt and `CURRENT` file under private temporary names.
-4. Take the existing write gate and writer mutex.
+4. Try the existing write gate without a wait for a blocking thread.
 5. If accepted work exists, release the boundary and wait for its normal flush. Do not force a flush.
-6. Compare the writer root with the exact root that the prepared result includes.
+6. Take the writer mutex and compare its root with the exact prepared root.
 7. If it changed, release the boundary, catch up, and prepare another receipt outside the locks.
 8. If it matches, install the prepared receipt, rename the prepared `CURRENT`, and complete the required directory barriers.
 9. Install the matching read view and release the boundary.
@@ -78,6 +78,8 @@ It does not exclude compaction or ordinary writes.
 Compaction status counts active jobs so one completed caller cannot report idle while another copy runs.
 Two nonblocking job permits bound aggregate copy resources. A third call receives a named capacity refusal before detached work starts.
 Each job also has a 64 MiB conservative path-metadata budget, separate from its bounded copy caches and disk reservation.
+A path-budget refusal preserves the named capacity error and removes its exact new empty file under the local file guard.
+Only an active-deletion conflict causes another sparse-file allocation attempt.
 
 Publication retries have a finite attempt budget and return a named capacity refusal when writers repeatedly change the root.
 Queue deferrals and root changes both consume the eight-attempt budget.
@@ -85,7 +87,9 @@ This chooses a retry instead of an unbounded writer stall.
 The automatic worker retains its existing retry and soft-limit rules.
 Continuous writes can delay a copy's publication. The soft-limit refusal eventually supplies a publication opportunity.
 
-## Required product evidence
+## Product evidence
+
+The [capture report](proofs/compaction-minimal-locks-20261022/RESULTS.md) records the source, executable hashes, complete results, and limits.
 
 - Actual daemon operations on fresh generated homes, with exact accepted-value reads and complete counter tallies.
 - Durable writes, long keys, recent copies, deletes, backup restore, and process interruption.

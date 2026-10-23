@@ -204,6 +204,7 @@ class Capture(product.ProductRun):
                 self.stop()
                 self.worker = True
                 self.start()
+                self.phase = "worker-start"
                 self.mutate("update", range(64, 80), 300000, durability="durable")
                 self.mutate("update", range(96, 112), 300001, durability="durable")
                 self.overlap(writes=True)

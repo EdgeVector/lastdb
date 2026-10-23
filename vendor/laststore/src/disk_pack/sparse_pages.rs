@@ -104,7 +104,11 @@ impl SparsePages {
                 {
                     continue
                 }
-                Err(crate::Error::WriteCapacity(_)) => continue,
+                Err(crate::Error::WriteCapacity(reason))
+                    if reason == super::private_files::ACTIVE_DELETION =>
+                {
+                    continue
+                }
                 Err(error) => return Err(error),
             }
         }

@@ -38,6 +38,8 @@ struct OwnedPaths {
 
 /// Transient path metadata per copy; cache and body budgets remain separate.
 const MAX_PATH_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const ACTIVE_DELETION: &str =
+    "private output path has an active deletion; retry allocation";
 
 #[derive(Clone)]
 pub(super) struct DeletionEpoch {
@@ -64,35 +66,42 @@ impl OutputFiles {
 
     pub(super) fn protect_path(&self, path: &Path) -> Result<()> {
         if let Some(owner) = &self.0 {
-            let protection = owner.registry.protect(path)?;
-            owner.keep(protection)?;
+            let mut protection = Some(owner.registry.protect(path)?);
+            owner.keep(&mut protection)?;
         }
         Ok(())
     }
 
     pub(super) fn create_new(&self, path: &Path) -> Result<File> {
-        let protection = self
+        let mut protection = self
             .0
             .as_ref()
             .map(|owner| owner.registry.protect(path))
             .transpose()?;
         let file = OpenOptions::new().write(true).create_new(true).open(path)?;
-        if let (Some(owner), Some(protection)) = (&self.0, protection) {
-            owner.keep(protection)?;
+        if let Some(owner) = &self.0 {
+            if let Err(error) = owner.keep(&mut protection) {
+                // The local guard stays active through close and exact unlink.
+                // Never leave an empty file after a path-budget refusal.
+                drop(file);
+                std::fs::remove_file(path)?;
+                return Err(error);
+            }
         }
         Ok(file)
     }
 }
 
 impl Owner {
-    fn keep(&self, protection: Protection) -> Result<()> {
+    fn keep(&self, protection: &mut Option<Protection>) -> Result<()> {
+        let held = protection.as_ref().expect("private path protection");
         let mut paths = self
             .paths
             .lock()
             .map_err(|_| corrupt("private output owner is poisoned"))?;
-        if !paths.entries.contains_key(&protection.path) {
+        if !paths.entries.contains_key(&held.path) {
             // Count duplicated path storage and conservative tree-node overhead.
-            let charge = protection
+            let charge = held
                 .path
                 .as_os_str()
                 .len()
@@ -102,7 +111,10 @@ impl Owner {
                 .ok_or_else(|| crate::Error::WriteCapacity("compaction_behind: private path metadata budget exhausted; retry maintenance".into()))?;
             paths.charged = total;
         }
-        paths.entries.insert(protection.path.clone(), protection);
+        paths.entries.insert(
+            held.path.clone(),
+            protection.take().expect("private path protection"),
+        );
         Ok(())
     }
 }
@@ -142,9 +154,7 @@ impl FileRegistry {
             .ancestors()
             .any(|parent| state.deleting.contains(parent))
         {
-            return Err(crate::Error::WriteCapacity(
-                "private output path has an active deletion; retry allocation".into(),
-            ));
+            return Err(crate::Error::WriteCapacity(ACTIVE_DELETION.into()));
         }
         let count = state.protected.entry(path.to_path_buf()).or_default();
         *count = count.checked_add(1).ok_or_else(super::resource)?;
