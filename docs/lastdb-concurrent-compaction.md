@@ -57,6 +57,9 @@ The observed part rate and the previous copy time can move that start earlier.
 A failed reclaim retains the existing 75-percent trigger and its back-off.
 New automatic-maintenance writes receive a named 503 at the 85-percent soft limit.
 The response includes `retry_after_secs`. A caller can retry after the worker makes room.
+Above the soft limit, the worker bypasses its normal post-copy growth requirement and forces a full copy.
+If the result still leaves that limit active, the next retry waits on a back-off up to 60 seconds.
+A refused-write wake cannot skip that wait. The status retains the capacity error until recovery.
 The hard receipt limit remains 65,536 parts.
 
 Native status shows the current phase: capture, copy, catch-up, swap, reclaim, or idle.

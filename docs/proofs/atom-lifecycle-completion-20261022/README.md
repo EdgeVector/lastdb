@@ -109,6 +109,18 @@ The previous metadata slack and uncompressed payload bound remain in the reserva
 Both independent reviewers accepted the source correction.
 The earlier timing receipts exclude this additional quote work.
 
+## Independent recovery finding
+
+The large concurrent copy left more selected parts after concurrent changes joined its output.
+Both reviewers found a soft-limit recovery stall in the worker's post-copy growth rule.
+A successful copy above the soft limit set a new baseline, but refused writes could not supply the next required growth.
+
+The worker now bypasses that growth rule and its no-progress hold above the soft limit.
+It forces a full copy there because a recent copy can retain the older grafted base.
+A result that stays above the soft limit records the capacity error and waits on an exponential back-off.
+The maximum wait is 60 seconds. Refused-write notifications cannot bypass it.
+The retry count resets after the selected count falls below the soft limit.
+
 ## Product operations
 
 The capture uses these operations:

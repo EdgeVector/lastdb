@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 
 mod orphans;
 mod progress;
+mod retry;
 pub use progress::NativeCompactionStatus;
 mod worker;
 
@@ -27,8 +28,8 @@ const DEFAULT_HIGH_WATER: u64 = 4096;
 /// Never trigger above this share of the limit (percent), so a write that needs
 /// room for its own parts still fits while maintenance runs.
 const TRIGGER_CEILING_PERCENT: u64 = 75;
-/// Parts that must accrue after a run before the next run starts, however high the count is
-/// (at most half the high-water mark, so a small mark still works).
+/// Parts that must accrue after a run before the next normal run starts
+/// (at most half the high-water mark). Soft-limit recovery cannot require growth.
 const MIN_GROWTH: u64 = 1024;
 /// Above this share of the limit (percent) admission refuses a new write until
 /// maintenance restores room, before the hard receipt limit.
@@ -195,17 +196,18 @@ impl PartsLedger {
         self.current.load(Relaxed) >= MAX_DEPENDENCY_PARTS * SOFT_LIMIT_PERCENT / 100
     }
 
-    /// A run that cannot bring the count below the trigger must not start again
-    /// for every publication, so a new run also needs `MIN_GROWTH` parts of growth.
+    /// Normal repeats need growth. A refused home cannot grow, so soft-limit
+    /// recovery bypasses that suppression and the worker bounds its retry rate.
     fn wants_maintenance(&self) -> bool {
         let current = self.current.load(Relaxed);
         self.auto
-            && current >= self.trigger()
-            && current
-                >= self
-                    .baseline
-                    .load(Relaxed)
-                    .saturating_add(MIN_GROWTH.min(self.high_water / 2))
+            && (self.over_soft_limit()
+                || (current >= self.trigger()
+                    && current
+                        >= self
+                            .baseline
+                            .load(Relaxed)
+                            .saturating_add(MIN_GROWTH.min(self.high_water / 2))))
     }
 
     /// Record the count of a new publication and wake the worker at the mark.

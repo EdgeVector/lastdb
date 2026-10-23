@@ -6,12 +6,11 @@
 //! the orphan sweep run only when no pack is due. Cleanup releases the write gate
 //! after its installed-root capture, before file inventories and deletion.
 
+use super::retry::{after_pack, MAX_BACKOFF_SECS};
 use super::*;
 use std::time::{Duration, Instant};
 use tracing::Instrument;
 
-/// Longest pause between two failed packs.
-const MAX_BACKOFF_SECS: u64 = 60;
 /// Tries of a reclaim that another process deferred. The waits grow from 1 s to 30 s,
 /// so the worker keeps trying for about 20 minutes before it waits for the next pack.
 const RECLAIM_RETRIES: u32 = 40;
@@ -226,10 +225,11 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
     let mut debt = Debt::at_start();
     let mut pack_failures = 0u32;
     let mut booting = true;
-    // A pack that did not shrink the count waits for the next write.
+    // A normal pack that did not shrink waits for a write. Soft-limit recovery
+    // cannot wait for writes, because admission refuses them.
     let mut held = false;
     loop {
-        let pack_due = !held && ledger.wants_maintenance();
+        let pack_due = (!held || ledger.over_soft_limit()) && ledger.wants_maintenance();
         if !pack_due && !debt.reclaim_due() && !debt.sweep_due() {
             if let Some(pause) = debt.wait() {
                 tokio::select! {
@@ -254,7 +254,6 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
         if pack_due {
             match run_once(&strong, &ledger, Call::Pack).await {
                 Ok(report) => {
-                    pack_failures = 0;
                     tracing::info!(
                         parts_before = report.parts_before,
                         parts_after = report.parts_after,
@@ -263,7 +262,7 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
                         reclaim_millis = report.reclaim_millis,
                         "native storage maintenance reached the dependency high-water mark"
                     );
-                    held = report.parts_after >= report.parts_before;
+                    held = after_pack(&ledger, &report, &mut pack_failures).await;
                     debt.after_call(&report, true);
                 }
                 Err(error) => {
@@ -331,7 +330,9 @@ async fn run_once(
     let options = NativeMaintenanceOptions {
         dry_run: false,
         reclaim_only,
-        full_copy: false,
+        // A recent copy retains the older grafted base. Once admission refuses
+        // writes, a full copy can consolidate that quiesced source without growth.
+        full_copy: !reclaim_only && ledger.over_soft_limit(),
         grace_ms: Some(ledger.grace_ms),
         report_usage: false,
         reclaim_generations: Some(generations),
