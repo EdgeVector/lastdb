@@ -11,6 +11,7 @@ use crate::hex::hex_lower;
 use base64::{engine::general_purpose::STANDARD as B64_STD, Engine as _};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::io::Read;
 
 pub fn content_addressed_atom(value: Value) -> Result<ContentAddressedAtom, FoldDbError> {
     let bytes = serde_json::to_vec(&value).map_err(FoldDbError::from)?;
@@ -147,6 +148,49 @@ pub fn content_addressed_blob_from_envelope(
         local_cipher_suite: Some(access.cipher_suite.clone()),
         stored_at: None,
     })
+}
+
+/// Verify the public v2 ciphertext identity before a raw CAS write.
+/// This needs no file key and never allocates a second file-sized buffer.
+pub fn validate_local_ciphertext_blob(blob: &ContentAddressedBlob) -> Result<(), FoldDbError> {
+    if blob.local_cipher_suite.as_deref() != Some(FILE_BLOB_CIPHER_SUITE) {
+        return Ok(());
+    }
+    let invalid = || FoldDbError::SecurityError("local CAS ciphertext identity differs".into());
+    let stored_hash = crate::sharing::file_blob_seal::file_blob_storage_hash(&blob.blob_ref)?;
+    if blob.access.is_some() || blob.content_sha256 != stored_hash {
+        return Err(invalid());
+    }
+    let expected = blob
+        .size
+        .checked_add(crate::sharing::file_blob_seal::FILE_BLOB_ENVELOPE_OVERHEAD)
+        .ok_or_else(invalid)?;
+    let encoded = blob.bytes_b64.strip_prefix("ENC:").ok_or_else(invalid)?;
+    let mut decoded = base64::read::DecoderReader::new(encoded.as_bytes(), &B64_STD);
+    let mut version = [0; 1];
+    decoded.read_exact(&mut version).map_err(|_| invalid())?;
+    if version != [1] {
+        return Err(invalid());
+    }
+    let mut digest = Sha256::new();
+    digest.update(version);
+    let mut bytes = 1u64;
+    let mut buffer = [0; 8192];
+    loop {
+        let count = decoded.read(&mut buffer).map_err(|_| invalid())?;
+        if count == 0 {
+            break;
+        }
+        bytes = bytes
+            .checked_add(count as u64)
+            .filter(|bytes| *bytes <= expected)
+            .ok_or_else(invalid)?;
+        digest.update(&buffer[..count]);
+    }
+    if bytes != expected || hex_lower(digest.finalize()) != stored_hash {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 fn decode_hex_32_key(input: &str) -> Result<[u8; 32], FoldDbError> {

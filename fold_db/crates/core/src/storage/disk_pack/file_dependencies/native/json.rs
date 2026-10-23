@@ -60,7 +60,10 @@ pub(super) fn extract(
                 }
             }
             "bytes_b64" => json.string(output)?,
-            "access" if require_inner_only => json.literal(b"null")?,
+            "access" if require_inner_only => {
+                json.peek()?;
+                json.literal(b"null")?;
+            }
             _ => json.skip(0)?,
         }
         match json.peek()? {

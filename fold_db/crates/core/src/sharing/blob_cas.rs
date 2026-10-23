@@ -11,7 +11,8 @@
 
 use super::delivery_wire::{
     content_addressed_blob_sealed_for_access, content_addressed_blob_sealed_under_dek,
-    decode_blob_bytes, decode_blob_bytes_with_dek, ContentAddressedBlob, FileBlobAccess,
+    decode_blob_bytes, decode_blob_bytes_with_dek, validate_local_ciphertext_blob,
+    ContentAddressedBlob, FileBlobAccess,
 };
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
@@ -134,6 +135,7 @@ async fn write_row_under_gate(
     store: &Arc<dyn KvStore>,
     blob: &ContentAddressedBlob,
 ) -> Result<(), FoldDbError> {
+    validate_local_ciphertext_blob(blob)?;
     // Stamp `stored_at` at the durable-write chokepoint so every writer path
     // (personal cache, delivery import, fork) dates its row. The stamp is
     // information only. The blob counter decides when a row may go: the put
