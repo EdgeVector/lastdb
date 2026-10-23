@@ -21,7 +21,7 @@ concurrency:
 jobs:
   build:
     name: Matched macOS release pair
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: '3'
