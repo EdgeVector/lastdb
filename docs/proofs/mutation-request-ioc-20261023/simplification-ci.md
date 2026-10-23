@@ -3,7 +3,7 @@
 The four pairs show no consistent latency penalty from the simplification.
 The median write changes range from +0.5% to +1.5%. Individual pairs change in both directions.
 The largest serial median increase is 0.201 ms for an update.
-Conditional update p99 increases by 0.545 ms; four-caller update p99 decreases by 6.908 ms.
+Conditional update p99 increases by 0.545 ms; four-caller update p99 decreases by 6.907 ms.
 These measurements do not establish a small general speed change.
 All eight runs complete. All acknowledged-value checks pass before and after restart.
 
