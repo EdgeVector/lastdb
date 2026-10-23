@@ -1,0 +1,15 @@
+[package]
+name = "lastdb_storage_policy"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+autotests = false
+description = "Shared native format and backup resource policy"
+
+[lib]
+test = false
+doctest = false
+bench = false
+
+[lints]
+workspace = true

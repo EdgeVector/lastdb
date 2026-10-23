@@ -146,11 +146,11 @@ pub(super) fn refresh_tip(
         return;
     }
     let previous = core.source_coordinates(path);
-    let body = crate::storage::disk_pack::kv::coordinates("main", primary.as_bytes())
-        .into_iter()
-        .filter(|source| previous.contains(source));
+    let body = crate::storage::disk_pack::kv::coordinate("main", primary.as_bytes());
+    let body = previous.contains(&body).then_some(body);
     core.clear_sources(path);
     if body
+        .into_iter()
         .chain(sources)
         .all(|(collection, key)| core.link_source(path, &collection, &key))
     {

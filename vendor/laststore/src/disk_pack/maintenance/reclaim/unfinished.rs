@@ -19,7 +19,10 @@ use std::path::Path;
 /// first page that does not verify is left in place, and reclaim stops with an
 /// error that names the directory and the reason. A complete receipt is read as
 /// a published one.
-pub(super) fn remove_unfinished(path: &Path) -> Result<bool> {
+pub(super) fn remove_unfinished(
+    path: &Path,
+    epoch: &crate::disk_pack::private_files::DeletionEpoch,
+) -> Result<bool> {
     let mut parts = Vec::new();
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
@@ -65,6 +68,9 @@ pub(super) fn remove_unfinished(path: &Path) -> Result<bool> {
             }
         }
     }
+    let Some(_deletion) = epoch.delete(path, true)? else {
+        return Ok(false);
+    };
     std::fs::remove_dir_all(path)?;
     durability::sync_directory(&File::open(path.parent().expect("generation parent"))?)?;
     Ok(true)

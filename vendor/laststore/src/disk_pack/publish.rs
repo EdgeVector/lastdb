@@ -49,7 +49,11 @@ pub(super) fn publish_prepared(
     payload: Option<WrittenData>,
 ) -> Result<PublishedGeneration> {
     let root = lock.root();
-    let old_receipt = ensure_generation(lock, previous)?;
+    let old_receipt = {
+        let _timing = crate::commit_timing::stage("prior_generation_us");
+        ensure_generation(lock, previous)?
+    };
+    let lookup_timing = crate::commit_timing::stage("lookup_files_us");
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
@@ -84,8 +88,16 @@ pub(super) fn publish_prepared(
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
+    drop(lookup_timing);
+    let generation_timing = crate::commit_timing::stage("new_generation_us");
     let receipt =
         generation::write_carried(root, &publisher.proposed, &dependencies, &old_receipt)?;
+    drop(generation_timing);
+    crate::commit_timing::count("metadata_pages", publisher.pages);
+    crate::commit_timing::count("metadata_parts", publisher.parts);
+    crate::commit_timing::count("dependency_parts", receipt.dependencies);
+    crate::commit_timing::count("storage_mutations", publisher.mutations);
+    let _timing = crate::commit_timing::stage("root_publication_us");
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
     if artifact::current(root)? != *previous {
         return Err(corrupt("CURRENT changed during publication"));
@@ -116,6 +128,7 @@ impl Publisher<'_> {
         });
         let mut items = mutations.into_iter().peekable();
         let mut directory_changes = BTreeMap::new();
+        let mut directory_call = artifact::metadata_call(self.root, self.proposed.clone());
         while let Some(first) = items.next() {
             let collection = first.collection.clone();
             let group = first.group;
@@ -139,8 +152,8 @@ impl Publisher<'_> {
             }
             let key = super::ReadCall::directory_key(&collection, group)?;
             let mut call = artifact::metadata_call(self.root, self.proposed.clone());
-            let entry = call
-                .find(self.directory.root(), &key)?
+            let entry = self
+                .directory_entry(&mut directory_call, &key)?
                 .map(|value| DirectoryEntry::decode(&value))
                 .transpose()?;
             if entry.as_ref().is_some_and(|entry| entry.group != group) {
@@ -154,7 +167,8 @@ impl Publisher<'_> {
                 if changes.len() > self.proposed.batch_operation_limit() {
                     return Err(corrupt("invalid new locator change count"));
                 }
-                self.locators.create(&changes)?
+                self.locators
+                    .create(&mut call, self.directory.root(), &changes)?
             };
             let value = DirectoryEntry {
                 group,
@@ -169,6 +183,17 @@ impl Publisher<'_> {
             &mut call,
             &directory_changes.into_iter().collect::<Vec<_>>(),
         )
+    }
+    fn directory_entry(&self, call: &mut super::ReadCall, key: &[u8]) -> Result<Option<[u8; 128]>> {
+        // Reuse only immutable committed directory pages. Locator edits retain
+        // their own bounded read call, including any private allocator state.
+        match call.find(self.directory.root(), key) {
+            Err(crate::Error::ReadBudgetExceeded) => {
+                *call = artifact::metadata_call(self.root, self.proposed.clone());
+                call.find(self.directory.root(), key)
+            }
+            result => result,
+        }
     }
 }
 

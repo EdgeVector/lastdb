@@ -1,0 +1,12 @@
+{
+  "run_id": "a54cad5d74b847ca9915fdf2af730287",
+  "home": "/workspace/ef-pairs/encrypted-1-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 157,
+  "allocated_bytes_removed": 12435456,
+  "free_bytes_before": 20585873408,
+  "free_bytes_after": 20598755328
+}

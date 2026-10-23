@@ -1,0 +1,12 @@
+{
+  "run_id": "20d406e2a4134672a79ed393fd296a35",
+  "home": "/workspace/ec-pairs/plain-0-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 8098,
+  "allocated_bytes_removed": 741498880,
+  "free_bytes_before": 20657340416,
+  "free_bytes_after": 21407186944
+}

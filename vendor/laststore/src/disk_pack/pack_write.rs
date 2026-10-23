@@ -3,12 +3,13 @@ use super::page_write::{directory, PageFields, PageWriter};
 use super::{corrupt, Location, MutationVersion, Source, BLOCK_BYTES, MAP_ENTRIES, PART_BYTES};
 use crate::{durability, Result};
 use sha2::{Digest, Sha256};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub(super) struct PackWriter {
+    protection: super::private_files::OutputFiles,
     object: Uuid,
     generation: u64,
     directory: PathBuf,
@@ -34,15 +35,30 @@ pub(super) struct WrittenData {
 
 impl PackWriter {
     pub(super) fn new(root: &Path, generation: u64) -> Result<Self> {
-        let object = Uuid::new_v4();
-        let path = root.join("packs").join(object.to_string());
-        Self::at(path, object, generation)
+        Self::protected(root, generation, Default::default())
     }
 
-    fn at(path: PathBuf, object: Uuid, generation: u64) -> Result<Self> {
+    pub(super) fn protected(
+        root: &Path,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
+        let object = Uuid::new_v4();
+        let path = root.join("packs").join(object.to_string());
+        Self::at(path, object, generation, protection)
+    }
+
+    fn at(
+        path: PathBuf,
+        object: Uuid,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
+        protection.protect_directory(&path)?;
         directory(&path)?;
-        let map = PageWriter::new(path.join("map"), object, generation)?;
+        let map = PageWriter::protected(path.join("map"), object, generation, protection.clone())?;
         Ok(Self {
+            protection,
             object,
             generation,
             directory: path,
@@ -121,10 +137,9 @@ impl PackWriter {
     }
 
     fn open_part(&mut self) -> Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(self.directory.join(format!("part-{:08x}", self.part)))?;
+        let mut file = self
+            .protection
+            .create_new(&self.directory.join(format!("part-{:08x}", self.part)))?;
         file.write_all(&[0; 128])?;
         self.file = Some(file);
         self.part_bytes = 128;

@@ -36,6 +36,14 @@ The writer never modifies, appends to, or removes a published metadata part.
 
 Fresh metadata parts use up to eight exact create-new attempts with random `u32` part numbers.
 Part zero remains reserved for initial tree construction.
+A group that has no directory entry yet gets its locator tree as an edit of the empty tree at page zero of an
+existing locator object, in a fresh part of that object.
+The publisher picks that object once for the publication: an object that it already edits, else the object of
+the first directory entry.
+Only an empty directory makes a new locator object, for its first groups.
+A publication therefore adds one locator part for all the trees that it touches in that object, and a batch
+adds four parts (journal data, journal map, directory, locator).
+The format does not change: an object is a directory, and a page address is the object and a page number.
 A long-key suffix reserves its complete contiguous chain before its first page.
 No directory walk finds a free part number.
 Every copied path retains its tree UUID and every unchanged child page reference.

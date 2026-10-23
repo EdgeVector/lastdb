@@ -38,7 +38,7 @@ The [benchmark report](proofs/layer2-completion-20261016/benchmarks.md) separate
 | Write preparation | Changed keys use batch reads for tips, delete barriers, and molecule pointers. One exact write owner holds one 40,000-key work budget. Queries retain 10,000 keys. |
 | File lifetime | Read and backup holds protect required files. Compaction and reclaim remain inside LastStore. |
 | Packed payloads | Conversion and compaction share one payload writer across hash groups. Per-group locator trees remain separate. |
-| New hash groups | One direct sorted-tree write supplies the locator. No empty locator file precedes the real output. |
+| New hash groups | A new group takes a fresh part in an existing locator object, as an edit of the empty tree at page zero. Only the first groups of an empty directory make an object. A batch adds four parts. |
 | Complete batch size | Fresh native homes require feature `0x20` before admission and permit 16,384 stored operations. Existing homes retain 4,096. |
 | Disk cap | `LASTDB_DISK_CAP_BYTES` connects write, backup, and replacement reservations. Normal writes preserve 64 MiB of replacement headroom. |
 | Local recovery | Owner backup and flush routes, exact bundle validation, source-free local restore, and explicit forward and reverse conversion. |
@@ -64,7 +64,9 @@ One logical mutation can require many stored operations for its atoms, tips, sha
 The 16,384-operation feature keeps the same 32-bit operation numbers and 128 MiB batch byte cap.
 Older readers refuse the feature before data access. This change does not upgrade existing homes automatically.
 
-Compaction rewrites the complete native home under the complete write gate.
+Compaction copies outside the write gate and publishes after a bounded catch-up.
+Automatic runs can copy recent tiers. Explicit compaction defaults to a full copy.
+See `docs/lastdb-concurrent-compaction.md`.
 Its quote permits at most 65,536 coordinates and 1,000,000 records.
 It requires replacement space under a configured disk cap.
 Payload files share packed data; each hash group retains its locator files.

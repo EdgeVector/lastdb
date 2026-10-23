@@ -224,9 +224,10 @@ with a `suspect` counter that holds the references of its own batch, and counts 
    does not decode is deleted alone too, and the blob and the counter stay: nothing
    can say that the count is zero (the verifier reports the counter);
 5. releases the gate, and **rests**. A step that finds a bucket done retires it
-   (a batch of one guarded delete) and rests the same way. A chunk seals the write
-   queue, so a writer that arrives meanwhile waits for the hold of the gate and then
-   for the flush of the chunk (about 0.4 to 1 s). The rest after a chunk is
+   (a batch of one guarded delete) and rests the same way. A private background chunk
+   shares the bounded collection window and still returns after durability.
+   Its measured writer cost includes the gate and shared flush holds. A sealed fence also counts its flush wait.
+   The rest after a chunk is
    `blocked * (100 - duty) / duty`, where `blocked` is that time and the duty share
    is 10 percent by default (`LASTDB_BLOB_DWELL_DUTY_PCT`, 1 to 100): writers wait for
    the pass about a tenth of the time. The rest is at least 25 ms

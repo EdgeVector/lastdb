@@ -58,72 +58,98 @@ impl MutationManager {
         if let Some(clock) = request.author_clock {
             clock.wait().await?;
         }
-        let memory_ack =
-            !state.force_durable && !crate::fold_db_core::mutation_sync_flush_enabled();
-        let committed =
-            transaction::request_scope(Some(Arc::clone(&request.runtime)), memory_ack, async {
-                request
-                    .runtime
-                    .record_read_stage("request-start", request.mutations.len());
-                // Compare once inside the exclusive native gate. A prior
-                // request can commit while this request waits to enter it.
-                let started = std::time::Instant::now();
-                let (already_seen_ids, mutations, hashes) = self
-                    .filter_idempotent_mutations(request.mutations, request.storage_prefix)
+        state.force_durable = true;
+        let committed = transaction::request_scope(Some(Arc::clone(&request.runtime)), async {
+            let notifications =
+                crate::db_operations::ChangeFeedStore::native_events(&request.mutations);
+            request
+                .runtime
+                .record_read_stage("request-start", request.mutations.len());
+            // Compare once inside the exclusive native gate. A prior
+            // request can commit while this request waits to enter it.
+            let started = std::time::Instant::now();
+            let (already_seen_ids, mutations, hashes) = self
+                .filter_idempotent_mutations(request.mutations, request.storage_prefix)
+                .await?;
+            Self::add_timing(
+                &mut state.timing_breakdown,
+                "idempotency_check",
+                started.elapsed(),
+            );
+            let mutation_ids = mutations
+                .iter()
+                .map(|mutation| mutation.uuid.clone())
+                .collect();
+            request
+                .runtime
+                .record_read_stage("idempotency-done", mutations.len());
+            if mutations.is_empty() {
+                self.db_ops
+                    .change_feed()
+                    .stage_native_events(notifications)
                     .await?;
-                Self::add_timing(
-                    &mut state.timing_breakdown,
-                    "idempotency_check",
-                    started.elapsed(),
-                );
-                let mutation_ids = mutations
-                    .iter()
-                    .map(|mutation| mutation.uuid.clone())
-                    .collect();
-                request
-                    .runtime
-                    .record_read_stage("idempotency-done", mutations.len());
-                if mutations.is_empty() {
-                    return Ok::<_, SchemaError>(NativeCommit {
-                        already_seen_ids,
-                        mutation_ids,
-                    });
-                }
-                self.check_batch_preconditions(&mutations, request.storage_prefix)
-                    .await?;
-                request
-                    .runtime
-                    .record_read_stage("conditions-done", mutations.len());
-                // Keep the private multi-schema stage behind one future
-                // allocation instead of expanding it in every host caller.
-                let delta_count = self
-                    .stage_grouped_deltas(
-                        mutations,
-                        hashes,
-                        request.storage_prefix,
-                        &mut state.timing_breakdown,
-                        &mut state.stages,
-                        &request.runtime,
-                    )
-                    .boxed()
-                    .await?;
-                request
-                    .runtime
-                    .record_read_stage("stored-stages-done", delta_count);
-                self.reserve_native_core_memory(&request.runtime)?;
-                Ok::<_, SchemaError>(NativeCommit {
+                return Ok::<_, SchemaError>(NativeCommit {
                     already_seen_ids,
                     mutation_ids,
-                })
+                });
+            }
+            self.check_batch_preconditions(&mutations, request.storage_prefix)
+                .await?;
+            request
+                .runtime
+                .record_read_stage("conditions-done", mutations.len());
+            // Keep the private multi-schema stage behind one future
+            // allocation instead of expanding it in every host caller.
+            let delta_count = self
+                .stage_grouped_deltas(
+                    mutations,
+                    hashes,
+                    request.storage_prefix,
+                    &mut state.timing_breakdown,
+                    &mut state.stages,
+                    &request.runtime,
+                )
+                .boxed()
+                .await?;
+            request
+                .runtime
+                .record_read_stage("stored-stages-done", delta_count);
+            self.stage_native_author_clock().await?;
+            self.db_ops
+                .change_feed()
+                .stage_native_events(notifications)
+                .await?;
+            self.reserve_native_core_memory(&request.runtime)?;
+            Ok::<_, SchemaError>(NativeCommit {
+                already_seen_ids,
+                mutation_ids,
             })
-            .await?;
+        })
+        .await?;
         if committed.mutation_ids.is_empty() {
             return Ok(committed);
         }
         crate::sync::capture::mark_logical_commit_published();
-        self.finalize_batch(&mut state.timing_breakdown, state.force_durable)
-            .await?;
         Ok(committed)
+    }
+
+    async fn stage_native_author_clock(&self) -> Result<(), SchemaError> {
+        let key = crate::schema::types::author_clock::mutation_author_clock_key(
+            &self.signer.public_key_base64(),
+        );
+        let state = *self
+            .author_clock_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut durable = self
+            .db_ops
+            .metadata()
+            .get_typed::<crate::schema::types::MutationAuthorClockState>(&key)
+            .await?
+            .unwrap_or_default();
+        durable.observe_remote(state.physical_nanos, state.logical_counter);
+        self.db_ops.metadata().put_typed(&key, &durable).await?;
+        Ok(())
     }
 
     pub(super) async fn stage_native_delta(

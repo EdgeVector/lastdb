@@ -1,0 +1,982 @@
+{
+  "product_source_commit": "b06480448c9f99a7c68e91a594413d3d824eb72b",
+  "binary_sha256": "c7af7cba376e90fc6546fe7a86a4e8eaf5fbf3aa7ec8e8d5fc9c58caea50e4ed",
+  "all_receipt_checks_pass": true,
+  "measured_batch_calls_total": 8000,
+  "measured_record_mutations_total": 50000,
+  "final_batch_calls": 3000,
+  "final_record_mutations": 17000,
+  "final_recovered_records": 1091,
+  "final_schema_identities": 64,
+  "final_distinct_field_identities": 192,
+  "final_distinct_molecules": 192,
+  "runs": [
+    {
+      "run": "one-client",
+      "final": false,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "cf1c951928c5c3fc9c9feaaa1c6476a9f15fb178185787e6a87e8362e260fcb6",
+        "source_commit": "28e5696760e1a6861a5c214d7ddb611911b301f5",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/a",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 1,
+        "schemas": 64,
+        "records_per_batch": 8,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained.",
+        "uds_workers": 2,
+        "stage": "preliminary; retained for the inherited two-worker control"
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 27.431767086,
+        "median_ms": 22.208875,
+        "p95_ms": 33.271833,
+        "p99_ms": 218.966917,
+        "max_ms": 291.4675,
+        "wall_seconds": 27.458912875,
+        "batches_per_second": 36.41804774108341,
+        "records_per_second": 291.3443819286673,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 20.547,
+          "mean": 25.712147,
+          "p99": 217.087,
+          "maximum": 289.313
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.561947,
+          "p99": 9.077,
+          "maximum": 34.165
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 11.311,
+          "mean": 10.94685,
+          "p99": 12.617,
+          "maximum": 13.561
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 8.595500000000001,
+          "mean": 10.032811,
+          "p99": 33.663,
+          "maximum": 277.584
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 19.984499999999997,
+          "mean": 20.980111,
+          "p99": 45.288,
+          "maximum": 289.262
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.088,
+          "mean": 4.082427,
+          "p99": 171.705,
+          "maximum": 258.564
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 22478560,
+        "body_reserved_peak_bytes": 23479664,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 22478560,
+        "dirty_definitions": 161,
+        "dirty_molecules": 48,
+        "dirty_slots": 384,
+        "metadata_current_bytes": 14538684,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 16776440,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 14538684,
+        "refused": 22
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 548,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 4941,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 7741,
+        "maintenance_last_parts_after": 357,
+        "maintenance_last_parts_before": 4117,
+        "maintenance_last_records": 27790,
+        "maintenance_running": true,
+        "maintenance_runs": 1
+      },
+      "records_recovered": 513,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "four-clients",
+      "final": false,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "cf1c951928c5c3fc9c9feaaa1c6476a9f15fb178185787e6a87e8362e260fcb6",
+        "source_commit": "28e5696760e1a6861a5c214d7ddb611911b301f5",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/b",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 4,
+        "schemas": 64,
+        "records_per_batch": 8,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained.",
+        "uds_workers": 2,
+        "stage": "preliminary; retained for the inherited two-worker control"
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 105.150328337,
+        "median_ms": 81.204625,
+        "p95_ms": 263.029541,
+        "p99_ms": 319.332791,
+        "max_ms": 506.89075,
+        "wall_seconds": 26.326333750000003,
+        "batches_per_second": 37.984780163322206,
+        "records_per_second": 303.87824130657765,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 38.492,
+          "mean": 51.023169,
+          "p99": 230.143,
+          "maximum": 281.068
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 18.4035,
+          "mean": 25.112068,
+          "p99": 195.314,
+          "maximum": 261.47
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 11.54,
+          "mean": 11.209494,
+          "p99": 12.833,
+          "maximum": 14.026
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 8.29,
+          "mean": 9.298049,
+          "p99": 20.279,
+          "maximum": 238.431
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 19.7515,
+          "mean": 20.508026,
+          "p99": 31.913,
+          "maximum": 251.866
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.018,
+          "mean": 5.3721440000000005,
+          "p99": 164.997,
+          "maximum": 229.793
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 21916672,
+        "body_reserved_peak_bytes": 23479658,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 21916672,
+        "dirty_definitions": 71,
+        "dirty_molecules": 21,
+        "dirty_slots": 168,
+        "metadata_current_bytes": 13356120,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 16777132,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 13356120,
+        "refused": 33
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 4570,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 4570,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": true,
+        "maintenance_runs": 0
+      },
+      "records_recovered": 513,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "eight-workers-one-client",
+      "final": false,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "cf1c951928c5c3fc9c9feaaa1c6476a9f15fb178185787e6a87e8362e260fcb6",
+        "source_commit": "28e5696760e1a6861a5c214d7ddb611911b301f5",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/c",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 1,
+        "schemas": 64,
+        "uds_workers": 8,
+        "records_per_batch": 8,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained."
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 27.241937454,
+        "median_ms": 25.0417705,
+        "p95_ms": 33.094,
+        "p99_ms": 150.075542,
+        "max_ms": 321.226167,
+        "wall_seconds": 27.266159458,
+        "batches_per_second": 36.67549885565552,
+        "records_per_second": 293.40399084524415,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 23.296,
+          "mean": 25.530362,
+          "p99": 148.626,
+          "maximum": 319.479
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.685566,
+          "p99": 9.793,
+          "maximum": 11.736
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 11.438500000000001,
+          "mean": 10.986793,
+          "p99": 12.449,
+          "maximum": 16.149
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 10.774000000000001,
+          "mean": 11.387783,
+          "p99": 26.305,
+          "maximum": 166.584
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 22.201999999999998,
+          "mean": 22.375053,
+          "p99": 38.197,
+          "maximum": 178.364
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.49,
+          "mean": 2.403243,
+          "p99": 7.055,
+          "maximum": 297.955
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 22478538,
+        "body_reserved_peak_bytes": 23479664,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 22478538,
+        "dirty_definitions": 171,
+        "dirty_molecules": 51,
+        "dirty_slots": 408,
+        "metadata_current_bytes": 14670080,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 16773548,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 14670080,
+        "refused": 10
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 545,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 5117,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 6978,
+        "maintenance_last_parts_after": 415,
+        "maintenance_last_parts_before": 4148,
+        "maintenance_last_records": 27686,
+        "maintenance_running": true,
+        "maintenance_runs": 1
+      },
+      "records_recovered": 513,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "eight-workers-four-clients",
+      "final": false,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "cf1c951928c5c3fc9c9feaaa1c6476a9f15fb178185787e6a87e8362e260fcb6",
+        "source_commit": "28e5696760e1a6861a5c214d7ddb611911b301f5",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/d",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 4,
+        "schemas": 64,
+        "uds_workers": 8,
+        "records_per_batch": 8,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained."
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 110.180505852,
+        "median_ms": 87.14141649999999,
+        "p95_ms": 276.437,
+        "p99_ms": 329.344708,
+        "max_ms": 671.978209,
+        "wall_seconds": 27.891257833,
+        "batches_per_second": 35.853528226928276,
+        "records_per_second": 286.8282258154262,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 85.72999999999999,
+          "mean": 108.480912,
+          "p99": 324.911,
+          "maximum": 670.156
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 62.8575,
+          "mean": 81.010522,
+          "p99": 302.344,
+          "maximum": 651.704
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 11.232,
+          "mean": 11.009227,
+          "p99": 12.54,
+          "maximum": 14.434
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 9.254999999999999,
+          "mean": 10.133762,
+          "p99": 14.084,
+          "maximum": 216.65
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 20.1805,
+          "mean": 21.143496,
+          "p99": 26.507,
+          "maximum": 223.231
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.0235,
+          "mean": 6.313705,
+          "p99": 188.079,
+          "maximum": 304.945
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 22478560,
+        "body_reserved_peak_bytes": 23479668,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 22478560,
+        "dirty_definitions": 0,
+        "dirty_molecules": 0,
+        "dirty_slots": 0,
+        "metadata_current_bytes": 12404832,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 16773724,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 12404832,
+        "refused": 33
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 4593,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 4593,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": true,
+        "maintenance_runs": 0
+      },
+      "records_recovered": 513,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "eight-workers-small-writes",
+      "final": false,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "cf1c951928c5c3fc9c9feaaa1c6476a9f15fb178185787e6a87e8362e260fcb6",
+        "source_commit": "28e5696760e1a6861a5c214d7ddb611911b301f5",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/e",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 1,
+        "schemas": 64,
+        "uds_workers": 8,
+        "records_per_batch": 1,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained."
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 15.884006327,
+        "median_ms": 14.9876455,
+        "p95_ms": 23.849458,
+        "p99_ms": 25.067041,
+        "max_ms": 33.504084,
+        "wall_seconds": 15.894299,
+        "batches_per_second": 62.915640381497795,
+        "records_per_second": 62.915640381497795,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 14.651,
+          "mean": 15.540601,
+          "p99": 24.716,
+          "maximum": 32.76
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.528486,
+          "p99": 9.592,
+          "maximum": 9.676
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 6.1025,
+          "mean": 6.07697,
+          "p99": 6.768,
+          "maximum": 15.172
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 8.437999999999999,
+          "mean": 8.862722,
+          "p99": 17.971,
+          "maximum": 23.094
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 14.6115,
+          "mean": 14.940143,
+          "p99": 24.661,
+          "maximum": 32.467
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.01,
+          "mean": 0.047705,
+          "p99": 1.469,
+          "maximum": 1.756
+        },
+        "write_mutex_wait_ms": null,
+        "sealed_prefix_wait_ms": null
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 3114624,
+        "body_reserved_peak_bytes": 3562970,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 3114624,
+        "dirty_definitions": 151,
+        "dirty_molecules": 45,
+        "dirty_slots": 45,
+        "metadata_current_bytes": 2169496,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 3231808,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 2169496,
+        "refused": 0
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 3768,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 3768,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": false,
+        "maintenance_runs": 0
+      },
+      "records_recovered": 65,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "final-one-client",
+      "final": true,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "c7af7cba376e90fc6546fe7a86a4e8eaf5fbf3aa7ec8e8d5fc9c58caea50e4ed",
+        "source_commit": "b06480448c9f99a7c68e91a594413d3d824eb72b",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/f",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 1,
+        "schemas": 64,
+        "uds_workers": 8,
+        "records_per_batch": 8,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained."
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 27.558696005,
+        "median_ms": 23.755125,
+        "p95_ms": 36.451292,
+        "p99_ms": 111.296791,
+        "max_ms": 805.935709,
+        "wall_seconds": 27.584263917,
+        "batches_per_second": 36.25255337640917,
+        "records_per_second": 290.02042701127334,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 21.927500000000002,
+          "mean": 25.762749,
+          "p99": 109.089,
+          "maximum": 803.993
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 0.003,
+          "mean": 0.750884,
+          "p99": 10.6,
+          "maximum": 49.515
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 11.548,
+          "mean": 11.154227,
+          "p99": 12.852,
+          "maximum": 13.397
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 9.7025,
+          "mean": 11.791659,
+          "p99": 42.3,
+          "maximum": 779.954
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 20.988500000000002,
+          "mean": 22.94637,
+          "p99": 54.664,
+          "maximum": 791.516
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.046,
+          "mean": 1.973784,
+          "p99": 1.345,
+          "maximum": 317.455
+        },
+        "write_mutex_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.743247,
+          "p99": 10.594,
+          "maximum": 49.504
+        },
+        "sealed_prefix_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.0,
+          "p99": 0.0,
+          "maximum": 0.0
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 22478560,
+        "body_reserved_peak_bytes": 23479620,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 22478560,
+        "dirty_definitions": 31,
+        "dirty_molecules": 9,
+        "dirty_slots": 72,
+        "metadata_current_bytes": 12830536,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 16773548,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 12830536,
+        "refused": 9
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 546,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 5082,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 7704,
+        "maintenance_last_parts_after": 406,
+        "maintenance_last_parts_before": 4150,
+        "maintenance_last_records": 28190,
+        "maintenance_running": true,
+        "maintenance_runs": 1
+      },
+      "records_recovered": 513,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "final-four-clients",
+      "final": true,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "c7af7cba376e90fc6546fe7a86a4e8eaf5fbf3aa7ec8e8d5fc9c58caea50e4ed",
+        "source_commit": "b06480448c9f99a7c68e91a594413d3d824eb72b",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/g",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 4,
+        "schemas": 64,
+        "uds_workers": 8,
+        "records_per_batch": 8,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained."
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 105.495064366,
+        "median_ms": 82.631563,
+        "p95_ms": 270.211625,
+        "p99_ms": 309.323625,
+        "max_ms": 393.566,
+        "wall_seconds": 26.452932625,
+        "batches_per_second": 37.802991984900956,
+        "records_per_second": 302.42393587920765,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 80.924,
+          "mean": 103.801955,
+          "p99": 307.511,
+          "maximum": 391.843
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 59.808499999999995,
+          "mean": 77.745304,
+          "p99": 285.307,
+          "maximum": 367.329
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 11.128499999999999,
+          "mean": 10.952429,
+          "p99": 12.345,
+          "maximum": 21.37
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 8.857,
+          "mean": 9.133216,
+          "p99": 12.829,
+          "maximum": 19.807
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 19.964,
+          "mean": 20.086085,
+          "p99": 24.637,
+          "maximum": 35.453
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.019,
+          "mean": 5.95857,
+          "p99": 183.381,
+          "maximum": 237.387
+        },
+        "write_mutex_wait_ms": {
+          "count": 1000,
+          "median": 59.192,
+          "mean": 60.537331,
+          "p99": 96.694,
+          "maximum": 129.936
+        },
+        "sealed_prefix_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 17.196307,
+          "p99": 204.702,
+          "maximum": 237.374
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 21916672,
+        "body_reserved_peak_bytes": 23460216,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 21916672,
+        "dirty_definitions": 131,
+        "dirty_molecules": 39,
+        "dirty_slots": 312,
+        "metadata_current_bytes": 14144496,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 16775000,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 14144496,
+        "refused": 33
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 4468,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 4468,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": true,
+        "maintenance_runs": 0
+      },
+      "records_recovered": 513,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    },
+    {
+      "run": "final-small-writes",
+      "final": true,
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "c7af7cba376e90fc6546fe7a86a4e8eaf5fbf3aa7ec8e8d5fc9c58caea50e4ed",
+        "source_commit": "b06480448c9f99a7c68e91a594413d3d824eb72b",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr/h",
+        "generated_data": true,
+        "count": 1000,
+        "clients": 1,
+        "schemas": 64,
+        "uds_workers": 8,
+        "records_per_batch": 1,
+        "value_bytes": 64,
+        "dependency_high_water": 4096,
+        "durability_parameter": "default",
+        "shared_schema_between_clients": false,
+        "method": "Closed-loop real batch API calls; each client rotates through its own schema set. All latency samples retained."
+      },
+      "client": {
+        "count": 1000,
+        "errors": 0,
+        "average_ms": 14.94357681,
+        "median_ms": 14.041562500000001,
+        "p95_ms": 21.9915,
+        "p99_ms": 24.182667,
+        "max_ms": 26.982417,
+        "wall_seconds": 14.953871375000002,
+        "batches_per_second": 66.87231519670604,
+        "records_per_second": 66.87231519670604,
+        "latency_unit": "whole batch request; no division by record count"
+      },
+      "write_admission": {
+        "scope_ms": {
+          "count": 1000,
+          "median": 13.7035,
+          "mean": 14.604395,
+          "p99": 23.838,
+          "maximum": 26.647
+        },
+        "write_admission_wait_ms": {
+          "count": 1000,
+          "median": 0.003,
+          "mean": 0.462908,
+          "p99": 8.687,
+          "maximum": 12.391
+        },
+        "preparation_under_gate_ms": {
+          "count": 1000,
+          "median": 5.9105,
+          "mean": 5.851785,
+          "p99": 6.521,
+          "maximum": 6.918
+        },
+        "journal_accept_ms": {
+          "count": 1000,
+          "median": 7.816,
+          "mean": 8.243057,
+          "p99": 17.825,
+          "maximum": 20.643
+        },
+        "global_gate_through_accept_ms": {
+          "count": 1000,
+          "median": 13.661999999999999,
+          "mean": 14.095307,
+          "p99": 23.569,
+          "maximum": 26.627
+        },
+        "after_journal_ms": {
+          "count": 1000,
+          "median": 0.01,
+          "mean": 0.027241,
+          "p99": 0.726,
+          "maximum": 1.34
+        },
+        "write_mutex_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.455453,
+          "p99": 8.678,
+          "maximum": 12.384
+        },
+        "sealed_prefix_wait_ms": {
+          "count": 1000,
+          "median": 0.0,
+          "mean": 0.0,
+          "p99": 0.0,
+          "maximum": 0.0
+        }
+      },
+      "schema_overlap": 0,
+      "metadata": {
+        "body_reserved_current_bytes": 3114608,
+        "body_reserved_peak_bytes": 3562970,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 3114608,
+        "dirty_definitions": 141,
+        "dirty_molecules": 42,
+        "dirty_slots": 42,
+        "metadata_current_bytes": 2128652,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 3288272,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 2128652,
+        "refused": 0
+      },
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 3735,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 3735,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": false,
+        "maintenance_runs": 0
+      },
+      "records_recovered": 65,
+      "all_values_match": true,
+      "clock_advanced": true,
+      "shutdown_flush_ok": true
+    }
+  ],
+  "limitations": [
+    "No lock granularity change or speed improvement claimed.",
+    "The light and eight-record workloads are different batch sizes.",
+    "P99 values for different components cannot be added.",
+    "Trace enabled for every measurement; it adds diagnostic overhead.",
+    "The two-worker runs are controls, not the final comparison.",
+    "All data is generated; no primary data, archive, or shared system is accessed.",
+    "SIGKILL recovery is not a physical power interruption."
+  ]
+}

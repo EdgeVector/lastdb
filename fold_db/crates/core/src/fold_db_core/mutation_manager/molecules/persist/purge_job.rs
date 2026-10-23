@@ -9,6 +9,7 @@ impl MutationManager {
         job: &mut PurgeEnvelope,
     ) -> Result<(), SchemaError> {
         let has_completion = job.completion.is_some();
+        let notification_capture = job.notification_capture.clone();
         let native = self.db_ops.namespaced_store().disk_pack_runtime();
         let original_flags = native
             .as_ref()
@@ -24,6 +25,12 @@ impl MutationManager {
                 None => self.attempt_purge_stages(job).await?,
             };
             if let Some(runtime) = &native {
+                let events = crate::db_operations::ChangeFeedStore::native_events(&job.erasures);
+                self.db_ops
+                    .change_feed()
+                    .stage_native_events(events)
+                    .await
+                    .map_err(PurgeAttemptError::Rejected)?;
                 self.reserve_native_core_memory(runtime)
                     .map_err(PurgeAttemptError::Retry)?;
             }
@@ -43,6 +50,10 @@ impl MutationManager {
             )
             .await
         };
+        let attempt = crate::db_operations::ChangeFeedStore::with_capture_context(
+            notification_capture,
+            attempt,
+        );
         let (result, phases) = if has_completion {
             let (result, phases, _) = crate::request_phases::run_with_phases(attempt).await;
             (result, phases)

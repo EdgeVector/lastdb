@@ -1,0 +1,82 @@
+{
+  "owned_scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cp.K8ZGoP",
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cp.K8ZGoP",
+  "owner_uid": 501,
+  "current_uid": 501,
+  "live_owned_daemons": [],
+  "shutdowns": [
+    {
+      "run": "first-draft",
+      "version": 1,
+      "pid": 57855,
+      "start_ts": 1792630447,
+      "flush_ok": true,
+      "exit_code": 0
+    },
+    {
+      "run": "serial-before",
+      "version": 1,
+      "pid": 20481,
+      "start_ts": 1792631243,
+      "flush_ok": true,
+      "exit_code": 0
+    },
+    {
+      "run": "concurrent-one",
+      "version": 1,
+      "pid": 28643,
+      "start_ts": 1792631261,
+      "flush_ok": true,
+      "exit_code": 0
+    },
+    {
+      "run": "serial-after",
+      "version": 1,
+      "pid": 29018,
+      "start_ts": 1792631285,
+      "flush_ok": true,
+      "exit_code": 0
+    },
+    {
+      "run": "concurrent-two",
+      "version": 1,
+      "pid": 29167,
+      "start_ts": 1792631308,
+      "flush_ok": true,
+      "exit_code": 0
+    },
+    {
+      "run": "longer",
+      "version": 1,
+      "pid": 39057,
+      "start_ts": 1792631434,
+      "flush_ok": true,
+      "exit_code": 0
+    },
+    {
+      "run": "large",
+      "version": 1,
+      "pid": 41304,
+      "start_ts": 1792631473,
+      "flush_ok": true,
+      "exit_code": 0
+    }
+  ],
+  "scratch_entries": [
+    "a",
+    "a.log",
+    "b",
+    "b.log",
+    "c",
+    "c.log",
+    "d",
+    "d.log",
+    "e",
+    "e.log",
+    "f",
+    "f.log",
+    "g",
+    "g.log"
+  ],
+  "receipts_saved_before_removal": true
+}

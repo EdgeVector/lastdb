@@ -1,0 +1,19 @@
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/home
+  Owner:  78f1c5c6dbf34b2bf1ae6229cbaf72b1
+2026-10-23T00:40:35.148622Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 9s before this start.
+2026-10-23T00:40:35.154836Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/home
+  Owner:  78f1c5c6dbf34b2bf1ae6229cbaf72b1
+2026-10-23T00:40:51.072156Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 16s before this start.
+2026-10-23T00:40:51.077682Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/home
+  Owner:  78f1c5c6dbf34b2bf1ae6229cbaf72b1
+lastdbd: shutdown signal received, exiting
+2026-10-23T00:41:04.370826Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as3.BbSJCE/home
+  Owner:  78f1c5c6dbf34b2bf1ae6229cbaf72b1
+lastdbd: shutdown signal received, exiting

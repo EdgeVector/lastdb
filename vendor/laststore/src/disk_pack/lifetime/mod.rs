@@ -15,7 +15,8 @@ mod writer_read;
 pub use inventory::{generation_inventory, GenerationFile, GenerationInventory};
 pub(super) use reference::list_unlocked;
 pub use reference::{
-    list_references, release_reference, DurableReference, ReferenceInfo, ReferencePurpose,
+    list_references, release_owned_reference, release_reference, DurableReference, ReferenceInfo,
+    ReferencePurpose,
 };
 pub use writer_read::WriterReadLease;
 pub(in crate::disk_pack) use writer_read::WriterReadState;
@@ -69,6 +70,10 @@ impl GenerationHold {
             root: root.to_path_buf(),
             _guard: HoldGuard::Writer { _read: read },
         })
+    }
+
+    pub(in crate::disk_pack) fn root(&self) -> &Path {
+        &self.root
     }
 
     /// Complete root identity selected before any dependent file access.

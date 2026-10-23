@@ -26,7 +26,8 @@ const CAS_BLOBS_NAMESPACE: &str = "cas_blobs";
 /// One slab of the LastGit pack design. A sealed row is about 1.33 times the
 /// plaintext, and a compaction or a cold load holds a few rows of one group at
 /// once, so this keeps both near tens of MB. Larger blobs belong in slabs.
-pub const LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT: usize = 16 * 1024 * 1024;
+pub const LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT: usize =
+    lastdb_storage_policy::LOCAL_FILE_PUT_DEFAULT_BYTES;
 
 /// Environment knob that overrides [`LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT`]. A
 /// value that is not a positive integer is ignored.

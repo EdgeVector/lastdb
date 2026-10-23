@@ -1,5 +1,8 @@
 use super::SnapshotMutation;
 use crate::Result;
+use lastdb_storage_policy::native_v1::{
+    BLOCK_BYTES, MAP_ENTRIES, PAGE_BYTES, PART_BYTES, RECORD_BODY_MAX_BYTES,
+};
 
 /// Complete stored-operation dimensions. No body is copied or retained.
 #[derive(Clone, Copy, Debug)]
@@ -37,7 +40,7 @@ impl SnapshotMutationShape {
             || self.group >= 1024
             || self
                 .body_bytes
-                .is_some_and(|bytes| bytes > u64::from(u32::MAX))
+                .is_some_and(|bytes| bytes > RECORD_BODY_MAX_BYTES)
         {
             return Err(super::refuse(
                 "unrepresentable collection, key, group, or body",
@@ -175,10 +178,15 @@ impl SnapshotMutation {
 }
 
 fn reserve(length: u64) -> Result<u64> {
-    let blocks = length.div_ceil(4096);
+    // Native frames add 80 bytes; each physical data part starts with the
+    // existing 128-byte header. Derive capacity from the shared format sizes.
+    const FRAME_BYTES: u64 = 80;
+    let header_bytes = super::super::HEADER_BYTES as u64;
+    let frames_per_part = (PART_BYTES - header_bytes) / (BLOCK_BYTES as u64 + FRAME_BYTES);
+    let blocks = length.div_ceil(BLOCK_BYTES as u64);
     length
-        .checked_add(blocks * 80)
-        .and_then(|n| n.checked_add(blocks.div_ceil(2008) * 128))
-        .and_then(|n| n.checked_add(blocks.div_ceil(677) * 16_384))
+        .checked_add(blocks * FRAME_BYTES)
+        .and_then(|n| n.checked_add(blocks.div_ceil(frames_per_part) * header_bytes))
+        .and_then(|n| n.checked_add(blocks.div_ceil(MAP_ENTRIES) * PAGE_BYTES as u64))
         .ok_or_else(|| super::super::corrupt("snapshot payload reserve overflow"))
 }

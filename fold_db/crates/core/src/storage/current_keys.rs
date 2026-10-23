@@ -47,6 +47,9 @@ pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
         return Err(unsupported("retired reference or delete key format"));
     }
     validate_references(bare, family)?;
+    if family == "fdep" && !super::disk_pack::file_dependencies::is_directory_key(bare) {
+        return Err(unsupported("invalid file dependency directory key"));
+    }
     validate_retention(bare, family)?;
     if let Some(rest) = bare.strip_prefix("mk:") {
         validate_record(rest)?;
@@ -246,6 +249,7 @@ pub(in crate::storage) fn main_family(family: &str) -> bool {
     matches!(
         family,
         "atom"
+            | "fdep"
             | "aloc"
             | "aref"
             | "bref"

@@ -1,0 +1,11 @@
+{
+  "creator_pid": 191675,
+  "device": 27,
+  "home": "/workspace/pf-pairs/fixture-plain/home",
+  "inode": 554085,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "eb1b07ad7bb84d5eb86d498db6ff2225",
+  "scratch": "/workspace/pf-pairs/fixture-plain",
+  "version": 1
+}

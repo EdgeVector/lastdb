@@ -1,4 +1,7 @@
 //! Library surface of the minimal `lastdbd` daemon.
+//!
+//! The binary delegates host boot and owner-socket data routes to this library.
+//! Administrative modules share those product types without a second daemon.
 
 pub mod allocator;
 pub mod app_publish;
@@ -18,6 +21,10 @@ pub mod host;
 pub mod local_outbox;
 pub mod log_rotation;
 pub mod maintenance_write_gate;
+pub mod native_backup_access;
+pub mod native_cloud_backup;
+pub mod native_cloud_client;
+pub mod native_cloud_restore;
 pub mod offline_home;
 pub mod offline_recount;
 pub mod ops;

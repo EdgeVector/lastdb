@@ -1,0 +1,43 @@
+{
+  "binary": "/workspace/bench-bins/before",
+  "binary_sha256": "4acbc6f5a6ed9947abe74e71f6edc54934aaeea1b1f113c7ddb364818a8b0853",
+  "body_bytes": 1024,
+  "build_profile": "release",
+  "cache": "OS cache uncontrolled; reopen-first-pass is not cold filesystem",
+  "clock": "perf_counter_ns",
+  "concurrency": 1,
+  "config": "encrypted",
+  "cpu_count": 5,
+  "cpu_quota": "400000 100000",
+  "data": "Generated only, fresh owned home, no user data",
+  "driver_sha256": "d7be70c0cdbdde3a13f986cd69185b51f1e746de5319d86e8b5258f721ada023",
+  "fields": [
+    "bucket",
+    "id",
+    "title",
+    "body"
+  ],
+  "limits": {
+    "request_timeout_seconds": 30,
+    "seconds": 600
+  },
+  "memory_limit": "17179869184",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "records_per_schema": 512,
+  "rustc": "rustc 1.96.1",
+  "schemas": {
+    "hash": "ExactKeyBenchHash",
+    "range": "ExactKeyBenchRange"
+  },
+  "settings": {
+    "LASTDB_AUTO_MAINTENANCE": "0",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_RANGE_KEY_ENCODING": "ope_v1",
+    "LASTDB_RESIDENT_PERSIST_MS": "100",
+    "LASTDB_UDS_WORKERS": "4",
+    "RUST_LOG": "warn",
+    "RUST_MIN_STACK": "16777216"
+  },
+  "source_revision": "4118c7baa12539c8c6bcf4391c497159f2a1529a",
+  "transport": "HTTP over owner Unix socket"
+}

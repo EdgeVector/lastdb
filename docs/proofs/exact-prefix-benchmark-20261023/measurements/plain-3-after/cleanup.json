@@ -1,0 +1,12 @@
+{
+  "run_id": "ccd3cf001f4b4b55805e9305573e9cea",
+  "home": "/workspace/prefix-pairs/plain-3-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1618,
+  "allocated_bytes_removed": 507752448,
+  "free_bytes_before": 20712325120,
+  "free_bytes_after": 21223305216
+}

@@ -15,7 +15,7 @@ pub(in crate::storage::disk_pack) fn expanded_coordinates(
         let Ok(raw) = native_routing::decode(key) else {
             continue;
         };
-        if !native_routing::read_candidates(&raw).contains(&collection.as_str()) {
+        if native_routing::collection_for_key(&raw) != collection {
             continue;
         }
         let Ok(raw) = std::str::from_utf8(&raw) else {
@@ -34,7 +34,7 @@ pub(in crate::storage::disk_pack) fn expanded_coordinates(
         let affected = generation_tip(molecule, bare, family)
             .unwrap_or_else(|| molecule_key_codec::molecule_generation_pointer_key(molecule));
         let affected = build_storage_key(scope, &affected);
-        sources.extend(super::super::kv::coordinates("main", affected.as_bytes()));
+        sources.push(super::super::kv::coordinate("main", affected.as_bytes()));
     }
     sources.sort();
     sources.dedup();
@@ -51,7 +51,7 @@ pub(in crate::storage::disk_pack) fn invalidate(
             core.clear_authorizations();
             continue;
         };
-        if !native_routing::read_candidates(&raw).contains(&collection.as_str()) {
+        if native_routing::collection_for_key(&raw) != collection {
             continue;
         }
         let Ok(raw) = std::str::from_utf8(&raw) else {
@@ -73,7 +73,7 @@ pub(in crate::storage::disk_pack) fn invalidate(
             core.invalidate_molecule(scope, molecule);
         } else if let Some(base) = generation_tip(molecule, bare, family) {
             let key = build_storage_key(scope, &base);
-            core.invalidate_sources(&super::super::kv::coordinates("main", key.as_bytes()));
+            core.invalidate_sources(&[super::super::kv::coordinate("main", key.as_bytes())]);
         } else {
             core.invalidate_molecule(scope, molecule);
         }

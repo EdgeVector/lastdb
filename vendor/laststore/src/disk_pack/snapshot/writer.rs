@@ -19,6 +19,7 @@ pub struct SnapshotWriter {
     pub(super) dependencies: u64,
     pub(super) lock: Arc<WriteLock>,
     admission: Arc<AdmissionLedger>,
+    pub(super) compaction: crate::disk_pack::maintenance::CompactionPolicy,
 }
 
 impl SnapshotWriter {
@@ -41,6 +42,7 @@ impl SnapshotWriter {
             dependencies: receipt.dependencies,
             lock: Arc::new(lock),
             admission: Arc::default(),
+            compaction: Default::default(),
         })
     }
 
@@ -130,6 +132,7 @@ impl SnapshotWriter {
             .checked_add(1)
             .ok_or_else(|| corrupt("snapshot commit sequence exhaustion"))?;
         proposed.published_ms = artifact::unix_ms();
+        let payload_timing = crate::commit_timing::stage("payload_us");
         let mut output = None;
         let mut prepared = Vec::new();
         prepared
@@ -177,6 +180,7 @@ impl SnapshotWriter {
         }) {
             return Err(corrupt("snapshot payload exceeded its admitted dimensions"));
         }
+        drop(payload_timing);
         publish::publish_prepared(&self.lock, &self.current, proposed, prepared, payload)
     }
 }

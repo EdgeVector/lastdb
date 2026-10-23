@@ -1,0 +1,12 @@
+{
+  "run_id": "805a9fef7c0145a084ffafe012457765",
+  "home": "/workspace/pt-pairs/encrypted-0-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1317,
+  "allocated_bytes_removed": 651034624,
+  "free_bytes_before": 17691230208,
+  "free_bytes_after": 18345107456
+}

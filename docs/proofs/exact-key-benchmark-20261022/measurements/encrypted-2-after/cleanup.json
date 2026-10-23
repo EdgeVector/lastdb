@@ -1,0 +1,12 @@
+{
+  "run_id": "1bfd96c916814b2e9fe7a4ca122b4e87",
+  "home": "/workspace/ec-pairs/encrypted-2-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 7863,
+  "allocated_bytes_removed": 733417472,
+  "free_bytes_before": 20663484416,
+  "free_bytes_after": 21405204480
+}

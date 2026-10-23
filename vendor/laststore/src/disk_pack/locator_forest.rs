@@ -3,10 +3,11 @@
 use super::dependency::MAX_DEPENDENCIES;
 use super::page_write::PageWriter;
 use super::sparse_pages::SparsePages;
+use super::tree_cursor::TreeCursor;
 use super::tree_edit::{MapChange, TreeEdit};
 use super::tree_output;
 use super::tree_write::TreeWriter;
-use super::{corrupt, ReadCall, TreeKind, TreeRoot};
+use super::{corrupt, DirectoryEntry, ReadCall, TreeKind, TreeRoot};
 use crate::Result;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,11 +28,20 @@ pub(super) struct LocatorForest {
 
 impl LocatorForest {
     pub(super) fn new(root: &Path, generation: u64) -> Result<Self> {
+        Self::protected(root, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         let object = Uuid::new_v4();
-        let mut pages = PageWriter::new(
+        let mut pages = PageWriter::protected(
             root.join("locator").join(object.to_string()),
             object,
             generation,
+            protection,
         )?;
         pages.append(tree_output::leaf_fields(TreeKind::Locator, 0), &[])?;
         Ok(Self {
@@ -87,7 +97,7 @@ impl LocatorForest {
     pub(super) fn finish(mut self) -> Result<LocatorOutput> {
         let pages = self.take_pages()?;
         let written = pages.next_page();
-        let parts = written.div_ceil(512);
+        let parts = written.div_ceil(crate::disk_pack::PAGES_PER_PART);
         if parts > MAX_DEPENDENCIES as u64 {
             return Err(super::resource());
         }
@@ -105,28 +115,58 @@ impl LocatorForest {
     }
 }
 
-/// One allocator per existing object and one shared object for new groups.
+/// One allocator per existing object. New groups join an existing object, so one
+/// publication adds one locator part, not one part for each object it touches.
+/// A fresh object exists only for the first groups of an empty directory.
 /// Parked sparse allocators hold no descriptors between individual tree edits.
 pub(super) struct LocatorChanges {
+    protection: super::private_files::OutputFiles,
     root: PathBuf,
     generation: u64,
     new: Option<LocatorForest>,
+    /// The existing object that receives new groups, chosen once per publication.
+    shared: Option<Uuid>,
     edited: BTreeMap<Uuid, (TreeRoot, SparsePages)>,
 }
 
 impl LocatorChanges {
     pub(super) fn new(root: &Path, generation: u64) -> Self {
+        Self::protected(root, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Self {
         Self {
+            protection,
             root: root.to_path_buf(),
             generation,
             new: None,
+            shared: None,
             edited: BTreeMap::new(),
         }
     }
 
-    pub(super) fn create(&mut self, changes: &[MapChange]) -> Result<TreeRoot> {
+    /// Build the tree of a group that has no directory entry yet.
+    pub(super) fn create(
+        &mut self,
+        call: &mut ReadCall,
+        directory: &TreeRoot,
+        changes: &[MapChange],
+    ) -> Result<TreeRoot> {
         if self.new.is_none() {
-            self.new = Some(LocatorForest::new(&self.root, self.generation)?);
+            if let Some(empty) = self.shared_empty_tree(call, directory)? {
+                // The empty tree is page zero of the object. Editing it takes a fresh
+                // part in the same object, as the edit of any other group does.
+                return self.edit(call, empty, changes);
+            }
+            self.new = Some(LocatorForest::protected(
+                &self.root,
+                self.generation,
+                self.protection.clone(),
+            )?);
         }
         let forest = self.new.as_mut().expect("created forest");
         let mut writer = forest.tree()?;
@@ -134,6 +174,39 @@ impl LocatorChanges {
             writer.add(key, *value)?;
         }
         forest.complete_tree(writer)
+    }
+
+    /// The empty tree of the object that receives new groups, or None when the
+    /// directory has no group yet or page zero of the object is not an empty leaf.
+    fn shared_empty_tree(
+        &mut self,
+        call: &mut ReadCall,
+        directory: &TreeRoot,
+    ) -> Result<Option<TreeRoot>> {
+        if self.shared.is_none() {
+            // Prefer an object this publication already edits: its part is open.
+            self.shared = match self.edited.keys().next() {
+                Some(object) => Some(*object),
+                None => {
+                    let mut cursor = TreeCursor::seek(call, directory.clone(), b"")?;
+                    match cursor.next(call)? {
+                        Some((_, value)) => Some(DirectoryEntry::decode(&value)?.locator.object),
+                        None => None,
+                    }
+                }
+            };
+        }
+        let Some(object) = self.shared else {
+            return Ok(None);
+        };
+        let empty = TreeRoot {
+            object,
+            page: 0,
+            height: 1,
+            kind: TreeKind::Locator,
+        };
+        let page = call.tree_page(&empty, 0)?;
+        Ok((page.level() == 0 && page.count() == 0).then_some(empty))
     }
 
     pub(super) fn edit(
@@ -155,7 +228,7 @@ impl LocatorChanges {
                 if self.edited.len() >= MAX_DEPENDENCIES {
                     return Err(super::resource());
                 }
-                SparsePages::new(&self.root, &tree, self.generation)?
+                SparsePages::protected(&self.root, &tree, self.generation, self.protection.clone())?
             }
         };
         let mut edit = TreeEdit::from_pages(tree, pages)?;

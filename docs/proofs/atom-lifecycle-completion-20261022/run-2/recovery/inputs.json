@@ -1,0 +1,8 @@
+{
+  "accepted_state": "copy-age-failure",
+  "binary_sha256": "672faa0a41739709524530f2e658c4df045fe571279d5becf23790f6b8654378",
+  "driver_sha256": "56e6fa187161f575d5b434a765c7bfa28b9fd397654d2a020ba560cddefab637",
+  "maintenance_sha256": "0b0a688774edb709a33181dd42f0274af31e635463e9c22d5f26e30d61b02e8b",
+  "original_run_complete": false,
+  "source_revision": "8ca6c30f0"
+}

@@ -1,0 +1,420 @@
+{
+  "source_commit": "d054bf8372d00b4b876a88c99fe3ed446389192a",
+  "base_commit": "c70e6fdc7810bb6291a2564ad8157d7938de0494",
+  "binary_sha256": "cf1c951928c5c3fc9c9feaaa1c6476a9f15fb178185787e6a87e8362e260fcb6",
+  "final_measured_writes": 6600,
+  "candidate_measured_writes": 5600,
+  "all_receipt_checks_pass": true,
+  "initial_control_home_recovered_values": 500,
+  "runs": [
+    {
+      "run": "serial-control",
+      "writes": 1000,
+      "value_bytes": 64,
+      "part_threshold": 1024,
+      "disk_cap_bytes": null,
+      "latency_ms": {
+        "median_ms": 12.4999585,
+        "average_ms": 15.438029451,
+        "p95_ms": 20.645,
+        "p99_ms": 38.967625,
+        "max_ms": 948.384167
+      },
+      "foreground_gate_wait_ms": {
+        "count": 1000,
+        "median": 0.0,
+        "mean": 2.758941,
+        "p99": 26.212,
+        "maximum": 935.968
+      },
+      "compaction_global_memory_install_ms": null,
+      "serial_global_maintenance_ms": {
+        "count": 4,
+        "median": 377.9135,
+        "mean": 423.02225,
+        "p99": 906.013,
+        "maximum": 906.013
+      },
+      "compaction_copy_ms": null,
+      "compaction_catch_up_ms": null,
+      "compaction_final_suffix_ms": null,
+      "compaction_disk_publication_ms": null,
+      "complete_calls_during_copy": 0,
+      "normal_publications_during_copy": 0,
+      "complete_calls_during_cleanup": 0,
+      "obsolete_files_removed": 0,
+      "metadata_peak_bytes": 13077580,
+      "metadata_limit_bytes": 16777216,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 1024,
+        "dependency_parts": 474,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 1123,
+        "dependency_trigger": 1024,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 905,
+        "maintenance_last_parts_after": 7,
+        "maintenance_last_parts_before": 1052,
+        "maintenance_last_records": 5642,
+        "maintenance_running": false,
+        "maintenance_runs": 2
+      },
+      "values_before_stop": 500,
+      "values_after_restart": 501,
+      "durable_receipts": true,
+      "values_match": true,
+      "clock_advances": true,
+      "graceful_shutdown_flush": true
+    },
+    {
+      "run": "concurrent-one",
+      "writes": 1000,
+      "value_bytes": 64,
+      "part_threshold": 1024,
+      "disk_cap_bytes": null,
+      "latency_ms": {
+        "median_ms": 12.1722285,
+        "average_ms": 13.107776453,
+        "p95_ms": 20.270459,
+        "p99_ms": 23.987209,
+        "max_ms": 40.725792
+      },
+      "foreground_gate_wait_ms": {
+        "count": 1000,
+        "median": 0.0,
+        "mean": 0.38623999999999997,
+        "p99": 8.412,
+        "maximum": 9.63
+      },
+      "compaction_global_memory_install_ms": {
+        "count": 2,
+        "median": 0.158,
+        "mean": 0.158,
+        "p99": 0.168,
+        "maximum": 0.168
+      },
+      "serial_global_maintenance_ms": null,
+      "compaction_copy_ms": {
+        "count": 2,
+        "median": 1112.411,
+        "mean": 1112.411,
+        "p99": 1344.806,
+        "maximum": 1344.806
+      },
+      "compaction_catch_up_ms": {
+        "count": 2,
+        "median": 178.938,
+        "mean": 178.938,
+        "p99": 205.49,
+        "maximum": 205.49
+      },
+      "compaction_final_suffix_ms": {
+        "count": 2,
+        "median": 88.9635,
+        "mean": 88.9635,
+        "p99": 97.005,
+        "maximum": 97.005
+      },
+      "compaction_disk_publication_ms": {
+        "count": 2,
+        "median": 9.488,
+        "mean": 9.488,
+        "p99": 10.94,
+        "maximum": 10.94
+      },
+      "complete_calls_during_copy": 164,
+      "normal_publications_during_copy": 8,
+      "complete_calls_during_cleanup": 59,
+      "obsolete_files_removed": 2366,
+      "metadata_peak_bytes": 13128172,
+      "metadata_limit_bytes": 16777216,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 1024,
+        "dependency_parts": 361,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 1378,
+        "dependency_trigger": 1024,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 2358,
+        "maintenance_last_parts_after": 292,
+        "maintenance_last_parts_before": 1042,
+        "maintenance_last_records": 5803,
+        "maintenance_running": false,
+        "maintenance_runs": 2
+      },
+      "values_before_stop": 500,
+      "values_after_restart": 501,
+      "durable_receipts": true,
+      "values_match": true,
+      "clock_advances": true,
+      "graceful_shutdown_flush": true
+    },
+    {
+      "run": "longer",
+      "writes": 3000,
+      "value_bytes": 64,
+      "part_threshold": 4096,
+      "disk_cap_bytes": null,
+      "latency_ms": {
+        "median_ms": 17.1345415,
+        "average_ms": 26.024172115666666,
+        "p95_ms": 46.640625,
+        "p99_ms": 79.392667,
+        "max_ms": 553.375125
+      },
+      "foreground_gate_wait_ms": {
+        "count": 3000,
+        "median": 0.0,
+        "mean": 3.1306713333333334,
+        "p99": 13.447,
+        "maximum": 503.134
+      },
+      "compaction_global_memory_install_ms": {
+        "count": 2,
+        "median": 0.027500000000000004,
+        "mean": 0.027500000000000004,
+        "p99": 0.034,
+        "maximum": 0.034
+      },
+      "serial_global_maintenance_ms": null,
+      "compaction_copy_ms": {
+        "count": 2,
+        "median": 2198.8125,
+        "mean": 2198.8125,
+        "p99": 2615.955,
+        "maximum": 2615.955
+      },
+      "compaction_catch_up_ms": {
+        "count": 2,
+        "median": 124.6115,
+        "mean": 124.6115,
+        "p99": 125.441,
+        "maximum": 125.441
+      },
+      "compaction_final_suffix_ms": {
+        "count": 2,
+        "median": 27.1675,
+        "mean": 27.1675,
+        "p99": 29.198,
+        "maximum": 29.198
+      },
+      "compaction_disk_publication_ms": {
+        "count": 2,
+        "median": 6.885999999999999,
+        "mean": 6.885999999999999,
+        "p99": 6.922,
+        "maximum": 6.922
+      },
+      "complete_calls_during_copy": 102,
+      "normal_publications_during_copy": 102,
+      "complete_calls_during_cleanup": 234,
+      "obsolete_files_removed": 9749,
+      "metadata_peak_bytes": 13299424,
+      "metadata_limit_bytes": 16777216,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 4096,
+        "dependency_parts": 4312,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 4564,
+        "dependency_trigger": 4096,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 8089,
+        "maintenance_last_parts_after": 266,
+        "maintenance_last_parts_before": 4098,
+        "maintenance_last_records": 12667,
+        "maintenance_running": true,
+        "maintenance_runs": 2
+      },
+      "values_before_stop": 1500,
+      "values_after_restart": 1501,
+      "durable_receipts": true,
+      "values_match": true,
+      "clock_advances": true,
+      "graceful_shutdown_flush": true
+    },
+    {
+      "run": "large",
+      "writes": 1000,
+      "value_bytes": 4096,
+      "part_threshold": 1024,
+      "disk_cap_bytes": null,
+      "latency_ms": {
+        "median_ms": 11.9363955,
+        "average_ms": 12.66275401,
+        "p95_ms": 19.09925,
+        "p99_ms": 23.224375,
+        "max_ms": 33.143667
+      },
+      "foreground_gate_wait_ms": {
+        "count": 1000,
+        "median": 0.0,
+        "mean": 0.350457,
+        "p99": 7.638,
+        "maximum": 13.638
+      },
+      "compaction_global_memory_install_ms": {
+        "count": 2,
+        "median": 0.1755,
+        "mean": 0.1755,
+        "p99": 0.176,
+        "maximum": 0.176
+      },
+      "serial_global_maintenance_ms": null,
+      "compaction_copy_ms": {
+        "count": 2,
+        "median": 1044.999,
+        "mean": 1044.999,
+        "p99": 1251.336,
+        "maximum": 1251.336
+      },
+      "compaction_catch_up_ms": {
+        "count": 2,
+        "median": 190.2225,
+        "mean": 190.2225,
+        "p99": 245.452,
+        "maximum": 245.452
+      },
+      "compaction_final_suffix_ms": {
+        "count": 2,
+        "median": 87.709,
+        "mean": 87.709,
+        "p99": 116.464,
+        "maximum": 116.464
+      },
+      "compaction_disk_publication_ms": {
+        "count": 2,
+        "median": 9.2085,
+        "mean": 9.2085,
+        "p99": 10.49,
+        "maximum": 10.49
+      },
+      "complete_calls_during_copy": 159,
+      "normal_publications_during_copy": 7,
+      "complete_calls_during_cleanup": 55,
+      "obsolete_files_removed": 2315,
+      "metadata_peak_bytes": 13178764,
+      "metadata_limit_bytes": 16777216,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 1024,
+        "dependency_parts": 410,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 1399,
+        "dependency_trigger": 1024,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 2298,
+        "maintenance_last_parts_after": 298,
+        "maintenance_last_parts_before": 1050,
+        "maintenance_last_records": 5763,
+        "maintenance_running": false,
+        "maintenance_runs": 2
+      },
+      "values_before_stop": 500,
+      "values_after_restart": 501,
+      "durable_receipts": true,
+      "values_match": true,
+      "clock_advances": true,
+      "graceful_shutdown_flush": true
+    },
+    {
+      "run": "capped",
+      "writes": 600,
+      "value_bytes": 64,
+      "part_threshold": 512,
+      "disk_cap_bytes": 2147483648,
+      "latency_ms": {
+        "median_ms": 16.057479,
+        "average_ms": 17.47032756666667,
+        "p95_ms": 27.987125,
+        "p99_ms": 37.951958,
+        "max_ms": 51.655416
+      },
+      "foreground_gate_wait_ms": {
+        "count": 600,
+        "median": 0.0,
+        "mean": 0.8588250000000001,
+        "p99": 15.531,
+        "maximum": 23.396
+      },
+      "compaction_global_memory_install_ms": {
+        "count": 2,
+        "median": 0.089,
+        "mean": 0.089,
+        "p99": 0.093,
+        "maximum": 0.093
+      },
+      "serial_global_maintenance_ms": null,
+      "compaction_copy_ms": {
+        "count": 2,
+        "median": 453.939,
+        "mean": 453.939,
+        "p99": 578.902,
+        "maximum": 578.902
+      },
+      "compaction_catch_up_ms": {
+        "count": 2,
+        "median": 55.571,
+        "mean": 55.571,
+        "p99": 65.963,
+        "maximum": 65.963
+      },
+      "compaction_final_suffix_ms": {
+        "count": 2,
+        "median": 37.965,
+        "mean": 37.965,
+        "p99": 39.98,
+        "maximum": 39.98
+      },
+      "compaction_disk_publication_ms": {
+        "count": 2,
+        "median": 10.0305,
+        "mean": 10.0305,
+        "p99": 12.279,
+        "maximum": 12.279
+      },
+      "complete_calls_during_copy": 40,
+      "normal_publications_during_copy": 3,
+      "complete_calls_during_cleanup": 12,
+      "obsolete_files_removed": 1167,
+      "metadata_peak_bytes": 8073196,
+      "metadata_limit_bytes": 16777216,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 512,
+        "dependency_parts": 504,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 596,
+        "dependency_trigger": 512,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 959,
+        "maintenance_last_parts_after": 88,
+        "maintenance_last_parts_before": 523,
+        "maintenance_last_records": 3081,
+        "maintenance_running": false,
+        "maintenance_runs": 2
+      },
+      "values_before_stop": 300,
+      "values_after_restart": 301,
+      "durable_receipts": true,
+      "values_match": true,
+      "clock_advances": true,
+      "graceful_shutdown_flush": true
+    }
+  ],
+  "limits": [
+    "Generated fresh homes; no primary data or archive access.",
+    "Process-stop recovery, not physical power interruption.",
+    "Separate sequential runs share the same executable; host-wide resource contention can differ.",
+    "The longer run includes background logical writes and canonical publication waits.",
+    "Disk cap run checks active 2 GiB accounting, not cap exhaustion.",
+    "Changes are local and unmerged."
+  ]
+}

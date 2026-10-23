@@ -1,0 +1,30 @@
+{
+  "receipt": {
+    "background_tasks_drained": false,
+    "convergence_pending": true,
+    "durability": "durable",
+    "mutation_id": "a061ac59-dc75-4362-bf2c-c0ccc218fddb",
+    "ok": true,
+    "operations": {
+      "created": 1,
+      "deleted": 0,
+      "no_op": 0,
+      "total": 1,
+      "updated": 0
+    },
+    "resident_stages_us": {
+      "ack": 46947,
+      "gate_wait": 0,
+      "prepare": 3940,
+      "publish": 0
+    },
+    "revision": 1001,
+    "size": 72,
+    "success": true,
+    "touched_group_ids": [],
+    "user_hash": "fadf3f301cf6092a0c3d9ef946d913c3"
+  },
+  "exit_code": -9,
+  "signal": "SIGKILL",
+  "pid": 60662
+}

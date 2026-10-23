@@ -11,6 +11,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
+pub mod backup_capture;
+pub mod backup_manifest;
+mod cloud_work;
+pub mod file_dependencies;
+pub mod file_recovery;
+pub use cloud_work::NativeCloudWorkGuard;
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
@@ -20,10 +26,12 @@ mod namespace_delete;
 mod parts;
 mod queue;
 mod read;
+mod restore;
 mod rows;
 mod rows_yielding;
 pub(crate) mod schema_keys;
 mod space;
+mod timing;
 pub(crate) mod transaction;
 mod view;
 mod write;
@@ -35,6 +43,7 @@ pub use parts::NativePartsStatus;
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
+pub use restore::{prepare_restored_node, validate_restored_atom_key};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 
@@ -50,7 +59,7 @@ pub struct PackRuntime {
     writer: Mutex<HomeSnapshot>,
     read_lease: laststore::disk_pack::lifetime::WriterReadLease,
     write_gate: Arc<tokio::sync::Mutex<()>>,
-    maintenance_gate: Arc<tokio::sync::Mutex<()>>,
+    compaction_slots: Arc<tokio::sync::Semaphore>,
     flush_notify: tokio::sync::Notify,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
@@ -146,7 +155,7 @@ impl PackNamespacedStore {
                 writer: Mutex::new(writer),
                 read_lease,
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
-                maintenance_gate: Arc::new(tokio::sync::Mutex::new(())),
+                compaction_slots: Arc::new(tokio::sync::Semaphore::new(2)),
                 flush_notify: tokio::sync::Notify::new(),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,

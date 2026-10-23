@@ -302,26 +302,8 @@ pub async fn import_slice_via_mutations(
     Ok(written)
 }
 
-/// Resolve raw file bytes for a field value that is a `$lastdb_file` pointer.
-///
-/// Operation Trinity: local CAS rows sealed under the file KDK open with the
-/// DEK from pointer access metadata (never stored in plain on the CAS row).
-pub async fn resolve_file_bytes(
-    db: &FoldDB,
-    field_value: &Value,
-) -> Result<Option<Vec<u8>>, FoldDbError> {
-    let Some(blob_ref) = blob_ref_from_atom_value(field_value) else {
-        // Try legacy embedded form.
-        return Ok(extract_embedded_file(field_value)?.map(|f| f.bytes));
-    };
-    if let Some(access) = file_blob_access_from_atom_value(field_value)? {
-        if !access.dek.is_empty() {
-            return blob_cas::get_blob_bytes_with_dek_in_ops(db.db_ops(), blob_ref, &access.dek)
-                .await;
-        }
-    }
-    blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await
-}
+mod file_recovery;
+pub use file_recovery::{resolve_file_bytes, resolve_file_bytes_kind};
 
 /// Resolve raw file bytes for a `$lastdb_file` pointer, fetching exactly that
 /// remote CAS object when the local CAS cache misses and the pointer carries

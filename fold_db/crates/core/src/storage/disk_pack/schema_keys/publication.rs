@@ -33,7 +33,7 @@ impl PackRuntime {
             let Ok(raw) = std::str::from_utf8(&raw) else {
                 continue;
             };
-            if !native_routing::read_candidates(raw.as_bytes()).contains(&collection) {
+            if native_routing::collection_for_key(raw.as_bytes()) != collection {
                 continue;
             }
             let Some((id, bare, structural)) = membership_coordinate(raw) else {

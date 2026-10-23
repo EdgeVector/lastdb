@@ -1,0 +1,32 @@
+[
+  {
+    "name": "control",
+    "seconds": 72.824385292,
+    "complete": true,
+    "load_after": [
+      3.556640625,
+      3.57373046875,
+      3.66357421875
+    ]
+  },
+  {
+    "name": "profile",
+    "seconds": 72.78721570799999,
+    "complete": true,
+    "load_after": [
+      3.6708984375,
+      3.58154296875,
+      3.6572265625
+    ]
+  },
+  {
+    "name": "no-maintenance",
+    "seconds": 63.40375416699999,
+    "complete": true,
+    "load_after": [
+      3.68798828125,
+      3.5771484375,
+      3.6474609375
+    ]
+  }
+]

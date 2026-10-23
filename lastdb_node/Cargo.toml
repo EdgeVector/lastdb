@@ -46,6 +46,9 @@ sentry-telemetry = ["dep:sentry", "observability/sentry"]
 purging-allocator = ["dep:mimalloc", "dep:libmimalloc-sys"]
 
 [dependencies]
+lastdb_storage_policy = { path = "../lastdb_storage_policy" }
+cloud_backup_protocol = { path = "../cloud_backup_protocol" }
+zeroize = { workspace = true }
 fold_db = { workspace = true }
 env_flag = { workspace = true }
 laststore = { workspace = true }
@@ -62,7 +65,7 @@ app_identity_crypto = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["process"] }
+tokio = { workspace = true, features = ["process", "io-util"] }
 futures = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

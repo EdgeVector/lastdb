@@ -121,6 +121,7 @@ impl AtomStore {
         let mut cursor = after.map(str::to_owned);
         let mut selected = Vec::new();
         let mut refilling = false;
+        let mut unfinished = false;
         while selected.len() < want {
             let remaining = (want - selected.len()).min(128);
             let ask = if refilling {
@@ -147,10 +148,23 @@ impl AtomStore {
             if exhausted {
                 break;
             }
+            if self
+                .namespaced_store
+                .as_ref()
+                .and_then(|store| store.disk_pack_runtime())
+                .is_some_and(|runtime| runtime.list_page_should_yield())
+            {
+                unfinished = true;
+                break;
+            }
         }
-        let has_more = selected.len() > request.limit;
+        let has_more = selected.len() > request.limit || unfinished;
         selected.truncate(request.limit);
-        let next_cursor = has_more.then(|| selected.last().expect("nonempty key page").2.clone());
+        let next_cursor = if has_more {
+            selected.last().map(|item| item.2.clone()).or(cursor)
+        } else {
+            None
+        };
         let keys = selected
             .into_iter()
             .map(|(hash, range, _)| (hash, range))

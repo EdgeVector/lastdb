@@ -1,0 +1,11 @@
+{
+  "creator_pid": 189253,
+  "device": 27,
+  "home": "/workspace/pt-pairs/encrypted-1-before/home",
+  "inode": 555631,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "f54c94535f0c4d34a0c35d31aaada1a5",
+  "scratch": "/workspace/pt-pairs/encrypted-1-before",
+  "version": 1
+}

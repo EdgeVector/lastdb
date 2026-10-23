@@ -1,0 +1,50 @@
+{
+  "scratch": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6",
+  "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6",
+  "uid": 501,
+  "parent_matches_tmpdir": true,
+  "active_owned_daemons": [],
+  "entries": [
+    "candidate",
+    "h0",
+    "h0.log",
+    "h1",
+    "h1.log",
+    "h2",
+    "h2.log",
+    "h3",
+    "h3.log",
+    "h4",
+    "h4.log",
+    "h5",
+    "h5.log"
+  ],
+  "logs": [
+    {
+      "path": "docs/proofs/snapshot-durable-repeat-20261022/single-1.daemon.txt",
+      "bytes": 2806
+    },
+    {
+      "path": "docs/proofs/snapshot-durable-repeat-20261022/compaction-1.daemon.txt",
+      "bytes": 1875
+    },
+    {
+      "path": "docs/proofs/snapshot-durable-repeat-20261022/compaction-2.daemon.txt",
+      "bytes": 1875
+    },
+    {
+      "path": "docs/proofs/snapshot-durable-repeat-20261022/single-2.daemon.txt",
+      "bytes": 2807
+    },
+    {
+      "path": "docs/proofs/snapshot-durable-repeat-20261022/single-3.daemon.txt",
+      "bytes": 2806
+    },
+    {
+      "path": "docs/proofs/snapshot-durable-repeat-20261022/compaction-3.daemon.txt",
+      "bytes": 1875
+    }
+  ],
+  "all_six_capture_exits_zero": true,
+  "all_six_clean_shutdowns": true
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "94fcbc5f2fca4a379ce7802d0c5689e1",
+  "home": "/workspace/eb-pairs/plain-1-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 8127,
+  "allocated_bytes_removed": 740356096,
+  "free_bytes_before": 8515055616,
+  "free_bytes_after": 9263734784
+}

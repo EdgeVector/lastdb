@@ -48,6 +48,7 @@ pub(super) fn complete<T>(root: &Path, commit: impl FnOnce() -> Result<T>) -> Re
     });
     let scope = Scope;
     let result = commit()?;
+    let _timing = crate::commit_timing::stage("final_drain_us");
     flush_pending()?;
     // Do not use the scoped helper here: success requires the full device drain.
     super::timed(&super::DATA_SYNCS, &super::DATA_SYNC_MICROS, || {
@@ -96,6 +97,7 @@ pub(super) fn publication_if_active(file: &File) -> Result<bool> {
         return Ok(false);
     }
     flush_pending()?;
+    let _timing = crate::commit_timing::stage("ordered_barrier_us");
     super::timed(&super::ORDERED_SYNCS, &super::ORDERED_SYNC_MICROS, || {
         nix::fcntl::fcntl(file, nix::fcntl::FcntlArg::F_BARRIERFSYNC)
             .map_err(std::io::Error::from)?;
@@ -118,6 +120,8 @@ fn flush(files: Vec<Pending>) -> Result<()> {
     if files.is_empty() {
         return Ok(());
     }
+    let _timing = crate::commit_timing::stage("file_set_flush_us");
+    crate::commit_timing::count("flushed_files", files.len() as u64);
     super::timed(&super::FILE_SET_SYNCS, &super::FILE_SET_SYNC_MICROS, || {
         flush_files(files)
     })

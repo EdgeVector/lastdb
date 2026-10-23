@@ -103,23 +103,24 @@ every peer. Today no code knows a maximum offline time for a device and no code 
 
 ## Pacing
 
-A sweep batch is one erase request. It holds the local mutation admission for the whole batch and the
-native write gate for about 50 ms. A purge or a delete that the sweep sends waits for disk, so its batch has no early
-publication: it seals the write queue, and a writer that arrives meanwhile waits for the flush of the
-batch even though the gate is free. The sweep therefore rests after each batch.
+A sweep batch is one erase request. It retains its durability fence.
+The sweep measures the time its write scopes keep other writers waiting.
+That measure includes a sealed flush wait and excludes reads before the write gate.
+The rest is `blocked * (100 - duty) / duty`, subject to the configured minimum and maximum.
 
-- **The sweep** rests for `took * (100 - duty) / duty`, where `took` is the wall time of the batch
-  (`ttl_sweep/pace.rs`). With the default duty of 25 percent, writers wait for the sweep about a
-  quarter of the time. It does not use the writer-wait meter or the writer watch that the next bullet
-  describes, so an idle node still rests by this rule.
-- **The retention janitor and the blob dwell pass** pace by a different rule. A task-local meter
-  returns the time that a step kept writers waiting (the gate hold and, for a batch that seals the
-  queue, the wait until it is durable). The rest is `blocked * (100 - duty) / duty`. A sticky
-  writer watch (`LASTDB_MAINTENANCE_QUIET_SECS`, 60 s) keeps that rest in force for a quiet period
-  after the last write scope of another task, and lets the task go on at the speed of its flush when
-  no writer was there. See `docs/lastdb-time-queue.md`, section Pacing.
+The TTL sweep uses the same task-local writer-cost measure as the other maintenance jobs.
+A sticky writer watch retains the duty share for sparse writers.
+`LASTDB_MAINTENANCE_QUIET_SECS` defaults to 60 seconds.
+When no other writer remains, the rest returns to its configured minimum.
+The watch persists between passes. A long rest ends early after the quiet period.
 
-## Measured cost
+Private janitor, dwell, and drain batches can share the bounded collection window.
+They still return after durability. Their ordinary measured cost includes the gate and shared flush holds.
+See `docs/lastdb-concurrent-compaction.md` and `docs/lastdb-time-queue.md`.
+
+## Historical measured cost
+
+These measurements precede writer-cost TTL pacing and private background collection.
 
 Synthetic fresh home, development-release build, `EXEMEM_ENV=dev`, default knobs (batch 16,
 duty 25, minimum rest 25 ms), verb `purge`. One HashRange schema with 6 fields and 2,400 rows
@@ -259,7 +260,7 @@ needs a restart of the daemon. The sweep reads them at the start of each pass.
 |---|---|---|---|
 | `LASTDB_TTL_SWEEP` | on | - | Kill switch. `0`, `false`, `no` or `off` stops the sweep. |
 | `LASTDB_TTL_SWEEP_BATCH` | 16 | 1 to 64 | Keys erased in one batch. |
-| `LASTDB_TTL_SWEEP_DUTY_PCT` | 25 | 1 to 100 | The share of wall time that the sweep spends in batches. |
+| `LASTDB_TTL_SWEEP_DUTY_PCT` | 25 | 1 to 100 | The share of time that the sweep keeps other writers waiting. |
 | `LASTDB_TTL_SWEEP_MIN_PAUSE_MS` | 25 | 0 to 600000 | The shortest rest between two batches. |
 | `LASTDB_TTL_SWEEP_VERB` | `purge` | `purge`, `delete` | See Verbs. |
 

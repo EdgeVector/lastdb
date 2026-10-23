@@ -8,7 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const MANIFEST_BYTES: u64 = 32 * 1024 * 1024;
-const MAX_FILES: usize = 65_552;
+const MAX_FILES: usize = lastdb_storage_policy::native_v1::MAX_BACKUP_FILES;
 
 pub(super) struct Entry {
     pub(super) path: PathBuf,

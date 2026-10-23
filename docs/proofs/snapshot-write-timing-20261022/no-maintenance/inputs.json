@@ -1,0 +1,15 @@
+{
+  "binary_sha256": "b9506269d266b4b51c688a817c0dca293c83c696cf4e6b180cd2e38e7937408c",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/wt.78S0yG/h2",
+  "schemas": 64,
+  "calls": 1000,
+  "clients": 1,
+  "value_bytes": 64,
+  "batch_size": 1,
+  "request_workers": 8,
+  "high_water": 4096,
+  "timing_enabled": true,
+  "auto_maintenance": false,
+  "durability_parameter": "omitted; durable required",
+  "generated_data": true
+}

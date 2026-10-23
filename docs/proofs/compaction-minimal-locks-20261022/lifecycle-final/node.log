@@ -1,0 +1,25 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-23T02:35:24.659304Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/home
+  Owner:  4bd0dada8c9abcd45b0d9b74412c159c
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/home
+  Owner:  4bd0dada8c9abcd45b0d9b74412c159c
+2026-10-23T02:35:45.745674Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 2s before this start.
+2026-10-23T02:35:45.756517Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/home
+  Owner:  4bd0dada8c9abcd45b0d9b74412c159c
+2026-10-23T02:35:49.333165Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 3s before this start.
+2026-10-23T02:35:49.339596Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/home
+  Owner:  4bd0dada8c9abcd45b0d9b74412c159c
+lastdbd: shutdown signal received, exiting
+2026-10-23T02:35:54.021253Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml5.D4mSaA/home
+  Owner:  4bd0dada8c9abcd45b0d9b74412c159c
+lastdbd: shutdown signal received, exiting

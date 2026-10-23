@@ -1,0 +1,11 @@
+{
+  "creator_pid": 25101,
+  "device": 27,
+  "home": "/workspace/ec-pairs/encrypted-0-after/home",
+  "inode": 1048588,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "2959524ec0ff4ed49324dcc68d92a5a5",
+  "scratch": "/workspace/ec-pairs/encrypted-0-after",
+  "version": 1
+}

@@ -1,0 +1,18 @@
+{
+  "query": {
+    "conflict_flags": "unknown",
+    "has_more": false,
+    "key_form": null,
+    "limit": 1,
+    "next_cursor": null,
+    "offset": 0,
+    "ok": true,
+    "results": [],
+    "returned_count": 0,
+    "tombstoned_rows": 0,
+    "total_count": null,
+    "unresolved_rows": 0,
+    "user_hash": "05a79aac841c3f227e81cef84f465fc0"
+  },
+  "notices": []
+}

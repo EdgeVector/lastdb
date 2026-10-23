@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 const INITIALIZING: &str = "laststore-current-keys-v2-initializing";
 const STAGING: &str = "physical";
-const NODE_BYTES: &[u8] = b"format=1\nhome=disk-pack\n";
+pub(super) const NODE_BYTES: &[u8] = b"format=1\nhome=disk-pack\n";
 
 /// The stable node-marker inode serializes creation and remains locked for the
 /// runtime's lifetime. The directory marker authorizes only this new protocol.
@@ -211,7 +211,7 @@ impl PackRuntime {
         let keys = crate::db_operations::atom_store::CURRENT_NATIVE_INITIALIZATION_KEYS;
         let expected: Vec<_> = keys
             .iter()
-            .map(|key| kv::coordinates("main", key.as_bytes())[0].clone())
+            .map(|key| kv::coordinate("main", key.as_bytes()))
             .collect();
         let mut found = vec![false; expected.len()];
         for operation in operations {

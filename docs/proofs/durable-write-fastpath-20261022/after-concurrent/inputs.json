@@ -1,0 +1,15 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/fw.lR8wYg/trial1",
+  "binary_sha256": "186634a93bfcc8954d112285123e66662a61d669e959962a6542ca5a74573b87",
+  "source_commit": "217b658dec537121080ab6b0422b9454078c937d",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/fw.lR8wYg/h4",
+  "generated_data": true,
+  "count": 256,
+  "schemas": 64,
+  "clients": 4,
+  "records_per_batch": 8,
+  "durability_parameter": "omitted; default must be durable",
+  "journal": false,
+  "explicit_compaction": true,
+  "high_water": 4096
+}

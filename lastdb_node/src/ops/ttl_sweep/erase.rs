@@ -6,6 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use fold_db::clock::unix_secs;
+use fold_db::db_operations::WriterWatch;
+
+static WATCH: std::sync::Mutex<Option<WriterWatch>> = std::sync::Mutex::new(None);
 use fold_db::request_phases::{run_with_phases, RequestPhaseTotals};
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::KeyValue;
@@ -70,7 +73,21 @@ pub(super) async fn purge_round_robin(
 ) -> PassTotals {
     let verb = SweepVerb::from_env();
     let pace = Pace::from_env();
-    totals.cut = erase_rounds(host, &mut backlogs, shutdown, (verb, pace), &mut totals).await;
+    let mut watch = WATCH
+        .lock()
+        .expect("ttl writer watch")
+        .take()
+        .unwrap_or_default();
+    totals.cut = erase_rounds(
+        host,
+        &mut backlogs,
+        shutdown,
+        (verb, pace),
+        &mut totals,
+        &mut watch,
+    )
+    .await;
+    *WATCH.lock().expect("ttl writer watch") = Some(watch);
     totals.keys_left = backlogs.iter().map(Backlog::left).sum();
     totals
 }
@@ -82,6 +99,7 @@ async fn erase_rounds(
     shutdown: &AtomicBool,
     (verb, pace): (SweepVerb, Pace),
     totals: &mut PassTotals,
+    watch: &mut WriterWatch,
 ) -> bool {
     while backlogs.iter().any(|backlog| !backlog.is_done()) {
         for index in 0..backlogs.len() {
@@ -97,12 +115,18 @@ async fn erase_rounds(
             let started = Instant::now();
             let admitted = crate::maintenance_write_gate::run(
                 host,
-                run_with_phases(erase_batch(host, &mut backlogs[index], chunk, verb)),
+                WriterWatch::measure(run_with_phases(erase_batch(
+                    host,
+                    &mut backlogs[index],
+                    chunk,
+                    verb,
+                ))),
             )
             .await;
-            let Some((outcome, phases, _counts)) = admitted else {
+            let Some(((outcome, phases, _counts), blocked, scopes)) = admitted else {
                 return true;
             };
+            let pause = pace.pause_after(blocked, watch.writer_present(scopes));
             let done = match outcome {
                 Ok(done) => done,
                 Err(error) if taken > 1 && is_size_limit_error(&error) => {
@@ -137,7 +161,7 @@ async fn erase_rounds(
             totals.missing += done.missing;
             log_batch(&backlogs[index].schema_name, &done, took, &phases);
             if backlogs.iter().any(|backlog| !backlog.is_done()) {
-                rest(pace.pause_after(took), shutdown).await;
+                rest(pause, shutdown, watch).await;
             }
         }
     }
@@ -262,7 +286,7 @@ async fn still_expired(
 }
 
 /// Rest for `pause`, and wake early when the node starts to stop.
-async fn rest(pause: Duration, shutdown: &AtomicBool) {
+async fn rest(pause: Duration, shutdown: &AtomicBool, watch: &mut WriterWatch) {
     const SLICE: Duration = Duration::from_millis(250);
     let until = tokio::time::Instant::now() + pause;
     while !shutdown.load(Ordering::Acquire) {
@@ -271,6 +295,9 @@ async fn rest(pause: Duration, shutdown: &AtomicBool) {
             break;
         }
         tokio::time::sleep(left.min(SLICE)).await;
+        if left > SLICE && watch.rest_may_end() {
+            break;
+        }
     }
 }
 

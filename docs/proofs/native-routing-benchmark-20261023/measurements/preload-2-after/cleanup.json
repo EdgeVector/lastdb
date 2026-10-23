@@ -1,0 +1,12 @@
+{
+  "run_id": "f595ccab7c7f400d9310b8ecb471f9e0",
+  "home": "/workspace/native-routing-pairs/preload-2-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1613,
+  "allocated_bytes_removed": 493613056,
+  "free_bytes_before": 19751440384,
+  "free_bytes_after": 20248268800
+}

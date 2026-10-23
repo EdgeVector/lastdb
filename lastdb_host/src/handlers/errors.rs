@@ -176,7 +176,7 @@ impl From<SchemaError> for HostError {
             ),
             SchemaError::WriteResourceLimit { detail } => Self::new(
                 503,
-                serde_json::json!({"error":"write_resource_limit","retryable":true,
+                serde_json::json!({"error":if detail.starts_with("compaction_behind:") { "compaction_behind" } else { "write_resource_limit" },"retryable":true,
                     "retry_after_secs":2,"message":detail})
                 .to_string(),
             ),

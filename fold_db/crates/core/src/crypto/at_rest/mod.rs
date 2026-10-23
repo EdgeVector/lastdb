@@ -63,10 +63,12 @@
 
 mod compress;
 mod config;
+mod owned;
 mod stats;
 
 pub use compress::*;
 pub use config::*;
+pub use owned::open_at_rest_bounded_owned;
 pub use stats::*;
 
 use super::envelope::decrypt_envelope;
@@ -181,6 +183,28 @@ pub const AT_REST_ENC_DEFLATE_PREFIX: &str = "ENZ:";
 /// writes; it must never strand rows already on disk.
 pub fn open_at_rest(key: &[u8; 32], stored: &[u8]) -> CryptoResult<Vec<u8>> {
     open_at_rest_with_ceiling(key, stored, at_rest_max_inflated_bytes)
+}
+
+/// Open existing formats with a caller-owned bound, independent of environment.
+/// Unlike the historical helper, this entry point requires an encrypted value.
+pub fn open_at_rest_bounded(key: &[u8; 32], stored: &[u8], max: u64) -> CryptoResult<Vec<u8>> {
+    if max == 0
+        || max.checked_add(1).is_none()
+        || usize::try_from(max).is_err()
+        || stored.len() as u64 > max
+        || !is_sealed_at_rest(stored)
+    {
+        return Err(CryptoError::InvalidFormat(
+            "bounded encrypted value required".into(),
+        ));
+    }
+    let plain = open_at_rest_with_ceiling(key, stored, || max)?;
+    if plain.len() as u64 > max {
+        return Err(CryptoError::InvalidFormat(
+            "decoded value exceeds explicit bound".into(),
+        ));
+    }
+    Ok(plain)
 }
 
 // Verbatim reads do not inflate, so they do not need an environment lookup

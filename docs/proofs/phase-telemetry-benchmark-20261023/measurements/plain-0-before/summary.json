@@ -1,0 +1,103 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "plain",
+  "phases": {
+    "hash_durable_write1": {
+      "acknowledgements": {
+        "durable": 64
+      },
+      "final_flush_ms": 0.282083,
+      "first_request_ms": 28.911642,
+      "max_ms": 28.911642,
+      "mean_ms": 16.2904448125,
+      "median_ms": 15.7024485,
+      "p95_ms": 19.659832,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 61.03410759879827,
+      "requests": 64,
+      "total_ms": 1042.588468,
+      "wall_through_flush_seconds": 1.048594016
+    },
+    "hash_fully_warm_point": {
+      "first_request_ms": 0.551188,
+      "max_ms": 16.307011,
+      "mean_ms": 0.549125837890625,
+      "median_ms": 0.5219,
+      "p95_ms": 0.657548,
+      "requests": 4096,
+      "total_ms": 2249.219432
+    },
+    "range_between64": {
+      "first_request_ms": 8.526788,
+      "max_ms": 12.968165,
+      "mean_ms": 7.7980296328125,
+      "median_ms": 7.690462500000001,
+      "p95_ms": 8.467199,
+      "requests": 128,
+      "total_ms": 998.147793
+    },
+    "range_durable_write32": {
+      "acknowledgements": {
+        "durable": 32
+      },
+      "final_flush_ms": 0.308425,
+      "first_request_ms": 75.554159,
+      "max_ms": 75.554159,
+      "mean_ms": 66.40731678125,
+      "median_ms": 65.586167,
+      "p95_ms": 74.567654,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 478.01075756021055,
+      "requests": 32,
+      "total_ms": 2125.034137,
+      "wall_through_flush_seconds": 2.142211203
+    },
+    "range_fully_warm_point": {
+      "first_request_ms": 0.573229,
+      "max_ms": 3.021776,
+      "mean_ms": 0.5722620883789062,
+      "median_ms": 0.549552,
+      "p95_ms": 0.687464,
+      "requests": 4096,
+      "total_ms": 2343.985514
+    },
+    "range_fully_warm_queued_write32": {
+      "acknowledgements": {
+        "durable": 64
+      },
+      "final_flush_ms": 0.32846,
+      "first_request_ms": 59.137632,
+      "max_ms": 94.142278,
+      "mean_ms": 62.25113284375,
+      "median_ms": 61.055690999999996,
+      "p95_ms": 67.134632,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 509.6966115661691,
+      "requests": 64,
+      "total_ms": 3984.072502,
+      "wall_through_flush_seconds": 4.018076545
+    },
+    "range_prefix10": {
+      "first_request_ms": 2.144685,
+      "max_ms": 2.943419,
+      "mean_ms": 1.9604185,
+      "median_ms": 1.92363,
+      "p95_ms": 2.202087,
+      "requests": 256,
+      "total_ms": 501.867136
+    },
+    "telemetry_forensics": {
+      "first_request_ms": 3.925161,
+      "max_ms": 8.886811,
+      "mean_ms": 4.364275328125,
+      "median_ms": 4.306540999999999,
+      "p95_ms": 4.749571,
+      "requests": 64,
+      "total_ms": 279.313621
+    }
+  },
+  "source_revision": "46e30246f946ac6ca25c8078878e82c01313ac8c",
+  "telemetry_samples_and_aggregates_verified": true,
+  "values_and_write_reopen_verified": true
+}

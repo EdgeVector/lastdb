@@ -8,6 +8,7 @@ use crate::Result;
 use std::path::Path;
 use uuid::Uuid;
 
+mod carried;
 mod dependency_record;
 
 /// Complete generation identity; ordinary reads do not enumerate this receipt.
@@ -55,6 +56,21 @@ fn write_with_prior(
     if path.try_exists()? {
         return verify(root, current);
     }
+    write_at(root, current, dependencies, prior, path)
+}
+
+pub(in crate::disk_pack) fn write_at(
+    root: &Path,
+    current: &Current,
+    dependencies: &[Coordinate],
+    prior: Option<&Generation>,
+    path: std::path::PathBuf,
+) -> Result<Generation> {
+    if dependencies.len() > super::dependency::MAX_DEPENDENCIES
+        || dependencies.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(corrupt("invalid prepared generation coordinates"));
+    }
     let object = Uuid::new_v4();
     let mut pages = PageWriter::new(path, object, current.generation)?;
     let current_bytes = current.encode()?;
@@ -64,10 +80,12 @@ fn write_with_prior(
         .try_reserve_exact(count)
         .map_err(|_| super::resource())?;
     let page_count = 1 + count.saturating_sub(150).div_ceil(201);
+    let base_prefix = prefix(current, count as u64, page_count as u64, &current_bytes);
+    let mut carried = carried::Carried::new(prior);
     let mut ordinal = 0;
     for number in 0..page_count {
         let entries = (count - ordinal).min(if number == 0 { 150 } else { 201 });
-        let mut payload = prefix(current, count as u64, page_count as u64, &current_bytes);
+        let mut payload = base_prefix.clone();
         put64(&mut payload, 24, ordinal as u64);
         put32(&mut payload, 32, entries as u32);
         if number == 0 {
@@ -75,14 +93,7 @@ fn write_with_prior(
             payload.extend_from_slice(&current_bytes);
         }
         for dependency in &dependencies[ordinal..ordinal + entries] {
-            let carried = prior.and_then(|prior| {
-                prior
-                    .coordinates
-                    .binary_search(dependency)
-                    .ok()
-                    .map(|at| prior.records[at])
-            });
-            let entry = match carried {
+            let entry = match carried.get(dependency) {
                 Some(entry) => entry,
                 None => dependency.capture(root, current)?,
             };
@@ -234,10 +245,10 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
             break;
         }
         number = next;
-        let part = number / 512;
+        let part = number / crate::disk_pack::PAGES_PER_PART;
         let bytes = call.read_extent(
             &path.join(format!("part-{part:08x}")),
-            number % 512 * PAGE_BYTES as u64,
+            number % crate::disk_pack::PAGES_PER_PART * PAGE_BYTES as u64,
             PAGE_BYTES,
             true,
             ReadClass::FormatProbe,

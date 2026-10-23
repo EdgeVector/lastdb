@@ -1,0 +1,54 @@
+{
+  "product_source": "a590e2abab0db6a3916fb7de3f9fc155677ac727",
+  "binary_sha256": "0d62917132e752dd12df47f126ef6f9d04d755b84e4da73899b0b9d5b11cec7a",
+  "capture_commit": "34a1e6e9b949ccdea74571961b72ecd2551bd3f0",
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/candidate",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6",
+  "uid": 501,
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "load_before": [
+    12.2373046875,
+    5.76904296875,
+    4.70458984375
+  ],
+  "runs": [
+    {
+      "name": "single-1",
+      "workload": "single",
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h0"
+    },
+    {
+      "name": "compaction-1",
+      "workload": "compaction",
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h1"
+    },
+    {
+      "name": "compaction-2",
+      "workload": "compaction",
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h2"
+    },
+    {
+      "name": "single-2",
+      "workload": "single",
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h3"
+    },
+    {
+      "name": "single-3",
+      "workload": "single",
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h4"
+    },
+    {
+      "name": "compaction-3",
+      "workload": "compaction",
+      "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h5"
+    }
+  ],
+  "schemas": 64,
+  "value_bytes": 64,
+  "uds_workers": 8,
+  "dependency_high_water": 4096,
+  "durability_parameter": "omitted; durable receipt required",
+  "product_changes": false,
+  "compiler_exclusion": true,
+  "other_host_work_controlled": false
+}

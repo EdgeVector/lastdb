@@ -128,11 +128,11 @@ impl MutationManager {
     ) -> Result<MoveState, SchemaError> {
         let atoms = self.db_ops.atoms();
         let prefix = schema_storage_prefix(input.schema, None);
-        let mut groups = vec![Vec::new(); slots.len()];
+        let mut slot_keys = vec![String::new(); slots.len()];
         for ((molecule, hash, range), position) in slots {
-            groups[position] = atoms
+            slot_keys[position] = atoms
                 .key_codec_for_molecule(&molecule)?
-                .api_hash_range_record_keys_for_read(&molecule, &hash, &range)
+                .api_hash_range_record_key(&molecule, &hash, &range)
                 .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         }
         let molecules: BTreeSet<_> = requests.iter().map(|request| &request.molecule).collect();
@@ -160,11 +160,11 @@ impl MutationManager {
             .map(|&index| input.keys[index].clone())
             .collect();
         let (records, headers, valid) = tokio::try_join!(
-            atoms.load_first_present_candidate(prefix, &groups),
+            atoms.load_visible_per_key_records(prefix, &slot_keys),
             headers,
             self.source_coordinates_match(input.schema, &keys, prefix)
         )?;
-        if records.len() != groups.len() || headers.len() != molecules.len() {
+        if records.len() != slot_keys.len() || headers.len() != molecules.len() {
             return Err(SchemaError::StorageRead {
                 detail: "protein move winner or header count differs".into(),
             });

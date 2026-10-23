@@ -59,7 +59,7 @@ pub struct ReadCosts {
     pub shared_blocks: u64,
     /// Bytes from complete successful extents, including CURRENT and part headers.
     pub file_bytes: u64,
-    /// Bytes admitted against the aggregate call limit.
+    /// Bytes admitted against ordinary limits or a separate exact-record copy allowance.
     pub budget_bytes: u64,
     /// Exact keys or ordered entries examined, including tombstones.
     pub examined_keys: u64,

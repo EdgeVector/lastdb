@@ -1,0 +1,11 @@
+{
+  "creator_pid": 95879,
+  "device": 27,
+  "home": "/workspace/prefix-pairs/encrypted-0-before/home",
+  "inode": 690604,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "e985a223af2146cdba66618abc480733",
+  "scratch": "/workspace/prefix-pairs/encrypted-0-before",
+  "version": 1
+}

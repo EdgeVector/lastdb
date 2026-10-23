@@ -18,7 +18,13 @@ pub(in crate::disk_pack) fn sweep_orphans_locked(
     lock: &WriteLock,
     policy: &SpacePolicy,
 ) -> Result<MaintenanceReceipt> {
-    sweep_orphans_at(lock, policy, artifact::current(lock.root())?, false)
+    sweep_orphans_at(
+        lock,
+        policy,
+        artifact::current(lock.root())?,
+        false,
+        &lock.files.epoch()?,
+    )
 }
 
 pub(in crate::disk_pack) fn sweep_orphans_at(
@@ -26,13 +32,14 @@ pub(in crate::disk_pack) fn sweep_orphans_at(
     policy: &SpacePolicy,
     current: Current,
     concurrent: bool,
+    epoch: &DeletionEpoch,
 ) -> Result<MaintenanceReceipt> {
     let root = lock.root();
     let mut receipt = MaintenanceReceipt {
         generation: current.generation,
         ..Default::default()
     };
-    if current.required_features & FEATURE_FILE_LIFETIME == 0 {
+    if current.required_features & FEATURE_FILE_LIFETIME == 0 || !epoch.valid()? {
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     }
@@ -65,6 +72,7 @@ pub(in crate::disk_pack) fn sweep_orphans_at(
         policy.max_files,
         &published,
         concurrent.then_some(current.generation),
+        epoch,
     )?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     let mut dirty = Dirty::default();
@@ -72,6 +80,12 @@ pub(in crate::disk_pack) fn sweep_orphans_at(
         if named.contains(&path) {
             continue;
         }
+        let Some(_deletion) = epoch.delete(&path, false)? else {
+            if !epoch.valid()? {
+                break;
+            }
+            continue;
+        };
         if concurrent && !super::concurrent::old_part(&path, current.generation)? {
             continue;
         }
@@ -88,9 +102,13 @@ pub(in crate::disk_pack) fn sweep_orphans_at(
         dirty.mark(path.parent().expect("part parent"));
         receipt.files_removed += 1;
         receipt.bytes_removed += metadata.len();
-        remove_empty_parents(root, &path, &mut dirty)?;
+        remove_empty_parents(lock, &path, &mut dirty, epoch)?;
     }
     dirty.flush()?;
+    if !epoch.valid()? {
+        receipt.reclaim_deferred = true;
+        receipt.reclaim_remaining = true;
+    }
     Ok(receipt)
 }
 
@@ -100,9 +118,10 @@ fn named_paths(
     max_files: usize,
     published: &BTreeSet<u64>,
     ceiling: Option<u64>,
+    epoch: &DeletionEpoch,
 ) -> Result<BTreeSet<PathBuf>> {
     let mut named = BTreeSet::new();
-    for number in generations(root, max_files, published, ceiling)? {
+    for number in generations(root, max_files, published, ceiling, epoch)? {
         let held = at_generation(generation::load_current(root, number), root, number)?;
         let receipt = at_generation(generation::read_receipt(root, &held), root, number)?;
         for coordinate in receipt.coordinates {

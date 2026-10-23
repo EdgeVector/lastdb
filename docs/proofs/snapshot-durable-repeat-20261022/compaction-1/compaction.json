@@ -1,0 +1,6 @@
+{
+  "start_unix_us": 1792699548095211,
+  "end_unix_us": 1792699559420233,
+  "status": 503,
+  "error": "{\"error\":\"write_resource_limit\",\"message\":\"native compaction could not capture a quiet publication boundary after eight catch-ups; retry\",\"retry_after_secs\":2,\"retryable\":true}"
+}

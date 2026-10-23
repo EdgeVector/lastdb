@@ -1,0 +1,50 @@
+{
+  "owned_roots": [
+    {
+      "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sw.2llpvr",
+      "uid": 501,
+      "entries": [
+        "a",
+        "a.log",
+        "b",
+        "b.log",
+        "c",
+        "c.log",
+        "d",
+        "d.log",
+        "e",
+        "e.log",
+        "f",
+        "f.log",
+        "g",
+        "g.log",
+        "h",
+        "h.log"
+      ]
+    },
+    {
+      "path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/schema-writes.Sz07mm",
+      "realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/schema-writes.Sz07mm",
+      "uid": 501,
+      "entries": [
+        "a",
+        "a.log"
+      ]
+    }
+  ],
+  "active_owned_nodes": [],
+  "measured_homes": {
+    "a": "one-client",
+    "b": "four-clients",
+    "c": "eight-workers-one-client",
+    "d": "eight-workers-four-clients",
+    "e": "eight-workers-small-writes",
+    "f": "final-one-client",
+    "g": "final-four-clients",
+    "h": "final-small-writes"
+  },
+  "refused_startup_home_empty": true,
+  "proofs_saved": true,
+  "ready": true
+}

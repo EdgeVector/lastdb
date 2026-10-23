@@ -1,0 +1,406 @@
+{
+  "plain": {
+    "hash_fully_warm_point": {
+      "before_median_ms": 0.31044125,
+      "after_median_ms": 0.38049075,
+      "paired_median_change_percent": 29.20847879819366,
+      "paired_changes_percent": [
+        8.181555211687797,
+        50.235402384699526,
+        69.57929155483136,
+        -39.99691993988035
+      ],
+      "before_run_medians_ms": [
+        0.28693199999999996,
+        0.299912,
+        0.3209705,
+        0.512977
+      ],
+      "after_run_medians_ms": [
+        0.3104075,
+        0.45057400000000003,
+        0.5442994999999999,
+        0.307802
+      ],
+      "before_p95_ms": 0.4837785,
+      "after_p95_ms": 0.7023975,
+      "paired_p95_changes_percent": [
+        11.535794566998137,
+        484.65427413648933,
+        39.63148537255536,
+        18.261692213242632
+      ],
+      "requests_per_run": 2048,
+      "change_of_reported_medians_percent": 22.564494892350794,
+      "paired_geomean_change_percent": 13.401282560132245
+    },
+    "range_between64": {
+      "before_median_ms": 7.723842749999999,
+      "after_median_ms": 7.45606325,
+      "paired_median_change_percent": -1.0640571052951242,
+      "paired_changes_percent": [
+        1.8650262310761168,
+        -5.047810225523719,
+        3.710589045125001,
+        -3.993140441666365
+      ],
+      "before_run_medians_ms": [
+        7.3888505,
+        7.7780955,
+        7.911601,
+        7.6695899999999995
+      ],
+      "after_run_medians_ms": [
+        7.526654499999999,
+        7.385472,
+        8.205168,
+        7.3633325
+      ],
+      "before_p95_ms": 8.9935895,
+      "after_p95_ms": 10.697327,
+      "paired_p95_changes_percent": [
+        63.59764104330292,
+        -12.528487467435468,
+        28.54983924739869,
+        -1.8582404907082517
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -3.466920659408812,
+      "paired_geomean_change_percent": -0.9364555584910228
+    },
+    "range_fully_warm_point": {
+      "before_median_ms": 0.341974,
+      "after_median_ms": 0.35344200000000003,
+      "paired_median_change_percent": 7.4174570994740225,
+      "paired_changes_percent": [
+        5.394587630072056,
+        9.440326568875989,
+        65.01762200263789,
+        -36.638433648658264
+      ],
+      "before_run_medians_ms": [
+        0.3205435,
+        0.3370805,
+        0.3468675,
+        0.533418
+      ],
+      "after_run_medians_ms": [
+        0.3378355,
+        0.368902,
+        0.5723925,
+        0.337982
+      ],
+      "before_p95_ms": 0.523122,
+      "after_p95_ms": 0.5971690000000001,
+      "paired_p95_changes_percent": [
+        7.3187692894504774,
+        10.592042708387584,
+        37.157864220058336,
+        0.06333265112410391
+      ],
+      "requests_per_run": 2048,
+      "change_of_reported_medians_percent": 3.3534713165328522,
+      "paired_geomean_change_percent": 4.794376876836348
+    },
+    "range_fully_warm_queued_write32": {
+      "before_median_ms": 50.48219575,
+      "after_median_ms": 45.64259025,
+      "paired_median_change_percent": -4.93356446166589,
+      "paired_changes_percent": [
+        -4.3321033190438785,
+        -0.9425890580039731,
+        -20.91999231249766,
+        -5.5350256042879025
+      ],
+      "before_run_medians_ms": [
+        48.227624000000006,
+        52.7367675,
+        57.090064,
+        44.763596
+      ],
+      "after_run_medians_ms": [
+        46.1383535,
+        52.2396765,
+        45.146827,
+        42.285919500000006
+      ],
+      "before_p95_ms": 125.909611,
+      "after_p95_ms": 122.1301155,
+      "paired_p95_changes_percent": [
+        -9.424198175295274,
+        8.138873403880797,
+        -24.06658723324674,
+        2.614961546710237
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -9.586757129121127,
+      "paired_geomean_change_percent": -8.272896861807011,
+      "before_records_per_second": 468.07668638039536,
+      "after_records_per_second": 498.7172682393207,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "range_prefix10": {
+      "before_median_ms": 1.79828725,
+      "after_median_ms": 1.8145997500000002,
+      "paired_median_change_percent": 2.5355514631374865,
+      "paired_changes_percent": [
+        7.045190926700395,
+        -1.9740880004254224,
+        12.67532788961696,
+        -3.07295724072445
+      ],
+      "before_run_medians_ms": [
+        1.737185,
+        1.805264,
+        1.8020165000000001,
+        1.7945579999999999
+      ],
+      "after_run_medians_ms": [
+        1.8595730000000001,
+        1.7696265,
+        2.0304279999999997,
+        1.739412
+      ],
+      "before_p95_ms": 2.0858685,
+      "after_p95_ms": 3.0980795,
+      "paired_p95_changes_percent": [
+        156.74162448603167,
+        -18.121496551319172,
+        86.73718915356562,
+        3.844465776875472
+      ],
+      "requests_per_run": 512,
+      "change_of_reported_medians_percent": 0.9071131433534996,
+      "paired_geomean_change_percent": 3.4654763244152287
+    }
+  },
+  "preload": {
+    "hash_fully_warm_point": {
+      "before_median_ms": 0.32959574999999997,
+      "after_median_ms": 0.30890975,
+      "paired_median_change_percent": 0.8867950721723861,
+      "paired_changes_percent": [
+        12.221327839379859,
+        -19.701158460626324,
+        1.6480217403843422,
+        0.1255684039604299
+      ],
+      "before_run_medians_ms": [
+        0.282007,
+        0.37528249999999996,
+        0.5287855,
+        0.28390899999999997
+      ],
+      "after_run_medians_ms": [
+        0.316472,
+        0.3013475,
+        0.5375000000000001,
+        0.2842655
+      ],
+      "before_p95_ms": 0.5089315000000001,
+      "after_p95_ms": 0.45304500000000003,
+      "paired_p95_changes_percent": [
+        4.968433755034152,
+        -21.638976708967817,
+        6.318985208134809,
+        2.4889518339300087
+      ],
+      "requests_per_run": 2048,
+      "change_of_reported_medians_percent": -6.276173160606591,
+      "paired_geomean_change_percent": -2.139562707081799
+    },
+    "range_between64": {
+      "before_median_ms": 8.3474945,
+      "after_median_ms": 8.100138,
+      "paired_median_change_percent": -4.0987672038611915,
+      "paired_changes_percent": [
+        1.3805850526341201,
+        -2.2289635844918054,
+        -13.738772726963111,
+        -5.9685708232305785
+      ],
+      "before_run_medians_ms": [
+        7.9244665,
+        8.3525815,
+        10.0558145,
+        8.3424075
+      ],
+      "after_run_medians_ms": [
+        8.033870499999999,
+        8.1664055,
+        8.674268999999999,
+        7.844485000000001
+      ],
+      "before_p95_ms": 13.506657,
+      "after_p95_ms": 9.6477055,
+      "paired_p95_changes_percent": [
+        0.8916517426642789,
+        71.25438265130619,
+        -36.729061383873926,
+        -45.82598316635666
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -2.963242443585923,
+      "paired_geomean_change_percent": -5.307971434517955
+    },
+    "range_fully_warm_point": {
+      "before_median_ms": 0.381151,
+      "after_median_ms": 0.391451,
+      "paired_median_change_percent": 6.15785514761808,
+      "paired_changes_percent": [
+        13.005116891499746,
+        -3.261034985164779,
+        32.1642601455979,
+        -0.6894065962635865
+      ],
+      "before_run_medians_ms": [
+        0.32998550000000004,
+        0.4238225,
+        0.4351025,
+        0.3384795
+      ],
+      "after_run_medians_ms": [
+        0.37290049999999997,
+        0.4100015,
+        0.5750500000000001,
+        0.336146
+      ],
+      "before_p95_ms": 0.492824,
+      "after_p95_ms": 0.579434,
+      "paired_p95_changes_percent": [
+        16.297603928739935,
+        38.171627794081964,
+        -13.870717734282401,
+        -2.2470689421031143
+      ],
+      "requests_per_run": 2048,
+      "change_of_reported_medians_percent": 2.702341066926217,
+      "paired_geomean_change_percent": 9.44660335194094
+    },
+    "range_fully_warm_queued_write32": {
+      "before_median_ms": 78.735852,
+      "after_median_ms": 74.27551174999999,
+      "paired_median_change_percent": -3.2382664067755194,
+      "paired_changes_percent": [
+        -3.4737637978045077,
+        -24.901213573852566,
+        -3.0027690157465314,
+        -0.3670826646774983
+      ],
+      "before_run_medians_ms": [
+        76.9714395,
+        98.87428750000001,
+        80.5002645,
+        74.344426
+      ],
+      "after_run_medians_ms": [
+        74.2976335,
+        74.25339,
+        78.0830275,
+        74.0715205
+      ],
+      "before_p95_ms": 148.60511100000002,
+      "after_p95_ms": 123.916421,
+      "paired_p95_changes_percent": [
+        -20.27035326254366,
+        -46.52204589001089,
+        -1.7018384168954404,
+        -7.463907283422655
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -5.664941874255714,
+      "paired_geomean_change_percent": -8.512845787957989,
+      "before_records_per_second": 384.50048222958003,
+      "after_records_per_second": 406.1135593254059,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "range_prefix10": {
+      "before_median_ms": 1.5699622500000001,
+      "after_median_ms": 1.54430175,
+      "paired_median_change_percent": -2.4082965330736448,
+      "paired_changes_percent": [
+        -1.5357829057618733,
+        -3.2808101603854167,
+        -4.569529134911987,
+        4.987377175343721
+      ],
+      "before_run_medians_ms": [
+        1.531206,
+        1.6087185,
+        1.717201,
+        1.4598555
+      ],
+      "after_run_medians_ms": [
+        1.50769,
+        1.5559395,
+        1.638733,
+        1.532664
+      ],
+      "before_p95_ms": 2.01637,
+      "after_p95_ms": 1.893596,
+      "paired_p95_changes_percent": [
+        -0.44192900884689745,
+        90.31809473672551,
+        -49.706441263573545,
+        7.035223845528327
+      ],
+      "requests_per_run": 512,
+      "change_of_reported_medians_percent": -1.6344660516518839,
+      "paired_geomean_change_percent": -1.1665834266924802
+    }
+  }
+}
