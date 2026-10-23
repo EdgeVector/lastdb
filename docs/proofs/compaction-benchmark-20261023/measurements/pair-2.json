@@ -1,0 +1,48 @@
+{
+  "complete": true,
+  "ended_ns": 1792777738832739000,
+  "exclusive_window": "existing with-fold-host-cargo-lock wrapper",
+  "host_load_average": [
+    38.6220703125,
+    31.66162109375,
+    33.09423828125
+  ],
+  "order": [
+    "before",
+    "after"
+  ],
+  "pair": 2,
+  "records": 100000,
+  "runner_sha256": "0155889889386a565e69440d11040eb8a45b095116fddf591c2e78ac51bbba2d",
+  "runs": [
+    {
+      "binary_sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+      "end_host_load_average": [
+        43.6884765625,
+        31.18359375,
+        31.47900390625
+      ],
+      "ended_ns": 1792777290964953000,
+      "label": "before",
+      "name": "pair-2-before",
+      "source_revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+      "started_ns": 1792776831542316000,
+      "temporary_volume_free_at_start": 278220926976
+    },
+    {
+      "binary_sha256": "3ef02ad18cf0e7d6c5a2b1d68ccb16c252282a0fb9a41735ca9d6860fac576cb",
+      "end_host_load_average": [
+        16.4453125,
+        22.564453125,
+        27.021484375
+      ],
+      "ended_ns": 1792777738832484000,
+      "label": "after",
+      "name": "pair-2-after",
+      "source_revision": "c94ec77605b40a1d99398ab24118b7856bff310d",
+      "started_ns": 1792777290984527000,
+      "temporary_volume_free_at_start": 274484932608
+    }
+  ],
+  "started_ns": 1792776831524333000
+}

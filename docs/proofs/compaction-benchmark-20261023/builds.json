@@ -1,0 +1,46 @@
+{
+  "after": {
+    "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin.0wb5m46b/after",
+    "build_wall_seconds": 84.5926805,
+    "clean_receipt_sha256": "1cae0c44fc2098948af24b3208dbf220f516ff226949b9a9b39022e36250c104",
+    "compiler_receipt_sha256": "56fc6f16224958b14481a44187ec0fe24f5c0bba9c09d57aa15b28fb0e0e1050",
+    "markers": {
+      "compaction_behind: publication changed": true,
+      "compaction_busy: two copies": true,
+      "compaction_jobs": true,
+      "private output path has an active deletion": true
+    },
+    "revision": "c94ec77605b40a1d99398ab24118b7856bff310d",
+    "sha256": "3ef02ad18cf0e7d6c5a2b1d68ccb16c252282a0fb9a41735ca9d6860fac576cb",
+    "source": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023"
+  },
+  "before": {
+    "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin.0wb5m46b/before",
+    "build_wall_seconds": 13.595210125,
+    "clean_receipt_sha256": "d74b5c019ecc64b00ff45c94eff6a6b3ed536245d1e900ae8c69fe802513648f",
+    "compiler_receipt_sha256": "28b2aadaa0e9e8b73d985a5e6fc9be45abe7a0b75ed848c388aef11c0504da8f",
+    "markers": {
+      "compaction_behind: publication changed": false,
+      "compaction_busy: two copies": false,
+      "compaction_jobs": false,
+      "private output path has an active deletion": false
+    },
+    "revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+    "sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+    "source": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-before-20261023"
+  },
+  "binary_directory": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin.0wb5m46b",
+  "cache_control": "clean laststore, fold_db, and lastdb_node before each build",
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "command": "cargo build -p lastdb_node --bin lastdbd --profile dev-release",
+  "profile": "dev-release",
+  "profile_options": {
+    "codegen-units": 16,
+    "debug": false,
+    "inherits": "release",
+    "lto": "off",
+    "opt-level": 3,
+    "panic": "abort"
+  },
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+}

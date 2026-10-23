@@ -1,0 +1,25 @@
+{
+  "all_generated_homes_removed": true,
+  "at_ns": 1792777905474726000,
+  "files": [
+    {
+      "bytes": 45383184,
+      "name": "before",
+      "sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec"
+    },
+    {
+      "bytes": 45639856,
+      "name": "after",
+      "sha256": "3ef02ad18cf0e7d6c5a2b1d68ccb16c252282a0fb9a41735ca9d6860fac576cb"
+    }
+  ],
+  "ownership": {
+    "identity": "a8743956998f485f9c23aa0249d11abf",
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin.0wb5m46b",
+    "primary_data": false,
+    "purpose": "owned compaction benchmark executables",
+    "uid": 501,
+    "version": 1
+  },
+  "removed": true
+}

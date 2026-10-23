@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/docs/proofs/compaction-benchmark-20261023/capture.py", line 184, in <module>
+    raise SystemExit(main())
+  File "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/docs/proofs/compaction-benchmark-20261023/capture.py", line 157, in main
+    capture, complete, error = Benchmark(args), False, None
+  File "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/docs/proofs/compaction-benchmark-20261023/capture.py", line 45, in __init__
+    "product_support_sha256": base.file_hash(scale.product.__file__),
+  File "/Users/tomtang/.fkanban/worktrees/lastdb-direct-compaction-benchmark-20261023/docs/proofs/snapshot-commits-20261022/capture.py", line 30, in file_hash
+    with path.open("rb") as source:
+AttributeError: 'str' object has no attribute 'open'

@@ -1,0 +1,18 @@
+{
+  "rejected": true,
+  "at_ns": 1792774450600555000,
+  "marker_checks": {
+    "before": {
+      "compaction_busy: two copies": false,
+      "compaction_jobs": false,
+      "private output path has an active deletion": false,
+      "compaction_behind: publication changed": false
+    },
+    "after": {
+      "compaction_busy: two copies": false,
+      "compaction_jobs": false,
+      "private output path has an active deletion": false,
+      "compaction_behind: publication changed": false
+    }
+  }
+}

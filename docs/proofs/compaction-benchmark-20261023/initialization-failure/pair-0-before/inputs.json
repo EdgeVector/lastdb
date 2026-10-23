@@ -1,0 +1,19 @@
+{
+  "active_writer_batch": 16,
+  "auto_high_water": null,
+  "auto_maintenance": false,
+  "baseline_seconds": 10,
+  "benchmark": "same fresh home; adjacent sequential phases; no cache reset",
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cb-bin._b29w6dh/before",
+  "binary_sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+  "body_bytes": 1024,
+  "claim_limit": "Product run and process interruption; no power-loss proof",
+  "clock": "perf_counter_ns",
+  "driver_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+  "expected_native_entries": "measured by full-copy receipt",
+  "filesystem_cache": "uncontrolled",
+  "records": 100000,
+  "scope": "generated data only; no primary or copied home",
+  "seed_batch": 128,
+  "source_revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7"
+}
