@@ -1,6 +1,0 @@
-{
-  "reason": "Benchmark expected projection to exclude implicit hash-key field bucket; baseline returns it.",
-  "completed_timed_pairs": 0,
-  "measurements_pooled": false,
-  "all_owned_homes_cleaned": true
-}

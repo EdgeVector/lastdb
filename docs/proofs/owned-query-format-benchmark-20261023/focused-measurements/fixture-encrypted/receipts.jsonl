@@ -1,3 +1,0 @@
-{"at_unix_ns": 1792773583019903184, "operation": "owned-node-start", "pid": 199309}
-{"at_unix_ns": 1792773583221428383, "client": [0], "operation": "cpu-affinity", "server_threads": [[1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1]]}
-{"at_unix_ns": 1792773586518733687, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 199309, "shutdown_receipt": {"flush_ok": true, "pid": 199309, "start_ts": 1792773583, "version": 1}, "shutdown_receipt_error": null}

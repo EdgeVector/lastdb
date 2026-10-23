@@ -1,9 +1,0 @@
-{"at_unix_ns": 1792772866995796271, "operation": "owned-node-start", "pid": 197818}
-{"at_unix_ns": 1792772867049768879, "client": [0], "operation": "cpu-affinity", "server_threads": [[1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1]]}
-{"at_unix_ns": 1792772891991697169, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 197818, "shutdown_receipt": {"flush_ok": true, "pid": 197818, "start_ts": 1792772867, "version": 1}, "shutdown_receipt_error": null}
-{"at_unix_ns": 1792772891992283084, "operation": "owned-node-start", "pid": 197849}
-{"at_unix_ns": 1792772892097613359, "client": [0], "operation": "cpu-affinity", "server_threads": [[1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1]]}
-{"at_unix_ns": 1792772904465373469, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 197849, "shutdown_receipt": {"flush_ok": true, "pid": 197849, "start_ts": 1792772891, "version": 1}, "shutdown_receipt_error": null}
-{"at_unix_ns": 1792772904465975046, "operation": "owned-node-start", "pid": 197886}
-{"at_unix_ns": 1792772904574935208, "client": [0], "operation": "cpu-affinity", "server_threads": [[1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1], [1]]}
-{"at_unix_ns": 1792772906621929713, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 197886, "shutdown_receipt": {"flush_ok": true, "pid": 197886, "start_ts": 1792772904, "version": 1}, "shutdown_receipt_error": null}

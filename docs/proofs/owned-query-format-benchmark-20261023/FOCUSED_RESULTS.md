@@ -11,7 +11,7 @@ Four adjacent alternating pairs/configuration, with initial version order revers
 from primary. All three configurations retained. Repeat the ten fingerprint probes
 and the exact primary structured-read prelude: 128 range16, 64 range64, 32 range256
 queries (untimed here). Then time eight blocks of 128 identical flat multi-get32
-requests, keeping every block in multiget-blocks.json. Encrypted runs additionally
+requests, recording every block during the run. Encrypted runs additionally
 warm all Hash keys and time 256 durable singles plus 64 durable batch32 requests.
 Read back all flat/nested values after flush/reopen. All metadata and complete
 pre-write fingerprint checks apply. No Delete/Purge probe in this follow-up.
@@ -72,8 +72,9 @@ Select two allowed CPUs with --client-cpu / --server-cpu if necessary.
 The first 128-request block repeats the primary short measurement window after
 the same structured-read prelude. Preload paired p50 changes were -2.7%, -1.7%,
 -2.1%, -1.5%; the prior +27.3% median penalty did not reproduce even in this first
-block. All eight blocks remain in the raw records. Longer multi-get medians were
--0.3% plain, -1.3% encrypted and -1.3% preload. Encrypted durable single/batch
+block. All eight blocks were checked before the raw records were removed from the
+current tree; see RESULTS.md for the artifact retention note. Longer multi-get
+medians were -0.3% plain, -1.3% encrypted and -1.3% preload. Encrypted durable single/batch
 medians were +1.6%/+2.0%, with positive and negative pairs. This is reassuring,
 but does not explain the original spikes or establish zero performance risk.
 Recommendation: merge the simpler ownership path for its observed structured-read
