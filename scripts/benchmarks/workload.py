@@ -1,0 +1,242 @@
+"""A fixed recipe of keyed reads, durable writes, and closed-loop concurrency."""
+
+from concurrent.futures import ThreadPoolExecutor
+import gzip
+import hashlib
+import json
+import math
+import threading
+import time
+
+from node import save
+
+SCHEMA, HASH = "GitHubBenchmark", "generated"
+FIELDS = ["bucket", "id", "title", "body"]
+PROFILES = {
+    "standard": {"records": 10000, "samples": 256, "write_samples": 32, "pairs": 2},
+    "nightly": {"records": 100000, "samples": 2048, "write_samples": 128, "pairs": 3},
+}
+
+
+def key(number):
+    return f"key-{number:09d}"
+
+
+def fields(number, revision):
+    title = f"record-{number}-{revision}"
+    return {"bucket": HASH, "id": key(number), "title": title,
+            "body": hashlib.shake_256(title.encode()).hexdigest(512)}
+
+
+def encoded(value):
+    return json.dumps(value, separators=(",", ":")).encode()
+
+
+def read_request(numbers):
+    return encoded({"schema_name": SCHEMA, "fields": FIELDS,
+                    "filter": {"HashRangeKeys": [[HASH, key(n)] for n in numbers]},
+                    "limit": len(numbers)})
+
+
+def write_request(numbers, revision, insert):
+    mutations = []
+    for number in numbers:
+        value = fields(number, revision)
+        if not insert:
+            value = {name: value[name] for name in ("title", "body")}
+        mutations.append({"type": "mutation", "schema": SCHEMA,
+                          "mutation_type": "create" if insert else "update",
+                          "durability": "durable",
+                          "key_value": {"hash": HASH, "range": key(number)},
+                          "fields_and_values": value})
+    return encoded({"mutations": mutations})
+
+
+def validate_read(result, numbers):
+    records = result.get("results", [])
+    if result.get("returned_count") != len(numbers) or len(records) != len(numbers):
+        raise RuntimeError("A keyed read returned an incomplete result")
+    found = {}
+    expected = {key(n): n for n in numbers}
+    for record in records:
+        coordinate, value = record["key"], record["fields"]
+        number = expected.get(coordinate["range"])
+        if coordinate["hash"] != HASH or coordinate["range"] in found or number is None:
+            raise RuntimeError("A keyed read returned an unexpected or duplicate key")
+        title = value["title"]
+        if (value["bucket"] != HASH or value["id"] != coordinate["range"]
+                or not title.startswith(f"record-{number}-")
+                or value["body"] != hashlib.shake_256(title.encode()).hexdigest(512)):
+            raise RuntimeError("A keyed read returned an invalid generated record")
+        found[coordinate["range"]] = title
+    if set(found) != set(expected):
+        raise RuntimeError("A keyed read returned different keys")
+
+
+def describe(samples, elapsed):
+    good = [sample for sample in samples if "error" not in sample]
+    ordered = sorted(sample["elapsed_ms"] for sample in good)
+
+    def percentile(fraction):
+        return ordered[max(0, math.ceil(len(ordered) * fraction) - 1)] if ordered else None
+
+    return {"requests": len(samples), "errors": len(samples) - len(good),
+            "records": sum(sample["records"] for sample in good), "elapsed_seconds": elapsed,
+            "requests_per_second": len(good) / elapsed,
+            "records_per_second": sum(sample["records"] for sample in good) / elapsed,
+            "p50_ms": percentile(0.5), "p95_ms": percentile(0.95), "p99_ms": percentile(0.99)}
+
+
+class Workload:
+    def __init__(self, node, recipe, output):
+        self.node, self.recipe, self.output = node, recipe, output
+        self.metrics, self.next_insert = {}, recipe["records"]
+        self.raw = gzip.open(output / "samples.jsonl.gz", "wt")
+
+    def seed(self):
+        schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
+                  "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+                  "fields": FIELDS, "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
+        self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
+        for start in range(0, self.recipe["records"], 128):
+            numbers = list(range(start, min(start + 128, self.recipe["records"])))
+            result, _, _ = self.node.call("/api/mutations/batch", write_request(numbers, "seed", True))
+            self.validate_write(result, len(numbers))
+        result, _, _ = self.node.call("/api/db/flush", {})
+        if result.get("durable") is not True:
+            raise RuntimeError("The generated seed lacks a durable flush")
+        # Reopen the same owned home. No seeded logical record remains warm.
+        self.node.stop()
+        self.node.start()
+        result, _, _ = self.node.call("/api/admin/shed", {})
+        boundary = result["shed"]
+        save(self.output / "cold-boundary.json", boundary)
+        if boundary.get("error") or boundary.get("target_met") is not True:
+            raise RuntimeError("The cold-read boundary did not purge the logical warm records")
+
+    @staticmethod
+    def validate_write(result, count):
+        if result.get("count") != count or result.get("durability") != "durable":
+            raise RuntimeError("A write lacks a complete durable acknowledgement")
+
+    def prepare(self, mode, batch, samples, clients):
+        jobs = [[] for _ in range(clients)]
+        for index in range(samples):
+            kind = "read" if mode in ("cold", "hot", "read") or (mode == "mixed" and index % 2 == 0) else "write"
+            if mode == "cold":
+                numbers = list(range(self.cold_next, self.cold_next + batch))
+                self.cold_next += batch
+            elif mode == "insert":
+                numbers = list(range(self.next_insert, self.next_insert + batch))
+                self.next_insert += batch
+            else:
+                offset = index // 2 if mode == "mixed" else index
+                first = self.recipe["records"] - 256 + ((offset * batch) % 256)
+                numbers = list(range(first, first + batch))
+            body = (read_request(numbers) if kind == "read" else
+                    write_request(numbers, f"{self.case}-{index}", mode == "insert"))
+            jobs[index % clients].append((kind, numbers, body))
+        return jobs
+
+    def worker(self, jobs, barrier, stopped, mode):
+        samples = []
+        barrier.wait(timeout=30)
+        for kind, numbers, body in jobs:
+            if stopped.is_set():
+                break
+            sample = {"kind": kind, "records": len(numbers),
+                      "request_sha256": hashlib.sha256(body).hexdigest()}
+            try:
+                path = "/api/query" if kind == "read" else "/api/mutations/batch"
+                result, elapsed, receipt = self.node.call(path, body, receipt=kind == "read")
+                sample.update(elapsed_ms=elapsed, read_receipt=receipt)
+                if kind == "read":
+                    validate_read(result, numbers)
+                    if not receipt:
+                        raise RuntimeError("The read lacks its storage receipt")
+                    # Native unknown-path fallbacks do not increment the old
+                    # logical miss counter. Use the purge + first-key boundary
+                    # and actual disk bytes, rather than interpreting zero as hot.
+                    if mode == "cold" and (receipt["read_operations"] == 0 or receipt["payload_bytes"] == 0):
+                        raise RuntimeError("The cold read did not fetch payload bytes from disk")
+                    if mode == "hot" and receipt["logical_warm_hits"] < len(FIELDS) * len(numbers):
+                        raise RuntimeError("The hot read did not report warm hits for the requested fields")
+                else:
+                    self.validate_write(result, len(numbers))
+            except Exception as failure:
+                sample["error"] = f"{type(failure).__name__}: {failure}"
+                stopped.set()
+            samples.append(sample)
+        return samples
+
+    def measure(self, name, mode, batch=1, clients=1, samples=None):
+        self.case = name
+        samples = samples or self.recipe["samples"]
+        jobs = self.prepare(mode, batch, samples, clients)
+        before = self.node.disk_bytes()
+        sequence = len(self.metrics)
+        barrier, stopped, monitor_stop = threading.Barrier(clients + 1), threading.Event(), threading.Event()
+        memory = []
+
+        def monitor():
+            while not monitor_stop.is_set():
+                value = self.node.memory_bytes()
+                if value is not None:
+                    memory.append(value)
+                monitor_stop.wait(0.2)
+
+        monitor_thread = threading.Thread(target=monitor, daemon=True)
+        monitor_thread.start()
+        try:
+            with ThreadPoolExecutor(max_workers=clients) as pool:
+                futures = [pool.submit(self.worker, items, barrier, stopped, mode) for items in jobs]
+                started = time.perf_counter()
+                barrier.wait(timeout=30)
+                rows = [sample for future in futures for sample in future.result()]
+                elapsed = time.perf_counter() - started
+        finally:
+            monitor_stop.set()
+            monitor_thread.join(timeout=5)
+        metric = describe(rows, elapsed)
+        metric.update(sequence=sequence, clients=clients, batch_records=batch,
+                      sampled_peak_memory_bytes=max(memory, default=None),
+                      disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
+        metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before
+        self.metrics[name] = metric
+        if mode == "mixed":
+            for kind in ("read", "write"):
+                self.metrics[f"{name}/{kind}"] = describe([r for r in rows if r["kind"] == kind], elapsed)
+        for row in rows:
+            self.raw.write(json.dumps({"case": name, **row}) + "\n")
+        self.raw.flush()
+        save(self.output / "metrics.json", self.metrics)
+        print(json.dumps({"case": name, **metric}), flush=True)
+        if metric["errors"] or len(rows) != samples:
+            errors = [r["error"] for r in rows if "error" in r]
+            raise RuntimeError(f"{name}: incomplete measurement: {errors[:3]}")
+
+    def run(self):
+        try:
+            self.seed()
+            self.cold_next = 0
+            self.measure("cold-read/1", "cold")
+            self.measure("cold-read/32", "cold", batch=32)
+            hot = list(range(self.recipe["records"] - 256, self.recipe["records"]))
+            for start in range(0, len(hot), 64):
+                numbers = hot[start:start + 64]
+                result, _, _ = self.node.call("/api/query", read_request(numbers))
+                validate_read(result, numbers)
+            self.measure("hot-read/1", "hot")
+            self.measure("hot-read/32", "hot", batch=32)
+            for mode in ("insert", "update"):
+                for batch in (1, 128):
+                    self.measure(f"{mode}/{batch}", mode, batch=batch, samples=self.recipe["write_samples"])
+            for clients in (1, 4, 16, 32):
+                for mode in ("read", "write", "mixed"):
+                    self.measure(f"concurrent-{mode}/{clients}", mode, clients=clients)
+            native, _, _ = self.node.call("/api/db/native-status")
+            save(self.output / "native-status.json", native)
+            if native["native_disk"].get("writer_failed") is not False:
+                raise RuntimeError("The final native writer is unhealthy")
+        finally:
+            self.raw.close()

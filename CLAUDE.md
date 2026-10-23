@@ -23,6 +23,21 @@ Policy and receipt format: `https://github.com/EdgeVector/.github/tree/main/gene
 
 # CLAUDE.md — EdgeVector/lastdb monorepo
 
+## Builds and benchmarks run in CI (Tom, 2026-10-23)
+
+This rule supersedes the local build commands and coordination rules below.
+
+- Do not run benchmarks on Tom's machine.
+- Do not run local builds, `cargo check`, or `cargo clippy` for LastDB.
+- Make the code changes, then open or update the PR. Use GitHub Actions for builds and benchmarks.
+- Do not acquire or wait for the host build or measurement lock.
+- Stop and clean up a local benchmark that you own. Do not stop another agent's process.
+- Tell your subagents about this rule. Review the PR results before merge.
+- Lightweight source, syntax, and format checks can run locally. Tests remain retired.
+- PR updates and main pushes run the standard benchmarks. The nightly run uses a larger recipe.
+- Slowdowns are advisory. A build error or an incomplete measurement remains an error.
+- While CI waits, do not substitute a local build or benchmark.
+
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,
 > NOT a table/SQL database.** There is no scan, no WHERE-style field filter,
 > no JOIN. Everything is reached by a named key.
@@ -61,65 +76,26 @@ product), plus shared `lastdb_host` / `lastdb_uds` /
 app, and `file_to_markdown` were deleted in the Mini-only cutover 2026-07-12;
 restore point: branch `archive/desktop-dmg-pre-removal`.)
 
-## Canonical commands
+## CI checks
 
 **The tests are deleted** (Tom, 2026-10-09: they flaked and gave no signal).
 The required gate (`ci-required`) runs fmt, clippy, lints, and builds only, and
 the repo has no test suite to run. CI and the lints do not require tests or
 test coverage.
 
-```bash
-cargo build --workspace
-cargo clippy --workspace --lib --bins -- -D warnings
-cargo fmt --all                              # ALWAYS run before committing
-scripts/install-hooks.sh                     # fmt + no-URL pre-commit hook
-```
+Open or update a PR after the source changes. Read the required checks and
+the `LastDB benchmarks` summary in GitHub. Fix a failed check through another
+source commit. Do not substitute a local build or benchmark while CI waits.
 
-## Local agent loop (package-scoped — default while iterating)
+The benchmark workflow compares the exact base and candidate commits on one
+GitHub machine. Read `scripts/benchmarks/README.md` for the standard and nightly
+recipes, artifact contents, and measurement limits. Slowdowns remain advisory.
 
-Prefer **narrow** builds against the crate you touched. Full workspace is
-for pre-PR / CI confidence, not every edit.
+Format checks can run locally with `cargo fmt --all -- --check`.
+Use `cargo fmt --all` to format source changes before a commit.
 
-```bash
-# Build only the package + its deps (examples)
-cargo build -p lastdb_node
-cargo build -p schema_service_core
-cargo build -p fold_db
-
-# Full workspace — use before opening/pushing a PR, or when shared crates move
-cargo clippy --workspace --lib --bins -- -D warnings
-```
-
-### Local build coordination (Tom, 2026-10-23)
-
-Run ordinary builds, `cargo check`, `cargo clippy`, format checks, and local
-app checks directly. These commands do not require the shared host lock.
-This is a local project policy. GitHub does not require this lock.
-
-- Use the worktree's target directory. Do not share a target directory between
-  unrelated worktrees. Cargo can manage its own file locks.
-- If the machine is busy, reduce build jobs, for example with
-  `CARGO_BUILD_JOBS=2`. Do not put every build in one host queue.
-- The host lock is optional coordination for performance measurements.
-  Build the candidate before the lock. Hold the lock for one measurement,
-  then release it. Do not hold it through rebuilds or a full measurement suite.
-- Use a finite command deadline and a short lock wait. The wrapper defaults
-  to a 60-second lock wait. If the lock is busy, defer the measurement.
-  Ordinary development continues.
-- The lock does not guarantee an idle machine. Check host load for performance
-  evidence. If other work affects a measurement, defer or repeat that measurement.
-  Do not stop another agent's job or make ordinary builds wait for it.
-
-How to pick `-p`: use the card's `Surfaces:` line and the crate that owns the
-edited files (`lastdb_node`, `fold_db`, `schema_service_core`, …). Workspace
-members are listed in the root `Cargo.toml`.
-
-**Linker note (macOS):** do **not** install `mold` for local Mach-O builds —
-Homebrew mold no longer supports Mach-O. Rely on sccache (`~/.cargo/config.toml`)
-for compile cache; use package-scoped builds for link feedback speed.
-`mold` remains useful on **Linux** CI hosts only.
-
-Manual CI audit commands:
+The commands below are CI audit commands. Do not run build or clippy commands
+on Tom's machine.
 
 The manual `.github/workflows/ci.yml` audit runs these commands. The normal
 required PR gate uses `.github/workflows/ci-required.yml`; it does not run the
@@ -133,8 +109,6 @@ bash scripts/lints/lint-tracing-egress.sh   --scope=fold_db/crates --scope=schem
 bash scripts/lints/lint-byte-slice.sh       --scope=fold_db/crates --scope=schema_service/crates --scope=lastdb_node --scope=lastdb_host --scope=lastdb_uds --scope=lastdb_identity
 bash scripts/lints/lint-no-hardcoded-urls.sh
 ```
-
-Run the Mini daemon locally: `cargo run -p lastdb_node --bin lastdbd`.
 
 PR / merge: this repo is canonical on GitHub since 2026-09-29 (brain
 `decision-2026-09-29-fold-venue-back-to-github`). Open PRs with
