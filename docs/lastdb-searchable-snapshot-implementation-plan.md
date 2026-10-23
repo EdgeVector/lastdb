@@ -52,6 +52,7 @@ The format adds no journal, side file, or receipt chain for recovery.
 - Remove `Dependencies::from_coordinates` and the conservative generation writer.
 - Retire old page references as `TreeEdit` replaces each page.
 - Read only fresh private metadata pages to add their references.
+- Change payload counts only for keys that the batch inserts or replaces.
 - Resolve each page's overflow and payload references before the next page enters the ledger.
 - Keep a shared file part until its last current reference goes.
 - Leave old receipts, read holds, backup references, and reclaim barriers intact.

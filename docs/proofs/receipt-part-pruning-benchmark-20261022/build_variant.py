@@ -131,7 +131,10 @@ def build_disk(repo, args, scratch, environment, target, shared):
         copied = scratch / "bin" / f"{args.variant}-{name}"
         shutil.copy2(target / "release" / name, copied)
         receipts[name] = {"binary": str(copied), "binary_sha256": digest(copied)}
+    metadata = {**shared.get("build_environment", {}),
+                "package_features": "laststore has no package feature declarations"}
     save(ROOT / f"{args.variant}-disk-build.json", {**shared, "build_command": " ".join(command),
+         "build_argv": command, "build_environment": metadata,
          "build_start_unix_ns": started, "build_end_unix_ns": time.time_ns(), "binaries": receipts})
 
 

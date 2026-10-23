@@ -22,6 +22,8 @@ pub(super) use scan::{add_directory_empty_root, observe_new_parts};
 /// conservative 256 bytes/entry). Pending descriptors/extents admit 4096 entries
 /// (1 MiB). Resolvers retain at most 26 pages and 25 part-header identities;
 /// bootstrap uses a height-bounded stack. No payload is decoded.
+/// Ordinary metadata copies exclude payload references. Only changed keys send
+/// old/new extents to the resolver; full seeds account complete locator pages.
 pub(super) const MAX_REFERENCE_CHANGES: usize = 4096;
 
 /// A pending extent has at most u32::MAX blocks; an overflow chain has at most

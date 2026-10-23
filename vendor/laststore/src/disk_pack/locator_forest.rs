@@ -132,13 +132,15 @@ impl LocatorChanges {
         }
     }
 
-    pub(super) fn create(&mut self, changes: &[MapChange]) -> Result<TreeRoot> {
+    pub(super) fn create(&mut self, call: &ReadCall, changes: &[MapChange]) -> Result<TreeRoot> {
         if self.new.is_none() {
             self.new = Some(LocatorForest::new(&self.root, self.generation)?);
         }
         let forest = self.new.as_mut().expect("created forest");
         let mut writer = forest.tree()?;
         for (key, value) in changes {
+            self.changes.observe_location(value, &call.current, 1)?;
+            super::live_parts::resolve_references(&call.root, &call.current, &mut self.changes)?;
             writer.add(key, *value)?;
         }
         forest.complete_tree(writer)

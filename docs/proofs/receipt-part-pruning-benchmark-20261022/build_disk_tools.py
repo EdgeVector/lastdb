@@ -36,6 +36,7 @@ def main():
     environment["CARGO_TARGET_DIR"] = str(target)
     shared = {name: value for name, value in prior.items()
               if name not in ("binary", "binary_sha256", "version")}
+    shared["disk_driver_sha256"] = build_variant.digest(Path(__file__))
     build_variant.build_disk(repo, args, scratch, environment, target, shared)
     print(json.dumps({"physical_tools_ready": True, "variant": args.variant,
                       "revision": args.revision, "scratch": str(scratch)}), flush=True)

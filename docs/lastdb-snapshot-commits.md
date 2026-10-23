@@ -50,7 +50,8 @@ The write follows this order:
 
 The publisher carries the prior live counts and adds the exact changed-page deltas.
 It removes a part from the new receipt when that part has no live reference.
-Each copied leaf removes its old payload references and adds its new payload references.
+Each changed key removes its old payload references and adds its new payload references.
+An unchanged value causes no payload-map work when its search page receives a copy.
 The resolver reads payload block maps and part headers; it does not decode record bodies.
 Overflow references follow the actual next-page links.
 One live record keeps every payload and map part that its bytes require.

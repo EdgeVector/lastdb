@@ -191,6 +191,7 @@ impl<P: TreePages> TreeEdit<P> {
             let key = call.full_key(&self.root, entry)?;
             while updates.peek().is_some_and(|(next, _)| *next < key) {
                 let (key, value) = updates.next().expect("peeked change");
+                self.change_value(call, None, value)?;
                 entries.push((
                     tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
                     *value,
@@ -198,13 +199,16 @@ impl<P: TreePages> TreeEdit<P> {
             }
             let descriptor = entry[..key_layout::descriptor_bytes(entry)].to_vec();
             let value = if updates.peek().is_some_and(|(next, _)| *next == key) {
-                updates.next().expect("peeked replacement").1
+                let (_, value) = updates.next().expect("peeked replacement");
+                self.change_value(call, Some(key_layout::value(entry)), value)?;
+                *value
             } else {
                 key_layout::value(entry).try_into().expect("leaf value")
             };
             entries.push((descriptor, value));
         }
         for (key, value) in updates {
+            self.change_value(call, None, value)?;
             entries.push((
                 tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
                 *value,
@@ -214,6 +218,17 @@ impl<P: TreePages> TreeEdit<P> {
             .into_iter()
             .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))
             .collect()
+    }
+
+    fn change_value(&mut self, call: &ReadCall, old: Option<&[u8]>, new: &[u8; 128]) -> Result<()> {
+        if self.root.kind == super::TreeKind::Locator {
+            if let Some(old) = old {
+                self.changes.observe_location(old, &call.current, -1)?;
+            }
+            self.changes.observe_location(new, &call.current, 1)?;
+            super::live_parts::resolve_references(&call.root, &call.current, &mut self.changes)?;
+        }
+        Ok(())
     }
 
     /// Keep private pages available to other trees in the same object.

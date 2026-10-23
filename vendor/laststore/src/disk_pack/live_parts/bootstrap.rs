@@ -103,7 +103,14 @@ impl Collector<'_> {
             ));
         }
         let mut changes = Changes::default();
-        changes.observe_page(tree.kind, tree.object, path.number, &page, self.current, 1)?;
+        changes.observe_complete_page(
+            tree.kind,
+            tree.object,
+            path.number,
+            &page,
+            self.current,
+            1,
+        )?;
         // The held page owns its bytes. Release this path's descriptors before
         // a resolver or child path opens its own bounded descriptor pool.
         call = artifact::metadata_call(self.root, self.current.clone());

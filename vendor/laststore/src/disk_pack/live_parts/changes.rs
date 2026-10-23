@@ -91,6 +91,24 @@ impl Changes {
         Ok(())
     }
 
+    pub(in crate::disk_pack) fn observe_complete_page(
+        &mut self,
+        kind: TreeKind,
+        object: Uuid,
+        number: u64,
+        page: &Page,
+        current: &Current,
+        sign: i64,
+    ) -> Result<()> {
+        self.observe_page(kind, object, number, page, current, sign)?;
+        if kind == TreeKind::Locator && page.level() == 0 && page.kind() != 4 {
+            for at in 0..page.count() {
+                self.observe_location(key_layout::value(page.entry(at)), current, sign)?;
+            }
+        }
+        Ok(())
+    }
+
     fn observe_value(
         &mut self,
         kind: TreeKind,
@@ -117,20 +135,35 @@ impl Changes {
                 )?;
             }
         } else {
-            let location = Location::decode_for_current(value, current)?;
-            if location.version.batch > current.frontier {
-                return Err(corrupt("live-page locator beyond selected frontier"));
-            }
-            if location.source == Source::Pack {
-                self.add_location(
-                    Span {
-                        object: location.object,
-                        first_block: location.first_block,
-                        blocks: location.blocks,
-                    },
-                    sign,
-                )?;
-            }
+            checked_location(value, current)?;
+        }
+        Ok(())
+    }
+
+    /// Ordinary edits resolve only replaced or inserted locator values. A copied
+    /// unchanged leaf slot therefore requires no payload block-map access.
+    pub(in crate::disk_pack) fn observe_location(
+        &mut self,
+        value: &[u8],
+        current: &Current,
+        sign: i64,
+    ) -> Result<()> {
+        if !matches!(sign, -1 | 1) {
+            return Err(corrupt("invalid live-location reference delta"));
+        }
+        let value = value
+            .try_into()
+            .map_err(|_| corrupt("live-location value width"))?;
+        let location = checked_location(value, current)?;
+        if location.source == Source::Pack {
+            self.add_location(
+                Span {
+                    object: location.object,
+                    first_block: location.first_block,
+                    blocks: location.blocks,
+                },
+                sign,
+            )?;
         }
         Ok(())
     }
@@ -175,6 +208,14 @@ impl Changes {
             MAX_REFERENCE_CHANGES,
         )
     }
+}
+
+fn checked_location(value: &[u8; 128], current: &Current) -> Result<Location> {
+    let location = Location::decode_for_current(value, current)?;
+    if location.version.batch > current.frontier {
+        return Err(corrupt("live-page locator beyond selected frontier"));
+    }
+    Ok(location)
 }
 
 fn adjust<K: Ord>(
