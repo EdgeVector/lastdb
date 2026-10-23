@@ -11,76 +11,40 @@ impl AtomStore {
             .collect()
     }
 
-    /// Union of prefix scans, deduped by decoded `(hash, range)`.
-    ///
-    /// Dual-read of molecule-UUID encodings produces two `mk:{M}:` prefixes
-    /// that are not collation-compatible. Merge on the decoded slot so a
-    /// mixed-encoding field stays complete, and keep the first spelling
-    /// (write-form) when both exist.
-    pub(crate) async fn scan_per_key_prefixes(
+    /// Read one exact prefix, then apply generation, Delete, and captured state.
+    pub(crate) async fn scan_per_key_prefix(
         &self,
-        base_prefixes: &[String],
+        base_prefix: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
         if let Some(rows) = self
-            .preloaded_per_key_prefixes(base_prefixes, storage_prefix)
+            .preloaded_per_key_prefix(base_prefix, storage_prefix)
             .await?
         {
             return Ok(rows);
         }
-        let mut merged: Vec<(String, PerKeyRecord)> = Vec::new();
-        let mut seen: std::collections::HashSet<(String, String)> =
-            std::collections::HashSet::new();
-        for base_prefix in base_prefixes {
-            let scan_prefix = build_storage_key(storage_prefix, base_prefix);
-            let scanned: Vec<(String, PerKeyRecord)> = self
-                .main_store
-                .scan_items_with_prefix(&scan_prefix)
-                .await
-                .map_err(|e| {
-                    SchemaError::InvalidData(format!("scan per-key prefix {scan_prefix}: {e}"))
-                })?;
-            let stripped = Self::strip_per_key_storage_prefix(storage_prefix, scanned);
-            for (key, rec) in stripped {
-                let slot = molecule_key_codec::decode_hash_range_any(&key).or_else(|| {
-                    // Non-mk prefixes (tests / opaque M) still belong in the
-                    // result; they cannot collide with a decoded slot.
-                    Some((key.clone(), String::new()))
-                });
-                let Some(slot) = slot else {
-                    continue;
-                };
-                if seen.insert(slot) {
-                    merged.push((key, rec));
-                }
-            }
-        }
-        let Some(molecule_uuid) = base_prefixes
-            .first()
-            .and_then(|prefix| molecule_key_codec::molecule_uuid_from_storage_key(prefix))
+        let scan_prefix = build_storage_key(storage_prefix, base_prefix);
+        let scanned: Vec<(String, PerKeyRecord)> = self
+            .main_store
+            .scan_items_with_prefix(&scan_prefix)
+            .await
+            .map_err(|e| {
+                SchemaError::InvalidData(format!("scan per-key prefix {scan_prefix}: {e}"))
+            })?;
+        let rows = Self::strip_per_key_storage_prefix(storage_prefix, scanned);
+        let Some(molecule_uuid) = molecule_key_codec::molecule_uuid_from_storage_key(base_prefix)
         else {
             return self
-                .filter_delete_barriers_for_records(merged, storage_prefix)
+                .filter_delete_barriers_for_records(rows, storage_prefix)
                 .await;
         };
-        // UUID read candidates can produce several prefixes. Each generation
-        // belongs to its exact molecule spelling, so merge each bounded prefix
-        // into the already-deduplicated live result.
-        let mut out = merged;
-        for base_prefix in base_prefixes {
-            if molecule_key_codec::molecule_uuid_from_storage_key(base_prefix)
-                != Some(molecule_uuid)
-            {
-                continue;
-            }
-            out = self
-                .merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, out)
-                .await?;
-        }
         let rows = self
-            .filter_delete_barriers_for_records(out, storage_prefix)
+            .merge_generation_prefix_rows(molecule_uuid, base_prefix, storage_prefix, rows)
             .await?;
-        self.merge_captured_tip_prefixes(storage_prefix, base_prefixes, rows)
+        let rows = self
+            .filter_delete_barriers_for_records(rows, storage_prefix)
+            .await?;
+        self.merge_captured_tip_prefix(storage_prefix, base_prefix, rows)
     }
 
     /// Scan **at most `limit`** per-key records under the molecule's record
