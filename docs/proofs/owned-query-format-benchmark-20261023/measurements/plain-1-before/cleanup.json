@@ -1,0 +1,12 @@
+{
+  "run_id": "cf2821f57e104e2ea06c6bc14ea76139",
+  "home": "/workspace/oq2-pairs/plain-1-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 2751,
+  "allocated_bytes_removed": 965898240,
+  "free_bytes_before": 17054052352,
+  "free_bytes_after": 18025803776
+}
