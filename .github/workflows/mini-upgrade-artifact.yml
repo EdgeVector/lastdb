@@ -54,6 +54,14 @@ jobs:
         run: >-
           cargo build --locked --release --target aarch64-apple-darwin
           -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Remove release symbols and verify executable signatures
+        run: |
+          for binary in lastdb lastdbd; do
+            path="target/aarch64-apple-darwin/release/$binary"
+            strip "$path"
+            codesign --force --sign - "$path"
+            codesign --verify --strict "$path"
+          done
       - name: Package the pair and source receipt
         env:
           SOURCE_OID: ${{ steps.source.outputs.oid }}
