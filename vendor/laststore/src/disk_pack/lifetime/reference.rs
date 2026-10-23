@@ -144,6 +144,9 @@ impl DurableReference {
             return Err(corrupt("reference expired; explicit release is required"));
         }
         let current = validate(root, &info)?;
+        // Reconcile a prior successful rename whose directory barrier failed.
+        durability::sync_directory(&File::open(root.join("references"))?)?;
+        durability::sync_directory(&File::open(root)?)?;
         Ok(Self {
             root: root.to_path_buf(),
             info,
