@@ -1,0 +1,12 @@
+{
+  "run_id": "7f52ea3da6df481a971d63aba2c664f6",
+  "home": "/workspace/native-routing-focused-pairs/plain-0-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 595,
+  "allocated_bytes_removed": 399773696,
+  "free_bytes_before": 19846078464,
+  "free_bytes_after": 20247117824
+}
