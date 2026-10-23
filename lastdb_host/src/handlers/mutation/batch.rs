@@ -1,6 +1,11 @@
-//! Batch mutation handler, response renderers and convergence wait.
+//! Batch request steps, mutation construction, commit, and response rendering.
+//! Pure batch rules live in `rules`; host work stays explicit in the request.
 
 use super::*;
+
+mod rules;
+
+use self::rules::{batch_convergence, validate_batch_options};
 
 /// Per-class operation counts as the route renders them.
 pub(in super::super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
@@ -34,31 +39,47 @@ pub(in super::super) fn stages_json(stages: &ResidentCommitStages) -> Value {
 /// batch.
 ///
 /// # Errors
-/// [`HostError`] `400` for an empty batch, `404` when any schema is unknown,
-/// `500` on a write failure.
+/// [`HostError`] `400` for invalid batch rules or fields, `404` when any schema
+/// is unknown, and the core's typed status for a rejected write.
 pub async fn execute_mutations_batch<H: HostNode>(
     host: &H,
     components: Vec<MutationComponents>,
     ctx: &AccessContext,
 ) -> Result<Value, HostError> {
-    if components.is_empty() {
-        return Err(HostError::new(
-            400,
-            "Mutation batch must contain at least one mutation",
-        ));
-    }
-
-    let wait_for_convergence = components
-        .iter()
-        .any(|component| component.convergence.waits());
+    let convergence = batch_convergence(&components)?;
     let mut requires_durable_cloud_capture = false;
     let mut mutations = Vec::with_capacity(components.len());
     let mut payload_bytes = 0usize;
     for components in components {
-        let item = prepare_batch_item(host, components).await?;
-        requires_durable_cloud_capture |= item.durable_delete;
-        payload_bytes = payload_bytes.saturating_add(item.payload_bytes);
-        mutations.push(item.mutation);
+        validate_batch_options(&components)?;
+
+        // Sum per-item phases without changing which rejection wins first.
+        let resolve_started = std::time::Instant::now();
+        let resolved = resolve_schema_name(host, &components.schema)?;
+        request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
+        let Some(canonical) = resolved else {
+            return Err(HostError::new(
+                404,
+                format!("Schema not found: {}", components.schema),
+            ));
+        };
+        reject_illegal_must_exist(components.mutation_type, components.must_exist)?;
+
+        let validate_started = std::time::Instant::now();
+        validate_mutation_fields(
+            host,
+            &components.schema,
+            &canonical,
+            &components.fields_and_values,
+        )
+        .await?;
+        request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
+
+        requires_durable_cloud_capture |=
+            is_durable_delete(components.mutation_type, components.durability);
+        payload_bytes =
+            payload_bytes.saturating_add(fields_payload_bytes(&components.fields_and_values));
+        mutations.push(build_batch_mutation(host, components, canonical));
     }
 
     let count = mutations.len();
@@ -70,20 +91,28 @@ pub async fn execute_mutations_batch<H: HostNode>(
         requires_durable_cloud_capture,
     )
     .await?;
-    let convergence = if wait_for_convergence {
-        MutationConvergence::Sync
-    } else {
-        MutationConvergence::Async
-    };
     let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
 
+    Ok(batch_response(
+        &receipt,
+        count,
+        background_tasks_drained,
+        requires_durable_cloud_capture,
+    ))
+}
+
+fn batch_response(
+    receipt: &ResidentCommitReceipt,
+    count: usize,
+    background_tasks_drained: bool,
+    requires_durable_cloud_capture: bool,
+) -> Value {
     let mut response = serde_json::json!({
         "mutation_ids": &receipt.mutation_ids,
         "count": count,
         "background_tasks_drained": background_tasks_drained,
         "convergence_pending": !background_tasks_drained,
-        // One committed revision for every row in the batch — the primary
-        // record and each exact projection — so the caller can read back
+        // One committed revision lets the caller read back every batch record
         // without a post-write verification round trip.
         "revision": receipt.revision,
         "operations": operations_json(&receipt.operations),
@@ -94,7 +123,7 @@ pub async fn execute_mutations_batch<H: HostNode>(
     if requires_durable_cloud_capture {
         attach_batch_cloud_capture(&mut response, &receipt.mutation_ids, receipt.cloud.as_ref());
     }
-    Ok(response)
+    response
 }
 
 pub(in super::super) async fn wait_for_requested_convergence<H: HostNode>(
@@ -113,94 +142,31 @@ pub(in super::super) async fn wait_for_requested_convergence<H: HostNode>(
     background_tasks_drained
 }
 
-/// One validated batch item, ready to write.
-struct PreparedBatchItem {
-    mutation: Mutation,
-    payload_bytes: usize,
-    durable_delete: bool,
-}
-
-/// Validate one batch item (batch-unsupported fields, schema, field values)
-/// and build its signed [`Mutation`].
-async fn prepare_batch_item<H: HostNode>(
+/// Build one validated mutation with the host's identity and the caller's options.
+fn build_batch_mutation<H: HostNode>(
     host: &H,
     components: MutationComponents,
-) -> Result<PreparedBatchItem, HostError> {
-    let MutationComponents {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence: _,
-        durability,
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
-        aggregate_set,
-    } = components;
-
-    if key_range_prefix.is_some() {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix is only supported by /api/mutation",
-        ));
-    }
-
-    if cloud_publication.is_some() {
-        return Err(HostError::new(
-            400,
-            "cloud_publication is only supported by /api/mutation",
-        ));
-    }
-    if aggregate_set.is_some() {
-        return Err(HostError::new(
-            400,
-            "aggregate_set requires the single mutation route".to_string(),
-        ));
-    }
-    let durable_delete = is_durable_delete(mutation_type, durability);
-
-    // Per-item accumulation: `add_phase` sums into the request's totals,
-    // so a batch reports the SUM of its items' resolve/validate time
-    // rather than a point sample of whichever item ran last.
-    let resolve_started = std::time::Instant::now();
-    let resolved = resolve_schema_name(host, &schema)?;
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    let Some(canonical) = resolved else {
-        return Err(HostError::new(404, format!("Schema not found: {schema}")));
-    };
-    reject_illegal_must_exist(mutation_type, must_exist)?;
-    let validate_started = std::time::Instant::now();
-    validate_mutation_fields(host, &schema, &canonical, &fields_and_values).await?;
-    request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
-
-    let payload_bytes = fields_payload_bytes(&fields_and_values);
+    canonical: String,
+) -> Mutation {
     let mut mutation = Mutation::new(
         canonical,
-        fields_and_values,
-        key_value,
+        components.fields_and_values,
+        components.key_value,
         host.public_key(),
-        mutation_type,
+        components.mutation_type,
     );
-    mutation.source_file_name = source_file_name;
-    if durability.waits_for_persist() {
+    mutation.source_file_name = components.source_file_name;
+    if components.durability.waits_for_persist() {
         mutation.synchronous = Some(true);
     }
-    let mutation = match expected {
+    let mutation = match components.expected {
         Some(expectation) => mutation.with_expected(expectation),
         None => mutation,
     };
-    let mutation = match must_exist {
+    match components.must_exist {
         Some(flag) => mutation.with_must_exist(flag),
         None => mutation,
-    };
-    Ok(PreparedBatchItem {
-        mutation,
-        payload_bytes,
-        durable_delete,
-    })
+    }
 }
 
 /// Admit the whole batch on the lane its combined payload size implies and
