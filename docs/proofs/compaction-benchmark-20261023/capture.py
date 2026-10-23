@@ -6,12 +6,12 @@ import json
 import os
 from pathlib import Path
 
+import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
 from benchmark_output import default_output, resolve_output
 import resource
 import signal
 import subprocess
-import sys
 import threading
 import time
 

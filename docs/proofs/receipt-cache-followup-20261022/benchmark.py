@@ -5,9 +5,9 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
 from benchmark_output import default_output, resolve_output
-import sys
 
 sys.dont_write_bytecode = True
 from reuse import capture as owned_capture, original
