@@ -1,0 +1,157 @@
+{
+  "source_commit": "550836f1b4a8bc18623fe2a7eb119cb7fe6d4f46",
+  "build": {
+    "command": "RUSTC_WRAPPER= CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo build --profile dev-release -p lastdb_node --bin lastdbd",
+    "exit_code": 0
+  },
+  "clippy": {
+    "packages": [
+      "laststore",
+      "fold_db",
+      "lastdb_node"
+    ],
+    "targets": [
+      "lib",
+      "bins"
+    ],
+    "deny_warnings": true,
+    "exit_code": 0
+  },
+  "format_check": {
+    "command": "cargo fmt --all -- --check",
+    "exit_code": 0
+  },
+  "diff_gates": {
+    "base": "6b8ff62c4",
+    "file_size": "pass",
+    "function_size": "pass",
+    "new_allows": "pass; none added"
+  },
+  "source_lints": {
+    "byte_slice": "pass; core and laststore",
+    "redaction": "pass; core and laststore",
+    "no_write_path_syncing_store": "pass"
+  },
+  "capture_python_syntax": "pass",
+  "live_daemon_receipts": [
+    {
+      "run": "capped",
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "39116c706f4d8d2c823dd5f34cc0a22585f772559f40b950b03288ee0e97942c",
+        "source_commit": "550836f1b4a8bc18623fe2a7eb119cb7fe6d4f46",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cap.a0VaYi/home",
+        "generated_data": true,
+        "count": 1024,
+        "schemas": 64,
+        "clients": 2,
+        "records_per_batch": 8,
+        "shared_schema_between_clients": false,
+        "uds_workers": 8,
+        "dependency_high_water": 512,
+        "disk_cap_bytes": 2147483648,
+        "durability_parameter": "default",
+        "numeric_latency_trace": true,
+        "method": "Real daemon calls with concurrent compaction; no primary data, fixtures, or scheduling injection."
+      },
+      "accepted_batch_calls": 1019,
+      "accepted_record_mutations": 8152,
+      "refused_calls": 1,
+      "refused_statuses": [
+        507
+      ],
+      "successful_explicit_compactions": 1,
+      "explicit_compaction_errors": [
+        "Expecting value: line 1 column 1 (char 0)"
+      ],
+      "durable_calls_completed_during_successful_compact_api_calls": 57,
+      "maximum_concurrent_requests_to_same_schema": 1,
+      "known_final_records_recovered": 513,
+      "recovered_values_match": true,
+      "clock_advanced": true,
+      "constrained_capacity_refusal_status": 507,
+      "constrained_refused_record_absent": true,
+      "constrained_writer_failed": false,
+      "constrained_shutdown_exit": 0,
+      "capacity_restored_ack": "durable",
+      "final_shutdown_exit": 0,
+      "final_shutdown_flush_ok": true,
+      "inventory_release_overlaps": 0,
+      "batch_latency": {
+        "count": 1020,
+        "errors": 1,
+        "average_ms": 88.62353933235295,
+        "median_ms": 85.2139795,
+        "p95_ms": 149.9825,
+        "p99_ms": 171.58125,
+        "max_ms": 462.7345,
+        "wall_seconds": 45.396530084,
+        "batches_per_second": 22.468677630484777,
+        "records_per_second": 179.74942104387821,
+        "latency_unit": "whole batch request; no division by record count"
+      }
+    },
+    {
+      "run": "headroom",
+      "inputs": {
+        "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+        "binary_sha256": "39116c706f4d8d2c823dd5f34cc0a22585f772559f40b950b03288ee0e97942c",
+        "source_commit": "550836f1b4a8bc18623fe2a7eb119cb7fe6d4f46",
+        "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cap.a0VaYi/room",
+        "generated_data": true,
+        "count": 256,
+        "schemas": 64,
+        "clients": 2,
+        "records_per_batch": 8,
+        "shared_schema_between_clients": false,
+        "uds_workers": 8,
+        "dependency_high_water": 512,
+        "disk_cap_bytes": 34359738368,
+        "durability_parameter": "default",
+        "numeric_latency_trace": true,
+        "method": "Real daemon calls with concurrent compaction; no primary data, fixtures, or scheduling injection."
+      },
+      "accepted_batch_calls": 256,
+      "accepted_record_mutations": 2048,
+      "refused_calls": 0,
+      "refused_statuses": [],
+      "successful_explicit_compactions": 3,
+      "explicit_compaction_errors": [],
+      "durable_calls_completed_during_successful_compact_api_calls": 245,
+      "maximum_concurrent_requests_to_same_schema": 1,
+      "known_final_records_recovered": 513,
+      "recovered_values_match": true,
+      "clock_advanced": true,
+      "constrained_capacity_refusal_status": 507,
+      "constrained_refused_record_absent": true,
+      "constrained_writer_failed": false,
+      "constrained_shutdown_exit": 1,
+      "capacity_restored_ack": "durable",
+      "final_shutdown_exit": 0,
+      "final_shutdown_flush_ok": true,
+      "inventory_release_overlaps": 0,
+      "batch_latency": {
+        "count": 256,
+        "errors": 0,
+        "average_ms": 51.82948208203125,
+        "median_ms": 47.8902085,
+        "p95_ms": 78.342334,
+        "p99_ms": 219.9795,
+        "max_ms": 224.419667,
+        "wall_seconds": 6.652233165999999,
+        "batches_per_second": 38.48331734798967,
+        "records_per_second": 307.86653878391735,
+        "latency_unit": "whole batch request; no division by record count"
+      }
+    }
+  ],
+  "limitations": [
+    "No natural inventory/release overlap occurred; live checks do not reproduce the precise reviewed interleaving.",
+    "Reservation estimates may temporarily overcount releases already in the inventory or from cancelled work.",
+    "The constrained headroom run returned exit 1 at shutdown. Restored-cap restart, durable write, and final shutdown passed.",
+    "These are capped concurrent batch workloads, not an under-10 ms small-write latency comparison."
+  ],
+  "tests_run": false,
+  "primary_used": false,
+  "merged": false
+}

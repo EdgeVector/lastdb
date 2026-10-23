@@ -1,0 +1,37 @@
+{
+  "exact_path": "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cc.5tS29q",
+  "real_path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cc.5tS29q",
+  "owner_uid": 501,
+  "entries": [
+    "a",
+    "a.log",
+    "b",
+    "b.log",
+    "c",
+    "c.log",
+    "d",
+    "d.log",
+    "e",
+    "e.log",
+    "f",
+    "f.log",
+    "g",
+    "g.log"
+  ],
+  "active_owned_nodes": [],
+  "owned_home_receipts": {
+    "a": "draft",
+    "b": "serial-before",
+    "c": "serial-control",
+    "d": "concurrent-one",
+    "e": "longer",
+    "f": "large",
+    "g": "capped"
+  },
+  "proofs_saved": true,
+  "ready": true,
+  "removed": true,
+  "removal_command": "rm -r -- /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cc.5tS29q",
+  "removal_exit_code": 0,
+  "exists_after": false
+}

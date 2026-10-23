@@ -1,0 +1,18 @@
+{
+  "schemas": 2,
+  "receipts": [
+    {
+      "ok": true,
+      "source": "system_seed",
+      "system_seed_schema": "IndependentBatch000",
+      "user_hash": "c5f25899302ebabb51f31ba10fdb8f70"
+    },
+    {
+      "ok": true,
+      "source": "system_seed",
+      "system_seed_schema": "IndependentBatch001",
+      "user_hash": "c5f25899302ebabb51f31ba10fdb8f70"
+    }
+  ],
+  "distinct_field_descriptions": true
+}

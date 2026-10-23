@@ -231,6 +231,12 @@ impl PackRuntime {
     }
 
     fn commit_queue(&self) -> StorageResult<(u64, Vec<Arc<transaction::PendingBatch>>)> {
+        let (result, report) = laststore::commit_timing::measure(|| self.commit_queue_inner());
+        super::timing::commit(report, &result);
+        result
+    }
+
+    fn commit_queue_inner(&self) -> StorageResult<(u64, Vec<Arc<transaction::PendingBatch>>)> {
         let (prepared, hidden, requests) = {
             let mut queue = self.queue.lock().expect("native accepted queue");
             queue.sealed = true;

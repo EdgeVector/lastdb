@@ -186,6 +186,19 @@ async fn persist_author_clock(
     state_key: &str,
     state: &MutationAuthorClockState,
 ) -> Result<(), SchemaError> {
+    if let Some(runtime) = db_ops.namespaced_store().disk_pack_runtime() {
+        return crate::storage::disk_pack::transaction::request_scope(Some(runtime), async {
+            let mut durable = db_ops
+                .metadata()
+                .get_typed::<MutationAuthorClockState>(state_key)
+                .await?
+                .unwrap_or_default();
+            durable.observe_remote(state.physical_nanos, state.logical_counter);
+            db_ops.metadata().put_typed(state_key, &durable).await?;
+            Ok::<(), SchemaError>(())
+        })
+        .await;
+    }
     if let Some(group) = db_ops.namespace_row_group("metadata", state_key) {
         db_ops.metadata().put_typed(state_key, state).await?;
         // Preserve the namespaced durability and allocation high-water barrier

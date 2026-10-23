@@ -1,0 +1,18 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-22T20:08:01.410925Z  WARN fold_db::storage::disk_pack::parts::worker: native storage reclaim failed error=Invalid operation: native home creation refused: current creation requires its durable key proofs first
+2026-10-22T20:08:01.600175Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h4/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h4
+  Owner:  e43e9944cc877aa3543f6516ae9e58a7
+2026-10-22T20:08:17.249724Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=1
+2026-10-22T20:08:21.758997Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=2
+2026-10-22T20:08:29.612924Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=3
+2026-10-22T20:08:41.257791Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=4
+2026-10-22T20:09:01.417925Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=5
+2026-10-22T20:09:01.612980Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-22T20:09:04.276513Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 1s before this start.
+2026-10-22T20:09:05.303862Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h4/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h4
+  Owner:  e43e9944cc877aa3543f6516ae9e58a7
+lastdbd: shutdown signal received, exiting

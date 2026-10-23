@@ -1,0 +1,16 @@
+{
+  "binary_sha256": "18b61d57b703ecb0b676fcfd52aa1e2604bf87bba6b273e3e9e9587abdc70871",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/fw.lR8wYg/h6",
+  "schemas": 64,
+  "calls": 1000,
+  "clients": 1,
+  "value_bytes": 64,
+  "batch_size": 1,
+  "request_workers": 8,
+  "high_water": 4096,
+  "timing_enabled": true,
+  "auto_maintenance": true,
+  "durability_parameter": "omitted; durable required",
+  "generated_data": true,
+  "schema_aliases": "whitespace aliases; notifications preserve caller spelling"
+}

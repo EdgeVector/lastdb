@@ -1,0 +1,10 @@
+{
+  "published_batch": 1068,
+  "logged_batch": 1073,
+  "pending_batches": 5,
+  "same_stream": true,
+  "current_sha256": "6cc1b0f0bd6e1af302f83c0f034020230e4bca55c53f9a783b7fa02b1cf4955a",
+  "tail_sha256": "628c7957426bbd5e886802935781d8a71eddcf7b902b7fefa3b9911dccc467aa",
+  "checksums_valid": true,
+  "tail_first_batch": 1069
+}

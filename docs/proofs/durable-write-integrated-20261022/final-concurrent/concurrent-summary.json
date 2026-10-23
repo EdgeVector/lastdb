@@ -1,0 +1,1842 @@
+{
+  "whole_request": {
+    "count": 256,
+    "errors": 0,
+    "average_ms": 127.22355321484375,
+    "median_ms": 98.433479,
+    "p95_ms": 329.756791,
+    "p99_ms": 500.643917,
+    "max_ms": 996.229292,
+    "wall_seconds": 8.351383208000001,
+    "batches_per_second": 30.65360475313492,
+    "records_per_second": 245.22883802507937,
+    "latency_unit": "whole batch request; no division by record count"
+  },
+  "matched_native_scopes": 256,
+  "background_commits": 0,
+  "native_scopes": {
+    "scope_ms": {
+      "average": 125.9996171875,
+      "median": 96.60650000000001,
+      "p95": 328.47,
+      "p99": 499.529,
+      "maximum": 995.201
+    },
+    "admission_ms": {
+      "average": 93.4033125,
+      "median": 59.8035,
+      "p95": 291.885,
+      "p99": 464.146,
+      "maximum": 969.229
+    },
+    "commit_ms": {
+      "average": 25.2196953125,
+      "median": 20.299,
+      "p95": 57.477,
+      "p99": 80.756,
+      "maximum": 169.26
+    },
+    "background_overlap_ms": {
+      "average": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "maximum": 0.0
+    }
+  },
+  "client_other_average_ms": 1.223936027343754,
+  "rows": [
+    {
+      "sequence": 133,
+      "scope_ms": 30.978,
+      "admission_ms": 0.002,
+      "commit_ms": 25.705,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 134,
+      "scope_ms": 67.584,
+      "admission_ms": 30.793,
+      "commit_ms": 27.022,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 135,
+      "scope_ms": 117.236,
+      "admission_ms": 67.594,
+      "commit_ms": 45.079,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 136,
+      "scope_ms": 146.185,
+      "admission_ms": 117.15,
+      "commit_ms": 24.34,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 137,
+      "scope_ms": 55.586,
+      "admission_ms": 27.965,
+      "commit_ms": 22.372,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 138,
+      "scope_ms": 172.377,
+      "admission_ms": 141.939,
+      "commit_ms": 25.573,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 139,
+      "scope_ms": 118.343,
+      "admission_ms": 56.942,
+      "commit_ms": 56.577,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 140,
+      "scope_ms": 98.076,
+      "admission_ms": 60.334,
+      "commit_ms": 28.405,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 141,
+      "scope_ms": 157.732,
+      "admission_ms": 128.527,
+      "commit_ms": 24.505,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 142,
+      "scope_ms": 63.498,
+      "admission_ms": 27.669,
+      "commit_ms": 30.47,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 143,
+      "scope_ms": 105.333,
+      "admission_ms": 34.617,
+      "commit_ms": 66.136,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 144,
+      "scope_ms": 207.07,
+      "admission_ms": 172.335,
+      "commit_ms": 29.265,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 145,
+      "scope_ms": 469.422,
+      "admission_ms": 401.803,
+      "commit_ms": 61.883,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 146,
+      "scope_ms": 97.108,
+      "admission_ms": 66.529,
+      "commit_ms": 25.935,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 147,
+      "scope_ms": 232.027,
+      "admission_ms": 198.782,
+      "commit_ms": 27.668,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 148,
+      "scope_ms": 93.927,
+      "admission_ms": 59.071,
+      "commit_ms": 28.417,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 149,
+      "scope_ms": 87.352,
+      "admission_ms": 33.683,
+      "commit_ms": 48.473,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 150,
+      "scope_ms": 155.379,
+      "admission_ms": 120.67,
+      "commit_ms": 28.836,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 151,
+      "scope_ms": 62.537,
+      "admission_ms": 33.61,
+      "commit_ms": 23.652,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 152,
+      "scope_ms": 102.631,
+      "admission_ms": 27.869,
+      "commit_ms": 69.576,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 153,
+      "scope_ms": 218.872,
+      "admission_ms": 186.672,
+      "commit_ms": 26.348,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 154,
+      "scope_ms": 65.954,
+      "admission_ms": 30.801,
+      "commit_ms": 29.687,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 155,
+      "scope_ms": 120.246,
+      "admission_ms": 34.035,
+      "commit_ms": 80.756,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 156,
+      "scope_ms": 255.886,
+      "admission_ms": 227.234,
+      "commit_ms": 23.157,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 157,
+      "scope_ms": 146.033,
+      "admission_ms": 113.739,
+      "commit_ms": 26.296,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 158,
+      "scope_ms": 122.834,
+      "admission_ms": 59.8,
+      "commit_ms": 57.477,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 159,
+      "scope_ms": 103.904,
+      "admission_ms": 61.956,
+      "commit_ms": 36.447,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 160,
+      "scope_ms": 170.417,
+      "admission_ms": 136.161,
+      "commit_ms": 28.711,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 161,
+      "scope_ms": 73.105,
+      "admission_ms": 33.093,
+      "commit_ms": 34.63,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 162,
+      "scope_ms": 141.791,
+      "admission_ms": 115.146,
+      "commit_ms": 20.918,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 163,
+      "scope_ms": 90.439,
+      "admission_ms": 65.607,
+      "commit_ms": 18.634,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 164,
+      "scope_ms": 103.144,
+      "admission_ms": 50.408,
+      "commit_ms": 44.399,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 165,
+      "scope_ms": 103.025,
+      "admission_ms": 76.485,
+      "commit_ms": 20.688,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 166,
+      "scope_ms": 101.757,
+      "admission_ms": 78.216,
+      "commit_ms": 17.827,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 167,
+      "scope_ms": 77.717,
+      "admission_ms": 48.318,
+      "commit_ms": 23.806,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 168,
+      "scope_ms": 995.201,
+      "admission_ms": 969.229,
+      "commit_ms": 20.077,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 169,
+      "scope_ms": 78.925,
+      "admission_ms": 54.222,
+      "commit_ms": 18.524,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 170,
+      "scope_ms": 157.744,
+      "admission_ms": 102.565,
+      "commit_ms": 49.623,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 171,
+      "scope_ms": 150.612,
+      "admission_ms": 104.769,
+      "commit_ms": 40.9,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 172,
+      "scope_ms": 64.844,
+      "admission_ms": 40.213,
+      "commit_ms": 18.956,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 173,
+      "scope_ms": 170.04,
+      "admission_ms": 149.23,
+      "commit_ms": 15.482,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 174,
+      "scope_ms": 172.137,
+      "admission_ms": 145.387,
+      "commit_ms": 20.725,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 175,
+      "scope_ms": 70.092,
+      "admission_ms": 46.527,
+      "commit_ms": 18.061,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 176,
+      "scope_ms": 121.055,
+      "admission_ms": 94.757,
+      "commit_ms": 20.305,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 177,
+      "scope_ms": 108.149,
+      "admission_ms": 75.629,
+      "commit_ms": 26.981,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 178,
+      "scope_ms": 89.283,
+      "admission_ms": 57.783,
+      "commit_ms": 26.115,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 179,
+      "scope_ms": 85.679,
+      "admission_ms": 62.858,
+      "commit_ms": 17.397,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 180,
+      "scope_ms": 79.745,
+      "admission_ms": 53.296,
+      "commit_ms": 20.654,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 181,
+      "scope_ms": 190.514,
+      "admission_ms": 162.099,
+      "commit_ms": 22.602,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 182,
+      "scope_ms": 102.361,
+      "admission_ms": 76.64,
+      "commit_ms": 19.414,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 183,
+      "scope_ms": 108.565,
+      "admission_ms": 79.568,
+      "commit_ms": 22.971,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 184,
+      "scope_ms": 111.507,
+      "admission_ms": 82.091,
+      "commit_ms": 23.708,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 185,
+      "scope_ms": 84.05,
+      "admission_ms": 57.391,
+      "commit_ms": 20.571,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 186,
+      "scope_ms": 49.029,
+      "admission_ms": 25.635,
+      "commit_ms": 17.816,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 187,
+      "scope_ms": 107.529,
+      "admission_ms": 78.435,
+      "commit_ms": 21.962,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 188,
+      "scope_ms": 89.154,
+      "admission_ms": 51.467,
+      "commit_ms": 31.944,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 189,
+      "scope_ms": 63.292,
+      "admission_ms": 36.639,
+      "commit_ms": 19.331,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 190,
+      "scope_ms": 56.825,
+      "admission_ms": 25.581,
+      "commit_ms": 25.503,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 191,
+      "scope_ms": 63.101,
+      "admission_ms": 30.257,
+      "commit_ms": 26.184,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 192,
+      "scope_ms": 317.733,
+      "admission_ms": 290.54,
+      "commit_ms": 21.869,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 193,
+      "scope_ms": 208.811,
+      "admission_ms": 183.665,
+      "commit_ms": 19.197,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 194,
+      "scope_ms": 77.975,
+      "admission_ms": 51.416,
+      "commit_ms": 19.856,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 195,
+      "scope_ms": 82.254,
+      "admission_ms": 50.7,
+      "commit_ms": 26.145,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 196,
+      "scope_ms": 89.348,
+      "admission_ms": 57.15,
+      "commit_ms": 26.345,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 197,
+      "scope_ms": 199.634,
+      "admission_ms": 174.564,
+      "commit_ms": 18.219,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 198,
+      "scope_ms": 47.906,
+      "admission_ms": 24.119,
+      "commit_ms": 18.838,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 199,
+      "scope_ms": 116.657,
+      "admission_ms": 80.104,
+      "commit_ms": 29.307,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 200,
+      "scope_ms": 183.549,
+      "admission_ms": 148.121,
+      "commit_ms": 28.606,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 201,
+      "scope_ms": 101.08,
+      "admission_ms": 71.027,
+      "commit_ms": 23.967,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 202,
+      "scope_ms": 155.807,
+      "admission_ms": 124.913,
+      "commit_ms": 23.491,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 203,
+      "scope_ms": 50.636,
+      "admission_ms": 29.995,
+      "commit_ms": 15.209,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 204,
+      "scope_ms": 47.656,
+      "admission_ms": 19.735,
+      "commit_ms": 21.308,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 205,
+      "scope_ms": 178.348,
+      "admission_ms": 143.874,
+      "commit_ms": 26.825,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 206,
+      "scope_ms": 169.545,
+      "admission_ms": 142.994,
+      "commit_ms": 19.125,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 207,
+      "scope_ms": 91.983,
+      "admission_ms": 59.807,
+      "commit_ms": 24.755,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 208,
+      "scope_ms": 150.381,
+      "admission_ms": 120.196,
+      "commit_ms": 24.191,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 209,
+      "scope_ms": 93.199,
+      "admission_ms": 61.316,
+      "commit_ms": 24.687,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 210,
+      "scope_ms": 61.599,
+      "admission_ms": 30.951,
+      "commit_ms": 23.576,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 211,
+      "scope_ms": 124.418,
+      "admission_ms": 91.779,
+      "commit_ms": 25.692,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 212,
+      "scope_ms": 55.967,
+      "admission_ms": 31.689,
+      "commit_ms": 17.537,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 213,
+      "scope_ms": 47.27,
+      "admission_ms": 23.349,
+      "commit_ms": 17.384,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 214,
+      "scope_ms": 134.498,
+      "admission_ms": 110.514,
+      "commit_ms": 16.789,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 215,
+      "scope_ms": 45.905,
+      "admission_ms": 22.979,
+      "commit_ms": 16.147,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 216,
+      "scope_ms": 45.552,
+      "admission_ms": 22.0,
+      "commit_ms": 16.332,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 217,
+      "scope_ms": 328.47,
+      "admission_ms": 301.249,
+      "commit_ms": 19.422,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 218,
+      "scope_ms": 75.662,
+      "admission_ms": 49.807,
+      "commit_ms": 18.6,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 219,
+      "scope_ms": 181.263,
+      "admission_ms": 146.487,
+      "commit_ms": 27.247,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 220,
+      "scope_ms": 84.234,
+      "admission_ms": 59.569,
+      "commit_ms": 17.082,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 221,
+      "scope_ms": 90.873,
+      "admission_ms": 58.459,
+      "commit_ms": 25.179,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 222,
+      "scope_ms": 59.903,
+      "admission_ms": 31.411,
+      "commit_ms": 20.997,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 223,
+      "scope_ms": 54.665,
+      "admission_ms": 27.432,
+      "commit_ms": 20.359,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 224,
+      "scope_ms": 134.175,
+      "admission_ms": 111.69,
+      "commit_ms": 15.407,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 225,
+      "scope_ms": 243.135,
+      "admission_ms": 222.003,
+      "commit_ms": 14.832,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 226,
+      "scope_ms": 45.154,
+      "admission_ms": 20.203,
+      "commit_ms": 17.704,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 227,
+      "scope_ms": 124.096,
+      "admission_ms": 94.796,
+      "commit_ms": 22.863,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 228,
+      "scope_ms": 122.867,
+      "admission_ms": 96.916,
+      "commit_ms": 19.433,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 229,
+      "scope_ms": 100.835,
+      "admission_ms": 79.143,
+      "commit_ms": 15.02,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 230,
+      "scope_ms": 70.768,
+      "admission_ms": 46.731,
+      "commit_ms": 16.673,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 231,
+      "scope_ms": 127.286,
+      "admission_ms": 100.006,
+      "commit_ms": 19.964,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 232,
+      "scope_ms": 50.206,
+      "admission_ms": 26.258,
+      "commit_ms": 16.658,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 233,
+      "scope_ms": 97.71,
+      "admission_ms": 74.227,
+      "commit_ms": 15.941,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 234,
+      "scope_ms": 76.585,
+      "admission_ms": 46.421,
+      "commit_ms": 22.833,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 235,
+      "scope_ms": 52.301,
+      "admission_ms": 29.188,
+      "commit_ms": 16.446,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 236,
+      "scope_ms": 49.032,
+      "admission_ms": 22.131,
+      "commit_ms": 19.556,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 237,
+      "scope_ms": 50.409,
+      "admission_ms": 25.771,
+      "commit_ms": 17.515,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 238,
+      "scope_ms": 50.245,
+      "admission_ms": 23.637,
+      "commit_ms": 20.007,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 239,
+      "scope_ms": 179.141,
+      "admission_ms": 153.798,
+      "commit_ms": 18.235,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 240,
+      "scope_ms": 81.145,
+      "admission_ms": 51.048,
+      "commit_ms": 22.446,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 241,
+      "scope_ms": 334.651,
+      "admission_ms": 306.3,
+      "commit_ms": 20.666,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 242,
+      "scope_ms": 110.351,
+      "admission_ms": 82.706,
+      "commit_ms": 20.405,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 243,
+      "scope_ms": 54.886,
+      "admission_ms": 26.638,
+      "commit_ms": 20.678,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 244,
+      "scope_ms": 107.557,
+      "admission_ms": 83.053,
+      "commit_ms": 17.651,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 245,
+      "scope_ms": 47.752,
+      "admission_ms": 23.388,
+      "commit_ms": 17.69,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 246,
+      "scope_ms": 189.147,
+      "admission_ms": 162.102,
+      "commit_ms": 19.92,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 247,
+      "scope_ms": 51.034,
+      "admission_ms": 26.02,
+      "commit_ms": 17.954,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 248,
+      "scope_ms": 99.987,
+      "admission_ms": 75.45,
+      "commit_ms": 16.735,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 249,
+      "scope_ms": 74.852,
+      "admission_ms": 48.501,
+      "commit_ms": 19.383,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 250,
+      "scope_ms": 77.658,
+      "admission_ms": 49.678,
+      "commit_ms": 20.499,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 251,
+      "scope_ms": 234.201,
+      "admission_ms": 206.856,
+      "commit_ms": 19.579,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 252,
+      "scope_ms": 52.583,
+      "admission_ms": 26.29,
+      "commit_ms": 17.93,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 253,
+      "scope_ms": 46.541,
+      "admission_ms": 25.08,
+      "commit_ms": 14.198,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 254,
+      "scope_ms": 154.515,
+      "admission_ms": 128.268,
+      "commit_ms": 18.292,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 255,
+      "scope_ms": 53.546,
+      "admission_ms": 25.131,
+      "commit_ms": 20.249,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 256,
+      "scope_ms": 99.387,
+      "admission_ms": 74.824,
+      "commit_ms": 16.52,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 257,
+      "scope_ms": 50.454,
+      "admission_ms": 23.484,
+      "commit_ms": 19.777,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 258,
+      "scope_ms": 49.253,
+      "admission_ms": 25.917,
+      "commit_ms": 15.662,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 259,
+      "scope_ms": 46.414,
+      "admission_ms": 22.26,
+      "commit_ms": 16.428,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 260,
+      "scope_ms": 280.146,
+      "admission_ms": 255.637,
+      "commit_ms": 16.799,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 261,
+      "scope_ms": 48.669,
+      "admission_ms": 23.508,
+      "commit_ms": 17.662,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 262,
+      "scope_ms": 99.655,
+      "admission_ms": 72.785,
+      "commit_ms": 18.781,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 263,
+      "scope_ms": 77.439,
+      "admission_ms": 51.008,
+      "commit_ms": 18.879,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 264,
+      "scope_ms": 257.192,
+      "admission_ms": 229.158,
+      "commit_ms": 20.371,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 265,
+      "scope_ms": 49.592,
+      "admission_ms": 26.992,
+      "commit_ms": 15.044,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 266,
+      "scope_ms": 98.695,
+      "admission_ms": 76.07,
+      "commit_ms": 15.313,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 267,
+      "scope_ms": 69.437,
+      "admission_ms": 44.193,
+      "commit_ms": 17.645,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 268,
+      "scope_ms": 76.958,
+      "admission_ms": 46.883,
+      "commit_ms": 22.426,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 269,
+      "scope_ms": 211.778,
+      "admission_ms": 180.828,
+      "commit_ms": 23.145,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 270,
+      "scope_ms": 117.81,
+      "admission_ms": 85.264,
+      "commit_ms": 25.122,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 271,
+      "scope_ms": 93.807,
+      "admission_ms": 62.443,
+      "commit_ms": 23.79,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 272,
+      "scope_ms": 151.444,
+      "admission_ms": 123.84,
+      "commit_ms": 20.293,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 273,
+      "scope_ms": 54.246,
+      "admission_ms": 26.526,
+      "commit_ms": 20.053,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 274,
+      "scope_ms": 59.225,
+      "admission_ms": 26.703,
+      "commit_ms": 24.645,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 275,
+      "scope_ms": 55.197,
+      "admission_ms": 31.349,
+      "commit_ms": 16.915,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 276,
+      "scope_ms": 201.421,
+      "admission_ms": 174.541,
+      "commit_ms": 19.282,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 277,
+      "scope_ms": 74.571,
+      "admission_ms": 49.653,
+      "commit_ms": 17.31,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 278,
+      "scope_ms": 75.25,
+      "admission_ms": 50.772,
+      "commit_ms": 16.559,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 279,
+      "scope_ms": 48.298,
+      "admission_ms": 23.512,
+      "commit_ms": 17.286,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 280,
+      "scope_ms": 48.956,
+      "admission_ms": 23.817,
+      "commit_ms": 17.593,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 281,
+      "scope_ms": 47.863,
+      "admission_ms": 24.17,
+      "commit_ms": 15.677,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 282,
+      "scope_ms": 318.443,
+      "admission_ms": 291.885,
+      "commit_ms": 19.417,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 283,
+      "scope_ms": 72.169,
+      "admission_ms": 49.282,
+      "commit_ms": 15.603,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 284,
+      "scope_ms": 75.462,
+      "admission_ms": 48.359,
+      "commit_ms": 19.491,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 285,
+      "scope_ms": 50.64,
+      "admission_ms": 26.155,
+      "commit_ms": 16.753,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 286,
+      "scope_ms": 249.952,
+      "admission_ms": 223.023,
+      "commit_ms": 19.002,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 287,
+      "scope_ms": 73.139,
+      "admission_ms": 50.233,
+      "commit_ms": 15.128,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 288,
+      "scope_ms": 148.37,
+      "admission_ms": 123.327,
+      "commit_ms": 17.465,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 289,
+      "scope_ms": 71.481,
+      "admission_ms": 46.923,
+      "commit_ms": 16.626,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 290,
+      "scope_ms": 72.763,
+      "admission_ms": 48.619,
+      "commit_ms": 17.159,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 291,
+      "scope_ms": 47.749,
+      "admission_ms": 23.181,
+      "commit_ms": 17.083,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 292,
+      "scope_ms": 48.531,
+      "admission_ms": 23.559,
+      "commit_ms": 17.334,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 293,
+      "scope_ms": 49.613,
+      "admission_ms": 23.948,
+      "commit_ms": 17.796,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 294,
+      "scope_ms": 226.302,
+      "admission_ms": 197.646,
+      "commit_ms": 20.714,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 295,
+      "scope_ms": 52.45,
+      "admission_ms": 27.509,
+      "commit_ms": 16.99,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 296,
+      "scope_ms": 203.991,
+      "admission_ms": 176.382,
+      "commit_ms": 19.913,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 297,
+      "scope_ms": 53.26,
+      "admission_ms": 26.56,
+      "commit_ms": 18.672,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 298,
+      "scope_ms": 50.919,
+      "admission_ms": 25.627,
+      "commit_ms": 17.334,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 299,
+      "scope_ms": 182.877,
+      "admission_ms": 157.715,
+      "commit_ms": 17.648,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 300,
+      "scope_ms": 151.831,
+      "admission_ms": 128.451,
+      "commit_ms": 16.105,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 301,
+      "scope_ms": 50.917,
+      "admission_ms": 22.293,
+      "commit_ms": 21.042,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 302,
+      "scope_ms": 52.266,
+      "admission_ms": 27.409,
+      "commit_ms": 17.078,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 303,
+      "scope_ms": 124.714,
+      "admission_ms": 100.87,
+      "commit_ms": 16.463,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 304,
+      "scope_ms": 77.318,
+      "admission_ms": 47.581,
+      "commit_ms": 21.887,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 305,
+      "scope_ms": 206.079,
+      "admission_ms": 179.742,
+      "commit_ms": 18.407,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 306,
+      "scope_ms": 102.675,
+      "admission_ms": 78.826,
+      "commit_ms": 15.983,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 307,
+      "scope_ms": 46.656,
+      "admission_ms": 22.635,
+      "commit_ms": 16.181,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 308,
+      "scope_ms": 117.241,
+      "admission_ms": 73.036,
+      "commit_ms": 36.553,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 309,
+      "scope_ms": 90.872,
+      "admission_ms": 67.116,
+      "commit_ms": 16.096,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 310,
+      "scope_ms": 77.19,
+      "admission_ms": 22.622,
+      "commit_ms": 42.544,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 311,
+      "scope_ms": 402.318,
+      "admission_ms": 225.277,
+      "commit_ms": 169.26,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 312,
+      "scope_ms": 214.93,
+      "admission_ms": 175.893,
+      "commit_ms": 28.344,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 313,
+      "scope_ms": 81.082,
+      "admission_ms": 36.472,
+      "commit_ms": 31.55,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 314,
+      "scope_ms": 434.868,
+      "admission_ms": 381.986,
+      "commit_ms": 45.291,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 315,
+      "scope_ms": 153.901,
+      "admission_ms": 96.303,
+      "commit_ms": 50.066,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 316,
+      "scope_ms": 95.915,
+      "admission_ms": 56.279,
+      "commit_ms": 30.536,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 317,
+      "scope_ms": 499.529,
+      "admission_ms": 464.146,
+      "commit_ms": 20.516,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 318,
+      "scope_ms": 140.738,
+      "admission_ms": 73.585,
+      "commit_ms": 59.547,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 319,
+      "scope_ms": 127.887,
+      "admission_ms": 101.232,
+      "commit_ms": 19.042,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 320,
+      "scope_ms": 122.527,
+      "admission_ms": 92.544,
+      "commit_ms": 21.716,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 321,
+      "scope_ms": 56.715,
+      "admission_ms": 28.859,
+      "commit_ms": 19.685,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 322,
+      "scope_ms": 101.261,
+      "admission_ms": 26.649,
+      "commit_ms": 67.15,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 323,
+      "scope_ms": 436.851,
+      "admission_ms": 410.307,
+      "commit_ms": 18.798,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 324,
+      "scope_ms": 125.951,
+      "admission_ms": 99.943,
+      "commit_ms": 17.932,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 325,
+      "scope_ms": 54.562,
+      "admission_ms": 24.814,
+      "commit_ms": 17.253,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 326,
+      "scope_ms": 100.1,
+      "admission_ms": 28.53,
+      "commit_ms": 64.045,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 327,
+      "scope_ms": 343.769,
+      "admission_ms": 311.707,
+      "commit_ms": 24.329,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 328,
+      "scope_ms": 214.09,
+      "admission_ms": 184.708,
+      "commit_ms": 21.476,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 329,
+      "scope_ms": 93.685,
+      "admission_ms": 28.057,
+      "commit_ms": 54.667,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 330,
+      "scope_ms": 104.146,
+      "admission_ms": 64.5,
+      "commit_ms": 31.45,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 331,
+      "scope_ms": 190.094,
+      "admission_ms": 165.349,
+      "commit_ms": 17.446,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 332,
+      "scope_ms": 59.78,
+      "admission_ms": 23.572,
+      "commit_ms": 26.215,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 333,
+      "scope_ms": 122.61,
+      "admission_ms": 35.041,
+      "commit_ms": 74.697,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 334,
+      "scope_ms": 168.572,
+      "admission_ms": 86.337,
+      "commit_ms": 74.347,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 335,
+      "scope_ms": 223.811,
+      "admission_ms": 81.112,
+      "commit_ms": 122.723,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 336,
+      "scope_ms": 180.742,
+      "admission_ms": 137.362,
+      "commit_ms": 29.161,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 337,
+      "scope_ms": 485.816,
+      "admission_ms": 454.855,
+      "commit_ms": 22.389,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 338,
+      "scope_ms": 715.698,
+      "admission_ms": 682.031,
+      "commit_ms": 25.278,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 339,
+      "scope_ms": 91.427,
+      "admission_ms": 63.342,
+      "commit_ms": 18.576,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 340,
+      "scope_ms": 87.905,
+      "admission_ms": 60.469,
+      "commit_ms": 19.355,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 341,
+      "scope_ms": 190.994,
+      "admission_ms": 159.597,
+      "commit_ms": 23.511,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 342,
+      "scope_ms": 84.597,
+      "admission_ms": 57.592,
+      "commit_ms": 19.241,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 343,
+      "scope_ms": 83.521,
+      "admission_ms": 57.022,
+      "commit_ms": 19.006,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 344,
+      "scope_ms": 169.03,
+      "admission_ms": 139.245,
+      "commit_ms": 22.373,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 345,
+      "scope_ms": 107.875,
+      "admission_ms": 82.092,
+      "commit_ms": 18.297,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 346,
+      "scope_ms": 103.416,
+      "admission_ms": 80.743,
+      "commit_ms": 15.221,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 347,
+      "scope_ms": 44.475,
+      "admission_ms": 21.556,
+      "commit_ms": 15.261,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 348,
+      "scope_ms": 45.793,
+      "admission_ms": 21.774,
+      "commit_ms": 16.571,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 349,
+      "scope_ms": 154.258,
+      "admission_ms": 123.977,
+      "commit_ms": 22.721,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 350,
+      "scope_ms": 51.097,
+      "admission_ms": 29.161,
+      "commit_ms": 14.788,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 351,
+      "scope_ms": 98.267,
+      "admission_ms": 75.139,
+      "commit_ms": 15.324,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 352,
+      "scope_ms": 45.358,
+      "admission_ms": 22.011,
+      "commit_ms": 15.866,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 353,
+      "scope_ms": 44.854,
+      "admission_ms": 22.163,
+      "commit_ms": 15.171,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 354,
+      "scope_ms": 119.741,
+      "admission_ms": 89.907,
+      "commit_ms": 21.803,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 355,
+      "scope_ms": 272.623,
+      "admission_ms": 245.445,
+      "commit_ms": 19.302,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 356,
+      "scope_ms": 100.607,
+      "admission_ms": 78.563,
+      "commit_ms": 14.382,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 357,
+      "scope_ms": 52.03,
+      "admission_ms": 20.87,
+      "commit_ms": 23.515,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 358,
+      "scope_ms": 60.012,
+      "admission_ms": 29.896,
+      "commit_ms": 22.703,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 359,
+      "scope_ms": 96.105,
+      "admission_ms": 28.934,
+      "commit_ms": 59.079,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 360,
+      "scope_ms": 215.027,
+      "admission_ms": 176.072,
+      "commit_ms": 31.333,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 361,
+      "scope_ms": 133.874,
+      "admission_ms": 104.941,
+      "commit_ms": 20.764,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 362,
+      "scope_ms": 63.025,
+      "admission_ms": 27.67,
+      "commit_ms": 27.316,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 363,
+      "scope_ms": 367.954,
+      "admission_ms": 309.476,
+      "commit_ms": 45.587,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 364,
+      "scope_ms": 89.445,
+      "admission_ms": 57.127,
+      "commit_ms": 24.706,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 365,
+      "scope_ms": 151.449,
+      "admission_ms": 124.878,
+      "commit_ms": 18.93,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 366,
+      "scope_ms": 85.115,
+      "admission_ms": 57.681,
+      "commit_ms": 19.504,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 367,
+      "scope_ms": 276.753,
+      "admission_ms": 246.731,
+      "commit_ms": 20.565,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 368,
+      "scope_ms": 90.263,
+      "admission_ms": 28.542,
+      "commit_ms": 54.249,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 369,
+      "scope_ms": 152.815,
+      "admission_ms": 117.898,
+      "commit_ms": 25.294,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 370,
+      "scope_ms": 64.44,
+      "admission_ms": 33.446,
+      "commit_ms": 21.723,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 371,
+      "scope_ms": 78.819,
+      "admission_ms": 29.677,
+      "commit_ms": 37.66,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 372,
+      "scope_ms": 208.324,
+      "admission_ms": 167.557,
+      "commit_ms": 33.018,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 373,
+      "scope_ms": 123.92,
+      "admission_ms": 88.605,
+      "commit_ms": 27.247,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 374,
+      "scope_ms": 389.692,
+      "admission_ms": 335.573,
+      "commit_ms": 46.094,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 375,
+      "scope_ms": 131.302,
+      "admission_ms": 88.21,
+      "commit_ms": 35.03,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 376,
+      "scope_ms": 210.855,
+      "admission_ms": 171.098,
+      "commit_ms": 26.278,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 377,
+      "scope_ms": 162.844,
+      "admission_ms": 135.667,
+      "commit_ms": 19.843,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 378,
+      "scope_ms": 89.762,
+      "admission_ms": 65.62,
+      "commit_ms": 16.633,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 379,
+      "scope_ms": 46.704,
+      "admission_ms": 22.851,
+      "commit_ms": 16.092,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 380,
+      "scope_ms": 45.131,
+      "admission_ms": 22.624,
+      "commit_ms": 14.873,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 381,
+      "scope_ms": 47.87,
+      "admission_ms": 21.329,
+      "commit_ms": 19.338,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 382,
+      "scope_ms": 46.808,
+      "admission_ms": 25.214,
+      "commit_ms": 14.119,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 383,
+      "scope_ms": 23.094,
+      "admission_ms": 0.0,
+      "commit_ms": 15.995,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 384,
+      "scope_ms": 22.962,
+      "admission_ms": 0.0,
+      "commit_ms": 15.787,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 385,
+      "scope_ms": 21.642,
+      "admission_ms": 0.0,
+      "commit_ms": 14.67,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 386,
+      "scope_ms": 21.959,
+      "admission_ms": 0.0,
+      "commit_ms": 14.604,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 387,
+      "scope_ms": 24.124,
+      "admission_ms": 0.0,
+      "commit_ms": 16.356,
+      "background_overlap_ms": 0.0
+    },
+    {
+      "sequence": 388,
+      "scope_ms": 22.9,
+      "admission_ms": 0.0,
+      "commit_ms": 15.094,
+      "background_overlap_ms": 0.0
+    }
+  ]
+}

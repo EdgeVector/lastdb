@@ -1,0 +1,149 @@
+{
+  "disk_cap_bytes": 34359738368,
+  "receipt": {
+    "background_tasks_drained": false,
+    "convergence_pending": true,
+    "count": 1,
+    "durability": "durable",
+    "mutation_ids": [
+      "67bf47cc-30bb-44dc-9334-99a9068c759d"
+    ],
+    "ok": true,
+    "operations": {
+      "created": 1,
+      "deleted": 0,
+      "no_op": 0,
+      "total": 1,
+      "updated": 0
+    },
+    "resident_stages_us": {
+      "ack": 20028,
+      "gate_wait": 0,
+      "prepare": 4510,
+      "publish": 0
+    },
+    "revision": 259,
+    "touched_group_ids": [],
+    "user_hash": "3eeb264cf2f18ee057d0acdf7aa0d5cc"
+  },
+  "native_status": {
+    "native_disk": {
+      "accepted_batch": true,
+      "accepted_batches": 1,
+      "accepted_sequence": 2,
+      "compaction_copying": false,
+      "completed_sequence": 1,
+      "concurrent_compaction": true,
+      "concurrent_journal_installation": true,
+      "concurrent_journal_publication": true,
+      "core_memory": {
+        "entries": 12,
+        "hits": 0,
+        "invalidated": 0,
+        "limit_bytes": 16777216,
+        "misses": 2,
+        "peak_bytes": 44667,
+        "purged": 0,
+        "refused": 0,
+        "used_bytes": 44667
+      },
+      "core_model": {
+        "body_reserved_current_bytes": 64514,
+        "body_reserved_peak_bytes": 64514,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 64514,
+        "dirty_definitions": 11,
+        "dirty_molecules": 3,
+        "dirty_slots": 3,
+        "metadata_current_bytes": 70536,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 70536,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 70536,
+        "refused": 0
+      },
+      "core_warm_atoms": 3,
+      "core_warm_bytes": {
+        "atom_bytes": 960,
+        "dirty_bytes": 2016,
+        "dirty_limit_bytes": 67108850,
+        "held_bytes": 0,
+        "limit_bytes": 268435456,
+        "link_bytes": 1968,
+        "over_limit_admissions": 0,
+        "path_bytes": 288,
+        "peak_bytes": 5280,
+        "purged_bytes": 0,
+        "slot_bytes": 2064,
+        "tracked_atoms": 3,
+        "used_bytes": 5280
+      },
+      "core_warm_dirty": 3,
+      "core_warm_held": 3,
+      "core_warm_hits": 0,
+      "core_warm_misses": 0,
+      "core_warm_molecules": 3,
+      "core_warm_paths": 3,
+      "core_warm_purged": 0,
+      "core_warm_tip_only_paths": 0,
+      "disk_sync": {
+        "data_calls": 18,
+        "data_micros": 50806,
+        "directory_calls": 31,
+        "directory_micros": 39383,
+        "file_set_calls": 6,
+        "file_set_micros": 549,
+        "full_device_calls": 19,
+        "full_device_micros": 82112,
+        "ordered_calls": 3,
+        "ordered_micros": 7807
+      },
+      "frontier": 427,
+      "generation": 202,
+      "journal_ack_experiment": true,
+      "journal_durable_sequence": 2,
+      "journal_logical_operations": 15,
+      "journal_pending_requests": 1,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 512,
+        "dependency_parts": 242,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 242,
+        "dependency_trigger": 512,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": false,
+        "maintenance_runs": 0
+      },
+      "schema_keys": {
+        "bytes": 0,
+        "disk_only": 0,
+        "domains": 0,
+        "enabled": false,
+        "failed": 0,
+        "keys": 0,
+        "limit_bytes": 134217728,
+        "loading": 0,
+        "loads": 0,
+        "memory_selections": 0,
+        "peak_bytes": 0,
+        "ready": 0,
+        "reasons": []
+      },
+      "space_inventory": {
+        "release_overlaps": 0,
+        "released_bytes": 0
+      },
+      "warm_record_limit": 0,
+      "warm_records": 3,
+      "writer_failed": false
+    },
+    "ok": true,
+    "user_hash": "3eeb264cf2f18ee057d0acdf7aa0d5cc"
+  }
+}

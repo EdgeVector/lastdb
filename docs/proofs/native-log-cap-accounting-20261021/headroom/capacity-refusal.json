@@ -1,0 +1,592 @@
+{
+  "native_bytes_before_start": 120153155,
+  "disk_cap_bytes": 120157251,
+  "required_write_headroom_bytes": 67108864,
+  "status": 507,
+  "receipt": {
+    "detail": "No space left on device (os error 28)",
+    "error": "storage_full",
+    "hint": "the host filesystem is out of space; free disk space, then retry the same write",
+    "message": "no space left on device \u2014 the filesystem holding the database is full, so the write did not land. Free disk space and retry; nothing already stored was lost. Underlying error: No space left on device (os error 28)",
+    "ok": false,
+    "retryable": true
+  },
+  "latency_ms": 16.348459,
+  "refused_record_absent": true,
+  "known_values": {
+    "expected": 513,
+    "actual": 513,
+    "all_values_match": true,
+    "schemas": [
+      {
+        "schema": "IndependentBatch000",
+        "expected": 9,
+        "actual": 9,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch001",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch002",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch003",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch004",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch005",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch006",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch007",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch008",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch009",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch010",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch011",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch012",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch013",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch014",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch015",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch016",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch017",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch018",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch019",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch020",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch021",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch022",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch023",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch024",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch025",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch026",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch027",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch028",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch029",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch030",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch031",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch032",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch033",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch034",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch035",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch036",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch037",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch038",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch039",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch040",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch041",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch042",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch043",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch044",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch045",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch046",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch047",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch048",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch049",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch050",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch051",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch052",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch053",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch054",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch055",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch056",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch057",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch058",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch059",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch060",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch061",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch062",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      },
+      {
+        "schema": "IndependentBatch063",
+        "expected": 8,
+        "actual": 8,
+        "all_values_match": true,
+        "mismatches": []
+      }
+    ]
+  },
+  "native_status": {
+    "native_disk": {
+      "accepted_batch": false,
+      "accepted_batches": 0,
+      "accepted_sequence": 0,
+      "compaction_copying": false,
+      "completed_sequence": 0,
+      "concurrent_compaction": true,
+      "concurrent_journal_installation": true,
+      "concurrent_journal_publication": true,
+      "core_memory": {
+        "entries": 512,
+        "hits": 133,
+        "invalidated": 0,
+        "limit_bytes": 16777216,
+        "misses": 1024,
+        "peak_bytes": 2142322,
+        "purged": 0,
+        "refused": 0,
+        "used_bytes": 2142322
+      },
+      "core_model": {
+        "body_reserved_current_bytes": 0,
+        "body_reserved_peak_bytes": 64466,
+        "body_reserved_retained_bytes": 0,
+        "body_reserved_used_bytes": 0,
+        "dirty_definitions": 0,
+        "dirty_molecules": 0,
+        "dirty_slots": 0,
+        "metadata_current_bytes": 0,
+        "metadata_limit_bytes": 16777216,
+        "metadata_peak_bytes": 70536,
+        "metadata_retained_bytes": 0,
+        "metadata_used_bytes": 0,
+        "refused": 0
+      },
+      "core_warm_atoms": 1090,
+      "core_warm_bytes": {
+        "atom_bytes": 373360,
+        "dirty_bytes": 0,
+        "dirty_limit_bytes": 67108850,
+        "held_bytes": 0,
+        "limit_bytes": 268435456,
+        "link_bytes": 727040,
+        "over_limit_admissions": 0,
+        "path_bytes": 147936,
+        "peak_bytes": 2307984,
+        "purged_bytes": 0,
+        "slot_bytes": 1059648,
+        "tracked_atoms": 1090,
+        "used_bytes": 2307984
+      },
+      "core_warm_dirty": 0,
+      "core_warm_held": 0,
+      "core_warm_hits": 2567,
+      "core_warm_misses": 0,
+      "core_warm_molecules": 192,
+      "core_warm_paths": 1541,
+      "core_warm_purged": 0,
+      "core_warm_tip_only_paths": 0,
+      "disk_sync": {
+        "data_calls": 4,
+        "data_micros": 20223,
+        "directory_calls": 11,
+        "directory_micros": 39298,
+        "file_set_calls": 0,
+        "file_set_micros": 0,
+        "full_device_calls": 15,
+        "full_device_micros": 59518,
+        "ordered_calls": 0,
+        "ordered_micros": 0
+      },
+      "frontier": 426,
+      "generation": 200,
+      "journal_ack_experiment": true,
+      "journal_durable_sequence": 0,
+      "journal_logical_operations": 0,
+      "journal_pending_requests": 0,
+      "parts": {
+        "auto_maintenance": true,
+        "dependency_high_water": 512,
+        "dependency_parts": 238,
+        "dependency_parts_limit": 65536,
+        "dependency_parts_peak": 238,
+        "dependency_trigger": 512,
+        "maintenance_failures": 0,
+        "maintenance_last_error": null,
+        "maintenance_last_millis": 0,
+        "maintenance_last_parts_after": 0,
+        "maintenance_last_parts_before": 0,
+        "maintenance_last_records": 0,
+        "maintenance_running": false,
+        "maintenance_runs": 0
+      },
+      "schema_keys": {
+        "bytes": 0,
+        "disk_only": 0,
+        "domains": 0,
+        "enabled": false,
+        "failed": 0,
+        "keys": 0,
+        "limit_bytes": 134217728,
+        "loading": 0,
+        "loads": 0,
+        "memory_selections": 0,
+        "peak_bytes": 0,
+        "ready": 0,
+        "reasons": []
+      },
+      "space_inventory": {
+        "release_overlaps": 0,
+        "released_bytes": 0
+      },
+      "warm_record_limit": 0,
+      "warm_records": 1541,
+      "writer_failed": false
+    },
+    "ok": true,
+    "user_hash": "3eeb264cf2f18ee057d0acdf7aa0d5cc"
+  },
+  "shutdown_exit": 1
+}

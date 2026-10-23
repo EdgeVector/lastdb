@@ -1,0 +1,404 @@
+{
+  "client": {
+    "count": 1000,
+    "errors": 0,
+    "average_ms": 27.241937454,
+    "median_ms": 25.0417705,
+    "p95_ms": 33.094,
+    "p99_ms": 150.075542,
+    "max_ms": 321.226167,
+    "wall_seconds": 27.266159458,
+    "batches_per_second": 36.67549885565552,
+    "records_per_second": 293.40399084524415,
+    "latency_unit": "whole batch request; no division by record count"
+  },
+  "schemas_used": 64,
+  "maximum_simultaneous_client_calls": 1,
+  "same_schema_client_overlap": 0,
+  "foreground_native_calls": 1000,
+  "background_native_calls": 80,
+  "foreground": {
+    "scope_ms": {
+      "count": 1000,
+      "median": 23.296,
+      "mean": 25.530362,
+      "p99": 148.626,
+      "maximum": 319.479
+    },
+    "write_admission_wait_ms": {
+      "count": 1000,
+      "median": 0.0,
+      "mean": 0.685566,
+      "p99": 9.793,
+      "maximum": 11.736
+    },
+    "preparation_under_gate_ms": {
+      "count": 1000,
+      "median": 11.438500000000001,
+      "mean": 10.986793,
+      "p99": 12.449,
+      "maximum": 16.149
+    },
+    "journal_accept_ms": {
+      "count": 1000,
+      "median": 10.774000000000001,
+      "mean": 11.387783,
+      "p99": 26.305,
+      "maximum": 166.584
+    },
+    "global_gate_through_accept_ms": {
+      "count": 1000,
+      "median": 22.201999999999998,
+      "mean": 22.375053,
+      "p99": 38.197,
+      "maximum": 178.364
+    },
+    "after_journal_ms": {
+      "count": 1000,
+      "median": 0.49,
+      "mean": 2.403243,
+      "p99": 7.055,
+      "maximum": 297.955
+    }
+  },
+  "background": {
+    "scope_ms": {
+      "count": 80,
+      "median": 297.8245,
+      "mean": 333.5150375,
+      "p99": 682.632,
+      "maximum": 682.632
+    },
+    "write_admission_wait_ms": {
+      "count": 80,
+      "median": 20.825499999999998,
+      "mean": 24.5546125,
+      "p99": 141.128,
+      "maximum": 141.128
+    },
+    "preparation_under_gate_ms": {
+      "count": 80,
+      "median": 0.8305,
+      "mean": 0.8744875,
+      "p99": 1.398,
+      "maximum": 1.398
+    },
+    "journal_accept_ms": {
+      "count": 80,
+      "median": 9.4175,
+      "mean": 9.3060625,
+      "p99": 11.913,
+      "maximum": 11.913
+    },
+    "global_gate_through_accept_ms": {
+      "count": 80,
+      "median": 10.2555,
+      "mean": 10.1809,
+      "p99": 13.155,
+      "maximum": 13.155
+    },
+    "after_journal_ms": {
+      "count": 80,
+      "median": 264.723,
+      "mean": 298.7770875,
+      "p99": 630.766,
+      "maximum": 630.766
+    }
+  },
+  "worst_native_scopes": [
+    {
+      "sequence": 1154,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642738920926,
+      "end_unix_us": 1792642739240407,
+      "scope_ms": 319.479,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.53,
+      "journal_accept_ms": 9.991,
+      "global_gate_through_accept_ms": 21.521,
+      "after_journal_ms": 297.955,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6073,
+        "ordered_sync_us": 1340,
+        "file_set_sync_us": 171
+      }
+    },
+    {
+      "sequence": 1195,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642740247869,
+      "end_unix_us": 1792642740564679,
+      "scope_ms": 316.808,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 10.35,
+      "journal_accept_ms": 12.205,
+      "global_gate_through_accept_ms": 22.556,
+      "after_journal_ms": 294.248,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6516,
+        "ordered_sync_us": 3962,
+        "file_set_sync_us": 139
+      }
+    },
+    {
+      "sequence": 1091,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642737091332,
+      "end_unix_us": 1792642737354482,
+      "scope_ms": 263.148,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.914,
+      "journal_accept_ms": 13.147,
+      "global_gate_through_accept_ms": 25.061,
+      "after_journal_ms": 238.084,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 5830,
+        "ordered_sync_us": 3103,
+        "file_set_sync_us": 123
+      }
+    },
+    {
+      "sequence": 471,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642721420305,
+      "end_unix_us": 1792642721663942,
+      "scope_ms": 243.635,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.602,
+      "journal_accept_ms": 11.337,
+      "global_gate_through_accept_ms": 22.94,
+      "after_journal_ms": 220.692,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 5226,
+        "ordered_sync_us": 2638,
+        "file_set_sync_us": 128
+      }
+    },
+    {
+      "sequence": 502,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642722350786,
+      "end_unix_us": 1792642722568163,
+      "scope_ms": 217.376,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.891,
+      "journal_accept_ms": 13.661,
+      "global_gate_through_accept_ms": 25.553,
+      "after_journal_ms": 191.814,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6058,
+        "ordered_sync_us": 3250,
+        "file_set_sync_us": 131
+      }
+    },
+    {
+      "sequence": 741,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642728232273,
+      "end_unix_us": 1792642728412023,
+      "scope_ms": 179.749,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.779,
+      "journal_accept_ms": 166.584,
+      "global_gate_through_accept_ms": 178.364,
+      "after_journal_ms": 1.381,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 14398,
+        "ordered_sync_us": 154386,
+        "file_set_sync_us": 176616
+      }
+    },
+    {
+      "sequence": 199,
+      "background": false,
+      "records": 70,
+      "start_unix_us": 1792642714967793,
+      "end_unix_us": 1792642715145102,
+      "scope_ms": 177.308,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 8.092,
+      "journal_accept_ms": 9.659,
+      "global_gate_through_accept_ms": 17.752,
+      "after_journal_ms": 159.553,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 5492,
+        "ordered_sync_us": 1483,
+        "file_set_sync_us": 108
+      }
+    },
+    {
+      "sequence": 750,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642728593236,
+      "end_unix_us": 1792642728768057,
+      "scope_ms": 174.82,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.88,
+      "journal_accept_ms": 11.142,
+      "global_gate_through_accept_ms": 23.022,
+      "after_journal_ms": 151.793,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6561,
+        "ordered_sync_us": 3303,
+        "file_set_sync_us": 99
+      }
+    },
+    {
+      "sequence": 230,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642715749803,
+      "end_unix_us": 1792642715910490,
+      "scope_ms": 160.686,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 10.104,
+      "journal_accept_ms": 9.646,
+      "global_gate_through_accept_ms": 19.75,
+      "after_journal_ms": 140.933,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6021,
+        "ordered_sync_us": 2314,
+        "file_set_sync_us": 106
+      }
+    },
+    {
+      "sequence": 795,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642729812512,
+      "end_unix_us": 1792642729962087,
+      "scope_ms": 149.573,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.395,
+      "journal_accept_ms": 10.417,
+      "global_gate_through_accept_ms": 21.813,
+      "after_journal_ms": 127.757,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6341,
+        "ordered_sync_us": 2822,
+        "file_set_sync_us": 90
+      }
+    },
+    {
+      "sequence": 276,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642716864857,
+      "end_unix_us": 1792642717013484,
+      "scope_ms": 148.626,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 10.307,
+      "journal_accept_ms": 10.232,
+      "global_gate_through_accept_ms": 20.54,
+      "after_journal_ms": 128.083,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 6229,
+        "ordered_sync_us": 2600,
+        "file_set_sync_us": 158
+      }
+    },
+    {
+      "sequence": 786,
+      "background": false,
+      "records": 68,
+      "start_unix_us": 1792642729560159,
+      "end_unix_us": 1792642729625255,
+      "scope_ms": 65.095,
+      "write_admission_wait_ms": 0.0,
+      "preparation_under_gate_ms": 11.807,
+      "journal_accept_ms": 51.777,
+      "global_gate_through_accept_ms": 63.584,
+      "after_journal_ms": 1.507,
+      "disk_sync_counter_deltas_us": {
+        "full_sync_us": 17288,
+        "ordered_sync_us": 37521,
+        "file_set_sync_us": 47347
+      }
+    }
+  ],
+  "client_by_operation": {
+    "create": {
+      "count": 64,
+      "median": 17.9602505,
+      "mean": 21.225584578125,
+      "p99": 178.841833,
+      "maximum": 178.841833
+    },
+    "update": {
+      "count": 936,
+      "median": 25.231916499999997,
+      "mean": 27.653312009615384,
+      "p99": 150.075542,
+      "maximum": 321.226167
+    }
+  },
+  "phases": {
+    "directory_prepare": {
+      "count": 89,
+      "median": 206.641,
+      "mean": 198.8848988764045,
+      "p99": 378.777,
+      "maximum": 378.777
+    },
+    "directory_publish": {
+      "count": 89,
+      "median": 8.998,
+      "mean": 9.415662921348314,
+      "p99": 16.999,
+      "maximum": 16.999
+    },
+    "directory_install": {
+      "count": 89,
+      "median": 0.667,
+      "mean": 0.6440449438202247,
+      "p99": 1.019,
+      "maximum": 1.019
+    },
+    "queue_delivery": {
+      "count": 90,
+      "median": 1.488,
+      "mean": 1.8366555555555555,
+      "p99": 5.376,
+      "maximum": 5.376
+    },
+    "compaction_prepare": {
+      "count": 1,
+      "median": 3017.994,
+      "mean": 3017.994,
+      "p99": 3017.994,
+      "maximum": 3017.994
+    },
+    "compaction_join": {
+      "count": 1,
+      "median": 599.161,
+      "mean": 599.161,
+      "p99": 599.161,
+      "maximum": 599.161
+    },
+    "compaction_install": {
+      "count": 1,
+      "median": 0.843,
+      "mean": 0.843,
+      "p99": 0.843,
+      "maximum": 0.843
+    },
+    "compaction_reclaim": {
+      "count": 5,
+      "median": 147.534,
+      "mean": 182.97539999999998,
+      "p99": 262.64,
+      "maximum": 262.64
+    }
+  },
+  "receipt_gate_wait_limit": "resident_stages_us.gate_wait is explicitly zeroed by the product. Use numeric native gate events.",
+  "correlation": "The exclusive global gate pairs each append with the last preceding request gate acquisition. Sequence links that append to its native scope. Client P99 uses all raw client calls; concurrent HTTP calls are not individually paired with native scopes.",
+  "counter_limit": "Disk sync counters are process-wide, so overlapping phase deltas are not exclusive costs.",
+  "admission_limit": "write_admission_wait_ms includes actual mutex acquisition and a separate sealed-prefix completion wait. Preliminary binary does not separate these components."
+}

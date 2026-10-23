@@ -1,0 +1,2 @@
+rustc 1.96.1 (31fca3adb 2026-06-26)
+0065140a6b45ec2918b9b8e063434c72c2dbc864c4dab625d75c5166758558cb  target/dev-release/lastdbd

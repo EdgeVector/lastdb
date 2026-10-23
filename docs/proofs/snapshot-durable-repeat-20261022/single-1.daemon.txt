@@ -1,0 +1,18 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-22T20:04:31.976704Z  WARN fold_db::storage::disk_pack::parts::worker: native storage reclaim failed error=Invalid operation: native home creation refused: current creation requires its durable key proofs first
+2026-10-22T20:04:32.180715Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h0/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h0
+  Owner:  690bd67905c129dacf33aa7b25a8da41
+2026-10-22T20:04:50.206081Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=1
+2026-10-22T20:04:55.310152Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=2
+2026-10-22T20:05:02.686257Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=3
+2026-10-22T20:05:14.453238Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=4
+2026-10-22T20:05:32.194643Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-22T20:05:34.728117Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: native compaction could not capture a quiet publication boundary after eight catch-ups; retry failures=5
+2026-10-22T20:05:42.508546Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 9s before this start.
+2026-10-22T20:05:43.370817Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h0/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h0
+  Owner:  690bd67905c129dacf33aa7b25a8da41
+lastdbd: shutdown signal received, exiting

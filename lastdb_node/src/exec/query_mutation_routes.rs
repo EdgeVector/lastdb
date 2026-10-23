@@ -119,36 +119,52 @@ pub(super) async fn execute_mutation_route(
         Ok(reservation) => reservation,
         Err(message) => return error_response(503, message, ctx),
     };
-    let result = handlers::execute_mutation(host, components, ctx)
-        .await
-        .and_then(|value| {
-            let mutation_id = value
-                .get("mutation_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    HostError::new(500, "Single mutation receipt has no input identity")
-                })?;
-            let event = durable_change_event(
+    let (result, captured_notifications) = fold_db::db_operations::ChangeFeedStore::capture_native(
+        vec![(
+            handlers::resolve_schema_name(host, &watch_schema)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| watch_schema.clone()),
+            durable_change_event(
                 watch_schema.clone(),
                 watch_mt.clone(),
                 watch_hash.clone(),
                 watch_range.clone(),
-                mutation_id.to_string(),
-                &value,
-            );
-            // Queue submit is in-memory and cannot wait. Capacity was reserved
-            // before product commit, so overload cannot create a committed row
-            // without a matching queued hint.
+                String::new(),
+                &Value::Null,
+            ),
+        )],
+        handlers::execute_mutation(host, components, ctx),
+    )
+    .await;
+    let result = result.and_then(|value| {
+        let mutation_id = value
+            .get("mutation_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| HostError::new(500, "Single mutation receipt has no input identity"))?;
+        let event = durable_change_event(
+            watch_schema.clone(),
+            watch_mt.clone(),
+            watch_hash.clone(),
+            watch_range.clone(),
+            mutation_id.to_string(),
+            &value,
+        );
+        // Queue submit is in-memory and cannot wait. Capacity was reserved
+        // before product commit, so overload cannot create a committed row
+        // without a matching queued hint.
+        if !captured_notifications.contains(mutation_id) {
             change_feed_reservation.submit(vec![event]);
-            let change_record_started = std::time::Instant::now();
-            host.local_outbox
-                .append(watch_schema, watch_mt, watch_hash, watch_range);
-            fold_db::request_phases::add_phase(
-                fold_db::request_phases::RequestPhase::ChangeRecord,
-                change_record_started.elapsed(),
-            );
-            Ok(value)
-        });
+        }
+        let change_record_started = std::time::Instant::now();
+        host.local_outbox
+            .append(watch_schema, watch_mt, watch_hash, watch_range);
+        fold_db::request_phases::add_phase(
+            fold_db::request_phases::RequestPhase::ChangeRecord,
+            change_record_started.elapsed(),
+        );
+        Ok(value)
+    });
     let response_started = std::time::Instant::now();
     let response = render(result, ctx);
     fold_db::request_phases::add_phase(

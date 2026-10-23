@@ -1,0 +1,13 @@
+{
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/target/dev-release/lastdbd",
+  "binary_sha256": "03c9e8970dfbc82ee835f6073e14dcbce212e18be6132b5b7726e2aaffa5a08e",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cp.K8ZGoP/b",
+  "generated_data": true,
+  "count": 1000,
+  "durability_parameter": "default",
+  "dependency_high_water": 4096,
+  "value_bytes": 64,
+  "native_log_ack_experiment": true,
+  "numeric_latency_trace": true,
+  "serial_publication_diagnostic": true
+}

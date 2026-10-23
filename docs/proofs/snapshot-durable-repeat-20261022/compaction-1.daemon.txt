@@ -1,0 +1,17 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-22T20:05:45.453134Z  WARN fold_db::storage::disk_pack::parts::worker: native storage reclaim failed error=Invalid operation: native home creation refused: current creation requires its durable key proofs first
+2026-10-22T20:05:45.695459Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h1/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h1
+  Owner:  de38714bbf0d1a73fdb9d579ee6f4b24
+2026-10-22T20:05:50.200150Z DEBUG fold_db::native_compaction: private snapshot copy finished
+2026-10-22T20:06:03.588706Z DEBUG fold_db::native_compaction: private snapshot copy finished
+2026-10-22T20:06:07.353961Z DEBUG fold_db::native_compaction: snapshot compaction publication boundary captured catch_up=5
+2026-10-22T20:06:10.591179Z DEBUG fold_db::native_compaction: private snapshot copy finished
+2026-10-22T20:06:10.591205Z DEBUG fold_db::native_compaction: snapshot compaction publication boundary captured catch_up=0
+2026-10-22T20:06:14.731726Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 28s before this start.
+2026-10-22T20:06:14.744159Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h1/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/sb.IfZhm6/h1
+  Owner:  de38714bbf0d1a73fdb9d579ee6f4b24
+lastdbd: shutdown signal received, exiting

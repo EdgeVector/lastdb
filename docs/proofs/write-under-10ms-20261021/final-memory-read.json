@@ -1,0 +1,7 @@
+{
+  "expected": 500,
+  "actual": 500,
+  "mismatches": [],
+  "all_values_match": true,
+  "source": "real keyed query before process stop"
+}

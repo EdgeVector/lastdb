@@ -31,6 +31,7 @@ mod rows;
 mod rows_yielding;
 pub(crate) mod schema_keys;
 mod space;
+mod timing;
 pub(crate) mod transaction;
 mod view;
 mod write;

@@ -144,8 +144,8 @@ An empty hash is valid for both initial key preload and later changes to the com
 1. Validate the batch and its current preconditions under the native write gate.
 2. Prepare the complete logical changes and their disk output.
 3. Reserve their memory and disk work before publication.
-4. Publish the complete core change, then send the permitted ack.
-5. Flush the prepared bytes through the one native disk queue.
+4. Complete the disk snapshot through the one native disk queue.
+5. Publish the clean core change, then send the durable ack.
 
 A successful batch returns one accepted input mutation ID per caller input, in caller order.
 Delete, Purge, and idempotent repeats follow the same rule.
@@ -184,9 +184,10 @@ Ordinary reads cannot query that queue.
 The prepared disk commit owns its disk-space reservation directly.
 A failed commit retains that reservation; the sealed queue retains its pending request owners.
 Reopen verifies the [selected native snapshot](lastdb-snapshot-commits.md), without local mutation replay.
-Accepted memory retains newer writes until the flush commits them.
+Private requests retain newer writes until the snapshot commit and clean memory publication complete.
 Local mutations in one batch share one logical revision and receive consecutive author times in caller order.
-The durable clock reservation covers the final time before the batch can flush.
+The native create/update batch includes its author-clock high-water state in the same durable snapshot.
+The state never moves below a prior durable reservation. Other write paths retain their explicit clock barrier.
 Imported signed clocks remain unchanged. Random mutation identities do not order repeated local writes.
 A new winning tip replaces the full author clock and optional key metadata, even when its atom identity stays the same.
 The atom identity describes the schema and value. It does not describe the write time or key metadata.
@@ -208,7 +209,7 @@ A personal restore keeps existing node-wide file bytes and their encryption meta
 It adds only files that are absent from the node.
 Single and batch requests carry the declared source file name through the same write pipeline.
 Logical query responses omit the physical molecule version. A partial memory molecule cannot supply a stable record version.
-Explicit durable requests wait for disk. A memory refusal also forces disk completion before success.
+All native requests wait for disk and their complete memory publication before success.
 An internal file change that lacks a complete logical translation finishes on disk and clears affected core records before success.
 
 User Delete resolves the current related molecule keys inside the same native write boundary as their removal.
@@ -240,8 +241,8 @@ Stored record keys require valid decoding. Aggregate guards and portable imports
 A read limit also returns a refusal. Neither refusal causes an endless delete retry.
 Temporary memory or queue pressure retains its retry behavior.
 
-The native flush delay is at most 500 ms. `LASTDB_RESIDENT_PERSIST_MS` can select a delay from 1 to 500 ms.
-A crash can lose a write that received an ack before its flush.
+Native requests start disk work immediately and return a durable ack after the complete snapshot commit.
+The old 500 ms collection delay does not control native requests.
 Write reservations, core metadata, schema definitions, and complete keys have separate allowances.
 Their limits do not define one whole-process memory cap.
 
