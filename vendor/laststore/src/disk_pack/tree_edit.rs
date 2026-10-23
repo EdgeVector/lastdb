@@ -25,7 +25,16 @@ struct PathStep {
 
 impl TreeEdit {
     pub(super) fn new(root: &Path, tree: TreeRoot, generation: u64) -> Result<Self> {
-        let pages = SparsePages::new(root, &tree, generation)?;
+        Self::protected(root, tree, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        tree: TreeRoot,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
+        let pages = SparsePages::protected(root, &tree, generation, protection)?;
         Self::from_pages(tree, pages)
     }
 

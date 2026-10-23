@@ -55,6 +55,21 @@ fn write_with_prior(
     if path.try_exists()? {
         return verify(root, current);
     }
+    write_at(root, current, dependencies, prior, path)
+}
+
+pub(in crate::disk_pack) fn write_at(
+    root: &Path,
+    current: &Current,
+    dependencies: &[Coordinate],
+    prior: Option<&Generation>,
+    path: std::path::PathBuf,
+) -> Result<Generation> {
+    if dependencies.len() > super::dependency::MAX_DEPENDENCIES
+        || dependencies.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(corrupt("invalid prepared generation coordinates"));
+    }
     let object = Uuid::new_v4();
     let mut pages = PageWriter::new(path, object, current.generation)?;
     let current_bytes = current.encode()?;

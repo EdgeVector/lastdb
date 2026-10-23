@@ -15,6 +15,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub(super) struct TierCopy<'a> {
+    protection: crate::disk_pack::private_files::OutputFiles,
     root: &'a Path,
     source: Current,
     boundary: u64,
@@ -39,7 +40,12 @@ struct Branch {
 }
 
 impl<'a> TierCopy<'a> {
-    pub(super) fn copy(root: &'a Path, source: &Current, boundary: u64) -> Result<PackOutput> {
+    pub(super) fn copy(
+        root: &'a Path,
+        source: &Current,
+        boundary: u64,
+        protection: crate::disk_pack::private_files::OutputFiles,
+    ) -> Result<PackOutput> {
         let receipt = generation::read_receipt(root, source)?;
         let mut ages = BTreeMap::new();
         let mut payload_ages = BTreeMap::new();
@@ -72,7 +78,8 @@ impl<'a> TierCopy<'a> {
             collection: String::new(),
             pages: BTreeMap::new(),
             caches: PackCaches::new(),
-            pack: PackWriter::new(root, stamp)?,
+            pack: PackWriter::protected(root, stamp, protection.clone())?,
+            protection,
             dependencies,
             receipt: MaintenanceReceipt {
                 parts_before: receipt.dependencies,
@@ -262,8 +269,10 @@ impl<'a> TierCopy<'a> {
             tree.object,
         );
         if !self.pages.contains_key(&key) {
-            self.pages
-                .insert(key, SparsePages::new(self.root, tree, self.stamp)?);
+            self.pages.insert(
+                key,
+                SparsePages::protected(self.root, tree, self.stamp, self.protection.clone())?,
+            );
         }
         Ok(self.pages.get_mut(&key).expect("created tree allocator"))
     }

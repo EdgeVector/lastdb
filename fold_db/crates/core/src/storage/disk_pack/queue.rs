@@ -24,6 +24,11 @@ pub(super) struct WriteQueue {
 }
 
 impl WriteQueue {
+    pub(super) fn pending_target(&self) -> Option<u64> {
+        (!self.requests.is_empty() || self.prepared.is_some() || self.sealed)
+            .then_some(self.next_sequence)
+    }
+
     pub(super) fn sequence(&self) -> u64 {
         self.next_sequence
     }

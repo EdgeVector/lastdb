@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 /// Only fresh, private parts. Published parts are never opened for writes.
 pub(super) struct SparsePages {
+    protection: super::private_files::OutputFiles,
     directory: PathBuf,
     object: Uuid,
     kind: TreeKind,
@@ -20,7 +21,12 @@ pub(super) struct SparsePages {
 }
 
 impl SparsePages {
-    pub(super) fn new(root: &Path, tree: &TreeRoot, generation: u64) -> Result<Self> {
+    pub(super) fn protected(
+        root: &Path,
+        tree: &TreeRoot,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         tree.validate()?;
         let directory = root
             .join(tree.kind.directory())
@@ -29,6 +35,10 @@ impl SparsePages {
             return Err(corrupt("tree edit namespace or generation"));
         }
         Ok(Self {
+            protection: {
+                protection.protect_directory(&directory)?;
+                protection
+            },
             directory,
             object: tree.object,
             kind: tree.kind,
@@ -82,15 +92,24 @@ impl SparsePages {
                 continue;
             }
             let path = self.directory.join(format!("part-{part:08x}"));
-            match OpenOptions::new().write(true).create_new(true).open(path) {
+            match self.protection.create_new(&path) {
                 Ok(file) => {
                     self.file = Some(file);
                     self.next = u64::from(part) * 512;
                     self.part_numbers.push(part);
                     return Ok(());
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
+                Err(crate::Error::Io(error))
+                    if error.kind() == std::io::ErrorKind::AlreadyExists =>
+                {
+                    continue
+                }
+                Err(crate::Error::WriteCapacity(reason))
+                    if reason == super::private_files::ACTIVE_DELETION =>
+                {
+                    continue
+                }
+                Err(error) => return Err(error),
             }
         }
         Err(crate::Error::Config(

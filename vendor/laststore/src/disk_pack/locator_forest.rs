@@ -28,11 +28,20 @@ pub(super) struct LocatorForest {
 
 impl LocatorForest {
     pub(super) fn new(root: &Path, generation: u64) -> Result<Self> {
+        Self::protected(root, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         let object = Uuid::new_v4();
-        let mut pages = PageWriter::new(
+        let mut pages = PageWriter::protected(
             root.join("locator").join(object.to_string()),
             object,
             generation,
+            protection,
         )?;
         pages.append(tree_output::leaf_fields(TreeKind::Locator, 0), &[])?;
         Ok(Self {
@@ -111,6 +120,7 @@ impl LocatorForest {
 /// A fresh object exists only for the first groups of an empty directory.
 /// Parked sparse allocators hold no descriptors between individual tree edits.
 pub(super) struct LocatorChanges {
+    protection: super::private_files::OutputFiles,
     root: PathBuf,
     generation: u64,
     new: Option<LocatorForest>,
@@ -121,7 +131,16 @@ pub(super) struct LocatorChanges {
 
 impl LocatorChanges {
     pub(super) fn new(root: &Path, generation: u64) -> Self {
+        Self::protected(root, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Self {
         Self {
+            protection,
             root: root.to_path_buf(),
             generation,
             new: None,
@@ -143,7 +162,11 @@ impl LocatorChanges {
                 // part in the same object, as the edit of any other group does.
                 return self.edit(call, empty, changes);
             }
-            self.new = Some(LocatorForest::new(&self.root, self.generation)?);
+            self.new = Some(LocatorForest::protected(
+                &self.root,
+                self.generation,
+                self.protection.clone(),
+            )?);
         }
         let forest = self.new.as_mut().expect("created forest");
         let mut writer = forest.tree()?;
@@ -205,7 +228,7 @@ impl LocatorChanges {
                 if self.edited.len() >= MAX_DEPENDENCIES {
                     return Err(super::resource());
                 }
-                SparsePages::new(&self.root, &tree, self.generation)?
+                SparsePages::protected(&self.root, &tree, self.generation, self.protection.clone())?
             }
         };
         let mut edit = TreeEdit::from_pages(tree, pages)?;

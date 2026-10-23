@@ -34,11 +34,17 @@ pub(in crate::disk_pack) fn compact_locked(
     let reserve = super::quote::replacement_bytes(lock.root(), &previous)?;
     let _space = reserve_replacement(lock.root(), policy, reserve)?;
     publish::ensure_generation(lock, &previous)?;
-    let output = copy(lock, &previous)?;
+    let protection =
+        crate::disk_pack::private_files::OutputFiles::new(std::sync::Arc::clone(&lock.files));
+    let output = copy(lock, &previous, &protection)?;
     super::concurrent::publish_output(lock, &previous, output)
 }
 
-pub(super) fn copy(lock: &WriteLock, previous: &Current) -> Result<PackOutput> {
+pub(super) fn copy(
+    lock: &WriteLock,
+    previous: &Current,
+    protection: &crate::disk_pack::private_files::OutputFiles,
+) -> Result<PackOutput> {
     let root = lock.root();
     let old = generation::read_receipt(root, previous)?;
     let mut current = previous.clone();
@@ -51,9 +57,14 @@ pub(super) fn copy(lock: &WriteLock, previous: &Current) -> Result<PackOutput> {
         .ok_or_else(|| corrupt("generation exhaustion"))?;
     current.previous_generation = previous.generation;
     current.published_ms = artifact::unix_ms();
-    let mut directory = TreeWriter::new(root, TreeKind::Directory, current.generation)?;
-    let mut pack = PackWriter::new(root, current.generation)?;
-    let mut locators = LocatorForest::new(root, current.generation)?;
+    let mut directory = TreeWriter::protected(
+        root,
+        TreeKind::Directory,
+        current.generation,
+        protection.clone(),
+    )?;
+    let mut pack = PackWriter::protected(root, current.generation, protection.clone())?;
+    let mut locators = LocatorForest::protected(root, current.generation, protection.clone())?;
     let mut compactor = Compactor {
         root,
         current,

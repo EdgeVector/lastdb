@@ -1,0 +1,16 @@
+{
+  "baseline": {
+    "max_ms": 236.47425,
+    "p50_ms": 50.1795,
+    "p95_ms": 84.553292,
+    "requests": 285,
+    "scope": "adjacent phases; shared host; no paired speed claim"
+  },
+  "overlap-writes": {
+    "max_ms": 218.072042,
+    "p50_ms": 56.337958,
+    "p95_ms": 97.983958,
+    "requests": 261,
+    "scope": "adjacent phases; shared host; no paired speed claim"
+  }
+}

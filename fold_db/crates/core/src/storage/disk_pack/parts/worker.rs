@@ -3,8 +3,8 @@
 //! The worker is a loop over bounded steps. A pack has priority: it runs whenever
 //! the count passes the trigger, even while old generations wait for reclaim or
 //! a reclaim waits for its next try. Reclaim, the drain of old generations, and
-//! the orphan sweep run only when no pack is due. Cleanup releases the write gate
-//! after its installed-root capture, before file inventories and deletion.
+//! the orphan sweep run only when no pack is due. Cleanup captures the installed
+//! root under the writer mutex, then inventories and deletes files without it.
 
 use super::retry::{after_pack, MAX_BACKOFF_SECS};
 use super::*;
@@ -246,7 +246,7 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
             return;
         };
         if std::mem::take(&mut booting) {
-            // Let the node finish its own start before the first step holds the gate.
+            // Let the node finish its own start before the first maintenance step.
             // A home above the soft limit cannot take a start-up write, so it does not wait.
             boot_delay(&ledger).await;
             continue;
@@ -315,8 +315,8 @@ enum Call {
     Drain(usize),
 }
 
-/// One maintenance call. Copy and reclaim run outside the write gate; capture
-/// and final handoff hold it, so ordinary writes proceed during the copy.
+/// One maintenance call. Copy and reclaim run outside the write gate. Only
+/// conditional publication takes it, so ordinary writes proceed during the copy.
 async fn run_once(
     runtime: &Arc<PackRuntime>,
     ledger: &PartsLedger,

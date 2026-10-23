@@ -8,26 +8,19 @@ use std::sync::Arc;
 
 /// An installed deletion floor; newer output is never part of its deletion plan.
 pub struct ReclaimPlan {
+    epoch: crate::disk_pack::private_files::DeletionEpoch,
     lock: Arc<WriteLock>,
     current: Current,
     _hold: crate::disk_pack::lifetime::GenerationHold,
 }
 
 impl SnapshotWriter {
-    /// The node captures this root under its view boundary and serializes
-    /// maintenance callers. Later ordinary snapshot publications may proceed.
+    /// The node captures this root under the writer mutex. Later ordinary
+    /// snapshot publications may proceed alongside exact obsolete-file cleanup.
     pub fn capture_reclaim(&self) -> Result<ReclaimPlan> {
         self.check_admission()?;
-        if self
-            .lock
-            .compaction_active
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(crate::Error::WriteCapacity(
-                "compaction owns the maintenance lease".into(),
-            ));
-        }
         Ok(ReclaimPlan {
+            epoch: self.lock.files.epoch()?,
             lock: Arc::clone(&self.lock),
             current: self.current.clone(),
             _hold: crate::disk_pack::lifetime::GenerationHold::from_writer(
@@ -43,9 +36,9 @@ impl ReclaimPlan {
     /// Plan and remove only obsolete older paths while new calls can continue.
     pub fn execute(self, policy: &SpacePolicy, orphans: bool) -> Result<MaintenanceReceipt> {
         if orphans {
-            maintenance::sweep_orphans_at(&self.lock, policy, self.current, true)
+            maintenance::sweep_orphans_at(&self.lock, policy, self.current, true, &self.epoch)
         } else {
-            maintenance::reclaim_at(&self.lock, policy, self.current, true)
+            maintenance::reclaim_at(&self.lock, policy, self.current, true, &self.epoch)
         }
     }
 }

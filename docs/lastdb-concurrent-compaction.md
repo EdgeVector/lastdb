@@ -6,27 +6,38 @@ It changes no snapshot format bit.
 
 ## Copy and publication
 
-1. The maintenance owner captures a complete root under the write gate.
-2. A typed read hold retains the source files. The write gate then opens.
+1. The maintenance owner captures a complete durable root under the writer mutex.
+2. A typed read hold retains the source files. Capture needs no write gate or forced flush.
 3. The copy writes private immutable output. Ordinary writes continue on the live root.
 4. Up to eight catch-up rounds graft newer locators into the private output.
-5. The final handoff takes the write gate and drains accepted writes.
-6. A final delta of at most 4,096 changed locators or new groups joins the output.
-7. One complete receipt and one `CURRENT` rename publish the replacement.
+5. Each publication attempt catches up and prepares its complete receipt outside the write gate.
+6. The final handoff checks the complete accepted queue and the exact prepared root under the write gate.
+7. A current result installs its prepared receipt and `CURRENT`; a stale result retries outside the gate.
 8. The node installs that root, opens the gate, and reclaims old files.
 
 The retained closure also includes the empty locator template that later new hash groups need.
 Private output uses the source generation plus one as its age.
-Receipt allocation occurs only at the final publication, after concurrent writers stop at the gate.
-The final delta includes tombstones. It uses original mutation sequence numbers.
+Receipt preparation uses a private UUID path and does not reserve a foreground generation.
+The final boundary claims a fresh canonical receipt directory without replacement.
+Every delta includes tombstones. It uses original mutation sequence numbers.
 A copy changes no atom counter, field value, or conflict record.
-A final delta above its bound returns `compaction_behind` without publication.
+A delta above its bound or eight unsuccessful publication attempts returns `compaction_behind` without publication.
 The old live root and all accepted writes remain intact.
 
 The copy retains the writer lease until every file operation ends.
-The orphan sweep defers while private compaction output exists.
+Exact file protections retain private output and any reused input dependency.
+An orphan sweep can remove unrelated files while copies remain active.
+Each cleanup plan checks its captured epoch before every removal.
+Publication advances that epoch before its root can change.
+The registry mutex covers only memory changes; it spans no disk operation.
 An interrupted copy leaves unreferenced files for the existing orphan sweep.
 Readers and backups keep the complete closure of their selected generation.
+
+Two nonblocking permits bound concurrent copy resources. A third copy receives `compaction_busy`.
+This limit does not exclude ordinary writes or cleanup.
+The write gate covers only conditional publication, its durability barriers, and the matching read-view change.
+There is no operation-wide maintenance mutex.
+See [the minimal-lock design](lastdb-compaction-minimal-locks.md) for exact protection and lifetime rules.
 
 ## Recent tiers
 
@@ -62,8 +73,9 @@ If the result still leaves that limit active, the next retry waits on a back-off
 A refused-write wake cannot skip that wait. The status retains the capacity error until recovery.
 The hard receipt limit remains 65,536 parts.
 
-Native status shows the current phase: capture, copy, catch-up, swap, reclaim, or idle.
+Native status shows the current phase: capture, copy, catch-up, swap, reclaim, multiple, or idle.
 It also shows the last copy time, swap time, maximum swap time, delta count, and tier boundary.
+The active-job count and publication retry count describe concurrent copies.
 The phase owner survives cancellation of an HTTP caller.
 
 ## Other lifecycle changes
@@ -85,6 +97,7 @@ They identify the source, executable, generated home, exact read results, and cl
 They establish only the workloads and process states that those receipts record.
 A process interruption does not establish power-loss behavior.
 The primary and its archive remain untouched. No tests run.
+The minimal-lock follow-up receipts live under `docs/proofs/compaction-minimal-locks-20261022`.
 
 The previously documented conflict-marker window change remains a separate retention-policy limit.
 This change preserves that behavior. It does not add cloud activation or a journal-home conversion.
