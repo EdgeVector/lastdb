@@ -46,7 +46,9 @@ These checks reject invalid measurements. They do not form a test suite.
 
 ## Base and candidate
 
-A PR run uses its exact head commit and the base SHA from the PR event.
+A PR run compares its exact event base with the event's merge revision.
+The candidate includes current base changes, so the comparison measures the proposed merge result.
+An older branch cannot turn unrelated changes on main into a claimed PR speed change.
 A main push uses its new tip and the previous tip from the push event.
 A nightly run uses the selected commit and its first parent.
 The workflow records complete SHAs and executable hashes.
