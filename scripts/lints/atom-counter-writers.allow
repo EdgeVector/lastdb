@@ -53,11 +53,6 @@ fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|clear
 fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store_reap_checkpoint|-|maintenance checkpoints
 fold_db/crates/core/src/storage/encrypting_namespaced_store/checkpoints.rs|store_reseal_checkpoint|-|maintenance checkpoints
 
-fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|clear_strict_marker|-|encryption markers
-fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|decrypt_legacy_encrypted_namespace|T C B N|rewrites the stored bytes of every row of a namespace; the logical records do not change
-fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|decrypt_sealed_to_plaintext|T C B N|rewrites the stored bytes of every row of a namespace; the logical records do not change
-fold_db/crates/core/src/storage/encrypting_namespaced_store/legacy.rs|mark_plaintext_sweep_completed|-|encryption markers
-
 fold_db/crates/core/src/storage/encrypting_store/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store
 
 fold_db/crates/core/src/storage/laststore/kv_store_impl.rs|restore_batch_put|T C B N|store layer: passes a restored row to the inner store

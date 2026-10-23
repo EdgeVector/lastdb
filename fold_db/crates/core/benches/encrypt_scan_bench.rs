@@ -1,21 +1,10 @@
 //! At-rest-encryption bulk-scan overhead benchmarks (Gap G1 slice d).
 //!
-//! The G1 flip turned a set of metadata namespaces — `schemas`,
-//! `schema_states`, `lineage_forward`, `lineage_reverse`, and the rest of
-//! [`DEFAULT_ENCRYPT_FLIPPED_NAMESPACES`] — from plaintext-at-rest to
-//! AES-256-GCM-at-rest. Every row those namespaces return now incurs an AES-GCM
-//! *open* on the read path, including on the **bulk-scan** paths that touch many
-//! rows at once:
-//!
-//! - **schema-load-at-boot**: `DbOperations::schemas().get_all_schemas()` scans
-//!   the whole (now-encrypted) `schemas` namespace and deserializes every entry.
-//!   A node loads its full schema set this way at startup.
-//! - **lineage bulk traversal**: the `lineage_forward` / `lineage_reverse`
-//!   namespaces are walked with `KvStore::scan_prefix`, which decrypts every row
-//!   it returns (`EncryptingKvStore::scan_prefix` opens each value). Those
-//!   namespaces have no production scan API of their own yet, so the
-//!   representative cost is measured at the layer it actually lands on: a
-//!   `scan_prefix` over an encrypted vs. a plaintext namespace KvStore.
+//! These cases compare an explicitly encrypted namespace with a plaintext
+//! control. They measure value-level AES-GCM overhead independently of the
+//! product namespace policy. Production catalogs such as `schemas` and
+//! `lineage_forward` are deliberately plaintext; their synthetic encrypted
+//! counterparts here do not describe current boot policy.
 //!
 //! # What these benches establish
 //!
@@ -57,9 +46,7 @@ fn plaintext_store(dir: &tempfile::TempDir) -> Arc<dyn NamespacedStore> {
 }
 
 /// The same Sled backend wrapped in the production at-rest encryption seam.
-/// `migration_mode = false` so reads take the strict (always-decrypt) path,
-/// matching a node that has completed the legacy-plaintext sweep — the steady
-/// state this card measures.
+/// Reads require an at-rest envelope; un-enveloped values are absent.
 fn encrypted_store(dir: &tempfile::TempDir) -> Arc<dyn NamespacedStore> {
     let base =
         Arc::new(LastStoreNamespacedStore::open(dir.path()).unwrap()) as Arc<dyn NamespacedStore>;

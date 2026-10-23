@@ -41,9 +41,7 @@ pub use config::{CloudSyncConfig, DatabaseConfig, P2pSyncConfig, StorageEngine};
 pub use error::StorageError;
 pub use laststore::LastStoreNamespacedStore;
 
-pub use encrypting_namespaced_store::{
-    EncryptingNamespacedStore, DEFAULT_ENCRYPT_FLIPPED_NAMESPACES, LASTSTORE_PLAINTEXT_NAMESPACES,
-};
+pub use encrypting_namespaced_store::{EncryptingNamespacedStore, LASTSTORE_PLAINTEXT_NAMESPACES};
 pub use node_config_store::NodeConfigStore;
 pub use reap_unsealed::{ReapUnsealedCheckpoint, ReapUnsealedOptions, ReapUnsealedReport};
 pub use reseal_at_rest::{
