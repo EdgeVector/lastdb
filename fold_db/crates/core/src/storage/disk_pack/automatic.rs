@@ -143,7 +143,7 @@ impl PackRuntime {
             // Lookup-only steps retain live payload objects. Periodically pack
             // their current records too, so one live record cannot retain a
             // batch's obsolete bodies forever. Start with a complete pack.
-            let full = self.automatic.runs.load(Relaxed) % 8 == 0;
+            let full = self.automatic.runs.load(Relaxed).is_multiple_of(8);
             let packed = if full {
                 writer.pack(&policy)
             } else {
