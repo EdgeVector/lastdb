@@ -21,10 +21,7 @@ impl PackKvStore {
         let namespace = self.namespace.clone();
         let observed = Arc::clone(&runtime);
         let (values, keys, addresses) = LastStoreKvStore::run_blocking(move || {
-            let addresses: Vec<_> = keys
-                .iter()
-                .map(|key| write_target(&namespace, key))
-                .collect();
+            let addresses: Vec<_> = keys.iter().map(|key| coordinate(&namespace, key)).collect();
             let bodies = runtime.raw_many(&context, &addresses, pending.as_ref())?;
             Ok((bodies, keys, addresses))
         })
@@ -57,10 +54,6 @@ impl PackKvStore {
     }
 }
 
-pub(super) fn coordinates(namespace: &str, key: &[u8]) -> [(String, String); 1] {
-    [write_target(namespace, key)]
-}
-
 fn prepare(
     runtime: &PackRuntime,
     context: &Arc<read::ReadContext>,
@@ -79,7 +72,7 @@ fn prepare(
     }
     let targets: Vec<_> = mutations
         .iter()
-        .map(|mutation| write_target(namespace, mutation.key()))
+        .map(|mutation| coordinate(namespace, mutation.key()))
         .collect();
     let mut addresses = Vec::new();
     for (mutation, target) in mutations.iter().zip(&targets) {
@@ -123,9 +116,9 @@ fn prepare(
     Ok(out)
 }
 
-fn write_target(namespace: &str, key: &[u8]) -> (String, String) {
+pub(super) fn coordinate(namespace: &str, key: &[u8]) -> (String, String) {
     let collection = if namespace == "main" {
-        native_routing::write_collection(key)
+        native_routing::collection_for_key(key)
     } else {
         namespace
     };

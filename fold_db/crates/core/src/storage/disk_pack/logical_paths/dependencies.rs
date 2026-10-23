@@ -24,7 +24,7 @@ pub(super) fn tip_sources(
     }
     let mut sources: Vec<_> = logical
         .into_iter()
-        .flat_map(|key| super::super::kv::coordinates("main", key.as_bytes()))
+        .map(|key| super::super::kv::coordinate("main", key.as_bytes()))
         .collect();
     sources.sort();
     sources.dedup();

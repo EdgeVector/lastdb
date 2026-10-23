@@ -1,11 +1,7 @@
 //! Canonical current-key routing for the native disk backend.
 use super::*;
 
-pub(in crate::storage) fn read_candidates(key: &[u8]) -> Vec<&'static str> {
-    main_collections_for_key(key)
-}
-
-pub(in crate::storage) fn write_collection(key: &[u8]) -> &'static str {
+pub(in crate::storage) fn collection_for_key(key: &[u8]) -> &'static str {
     main_collection_for_key(key)
 }
 

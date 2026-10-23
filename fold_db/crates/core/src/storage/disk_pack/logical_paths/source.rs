@@ -46,23 +46,17 @@ pub(super) fn body_matches(
 }
 
 pub(super) fn body_matches_coordinates(coordinates: &[(String, String)], requested: &str) -> bool {
-    let Some((collection, encoded)) = primary_coordinate(requested) else {
-        return false;
-    };
+    let (collection, encoded) = primary_coordinate(requested);
     coordinates
         .iter()
         .any(|(actual_collection, key)| actual_collection == collection && key == &encoded)
 }
 
-fn primary_coordinate(requested: &str) -> Option<(&'static str, String)> {
-    let collection =
-        crate::storage::laststore::native_routing::read_candidates(requested.as_bytes())
-            .into_iter()
-            .next()?;
-    Some((
-        collection,
+fn primary_coordinate(requested: &str) -> (&'static str, String) {
+    (
+        crate::storage::laststore::native_routing::collection_for_key(requested.as_bytes()),
         crate::storage::laststore::native_routing::encode(requested.as_bytes()),
-    ))
+    )
 }
 
 pub(super) struct AtomFacts {
@@ -90,9 +84,7 @@ struct AtomProof {
 
 impl SourceKey {
     fn primary(&self, requested: &str) -> bool {
-        let Some((collection, key)) = primary_coordinate(requested) else {
-            return false;
-        };
+        let (collection, key) = primary_coordinate(requested);
         collection == self.collection && key == self.key
     }
 }

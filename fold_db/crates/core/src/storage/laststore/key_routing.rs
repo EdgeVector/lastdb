@@ -23,10 +23,6 @@ pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {
         .unwrap_or(TIPS_COLLECTION)
 }
 
-pub(super) fn main_collections_for_key(key: &[u8]) -> Vec<&'static str> {
-    vec![main_collection_for_key(key)]
-}
-
 /// A structural prefix selects only current families. A prefix that stops
 /// inside a scope can intersect every current collection.
 pub(super) fn main_collections_for_prefix(prefix: &[u8]) -> Vec<&'static str> {

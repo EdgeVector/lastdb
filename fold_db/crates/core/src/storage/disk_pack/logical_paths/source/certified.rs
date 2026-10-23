@@ -49,7 +49,7 @@ pub(super) fn certified_source(
         return Ok(None);
     };
     if certificate.source.collection
-        != crate::storage::laststore::native_routing::write_collection(key.as_bytes())
+        != crate::storage::laststore::native_routing::collection_for_key(key.as_bytes())
         || !same_scope(&key, scope)
         || crate::atom::atom_key_codec::body_uuid_of(&key) != Some(atom.uuid())
         || certificate.fingerprint != proof::fingerprint(atom)?

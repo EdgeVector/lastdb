@@ -17,10 +17,7 @@ impl PackRuntime {
         let requested: Vec<_> = keys
             .iter()
             .map(|key| {
-                let (collection, encoded) = kv::coordinates("main", key.as_bytes())
-                    .into_iter()
-                    .next()
-                    .unwrap_or_default();
+                let (collection, encoded) = kv::coordinate("main", key.as_bytes());
                 (
                     collection,
                     encoded,

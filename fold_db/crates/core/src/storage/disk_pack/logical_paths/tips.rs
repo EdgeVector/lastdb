@@ -56,7 +56,7 @@ pub(super) fn admit(
             scope,
             &atom_key_codec::body_key(&selected.entry.atom_uuid),
         );
-        super::super::kv::coordinates("main", expected.as_bytes()).to_vec()
+        vec![super::super::kv::coordinate("main", expected.as_bytes())]
     };
     // An existing full value keeps its actual copy, including protein siblings.
     if body.is_empty() {

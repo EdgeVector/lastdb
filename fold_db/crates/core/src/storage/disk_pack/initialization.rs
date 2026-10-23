@@ -211,7 +211,7 @@ impl PackRuntime {
         let keys = crate::db_operations::atom_store::CURRENT_NATIVE_INITIALIZATION_KEYS;
         let expected: Vec<_> = keys
             .iter()
-            .map(|key| kv::coordinates("main", key.as_bytes())[0].clone())
+            .map(|key| kv::coordinate("main", key.as_bytes()))
             .collect();
         let mut found = vec![false; expected.len()];
         for operation in operations {
