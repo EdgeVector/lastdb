@@ -128,8 +128,7 @@ impl LocatorForest {
 /// One allocator per existing object. New groups join an existing object, so one
 /// publication adds one locator part, not one part for each object it touches.
 /// A fresh object exists only for the first groups of an empty directory.
-/// At most one sparse allocator keeps a descriptor between individual tree edits.
-/// Switching objects parks the previous allocator; finish retains every barrier.
+/// Parked sparse allocators hold no descriptors between individual tree edits.
 pub(super) struct LocatorChanges {
     protection: super::private_files::OutputFiles,
     root: PathBuf,
@@ -138,7 +137,6 @@ pub(super) struct LocatorChanges {
     /// The existing object that receives new groups, chosen once per publication.
     shared: Option<Uuid>,
     edited: BTreeMap<Uuid, (TreeRoot, SparsePages)>,
-    open_object: Option<Uuid>,
     changes: Changes,
 }
 
@@ -159,7 +157,6 @@ impl LocatorChanges {
             new: None,
             shared: None,
             edited: BTreeMap::new(),
-            open_object: None,
             changes: Changes::default(),
         }
     }
@@ -289,15 +286,6 @@ impl LocatorChanges {
         {
             return forest.edit(call, references, tree, changes);
         }
-        if self.open_object != Some(tree.object) {
-            if let Some((_, pages)) = self
-                .open_object
-                .and_then(|object| self.edited.get_mut(&object))
-            {
-                pages.park();
-            }
-            self.open_object = Some(tree.object);
-        }
         let pages = match self.edited.remove(&tree.object) {
             Some((_, pages)) => pages,
             None => {
@@ -312,8 +300,9 @@ impl LocatorChanges {
             Some(references) => edit.put_many(call, references, changes)?,
             None => edit.put_many_untracked(call, changes)?,
         }
-        let (tree, pages, changes) = edit.finish_tree()?;
+        let (tree, mut pages, changes) = edit.finish_tree()?;
         self.changes.merge(changes)?;
+        pages.park();
         self.edited.insert(tree.object, (tree.clone(), pages));
         Ok(tree)
     }
