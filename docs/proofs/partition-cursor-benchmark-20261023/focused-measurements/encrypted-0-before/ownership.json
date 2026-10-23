@@ -1,0 +1,11 @@
+{
+  "creator_pid": 101547,
+  "device": 27,
+  "home": "/workspace/partition-focused-pairs/encrypted-0-before/home",
+  "inode": 692548,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "d888996713ae4d58b5f72655c895c67c",
+  "scratch": "/workspace/partition-focused-pairs/encrypted-0-before",
+  "version": 1
+}

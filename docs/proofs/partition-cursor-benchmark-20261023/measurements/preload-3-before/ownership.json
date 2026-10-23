@@ -1,0 +1,11 @@
+{
+  "creator_pid": 101466,
+  "device": 27,
+  "home": "/workspace/partition-pairs/preload-3-before/home",
+  "inode": 692051,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "70534211f693497595438d09e5bd64a2",
+  "scratch": "/workspace/partition-pairs/preload-3-before",
+  "version": 1
+}

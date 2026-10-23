@@ -1,0 +1,11 @@
+{
+  "creator_pid": 99912,
+  "device": 27,
+  "home": "/workspace/partition-pairs/plain-1-before/home",
+  "inode": 690579,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "5dc7b5d613784fea8bdbced7c406759c",
+  "scratch": "/workspace/partition-pairs/plain-1-before",
+  "version": 1
+}

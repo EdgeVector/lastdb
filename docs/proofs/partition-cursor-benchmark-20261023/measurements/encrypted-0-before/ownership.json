@@ -1,0 +1,11 @@
+{
+  "creator_pid": 100362,
+  "device": 27,
+  "home": "/workspace/partition-pairs/encrypted-0-before/home",
+  "inode": 692294,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "28a00f9f4b9f45c3b151c789d74ea06a",
+  "scratch": "/workspace/partition-pairs/encrypted-0-before",
+  "version": 1
+}

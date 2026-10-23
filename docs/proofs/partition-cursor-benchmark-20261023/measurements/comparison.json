@@ -1,0 +1,3176 @@
+{
+  "encrypted": {
+    "hash_durable_write1": {
+      "before_median_ms": 16.5707775,
+      "after_median_ms": 17.3286435,
+      "paired_median_change_percent": 4.282946443303015,
+      "paired_changes_percent": [
+        18.29049487784569,
+        -0.5437711322997529,
+        1.0638737556529776,
+        7.502019130953053
+      ],
+      "before_run_medians_ms": [
+        14.642179,
+        18.198741,
+        17.154479000000002,
+        15.987075999999998
+      ],
+      "after_run_medians_ms": [
+        17.320306,
+        18.0997815,
+        17.336981,
+        17.186429500000003
+      ],
+      "before_p95_ms": 21.503481,
+      "after_p95_ms": 22.302725000000002,
+      "paired_p95_changes_percent": [
+        24.423155862369093,
+        -14.106961433014654,
+        -1.823016388094667,
+        4.3337762229023635
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 4.573508997993603,
+      "paired_geomean_change_percent": 6.328233723778154,
+      "before_records_per_second": 57.44877165497064,
+      "after_records_per_second": 55.41231766275844,
+      "before_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ]
+    },
+    "hash_durable_write32": {
+      "before_median_ms": 82.96267975,
+      "after_median_ms": 81.84814850000001,
+      "paired_median_change_percent": -0.7791020636917945,
+      "paired_changes_percent": [
+        -9.826804582982229,
+        -0.06346179856033807,
+        -1.4947423288232509,
+        1.2273391530394306
+      ],
+      "before_run_medians_ms": [
+        92.7557165,
+        84.9566215,
+        80.968738,
+        79.08486400000001
+      ],
+      "after_run_medians_ms": [
+        83.6407935,
+        84.9027065,
+        79.758464,
+        80.0555035
+      ],
+      "before_p95_ms": 95.4228415,
+      "after_p95_ms": 89.92423199999999,
+      "paired_p95_changes_percent": [
+        -43.752394096722355,
+        -6.977920104425173,
+        0.90478410615773,
+        -3.121103416023774
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": -1.3434127891704173,
+      "paired_geomean_change_percent": -2.6379412854879547,
+      "before_records_per_second": 378.69545858520723,
+      "after_records_per_second": 384.964598913635,
+      "before_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ]
+    },
+    "hash_missing_point": {
+      "before_median_ms": 0.4646935,
+      "after_median_ms": 0.35101724999999995,
+      "paired_median_change_percent": -27.983092332285302,
+      "paired_changes_percent": [
+        -45.09381996338897,
+        5.769423892119252,
+        -34.655790362894955,
+        -21.31039430167565
+      ],
+      "before_run_medians_ms": [
+        0.597634,
+        0.3535015,
+        0.575318,
+        0.35406899999999997
+      ],
+      "after_run_medians_ms": [
+        0.328138,
+        0.37389649999999996,
+        0.375937,
+        0.2786155
+      ],
+      "before_p95_ms": 0.6041345,
+      "after_p95_ms": 0.5226115,
+      "paired_p95_changes_percent": [
+        -27.522261380198508,
+        6.317706108074228,
+        -12.839202442894305,
+        -14.978879818041513
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -24.462629668803203,
+      "paired_geomean_change_percent": -26.077531348608073
+    },
+    "hash_queued_write1": {
+      "before_median_ms": 5.95595625,
+      "after_median_ms": 5.969806,
+      "paired_median_change_percent": 0.8150889603564859,
+      "paired_changes_percent": [
+        -4.98408359402932,
+        2.4084180347042183,
+        -0.7782401139912465,
+        3.112959982388519
+      ],
+      "before_run_medians_ms": [
+        6.2807835,
+        5.8932044999999995,
+        6.018708,
+        5.1602654999999995
+      ],
+      "after_run_medians_ms": [
+        5.967744,
+        6.0351375,
+        5.971868,
+        5.3209025
+      ],
+      "before_p95_ms": 14.609112,
+      "after_p95_ms": 22.954119,
+      "paired_p95_changes_percent": [
+        -69.04139593244793,
+        401.58259525271205,
+        313.86700087010536,
+        -25.4731375474633
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 0.2325361271752202,
+      "paired_geomean_change_percent": -0.11206162886464588,
+      "before_records_per_second": 120.34695764634122,
+      "after_records_per_second": 119.42361684972127,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "hash_queued_write32": {
+      "before_median_ms": 34.76302525,
+      "after_median_ms": 35.3213045,
+      "paired_median_change_percent": 0.8433275954340846,
+      "paired_changes_percent": [
+        -2.364716660039168,
+        6.093977343714996,
+        1.2557505243975031,
+        0.43090466647066616
+      ],
+      "before_run_medians_ms": [
+        36.2115265,
+        34.676294,
+        34.8497565,
+        33.429204
+      ],
+      "after_run_medians_ms": [
+        35.3552265,
+        36.7894595,
+        35.2873825,
+        33.573252
+      ],
+      "before_p95_ms": 211.113248,
+      "after_p95_ms": 252.09374300000002,
+      "paired_p95_changes_percent": [
+        -21.596299871727176,
+        -4.4873957413482435,
+        73.3942470418343,
+        55.024910274414275
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 1.6059570362047193,
+      "paired_geomean_change_percent": 1.3085614203204754,
+      "before_records_per_second": 500.73279979136487,
+      "after_records_per_second": 486.47079937119275,
+      "before_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ]
+    },
+    "hash_reopen_first_pass": {
+      "before_median_ms": 1.80977525,
+      "after_median_ms": 1.6764815,
+      "paired_median_change_percent": -5.885053781328004,
+      "paired_changes_percent": [
+        -13.76197040732211,
+        -1.2013205453907605,
+        -6.777449040143091,
+        -4.992658522512916
+      ],
+      "before_run_medians_ms": [
+        1.9306465,
+        1.7085365000000001,
+        1.911014,
+        1.6525965
+      ],
+      "after_run_medians_ms": [
+        1.6649515,
+        1.6880115,
+        1.781496,
+        1.570088
+      ],
+      "before_p95_ms": 2.2195995,
+      "after_p95_ms": 1.911082,
+      "paired_p95_changes_percent": [
+        -25.892847641647833,
+        -16.007608656641416,
+        -8.383016787479992,
+        -8.913292044321587
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -7.365210127611144,
+      "paired_geomean_change_percent": -6.796541427368819
+    },
+    "hash_warm_point": {
+      "before_median_ms": 0.41640725,
+      "after_median_ms": 0.29926474999999997,
+      "paired_median_change_percent": -20.56433253843128,
+      "paired_changes_percent": [
+        -48.700569619720646,
+        13.532194034529166,
+        -31.72118645183496,
+        -9.407478625027599
+      ],
+      "before_run_medians_ms": [
+        0.5348305,
+        0.2855265,
+        0.531703,
+        0.3011115
+      ],
+      "after_run_medians_ms": [
+        0.27436499999999997,
+        0.32416449999999997,
+        0.3630405,
+        0.2727845
+      ],
+      "before_p95_ms": 0.529962,
+      "after_p95_ms": 0.4237645,
+      "paired_p95_changes_percent": [
+        -39.420330928037316,
+        23.283340761393422,
+        -28.211752548264357,
+        -14.573630161375316
+      ],
+      "requests_per_run": 384,
+      "change_of_reported_medians_percent": -28.131714805637998,
+      "paired_geomean_change_percent": -22.526625719908466
+    },
+    "partition_cursor127_limit16": {
+      "before_median_ms": 2.4600392500000003,
+      "after_median_ms": 2.575443,
+      "paired_median_change_percent": 4.918648842484242,
+      "paired_changes_percent": [
+        -48.57791573103606,
+        8.777059788728447,
+        1.060237896240035,
+        22.759391912254777
+      ],
+      "before_run_medians_ms": [
+        4.6013975,
+        2.385366,
+        2.529338,
+        2.3907405
+      ],
+      "after_run_medians_ms": [
+        2.3661345000000003,
+        2.5947310000000003,
+        2.556155,
+        2.9348585
+      ],
+      "before_p95_ms": 3.0243395,
+      "after_p95_ms": 2.962499,
+      "paired_p95_changes_percent": [
+        -62.27203842433988,
+        4.141745204120473,
+        12.429529167444331,
+        26.981055270044173
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 4.691134501207639,
+      "paired_geomean_change_percent": -8.729483321092824
+    },
+    "partition_cursor_after_empty": {
+      "before_median_ms": 2.31780875,
+      "after_median_ms": 2.50997,
+      "paired_median_change_percent": 6.858229306273156,
+      "paired_changes_percent": [
+        -2.728519149109343,
+        11.571610180750703,
+        2.1448484317956096,
+        14.233135922082752
+      ],
+      "before_run_medians_ms": [
+        2.358752,
+        2.2768655,
+        2.4275374999999997,
+        2.276466
+      ],
+      "after_run_medians_ms": [
+        2.2943930000000003,
+        2.5403355000000003,
+        2.4796045,
+        2.6004785000000004
+      ],
+      "before_p95_ms": 2.5674565,
+      "after_p95_ms": 2.8429,
+      "paired_p95_changes_percent": [
+        -32.56847979020516,
+        14.247791578509283,
+        7.0917096619639075,
+        28.646598697537918
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 8.290643048094438,
+      "paired_geomean_change_percent": 6.080839741139843
+    },
+    "partition_offset144_limit16": {
+      "before_median_ms": 7.543494,
+      "after_median_ms": 7.59281225,
+      "paired_median_change_percent": 0.6543026061763269,
+      "paired_changes_percent": [
+        -3.993695774454653,
+        3.7078557863817974,
+        0.5399838881096741,
+        0.7686213242429796
+      ],
+      "before_run_medians_ms": [
+        7.682783499999999,
+        7.4549825,
+        7.5776335,
+        7.5093545
+      ],
+      "after_run_medians_ms": [
+        7.3759565,
+        7.7314025,
+        7.618551500000001,
+        7.567073
+      ],
+      "before_p95_ms": 9.606935,
+      "after_p95_ms": 8.235411,
+      "paired_p95_changes_percent": [
+        -59.855888297880135,
+        -4.365642094117062,
+        -4.275747327465618,
+        -14.725284189594346
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 0.6537852353299289,
+      "paired_geomean_change_percent": 0.21757361041851997
+    },
+    "partition_short_last_page": {
+      "before_median_ms": 1.7894795000000001,
+      "after_median_ms": 1.87817875,
+      "paired_median_change_percent": 2.572268468987182,
+      "paired_changes_percent": [
+        -0.5757635962186813,
+        12.118584418978795,
+        3.501132800927542,
+        1.6434041370468222
+      ],
+      "before_run_medians_ms": [
+        1.7742525,
+        1.7944010000000001,
+        1.876764,
+        1.784558
+      ],
+      "after_run_medians_ms": [
+        1.764037,
+        2.011857,
+        1.942472,
+        1.8138855
+      ],
+      "before_p95_ms": 1.992753,
+      "after_p95_ms": 2.086764,
+      "paired_p95_changes_percent": [
+        -17.09572556292629,
+        14.823551148923798,
+        4.672022542489707,
+        4.969770943885821
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 4.956706684820911,
+      "paired_geomean_change_percent": 4.063527581768334
+    },
+    "range_between64": {
+      "before_median_ms": 8.817355249999999,
+      "after_median_ms": 8.6017635,
+      "paired_median_change_percent": -1.985788021474788,
+      "paired_changes_percent": [
+        -4.214603049722543,
+        -1.6510535924780578,
+        -0.7516364279743226,
+        -2.3205224504715183
+      ],
+      "before_run_medians_ms": [
+        8.932976499999999,
+        8.792204,
+        8.842506499999999,
+        8.710797
+      ],
+      "after_run_medians_ms": [
+        8.556487,
+        8.64704,
+        8.776043000000001,
+        8.508661
+      ],
+      "before_p95_ms": 9.7125095,
+      "after_p95_ms": 9.355418,
+      "paired_p95_changes_percent": [
+        -5.936824318690914,
+        -11.902467184966603,
+        -1.4151542381041882,
+        -3.6616088351457687
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -2.445084085729654,
+      "paired_geomean_change_percent": -2.2427615886814856
+    },
+    "range_duplicates_and_miss": {
+      "before_median_ms": 0.7157629999999999,
+      "after_median_ms": 0.5877435,
+      "paired_median_change_percent": -13.390669236719804,
+      "paired_changes_percent": [
+        -32.413040709363536,
+        4.12738504397856,
+        -24.66780036618099,
+        -2.113538107258617
+      ],
+      "before_run_medians_ms": [
+        0.840077,
+        0.572893,
+        0.843845,
+        0.591449
+      ],
+      "after_run_medians_ms": [
+        0.5677825000000001,
+        0.5965385000000001,
+        0.635687,
+        0.5789485
+      ],
+      "before_p95_ms": 0.8366104999999999,
+      "after_p95_ms": 0.7172185,
+      "paired_p95_changes_percent": [
+        -30.551139347117452,
+        2.447413970135237,
+        -12.807251394056895,
+        2.8031561171769193
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -17.885738715189238,
+      "paired_geomean_change_percent": -15.124413657519353
+    },
+    "range_durable_write1": {
+      "before_median_ms": 18.497598749999998,
+      "after_median_ms": 18.824838749999998,
+      "paired_median_change_percent": 3.249409277077958,
+      "paired_changes_percent": [
+        11.060875078402077,
+        6.639104963978593,
+        -0.14028640982267637,
+        -1.2570910913857092
+      ],
+      "before_run_medians_ms": [
+        17.2803145,
+        19.323915,
+        18.302200499999998,
+        18.692997
+      ],
+      "after_run_medians_ms": [
+        19.1916685,
+        20.60685,
+        18.276525,
+        18.458009
+      ],
+      "before_p95_ms": 21.11296,
+      "after_p95_ms": 21.163932000000003,
+      "paired_p95_changes_percent": [
+        5.390699517335795,
+        5.934377949680081,
+        -4.526675167379446,
+        2.2480465366803815
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 1.7690944885481397,
+      "paired_geomean_change_percent": 3.9545383041937665,
+      "before_records_per_second": 52.7613027521941,
+      "after_records_per_second": 51.81000636125643,
+      "before_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ]
+    },
+    "range_durable_write32": {
+      "before_median_ms": 72.88198325,
+      "after_median_ms": 74.471191,
+      "paired_median_change_percent": 0.24349343154490555,
+      "paired_changes_percent": [
+        5.875615486140373,
+        0.35301470200306273,
+        0.13397216108674836,
+        -0.19345315904470972
+      ],
+      "before_run_medians_ms": [
+        73.2040245,
+        76.253623,
+        71.4603685,
+        72.559942
+      ],
+      "after_run_medians_ms": [
+        77.5052115,
+        76.5228095,
+        71.5561055,
+        72.4195725
+      ],
+      "before_p95_ms": 82.30884599999999,
+      "after_p95_ms": 88.901326,
+      "paired_p95_changes_percent": [
+        23.862921155326223,
+        4.871672706085328,
+        -3.3781737583953864,
+        -0.12664790070403553
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 2.180522097688664,
+      "paired_geomean_change_percent": 1.511842715325784,
+      "before_records_per_second": 430.4462831600915,
+      "after_records_per_second": 415.7170276978019,
+      "before_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ]
+    },
+    "range_missing_point": {
+      "before_median_ms": 0.525927,
+      "after_median_ms": 0.45099049999999996,
+      "paired_median_change_percent": -19.154755600379897,
+      "paired_changes_percent": [
+        -25.340122094698238,
+        30.388726973391456,
+        -36.36637626765125,
+        -12.969389106061557
+      ],
+      "before_run_medians_ms": [
+        0.621321,
+        0.359584,
+        0.6884779999999999,
+        0.430533
+      ],
+      "after_run_medians_ms": [
+        0.4638775,
+        0.46885699999999997,
+        0.4381035,
+        0.3746955
+      ],
+      "before_p95_ms": 0.754551,
+      "after_p95_ms": 0.68828,
+      "paired_p95_changes_percent": [
+        227.31216314028777,
+        10.405530371561355,
+        -18.282730204064922,
+        -28.690953834518197
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -14.248460337651437,
+      "paired_geomean_change_percent": -14.31170488429454
+    },
+    "range_multiget32": {
+      "before_median_ms": 3.5816525,
+      "after_median_ms": 3.5308715,
+      "paired_median_change_percent": -2.1673081073521394,
+      "paired_changes_percent": [
+        -4.6256312808311995,
+        3.2116256518665454,
+        -5.7067670012214915,
+        0.29101506612692063
+      ],
+      "before_run_medians_ms": [
+        3.6842755,
+        3.471186,
+        3.762612,
+        3.4790295
+      ],
+      "after_run_medians_ms": [
+        3.5138545,
+        3.5826675000000003,
+        3.5478885,
+        3.489154
+      ],
+      "before_p95_ms": 4.1879255,
+      "after_p95_ms": 4.1324635,
+      "paired_p95_changes_percent": [
+        3.2891078885945557,
+        -10.25897903081512,
+        -5.802959561846876,
+        3.864015651735686
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -1.4178092374958262,
+      "paired_geomean_change_percent": -1.7741689071634648
+    },
+    "range_partition512": {
+      "before_median_ms": 62.38073975,
+      "after_median_ms": 60.844553250000004,
+      "paired_median_change_percent": -2.2844616993711986,
+      "paired_changes_percent": [
+        -5.607289711920149,
+        -1.3581239275853085,
+        -0.22606139959189253,
+        -3.2107994711570886
+      ],
+      "before_run_medians_ms": [
+        64.30234899999999,
+        61.8321335,
+        62.7165895,
+        62.044889999999995
+      ],
+      "after_run_medians_ms": [
+        60.69673,
+        60.992376500000006,
+        62.574811499999996,
+        60.052752999999996
+      ],
+      "before_p95_ms": 65.8430545,
+      "after_p95_ms": 66.217062,
+      "paired_p95_changes_percent": [
+        124.8621144797338,
+        -3.6645068097987066,
+        2.422091710725671,
+        1.7703155688129746
+      ],
+      "requests_per_run": 24,
+      "change_of_reported_medians_percent": -2.462597439781067,
+      "paired_geomean_change_percent": -2.621977769883499
+    },
+    "range_prefix10": {
+      "before_median_ms": 1.9478217500000001,
+      "after_median_ms": 1.88490525,
+      "paired_median_change_percent": -4.32023883035868,
+      "paired_changes_percent": [
+        -8.021721052571696,
+        1.9380059006682604,
+        -7.711256173865255,
+        -0.9292214868521054
+      ],
+      "before_run_medians_ms": [
+        2.021449,
+        1.8741945,
+        2.0821639999999997,
+        1.8417029999999999
+      ],
+      "after_run_medians_ms": [
+        1.859294,
+        1.9105165,
+        1.921603,
+        1.8245895
+      ],
+      "before_p95_ms": 2.305329,
+      "after_p95_ms": 2.1622135,
+      "paired_p95_changes_percent": [
+        -7.233486310225768,
+        6.5730436648228086,
+        -5.384996359572625,
+        -10.141404340105243
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -3.2300953616520633,
+      "paired_geomean_change_percent": -3.776991632175164
+    },
+    "range_prefix100": {
+      "before_median_ms": 13.33530225,
+      "after_median_ms": 13.0442035,
+      "paired_median_change_percent": -1.7809466281225428,
+      "paired_changes_percent": [
+        -3.6210704854236053,
+        1.1789724267104118,
+        -0.5447572547108703,
+        -3.0171360015342152
+      ],
+      "before_run_medians_ms": [
+        13.425974499999999,
+        12.9953845,
+        13.4712295,
+        13.24463
+      ],
+      "after_run_medians_ms": [
+        12.9398105,
+        13.1485965,
+        13.397844,
+        12.8450215
+      ],
+      "before_p95_ms": 14.508971500000001,
+      "after_p95_ms": 14.330869,
+      "paired_p95_changes_percent": [
+        3.8411885822967173,
+        -2.8478714615472245,
+        -1.4740957600405058,
+        -8.279502604345335
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -2.182918276186796,
+      "paired_geomean_change_percent": -1.5198361774905411
+    },
+    "range_queued_write1": {
+      "before_median_ms": 6.75912125,
+      "after_median_ms": 6.5715140000000005,
+      "paired_median_change_percent": -2.405158975090166,
+      "paired_changes_percent": [
+        -4.775167549035498,
+        -0.035150401144834476,
+        2.111716083967452,
+        -6.6191448204040775
+      ],
+      "before_run_medians_ms": [
+        6.862021,
+        6.5888295,
+        6.6562215,
+        7.021262
+      ],
+      "after_run_medians_ms": [
+        6.534348,
+        6.586513500000001,
+        6.796782,
+        6.5565145000000005
+      ],
+      "before_p95_ms": 7.545624999999999,
+      "after_p95_ms": 8.273599,
+      "paired_p95_changes_percent": [
+        -11.86033438461992,
+        12.367606203123849,
+        11.629676460032368,
+        7.135355701522439
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -2.7756159870633956,
+      "paired_geomean_change_percent": -2.3926012350329984,
+      "before_records_per_second": 115.13367392527945,
+      "after_records_per_second": 117.1540038777879,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "range_queued_write32": {
+      "before_median_ms": 69.452801,
+      "after_median_ms": 71.68109975,
+      "paired_median_change_percent": -1.8884489808789595,
+      "paired_changes_percent": [
+        15.834594168392101,
+        -12.279219637915373,
+        -3.2168895662993524,
+        -0.5600083954585666
+      ],
+      "before_run_medians_ms": [
+        68.4549625,
+        85.223669,
+        69.915922,
+        68.98967999999999
+      ],
+      "after_run_medians_ms": [
+        79.294528,
+        74.75886750000001,
+        67.666804,
+        68.603332
+      ],
+      "before_p95_ms": 132.823822,
+      "after_p95_ms": 132.20929999999998,
+      "paired_p95_changes_percent": [
+        -0.7279294725526575,
+        -8.892075737153338,
+        -0.6577867233982015,
+        -0.1895282427398559
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 3.2083641234282423,
+      "paired_geomean_change_percent": -0.5567394385891933,
+      "before_records_per_second": 485.5953395027635,
+      "after_records_per_second": 462.57877240787946,
+      "before_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ]
+    },
+    "range_reopen_first_pass": {
+      "before_median_ms": 1.984572,
+      "after_median_ms": 1.8775475000000001,
+      "paired_median_change_percent": -6.408146589913377,
+      "paired_changes_percent": [
+        -10.355156306144442,
+        0.11100518945277305,
+        -9.471170298170739,
+        -3.3451228816560152
+      ],
+      "before_run_medians_ms": [
+        2.08725,
+        1.881894,
+        2.153699,
+        1.8710075000000002
+      ],
+      "after_run_medians_ms": [
+        1.871112,
+        1.8839830000000002,
+        1.9497185,
+        1.80842
+      ],
+      "before_p95_ms": 2.339099,
+      "after_p95_ms": 2.2536265,
+      "paired_p95_changes_percent": [
+        -11.305396281454472,
+        8.97971623357745,
+        -6.710079870998253,
+        -0.36919010141196473
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -5.392825254009425,
+      "paired_geomean_change_percent": -5.864278871254502
+    },
+    "range_warm_point": {
+      "before_median_ms": 0.45598900000000003,
+      "after_median_ms": 0.3601805,
+      "paired_median_change_percent": -16.727968724658417,
+      "paired_changes_percent": [
+        -42.20646315651662,
+        21.938602110288173,
+        -30.013944045139475,
+        -3.441993404177357
+      ],
+      "before_run_medians_ms": [
+        0.5728625,
+        0.31924549999999996,
+        0.570853,
+        0.341125
+      ],
+      "after_run_medians_ms": [
+        0.3310775,
+        0.3892835,
+        0.39951749999999997,
+        0.3293835
+      ],
+      "before_p95_ms": 0.570426,
+      "after_p95_ms": 0.4699805,
+      "paired_p95_changes_percent": [
+        -34.31482627082425,
+        55.122739286089065,
+        -28.12309810386495,
+        -3.276812044078836
+      ],
+      "requests_per_run": 384,
+      "change_of_reported_medians_percent": -21.01114281265557,
+      "paired_geomean_change_percent": -16.927922033945652
+    }
+  },
+  "plain": {
+    "hash_durable_write1": {
+      "before_median_ms": 17.15468225,
+      "after_median_ms": 16.740397,
+      "paired_median_change_percent": -0.4576112075415917,
+      "paired_changes_percent": [
+        0.6414147428728478,
+        -12.871253448624442,
+        -0.37945077117518267,
+        -0.5357716439080007
+      ],
+      "before_run_medians_ms": [
+        16.097229,
+        19.255141,
+        16.767656000000002,
+        17.5417085
+      ],
+      "after_run_medians_ms": [
+        16.200479,
+        16.776763,
+        16.704031,
+        17.447725
+      ],
+      "before_p95_ms": 27.546321,
+      "after_p95_ms": 22.0381195,
+      "paired_p95_changes_percent": [
+        -8.074208056446498,
+        -19.25020435358926,
+        -29.403788124148,
+        -10.208914379406142
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -2.4149980976767904,
+      "paired_geomean_change_percent": -3.4530603118135383,
+      "before_records_per_second": 53.631020829116146,
+      "after_records_per_second": 56.07403184082176,
+      "before_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ]
+    },
+    "hash_durable_write32": {
+      "before_median_ms": 91.95530525000001,
+      "after_median_ms": 83.86077275,
+      "paired_median_change_percent": -8.684354639220782,
+      "paired_changes_percent": [
+        -7.928415873446914,
+        -10.673100340952068,
+        0.6007924358233163,
+        -9.440293404994648
+      ],
+      "before_run_medians_ms": [
+        95.76187250000001,
+        98.396236,
+        79.142308,
+        88.14873800000001
+      ],
+      "after_run_medians_ms": [
+        88.16947300000001,
+        87.894307,
+        79.61778899999999,
+        79.82723849999999
+      ],
+      "before_p95_ms": 129.576353,
+      "after_p95_ms": 108.3934935,
+      "paired_p95_changes_percent": [
+        37.19045674931998,
+        -25.54839227368747,
+        15.458790135007794,
+        -34.16882424016029
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": -8.80268134393476,
+      "paired_geomean_change_percent": -6.961848924221615,
+      "before_records_per_second": 328.72680893135,
+      "after_records_per_second": 362.48825355517596,
+      "before_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ]
+    },
+    "hash_missing_point": {
+      "before_median_ms": 0.39535175,
+      "after_median_ms": 0.39594050000000003,
+      "paired_median_change_percent": -1.8809222063702946,
+      "paired_changes_percent": [
+        44.17255539724345,
+        -3.8890546019253236,
+        -27.3901086681957,
+        0.12721018918473437
+      ],
+      "before_run_medians_ms": [
+        0.416898,
+        0.3738055,
+        0.5958045000000001,
+        0.35571050000000004
+      ],
+      "after_run_medians_ms": [
+        0.6010525,
+        0.35926800000000003,
+        0.432613,
+        0.356163
+      ],
+      "before_p95_ms": 0.587941,
+      "after_p95_ms": 0.5395585,
+      "paired_p95_changes_percent": [
+        42.17708980495445,
+        -11.373799168537435,
+        -37.51486257437037,
+        1.6468529890317107
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": 0.1489180204716556,
+      "paired_geomean_change_percent": 0.18456965172586326
+    },
+    "hash_queued_write1": {
+      "before_median_ms": 6.09716025,
+      "after_median_ms": 6.10230375,
+      "paired_median_change_percent": 0.7934615641912557,
+      "paired_changes_percent": [
+        4.3064950512807565,
+        -2.719571922898245,
+        -4.985180606291284,
+        9.092519092084972
+      ],
+      "before_run_medians_ms": [
+        5.999229,
+        6.216824,
+        6.1950915,
+        5.6437
+      ],
+      "after_run_medians_ms": [
+        6.257585499999999,
+        6.047753,
+        5.886255,
+        6.1568545
+      ],
+      "before_p95_ms": 20.412807,
+      "after_p95_ms": 11.8600715,
+      "paired_p95_changes_percent": [
+        -51.16177653470769,
+        -44.052053410220736,
+        -22.12703757665895,
+        -57.5294175849739
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 0.08435894398544086,
+      "paired_geomean_change_percent": 1.2699943393043034,
+      "before_records_per_second": 118.12253143795091,
+      "after_records_per_second": 116.61247494951783,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "hash_queued_write32": {
+      "before_median_ms": 35.610724250000004,
+      "after_median_ms": 34.735705249999995,
+      "paired_median_change_percent": -0.4764466042154414,
+      "paired_changes_percent": [
+        3.5209660826997613,
+        -10.076060726286984,
+        -3.7107655218020064,
+        2.7578723133711236
+      ],
+      "before_run_medians_ms": [
+        35.9721585,
+        39.511324,
+        35.24929,
+        32.8495085
+      ],
+      "after_run_medians_ms": [
+        37.238726,
+        35.530139,
+        33.9412715,
+        33.755455999999995
+      ],
+      "before_p95_ms": 199.3486565,
+      "after_p95_ms": 152.84955300000001,
+      "paired_p95_changes_percent": [
+        -49.746381391304325,
+        -2.2883850453831345,
+        -39.151607352736775,
+        -2.1017363205111828
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": -2.4571783316089335,
+      "paired_geomean_change_percent": -2.0342834700256773,
+      "before_records_per_second": 499.67544397546834,
+      "after_records_per_second": 467.8715946214034,
+      "before_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ]
+    },
+    "hash_reopen_first_pass": {
+      "before_median_ms": 1.737554,
+      "after_median_ms": 1.6956725000000001,
+      "paired_median_change_percent": 0.31580937389233954,
+      "paired_changes_percent": [
+        -3.3783908779573046,
+        4.010009625741984,
+        -12.706798456023272,
+        5.301673074253754
+      ],
+      "before_run_medians_ms": [
+        1.729788,
+        1.74532,
+        1.9703665,
+        1.548945
+      ],
+      "after_run_medians_ms": [
+        1.671349,
+        1.8153074999999999,
+        1.719996,
+        1.631065
+      ],
+      "before_p95_ms": 2.136713,
+      "after_p95_ms": 2.055427,
+      "paired_p95_changes_percent": [
+        7.8402181516110225,
+        13.017960904847815,
+        -38.35147387255303,
+        0.6005607324227613
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -2.410371130911604,
+      "paired_geomean_change_percent": -1.9627153708562939
+    },
+    "hash_warm_point": {
+      "before_median_ms": 0.331122,
+      "after_median_ms": 0.32226575,
+      "paired_median_change_percent": -4.084896778660674,
+      "paired_changes_percent": [
+        49.872252054810254,
+        -7.61133087655903,
+        -32.779264337768346,
+        -0.5584626807623172
+      ],
+      "before_run_medians_ms": [
+        0.3481465,
+        0.31409750000000003,
+        0.5271305,
+        0.28283
+      ],
+      "after_run_medians_ms": [
+        0.521775,
+        0.2901905,
+        0.354341,
+        0.28125049999999996
+      ],
+      "before_p95_ms": 0.4810415,
+      "after_p95_ms": 0.4351795,
+      "paired_p95_changes_percent": [
+        47.01791091813152,
+        -17.84778929239541,
+        -32.64189765884209,
+        -17.781587866044823
+      ],
+      "requests_per_run": 384,
+      "change_of_reported_medians_percent": -2.6746184185889255,
+      "paired_geomean_change_percent": -1.914963332901487
+    },
+    "partition_cursor127_limit16": {
+      "before_median_ms": 2.252923,
+      "after_median_ms": 2.24145475,
+      "paired_median_change_percent": 0.7733418964253391,
+      "paired_changes_percent": [
+        -1.756154509677177,
+        0.791584082283614,
+        1.672199280721176,
+        0.7550997105670643
+      ],
+      "before_run_medians_ms": [
+        2.2681945,
+        2.3246425,
+        2.1385310000000004,
+        2.2376515
+      ],
+      "after_run_medians_ms": [
+        2.2283615,
+        2.343044,
+        2.1742915,
+        2.2545479999999998
+      ],
+      "before_p95_ms": 2.5314215,
+      "after_p95_ms": 2.4661975,
+      "paired_p95_changes_percent": [
+        0.17919877420691233,
+        3.374338145519018,
+        -2.643236183673614,
+        -8.133855969882442
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -0.5090387021660314,
+      "paired_geomean_change_percent": 0.3574735945685692
+    },
+    "partition_cursor_after_empty": {
+      "before_median_ms": 2.1630445,
+      "after_median_ms": 2.17374775,
+      "paired_median_change_percent": -0.003972534962876084,
+      "paired_changes_percent": [
+        -0.8123310295542363,
+        0.15954382980554183,
+        -0.167488899731294,
+        1.8470680079196056
+      ],
+      "before_run_medians_ms": [
+        2.199719,
+        2.229168,
+        2.043419,
+        2.12637
+      ],
+      "after_run_medians_ms": [
+        2.18185,
+        2.2327245,
+        2.0399965,
+        2.1656455
+      ],
+      "before_p95_ms": 2.3631504999999997,
+      "after_p95_ms": 2.5612265,
+      "paired_p95_changes_percent": [
+        12.86637662292065,
+        72.74627658251762,
+        1.7675702891627676,
+        3.740511885346809
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 0.4948233843547811,
+      "paired_geomean_change_percent": 0.25190571323372435
+    },
+    "partition_offset144_limit16": {
+      "before_median_ms": 6.567997,
+      "after_median_ms": 6.5753875,
+      "paired_median_change_percent": 0.5957313217119564,
+      "paired_changes_percent": [
+        0.3047986164858463,
+        2.3298245432214815,
+        0.8866640269380666,
+        -1.6618266213796806
+      ],
+      "before_run_medians_ms": [
+        6.6650565,
+        6.561331,
+        6.3908085,
+        6.574663
+      ],
+      "after_run_medians_ms": [
+        6.6853715000000005,
+        6.7141985,
+        6.4474735,
+        6.4654035
+      ],
+      "before_p95_ms": 7.3044195,
+      "after_p95_ms": 8.767269500000001,
+      "paired_p95_changes_percent": [
+        37.19982142915619,
+        126.54955907341213,
+        -14.067159345878089,
+        2.7366033682096447
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 0.11252288939838095,
+      "paired_geomean_change_percent": 0.4546302887435738
+    },
+    "partition_short_last_page": {
+      "before_median_ms": 1.6482092499999998,
+      "after_median_ms": 1.6465952499999998,
+      "paired_median_change_percent": -0.06197590172702383,
+      "paired_changes_percent": [
+        -2.6744138376595283,
+        3.8849165400716146,
+        -3.6042687783407468,
+        2.5504620342054807
+      ],
+      "before_run_medians_ms": [
+        1.6708895,
+        1.724001,
+        1.608329,
+        1.625529
+      ],
+      "after_run_medians_ms": [
+        1.6262029999999998,
+        1.7909769999999998,
+        1.5503605,
+        1.6669875
+      ],
+      "before_p95_ms": 1.8180155,
+      "after_p95_ms": 2.0245569999999997,
+      "paired_p95_changes_percent": [
+        1.75473462246305,
+        196.26394317525651,
+        -8.385211529100967,
+        16.71701061014037
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -0.0979244595308515,
+      "paired_geomean_change_percent": -0.012954270099030385
+    },
+    "range_between64": {
+      "before_median_ms": 7.6603562499999995,
+      "after_median_ms": 7.71648225,
+      "paired_median_change_percent": 1.160424169588048,
+      "paired_changes_percent": [
+        1.9938442498393494,
+        4.950013678872756,
+        -3.342181228269858,
+        0.3270040893367465
+      ],
+      "before_run_medians_ms": [
+        7.808634,
+        7.5938275,
+        7.726884999999999,
+        7.4203965
+      ],
+      "after_run_medians_ms": [
+        7.964326,
+        7.969723,
+        7.4686385,
+        7.4446615000000005
+      ],
+      "before_p95_ms": 9.2756435,
+      "after_p95_ms": 9.680564,
+      "paired_p95_changes_percent": [
+        10.569799585972905,
+        50.85359716226463,
+        -17.55483547988649,
+        -41.094807851804084
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 0.732681329278928,
+      "paired_geomean_change_percent": 0.9375650039653349
+    },
+    "range_duplicates_and_miss": {
+      "before_median_ms": 0.5829832500000001,
+      "after_median_ms": 0.55284025,
+      "paired_median_change_percent": -2.2535415334642983,
+      "paired_changes_percent": [
+        -0.9011918090947257,
+        -1.9053320847555177,
+        -29.905919336282473,
+        -2.601750982173079
+      ],
+      "before_run_medians_ms": [
+        0.593048,
+        0.5729185,
+        0.7714125000000001,
+        0.558201
+      ],
+      "after_run_medians_ms": [
+        0.5877034999999999,
+        0.5620025,
+        0.5407145,
+        0.543678
+      ],
+      "before_p95_ms": 0.9361889999999999,
+      "after_p95_ms": 0.6838535,
+      "paired_p95_changes_percent": [
+        -9.841422594142257,
+        -81.44903467201438,
+        -28.547054432176367,
+        -31.22335979257468
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -5.170474451881768,
+      "paired_geomean_change_percent": -9.74181801474342
+    },
+    "range_durable_write1": {
+      "before_median_ms": 20.016304249999997,
+      "after_median_ms": 18.335305,
+      "paired_median_change_percent": -8.55470202259716,
+      "paired_changes_percent": [
+        9.398317379804544,
+        -16.833169207798814,
+        -24.203952758294378,
+        -0.2762348373955059
+      ],
+      "before_run_medians_ms": [
+        18.0791245,
+        21.413487,
+        23.883727,
+        18.6191215
+      ],
+      "after_run_medians_ms": [
+        19.778258,
+        17.808918499999997,
+        18.102921000000002,
+        18.567689
+      ],
+      "before_p95_ms": 28.4233745,
+      "after_p95_ms": 26.7655435,
+      "paired_p95_changes_percent": [
+        47.75744616346784,
+        -24.523636631033252,
+        -54.59538060856324,
+        -9.37599953153352
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -8.398149973164982,
+      "paired_geomean_change_percent": -8.934997273226742,
+      "before_records_per_second": 45.78497144671731,
+      "after_records_per_second": 51.445033713007554,
+      "before_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ]
+    },
+    "range_durable_write32": {
+      "before_median_ms": 77.63389075,
+      "after_median_ms": 69.8946835,
+      "paired_median_change_percent": -5.856748273563234,
+      "paired_changes_percent": [
+        21.08623144799273,
+        -21.356364641494473,
+        -10.430046811801297,
+        -1.2834497353251706
+      ],
+      "before_run_medians_ms": [
+        80.455984,
+        91.2680825,
+        74.8117975,
+        68.8970885
+      ],
+      "after_run_medians_ms": [
+        97.421119,
+        71.776538,
+        67.008892,
+        68.012829
+      ],
+      "before_p95_ms": 91.137621,
+      "after_p95_ms": 94.721824,
+      "paired_p95_changes_percent": [
+        10.108808459011719,
+        -70.55563935935551,
+        -8.845082210412459,
+        8.56003467133364
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": -9.968851458085659,
+      "paired_geomean_change_percent": -4.208347508162225,
+      "before_records_per_second": 400.59745194129533,
+      "after_records_per_second": 419.8624793327713,
+      "before_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ]
+    },
+    "range_missing_point": {
+      "before_median_ms": 0.43855225000000003,
+      "after_median_ms": 0.43363675,
+      "paired_median_change_percent": -11.996516168249983,
+      "paired_changes_percent": [
+        -11.462244735095728,
+        26.61624138109513,
+        -33.94962653387872,
+        -12.530787601404237
+      ],
+      "before_run_medians_ms": [
+        0.47617200000000004,
+        0.3574265,
+        0.67476,
+        0.4009325
+      ],
+      "after_run_medians_ms": [
+        0.421592,
+        0.45255999999999996,
+        0.4456815,
+        0.35069249999999996
+      ],
+      "before_p95_ms": 0.680558,
+      "after_p95_ms": 0.606158,
+      "paired_p95_changes_percent": [
+        0.57281817529371,
+        14.353526962241435,
+        -20.73637288968446,
+        11.244384686741093
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -1.1208470598429332,
+      "paired_geomean_change_percent": -10.290775074414116
+    },
+    "range_multiget32": {
+      "before_median_ms": 3.156245,
+      "after_median_ms": 3.1265595,
+      "paired_median_change_percent": -2.1596464955107644,
+      "paired_changes_percent": [
+        -2.5615360972781165,
+        10.400865726616072,
+        -8.02116949447258,
+        -1.7577568937434118
+      ],
+      "before_run_medians_ms": [
+        3.214536,
+        2.9967889999999997,
+        3.39309,
+        3.097954
+      ],
+      "after_run_medians_ms": [
+        3.1321944999999998,
+        3.308481,
+        3.1209245,
+        3.0434995000000002
+      ],
+      "before_p95_ms": 3.7233535,
+      "after_p95_ms": 4.408342,
+      "paired_p95_changes_percent": [
+        48.19134173818098,
+        62.475528358777964,
+        -45.065126862755825,
+        -8.725173095535489
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -0.940532183021292,
+      "paired_geomean_change_percent": -0.7061694400472773
+    },
+    "range_partition512": {
+      "before_median_ms": 56.252551499999996,
+      "after_median_ms": 54.551404500000004,
+      "paired_median_change_percent": -1.8434056764725593,
+      "paired_changes_percent": [
+        -0.34608571928369525,
+        -10.001684010747757,
+        -3.3407256336614233,
+        -0.18842038776207826
+      ],
+      "before_run_medians_ms": [
+        57.425946499999995,
+        61.537611999999996,
+        55.079156499999996,
+        53.821405
+      ],
+      "after_run_medians_ms": [
+        57.2272035,
+        55.3828145,
+        53.239113,
+        53.7199945
+      ],
+      "before_p95_ms": 64.5799655,
+      "after_p95_ms": 66.1188965,
+      "paired_p95_changes_percent": [
+        15.649475049783469,
+        -12.063938776031701,
+        -6.581094488860073,
+        -5.885908673526707
+      ],
+      "requests_per_run": 24,
+      "change_of_reported_medians_percent": -3.0241241590614587,
+      "paired_geomean_change_percent": -3.5530937824657216
+    },
+    "range_prefix10": {
+      "before_median_ms": 1.7231655,
+      "after_median_ms": 1.740871,
+      "paired_median_change_percent": 0.4808307212517682,
+      "paired_changes_percent": [
+        -3.722466164999827,
+        7.3499042673602855,
+        -7.240507238605332,
+        4.684127607503363
+      ],
+      "before_run_medians_ms": [
+        1.744717,
+        1.701614,
+        1.892837,
+        1.6487275000000001
+      ],
+      "after_run_medians_ms": [
+        1.6797705,
+        1.826681,
+        1.755786,
+        1.725956
+      ],
+      "before_p95_ms": 2.0602720000000003,
+      "after_p95_ms": 2.2881405,
+      "paired_p95_changes_percent": [
+        -4.58804470128249,
+        14.667198493524314,
+        -35.31809445419799,
+        18.75498853183204
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 1.027498519439951,
+      "paired_geomean_change_percent": 0.09017659348060647
+    },
+    "range_prefix100": {
+      "before_median_ms": 11.495975000000001,
+      "after_median_ms": 11.5263875,
+      "paired_median_change_percent": 1.4699145767862798,
+      "paired_changes_percent": [
+        2.5822449644887557,
+        0.4396626015020999,
+        -2.511131318306603,
+        2.5001665520704597
+      ],
+      "before_run_medians_ms": [
+        11.343734000000001,
+        11.7600405,
+        11.648216,
+        11.137658
+      ],
+      "after_run_medians_ms": [
+        11.636657,
+        11.811745,
+        11.355713999999999,
+        11.416118
+      ],
+      "before_p95_ms": 14.406395,
+      "after_p95_ms": 14.640676500000001,
+      "paired_p95_changes_percent": [
+        19.886270990250154,
+        -23.80869585881904,
+        -0.9386558089048869,
+        -11.570847934113482
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 0.2645491139289913,
+      "paired_geomean_change_percent": 0.7312588706786194
+    },
+    "range_queued_write1": {
+      "before_median_ms": 6.74086525,
+      "after_median_ms": 7.1987707499999996,
+      "paired_median_change_percent": 8.202290789843214,
+      "paired_changes_percent": [
+        37.901229443145404,
+        8.795587326631438,
+        -2.5792756283314455,
+        7.60899425305499
+      ],
+      "before_run_medians_ms": [
+        6.9018645,
+        6.4971045,
+        6.6709815,
+        6.8107489999999995
+      ],
+      "after_run_medians_ms": [
+        9.517756,
+        7.068563,
+        6.4989185,
+        7.3289785
+      ],
+      "before_p95_ms": 25.1268665,
+      "after_p95_ms": 31.477668,
+      "paired_p95_changes_percent": [
+        80.30104051229891,
+        -57.20473426896117,
+        7.15007116852131,
+        291.88933934635867
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 6.792978097285052,
+      "paired_geomean_change_percent": 11.987573976856769,
+      "before_records_per_second": 105.47900184015228,
+      "after_records_per_second": 96.6926233589118,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "range_queued_write32": {
+      "before_median_ms": 49.2617415,
+      "after_median_ms": 55.886633,
+      "paired_median_change_percent": 3.202929726950881,
+      "paired_changes_percent": [
+        61.10794736086751,
+        30.40059348384505,
+        -23.994734029943288,
+        -27.574765585707706
+      ],
+      "before_run_medians_ms": [
+        47.9977135,
+        46.846768,
+        66.68590900000001,
+        50.525769499999996
+      ],
+      "after_run_medians_ms": [
+        77.328131,
+        61.0884635,
+        50.684802499999996,
+        36.593407
+      ],
+      "before_p95_ms": 132.7668225,
+      "after_p95_ms": 133.6828265,
+      "paired_p95_changes_percent": [
+        2.871354960305905,
+        2.1108531388265073,
+        -0.7943716851386284,
+        -0.6484058110816759
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 13.448350176576685,
+      "paired_geomean_change_percent": 3.700901361116271,
+      "before_records_per_second": 462.6915575494461,
+      "after_records_per_second": 484.26249404848693,
+      "before_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ]
+    },
+    "range_reopen_first_pass": {
+      "before_median_ms": 1.9072535,
+      "after_median_ms": 1.92135875,
+      "paired_median_change_percent": 2.406613084742437,
+      "paired_changes_percent": [
+        7.0455189008513885,
+        0.28079541797922936,
+        -6.893288709438639,
+        4.532430751505645
+      ],
+      "before_run_medians_ms": [
+        1.9017265,
+        1.9127805,
+        2.0670539999999997,
+        1.722023
+      ],
+      "after_run_medians_ms": [
+        2.035713,
+        1.9181515,
+        1.924566,
+        1.8000725
+      ],
+      "before_p95_ms": 2.4422170000000003,
+      "after_p95_ms": 2.4584795,
+      "paired_p95_changes_percent": [
+        74.1529921210567,
+        12.209604752982383,
+        -46.624412590216025,
+        0.3163735166281656
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": 0.7395582181393356,
+      "paired_geomean_change_percent": 1.1007958971427811
+    },
+    "range_warm_point": {
+      "before_median_ms": 0.35044325,
+      "after_median_ms": 0.3193635,
+      "paired_median_change_percent": -8.33656590406332,
+      "paired_changes_percent": [
+        -15.510389493090504,
+        -1.162742315036136,
+        -32.175700165621045,
+        3.851631998275562
+      ],
+      "before_run_medians_ms": [
+        0.376438,
+        0.32444850000000003,
+        0.563938,
+        0.3015475
+      ],
+      "after_run_medians_ms": [
+        0.318051,
+        0.320676,
+        0.382487,
+        0.313162
+      ],
+      "before_p95_ms": 0.5044695,
+      "after_p95_ms": 0.459766,
+      "paired_p95_changes_percent": [
+        -10.495460399420764,
+        -6.4877782704751645,
+        -41.610293863311796,
+        9.115642198973028
+      ],
+      "requests_per_run": 384,
+      "change_of_reported_medians_percent": -8.868697000156223,
+      "paired_geomean_change_percent": -12.424896351443127
+    }
+  },
+  "preload": {
+    "hash_durable_write1": {
+      "before_median_ms": 17.50749475,
+      "after_median_ms": 19.945838000000002,
+      "paired_median_change_percent": 8.358647970884247,
+      "paired_changes_percent": [
+        3.4071866824571195,
+        13.310109259311375,
+        37.94535283919149,
+        -2.016613076316609
+      ],
+      "before_run_medians_ms": [
+        17.8069785,
+        18.955043500000002,
+        15.9980315,
+        17.208011
+      ],
+      "after_run_medians_ms": [
+        18.413695500000003,
+        21.4779805,
+        22.068541,
+        16.860992
+      ],
+      "before_p95_ms": 26.167972,
+      "after_p95_ms": 33.193970500000006,
+      "paired_p95_changes_percent": [
+        41.230893006059354,
+        78.20168095666065,
+        7.419747280592315,
+        0.31864791861657693
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 13.927425281678318,
+      "paired_geomean_change_percent": 12.181108136500573,
+      "before_records_per_second": 53.37795377654963,
+      "after_records_per_second": 46.54697133659753,
+      "before_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ]
+    },
+    "hash_durable_write32": {
+      "before_median_ms": 83.11143874999999,
+      "after_median_ms": 89.095558,
+      "paired_median_change_percent": 8.146767767678952,
+      "paired_changes_percent": [
+        12.914488240595535,
+        11.223671715408322,
+        -0.8801658611038765,
+        5.069863819949583
+      ],
+      "before_run_medians_ms": [
+        79.461422,
+        85.9035505,
+        89.25323449999999,
+        80.319327
+      ],
+      "after_run_medians_ms": [
+        89.723458,
+        95.545083,
+        88.467658,
+        84.3914075
+      ],
+      "before_p95_ms": 96.72374450000001,
+      "after_p95_ms": 127.2839105,
+      "paired_p95_changes_percent": [
+        8.473641706178793,
+        53.9406545073352,
+        33.305038981501276,
+        2.6046115663181935
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 7.200115098476756,
+      "paired_geomean_change_percent": 6.941533793073451,
+      "before_records_per_second": 380.76431347928724,
+      "after_records_per_second": 328.8323701075103,
+      "before_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ]
+    },
+    "hash_missing_point": {
+      "before_median_ms": 0.44351975,
+      "after_median_ms": 0.44338600000000006,
+      "paired_median_change_percent": -4.889880583304773,
+      "paired_changes_percent": [
+        -1.8063995128215216,
+        -38.35034341638502,
+        -7.973361653788025,
+        108.29294440512558
+      ],
+      "before_run_medians_ms": [
+        0.528759,
+        0.5962149999999999,
+        0.3582805,
+        0.33486899999999997
+      ],
+      "after_run_medians_ms": [
+        0.5192075,
+        0.3675645,
+        0.3297135,
+        0.6975085
+      ],
+      "before_p95_ms": 0.6883485,
+      "after_p95_ms": 0.6429275,
+      "paired_p95_changes_percent": [
+        -7.65356187690861,
+        -15.64039002726233,
+        -6.1626160305049416,
+        370.8027273812932
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -0.030156492467348084,
+      "paired_geomean_change_percent": 3.7888000426427038
+    },
+    "hash_queued_write1": {
+      "before_median_ms": 5.53723825,
+      "after_median_ms": 5.635707249999999,
+      "paired_median_change_percent": 4.158443741588902,
+      "paired_changes_percent": [
+        4.83110144950154,
+        3.4857860336762636,
+        -4.710476404564956,
+        5.345183427807276
+      ],
+      "before_run_medians_ms": [
+        5.318414499999999,
+        6.013909,
+        5.667431,
+        5.407045500000001
+      ],
+      "after_run_medians_ms": [
+        5.575352499999999,
+        6.223541,
+        5.400468,
+        5.6960619999999995
+      ],
+      "before_p95_ms": 18.0315015,
+      "after_p95_ms": 13.2440855,
+      "paired_p95_changes_percent": [
+        22.527035222056078,
+        13.770862747563207,
+        -6.989563717064707,
+        -62.82578804101742
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 1.778305277003378,
+      "paired_geomean_change_percent": 2.154540053959697,
+      "before_records_per_second": 126.65611927050952,
+      "after_records_per_second": 128.71948067884273,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "hash_queued_write32": {
+      "before_median_ms": 34.75240375,
+      "after_median_ms": 37.036272499999995,
+      "paired_median_change_percent": 6.277015179285128,
+      "paired_changes_percent": [
+        9.605476340760877,
+        2.9485540178093794,
+        0.6567216865146719,
+        13.061840050577732
+      ],
+      "before_run_medians_ms": [
+        32.831339,
+        37.400841,
+        36.3629685,
+        33.141839000000004
+      ],
+      "after_run_medians_ms": [
+        35.984945499999995,
+        38.503625,
+        36.601772,
+        37.470772999999994
+      ],
+      "before_p95_ms": 220.3102435,
+      "after_p95_ms": 213.587788,
+      "paired_p95_changes_percent": [
+        -1.8142409964790551,
+        37.69462261359302,
+        13.357456610125551,
+        -12.169394499577724
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 6.5718295817163375,
+      "paired_geomean_change_percent": 6.451757002486014,
+      "before_records_per_second": 470.88645659836794,
+      "after_records_per_second": 453.45758974471426,
+      "before_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ]
+    },
+    "hash_reopen_first_pass": {
+      "before_median_ms": 1.77036125,
+      "after_median_ms": 1.80593325,
+      "paired_median_change_percent": -2.1601988545558837,
+      "paired_changes_percent": [
+        -2.2311877750732956,
+        -4.7806185899354485,
+        -2.0892099340384718,
+        10.780957601532393
+      ],
+      "before_run_medians_ms": [
+        1.846326,
+        1.9294365,
+        1.6943965,
+        1.630908
+      ],
+      "after_run_medians_ms": [
+        1.805131,
+        1.8371975,
+        1.6589969999999998,
+        1.8067355
+      ],
+      "before_p95_ms": 2.128229,
+      "after_p95_ms": 2.125435,
+      "paired_p95_changes_percent": [
+        -8.389437747940187,
+        3.9691428341931623,
+        -4.611152640684502,
+        142.50210033633172
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": 2.0093074224257768,
+      "paired_geomean_change_percent": 0.24329677554439932
+    },
+    "hash_warm_point": {
+      "before_median_ms": 0.41917125,
+      "after_median_ms": 0.36986050000000004,
+      "paired_median_change_percent": -3.0324046953646597,
+      "paired_changes_percent": [
+        -4.859492707258184,
+        -44.33589217675109,
+        -1.205316683471136,
+        50.16677659796247
+      ],
+      "before_run_medians_ms": [
+        0.5352925,
+        0.534356,
+        0.3039865,
+        0.292607
+      ],
+      "after_run_medians_ms": [
+        0.50928,
+        0.2974445,
+        0.3003225,
+        0.4393985
+      ],
+      "before_p95_ms": 0.6147525,
+      "after_p95_ms": 0.49675800000000003,
+      "paired_p95_changes_percent": [
+        -14.288247004469824,
+        -35.71387324521547,
+        -26.86285867280781,
+        450.8863906946361
+      ],
+      "requests_per_run": 384,
+      "change_of_reported_medians_percent": -11.76386739310007,
+      "paired_geomean_change_percent": -5.851796617880378
+    },
+    "partition_cursor127_limit16": {
+      "before_median_ms": 2.3867025,
+      "after_median_ms": 2.28252425,
+      "paired_median_change_percent": -4.3585723537120815,
+      "paired_changes_percent": [
+        4.059437741081706,
+        -3.6569153996615644,
+        -5.060229307762598,
+        -8.05456728966496
+      ],
+      "before_run_medians_ms": [
+        2.266607,
+        2.365026,
+        2.408379,
+        2.4202044999999996
+      ],
+      "after_run_medians_ms": [
+        2.3586185,
+        2.278539,
+        2.2865095,
+        2.2252675
+      ],
+      "before_p95_ms": 3.4316375,
+      "after_p95_ms": 2.841614,
+      "paired_p95_changes_percent": [
+        26.141480103348226,
+        13.053724567930459,
+        -38.17098869660121,
+        -24.27489136600951
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -4.364944939723337,
+      "paired_geomean_change_percent": -3.2791531607860414
+    },
+    "partition_cursor_after_empty": {
+      "before_median_ms": 2.3580674999999998,
+      "after_median_ms": 2.24418675,
+      "paired_median_change_percent": -5.5652680918448265,
+      "paired_changes_percent": [
+        7.303217822335517,
+        -5.108271849573864,
+        -6.3289565980972355,
+        -6.02226433411579
+      ],
+      "before_run_medians_ms": [
+        2.2366989999999998,
+        2.355229,
+        2.4057125,
+        2.360906
+      ],
+      "after_run_medians_ms": [
+        2.4000500000000002,
+        2.2349175,
+        2.253456,
+        2.218726
+      ],
+      "before_p95_ms": 3.8935994999999997,
+      "after_p95_ms": 2.9343095,
+      "paired_p95_changes_percent": [
+        72.37973001518108,
+        13.244716340587527,
+        -50.19027005342789,
+        -38.65214436168467
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -4.829410099583653,
+      "paired_geomean_change_percent": -2.6988755633149175
+    },
+    "partition_offset144_limit16": {
+      "before_median_ms": 7.9703195000000004,
+      "after_median_ms": 7.9785224999999995,
+      "paired_median_change_percent": 0.4005244299875754,
+      "paired_changes_percent": [
+        1.982129405175037,
+        1.6583080126323368,
+        -0.857259152657186,
+        -1.246683153592898
+      ],
+      "before_run_medians_ms": [
+        7.7902835,
+        7.9268145,
+        8.0816285,
+        8.0138245
+      ],
+      "after_run_medians_ms": [
+        7.944697,
+        8.058265500000001,
+        8.012348,
+        7.9139175
+      ],
+      "before_p95_ms": 10.7475945,
+      "after_p95_ms": 10.1431745,
+      "paired_p95_changes_percent": [
+        6.969411101999579,
+        4.464347543511016,
+        -29.559264139901675,
+        -16.007632961211904
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 0.10291933717336832,
+      "paired_geomean_change_percent": 0.373690245873437
+    },
+    "partition_short_last_page": {
+      "before_median_ms": 1.76190225,
+      "after_median_ms": 1.6970174999999998,
+      "paired_median_change_percent": -4.5833474783082195,
+      "paired_changes_percent": [
+        10.075305091362052,
+        -5.380544467116333,
+        -12.432981030622337,
+        -3.7861504895001064
+      ],
+      "before_run_medians_ms": [
+        1.6100504999999998,
+        1.795664,
+        1.935646,
+        1.7281404999999999
+      ],
+      "after_run_medians_ms": [
+        1.772268,
+        1.6990475,
+        1.6949874999999999,
+        1.6627105000000002
+      ],
+      "before_p95_ms": 2.6858995,
+      "after_p95_ms": 2.4163575,
+      "paired_p95_changes_percent": [
+        57.88505037398131,
+        2.3339741679294423,
+        -24.05722654624549,
+        -40.53770523587899
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -3.682653223242094,
+      "paired_geomean_change_percent": -3.214092896859111
+    },
+    "range_between64": {
+      "before_median_ms": 8.09566075,
+      "after_median_ms": 8.284436750000001,
+      "paired_median_change_percent": 1.54338376122507,
+      "paired_changes_percent": [
+        2.33399048282652,
+        4.020049618057953,
+        -8.87675453563822,
+        0.75277703962362
+      ],
+      "before_run_medians_ms": [
+        7.989557,
+        7.9843915,
+        9.280447,
+        8.2017645
+      ],
+      "after_run_medians_ms": [
+        8.1760325,
+        8.305368000000001,
+        8.4566445,
+        8.2635055
+      ],
+      "before_p95_ms": 9.422989000000001,
+      "after_p95_ms": 10.129032500000001,
+      "paired_p95_changes_percent": [
+        9.644885145180314,
+        43.12769263054683,
+        -28.110593689523565,
+        -7.560750493337598
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 2.3318170786739145,
+      "paired_geomean_change_percent": -0.5726664274676163
+    },
+    "range_duplicates_and_miss": {
+      "before_median_ms": 0.6056712500000001,
+      "after_median_ms": 0.63610425,
+      "paired_median_change_percent": 6.856423421251622,
+      "paired_changes_percent": [
+        4.569682709276224,
+        9.143164133227021,
+        1.1371377539844296,
+        23.329144402981484
+      ],
+      "before_run_medians_ms": [
+        0.583093,
+        0.588199,
+        0.6231435000000001,
+        0.6775795
+      ],
+      "after_run_medians_ms": [
+        0.6097385,
+        0.6419790000000001,
+        0.6302295,
+        0.835653
+      ],
+      "before_p95_ms": 0.8001635,
+      "after_p95_ms": 0.8546560000000001,
+      "paired_p95_changes_percent": [
+        8.365892144690834,
+        24.726860553617193,
+        -8.337090701522742,
+        -8.037246593197366
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 5.024673038385075,
+      "paired_geomean_change_percent": 9.230689961409922
+    },
+    "range_durable_write1": {
+      "before_median_ms": 18.600247,
+      "after_median_ms": 20.911608,
+      "paired_median_change_percent": 21.09724935949364,
+      "paired_changes_percent": [
+        15.188763059438525,
+        28.010382920669265,
+        -14.397113792442207,
+        27.00573565954876
+      ],
+      "before_run_medians_ms": [
+        18.004793999999997,
+        16.4703175,
+        20.971880499999997,
+        19.195700000000002
+      ],
+      "after_run_medians_ms": [
+        20.7394995,
+        21.0837165,
+        17.952535,
+        24.379640000000002
+      ],
+      "before_p95_ms": 22.442135999999998,
+      "after_p95_ms": 31.356168500000003,
+      "paired_p95_changes_percent": [
+        47.770962914245295,
+        75.77708043875502,
+        -45.730801808218715,
+        61.322598921674775
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": 12.426507024342204,
+      "paired_geomean_change_percent": 12.523119418265027,
+      "before_records_per_second": 52.09911582413107,
+      "after_records_per_second": 43.38642989199702,
+      "before_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        },
+        {
+          "durable": 64
+        }
+      ]
+    },
+    "range_durable_write32": {
+      "before_median_ms": 73.8302015,
+      "after_median_ms": 79.9707085,
+      "paired_median_change_percent": 8.306016646874381,
+      "paired_changes_percent": [
+        33.705735358449786,
+        8.325163399294233,
+        -4.045406088124903,
+        8.28686989445453
+      ],
+      "before_run_medians_ms": [
+        70.921025,
+        74.7124555,
+        82.34001549999999,
+        72.9479475
+      ],
+      "after_run_medians_ms": [
+        94.825478,
+        80.9323895,
+        79.0090275,
+        78.993049
+      ],
+      "before_p95_ms": 85.3606385,
+      "after_p95_ms": 128.9240705,
+      "paired_p95_changes_percent": [
+        97.0613308478986,
+        47.38596373127009,
+        31.248080853789318,
+        54.71382585447275
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": 8.317066559814279,
+      "paired_geomean_change_percent": 10.759309721223786,
+      "before_records_per_second": 423.5633911108178,
+      "after_records_per_second": 372.18642034437096,
+      "before_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        },
+        {
+          "durable": 12
+        }
+      ]
+    },
+    "range_missing_point": {
+      "before_median_ms": 0.49972275,
+      "after_median_ms": 0.50204025,
+      "paired_median_change_percent": 3.129731781957174,
+      "paired_changes_percent": [
+        -3.272915224122397,
+        -41.17378413390459,
+        9.532378788036745,
+        50.81212550196783
+      ],
+      "before_run_medians_ms": [
+        0.612344,
+        0.622951,
+        0.383708,
+        0.3871015
+      ],
+      "after_run_medians_ms": [
+        0.5923025,
+        0.3664585,
+        0.4202845,
+        0.583796
+      ],
+      "before_p95_ms": 0.7689475,
+      "after_p95_ms": 0.7390125,
+      "paired_p95_changes_percent": [
+        -4.08851799045774,
+        -36.72640147184673,
+        -0.613442012053389,
+        30.79810684441222
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": 0.46375715334152634,
+      "paired_geomean_change_percent": -1.5366862064289832
+    },
+    "range_multiget32": {
+      "before_median_ms": 3.68391075,
+      "after_median_ms": 3.66023325,
+      "paired_median_change_percent": -0.6420523172712633,
+      "paired_changes_percent": [
+        -0.40842383518217007,
+        -3.0866661925450845,
+        -0.8756807993603566,
+        5.0283216350032856
+      ],
+      "before_run_medians_ms": [
+        3.6732675,
+        3.712128,
+        3.694554,
+        3.5071244999999998
+      ],
+      "after_run_medians_ms": [
+        3.658265,
+        3.597547,
+        3.6622015,
+        3.6834740000000004
+      ],
+      "before_p95_ms": 4.219333000000001,
+      "after_p95_ms": 4.539514499999999,
+      "paired_p95_changes_percent": [
+        -3.6492172296903824,
+        30.77907548842862,
+        -14.92510315938399,
+        8.028679745677515
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": -0.6427272973429043,
+      "paired_geomean_change_percent": 0.12054282231248603
+    },
+    "range_partition512": {
+      "before_median_ms": 62.80510825,
+      "after_median_ms": 64.556521,
+      "paired_median_change_percent": 3.0378003624504823,
+      "paired_changes_percent": [
+        5.314337477188813,
+        7.497246109723887,
+        -16.351668017427954,
+        0.7612632477121517
+      ],
+      "before_run_medians_ms": [
+        61.39532,
+        61.714514,
+        77.05469550000001,
+        63.8957025
+      ],
+      "after_run_medians_ms": [
+        64.6580745,
+        66.341403,
+        64.45496750000001,
+        64.382117
+      ],
+      "before_p95_ms": 72.7421865,
+      "after_p95_ms": 75.9515705,
+      "paired_p95_changes_percent": [
+        5.355304914076275,
+        51.71472083647277,
+        -34.443752041927034,
+        -16.951362854150542
+      ],
+      "requests_per_run": 24,
+      "change_of_reported_medians_percent": 2.7886469728360064,
+      "paired_geomean_change_percent": -1.1654175481349172
+    },
+    "range_prefix10": {
+      "before_median_ms": 1.540835,
+      "after_median_ms": 1.590369,
+      "paired_median_change_percent": 3.930814585264475,
+      "paired_changes_percent": [
+        1.6256026096244325,
+        6.236026560904517,
+        1.0676194155077257,
+        8.599545672265062
+      ],
+      "before_run_medians_ms": [
+        1.5242040000000001,
+        1.4621490000000001,
+        1.610218,
+        1.557466
+      ],
+      "after_run_medians_ms": [
+        1.5489815,
+        1.553329,
+        1.627409,
+        1.691401
+      ],
+      "before_p95_ms": 1.869989,
+      "after_p95_ms": 2.2159515,
+      "paired_p95_changes_percent": [
+        -0.6380963026225928,
+        40.911529391531,
+        15.055105090660748,
+        21.332886310777678
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 3.2147504437529006,
+      "paired_geomean_change_percent": 4.334694644933634
+    },
+    "range_prefix100": {
+      "before_median_ms": 12.46666475,
+      "after_median_ms": 12.60871225,
+      "paired_median_change_percent": 0.6808690492821512,
+      "paired_changes_percent": [
+        4.874346297584098,
+        1.9922477487134937,
+        -4.673756733080925,
+        -0.6305096501491914
+      ],
+      "before_run_medians_ms": [
+        12.0380655,
+        12.346606999999999,
+        13.5130375,
+        12.5867225
+      ],
+      "after_run_medians_ms": [
+        12.6248425,
+        12.592582,
+        12.881471,
+        12.507362
+      ],
+      "before_p95_ms": 16.790047,
+      "after_p95_ms": 14.8635655,
+      "paired_p95_changes_percent": [
+        4.081367502758471,
+        49.232009613560294,
+        -23.25107061364897,
+        -41.04956788956805
+      ],
+      "requests_per_run": 96,
+      "change_of_reported_medians_percent": 1.1394186243758542,
+      "paired_geomean_change_percent": 0.3287710721193715
+    },
+    "range_queued_write1": {
+      "before_median_ms": 6.830034,
+      "after_median_ms": 6.731762,
+      "paired_median_change_percent": -1.0302379690237893,
+      "paired_changes_percent": [
+        2.2077831952803217,
+        5.262171981922337,
+        -9.719156492894632,
+        -4.2682591333279
+      ],
+      "before_run_medians_ms": [
+        6.6357965,
+        6.680958,
+        7.341918,
+        6.97911
+      ],
+      "after_run_medians_ms": [
+        6.7823005,
+        7.0325215,
+        6.6283455,
+        6.6812235
+      ],
+      "before_p95_ms": 8.126276,
+      "after_p95_ms": 12.273852999999999,
+      "paired_p95_changes_percent": [
+        92.21624775396178,
+        14.87929147602931,
+        -70.48937160926853,
+        203.83273175818832
+      ],
+      "requests_per_run": 64,
+      "change_of_reported_medians_percent": -1.4388215344169675,
+      "paired_geomean_change_percent": -1.8021531782512201,
+      "before_records_per_second": 117.33781790185151,
+      "after_records_per_second": 111.9559376100994,
+      "before_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        },
+        {
+          "queued": 64
+        }
+      ]
+    },
+    "range_queued_write32": {
+      "before_median_ms": 74.6268735,
+      "after_median_ms": 73.03980974999999,
+      "paired_median_change_percent": -1.7745994419031463,
+      "paired_changes_percent": [
+        3.97911205464474,
+        8.475158346683308,
+        -7.528310938451033,
+        -16.869519817508117
+      ],
+      "before_run_medians_ms": [
+        70.060505,
+        69.3805975,
+        79.193242,
+        83.46123750000001
+      ],
+      "after_run_medians_ms": [
+        72.84829099999999,
+        75.260713,
+        73.2313285,
+        69.3817275
+      ],
+      "before_p95_ms": 141.588907,
+      "after_p95_ms": 124.4947,
+      "paired_p95_changes_percent": [
+        33.008525335149216,
+        -8.717479297631858,
+        -27.133662001380387,
+        -21.349211126700098
+      ],
+      "requests_per_run": 12,
+      "change_of_reported_medians_percent": -2.1266652019128363,
+      "paired_geomean_change_percent": -3.5035427230822647,
+      "before_records_per_second": 438.4208565184474,
+      "after_records_per_second": 443.86298927072426,
+      "before_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ],
+      "after_acknowledgements": [
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        },
+        {
+          "queued": 12
+        }
+      ]
+    },
+    "range_reopen_first_pass": {
+      "before_median_ms": 2.065516,
+      "after_median_ms": 1.92313275,
+      "paired_median_change_percent": -5.14938741391977,
+      "paired_changes_percent": [
+        -4.391595299972684,
+        -5.907179527866857,
+        -9.83350745465298,
+        0.11873786091149974
+      ],
+      "before_run_medians_ms": [
+        2.063988,
+        2.067044,
+        2.108683,
+        1.870507
+      ],
+      "after_run_medians_ms": [
+        1.973346,
+        1.94494,
+        1.9013255,
+        1.872728
+      ],
+      "before_p95_ms": 2.349449,
+      "after_p95_ms": 2.367281,
+      "paired_p95_changes_percent": [
+        -9.870450339296733,
+        2.9352107789328397,
+        -47.65273846054111,
+        45.3072583609387
+      ],
+      "requests_per_run": 128,
+      "change_of_reported_medians_percent": -6.893350136237153,
+      "paired_geomean_change_percent": -5.070044960880504
+    },
+    "range_warm_point": {
+      "before_median_ms": 0.50558925,
+      "after_median_ms": 0.398819,
+      "paired_median_change_percent": -6.681958392681786,
+      "paired_changes_percent": [
+        -6.156332512745011,
+        -31.31349570868409,
+        -7.207584272618561,
+        12.815579730263082
+      ],
+      "before_run_medians_ms": [
+        0.5989605,
+        0.583504,
+        0.4276745,
+        0.3331765
+      ],
+      "after_run_medians_ms": [
+        0.5620864999999999,
+        0.4007885,
+        0.39684949999999997,
+        0.37587499999999996
+      ],
+      "before_p95_ms": 0.65991,
+      "after_p95_ms": 0.6131595,
+      "paired_p95_changes_percent": [
+        -12.406528790986826,
+        -30.7917232913945,
+        -3.653401312373139,
+        198.7473863837803
+      ],
+      "requests_per_run": 384,
+      "change_of_reported_medians_percent": -21.117982631157606,
+      "paired_geomean_change_percent": -9.366346572516349
+    }
+  }
+}

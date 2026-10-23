@@ -1,0 +1,45 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "encrypted",
+  "phases": {
+    "partition_cursor127_limit16": {
+      "first_request_ms": 2.75813,
+      "max_ms": 7.678831,
+      "mean_ms": 2.607813990234375,
+      "median_ms": 2.527637,
+      "p95_ms": 2.986289,
+      "requests": 1024,
+      "total_ms": 2670.401526
+    },
+    "partition_cursor_after_empty": {
+      "first_request_ms": 2.79294,
+      "max_ms": 8.172389,
+      "mean_ms": 2.52512077734375,
+      "median_ms": 2.4229130000000003,
+      "p95_ms": 3.055533,
+      "requests": 1024,
+      "total_ms": 2585.723676
+    },
+    "partition_offset144_limit16": {
+      "first_request_ms": 9.959993,
+      "max_ms": 26.237437,
+      "mean_ms": 8.76955828515625,
+      "median_ms": 7.760225999999999,
+      "p95_ms": 14.746442,
+      "requests": 512,
+      "total_ms": 4490.013842
+    },
+    "partition_short_last_page": {
+      "first_request_ms": 2.234817,
+      "max_ms": 5.533007,
+      "mean_ms": 1.925690603515625,
+      "median_ms": 1.8591625,
+      "p95_ms": 2.21204,
+      "requests": 1024,
+      "total_ms": 1971.907178
+    }
+  },
+  "source_revision": "e5e3a413dbd39035cb615de2f0c6e2b5394660d5",
+  "values_and_delete_visibility_verified": true
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "c80cb68e3c1146cf85a987e9b1a92005",
+  "home": "/workspace/partition-pairs/plain-2-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1629,
+  "allocated_bytes_removed": 493522944,
+  "free_bytes_before": 20532895744,
+  "free_bytes_after": 21029670912
+}

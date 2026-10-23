@@ -1,0 +1,12 @@
+{
+  "run_id": "282b472ae0e34f4aa4197ce3729d1709",
+  "home": "/workspace/partition-pairs/preload-2-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1648,
+  "allocated_bytes_removed": 511344640,
+  "free_bytes_before": 20511883264,
+  "free_bytes_after": 21026529280
+}

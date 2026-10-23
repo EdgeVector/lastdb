@@ -17,12 +17,6 @@ type TipRow = (String, PerKeyRecord);
 type TipSlots = (Option<PerKeyRecord>, Option<MoleculeGenerationSlot>);
 type TipRows = BTreeMap<String, TipSlots>;
 
-/// One independently ordered stream of tips under a hash.
-struct TipLane {
-    prefix: String,
-    lane: String,
-}
-
 /// Paging state shared by the rounds of `scan_hash_tip_window`.
 struct TipPageCursor {
     skip: usize,
@@ -33,16 +27,10 @@ struct TipPageCursor {
 }
 
 impl TipPageCursor {
-    /// Consume merged rows up to the common frontier. Returns whether any
-    /// row advanced the cursor.
-    fn consume(&mut self, union: BTreeMap<String, TipRow>, frontier: Option<&String>) -> bool {
-        let mut advanced = false;
-        for (range, row) in union {
-            if frontier.is_some_and(|end| range > *end) {
-                break;
-            }
+    /// Consume ordered rows, advancing past tombstones before counting live rows.
+    fn consume(&mut self, rows: Vec<(String, TipRow)>) {
+        for (range, row) in rows {
             self.after = Some(range);
-            advanced = true;
             if !self.include_tombstones && row.1.meta.as_ref().is_some_and(|meta| meta.tombstoned) {
                 continue;
             }
@@ -55,7 +43,6 @@ impl TipPageCursor {
                 break;
             }
         }
-        advanced
     }
 }
 
@@ -72,33 +59,8 @@ fn codec_err(e: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(format!("partition page codec: {e}"))
 }
 
-/// Each current molecule has one fixed OPE key. Its first encoded word
-/// identifies the ordered nonempty range stream; empty ranges stay separate.
-fn hash_tip_lanes(
-    codec: &molecule_key_codec::MoleculeKeyCodec,
-    prefixes: &[String],
-) -> Result<Vec<TipLane>, SchemaError> {
-    prefixes
-        .iter()
-        .map(|prefix| {
-            let lane = if codec.range_encoding().writes_ope() {
-                let uid = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
-                    .expect("codec molecule prefix");
-                let first = codec.storage_range(uid, "\0").map_err(codec_err)?;
-                format!("{prefix}{}", &first[..6])
-            } else {
-                prefix.clone()
-            };
-            Ok(TipLane {
-                prefix: prefix.clone(),
-                lane,
-            })
-        })
-        .collect()
-}
-
 impl AtomStore {
-    /// Select a HashKey page from ordered encrypted-key streams.
+    /// Select a HashKey page from its single ordered range stream.
     pub(crate) async fn scan_hash_tip_window(
         &self,
         molecule: &str,
@@ -117,7 +79,14 @@ impl AtomStore {
         let prefix = codec
             .api_hash_range_scan_prefix_for_hash(molecule, hash)
             .map_err(codec_err)?;
-        let prefixes = [prefix];
+        // All nonempty OPE ranges share the first word's high 24 bits.
+        // The empty range is outside this subtree and is read separately.
+        let nonempty_prefix = if codec.range_encoding().writes_ope() {
+            let first = codec.storage_range(molecule, "\0").map_err(codec_err)?;
+            format!("{prefix}{}", &first[..6])
+        } else {
+            prefix.clone()
+        };
         let (skip, limit, after) = match window {
             KeyWindow::Offset { offset, limit } => (*offset, *limit, None),
             KeyWindow::After { after, limit } if after.hash.as_deref() == Some(hash) => {
@@ -128,9 +97,8 @@ impl AtomStore {
         };
         // A range call may decode legacy sidecars. Match larger requested
         // pages without repeatedly decoding them, while bounding offset walks
-        // and large internal callers to at most 1,024 tips per stream.
+        // and large internal callers to at most 1,024 tips per batch.
         let batch_limit = limit.clamp(128, 1024);
-        let lanes = hash_tip_lanes(&codec, &prefixes)?;
         let mut page = TipPageCursor {
             skip,
             after,
@@ -143,90 +111,70 @@ impl AtomStore {
                 .skip
                 .saturating_add(limit - page.output.len())
                 .clamp(1, batch_limit);
-            let mut union = BTreeMap::new();
+            let (mut rows, exhausted) = self
+                .read_partition_page(
+                    &codec,
+                    &prefix,
+                    &nonempty_prefix,
+                    page.after.as_deref(),
+                    storage_prefix,
+                    want,
+                )
+                .await?;
             if page.after.is_none() && codec.range_encoding().writes_ope() {
-                self.seed_empty_range_rows(&prefixes, storage_prefix, &mut union)
-                    .await?;
-            }
-            let mut frontier: Option<String> = None;
-            for lane in &lanes {
-                let last = self
-                    .merge_lane_page(
-                        &codec,
-                        lane,
-                        page.after.as_deref(),
-                        storage_prefix,
-                        want,
-                        &mut union,
-                    )
-                    .await?;
-                if let Some(last) = last {
-                    frontier = Some(frontier.map_or(last.clone(), |current| current.min(last)));
+                if let Some(row) = self.get_per_key(&prefix, storage_prefix).await? {
+                    rows.insert(0, (String::new(), row));
                 }
             }
-            let advanced = page.consume(union, frontier.as_ref());
-            if !advanced || frontier.is_none() {
+            page.consume(rows);
+            if exhausted {
                 break;
             }
         }
         Ok(Some(page.output))
     }
 
-    /// Empty ranges are intentionally not OPE encoded, so no lane sees them.
-    async fn seed_empty_range_rows(
-        &self,
-        prefixes: &[String],
-        storage_prefix: Option<&str>,
-        union: &mut BTreeMap<String, TipRow>,
-    ) -> Result<(), SchemaError> {
-        for prefix in prefixes {
-            if let Some(row) = self.get_per_key(prefix, storage_prefix).await? {
-                union.entry(String::new()).or_insert(row);
-            }
-        }
-        Ok(())
-    }
-
-    /// Read one page of one lane into `union`. Returns the last range of the
-    /// page when the page was full, so the caller can bound the safe frontier.
-    async fn merge_lane_page(
+    /// Decode one bounded page. With a fixed encoding, storage and API ranges
+    /// have the same order, so no cross-stream union or safe frontier is needed.
+    async fn read_partition_page(
         &self,
         codec: &molecule_key_codec::MoleculeKeyCodec,
-        lane: &TipLane,
+        prefix: &str,
+        nonempty_prefix: &str,
         after: Option<&str>,
         storage_prefix: Option<&str>,
         want: usize,
-        union: &mut BTreeMap<String, TipRow>,
-    ) -> Result<Option<String>, SchemaError> {
+    ) -> Result<(Vec<(String, TipRow)>, bool), SchemaError> {
         let writes_ope = codec.range_encoding().writes_ope();
-        let uid = molecule_key_codec::molecule_uuid_from_storage_key(&lane.prefix)
+        let uid = molecule_key_codec::molecule_uuid_from_storage_key(prefix)
             .expect("codec molecule prefix");
         let cursor = after
             .filter(|range| !range.is_empty() || !writes_ope)
             .map(|range| {
                 codec
                     .storage_range(uid, range)
-                    .map(|range| format!("{}{range}", lane.prefix))
+                    .map(|range| format!("{prefix}{range}"))
             })
             .transpose()
             .map_err(codec_err)?;
         let rows = self
-            .scan_logical_tip_page(&lane.lane, cursor.as_deref(), storage_prefix, want)
+            .scan_logical_tip_page(nonempty_prefix, cursor.as_deref(), storage_prefix, want)
             .await?;
-        let full = rows.len() == want;
-        let mut last = None;
-        for (key, record) in rows {
-            let (_, range) = molecule_key_codec::decode_hash_range_any(&key)
-                .ok_or_else(|| SchemaError::InvalidData("invalid partition page key".into()))?;
-            let range = if writes_ope {
-                crate::crypto::E2eKeys::ope_decode_range_plaintext(&range).unwrap_or(range)
-            } else {
-                range
-            };
-            last = Some(range.clone());
-            union.entry(range).or_insert((key, record));
-        }
-        Ok(if full { last } else { None })
+        let exhausted = rows.len() < want;
+        let rows = rows
+            .into_iter()
+            .map(|(key, record)| {
+                let (_, range) = molecule_key_codec::decode_hash_range_any(&key)
+                    .ok_or_else(|| SchemaError::InvalidData("invalid partition page key".into()))?;
+                let range = if writes_ope {
+                    crate::crypto::E2eKeys::ope_decode_range_plaintext(&range).unwrap_or(range)
+                } else {
+                    range
+                };
+                Ok((range, (key, record)))
+            })
+            .collect::<Result<_, SchemaError>>()?;
+        Ok((rows, exhausted))
     }
 
     /// Merge bounded live and generation streams. Deleted slots advance the
