@@ -1,0 +1,53 @@
+{
+  "binary": "/workspace/phase-timing-bins/after",
+  "binary_sha256": "8e78f010c6e42ff5cd066e4690ca2bc7d2bf7b618eee4dba571cf880d997e904",
+  "body_bytes": 1024,
+  "build_profile": "release",
+  "cache": "OS cache uncontrolled; reopen-first-pass is not cold filesystem",
+  "client_cpu": 0,
+  "clock": "perf_counter_ns",
+  "concurrency": 1,
+  "config": "encrypted",
+  "cpu_count": 5,
+  "cpu_quota": "400000 100000",
+  "data": "Generated only, fresh owned home, no user data",
+  "driver_sha256": "d803c6f09f0b641f1f120e417566ecda5f27776e1fcee16c95156bd2da484f9e",
+  "experiment_driver_sha256": "69de92d7fad42b0099ca71d0612787366529f3fa23c1af01d7291e1089a58f2d",
+  "fields": [
+    "bucket",
+    "id",
+    "title",
+    "body"
+  ],
+  "fixture_digest": {
+    "bytes": 156083339,
+    "files": 327,
+    "sha256": "9b1e027e71bbdb96002613997bb36e40f85e9356d42eaa47e42066479d231eb0"
+  },
+  "free_bytes_before": 18339422208,
+  "limits": {
+    "request_timeout_seconds": 30,
+    "seconds": 600
+  },
+  "memory_limit": "17179869184",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "records_per_schema": 512,
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "schemas": {
+    "hash": "ExactKeyBenchHash",
+    "range": "ExactKeyBenchRange"
+  },
+  "server_cpu": 1,
+  "settings": {
+    "LASTDB_AUTO_MAINTENANCE": "0",
+    "LASTDB_HASH_KEY_ENCODING": "blind_v1",
+    "LASTDB_RANGE_KEY_ENCODING": "ope_v1",
+    "LASTDB_RESIDENT_PERSIST_MS": "100",
+    "LASTDB_SELF_METRICS_SAMPLE_SECS": "1",
+    "LASTDB_UDS_WORKERS": "4",
+    "RUST_LOG": "warn",
+    "RUST_MIN_STACK": "16777216"
+  },
+  "source_revision": "fffb4f2cd5273adcf417e7ec40a85f2dee04d6c9",
+  "transport": "HTTP over owner Unix socket"
+}

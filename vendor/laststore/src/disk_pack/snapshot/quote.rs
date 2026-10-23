@@ -13,6 +13,11 @@ pub struct SnapshotMutationShape {
     body_bytes: Option<u64>,
 }
 
+struct MutationDimensions {
+    policy_bytes: u64,
+    payload_bytes: u64,
+}
+
 impl SnapshotMutationShape {
     /// A put with an empty body differs from a tombstone (`None`).
     pub fn new(
@@ -29,7 +34,7 @@ impl SnapshotMutationShape {
         }
     }
 
-    pub(super) fn encoded_bytes(self) -> Result<u64> {
+    fn dimensions(self) -> Result<MutationDimensions> {
         if self.collection_bytes > super::super::KEY_BYTES - 4
             || self.key_bytes > super::super::KEY_BYTES
             || self.group >= 1024
@@ -41,21 +46,28 @@ impl SnapshotMutationShape {
                 "unrepresentable collection, key, group, or body",
             ));
         }
-        let prefix = 64 + self.collection_bytes as u64 + self.key_bytes as u64;
-        let payload = self
+        let payload_bytes = self
             .body_bytes
             .map_or(0, |bytes| 96 + self.key_bytes as u64 + bytes);
-        prefix
-            .checked_add(payload)
-            .ok_or_else(|| super::super::corrupt("operation length overflow"))
+        // Preserve the complete-batch policy's metadata and coordinate allowance.
+        // That allowance is not serialized into the immutable payload object.
+        let policy_bytes = (64 + self.collection_bytes as u64 + self.key_bytes as u64)
+            .checked_add(payload_bytes)
+            .ok_or_else(|| super::super::corrupt("operation length overflow"))?;
+        Ok(MutationDimensions {
+            policy_bytes,
+            payload_bytes,
+        })
     }
 }
 
-/// Checked payload-only quota. Directory, logical-record, and disk-space
+/// Checked payload quota and the separate complete-batch policy charge.
+/// Directory, logical-record, and disk-space
 /// reservations are separate prerequisites before a memory acknowledgement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SnapshotQuote {
     pub(super) operations: usize,
+    pub(super) policy_bytes: u64,
     pub(super) logical_bytes: u64,
     pub(super) physical_reserve: u64,
 }
@@ -68,12 +80,17 @@ impl SnapshotQuote {
             .checked_add(incoming.operations)
             .filter(|count| *count <= limit)
             .ok_or_else(|| super::capacity("batch operation admission limit"))?;
+        let policy_bytes = self
+            .policy_bytes
+            .checked_add(incoming.policy_bytes)
+            .ok_or_else(|| super::capacity("batch byte count overflow"))?;
         let logical_bytes = self
             .logical_bytes
             .checked_add(incoming.logical_bytes)
-            .ok_or_else(|| super::capacity("batch byte count overflow"))?;
+            .ok_or_else(|| super::super::corrupt("snapshot payload length overflow"))?;
         Ok(Self {
             operations,
+            policy_bytes,
             logical_bytes,
             physical_reserve: reserve(logical_bytes)?,
         })
@@ -103,21 +120,27 @@ impl SnapshotQuote {
             return Err(super::refuse("unsupported operation admission limit"));
         }
         let mut length = 0u64;
+        let mut policy_bytes = 0u64;
         let mut operations = 0;
         for shape in shapes {
             operations += 1;
             if operations > operation_limit {
                 return Err(super::refuse("batch operation admission limit"));
             }
-            length = length
-                .checked_add(shape.encoded_bytes()?)
+            let dimensions = shape.dimensions()?;
+            policy_bytes = policy_bytes
+                .checked_add(dimensions.policy_bytes)
                 .ok_or_else(|| super::super::corrupt("batch length overflow"))?;
+            length = length
+                .checked_add(dimensions.payload_bytes)
+                .ok_or_else(|| super::super::corrupt("snapshot payload length overflow"))?;
         }
         if operations == 0 {
             return Err(super::refuse("batch operation admission limit"));
         }
         Ok(Self {
             operations,
+            policy_bytes,
             logical_bytes: length,
             physical_reserve: reserve(length)?,
         })
@@ -127,7 +150,8 @@ impl SnapshotQuote {
     pub fn operations(&self) -> usize {
         self.operations
     }
-    /// Complete payload and operation dimensions before block compression.
+    /// Exact record headers, full keys, and bodies before block compression.
+    /// Deletes have no payload extent and contribute zero bytes.
     pub fn logical_bytes(&self) -> u64 {
         self.logical_bytes
     }

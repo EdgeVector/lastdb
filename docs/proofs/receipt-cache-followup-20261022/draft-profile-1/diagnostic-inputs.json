@@ -1,0 +1,23 @@
+{
+  "automatic_maintenance": false,
+  "batch_width": 32,
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/draft-lastdbd",
+  "binary_sha256": "910a91836d709c9667d513c6410403fef524cfbe28597e030a8f056678d7fd0e",
+  "body_bytes": 1024,
+  "claim_limit": "Diagnostic profile; instrumentation changes timing",
+  "driver_sha256": "7adaca0bb443a3a910e809fb80b27099c918e3b9fe18bbdc2cac55b7759cc6ce",
+  "fixed_batch_requests": 256,
+  "keys": 512,
+  "limits": {
+    "inventory_depth": 8,
+    "inventory_entries": 40000,
+    "inventory_seconds": 20,
+    "native_bytes": 4294967296,
+    "native_files": 20000,
+    "run_seconds": 300
+  },
+  "profile_binary": "/usr/bin/sample",
+  "profile_binary_sha256": "569d1e8f29e32e0557fdfffb7620e20126fab5df90f9e1bce4c6930ccded7363",
+  "source_revision": "a1941e3a8742d4da4743a02db99153119bdf034b",
+  "supersedes_inherited_limits": "The inherited seed inputs retain their original 1 GiB cap; this separate diagnostic uses 4 GiB for 8192 offered updates"
+}

@@ -1,0 +1,45 @@
+{
+  "argv": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+    "write",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.8y4g9xix/home/data/disk-pack",
+    "--input",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.8y4g9xix/physical-inputs/old-put-delete.json"
+  ],
+  "elapsed_nanos": 29398625,
+  "exit_code": 0,
+  "input": {
+    "bytes": 1573035,
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.8y4g9xix/physical-inputs/old-put-delete.json",
+    "sha256": "45b7abd2862d2d1ee7d2f27f7cabaf04f0b9097bb25b4d83fe35dfdb59cf2e63"
+  },
+  "result": {
+    "disk": {
+      "directory_reads": 0,
+      "file_opens": 120,
+      "footer_bytes": 0,
+      "format_probe_bytes": 855040,
+      "group_opens": 0,
+      "legacy_replay_bytes": 0,
+      "payload_bytes": 0,
+      "read_operations": 85,
+      "temporary_bytes_peak": 32768
+    },
+    "elapsed_nanos": 26222834,
+    "frontier": 26,
+    "generation": 27,
+    "operations": 2,
+    "previous_frontier": 25,
+    "published": true,
+    "snapshot_quote": {
+      "dependency_parts": 5,
+      "map_pages": 33,
+      "physical_bytes": 6724922,
+      "scope": "complete_snapshot"
+    }
+  },
+  "stderr": "",
+  "stdout_bytes": 419,
+  "stdout_sha256": "802b859bc9c91db3144f6c43c959281ea3feda576dbf59b77233788022eb46ff"
+}

@@ -1,0 +1,25 @@
+{
+  "disk": {
+    "directory_reads": 0,
+    "file_opens": 106,
+    "footer_bytes": 0,
+    "format_probe_bytes": 723840,
+    "group_opens": 0,
+    "legacy_replay_bytes": 0,
+    "payload_bytes": 0,
+    "read_operations": 76,
+    "temporary_bytes_peak": 65664
+  },
+  "elapsed_nanos": 20736166,
+  "frontier": 24,
+  "generation": 25,
+  "operations": 64,
+  "previous_frontier": 23,
+  "published": true,
+  "snapshot_quote": {
+    "dependency_parts": 7,
+    "map_pages": 1041,
+    "physical_bytes": 22512288,
+    "scope": "complete_snapshot"
+  }
+}

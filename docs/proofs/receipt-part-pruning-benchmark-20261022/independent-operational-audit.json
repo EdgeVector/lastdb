@@ -1,0 +1,33 @@
+{
+  "accepted_binary_hashes_recomputed": 10,
+  "at_unix_ns": 1792720294215608000,
+  "audit_kind": "Independent read-only audit of saved operational evidence",
+  "automatic_reclaim_no_pack_verified": true,
+  "candidate_revision": "a1941e3a8742d4da4743a02db99153119bdf034b",
+  "commands_passed": 6,
+  "complete": true,
+  "five_generated_homes_confirmed_absent": true,
+  "forced_stop_after_durable_flush_reopened": true,
+  "legacy_feature_transition": {
+    "after": 1021,
+    "before": 509
+  },
+  "limits": [
+    "Generated local homes only; no primary, archive, or cloud proof",
+    "Forced stop follows a durable flush; no power-loss or mid-publication crash proof",
+    "Retention uses a durable rollback reference; no concurrent-reader deletion-race stress",
+    "Payload map part zero only; no map-part-one operational proof",
+    "Orphans are made before startup; repeated sweep after an age-cutoff miss",
+    "Grace and startup delay are zero in automatic proofs; orphan minimum age is ten seconds",
+    "Receipt audit rechecks saved evidence and current artifacts; it does not run product operations"
+  ],
+  "mixed_live_dead_parts_preserved_then_removed": true,
+  "older_program_read_write_refusal_unchanged_files": true,
+  "orphan_periodic_seconds": 29.263967166999997,
+  "orphan_same_process_removal_events": 2,
+  "orphan_startup_age_seconds": 0.5305523872375488,
+  "recorded_helper_hashes_recomputed": 7,
+  "retained_backup_restored_identical_inventory": true,
+  "shared_parent_leaf_overflow_refs_verified": true,
+  "spanning_payload_record_verified": 10
+}

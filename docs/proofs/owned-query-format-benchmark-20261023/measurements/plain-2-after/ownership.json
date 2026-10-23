@@ -1,0 +1,11 @@
+{
+  "creator_pid": 196820,
+  "device": 27,
+  "home": "/workspace/oq2-pairs/plain-2-after/home",
+  "inode": 554345,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "9a0d86e1bf7a4c62bbcb09e1e311bad3",
+  "scratch": "/workspace/oq2-pairs/plain-2-after",
+  "version": 1
+}

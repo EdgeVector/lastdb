@@ -36,7 +36,7 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
         })
         .map_err(map)?;
     let key = crate::db_operations::atom_store::AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes();
-    let route = super::super::laststore::native_routing::write_collection(key);
+    let route = super::super::laststore::native_routing::collection_for_key(key);
     let stored = reader
         .get(route, &super::super::laststore::native_routing::encode(key))
         .map_err(map)?
@@ -109,7 +109,7 @@ fn refusal(detail: &str) -> StorageError {
 pub fn validate_restored_atom_key(key: &str) -> StorageResult<()> {
     let raw = super::super::laststore::native_routing::decode(key)?;
     super::super::current_keys::validate("main", &raw)?;
-    if super::super::laststore::native_routing::write_collection(&raw) != "atoms" {
+    if super::super::laststore::native_routing::collection_for_key(&raw) != "atoms" {
         return Err(refusal("unsupported key in restored atom namespace"));
     }
     Ok(())

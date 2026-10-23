@@ -19,29 +19,19 @@
 //! This file keeps the `SyncEngine` state definition.
 
 mod backup;
-pub mod backup_atom_rewrite;
 pub(crate) mod backup_keys;
 mod backup_restore;
 pub(crate) mod backup_uploader;
 mod bootstrap;
-mod cloud_purge_file_closure;
-mod cloud_purge_file_materialize;
-mod cloud_purge_file_references;
-mod cloud_purge_local;
-mod cloud_purge_org_source;
-mod cloud_purge_selected;
-mod cloud_purge_share_files;
-mod cloud_purge_shares;
+mod cloud_generation;
+mod cloud_share_refresh;
 mod compact;
 mod compact_cleanup;
 mod compact_target;
 mod configure;
-pub use cloud_purge_selected::CloudPurgeWriteFence;
-mod cloud_purge_peer;
-mod cloud_purge_queue;
-mod cloud_share_refresh;
 mod cycle;
 mod file_blob;
+mod foreign_share;
 pub mod gc_jobs;
 mod helpers;
 mod lock;
@@ -73,7 +63,7 @@ tokio::task_local! {
 }
 
 // Store-level capture methods live in `crate::sync::capture` and attach via
-// `impl SyncEngine` there; re-export tick stats for callers/tests.
+// `impl SyncEngine` there; re-export tick stats for callers.
 pub use crate::sync::capture::{CaptureTickStats, HealStagingReport};
 pub use backup_restore::{
     restore_laststore_cloud_backup_from_latest_pointer_with_cache,
@@ -254,7 +244,6 @@ pub struct SyncEngine {
     /// Serializes snapshots and updates of the partitioner + target list pair.
     target_config_lock: Arc<Mutex<()>>,
     /// Only one owner-scoped receiver seed can publish at a time.
-    cloud_share_refresh_lock: Mutex<()>,
     /// Monotonic generation for the target/partitioner pair. Entry allocation
     /// binds its durable HWM seed to this value, and append rejects a stale
     /// generation before it can reuse a newly configured target's frontier.

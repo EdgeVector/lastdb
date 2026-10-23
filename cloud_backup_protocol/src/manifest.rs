@@ -9,7 +9,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-pub const NATIVE_SUPPORTED_FEATURES_V1: u64 = 0x1fd;
+/// Counted receipts add bit 512; older supported native backups remain valid.
+pub const NATIVE_SUPPORTED_FEATURES_V1: u64 = 0x3fd;
 pub const NATIVE_REQUIRED_FEATURES_V1: u64 = 0x1c5;
 
 /// Service-visible summary. Exact CURRENT and home bytes remain authoritative

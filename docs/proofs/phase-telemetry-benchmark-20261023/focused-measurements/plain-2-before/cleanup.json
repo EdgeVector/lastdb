@@ -1,0 +1,12 @@
+{
+  "run_id": "782cb908387c40e28f16b71f52a76fae",
+  "home": "/workspace/pf-pairs/plain-2-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 3419,
+  "allocated_bytes_removed": 483758080,
+  "free_bytes_before": 18008551424,
+  "free_bytes_after": 18499538944
+}

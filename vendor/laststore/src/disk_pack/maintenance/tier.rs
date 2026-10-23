@@ -89,9 +89,10 @@ impl<'a> TierCopy<'a> {
         let mut current = source.clone();
         current.directory = copy.tree(&source.directory)?;
         current.generation = stamp;
+        current.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
         let payload = copy.pack.finish()?;
         copy.dependencies
-            .add_payload(payload.object, 0, payload.data_parts, payload.map_pages)?;
+            .add_payload(payload.object, payload.data_parts, payload.map_pages)?;
         for ((kind, object), pages) in copy.pages {
             let tree = TreeRoot {
                 object,
@@ -113,6 +114,15 @@ impl<'a> TierCopy<'a> {
     }
 
     fn tree(&mut self, tree: &TreeRoot) -> Result<TreeRoot> {
+        if tree.kind == TreeKind::Locator {
+            // Later foreground groups reuse this immutable allocator template,
+            // including when the selected nonempty root moves to a new part.
+            self.dependencies.add(Coordinate {
+                kind: 2,
+                object: tree.object,
+                part: 0,
+            })?;
+        }
         let mut output = tree.clone();
         output.page = self.page(
             tree,
@@ -140,21 +150,7 @@ impl<'a> TierCopy<'a> {
     }
 
     fn page(&mut self, tree: &TreeRoot, path: Branch) -> Result<u64> {
-        let kind = if tree.kind == TreeKind::Directory {
-            1
-        } else {
-            2
-        };
-        let coordinate = Coordinate {
-            kind,
-            object: tree.object,
-            batch: 0,
-            part: (path.number / 512) as u32,
-        };
-        let age = *self
-            .ages
-            .get(&coordinate)
-            .ok_or_else(|| corrupt("tree page is absent from its source receipt"))?;
+        let age = self.page_age(tree, path.number)?;
         if age > path.parent_age {
             return Err(corrupt("tree child is newer than its parent"));
         }
@@ -169,6 +165,13 @@ impl<'a> TierCopy<'a> {
                 && ((path.level > 0 && page.count() < 7) || (path.level == 0 && page.count() == 0)))
         {
             return Err(corrupt("tier page age, height, or occupancy differs"));
+        }
+        if tree.kind == TreeKind::Locator && path.root && page.count() == 0 {
+            if path.number != 0 {
+                return Err(corrupt("empty locator root is not its allocator template"));
+            }
+            self.caches.keep(call);
+            return Ok(0);
         }
         let mut entries = Vec::new();
         let mut previous: Option<Vec<u8>> = None;
@@ -234,6 +237,22 @@ impl<'a> TierCopy<'a> {
             &children,
         )?
         .number)
+    }
+
+    fn page_age(&self, tree: &TreeRoot, number: u64) -> Result<u64> {
+        let coordinate = Coordinate {
+            kind: if tree.kind == TreeKind::Directory {
+                1
+            } else {
+                2
+            },
+            object: tree.object,
+            part: (number / 512) as u32,
+        };
+        self.ages
+            .get(&coordinate)
+            .copied()
+            .ok_or_else(|| corrupt("tree page is absent from its source receipt"))
     }
 
     fn leaf(&mut self, tree: &TreeRoot, entries: Vec<(Vec<u8>, Vec<u8>)>) -> Result<u64> {

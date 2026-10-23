@@ -1,0 +1,99 @@
+{
+  "revisions": {
+    "before": "46e30246f946ac6ca25c8078878e82c01313ac8c",
+    "after": "fffb4f2cd5273adcf417e7ec40a85f2dee04d6c9"
+  },
+  "binaries": {
+    "before": "5bd5090930272678fd1c7da26d2630941f57d40f4cfa2ff263f5b0d16b6b18f4",
+    "after": "8e78f010c6e42ff5cd066e4690ca2bc7d2bf7b618eee4dba571cf880d997e904"
+  },
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "phase_fields": [
+    "queue_wait_us",
+    "admission_wait_us",
+    "parse_us",
+    "schema_resolve_us",
+    "validate_us",
+    "lock_wait_us",
+    "purge_barrier_us",
+    "purge_plan_us",
+    "purge_commit_us",
+    "purge_materialize_us",
+    "purge_trace_us",
+    "purge_retention_guard_us",
+    "purge_delete_us",
+    "purge_finalize_us",
+    "molecule_gate_us",
+    "cas_precondition_us",
+    "count_us",
+    "hydrate_us",
+    "hydrate_atoms_us",
+    "hydrate_format_us",
+    "hydrate_sort_us",
+    "hydrate_filter_us",
+    "annotate_us",
+    "apply_us",
+    "apply_memory_us",
+    "schema_load_us",
+    "idempotency_check_us",
+    "grouping_us",
+    "restore_molecules_us",
+    "protein_sibling_fold_us",
+    "spawn_indexing_us",
+    "sync_uuids_us",
+    "schema_reload_us",
+    "persist_us",
+    "persist_molecules_us",
+    "persist_schema_us",
+    "persist_idempotency_us",
+    "flush_us",
+    "sync_capture_us",
+    "index_wait_us",
+    "change_record_us",
+    "change_record_lock_wait_us",
+    "change_record_write_us",
+    "response_envelope_us",
+    "status_sync_us",
+    "status_backup_us",
+    "status_durability_us",
+    "status_data_dir_us",
+    "status_request_ops_us"
+  ],
+  "driver_sha256": "69de92d7fad42b0099ca71d0612787366529f3fa23c1af01d7291e1089a58f2d",
+  "helper_sha256": {
+    "docs/proofs/native-routing-benchmark-20261023/controlled.py": "5209526b352146e039a4797ae1382295432e16ccee4119135b690b9697b83ee8",
+    "docs/proofs/native-routing-benchmark-20261023/cleanup.py": "ac44226ecfff8af86989a5fe0a8cc9f1e3920c17bb129545875d0fb74a9ca5b3",
+    "docs/proofs/exact-prefix-benchmark-20261023/benchmark.py": "d803c6f09f0b641f1f120e417566ecda5f27776e1fcee16c95156bd2da484f9e",
+    "docs/proofs/snapshot-commits-20261022/capture.py": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+    "docs/proofs/native-routing-benchmark-20261023/summarize.py": "171da0b559b4290e09f5ad63461957d3ac4e0c8216b9d6554d883ab972d33927"
+  },
+  "build": {
+    "profile": "release",
+    "command": "cargo build -p lastdb_node --bin lastdbd --release --locked",
+    "target_dir": "/workspace/bench-target",
+    "worktree": "/workspace/lastdb-before",
+    "jobs": 3,
+    "features": "default",
+    "heavy_cargo_and_benchmarks_serialized": true
+  },
+  "planned": {
+    "configurations": [
+      "plain",
+      "encrypted",
+      "preload"
+    ],
+    "pairs_per_configuration": 4,
+    "client_cpu": 0,
+    "server_cpu": 1,
+    "workers": 4,
+    "self_metrics_interval_seconds": 1
+  },
+  "completed": {
+    "measured_runs": 24,
+    "timed_requests": 211200,
+    "graceful_stops_including_fixtures": 75,
+    "all_integrity_checks_passed": true,
+    "all_synthetic_homes_cleaned": true,
+    "archived_raw_files": 99
+  }
+}

@@ -50,7 +50,6 @@ impl TreeQuote<'_> {
                 2
             },
             object: tree.object,
-            batch: 0,
             part: u32::try_from(number / 512).map_err(|_| corrupt("tier quote page ordinal"))?,
         };
         let at = self

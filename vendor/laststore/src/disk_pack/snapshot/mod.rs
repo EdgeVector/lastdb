@@ -6,7 +6,7 @@ mod quote;
 mod reclaim;
 mod writer;
 
-pub use admission::{SnapshotPressure, SnapshotReservation};
+pub use admission::SnapshotReservation;
 pub use quote::{SnapshotMutationShape, SnapshotQuote};
 pub use reclaim::ReclaimPlan;
 pub use writer::SnapshotWriter;

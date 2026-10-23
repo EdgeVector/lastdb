@@ -1,0 +1,4 @@
+{
+  "reason": "Cleanup helper import collision stopped orchestration before a complete comparison pair; excluded from controlled results.",
+  "daemon_integrity": "Every started daemon stopped and the one measured run passed value/reopen checks."
+}

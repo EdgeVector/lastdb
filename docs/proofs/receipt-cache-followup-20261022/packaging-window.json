@@ -1,0 +1,74 @@
+{
+  "blob_bounds": {
+    "candidate_bytes": 24285599,
+    "candidate_files": 557,
+    "largest_blob_bytes": 1803756
+  },
+  "commands": [
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/preserve_summaries.py"
+      ],
+      "end_unix_ns": 1792736428682858000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736428649542000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/package_receipts.py"
+      ],
+      "end_unix_ns": 1792736434145240000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736428682990000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/package_extra.py"
+      ],
+      "end_unix_ns": 1792736434260237000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736434145386000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/package_extended.py"
+      ],
+      "end_unix_ns": 1792736438644957000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736434260377000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/package_recovery.py"
+      ],
+      "end_unix_ns": 1792736440291954000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736438645160000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/verify_packaged_analysis.py"
+      ],
+      "end_unix_ns": 1792736440601426000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736440292098000
+    }
+  ],
+  "complete": true,
+  "end_unix_ns": 1792736440641304000,
+  "helpers_sha256": {
+    "package_extended.py": "efa5413ed330ca4a62935afe38daed3fbfe9142ed2a9367d1efc3626f94808a1",
+    "package_extra.py": "4424fa7ed78f0df046fb8f1f092a415c594dac0231657d6eda3fdb130d7e2a11",
+    "package_receipts.py": "baa1fad796339d925c10f67ae1562d53c3f7788ce78ceb7953429751441f6dd3",
+    "package_recovery.py": "c83d6d6facb2681f3237368f8381008dd1b00f21bb79ffbf1c7e679286b0caaf",
+    "preserve_summaries.py": "96c9bc064d25cba0818d56c2d480e03ca1f8d89edef1255f1d454dd689884ae2",
+    "verify_packaged_analysis.py": "a724857b67ff250c39bd847d93273025e6e83c129580bce3e86997f3ca8488a3"
+  },
+  "start_unix_ns": 1792736428649510000
+}

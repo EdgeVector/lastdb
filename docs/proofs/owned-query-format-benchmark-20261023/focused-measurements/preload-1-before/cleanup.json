@@ -1,0 +1,12 @@
+{
+  "run_id": "acbc8976d5f6473f89acdea9d9339991",
+  "home": "/workspace/oqf-pairs/preload-1-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 405,
+  "allocated_bytes_removed": 188436480,
+  "free_bytes_before": 17811554304,
+  "free_bytes_after": 18000920576
+}

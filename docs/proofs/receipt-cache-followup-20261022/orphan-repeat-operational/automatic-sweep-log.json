@@ -1,0 +1,10 @@
+{
+  "log_bytes": 646,
+  "log_offset": 572,
+  "log_sha256": "60f6f5272cd8f8d7909abcd79f21b0661db9fd30d1f15765dbc08cd2c090ed8c",
+  "removal_events": [
+    "2026-10-23T05:37:11.343611Z  INFO native_parts_supervisor:native_parts_worker: fold_db::storage::disk_pack::parts::worker: native storage removed unreferenced part files files=2 bytes=818490",
+    "2026-10-23T05:37:41.387749Z  INFO native_parts_supervisor:native_parts_worker: fold_db::storage::disk_pack::parts::worker: native storage removed unreferenced part files files=2 bytes=818492"
+  ],
+  "same_process": true
+}

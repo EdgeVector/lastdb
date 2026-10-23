@@ -1,3 +1,4 @@
+use super::live_parts::{Changes, ReferenceCache};
 use super::page::Page;
 use super::sparse_pages::SparsePages;
 use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
@@ -12,6 +13,8 @@ pub(super) struct TreeEdit<P = SparsePages> {
     root: TreeRoot,
     pages: P,
     failed: bool,
+    track_changes: bool,
+    changes: Changes,
 }
 
 struct PathStep {
@@ -43,11 +46,11 @@ impl TreeEdit {
         Self::with_pages(tree, pages)
     }
 
-    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
-        let (tree, pages) = self.finish_tree()?;
+    pub(super) fn finish_with_changes(self) -> Result<(TreeRoot, u64, Vec<u32>, Changes)> {
+        let (tree, pages, changes) = self.finish_tree()?;
         let written = pages.written_pages;
         let parts = pages.finish()?;
-        Ok((tree, written, parts))
+        Ok((tree, written, parts, changes))
     }
 }
 
@@ -58,6 +61,8 @@ impl<P: TreePages> TreeEdit<P> {
             root: tree,
             pages,
             failed: false,
+            track_changes: true,
+            changes: Changes::default(),
         })
     }
 
@@ -65,9 +70,27 @@ impl<P: TreePages> TreeEdit<P> {
         &self.root
     }
 
+    /// A complete off-gate seed accounts catch-up output after all grafts finish.
+    pub(super) fn put_many_untracked(
+        &mut self,
+        call: &mut ReadCall,
+        changes: &[MapChange],
+    ) -> Result<()> {
+        let mut references = ReferenceCache::new(&call.root, &call.current);
+        let tracked = std::mem::replace(&mut self.track_changes, false);
+        let result = self.put_many(call, &mut references, changes);
+        self.track_changes = tracked;
+        result
+    }
+
     /// Install sorted final locators, copying each touched old page only once.
     /// Stored operations and their original physical versions remain unchanged.
-    pub(super) fn put_many(&mut self, call: &mut ReadCall, changes: &[MapChange]) -> Result<()> {
+    pub(super) fn put_many(
+        &mut self,
+        call: &mut ReadCall,
+        references: &mut ReferenceCache,
+        changes: &[MapChange],
+    ) -> Result<()> {
         if self.failed
             || changes.len() > call.current.batch_operation_limit()
             || changes.iter().any(|(key, _)| key.len() > super::KEY_BYTES)
@@ -87,7 +110,7 @@ impl<P: TreePages> TreeEdit<P> {
             upper: None,
             is_root: true,
         };
-        let mut children = self.edit(call, path, changes)?;
+        let mut children = self.edit(call, references, path, changes)?;
         let mut height = self.root.height;
         while children.len() > 1 {
             children = self.parents(height, &children)?;
@@ -102,13 +125,25 @@ impl<P: TreePages> TreeEdit<P> {
     fn edit(
         &mut self,
         call: &mut ReadCall,
+        references: &mut ReferenceCache,
         path: PathStep,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
         let page = call.tree_page(&self.root, path.number)?;
         validate_page(call, &self.root, &page, &path)?;
+        if self.track_changes {
+            self.changes.observe_page(
+                self.root.kind,
+                self.root.object,
+                path.number,
+                &page,
+                &call.current,
+                -1,
+            )?;
+            references.resolve(&mut self.changes)?;
+        }
         if path.level == 0 {
-            return self.edit_leaf(call, &page, changes);
+            return self.edit_leaf(call, references, &page, changes);
         }
         let mut children = vec![Child {
             minimum: path.minimum,
@@ -143,6 +178,7 @@ impl<P: TreePages> TreeEdit<P> {
             }
             out.extend(self.edit(
                 call,
+                references,
                 PathStep {
                     number: child.number,
                     level: path.level - 1,
@@ -178,6 +214,7 @@ impl<P: TreePages> TreeEdit<P> {
     fn edit_leaf(
         &mut self,
         call: &mut ReadCall,
+        references: &mut ReferenceCache,
         page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
@@ -188,6 +225,7 @@ impl<P: TreePages> TreeEdit<P> {
             let key = call.full_key(&self.root, entry)?;
             while updates.peek().is_some_and(|(next, _)| *next < key) {
                 let (key, value) = updates.next().expect("peeked change");
+                self.change_value(call, references, None, value)?;
                 entries.push((
                     tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
                     *value,
@@ -195,13 +233,16 @@ impl<P: TreePages> TreeEdit<P> {
             }
             let descriptor = entry[..key_layout::descriptor_bytes(entry)].to_vec();
             let value = if updates.peek().is_some_and(|(next, _)| *next == key) {
-                updates.next().expect("peeked replacement").1
+                let (_, value) = updates.next().expect("peeked replacement");
+                self.change_value(call, references, Some(key_layout::value(entry)), value)?;
+                *value
             } else {
                 key_layout::value(entry).try_into().expect("leaf value")
             };
             entries.push((descriptor, value));
         }
         for (key, value) in updates {
+            self.change_value(call, references, None, value)?;
             entries.push((
                 tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
                 *value,
@@ -213,12 +254,29 @@ impl<P: TreePages> TreeEdit<P> {
             .collect()
     }
 
+    fn change_value(
+        &mut self,
+        call: &ReadCall,
+        references: &mut ReferenceCache,
+        old: Option<&[u8]>,
+        new: &[u8; 128],
+    ) -> Result<()> {
+        if self.track_changes && self.root.kind == super::TreeKind::Locator {
+            if let Some(old) = old {
+                self.changes.observe_location(old, &call.current, -1)?;
+            }
+            self.changes.observe_location(new, &call.current, 1)?;
+            references.resolve(&mut self.changes)?;
+        }
+        Ok(())
+    }
+
     /// Keep private pages available to other trees in the same object.
-    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P)> {
+    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P, Changes)> {
         if self.failed {
             return Err(corrupt("refusing failed tree edit"));
         }
-        Ok((self.root, self.pages))
+        Ok((self.root, self.pages, self.changes))
     }
 }
 

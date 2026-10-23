@@ -1,0 +1,742 @@
+{
+  "_files": {
+    "CURRENT": [
+      4096,
+      4096
+    ],
+    "LIFETIME_LOCK": [
+      0,
+      0
+    ],
+    "SNAPSHOT_LOCK": [
+      0,
+      0
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-00000000": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-0fc766f8": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-1a12fe22": [
+      114688,
+      114688
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-2278f4e6": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-2d35d322": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-2d9b8854": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-46385840": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-609bf2fb": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-7197ca7a": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-836380b8": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-86c0db47": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-91ece256": [
+      49152,
+      49152
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-91f2abc3": [
+      32768,
+      32768
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-9375441f": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-93cb2938": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-9798b2aa": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-9819e3d4": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-ba8d7701": [
+      475136,
+      475136
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-c39f5490": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-c57a6696": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-c914f185": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-c9e00e0b": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-d24e6778": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-d3ac267d": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-d68a2713": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-d6c08115": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-d7c1b719": [
+      32768,
+      32768
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-d93640a7": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-ddca660a": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-e239106f": [
+      49152,
+      49152
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-f2205a51": [
+      16384,
+      16384
+    ],
+    "directory/3e5de540-5827-469c-b1fe-422fe4ecc791/part-f6a273ee": [
+      16384,
+      16384
+    ],
+    "generations/1/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/10/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/11/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/12/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/13/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/14/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/15/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/16/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/17/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/18/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/19/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/2/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/20/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/21/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/22/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/23/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/24/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/25/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/26/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/27/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/28/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/29/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/3/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/30/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/31/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/32/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/4/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/5/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/6/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/7/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/8/part-00000000": [
+      16384,
+      16384
+    ],
+    "generations/9/part-00000000": [
+      16384,
+      16384
+    ],
+    "laststore-layout-v1": [
+      35,
+      4096
+    ],
+    "laststore-pack-home-v1": [
+      4096,
+      4096
+    ],
+    "locator/068ea0e3-fdd4-4e04-ae0a-73775802b5f6/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/129a1053-2e4a-42f1-8dac-95b4113d9364/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-059a29a7": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-2b98530f": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-33224159": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-35ed5427": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-7da409cd": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-80f39154": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-87ea8b3a": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-9d1c25e6": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-a14e2ab9": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-a7605e84": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-b7eddfba": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-bd59860a": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-bfb5d7a9": [
+      16384,
+      16384
+    ],
+    "locator/215566e2-b345-4ca2-9d73-d177322bd8de/part-e97db71f": [
+      16384,
+      16384
+    ],
+    "locator/364aea57-b1f3-4f48-9793-1d2346c9d863/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/3691fdbe-ce81-4c83-927a-e062518b9c44/part-00000000": [
+      3948544,
+      3948544
+    ],
+    "locator/3f4cef29-7ad3-48e7-9cd1-1df895cbf25f/part-00000000": [
+      8388608,
+      8388608
+    ],
+    "locator/3f4cef29-7ad3-48e7-9cd1-1df895cbf25f/part-00000001": [
+      8388608,
+      8388608
+    ],
+    "locator/3f4cef29-7ad3-48e7-9cd1-1df895cbf25f/part-00000002": [
+      6733824,
+      6733824
+    ],
+    "locator/62029725-dd8a-4ead-a8c6-050df6e3edc2/part-00000000": [
+      311296,
+      311296
+    ],
+    "locator/62029725-dd8a-4ead-a8c6-050df6e3edc2/part-138e89f8": [
+      16384,
+      16384
+    ],
+    "locator/62029725-dd8a-4ead-a8c6-050df6e3edc2/part-99287bc6": [
+      32768,
+      32768
+    ],
+    "locator/62029725-dd8a-4ead-a8c6-050df6e3edc2/part-beac6ce4": [
+      32768,
+      32768
+    ],
+    "locator/62029725-dd8a-4ead-a8c6-050df6e3edc2/part-cbee3489": [
+      32768,
+      32768
+    ],
+    "locator/62029725-dd8a-4ead-a8c6-050df6e3edc2/part-d6a28707": [
+      32768,
+      32768
+    ],
+    "locator/832784d3-0020-49cc-a2ab-9bc029fa4159/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/9221096f-b8a0-4f54-a260-00fd6a56c90b/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/972669e5-bfc9-4bc9-804f-0603ff1ae80a/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/972669e5-bfc9-4bc9-804f-0603ff1ae80a/part-66cb2c73": [
+      16384,
+      16384
+    ],
+    "locator/97543efa-7d9f-4d8a-b4fa-91272b2ebe5d/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/97543efa-7d9f-4d8a-b4fa-91272b2ebe5d/part-6936f008": [
+      16384,
+      16384
+    ],
+    "locator/97543efa-7d9f-4d8a-b4fa-91272b2ebe5d/part-f2d4453a": [
+      16384,
+      16384
+    ],
+    "locator/a8bc3992-934e-40ea-8119-5cb7a324d6c2/part-00000000": [
+      81920,
+      81920
+    ],
+    "locator/ad6ce10f-51d8-42f6-b266-c1b204232ebc/part-00000000": [
+      81920,
+      81920
+    ],
+    "locator/c3e197f6-a235-403b-ae9a-8fd17b7ea3ca/part-00000000": [
+      294912,
+      294912
+    ],
+    "locator/c3e197f6-a235-403b-ae9a-8fd17b7ea3ca/part-4f61f6da": [
+      32768,
+      32768
+    ],
+    "locator/c3e197f6-a235-403b-ae9a-8fd17b7ea3ca/part-70d774a3": [
+      32768,
+      32768
+    ],
+    "locator/c3e197f6-a235-403b-ae9a-8fd17b7ea3ca/part-83bbb6ce": [
+      32768,
+      32768
+    ],
+    "locator/c3e197f6-a235-403b-ae9a-8fd17b7ea3ca/part-e91823e4": [
+      32768,
+      32768
+    ],
+    "locator/cb35ae2e-c956-4454-90af-8c57f52a24e4/part-00000000": [
+      81920,
+      81920
+    ],
+    "locator/d45cd18d-bf4f-4908-a7f0-023be274b772/part-00000000": [
+      32768,
+      32768
+    ],
+    "locator/d45cd18d-bf4f-4908-a7f0-023be274b772/part-fdb802aa": [
+      16384,
+      16384
+    ],
+    "locator/f0b719e9-05d1-4c35-9e80-f10b8e75b590/part-00000000": [
+      81920,
+      81920
+    ],
+    "packs/0289e9c0-8b7c-4d27-bd75-bc40541766bb/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/0289e9c0-8b7c-4d27-bd75-bc40541766bb/part-00000000": [
+      332,
+      4096
+    ],
+    "packs/03726712-37d8-4318-9d8c-df055d99a93c/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/03726712-37d8-4318-9d8c-df055d99a93c/part-00000000": [
+      2603,
+      4096
+    ],
+    "packs/05aa33d0-371d-421c-a335-7ff1fb988df9/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/05aa33d0-371d-421c-a335-7ff1fb988df9/part-00000000": [
+      320,
+      4096
+    ],
+    "packs/0c2e4642-7a03-4bcc-88b3-2e46e53b5170/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/0c2e4642-7a03-4bcc-88b3-2e46e53b5170/part-00000000": [
+      511,
+      4096
+    ],
+    "packs/0e5a827a-446a-4b78-a6fd-2b9988d83300/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/0e5a827a-446a-4b78-a6fd-2b9988d83300/part-00000000": [
+      326,
+      4096
+    ],
+    "packs/1f8235cb-a706-4210-8f2c-75244c92a249/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/1f8235cb-a706-4210-8f2c-75244c92a249/part-00000000": [
+      397,
+      4096
+    ],
+    "packs/2dc58f75-e584-4b17-b9d1-9606a73bbe84/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/2dc58f75-e584-4b17-b9d1-9606a73bbe84/part-00000000": [
+      322,
+      4096
+    ],
+    "packs/2f8157a3-e49b-4844-8879-465d39a1b18a/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/2f8157a3-e49b-4844-8879-465d39a1b18a/part-00000000": [
+      358,
+      4096
+    ],
+    "packs/3e0d2a83-2d39-440d-8564-79a663f4a0b9/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/3e0d2a83-2d39-440d-8564-79a663f4a0b9/part-00000000": [
+      324,
+      4096
+    ],
+    "packs/42952ba8-bfd6-4f65-9167-36a4941470f8/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/42952ba8-bfd6-4f65-9167-36a4941470f8/part-00000000": [
+      5530,
+      8192
+    ],
+    "packs/78c4bebd-5492-4993-85a1-87cf0b13d2b3/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/78c4bebd-5492-4993-85a1-87cf0b13d2b3/part-00000000": [
+      331,
+      4096
+    ],
+    "packs/7e80e09e-0f55-4e15-bc09-e94610739211/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/7e80e09e-0f55-4e15-bc09-e94610739211/part-00000000": [
+      1832212,
+      1835008
+    ],
+    "packs/898dabb4-8cb7-41eb-b1f1-92c4a06d45bb/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/898dabb4-8cb7-41eb-b1f1-92c4a06d45bb/part-00000000": [
+      315,
+      4096
+    ],
+    "packs/8aecb831-15d1-44e5-858b-c8e382fb8024/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/8aecb831-15d1-44e5-858b-c8e382fb8024/part-00000000": [
+      7807,
+      8192
+    ],
+    "packs/8e992e4c-f52e-48d6-b7a9-a34c13714194/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/8e992e4c-f52e-48d6-b7a9-a34c13714194/part-00000000": [
+      319,
+      4096
+    ],
+    "packs/8f62ca84-9878-403d-86f7-a5fdb79781b1/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/8f62ca84-9878-403d-86f7-a5fdb79781b1/part-00000000": [
+      324,
+      4096
+    ],
+    "packs/a2470b5e-395d-47e4-b9d1-e7cde24bef21/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/a2470b5e-395d-47e4-b9d1-e7cde24bef21/part-00000000": [
+      322,
+      4096
+    ],
+    "packs/a3e861bd-3e45-475d-9bc4-9a1c7fe54ae4/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/a3e861bd-3e45-475d-9bc4-9a1c7fe54ae4/part-00000000": [
+      2595,
+      4096
+    ],
+    "packs/a409a695-5680-48d3-8e50-5eedb9c99ddb/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/a409a695-5680-48d3-8e50-5eedb9c99ddb/part-00000000": [
+      4658,
+      8192
+    ],
+    "packs/bd2a5576-5b96-438e-822c-d7f8a9335344/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/bd2a5576-5b96-438e-822c-d7f8a9335344/part-00000000": [
+      840,
+      4096
+    ],
+    "packs/c44ded3b-2f85-4767-8527-89563e7530bf/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/c44ded3b-2f85-4767-8527-89563e7530bf/part-00000000": [
+      2600,
+      4096
+    ],
+    "packs/c6b25920-30ef-42e4-979e-52d27f21348e/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/c6b25920-30ef-42e4-979e-52d27f21348e/part-00000000": [
+      321,
+      4096
+    ],
+    "packs/d247e9ed-7f5b-421f-b9a8-7c44fcfe469e/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/d247e9ed-7f5b-421f-b9a8-7c44fcfe469e/part-00000000": [
+      91300,
+      94208
+    ],
+    "packs/d54631df-ed48-42ab-afd8-57619ff9eee9/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/d54631df-ed48-42ab-afd8-57619ff9eee9/part-00000000": [
+      329,
+      4096
+    ],
+    "packs/d618f492-2d2b-4541-9c0a-e9fe484f30d3/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/d618f492-2d2b-4541-9c0a-e9fe484f30d3/part-00000000": [
+      326,
+      4096
+    ],
+    "packs/d809e192-3ef4-41d6-b38a-2ef2f72573cc/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/d809e192-3ef4-41d6-b38a-2ef2f72573cc/part-00000000": [
+      322,
+      4096
+    ],
+    "packs/e4d3b503-0e3a-4913-a882-83ae3b0e150e/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/e4d3b503-0e3a-4913-a882-83ae3b0e150e/part-00000000": [
+      2589,
+      4096
+    ],
+    "packs/e717e685-1c5c-4691-8d9d-2866521c5c58/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/e717e685-1c5c-4691-8d9d-2866521c5c58/part-00000000": [
+      328,
+      4096
+    ],
+    "packs/ee6689b7-ee40-4d53-bfe7-39f0decaff8b/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/ee6689b7-ee40-4d53-bfe7-39f0decaff8b/part-00000000": [
+      400,
+      4096
+    ],
+    "packs/ee795fcb-346f-407f-ae65-abc7562e5683/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/ee795fcb-346f-407f-ae65-abc7562e5683/part-00000000": [
+      318,
+      4096
+    ],
+    "packs/efd03bb9-cd47-4c4d-8784-c9505fa75ce0/map/part-00000000": [
+      16384,
+      16384
+    ],
+    "packs/efd03bb9-cd47-4c4d-8784-c9505fa75ce0/part-00000000": [
+      322,
+      4096
+    ]
+  },
+  "allocated_bytes": 33546240,
+  "bytes": 33441792,
+  "families": {
+    "directory": {
+      "allocated_bytes": 1179648,
+      "bytes": 1179648,
+      "files": 32
+    },
+    "generations": {
+      "allocated_bytes": 524288,
+      "bytes": 524288,
+      "files": 32
+    },
+    "locator": {
+      "allocated_bytes": 29261824,
+      "bytes": 29261824,
+      "files": 46
+    },
+    "packs": {
+      "allocated_bytes": 2568192,
+      "bytes": 2467805,
+      "files": 62
+    },
+    "root-markers": {
+      "allocated_bytes": 12288,
+      "bytes": 8227,
+      "files": 5
+    }
+  },
+  "files": 177
+}

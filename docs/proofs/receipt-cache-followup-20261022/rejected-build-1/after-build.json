@@ -1,0 +1,40 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/after-lastdbd",
+  "binary_sha256": "51d29124439009784dbfd5c1bc526f519bbc0d98acd585acbfa38a2966793c42",
+  "build_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd",
+    "--bin",
+    "lastdb"
+  ],
+  "build_command": "cargo build --locked --release -p lastdb_node --bin lastdbd --bin lastdb",
+  "build_end_unix_ns": 1792731870805510000,
+  "build_environment": {
+    "CARGO_TARGET_DIR": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target",
+    "package_features": "lastdb_node defaults: sentry-telemetry,purging-allocator",
+    "profile": "release"
+  },
+  "build_scratch_owner": {
+    "device": 16777231,
+    "inode": 1503313149,
+    "owner_uid": 501,
+    "primary_data": false,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q",
+    "run_id": "9586ec22c48945169a84895151a9ee62",
+    "version": 1
+  },
+  "build_start_unix_ns": 1792731642993742000,
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "driver_sha256": "56e99a1ff40060f548510019f5ecfdb23d24c6777fa9327e9720c40b09fd668b",
+  "product_source_clean": true,
+  "revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+  "source_worktree": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021",
+  "version": "lastdbd 0.23.4-pre.0-276-ge79b71151"
+}

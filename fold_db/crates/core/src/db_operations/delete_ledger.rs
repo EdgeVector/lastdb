@@ -1,90 +1,13 @@
-//! Durable ledger of atom hard-deletes.
+//! Audit facts about completed atom erasures.
 //!
-//! # Why this exists
+//! A native erase stages one final audit row in the same snapshot batch as
+//! its data removals. The row has no recovery role. It never drives replay,
+//! repairs a counter, or authorizes another delete.
 //!
-//! The atom counter deletes an atom body when its count reaches zero. The batch
-//! that ends the last reference is a purge (`purge_record`, the compliance and
-//! GDPR erasure verb), a delete, or another write. Before this module the purge
-//! left no durable evidence: `purge_record` emitted a `tracing::info!` into a
-//! ~15h log window. So the store could not answer a question about its own
-//! contents: classifying 121 unresolved tips took three agent sessions and still
-//! could not prove which run removed them, only which mechanism could have.
-//!
-//! For a compliance verb that is also an audit gap: no evidence a purge ran,
-//! what it removed, or when.
-//!
-//! # The question this answers
-//!
-//! > This tip has no atom body. Was it deleted on purpose, or lost to a bug?
-//!
-//! A ledger read over the store's whole lifetime settles it. The **negative**
-//! answer is the strong one: if no ledger row covers the window in which a body
-//! disappeared, no delete path removed it, and the disappearance is a bug to
-//! chase rather than a purge to accept.
-//!
-//! # Why the converge lane writes a row that deletes no body
-//!
-//! The delete-converge cutover moved live `Delete` off the inline path that
-//! wrote a `delete` row and onto [`super::super::fold_db_core::purge`]'s
-//! `converge_delete_tips`, which removes tips and defers byte reclaim to a
-//! janitor. For 51 hours the ledger's newest row was pre-cutover and every
-//! window it was asked about answered "no deletes" — including windows in which
-//! the delete path had run thousands of times. The negative answer above is
-//! only strong if silence means silence, so the converge lane writes its own
-//! [`LEDGER_VERB_DELETE_CONVERGE`] row with `atoms_deleted: 0`. That
-//! distinguishes the two states an empty window used to collapse:
-//!
-//! - **no row at all** — no delete path ran;
-//! - **a converge row** — a delete ran and deliberately removed no body, so a
-//!   body that vanished in that window still has no delete to account for it.
-//!
-//! # What is deliberately NOT recorded
-//!
-//! - **Atom content.** A purge ledger that retains what was purged defeats the
-//!   erasure it audits.
-//! - **Atom uuids.** Atoms are content-addressed over
-//!   `(schema_name, content, source_file_name, metadata)`, so an atom uuid *is*
-//!   a hash of the content. Retaining the uuids of purged atoms would leave a
-//!   confirmation oracle: anyone who can guess an erased value can recompute
-//!   the uuid and check it against the ledger. That is the same information
-//!   leak the purge exists to close, so the ledger carries counts, not uuids.
-//! - **The purged record key in plaintext.** For a GDPR erasure the key is
-//!   typically the data subject's identifier. The ledger stores
-//!   `key_fingerprint` — a SHA-256 over `{schema}\0{described key}` — so the
-//!   audit question "did we honour the erasure request for X?" is answerable by
-//!   computing X's fingerprint and looking it up, while the ledger alone does
-//!   not enumerate the subjects whose data was erased.
-//!
-//! # Durability shape: write-ahead, then confirm
-//!
-//! Each batch writes its row **before** the destructive delete, with
-//! `committed: false`, and re-puts the same key with `committed: true` once the
-//! batch returns. Two small writes on a rare admin verb, in exchange for:
-//!
-//! - A crash or kill between the two writes cannot lose the evidence. A
-//!   post-hoc-only ledger would.
-//! - A row stuck at `committed: false` is itself diagnostic — a delete batch
-//!   started and never confirmed, so its counts are what was *attempted*.
-//!
-//! # Retention
-//!
-//! **Ledger rows are never automatically removed.** They live under the `dellog:`
-//! prefix, which no delete path touches:
-//!
-//! - The atom counter deletes only the body and the counter of an atom whose
-//!   count reached zero (`atom:{uuid}\0b` and `atom:{uuid}\0c`). A ledger row is
-//!   neither, and no counter counts it.
-//! - `purge_record` deletes only `history:` / `atom:` / schema-index keys for the
-//!   purged record.
-//!
-//! A self-erasing audit trail is worse than none, so this is enforced by
-//! construction rather than left to convention. Rows are ~300 bytes and one row covers a
-//! whole batch, not a key, so unbounded growth is not a space concern; the
-//! class is reported by `lastdb db inventory` as `atom_delete_ledger` so it
-//! stays visible if that ever stops being true. `delete` and `delete-converge`
-//! are live-traffic verbs rather than administrative ones, but they are the
-//! same lane at the same batch granularity: the primary accumulated 19,825
-//! `delete` rows over a month on the inline path before the cutover.
+//! The row retains counts, caller, schema, time, and a key fingerprint. It
+//! retains no atom content, atom UUIDs, or plaintext subject key. Existing
+//! version-1 attempted-operation rows remain historical audit facts only.
+//! Audit rows have no automatic retention policy.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -111,12 +34,8 @@ pub const LEDGER_VERB_DELETE: &str = "delete";
 /// converge lane gets its own verb rather than a `delete` row with a zero.
 pub const LEDGER_VERB_DELETE_CONVERGE: &str = "delete-converge";
 
-/// One append-only row per hard-delete batch.
-///
-/// Counts are what the batch was asked to remove, recorded write-ahead. On a row
-/// with `committed: true` they are also what it removed; on a `committed: false`
-/// row they are an upper bound, which is the safe direction for an audit trail —
-/// it never under-reports a deletion.
+/// One audit row per hard-delete batch. Version 2 joins the native erase
+/// atomically and always has `committed: true`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AtomDeleteLedgerEntry {
     /// Row format version. Bump when fields change meaning, not when adding.
@@ -128,8 +47,8 @@ pub struct AtomDeleteLedgerEntry {
     /// Who asked. Free-form caller tag, e.g. `"mutation-pipeline"` or
     /// `"admin-api"`. Not authenticated — evidence of provenance, not identity.
     pub caller: String,
-    /// True once the destructive batch returned successfully. A row left at
-    /// `false` means the batch started and did not confirm.
+    /// Version 2 is always true. A false version-1 row is historical evidence
+    /// of an attempted operation, never a recovery instruction.
     pub committed: bool,
     /// Purge only: the schema whose record was erased.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -156,9 +75,8 @@ pub struct AtomDeleteLedgerEntry {
     /// hit the store, as opposed to the logical atom count.
     #[serde(default)]
     pub storage_keys_deleted: u64,
-    /// Delete-converge only: live `mk:` tip rows removed to make disk agree
-    /// with the resident tombstone. Counted write-ahead, so on a
-    /// `committed: false` row it is what the batch was asked to remove.
+    /// Live `mk:` tips removed by the same native snapshot batch. Historical
+    /// version-1 rows with `committed: false` describe an attempted operation.
     #[serde(default)]
     pub tips_removed: u64,
     /// Delete-converge only: records in the batch that had durable residue to
@@ -183,11 +101,11 @@ impl AtomDeleteLedgerEntry {
     /// as one struct field + one line here instead of an edit per verb.
     fn base(verb: &str, caller: &str) -> Self {
         Self {
-            version: 1,
+            version: 2,
             verb: verb.to_string(),
             at: Utc::now().to_rfc3339(),
             caller: caller.to_string(),
-            committed: false,
+            committed: true,
             schema: None,
             key_fingerprint: None,
             atoms_deleted: 0,
@@ -237,75 +155,7 @@ pub fn key_fingerprint(schema: &str, described_key: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Handle to a written-ahead ledger row, so the caller can confirm it.
-///
-/// Deliberately not `Copy`/`Clone`-cheap-to-ignore: holding one is the reminder
-/// that a batch which never calls [`AtomStore::commit_delete_ledger_row`] leaves
-/// an unconfirmed row behind.
-#[derive(Debug, Clone)]
-pub struct DeleteLedgerHandle {
-    key: String,
-    entry: AtomDeleteLedgerEntry,
-}
-
-impl DeleteLedgerHandle {
-    /// Full storage key of the row.
-    pub fn key(&self) -> &str {
-        &self.key
-    }
-}
-
 impl AtomStore {
-    /// Write a ledger row **before** its delete batch runs, returning a handle
-    /// to confirm with once the batch succeeds.
-    ///
-    /// Failing to write the ledger fails the caller: a hard-delete that cannot
-    /// be recorded is a hard-delete that must not happen. This is the one place
-    /// the ledger is allowed to block a destructive verb, and it blocks it
-    /// *before* anything is destroyed.
-    pub async fn begin_delete_ledger_row(
-        &self,
-        storage_prefix: Option<&str>,
-        entry: AtomDeleteLedgerEntry,
-    ) -> Result<DeleteLedgerHandle, SchemaError> {
-        // Nanoseconds keep two batches inside the same millisecond ordered; the
-        // uuid suffix keeps them from colliding if the clock does not advance.
-        let ts = Utc::now().timestamp_nanos_opt().unwrap_or(0).max(0);
-        let base = crate::kind_partition::anchored(
-            "dellog",
-            &format!("{ts:020}:{}", uuid::Uuid::new_v4()),
-        );
-        let key = build_storage_key(storage_prefix, &base);
-        self.raw().put_item(&key, &entry).await.map_err(|e| {
-            SchemaError::InvalidData(format!("delete ledger: failed to record intent: {e}"))
-        })?;
-        Ok(DeleteLedgerHandle { key, entry })
-    }
-
-    /// Re-put the row with final counts and `committed: true`.
-    ///
-    /// Unlike [`Self::begin_delete_ledger_row`] a failure here does **not** fail
-    /// the caller: the delete already happened, and erroring out would report a
-    /// destructive operation as not-done. The write-ahead row is already durable
-    /// and its `committed: false` state is the honest record of this outcome, so
-    /// this logs and moves on.
-    pub async fn commit_delete_ledger_row(
-        &self,
-        handle: DeleteLedgerHandle,
-        finalize: impl FnOnce(&mut AtomDeleteLedgerEntry),
-    ) {
-        let DeleteLedgerHandle { key, mut entry } = handle;
-        finalize(&mut entry);
-        entry.committed = true;
-        if let Err(e) = self.raw().put_item(&key, &entry).await {
-            tracing::warn!(
-                ledger_key = %key,
-                error = %e,
-                "delete ledger: row stays uncommitted — the delete DID run; counts on this row are what was attempted"
-            );
-        }
-    }
-
     /// Read ledger rows in time order (oldest first).
     ///
     /// `limit` of 0 means unbounded. This is a prefix scan by design: the ledger

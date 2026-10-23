@@ -11,7 +11,7 @@ impl AuthClient {
         key: &str,
         ticket: &str,
     ) -> SyncResult<()> {
-        if ticket.is_empty() || key.is_empty() || self.cloud_adoption_read.is_some() {
+        if ticket.is_empty() || key.is_empty() {
             return Err(SyncError::CloudPurgeHeld(
                 "delete completion requires a captured ticket and writable client".into(),
             ));

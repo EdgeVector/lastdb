@@ -192,7 +192,6 @@ mod admin_routes;
 mod aggregate_routes;
 mod app_routes;
 mod batch_mutation_routes;
-mod cloud_purge_routes;
 mod db_compact_routes;
 mod dispatch;
 mod introspection_routes;

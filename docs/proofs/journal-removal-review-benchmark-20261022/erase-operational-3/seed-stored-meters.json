@@ -1,0 +1,19 @@
+{
+  "keep_small:hard_erase_totals": null,
+  "keep_small:meters": {
+    "bytes": 660,
+    "encrypted": true,
+    "sha256": "87d4e65c602301b3261bde74edead7bb578cb04cc9c2e87da684726eb1767a4d"
+  },
+  "keep_small:meters:schema:4469736b47726f7774684d656173757265": {
+    "bytes": 4324,
+    "encrypted": true,
+    "sha256": "a1041bd12af025d12103f56088fad140464554bf4d131aef31f702212fe8c9b1"
+  },
+  "keep_small:meters:schema:4469736b47726f7774684d65617375726542794964": {
+    "bytes": 92,
+    "encrypted": true,
+    "sha256": "5da04fdf48bd6547d36bedb9fc51017b7088e520101b004dd11e200444bfd27f"
+  },
+  "keep_small:meters:unattributed": null
+}

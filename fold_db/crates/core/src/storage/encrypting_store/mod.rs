@@ -174,7 +174,7 @@ impl EncryptingKvStore {
     }
 
     /// Preserve an existing element seal; wrap only records that still need one.
-    pub(crate) async fn protect_value(&self, key: &[u8], value: Vec<u8>) -> StorageResult<Vec<u8>> {
+    async fn protect_value(&self, key: &[u8], value: Vec<u8>) -> StorageResult<Vec<u8>> {
         if inner_protected::has_inner_protection(&self.namespace, key, &value) {
             return Ok(value);
         }

@@ -1,5 +1,6 @@
 use super::bytes::*;
 use super::dependency::Coordinate;
+use super::live_parts::LiveParts;
 use super::page::Page;
 use super::page_write::{directory, PageFields, PageWriter};
 use super::{artifact, corrupt, Current, PAGE_BYTES};
@@ -11,6 +12,10 @@ use uuid::Uuid;
 mod carried;
 mod dependency_record;
 
+// Version zero was a pre-merge counted-receipt prototype without allocator
+// template references. It cannot safely enter the finalized count ledger.
+const LIVE_RECEIPT_VERSION: u64 = 1;
+
 /// Complete generation identity; ordinary reads do not enumerate this receipt.
 pub(super) struct Generation {
     pub(super) object: Uuid,
@@ -19,34 +24,14 @@ pub(super) struct Generation {
     pub(super) records: Vec<[u8; 80]>,
 }
 
-pub(super) fn write(
+pub(super) fn write_live(
     root: &Path,
     current: &Current,
-    dependencies: &[Coordinate],
-) -> Result<Generation> {
-    write_with_prior(root, current, dependencies, None)
-}
-
-pub(super) fn write_carried(
-    root: &Path,
-    current: &Current,
-    dependencies: &[Coordinate],
-    prior: &Generation,
-) -> Result<Generation> {
-    write_with_prior(root, current, dependencies, Some(prior))
-}
-
-fn write_with_prior(
-    root: &Path,
-    current: &Current,
-    dependencies: &[Coordinate],
+    live: &LiveParts,
     prior: Option<&Generation>,
 ) -> Result<Generation> {
-    if dependencies.len() > super::dependency::MAX_DEPENDENCIES {
-        return Err(super::resource());
-    }
-    if dependencies.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(corrupt("generation coordinates are not strictly ordered"));
+    if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
+        return Err(corrupt("counted receipt requires its format feature"));
     }
     let parent = root.join("generations");
     if !parent.try_exists()? {
@@ -56,16 +41,21 @@ fn write_with_prior(
     if path.try_exists()? {
         return verify(root, current);
     }
-    write_at(root, current, dependencies, prior, path)
+    write_live_at(root, current, live, prior, path)
 }
 
-pub(in crate::disk_pack) fn write_at(
+/// Prepare a complete counted receipt at the caller's private publication path.
+pub(in crate::disk_pack) fn write_live_at(
     root: &Path,
     current: &Current,
-    dependencies: &[Coordinate],
+    live: &LiveParts,
     prior: Option<&Generation>,
     path: std::path::PathBuf,
 ) -> Result<Generation> {
+    if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
+        return Err(corrupt("counted receipt requires its format feature"));
+    }
+    let dependencies = live.coordinates();
     if dependencies.len() > super::dependency::MAX_DEPENDENCIES
         || dependencies.windows(2).any(|pair| pair[0] >= pair[1])
     {
@@ -93,10 +83,11 @@ pub(in crate::disk_pack) fn write_at(
             payload.extend_from_slice(&current_bytes);
         }
         for dependency in &dependencies[ordinal..ordinal + entries] {
-            let entry = match carried.get(dependency) {
+            let mut entry = match carried.get(dependency) {
                 Some(entry) => entry,
                 None => dependency.capture(root, current)?,
             };
+            put64(&mut entry, 24, live.reference_count(dependency)?);
             dependency_record::decode(current, &entry)?;
             payload.extend_from_slice(&entry);
             records.push(entry);
@@ -123,7 +114,7 @@ pub(in crate::disk_pack) fn write_at(
     Ok(Generation {
         object,
         dependencies: count as u64,
-        coordinates: dependencies.to_vec(),
+        coordinates: dependencies,
         records,
     })
 }
@@ -137,7 +128,32 @@ fn prefix(current: &Current, count: u64, pages: u64, bytes: &[u8; 4096]) -> Vec<
     put64(&mut prefix, 72, pages);
     put64(&mut prefix, 80, current.published_ms);
     put64(&mut prefix, 88, current.required_features);
+    put64(&mut prefix, 96, receipt_version(current));
     prefix
+}
+
+fn receipt_version(current: &Current) -> u64 {
+    if current.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
+        LIVE_RECEIPT_VERSION
+    } else {
+        0
+    }
+}
+
+fn dependency_count(current: &Current, first: &Page) -> Result<u64> {
+    if first.payload().len() < 128 {
+        return Err(corrupt("generation prefix length"));
+    }
+    if u64_at(first.payload(), 96) != receipt_version(current) {
+        return Err(corrupt("unsupported generation receipt semantic version"));
+    }
+    let count = u64_at(first.payload(), 16);
+    if count > super::dependency::MAX_DEPENDENCIES as u64 {
+        return Err(corrupt(
+            "generation dependency count exceeds artifact limit",
+        ));
+    }
+    Ok(count)
 }
 
 pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
@@ -188,15 +204,7 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
         current.generation,
         current.required_features,
     )?;
-    if first.payload().len() < 128 {
-        return Err(corrupt("generation prefix length"));
-    }
-    let count = u64_at(first.payload(), 16);
-    if count > super::dependency::MAX_DEPENDENCIES as u64 {
-        return Err(corrupt(
-            "generation dependency count exceeds artifact limit",
-        ));
-    }
+    let count = dependency_count(current, &first)?;
     let pages = 1 + count.saturating_sub(150).div_ceil(201);
     let current_bytes = current.encode()?;
     let expected_prefix = prefix(current, count, pages, &current_bytes);
@@ -230,12 +238,10 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
             return Err(corrupt("generation receipt boundary or CURRENT mismatch"));
         }
         for entry in page.payload()[128 + first_bytes as usize..].chunks_exact(80) {
-            let coordinate = dependency_record::decode(current, entry)?;
+            let stored: &[u8; 80] = entry.try_into().expect("fixed dependency record");
+            let coordinate = read_dependency(root, current, stored, verify_parts)?;
             if coordinates.last().is_some_and(|prior| *prior >= coordinate) {
                 return Err(corrupt("generation coordinates are not strictly ordered"));
-            }
-            if verify_parts && coordinate.capture(root, current)? != entry {
-                return Err(corrupt("generation dependency differs from immutable part"));
             }
             coordinates.push(coordinate);
             records.push(entry.try_into().expect("fixed dependency record"));
@@ -267,4 +273,17 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
         coordinates,
         records,
     })
+}
+
+fn read_dependency(
+    root: &Path,
+    current: &Current,
+    stored: &[u8; 80],
+    verify_parts: bool,
+) -> Result<Coordinate> {
+    let coordinate = dependency_record::decode(current, stored)?;
+    if verify_parts && coordinate.capture(root, current)? != dependency_record::immutable(stored) {
+        return Err(corrupt("generation dependency differs from immutable part"));
+    }
+    Ok(coordinate)
 }

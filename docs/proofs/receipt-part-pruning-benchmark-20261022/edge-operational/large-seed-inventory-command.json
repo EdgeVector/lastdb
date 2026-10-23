@@ -1,0 +1,279 @@
+{
+  "argv": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+    "inventory",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.ouzvbodr/home/data/disk-pack"
+  ],
+  "elapsed_nanos": 6375000,
+  "exit_code": 0,
+  "input": null,
+  "result": {
+    "elapsed_nanos": 2197792,
+    "result": {
+      "files": [
+        {
+          "bytes": 16384,
+          "creation_generation": 22,
+          "path": "directory/cd46eb36-1cab-4749-969e-e6d53d16e7e3/part-09ac8916"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 16,
+          "path": "locator/496c1e88-0454-461c-bc69-8ad392da4f82/part-02cd9a54"
+        },
+        {
+          "bytes": 32768,
+          "creation_generation": 20,
+          "path": "locator/850fcbb5-1779-4f62-8abd-05603d61d890/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 21,
+          "path": "locator/8723b0ba-dfda-459c-82c3-6dae86267bc2/part-5062ccb4"
+        },
+        {
+          "bytes": 114688,
+          "creation_generation": 22,
+          "path": "locator/99f92b61-f74e-4592-92e7-ff6a4c987f18/part-00000000"
+        },
+        {
+          "bytes": 32768,
+          "creation_generation": 19,
+          "path": "locator/b48daf35-a889-4dad-9c7c-0a69d67c8399/part-00000000"
+        },
+        {
+          "bytes": 32768,
+          "creation_generation": 17,
+          "path": "locator/e47d6a4f-8054-4539-98f8-bf9f388c013c/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 11,
+          "path": "packs/048098be-d8cc-4ea4-bdbb-3f8f2b0bbe3d/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 12,
+          "path": "packs/0dbaf50d-fbf8-4271-be9b-bc1c60c2a275/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 20,
+          "path": "packs/1812c256-fb11-4f6c-a923-7508de6d7200/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 8,
+          "path": "packs/29c169cb-49a5-402d-9873-2617e1395863/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 13,
+          "path": "packs/2d72e197-0d54-4e87-bf9a-9c50ea337dda/map/part-00000000"
+        },
+        {
+          "bytes": 81920,
+          "creation_generation": 22,
+          "path": "packs/38c184dd-399c-4e1c-8e3c-b9ea507e3f12/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 4,
+          "path": "packs/446804b1-930e-4532-8bd4-1f13a0279ed7/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 15,
+          "path": "packs/46d05922-cedc-4865-98f5-1b9c921983c6/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 19,
+          "path": "packs/4c758e7b-b601-4491-bb3c-1051964b2503/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 17,
+          "path": "packs/547d0032-e5ce-4b9b-9ded-2f315b9b7ec7/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 3,
+          "path": "packs/7651e1c2-b9de-45d8-82ca-3c8f787c5da8/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 9,
+          "path": "packs/85e0eba4-c955-4f59-8342-c1ea1839921a/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 5,
+          "path": "packs/8eb2e4a3-1ace-4707-802f-e0202029ac05/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 16,
+          "path": "packs/9981d801-2a7c-4fa5-8040-bccf9913d811/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 2,
+          "path": "packs/a4b2ea3d-8325-4193-a6c8-38007544ecd5/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 6,
+          "path": "packs/c21f5530-8bb3-4f37-bda1-131adea9655c/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 10,
+          "path": "packs/cd2be983-7c02-48d4-ad44-2f5d20b2377f/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 7,
+          "path": "packs/e2779b68-d6f1-4684-a4fb-041c883174a0/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 21,
+          "path": "packs/ebea1195-0564-424f-bac5-c8144eb3dfdf/map/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 14,
+          "path": "packs/fff22418-946d-4483-ba5a-d1b3f0d717bb/map/part-00000000"
+        },
+        {
+          "bytes": 331,
+          "creation_generation": 11,
+          "path": "packs/048098be-d8cc-4ea4-bdbb-3f8f2b0bbe3d/part-00000000"
+        },
+        {
+          "bytes": 326,
+          "creation_generation": 12,
+          "path": "packs/0dbaf50d-fbf8-4271-be9b-bc1c60c2a275/part-00000000"
+        },
+        {
+          "bytes": 397,
+          "creation_generation": 20,
+          "path": "packs/1812c256-fb11-4f6c-a923-7508de6d7200/part-00000000"
+        },
+        {
+          "bytes": 324,
+          "creation_generation": 8,
+          "path": "packs/29c169cb-49a5-402d-9873-2617e1395863/part-00000000"
+        },
+        {
+          "bytes": 326,
+          "creation_generation": 13,
+          "path": "packs/2d72e197-0d54-4e87-bf9a-9c50ea337dda/part-00000000"
+        },
+        {
+          "bytes": 8388452,
+          "creation_generation": 22,
+          "path": "packs/38c184dd-399c-4e1c-8e3c-b9ea507e3f12/part-00000000"
+        },
+        {
+          "bytes": 4443824,
+          "creation_generation": 22,
+          "path": "packs/38c184dd-399c-4e1c-8e3c-b9ea507e3f12/part-00000001"
+        },
+        {
+          "bytes": 319,
+          "creation_generation": 4,
+          "path": "packs/446804b1-930e-4532-8bd4-1f13a0279ed7/part-00000000"
+        },
+        {
+          "bytes": 329,
+          "creation_generation": 15,
+          "path": "packs/46d05922-cedc-4865-98f5-1b9c921983c6/part-00000000"
+        },
+        {
+          "bytes": 400,
+          "creation_generation": 19,
+          "path": "packs/4c758e7b-b601-4491-bb3c-1051964b2503/part-00000000"
+        },
+        {
+          "bytes": 358,
+          "creation_generation": 17,
+          "path": "packs/547d0032-e5ce-4b9b-9ded-2f315b9b7ec7/part-00000000"
+        },
+        {
+          "bytes": 315,
+          "creation_generation": 3,
+          "path": "packs/7651e1c2-b9de-45d8-82ca-3c8f787c5da8/part-00000000"
+        },
+        {
+          "bytes": 322,
+          "creation_generation": 9,
+          "path": "packs/85e0eba4-c955-4f59-8342-c1ea1839921a/part-00000000"
+        },
+        {
+          "bytes": 324,
+          "creation_generation": 5,
+          "path": "packs/8eb2e4a3-1ace-4707-802f-e0202029ac05/part-00000000"
+        },
+        {
+          "bytes": 320,
+          "creation_generation": 16,
+          "path": "packs/9981d801-2a7c-4fa5-8040-bccf9913d811/part-00000000"
+        },
+        {
+          "bytes": 322,
+          "creation_generation": 2,
+          "path": "packs/a4b2ea3d-8325-4193-a6c8-38007544ecd5/part-00000000"
+        },
+        {
+          "bytes": 318,
+          "creation_generation": 6,
+          "path": "packs/c21f5530-8bb3-4f37-bda1-131adea9655c/part-00000000"
+        },
+        {
+          "bytes": 322,
+          "creation_generation": 10,
+          "path": "packs/cd2be983-7c02-48d4-ad44-2f5d20b2377f/part-00000000"
+        },
+        {
+          "bytes": 321,
+          "creation_generation": 7,
+          "path": "packs/e2779b68-d6f1-4684-a4fb-041c883174a0/part-00000000"
+        },
+        {
+          "bytes": 836,
+          "creation_generation": 21,
+          "path": "packs/ebea1195-0564-424f-bac5-c8144eb3dfdf/part-00000000"
+        },
+        {
+          "bytes": 322,
+          "creation_generation": 14,
+          "path": "packs/fff22418-946d-4483-ba5a-d1b3f0d717bb/part-00000000"
+        },
+        {
+          "bytes": 16384,
+          "creation_generation": 22,
+          "path": "generations/22/part-00000000"
+        },
+        {
+          "bytes": 4096,
+          "creation_generation": 1,
+          "path": "laststore-pack-home-v1"
+        },
+        {
+          "bytes": 35,
+          "creation_generation": 1,
+          "path": "laststore-layout-v1"
+        }
+      ],
+      "frontier": 21,
+      "generation": 22,
+      "receipt": "f8729fa5-2d4f-49f3-b379-6d5d0fbf9461"
+    }
+  },
+  "stderr": "",
+  "stdout_bytes": 5525,
+  "stdout_sha256": "bcde8bf783ba126fa47d2be082e121a3a8d5e311ce2060003d7457cec5e56341"
+}

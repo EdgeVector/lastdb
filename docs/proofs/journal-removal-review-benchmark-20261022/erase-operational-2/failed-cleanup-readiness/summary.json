@@ -1,0 +1,8 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "original_summary": "erase-operational-2/summary.json",
+  "reason": "The removed route returned an empty 404 body; the helper incorrectly required JSON after all erase, empty-meter, and forced-reopen checks passed",
+  "scope": "Cleanup readiness only after diagnosed helper error; parent product capture remains complete=false",
+  "source_receipts_sha256": "f5ec7a058c7f5927059f1945ddd58ff5be6353828d989146e062e98c7106296f"
+}

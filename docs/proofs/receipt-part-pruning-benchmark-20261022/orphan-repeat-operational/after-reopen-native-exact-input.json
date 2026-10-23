@@ -1,0 +1,16 @@
+{
+  "coordinates": [
+    {
+      "collection": "receipt-orphan-generated",
+      "key": "orphan\u0000keeper"
+    },
+    {
+      "collection": "receipt-orphan-generated",
+      "key": "orphan\u0000old"
+    },
+    {
+      "collection": "receipt-orphan-generated",
+      "key": "orphan\u0000young"
+    }
+  ]
+}

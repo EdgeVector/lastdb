@@ -1,0 +1,394 @@
+{
+  "after_129": {
+    "app": {
+      "attributed_bytes": 0,
+      "budget_bytes": 1073741824,
+      "complete": false,
+      "heavy": false,
+      "incomplete_reason": "reused_atom_live_transition_requires_repair",
+      "live_total_bytes": 480657,
+      "measured_at": "2026-10-22T20:44:13.904984Z",
+      "meters_origin": "incomplete",
+      "owners": [
+        {
+          "atom_count": 382,
+          "kind": "system",
+          "live_bytes": 208737,
+          "owner": "system",
+          "schema_count": 2,
+          "schemas": [
+            "DiskGrowthMeasure",
+            "DiskGrowthMeasureById"
+          ]
+        },
+        {
+          "atom_count": 0,
+          "kind": "unattributed",
+          "live_bytes": 271920,
+          "owner": "unattributed",
+          "schema_count": 0,
+          "schemas": []
+        }
+      ],
+      "reconciliation_lag": {
+        "last_pass_at": null,
+        "resume_after": null,
+        "unresolved_schema_bytes": 0,
+        "unresolved_schema_count": 0
+      },
+      "system_bytes": 208737,
+      "unattributable_plane_bytes": 271920,
+      "unattributed_bytes": 271920,
+      "unresolved_schema_bytes": 0
+    },
+    "live_records": 127,
+    "schemas": {
+      "DiskGrowthMeasure": {
+        "active_slot_count": 508,
+        "complete": false,
+        "counter_epoch": 386,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "reused_atom_live_transition_requires_repair",
+        "logical_value_bytes": 234315,
+        "measured_at": "2026-10-22T20:44:13.904831Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasure",
+        "schema_current_bytes": 370279,
+        "schema_structure_bytes": 135964
+      },
+      "DiskGrowthMeasureById": {
+        "active_slot_count": 508,
+        "complete": false,
+        "counter_epoch": 386,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "reused_atom_live_transition_requires_repair",
+        "logical_value_bytes": 234315,
+        "measured_at": "2026-10-22T20:44:13.904835Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasureById",
+        "schema_current_bytes": 370271,
+        "schema_structure_bytes": 135956
+      }
+    }
+  },
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "empty": {
+    "app": {
+      "attributed_bytes": 0,
+      "budget_bytes": 1073741824,
+      "complete": false,
+      "heavy": false,
+      "incomplete_reason": "stale_after_unclean_stop",
+      "live_total_bytes": 648,
+      "measured_at": "2026-10-22T20:44:17.416739Z",
+      "meters_origin": "incomplete",
+      "owners": [
+        {
+          "atom_count": 0,
+          "kind": "system",
+          "live_bytes": 0,
+          "owner": "system",
+          "schema_count": 2,
+          "schemas": [
+            "DiskGrowthMeasure",
+            "DiskGrowthMeasureById"
+          ]
+        },
+        {
+          "atom_count": 0,
+          "kind": "unattributed",
+          "live_bytes": 648,
+          "owner": "unattributed",
+          "schema_count": 0,
+          "schemas": []
+        }
+      ],
+      "reconciliation_lag": {
+        "last_pass_at": null,
+        "resume_after": null,
+        "unresolved_schema_bytes": 0,
+        "unresolved_schema_count": 0
+      },
+      "system_bytes": 0,
+      "unattributable_plane_bytes": 648,
+      "unattributed_bytes": 648,
+      "unresolved_schema_bytes": 0
+    },
+    "live_records": 0,
+    "schemas": {
+      "DiskGrowthMeasure": {
+        "active_slot_count": 0,
+        "complete": false,
+        "counter_epoch": 513,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "stale_after_unclean_stop",
+        "logical_value_bytes": 0,
+        "measured_at": "2026-10-22T20:44:17.416427Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasure",
+        "schema_current_bytes": 328,
+        "schema_structure_bytes": 328
+      },
+      "DiskGrowthMeasureById": {
+        "active_slot_count": 0,
+        "complete": false,
+        "counter_epoch": 513,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "stale_after_unclean_stop",
+        "logical_value_bytes": 0,
+        "measured_at": "2026-10-22T20:44:17.416498Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasureById",
+        "schema_current_bytes": 320,
+        "schema_structure_bytes": 320
+      }
+    }
+  },
+  "explicit_layouts_per_key": 2,
+  "first_erase_chunks_per_schema": 3,
+  "first_erase_keys_per_schema": 129,
+  "first_erase_mutations": 258,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lde.E7TFmI/home",
+  "persisted": [
+    {
+      "exact_meter_coordinates": [
+        "keep_small:meters",
+        "keep_small:meters:schema:4469736b47726f7774684d656173757265",
+        "keep_small:meters:schema:4469736b47726f7774684d65617375726542794964",
+        "keep_small:meters:unattributed",
+        "keep_small:hard_erase_totals"
+      ],
+      "format_version_2_is_source_guarantee": true,
+      "frontier": 31,
+      "generation": 32,
+      "key_absence_scope": "Exact retired aggregate key only; random journal-key absence is a zero-writer source fact",
+      "no_recovery_files": true,
+      "numeric_restore_verification": "Ordinary owner APIs before and after reopen; no identity or key read",
+      "retired_aggregate_key_absent": true,
+      "stored_values_encrypted": true
+    },
+    {
+      "exact_meter_coordinates": [
+        "keep_small:meters",
+        "keep_small:meters:schema:4469736b47726f7774684d656173757265",
+        "keep_small:meters:schema:4469736b47726f7774684d65617375726542794964",
+        "keep_small:meters:unattributed",
+        "keep_small:hard_erase_totals"
+      ],
+      "format_version_2_is_source_guarantee": true,
+      "frontier": 36,
+      "generation": 37,
+      "key_absence_scope": "Exact retired aggregate key only; random journal-key absence is a zero-writer source fact",
+      "no_recovery_files": true,
+      "numeric_restore_verification": "Ordinary owner APIs before and after reopen; no identity or key read",
+      "retired_aggregate_key_absent": true,
+      "stored_values_encrypted": true
+    },
+    {
+      "exact_meter_coordinates": [
+        "keep_small:meters",
+        "keep_small:meters:schema:4469736b47726f7774684d656173757265",
+        "keep_small:meters:schema:4469736b47726f7774684d65617375726542794964",
+        "keep_small:meters:unattributed",
+        "keep_small:hard_erase_totals"
+      ],
+      "format_version_2_is_source_guarantee": true,
+      "frontier": 42,
+      "generation": 43,
+      "key_absence_scope": "Exact retired aggregate key only; random journal-key absence is a zero-writer source fact",
+      "no_recovery_files": true,
+      "numeric_restore_verification": "Ordinary owner APIs before and after reopen; no identity or key read",
+      "retired_aggregate_key_absent": true,
+      "stored_values_encrypted": true
+    }
+  ],
+  "records_per_schema": 256,
+  "remaining_erase_mutations": 254,
+  "reopened_129": {
+    "app": {
+      "attributed_bytes": 0,
+      "budget_bytes": 1073741824,
+      "complete": false,
+      "heavy": false,
+      "incomplete_reason": "stale_after_unclean_stop",
+      "live_total_bytes": 480657,
+      "measured_at": "2026-10-22T20:44:15.803718Z",
+      "meters_origin": "incomplete",
+      "owners": [
+        {
+          "atom_count": 382,
+          "kind": "system",
+          "live_bytes": 208737,
+          "owner": "system",
+          "schema_count": 2,
+          "schemas": [
+            "DiskGrowthMeasure",
+            "DiskGrowthMeasureById"
+          ]
+        },
+        {
+          "atom_count": 0,
+          "kind": "unattributed",
+          "live_bytes": 271920,
+          "owner": "unattributed",
+          "schema_count": 0,
+          "schemas": []
+        }
+      ],
+      "reconciliation_lag": {
+        "last_pass_at": null,
+        "resume_after": null,
+        "unresolved_schema_bytes": 0,
+        "unresolved_schema_count": 0
+      },
+      "system_bytes": 208737,
+      "unattributable_plane_bytes": 271920,
+      "unattributed_bytes": 271920,
+      "unresolved_schema_bytes": 0
+    },
+    "live_records": 127,
+    "schemas": {
+      "DiskGrowthMeasure": {
+        "active_slot_count": 508,
+        "complete": false,
+        "counter_epoch": 386,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "stale_after_unclean_stop",
+        "logical_value_bytes": 234315,
+        "measured_at": "2026-10-22T20:44:15.803529Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasure",
+        "schema_current_bytes": 370279,
+        "schema_structure_bytes": 135964
+      },
+      "DiskGrowthMeasureById": {
+        "active_slot_count": 508,
+        "complete": false,
+        "counter_epoch": 386,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "stale_after_unclean_stop",
+        "logical_value_bytes": 234315,
+        "measured_at": "2026-10-22T20:44:15.803530Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasureById",
+        "schema_current_bytes": 370271,
+        "schema_structure_bytes": 135956
+      }
+    }
+  },
+  "retired_commands_absent": true,
+  "retired_records_and_snapshot_unchanged": true,
+  "retired_route_absent": true,
+  "scope": "Generated product data; interruption follows explicit flush; no power-loss or primary claim",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lde.E7TFmI",
+  "scratch_retained": true,
+  "seed": {
+    "app": {
+      "attributed_bytes": 0,
+      "budget_bytes": 1073741824,
+      "complete": false,
+      "heavy": false,
+      "incomplete_reason": "reused_atom_live_transition_requires_repair",
+      "live_total_bytes": 967909,
+      "measured_at": "2026-10-22T20:44:11.941662Z",
+      "meters_origin": "incomplete",
+      "owners": [
+        {
+          "atom_count": 769,
+          "kind": "system",
+          "live_bytes": 967909,
+          "owner": "system",
+          "schema_count": 1,
+          "schemas": [
+            "DiskGrowthMeasure"
+          ]
+        }
+      ],
+      "reconciliation_lag": {
+        "last_pass_at": null,
+        "resume_after": null,
+        "unresolved_schema_bytes": 0,
+        "unresolved_schema_count": 0
+      },
+      "system_bytes": 967909,
+      "unattributable_plane_bytes": 0,
+      "unattributed_bytes": 0,
+      "unresolved_schema_bytes": 0
+    },
+    "live_records": 256,
+    "schemas": {
+      "DiskGrowthMeasure": {
+        "active_slot_count": 1024,
+        "complete": false,
+        "counter_epoch": 257,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "reused_atom_live_transition_requires_repair",
+        "logical_value_bytes": 472210,
+        "measured_at": "2026-10-22T20:44:11.940867Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasure",
+        "schema_current_bytes": 745946,
+        "schema_structure_bytes": 273736
+      },
+      "DiskGrowthMeasureById": {
+        "active_slot_count": 1024,
+        "complete": false,
+        "counter_epoch": 257,
+        "declared_molecule_count": 4,
+        "deduplicated_across_schemas": false,
+        "deduplicated_within_schema": false,
+        "incomplete_reason": "reused_atom_live_transition_requires_repair",
+        "logical_value_bytes": 472210,
+        "measured_at": "2026-10-22T20:44:11.941087Z",
+        "metric": "logical_current_schema_bytes",
+        "missing_molecule_counters": 0,
+        "pending_protein_folds": 0,
+        "retained_history_bytes": 0,
+        "schema_binding": "DiskGrowthMeasureById",
+        "schema_current_bytes": 745938,
+        "schema_structure_bytes": 273728
+      }
+    }
+  },
+  "shared_field_schemas": [
+    "DiskGrowthMeasure",
+    "DiskGrowthMeasureById"
+  ],
+  "source_revision": "5919abbfbf2263993ea99700b73bd9c8d43d689b"
+}

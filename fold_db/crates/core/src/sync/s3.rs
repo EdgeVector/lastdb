@@ -9,9 +9,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
-#[path = "s3/admitted.rs"]
-mod admitted;
-
 #[path = "s3/cloud_completion.rs"]
 mod cloud_completion;
 #[path = "s3/delete.rs"]

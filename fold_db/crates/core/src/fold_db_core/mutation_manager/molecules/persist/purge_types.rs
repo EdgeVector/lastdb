@@ -12,8 +12,8 @@ pub(super) enum PurgeAttemptError {
     /// The store or a later durable stage failed. Keep the envelope at the
     /// lane head and retry it.
     Retry(SchemaError),
-    /// A caller precondition failed before any destructive stage. Complete
-    /// the envelope with that error instead of retrying rejected intent.
+    /// A caller precondition or private preparation resource check failed.
+    /// Complete the envelope with the error instead of retrying it.
     Rejected(SchemaError),
 }
 
@@ -24,6 +24,7 @@ impl From<crate::storage::StorageError> for PurgeAttemptError {
         // and must reach the caller rather than hold the lane in a retry loop.
         match error {
             crate::storage::StorageError::ReadResourceLimit { .. }
+            | crate::storage::StorageError::WriteResourceLimit { .. }
             | crate::storage::StorageError::MutationLimit { .. } => Self::Rejected(error.into()),
             error => Self::Retry(error.into()),
         }

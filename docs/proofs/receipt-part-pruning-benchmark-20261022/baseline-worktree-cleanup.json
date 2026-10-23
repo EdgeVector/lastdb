@@ -1,0 +1,27 @@
+{
+  "at_unix_ns": 1792720653855277000,
+  "command": [
+    "git",
+    "--git-dir",
+    "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+    "worktree",
+    "remove",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-pruning-baseline-20261022"
+  ],
+  "device": 16777231,
+  "exit_code": 0,
+  "inode": 1502468091,
+  "owner_uid": 501,
+  "path": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-pruning-baseline-20261022",
+  "primary_data": false,
+  "removed": true,
+  "revision": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+  "source_state": {
+    "common_dir": "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+    "head": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+    "status": "",
+    "top_level": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-pruning-baseline-20261022"
+  },
+  "stderr": "",
+  "stdout": ""
+}

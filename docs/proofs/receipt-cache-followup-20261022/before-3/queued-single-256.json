@@ -1,0 +1,149 @@
+{
+  "accepted_sequence_delta": 519,
+  "ack_sequence_seconds": 6.475912834,
+  "completed_sequence_delta": 519,
+  "ended_monotonic_ns": 15965778625,
+  "ended_unix_ns": 1792734038149069000,
+  "final_explicit_flush": {
+    "durable": true,
+    "native_flush": {
+      "completed_sequence": 724,
+      "frontier": 483,
+      "generation": 484,
+      "target_sequence": 723
+    },
+    "ok": true,
+    "user_hash": "c6a48a23b774dd0b9a4d8c685730763c"
+  },
+  "final_explicit_flush_seconds": 0.020048166,
+  "frontier_delta": 263,
+  "generation_delta": 263,
+  "growth": {
+    "allocated_bytes_net": 194375680,
+    "bytes_net": 193710836,
+    "files_net": 2894,
+    "new_or_grown": {
+      "directory": {
+        "bytes": 36585472,
+        "files": 263
+      },
+      "generations": {
+        "bytes": 69009408,
+        "files": 263
+      },
+      "locator": {
+        "bytes": 82345984,
+        "files": 1842
+      },
+      "packs": {
+        "bytes": 5769972,
+        "files": 526
+      }
+    }
+  },
+  "inputs": {
+    "body_value_bytes": 262144,
+    "changed_field_values": 512,
+    "fields_json_bytes": 273664,
+    "logical_mutations": 256,
+    "ordered_input_sha256": "6deb8609cc2a5fab49f401f731945838424c69785d934699a7c3e30e8f9944f8",
+    "request_json_bytes": 320768,
+    "requests": 256,
+    "title_value_bytes": 5888
+  },
+  "inventory_after": {
+    "allocated_bytes": 373796864,
+    "bytes": 372524034,
+    "families": {
+      "directory": {
+        "allocated_bytes": 70434816,
+        "bytes": 70434816,
+        "files": 484
+      },
+      "generations": {
+        "allocated_bytes": 84295680,
+        "bytes": 84295680,
+        "files": 484
+      },
+      "locator": {
+        "allocated_bytes": 203456512,
+        "bytes": 203456512,
+        "files": 2929
+      },
+      "packs": {
+        "allocated_bytes": 15597568,
+        "bytes": 14328799,
+        "files": 966
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 4868
+  },
+  "inventory_before": {
+    "allocated_bytes": 179421184,
+    "bytes": 178813198,
+    "families": {
+      "directory": {
+        "allocated_bytes": 33849344,
+        "bytes": 33849344,
+        "files": 221
+      },
+      "generations": {
+        "allocated_bytes": 15286272,
+        "bytes": 15286272,
+        "files": 221
+      },
+      "locator": {
+        "allocated_bytes": 121110528,
+        "bytes": 121110528,
+        "files": 1087
+      },
+      "packs": {
+        "allocated_bytes": 9162752,
+        "bytes": 8558827,
+        "files": 440
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 1974
+  },
+  "kind": "write-phase",
+  "label": "queued-single-256",
+  "process": {
+    "cumulative_counter_delta": {
+      "ri_diskio_bytesread": 1286144,
+      "ri_diskio_byteswritten": 200810496,
+      "ri_logical_writes": 290067328,
+      "ri_system_time": 33763481,
+      "ri_user_time": 61486504
+    },
+    "memory_after_bytes": {
+      "ri_phys_footprint": 43189400,
+      "ri_resident_size": 153976832
+    },
+    "memory_before_bytes": {
+      "ri_phys_footprint": 38405200,
+      "ri_resident_size": 131301376
+    },
+    "process_lifetime_max_memory_bytes": 47613008
+  },
+  "request_ack": {
+    "max_ms": 60.808625,
+    "median_ms": 23.002896000000003,
+    "p95_ms": 40.9415,
+    "samples": 256
+  },
+  "requested_durability": "queued",
+  "started_monotonic_ns": 9469784166,
+  "started_unix_ns": 1792734031653012000,
+  "wall_through_final_flush_seconds": 6.495994459,
+  "width": 1
+}

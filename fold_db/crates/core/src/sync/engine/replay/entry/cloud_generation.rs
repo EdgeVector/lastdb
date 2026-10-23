@@ -12,12 +12,8 @@ impl SyncEngine {
             return Ok(None);
         };
         let mut local = entry.clone();
-        crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
-            self.store.as_ref(),
-            &target.prefix,
-            &mut local,
-        )
-        .await?;
+        crate::sync::scope_alias::rebind_entry(self.store.as_ref(), &target.prefix, &mut local)
+            .await?;
         Ok(Some(local))
     }
 

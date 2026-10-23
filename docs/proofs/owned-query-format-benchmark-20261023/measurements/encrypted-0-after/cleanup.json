@@ -1,0 +1,12 @@
+{
+  "run_id": "eeb45d139773451eb9ea185f05a3f19d",
+  "home": "/workspace/oq2-pairs/encrypted-0-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 2751,
+  "allocated_bytes_removed": 974557184,
+  "free_bytes_before": 17063116800,
+  "free_bytes_after": 18043531264
+}

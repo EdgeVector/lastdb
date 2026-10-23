@@ -1,0 +1,21 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "earlier_backup_restore_verified": true,
+  "exact_and_range_values_verified": true,
+  "forced_stop_reopen_verified": true,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.cy3ekcdb/home",
+  "identity_bytes_read_or_copied": false,
+  "keys_after": 48,
+  "keys_before": 64,
+  "obsolete_data_parts_removed": [
+    "directory/dfe203f5-cbc8-4ce4-8ed0-1a20e5c5d7f7/part-e96fe89b",
+    "locator/3a59a754-620f-48c8-818c-ff67317c3a4e/part-00000000",
+    "packs/d7267ef1-1ec5-4e25-8d07-ee9b906a3d93/map/part-00000000",
+    "packs/d7267ef1-1ec5-4e25-8d07-ee9b906a3d93/part-00000000"
+  ],
+  "retained_dependencies_unchanged": true,
+  "scope": "Generated native product operations; no power-loss or cloud claim",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.cy3ekcdb",
+  "scratch_retained": true
+}

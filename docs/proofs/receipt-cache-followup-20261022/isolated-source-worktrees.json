@@ -1,0 +1,30 @@
+{
+  "at_unix_ns": 1792732814863753000,
+  "cleanup_owner": "parent agent after all builds and source guards finish",
+  "complete": true,
+  "driver_sha256": "4cedf3a55c8a9789833cece268762d03ffdb2203b19668d0c6877f3e7d755706",
+  "worktrees": [
+    {
+      "device": 16777231,
+      "git_common_dir": "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+      "inode": 1503195909,
+      "owner_uid": 501,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022",
+      "primary_database_copied": false,
+      "revision": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+      "source_only": true,
+      "variant": "before"
+    },
+    {
+      "device": 16777231,
+      "git_common_dir": "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+      "inode": 1503662133,
+      "owner_uid": 501,
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-isolated-optimized-20261022",
+      "primary_database_copied": false,
+      "revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+      "source_only": true,
+      "variant": "after"
+    }
+  ]
+}

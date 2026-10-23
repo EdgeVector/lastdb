@@ -74,7 +74,11 @@ pub(super) fn tier_bytes(root: &Path, current: &Current, boundary: u64) -> Resul
         super::tier_quote::tree_bytes(root, current, &receipt, boundary)?,
     )?;
     let mut payloads = std::collections::BTreeSet::new();
+    let mut maps = std::collections::BTreeMap::new();
     for (coordinate, record) in receipt.coordinates.iter().zip(&receipt.records) {
+        if coordinate.kind == 3 {
+            maps.entry(coordinate.object).or_insert(coordinate.part);
+        }
         if crate::disk_pack::bytes::u64_at(record, 72) <= boundary {
             continue;
         }
@@ -94,7 +98,16 @@ pub(super) fn tier_bytes(root: &Path, current: &Current, boundary: u64) -> Resul
     }
     for object in payloads {
         let mut call = artifact::metadata_call(root, current.clone());
-        let page = call.map_page(&root.join("packs").join(object.to_string()), object, 0)?;
+        // Exact receipts can retire map part zero. Every retained map page
+        // repeats complete object bounds, so use a page the receipt retains.
+        let part = maps
+            .get(&object)
+            .ok_or_else(|| corrupt("tier quote payload has no retained block map"))?;
+        let page = call.map_page(
+            &root.join("packs").join(object.to_string()),
+            object,
+            u64::from(*part) * crate::disk_pack::PAGES_PER_PART,
+        )?;
         let (logical, _) = page
             .object_bounds()
             .ok_or_else(|| corrupt("tier quote has no payload bounds"))?;

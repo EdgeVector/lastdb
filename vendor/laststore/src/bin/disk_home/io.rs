@@ -95,38 +95,37 @@ fn operations(path: &Path) -> Result<Vec<HomeMutation>> {
     Ok(result)
 }
 
-pub(super) fn write(home: &DiskHome, input: &Path) -> Result<Value> {
+pub(super) fn write(home: &DiskHome, input: &Path) -> Result<CommandOutput> {
     let operations = operations(input)?;
     let count = operations.len();
     let mut writer = home.snapshot()?;
     let previous_frontier = writer.current().frontier;
-    let accepted_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis()
-        .try_into()?;
     let reservation = writer.reserve_mutation(&operations)?;
-    let quote = quote_json(reservation.quote());
-    let publication = writer.commit_mutation(operations, accepted_ms, reservation)?;
-    Ok(json!({
-        "previous_frontier":previous_frontier,
-        "frontier":publication.current.frontier,
-        "generation":publication.current.generation,
-        "operations":count,"snapshot_quote":quote,"published":true,
-    }))
-}
-
-fn quote_json(quote: laststore::disk_pack::home::MutationQuote) -> Value {
-    json!({
-        "physical_bytes":quote.physical_bytes(),"map_pages":quote.map_pages(),
-        "dependency_parts":quote.dependency_parts(),"scope":"complete_snapshot",
+    let dimensions = reservation.quote();
+    let _space = writer.reserve_space(
+        dimensions.physical_bytes(),
+        &laststore::disk_pack::maintenance::SpacePolicy::default(),
+    )?;
+    let quote = dimensions.into();
+    let publication = writer.commit_mutation(operations, reservation)?;
+    Ok(CommandOutput::Write {
+        previous_frontier,
+        frontier: publication.current.frontier,
+        generation: publication.current.generation,
+        operations: count,
+        snapshot_quote: quote,
+        published: true,
     })
 }
 
-pub(super) fn plan(home: &DiskHome, path: &Path) -> Result<Value> {
+pub(super) fn plan(home: &DiskHome, path: &Path) -> Result<CommandOutput> {
     let operations = operations(path)?;
     let quote = home.descriptor().quote_mutation(&operations)?;
-    Ok(json!({
-        "snapshot_quote":quote_json(quote),"operations":operations.len(),
-        "disk_reserved":false,"logical_records_reserved":false,"memory_ack_allowed":false,
-    }))
+    Ok(CommandOutput::Plan {
+        snapshot_quote: quote.into(),
+        operations: operations.len(),
+        disk_reserved: false,
+        logical_records_reserved: false,
+        memory_ack_allowed: false,
+    })
 }

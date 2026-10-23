@@ -1,0 +1,173 @@
+{
+  "accepted_sequence_delta": 3,
+  "ack_sequence_seconds": 0.459498708,
+  "all_values_verified": true,
+  "batch_ack_seconds": 0.459210875,
+  "chunk_claim": "129 keys cross the 64-key product boundary; no internal chunk timer is measured",
+  "client_requests": 1,
+  "completed_sequence_delta": 3,
+  "ended_monotonic_ns": 54085233083,
+  "ended_unix_ns": 1792701362593061000,
+  "expected_internal_erase_chunks": 3,
+  "expected_values_sha256": "187bc6d6c0eb8dd8131835ab2eb0910be462e390475c65ee9ce9c8d5bcb14fd7",
+  "final_explicit_flush": {
+    "durable": true,
+    "native_flush": {
+      "completed_sequence": 135,
+      "frontier": 832,
+      "generation": 835,
+      "target_sequence": 135
+    },
+    "ok": true,
+    "user_hash": "a31859a40725097d9b65c62563854070"
+  },
+  "final_explicit_flush_seconds": 0.000202125,
+  "frontier_delta": 3,
+  "generation_delta": 3,
+  "growth": {
+    "allocated_bytes_net": 10788864,
+    "bytes_net": 10782352,
+    "files_net": 19,
+    "new_or_grown": {
+      "directory": {
+        "bytes": 1064960,
+        "files": 3
+      },
+      "generations": {
+        "bytes": 344064,
+        "files": 3
+      },
+      "locator": {
+        "bytes": 8699904,
+        "files": 7
+      },
+      "packs": {
+        "bytes": 673424,
+        "files": 6
+      }
+    }
+  },
+  "inputs": {
+    "body_value_bytes": 0,
+    "changed_field_values": 0,
+    "erased_source_body_bytes": 132096,
+    "erased_source_fields_json_bytes": 142638,
+    "fields_json_bytes": 258,
+    "first_key": 64,
+    "last_key": 192,
+    "logical_mutations": 129,
+    "ordered_input_sha256": "879266f8644500b3a57fd4c35b635fc239e47914baf2616ad7acff28badc83b6",
+    "request_json_bytes": 22203,
+    "requests": 1,
+    "title_value_bytes": 0
+  },
+  "inventory_after": {
+    "allocated_bytes": 160157696,
+    "bytes": 158487059,
+    "families": {
+      "directory": {
+        "allocated_bytes": 23068672,
+        "bytes": 23068672,
+        "files": 270
+      },
+      "generations": {
+        "allocated_bytes": 16416768,
+        "bytes": 16416768,
+        "files": 270
+      },
+      "locator": {
+        "allocated_bytes": 109903872,
+        "bytes": 109903872,
+        "files": 401
+      },
+      "packs": {
+        "allocated_bytes": 10756096,
+        "bytes": 9089520,
+        "files": 540
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 1486
+  },
+  "inventory_before": {
+    "allocated_bytes": 149368832,
+    "bytes": 147704707,
+    "families": {
+      "directory": {
+        "allocated_bytes": 22003712,
+        "bytes": 22003712,
+        "files": 267
+      },
+      "generations": {
+        "allocated_bytes": 16072704,
+        "bytes": 16072704,
+        "files": 267
+      },
+      "locator": {
+        "allocated_bytes": 101203968,
+        "bytes": 101203968,
+        "files": 394
+      },
+      "packs": {
+        "allocated_bytes": 10076160,
+        "bytes": 8416096,
+        "files": 534
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 1467
+  },
+  "kind": "erase-phase",
+  "label": "erase-durable-batch129",
+  "process": {
+    "cumulative_counter_delta": {
+      "ri_diskio_bytesread": 53248,
+      "ri_diskio_byteswritten": 10874880,
+      "ri_logical_writes": 12767616,
+      "ri_system_time": 5222072,
+      "ri_user_time": 5132407
+    },
+    "memory_after_bytes": {
+      "ri_phys_footprint": 57803832,
+      "ri_resident_size": 130465792
+    },
+    "memory_before_bytes": {
+      "ri_phys_footprint": 49726496,
+      "ri_resident_size": 118128640
+    },
+    "process_lifetime_max_memory_bytes": 63390752
+  },
+  "records_after": 319,
+  "records_before": 448,
+  "records_erased": 129,
+  "request_ack": {
+    "max_ms": 459.21087500000004,
+    "mean_ms": 459.21087500000004,
+    "median_ms": 459.21087500000004,
+    "min_ms": 459.21087500000004,
+    "p95_ms": 459.21087500000004,
+    "samples": 1
+  },
+  "request_timeline": [
+    {
+      "elapsed_seconds": 0.459210875,
+      "ended_monotonic_ns": 54084920416,
+      "request_id": "benchmark-7aecb3234a604855aef8907ac2dba249-897",
+      "started_monotonic_ns": 53625709541
+    }
+  ],
+  "requested_durability": "durable",
+  "scope": "Combined change from the original journal baseline; this does not isolate meter-journal removal",
+  "started_monotonic_ns": 53625503875,
+  "started_unix_ns": 1792701362133333000,
+  "wall_through_final_flush_seconds": 0.459729208,
+  "width": 129
+}

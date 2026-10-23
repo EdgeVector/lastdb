@@ -1,0 +1,12 @@
+{
+  "run_id": "72c758d4f6a647ca9eddccfe39a79421",
+  "home": "/workspace/pt-pairs/plain-0-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1317,
+  "allocated_bytes_removed": 651567104,
+  "free_bytes_before": 17692987392,
+  "free_bytes_after": 18347401216
+}

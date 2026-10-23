@@ -65,22 +65,6 @@ impl AtomStore {
         store.inner().flush().await.map_err(|e| {
             crate::schema::SchemaError::InvalidData(format!("flush keep-small: {e}"))
         })?;
-        if wrote_snapshot {
-            let checkpoint = self
-                .keep_small_hard_erase_applied_seq
-                .load(Ordering::Relaxed);
-            if self
-                .prune_hard_erase_journal_locked(checkpoint, None)
-                .await?
-                > 0
-            {
-                store.inner().flush().await.map_err(|e| {
-                    crate::schema::SchemaError::InvalidData(format!(
-                        "flush checkpointed meter journal prune: {e}"
-                    ))
-                })?;
-            }
-        }
         Ok(())
     }
 
@@ -126,26 +110,7 @@ impl AtomStore {
         // Clear before the put: a concurrent meter update during the write
         // should re-arm the flag rather than be swallowed by clearing after.
         self.keep_small_dirty.store(false, Ordering::Relaxed);
-        if self
-            .keep_small_hard_erase_replay_skipped
-            .load(Ordering::Relaxed)
-        {
-            self.keep_small
-                .mark_incomplete("hard_erase_journal_requires_repair");
-        }
         let mut snapshot = self.keep_small.export();
-        snapshot.hard_erase_totals = self
-            .keep_small_hard_erase_totals
-            .lock()
-            .map_err(|_| {
-                crate::schema::SchemaError::InvalidData(
-                    "keep-small hard-erase totals lock poisoned".to_string(),
-                )
-            })?
-            .clone();
-        snapshot.hard_erase_journal_checkpoint_seq = self
-            .keep_small_hard_erase_applied_seq
-            .load(Ordering::Relaxed);
         snapshot.clean_stop = Some(clean_stop);
         if !clean_stop && snapshot.trust.global.state.is_complete() {
             snapshot.trust.global = MeterDomainTrust::incomplete("dirty_snapshot");
@@ -194,7 +159,7 @@ impl AtomStore {
         Ok(())
     }
 
-    pub(super) async fn write_keep_small_header_and_shards(
+    pub(in crate::db_operations::atom_store) async fn write_keep_small_header_and_shards(
         &self,
         snapshot: &crate::db_operations::KeepSmallSnapshot,
         only_schemas: Option<&HashSet<String>>,

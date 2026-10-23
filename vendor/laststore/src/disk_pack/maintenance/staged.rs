@@ -38,6 +38,7 @@ impl PreparedCompaction {
         current.previous_generation = expected.generation;
         current.frontier = expected.frontier;
         current.published_ms = artifact::unix_ms();
+        current.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
         let receipt = root.join(format!("{PENDING_GENERATION}{}", Uuid::new_v4()));
         let pointer = root.join(format!("CURRENT.pending-{}", Uuid::new_v4()));
         let pointer_file = OpenOptions::new()
@@ -56,13 +57,15 @@ impl PreparedCompaction {
             pointer,
             pointer_file,
         };
-        let written = generation::write_at(
+        // This full metadata walk stays outside the final publication gate.
+        // The retained source and private-output protection cover its inputs.
+        let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
             root,
             &staged.current,
             &self.output.dependencies,
-            None,
-            staged.receipt.clone(),
         )?;
+        let written =
+            generation::write_live_at(root, &staged.current, &live, None, staged.receipt.clone())?;
         staged.parts = written.dependencies;
         staged.pointer_file.write_all(&staged.current.encode()?)?;
         durability::sync_dirty_file(&staged.pointer_file)?;

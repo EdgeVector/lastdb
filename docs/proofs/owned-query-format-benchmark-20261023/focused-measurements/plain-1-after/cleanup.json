@@ -1,0 +1,12 @@
+{
+  "run_id": "0cd9b237d77a4761b336ec99569469d3",
+  "home": "/workspace/oqf-pairs/plain-1-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 405,
+  "allocated_bytes_removed": 187555840,
+  "free_bytes_before": 17824088064,
+  "free_bytes_after": 18012573696
+}

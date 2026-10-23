@@ -111,15 +111,7 @@ impl PreparedCompaction {
         }
         let previous = self.caught.current();
         let next = cut.current();
-        if next != previous
-            && (next.frontier < previous.frontier
-                || next.generation <= previous.generation
-                || next.required_features != previous.required_features)
-        {
-            return Err(corrupt(
-                "compaction catch-up root is not a newer compatible snapshot",
-            ));
-        }
+        ensure_newer_compatible(previous, next)?;
         if next.frontier != previous.frontier {
             self.reserve_delta(next)?;
         }
@@ -222,11 +214,44 @@ pub(super) fn publish_output(
     output.current.previous_generation = previous.generation;
     output.current.frontier = previous.frontier;
     output.current.published_ms = artifact::unix_ms();
-    let receipt = generation::write(root, &output.current, &output.dependencies)?;
+    output.current.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
+    // Copy and catch-up can carry conservative inputs. Count only the final
+    // reachable tree after every private output file has finished.
+    let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
+        root,
+        &output.current,
+        &output.dependencies,
+    )?;
+    let receipt = generation::write_live(root, &output.current, &live, None)?;
     lock.files.invalidate()?;
     publish::publish_current(root, &output.current)?;
     lock.remember_checked(&output.current)?;
     output.receipt.generation = output.current.generation;
     output.receipt.parts_after = receipt.dependencies;
     Ok((output.current, output.receipt))
+}
+
+pub(super) fn ensure_newer_compatible(previous: &Current, next: &Current) -> Result<()> {
+    if next == previous {
+        return Ok(());
+    }
+    if next.frontier < previous.frontier || next.generation <= previous.generation {
+        return Err(corrupt(
+            "compaction catch-up root is not a newer compatible snapshot",
+        ));
+    }
+    if next.required_features != previous.required_features {
+        if previous.required_features & crate::disk_pack::FEATURE_LIVE_PART_COUNTS == 0
+            && next.required_features
+                == previous.required_features | crate::disk_pack::FEATURE_LIVE_PART_COUNTS
+        {
+            // A foreground first publication can introduce exact receipts while
+            // this older-root copy runs. Recapture rather than mix its formats.
+            return Err(crate::Error::WriteCapacity(
+                "compaction_behind: snapshot receipt format changed; recapture the source".into(),
+            ));
+        }
+        return Err(corrupt("compaction catch-up snapshot features changed"));
+    }
+    Ok(())
 }

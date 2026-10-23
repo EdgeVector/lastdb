@@ -72,7 +72,7 @@ impl PinLog {
         let mut materialized =
             futures::stream::iter(records.into_iter().map(|mut record| async move {
                 let result = async {
-                    crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
+                    crate::sync::scope_alias::rebind_entry(
                         engine.store.as_ref(),
                         target_prefix,
                         &mut record.entry,
@@ -86,7 +86,7 @@ impl PinLog {
                             .map(|ready| *mutations = ready),
                         _ => Ok(()),
                     }?;
-                    crate::sync::cloud_purge_peer::scope_alias::wire_entry(
+                    crate::sync::scope_alias::wire_entry(
                         engine.store.as_ref(),
                         target_prefix,
                         &mut record.entry,

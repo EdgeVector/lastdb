@@ -1,0 +1,21 @@
+{
+  "all_fourteen_original_summaries_unchanged": true,
+  "all_metrics_identical": true,
+  "argv": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/summarize.py",
+    "--before-revision",
+    "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+    "--after-revision",
+    "a1941e3a8742d4da4743a02db99153119bdf034b"
+  ],
+  "complete": true,
+  "driver_sha256": "56b28a00d00b17c979a59a04ba0e98fec98fc3458405122080ccc17a14ff6879",
+  "exit_code": 0,
+  "original_summary_sha256": "e9eecbb1538a055dbd838efe76dab029a5b30fb1c4ecc62f94df85b7151c51af",
+  "packaged_summary_sha256": "7b1cd3ba762fea99b5c50d30b1c74fe037e5305a7254ae4d0f0390fe6266c700",
+  "permitted_metadata_change": "Only each run's raw-versus-compact request evidence source",
+  "stderr": "",
+  "stdout": "{\"complete\": true, \"pairs\": 3, \"output\": \"/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/summary.json\"}\n{\"complete\": true, \"round\": 3, \"matched_phases\": 6, \"focused_phase_separate\": true}\n",
+  "text_identical": true
+}

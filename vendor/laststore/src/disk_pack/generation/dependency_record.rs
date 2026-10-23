@@ -10,15 +10,21 @@ pub(super) fn decode(current: &Current, entry: &[u8]) -> Result<Coordinate> {
         return Err(corrupt("generation dependency record length"));
     }
     zero(&entry[1..4])?;
+    if current.required_features & super::super::FEATURE_LIVE_PART_COUNTS != 0 {
+        if u64_at(entry, 24) == 0 {
+            return Err(corrupt("generation dependency has no live references"));
+        }
+    } else {
+        zero(&entry[24..32])?;
+    }
     zero(&entry[40..72])?;
     let coordinate = Coordinate {
         kind: entry[0],
         object: nonnil(uuid_at(entry, 8))?,
-        batch: u64_at(entry, 24),
         part: u32_at(entry, 4),
     };
-    if !matches!((coordinate.kind, coordinate.batch), (1 | 2 | 3 | 5, 0)) {
-        return Err(corrupt("generation dependency kind or batch identity"));
+    if !matches!(coordinate.kind, 1 | 2 | 3 | 5) {
+        return Err(corrupt("generation dependency kind"));
     }
     let length = u64_at(entry, 32);
     let generation = u64_at(entry, 72);
@@ -33,4 +39,11 @@ pub(super) fn decode(current: &Current, entry: &[u8]) -> Result<Coordinate> {
         return Err(corrupt("generation dependency length or creation boundary"));
     }
     Ok(coordinate)
+}
+
+/// The live count describes a snapshot, while the other bytes describe a part.
+pub(super) fn immutable(entry: &[u8; 80]) -> [u8; 80] {
+    let mut value = *entry;
+    value[24..32].fill(0);
+    value
 }

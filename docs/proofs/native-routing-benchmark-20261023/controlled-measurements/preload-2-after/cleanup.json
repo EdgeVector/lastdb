@@ -1,0 +1,12 @@
+{
+  "run_id": "ff3cd81e8e6247879f4cc1b8a0d5cb5a",
+  "home": "/workspace/nrc2-pairs/preload-2-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 734,
+  "allocated_bytes_removed": 441466880,
+  "free_bytes_before": 19482984448,
+  "free_bytes_after": 19926061056
+}

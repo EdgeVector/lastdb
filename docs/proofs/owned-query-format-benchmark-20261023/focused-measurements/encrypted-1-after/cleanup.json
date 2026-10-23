@@ -1,0 +1,12 @@
+{
+  "run_id": "7d2b9f8ed5e94bf49ef44f58f57b5d75",
+  "home": "/workspace/oqf-pairs/encrypted-1-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 2325,
+  "allocated_bytes_removed": 652386304,
+  "free_bytes_before": 17347436544,
+  "free_bytes_after": 18004791296
+}

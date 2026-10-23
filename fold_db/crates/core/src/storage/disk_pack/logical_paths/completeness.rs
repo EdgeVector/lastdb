@@ -33,7 +33,7 @@ pub(super) fn covers(
         let Ok(raw) = native_routing::decode(key) else {
             return false;
         };
-        if !native_routing::read_candidates(&raw).contains(&collection.as_str()) {
+        if native_routing::collection_for_key(&raw) != collection {
             // Derived markers and queue/accounting records do not resolve
             // logical values. Other namespaces stay disk-first.
             return matches!(

@@ -47,6 +47,15 @@ impl KeepSmallMeters {
             .unwrap_or_default()
     }
 
+    /// A private native candidate must not consume the live dirty set.
+    #[must_use]
+    pub(crate) fn dirty_schema_names(&self) -> HashSet<String> {
+        self.dirty_schemas
+            .lock()
+            .map(|dirty| dirty.clone())
+            .unwrap_or_default()
+    }
+
     /// Mark every live schema dirty so the next persist splits a legacy
     /// whole-map snapshot into shards.
     pub fn mark_all_schemas_dirty(&self) {

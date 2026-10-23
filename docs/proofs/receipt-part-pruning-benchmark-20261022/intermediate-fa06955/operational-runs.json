@@ -1,0 +1,112 @@
+{
+  "after_revision": "fa0695505d71b98718834480c10073bc4991d9f7",
+  "before_revision": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+  "checks": 5,
+  "commands": [
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/retention_capture.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+        "--source-revision",
+        "fa0695505d71b98718834480c10073bc4991d9f7",
+        "--disk-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+        "--maintenance-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+        "--recovery-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-recovery",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.yik297ko",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/retention-operational"
+      ],
+      "end_unix_ns": 1792718605133967000,
+      "exit_code": 0,
+      "start_unix_ns": 1792718600082752000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/edge_capture.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+        "--source-revision",
+        "fa0695505d71b98718834480c10073bc4991d9f7",
+        "--disk-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+        "--maintenance-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+        "--before-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.hodpajy3",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/edge-operational"
+      ],
+      "end_unix_ns": 1792718607739625000,
+      "exit_code": 0,
+      "start_unix_ns": 1792718605178707000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/older_refusal.py",
+        "--run",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/edge-operational",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdb-disk-home"
+      ],
+      "end_unix_ns": 1792718608017246000,
+      "exit_code": 0,
+      "start_unix_ns": 1792718607740055000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/overflow_capture.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+        "--source-revision",
+        "fa0695505d71b98718834480c10073bc4991d9f7",
+        "--disk-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+        "--maintenance-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.bfs0pnsf",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/overflow-operational"
+      ],
+      "end_unix_ns": 1792718609626639000,
+      "exit_code": 0,
+      "start_unix_ns": 1792718608034856000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/auto_reclaim_capture.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+        "--source-revision",
+        "fa0695505d71b98718834480c10073bc4991d9f7",
+        "--disk-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+        "--maintenance-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.q0nl321z",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/auto-reclaim-operational"
+      ],
+      "end_unix_ns": 1792718643791667000,
+      "exit_code": 0,
+      "start_unix_ns": 1792718609653639000
+    }
+  ],
+  "complete": true,
+  "end_unix_ns": 1792718643867760000,
+  "scope": "One owned generated home at a time; no primary, archive, or cloud access",
+  "start_unix_ns": 1792718600079556000
+}

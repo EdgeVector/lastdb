@@ -1,0 +1,12 @@
+{
+  "run_id": "eb21b26f407e409caaab9494502662fa",
+  "home": "/workspace/pt-pairs/preload-0-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1317,
+  "allocated_bytes_removed": 652316672,
+  "free_bytes_before": 17686548480,
+  "free_bytes_after": 18341711872
+}

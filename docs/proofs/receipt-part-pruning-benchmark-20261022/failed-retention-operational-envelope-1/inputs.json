@@ -1,0 +1,30 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+  "binary_sha256": "a96655fff03a5756b39815dd469f111632013c6672121c8c0f75e4c3bd349317",
+  "commands": {
+    "disk": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+      "sha256": "fdbdaf490b86e144d0f4ba1140a8efd34e3550fcbcd2c0fa699cb87b143f5af9"
+    },
+    "maintenance": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+      "sha256": "66bfa9767569853c8e63c0fc11272559b8e445d13f339f53a0501c21fdfba45e"
+    },
+    "recovery": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-recovery",
+      "sha256": "ad6c4120be721dfefd736fbc0cf5342731671edc102e96984d47527a7dc2f683"
+    }
+  },
+  "generated_body_bytes": 1024,
+  "generated_keys": 64,
+  "helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/retention_capture.py": "565671053ae2474ff76da02c039e2cbb10b8609c86958b522e53942a46c02003"
+  },
+  "limits": {
+    "native_bytes": 1073741824,
+    "native_files": 20000,
+    "run_seconds": 300
+  },
+  "revision": "c6645bda5272703b84fd7228f7684ec5cd4767d4",
+  "scope": "Fresh owned generated data; no primary or archived data"
+}

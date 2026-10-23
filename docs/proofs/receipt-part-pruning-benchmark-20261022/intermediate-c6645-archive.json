@@ -1,0 +1,67 @@
+{
+  "binary_moves": [
+    {
+      "archived": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/intermediate-c6645-lastdbd",
+      "bytes": 60572448,
+      "original": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+      "sha256": "a96655fff03a5756b39815dd469f111632013c6672121c8c0f75e4c3bd349317"
+    },
+    {
+      "archived": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/intermediate-c6645-lastdb",
+      "bytes": 40514112,
+      "original": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb",
+      "sha256": "d0e47f1bf69e8c88dce190928d6d9f7451bcd83be3ad88e4328cd2b675995e30"
+    },
+    {
+      "archived": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/intermediate-c6645-lastdb-disk-home",
+      "bytes": 1956336,
+      "original": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+      "sha256": "fdbdaf490b86e144d0f4ba1140a8efd34e3550fcbcd2c0fa699cb87b143f5af9"
+    },
+    {
+      "archived": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/intermediate-c6645-lastdb-disk-recovery",
+      "bytes": 992912,
+      "original": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-recovery",
+      "sha256": "ad6c4120be721dfefd736fbc0cf5342731671edc102e96984d47527a7dc2f683"
+    },
+    {
+      "archived": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/intermediate-c6645-lastdb-pack-maintain",
+      "bytes": 1784224,
+      "original": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+      "sha256": "66bfa9767569853c8e63c0fc11272559b8e445d13f339f53a0501c21fdfba45e"
+    }
+  ],
+  "owner": {
+    "device": 16777231,
+    "inode": 1502479711,
+    "owner_uid": 501,
+    "primary_data": false,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9",
+    "run_id": "0e69d8232d274a55a3d2fe48dc51a1f7",
+    "version": 1
+  },
+  "reason": "Preserve the intermediate native writer before the periodic automatic reclaim integration fix.",
+  "receipt_moves": [
+    {
+      "archived": "intermediate-c6645-after-build.json",
+      "original": "after-build.json",
+      "sha256": "217331e4f3ef0f5c64fb3a41a82ad7e6d456386e1d59f77b4f2967d7badd1bde"
+    },
+    {
+      "archived": "intermediate-c6645-after-cli-build.json",
+      "original": "after-cli-build.json",
+      "sha256": "907070a7617c2633d2fff70a2edda80d6f8cea13f3df8c3c3eb31b85df94c008"
+    },
+    {
+      "archived": "intermediate-c6645-after-disk-build.json",
+      "original": "after-disk-build.json",
+      "sha256": "37125995b36b2d8c4fd98ce30c6091e4560b0d7343c20f879f06ab03c4e5e02c"
+    },
+    {
+      "archived": "intermediate-c6645-final-build-checks.json",
+      "original": "final-build-checks.json",
+      "sha256": "8871fe419b37cd6924949fcbd68c64794814b081572151a1e0c29a567346ed0d"
+    }
+  ],
+  "source_revision": "c6645bda5272703b84fd7228f7684ec5cd4767d4"
+}

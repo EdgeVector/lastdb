@@ -1,0 +1,45 @@
+{
+  "at_unix_ns": 1792736427995381000,
+  "binaries": [
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdbd",
+      "sha256": "d2c1744439cf5b5dc02cf51e0fd339f9f17f2f269306e4ff0f98e91e41d222d8"
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb",
+      "sha256": "8830576668cd33f91825884467bc082b061d5f0790cf2101ec92d345103127e1"
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-disk-home",
+      "sha256": "7d376dc5cfeb18e6e1c78a3a0f29c985bb7a252f9e727c5bb1962b864e2a9a88"
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-disk-recovery",
+      "sha256": "8eeb556a470109349537e307da538091d1e5527bfe672b7675a3b710eec8b21b"
+    },
+    {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-pack-maintain",
+      "sha256": "1b5d6663be6ddbf5d1d0e097099cc55c49a69e1568991867c42297ea729a9e55"
+    }
+  ],
+  "owner": {
+    "device": 16777231,
+    "inode": 1503739990,
+    "owner_uid": 501,
+    "primary_data": false,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g",
+    "run_id": "17d70fcbdd3a401e8c4dc3e3503b0866",
+    "source_worktree": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-isolated-optimized-20261022",
+    "variant": "after",
+    "version": 1
+  },
+  "removed": true,
+  "target_inventory": {
+    "entries": 4091,
+    "file_bytes": 1182361221,
+    "path": "after-target-cleanup-inventory.jsonl.gz",
+    "round_trip_bytes_match": true,
+    "sha256": "1c0f8dc9e836e21f2d07bd90d071f7c5d830c6574bc31479c59536f97652e289",
+    "uncompressed_sha256": "34db556bc194d147b7df4136ca8e48c79f6504ab8fa12d5660d44af76b5cae30"
+  }
+}

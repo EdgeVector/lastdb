@@ -1,0 +1,11 @@
+{
+  "creator_pid": 189253,
+  "device": 27,
+  "home": "/workspace/pt-pairs/encrypted-3-after/home",
+  "inode": 555652,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "3ab155b66c54492a80ba8a00e8935831",
+  "scratch": "/workspace/pt-pairs/encrypted-3-after",
+  "version": 1
+}

@@ -1,0 +1,68 @@
+{
+  "commands": {
+    "after": {
+      "actual_argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd",
+        "--bin",
+        "lastdb"
+      ],
+      "actual_command": "cargo build --locked --release -p lastdb_node --bin lastdbd --bin lastdb",
+      "additional_binary": "lastdb",
+      "cargo_argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd",
+        "--bin",
+        "lastdb"
+      ],
+      "known_host_wrapper_removed": false,
+      "measured_binary": "lastdbd"
+    },
+    "before": {
+      "actual_argv": [
+        "scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd"
+      ],
+      "actual_command": "scripts/ci/with-fold-host-cargo-lock.sh -- cargo build --locked --release -p lastdb_node --bin lastdbd",
+      "additional_binary": null,
+      "cargo_argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd"
+      ],
+      "known_host_wrapper_removed": true,
+      "measured_binary": "lastdbd"
+    }
+  },
+  "dependency_selection": "Both Cargo commands require --locked",
+  "effective_profile": "release",
+  "equivalent_for_measured_lastdbd": true,
+  "feature_selection": "Package defaults; neither command overrides features",
+  "limit": "Command equivalence preserves the recorded commands; it does not assert identical binaries or source.",
+  "reason": "The baseline records the known host-lock wrapper. The final build also emits the lastdb CLI."
+}

@@ -1,0 +1,26 @@
+{
+  "at_unix_ns": 1792733942455044000,
+  "ownership": {
+    "creator_pid": 95849,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.nbui6dxq/home",
+    "inode": 1503831796,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "bf4842121dba45c0a9cb798fa7d06dd1",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.nbui6dxq",
+    "version": 1
+  },
+  "pre_cleanup": {
+    "entries": 2896,
+    "logical_file_bytes": 158347601
+  },
+  "removed": true,
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.nbui6dxq",
+  "stopped_pids": [
+    95850,
+    96015,
+    96017,
+    96281
+  ]
+}

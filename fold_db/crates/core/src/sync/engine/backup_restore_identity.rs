@@ -6,7 +6,6 @@
 //! receipts. Downloads always use the current digest; retired bodies are never
 //! needed to recover the address.
 
-use super::super::backup_atom_rewrite::replacement_uuid;
 use crate::storage::laststore::{BackupChunkRef, BackupManifest, BackupManifestRole};
 use crate::sync::error::{SyncError, SyncResult};
 use std::collections::{BTreeMap, BTreeSet};
@@ -109,4 +108,10 @@ pub(super) fn rewritten_segment_origins(
         }
     }
     Ok(aliases)
+}
+
+fn replacement_uuid(original: &str) -> SyncResult<String> {
+    let old = uuid::Uuid::parse_str(original).map_err(|_| invalid())?;
+    let next = old.as_u128().checked_add(1).ok_or_else(invalid)?;
+    Ok(uuid::Uuid::from_u128(next).to_string())
 }

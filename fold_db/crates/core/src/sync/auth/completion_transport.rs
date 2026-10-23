@@ -16,7 +16,7 @@ impl AuthClient {
         expected_etag: Option<&str>,
         create_only: bool,
     ) -> SyncResult<serde_json::Value> {
-        if ticket.is_empty() || etag.is_empty() || self.cloud_adoption_read.is_some() {
+        if ticket.is_empty() || etag.is_empty() {
             return Err(SyncError::CloudPurgeHeld(
                 "multipart completion needs a private ticket and a writable client".into(),
             ));

@@ -1,0 +1,258 @@
+{
+  "after_revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+  "before_revision": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+  "commands": [
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/verify_isolated.py",
+        "--before-revision",
+        "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+        "--after-revision",
+        "e79b711517519c9ce27d0f6f1b405a364be3ba91"
+      ],
+      "end_unix_ns": 1792733664629619000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733660395621000,
+      "step": "isolated-source-and-real-writer-gates"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_profile.py",
+        "--variant",
+        "before"
+      ],
+      "end_unix_ns": 1792733720188485000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733664630528000,
+      "step": "before-fresh-profile"
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_provenance.py",
+        "--variant",
+        "before"
+      ],
+      "end_unix_ns": 1792733720228308000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733720192082000,
+      "step": "before-profile-provenance"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/aggregate_native_sample.py",
+        "--profile",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/before-profile-1",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/before-profile-stack-analysis.json"
+      ],
+      "end_unix_ns": 1792733720559137000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733720229158000,
+      "step": "before-stack-audit"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_profile.py",
+        "--variant",
+        "after"
+      ],
+      "end_unix_ns": 1792733774746519000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733720559970000,
+      "step": "after-fresh-profile"
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_provenance.py",
+        "--variant",
+        "after"
+      ],
+      "end_unix_ns": 1792733774779092000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733774747492000,
+      "step": "after-profile-provenance"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/aggregate_native_sample.py",
+        "--profile",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/after-profile-1",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/after-profile-stack-analysis.json"
+      ],
+      "end_unix_ns": 1792733775103296000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733774779840000,
+      "step": "after-stack-audit"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_final_review.py",
+        "--before-revision",
+        "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+        "--after-revision",
+        "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+        "--host-lock",
+        "/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock"
+      ],
+      "end_unix_ns": 1792734105020934000,
+      "exit_code": 0,
+      "start_unix_ns": 1792733775104311000,
+      "step": "six-operations-and-three-pairs"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_matched.py",
+        "--root",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/matched-numeric-audit.json"
+      ],
+      "end_unix_ns": 1792734106510382000,
+      "exit_code": 0,
+      "start_unix_ns": 1792734105028390000,
+      "step": "matched-numeric-audit"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_auto.py",
+        "--variant",
+        "before"
+      ],
+      "end_unix_ns": 1792734831415475000,
+      "exit_code": 0,
+      "start_unix_ns": 1792734106511189000,
+      "step": "default-auto-before"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_auto.py",
+        "--root",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022",
+        "--variant",
+        "before",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/auto-before-numeric-audit.json"
+      ],
+      "end_unix_ns": 1792734831712836000,
+      "exit_code": 0,
+      "start_unix_ns": 1792734831418974000,
+      "step": "auto-before-numeric-audit"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_auto.py",
+        "--variant",
+        "draft"
+      ],
+      "end_unix_ns": 1792735556002848000,
+      "exit_code": 0,
+      "start_unix_ns": 1792734831713825000,
+      "step": "default-auto-draft"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_auto.py",
+        "--root",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022",
+        "--variant",
+        "draft",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/auto-draft-numeric-audit.json"
+      ],
+      "end_unix_ns": 1792735565320828000,
+      "exit_code": 0,
+      "start_unix_ns": 1792735556007087000,
+      "step": "auto-draft-numeric-audit"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_auto.py",
+        "--variant",
+        "after"
+      ],
+      "end_unix_ns": 1792736289947324000,
+      "exit_code": 0,
+      "start_unix_ns": 1792735565321675000,
+      "step": "default-auto-after"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_auto.py",
+        "--root",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022",
+        "--variant",
+        "after",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/auto-after-numeric-audit.json"
+      ],
+      "end_unix_ns": 1792736299346966000,
+      "exit_code": 0,
+      "start_unix_ns": 1792736289959792000,
+      "step": "auto-after-numeric-audit"
+    }
+  ],
+  "complete": true,
+  "driver_sha256": "462dc719b942fd7513724f701a182fd8c519cb4aa34710bae7be2f31ce4a2e82",
+  "end_unix_ns": 1792736299347385000,
+  "genuine_historical_baseline_profile": "historical-before-profile-archive.json",
+  "helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/accept_isolated.py": "72cd6f5887f8eb5101c0dab43ce24e53c10137eb64de38190452b98b2e1efb92",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/aggregate_native_sample.py": "f91beb7c3b3bd3a4b155c3e0163c58b1f3533486d9cd769565db227302adcb68",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_auto.py": "54dc996ac0497ecdd6bc69c58149d73376e55be0434f567de3b98a681f4f3bc9",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_matched.py": "8bb21fe67110c8e712e265ea80ac5df9915103f4bc6b25e59962e6dca7f13e0b",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/capability_capture.py": "1273c38d8b55c033025bf3cd9181f51817ad9db31d23c2f1b32dfba60a944cf2",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/matched_audit_extra.py": "e211b7e182b0bc6f985027e142e05001b2c27cf9135a908e3aff3335820cc3a0",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/matched_audit_metrics.py": "ee87b6735511f12fa36a8fa4ef2608665d028465cff14e96bfdc4a55f734e5b3",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_provenance.py": "77c5956bdc468062abcba24249ab45f2c23e939ace91f069c02d4a3385240566",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_auto.py": "db49fcf1a8cf0138bb31d92e33f31cb10ba9a90c418b4a9aeb1f3c120e610c2b",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_final_review.py": "f8433b523c2593545de5574ac0376dd8fc3db9b4f5b169ed6882c815d441b76a",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_profile.py": "0aa265d9763b0492457ac8472a449ea3497e570ed9e624677b6412de1cce3dee",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/verify_isolated.py": "a9287dac7d9c5ca769111bc8a7a33b6a4387048ad22eef20db840cc1799206d2"
+  },
+  "no_timed_requests_during_numeric_audit": true,
+  "preceding_dep_info_reader_failure": "source-guard-attempt-1-window.json",
+  "rejected_attempt_archive": "rejected-build-1-archive.json",
+  "start_unix_ns": 1792733660395217000
+}
