@@ -1,0 +1,290 @@
+[
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26102,
+      "change_feed": 4482,
+      "idempotency": 4472,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16607
+    },
+    "generation": 213,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51717,
+    "phase": "continued-native-state",
+    "selected_records": 42669,
+    "selected_sha256": "2468400aff444ef83a3e5bd42319d6d3398870b8ae60eebf883713a5b9fdb2db",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26102,
+      "change_feed": 4482,
+      "idempotency": 4472,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16607
+    },
+    "generation": 213,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51717,
+    "phase": "interrupt-0-before",
+    "selected_records": 42669,
+    "selected_sha256": "2468400aff444ef83a3e5bd42319d6d3398870b8ae60eebf883713a5b9fdb2db",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26102,
+      "change_feed": 4482,
+      "idempotency": 4472,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16607
+    },
+    "generation": 214,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51717,
+    "phase": "interrupt-0-after",
+    "selected_records": 42669,
+    "selected_sha256": "2468400aff444ef83a3e5bd42319d6d3398870b8ae60eebf883713a5b9fdb2db",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26108,
+      "change_feed": 4482,
+      "idempotency": 4473,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16611
+    },
+    "generation": 216,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51728,
+    "phase": "post-interrupt-0-before",
+    "selected_records": 42679,
+    "selected_sha256": "538e5d1652c07950078c76aafb196fe6d3a1f5da71b23eed89c998552237aef7",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26108,
+      "change_feed": 4483,
+      "idempotency": 4473,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16611
+    },
+    "generation": 218,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51729,
+    "phase": "post-interrupt-0-after",
+    "selected_records": 42679,
+    "selected_sha256": "538e5d1652c07950078c76aafb196fe6d3a1f5da71b23eed89c998552237aef7",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26108,
+      "change_feed": 4483,
+      "idempotency": 4473,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16611
+    },
+    "generation": 218,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51729,
+    "phase": "interrupt-1-before",
+    "selected_records": 42679,
+    "selected_sha256": "538e5d1652c07950078c76aafb196fe6d3a1f5da71b23eed89c998552237aef7",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26108,
+      "change_feed": 4483,
+      "idempotency": 4473,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16611
+    },
+    "generation": 219,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51729,
+    "phase": "interrupt-1-after",
+    "selected_records": 42679,
+    "selected_sha256": "538e5d1652c07950078c76aafb196fe6d3a1f5da71b23eed89c998552237aef7",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26114,
+      "change_feed": 4483,
+      "idempotency": 4474,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16615
+    },
+    "generation": 221,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51740,
+    "phase": "post-interrupt-1-before",
+    "selected_records": 42689,
+    "selected_sha256": "2548fc8c1f1a83ec445d47fb04f7ed1e991be1276976332342ad2247d0a544c2",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  },
+  {
+    "by_collection": {
+      "__native_home": 15,
+      "atoms": 26114,
+      "change_feed": 4484,
+      "idempotency": 4474,
+      "keep_small": 5,
+      "metadata": 2,
+      "molecule_keys": 14,
+      "molecule_ref_edges": 14,
+      "schema_states": 2,
+      "schemas": 2,
+      "tips": 16615
+    },
+    "generation": 223,
+    "max_native_key_bytes": 56487,
+    "native_groups": 3125,
+    "native_records": 51741,
+    "phase": "post-interrupt-1-after",
+    "selected_records": 42689,
+    "selected_sha256": "2548fc8c1f1a83ec445d47fb04f7ed1e991be1276976332342ad2247d0a544c2",
+    "selection": "atoms collection and mk:/mh:/rdel:v2: molecule records in tips",
+    "tuple": [
+      "collection",
+      "key",
+      "batch",
+      "operation",
+      "body_sha256",
+      "body_bytes",
+      "group"
+    ]
+  }
+]

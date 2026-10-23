@@ -82,6 +82,7 @@ The source review approves `bb7a4a7f5219265cb660ba8084b72fdbb2833554`, including
 The three independent product captures and their exact owned cleanup completed.
 The merge still requires the final corrected head's green CI and successful product check from the parent agent.
 Frozen source timings remain separate from that final check.
+`APPROVAL_ADDENDUM.md` records the completed final product check and final source/product approval.
 
 ## Cost and bounds
 

@@ -23,6 +23,7 @@ The large capture also demonstrates a successful pack with a higher selected par
 That result exposed a soft-limit retry defect in the post-copy policy.
 The parent corrected that path in `bb7a4a7f5219265cb660ba8084b72fdbb2833554`.
 The source review approves that revision, subject to its green CI and the parent's successful final product check.
+`APPROVAL_ADDENDUM.md` records the completed corrected-binary check and final source/product approval.
 
 ## Workload
 

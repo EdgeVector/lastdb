@@ -1,0 +1,7 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-23T00:12:00.957733Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as2.LvHRkB/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as2.LvHRkB/home
+  Owner:  f51f85f37d9013443f00f87017e2eff1
+2026-10-23T00:12:08.638930Z ERROR fold_db::fold_db_core::mutation_manager::molecules::persist::deferred_job: deferred resident-write molecule persist failed error=Invalid data: read durable Delete barriers: Storage backend error: corrupt: disk-pack v1: native storage key exceeds format limit schema=SnapshotCommitProduct
+lastdbd: shutdown signal received, exiting

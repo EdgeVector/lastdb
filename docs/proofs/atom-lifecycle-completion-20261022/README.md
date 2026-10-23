@@ -56,7 +56,7 @@ This run contains no file blobs.
 All owned node processes stopped. The owned scratch was removed after the receipt and ownership checks.
 The backup manifest and cleanup receipt remain with the result.
 
-## Source checks
+## Source checks for the first successful capture
 
 The executable uses Rust implementation `8ca6c30f0507eb166c519cb13c20cb9b3990608e`.
 Its SHA-256 is `672faa0a41739709524530f2e658c4df045fe571279d5becf23790f6b8654378`.
@@ -66,8 +66,7 @@ The required GitHub check also passed for that implementation, including the ful
 The final PR head retains its own required GitHub check.
 
 The automatic GitHub code review completed without findings at `3535235fce28d9190ddec17590ae66ddaf5c09a7`.
-The later result commit adds receipts and this report. It changes no Rust implementation.
-The separate safety and performance reviews remain necessary before merge.
+That automatic review precedes the separate source findings below.
 
 ## Independent resource finding
 
@@ -120,6 +119,77 @@ It forces a full copy there because a recent copy can retain the older grafted b
 A result that stays above the soft limit records the capacity error and waits on an exponential back-off.
 The maximum wait is 60 seconds. Refused-write notifications cannot bypass it.
 The retry count resets after the selected count falls below the soft limit.
+
+## Independent scale capture
+
+The [scale report](../atom-scale-review-20261022/README.md) records three independent product captures.
+The large home contains 100,000 user records and 1,200,046 native entries before the first full copy.
+During a later 24.217-second compact request, 329 durable batch acknowledgements completed.
+The largest observed handoff was 844 ms.
+The complete verifier read 600,101 counters and 400,000 tips, with zero mismatches.
+
+The automatic-worker capture first refused an oversized final delta.
+Its retry reduced 269 selected parts to 12, and a later write succeeded.
+All three owned nodes stopped. Their exact owned temporary homes were removed.
+
+Those captures use frozen source `43ca120feb20ae6b95ab36dd3e2a088366522369`.
+Their timing results exclude the later file-handle and space-quote corrections.
+They establish no actual 85-percent threshold recovery, configured disk-cap stress, or power-loss result.
+The [source review](../atom-scale-review-20261022/SOURCE_REVIEW.md) accepts the three corrections, subject to the final corrected binary's checks.
+
+## Final corrected binary
+
+`run-5/summary.json` and `automatic-final/summary.json` both record `complete: true`.
+They use Rust implementation `bb7a4a7f5219265cb660ba8084b72fdbb2833554`.
+The build checkout is `c8ca55b17`, which adds only the independent scale receipts.
+The source comparison found no Rust or dependency change from the reviewed implementation.
+The final build confirmation passed before either node started.
+
+The daemon SHA-256 is `359ec9b3f1b3348413e39c0deab1ea78c34b59e1812b1ad103d8e6f1684b9d8a`.
+The recovery command SHA-256 is `7feaefd66314db5c8c6d6b11d213e8328d3998c6035d568c003c033ffb095918`.
+The inputs retain the exact driver hashes.
+The required CI and all CodeQL checks passed for the reviewed implementation.
+The final receipt commit retains its own CI gate.
+
+The full lifecycle capture uses 4,096 user records and two long keys.
+It updates the original long key after the first full copy, before each recent copy.
+That operation exercises an old key overflow chain through a recent page.
+Exact data matched after concurrent compaction, all recent copies, deletes, backup restore, graceful reopen, and forced reopen.
+The interrupted copy had observed private payload bytes before the owned process received SIGKILL.
+Its reopen returned all accepted values.
+
+The concurrent full copy caught 2,695 changed entries across three rounds.
+The four recent copies took 41 to 50 ms on this small home.
+The largest observed handoff was 11 ms. These values establish no large-home latency bound.
+The list returned 72 successful partial pages across 84 pages.
+TTL expiry, schema drop, and molecule drain completed.
+The complete verifier read 24,546 counters and 16,360 tips, with zero mismatches.
+
+The corrected automatic worker first refused an oversized final delta, then completed its retry.
+It reduced 263 selected parts to 12 and accepted a later durable update.
+The final count is 24 parts, the writer remains healthy, and the maintenance error is clear.
+Its complete verifier read 24,582 counters and 16,384 tips, with zero mismatches.
+This ordinary trigger operation does not reach the physical 85-percent threshold.
+
+Both owned node processes stopped, and both exact owned temporary homes were removed.
+The backup manifest and cleanup receipts remain with the results.
+These captures contain no external file blobs and establish no power-loss or configured disk-cap stress result.
+
+## Final independent approvals
+
+The [scale approval addendum](../atom-scale-review-20261022/APPROVAL_ADDENDUM.md) approves the corrected source and both final product captures.
+The [safety review](../atom-safety-review-20261022/README.md) approves the same source and later documentation-only commits.
+Neither reviewer reports an unresolved source defect in the reviewed scope.
+
+The independent safety capture preserves exact immutable record tuples across nine recent copies, concurrent catch-up, and caller cancellation.
+Its continuation observes two interrupted full copies and verifies unchanged versions and body hashes after both reopens.
+Its backup restore returns 4,105 main records and 32 new-schema records with their exact accepted values.
+The complete counter tally reports zero mismatches.
+All three safety homes were removed after the owned-node and receipt checks.
+The original format refusals and missed interruption observation remain separate from their successful recoveries.
+
+The final PR receipt commit changes documentation and evidence only.
+Its required CI remains the final merge gate.
 
 ## Product operations
 

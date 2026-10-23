@@ -1,0 +1,32 @@
+{
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-review-atom-safety-20261022/target/dev-release/lastdbd",
+  "binary_sha256": "85e17e4dea9b2a9f38f5dd20d67397d1a26e302197ee353040ab43121f31e2fc",
+  "body_bytes": 1024,
+  "claim_limit": "Product run and process interruption; no power-loss proof",
+  "clock": "perf_counter_ns",
+  "deleted": [
+    256,
+    257,
+    258,
+    259,
+    260,
+    261,
+    262,
+    263
+  ],
+  "driver_sha256": "d25c17456d4b65a60812bf4e2bab46300ada3e286e78ea675ffb4f59dcc3f246",
+  "filesystem_cache": "uncontrolled",
+  "independent_driver_sha256": "d8b70e59c29112789cfe14b3f86fe348de20e9ced341bf12d027273e7e220702",
+  "maintain_sha256": "0b0a688774edb709a33181dd42f0274af31e635463e9c22d5f26e30d61b02e8b",
+  "records": 4096,
+  "recovery_sha256": "0577c9f57f8f8990ccca2e5fae0a77f6cf50eafb27c4e871c56c099a0ee536fe",
+  "recreated": [
+    256,
+    257,
+    258,
+    259
+  ],
+  "scope": "Independent safety use on generated data; no power-loss claim",
+  "source_revision": "43ca120feb20ae6b95ab36dd3e2a088366522369",
+  "update_rounds": 16
+}
