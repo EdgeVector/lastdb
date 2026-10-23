@@ -32,6 +32,7 @@ impl WriteQueue {
 impl PackRuntime {
     /// A sealed prefix excludes new preparation until its durable result.
     pub(super) async fn enter_prepare(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
+        self.ensure_automatic();
         loop {
             let gate = Arc::clone(&self.write_gate).lock_owned().await;
             let target = {

@@ -1,5 +1,6 @@
 use super::{artifact, Current};
 use crate::Result;
+use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -9,6 +10,9 @@ pub(super) struct WriteLock {
     root: PathBuf,
     _file: File,
     checked_current: Mutex<Option<[u8; 32]>>,
+    // Optional, bounded absence facts from this writer's completed cleanup.
+    // A new publication removes every coordinate it makes present again.
+    pub(super) absent_parts: Mutex<BTreeSet<super::dependency::Coordinate>>,
     pub(super) read_state: Mutex<super::lifetime::WriterReadState>,
 }
 
@@ -50,6 +54,7 @@ impl WriteLock {
             root,
             _file: file,
             checked_current: Mutex::new(None),
+            absent_parts: Mutex::new(BTreeSet::new()),
             read_state: Mutex::new(super::lifetime::WriterReadState::new(current.generation)),
         })
     }
@@ -74,6 +79,17 @@ impl WriteLock {
             .lock()
             .map_err(|_| super::corrupt("verified writer root lock is poisoned"))?;
         *checked = Some(super::bytes::digest(&current.encode()?));
+        Ok(())
+    }
+
+    pub(super) fn note_present(&self, coordinates: &[super::dependency::Coordinate]) -> Result<()> {
+        let mut absent = self
+            .absent_parts
+            .lock()
+            .map_err(|_| super::corrupt("retired part facts lock"))?;
+        for coordinate in coordinates {
+            absent.remove(coordinate);
+        }
         Ok(())
     }
 }

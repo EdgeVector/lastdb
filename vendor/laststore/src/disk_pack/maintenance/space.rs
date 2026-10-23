@@ -19,6 +19,8 @@ pub struct SpacePolicy {
     pub grace_ms: u64,
     /// Bounded file inventory across the six-level native layout.
     pub max_files: usize,
+    /// Most obsolete generations one cleanup step can retire.
+    pub reclaim_generations: usize,
 }
 
 impl Default for SpacePolicy {
@@ -29,6 +31,7 @@ impl Default for SpacePolicy {
             replacement_reserve_bytes: 64 * 1024 * 1024,
             grace_ms: 24 * 60 * 60 * 1000,
             max_files: 262_144,
+            reclaim_generations: usize::MAX,
         }
     }
 }

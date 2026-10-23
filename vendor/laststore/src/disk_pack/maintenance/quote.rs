@@ -7,6 +7,14 @@ use std::path::Path;
 /// Compression can never reduce this reservation and then enlarge its output beyond it.
 /// Stream the selected trees with per-path I/O budgets and checked byte arithmetic.
 pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
+    quote(root, current, true)
+}
+
+pub(super) fn lookup_replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
+    quote(root, current, false)
+}
+
+fn quote(root: &Path, current: &Current, copy_payload: bool) -> Result<u64> {
     // Complete receipt, its private publication, empty-tree floors, and checkpoint slack.
     let mut bytes = 8 * 1024 * 1024u64;
     let mut call = artifact::metadata_call(root, current.clone());
@@ -23,7 +31,7 @@ pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
                 return Err(corrupt("compaction quote frontier"));
             }
             add(&mut bytes, locator_bytes(key.len()))?;
-            if location.source != Source::Tombstone {
+            if copy_payload && location.source != Source::Tombstone {
                 // Each record can straddle one initial block. Include frames and block map entries.
                 let blocks = location.record_bytes.div_ceil(4096) + 1;
                 add(&mut bytes, location.record_bytes)?;

@@ -18,7 +18,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
-        println!("usage: lastdb-pack-maintain <compact|reclaim|inventory|reference|references|release|hold|hold-writer|records> --home PATH [options]");
+        println!("usage: lastdb-pack-maintain <compact|repack|reclaim|inventory|reference|references|release|hold|hold-writer|records> --home PATH [options]");
+        println!("  repack replaces lookup pages and retains unchanged payload objects");
         println!("  compact/reclaim: --grace-ms N (default 86400000), --free-reserve-bytes N, --replacement-reserve-bytes N");
         println!("  reference: --purpose backup|rollback|conversion-source|cloud-recovery [--expiry-ms N]");
         println!("  release: --reference UUID; hold/hold-writer: --hold-seconds N (1..3600)");
@@ -86,6 +87,7 @@ fn run() -> Result<()> {
     };
     let output = match command.as_str() {
         "compact" => maintenance(home.journal()?.compact(&policy)?),
+        "repack" => maintenance(home.journal()?.repack_lookups(&policy)?),
         "reclaim" => maintenance(home.journal()?.reclaim(&policy)?),
         "inventory" => inventory(&path)?,
         "reference" => reference(&path, &values, number("--expiry-ms", 0)?)?,
@@ -154,7 +156,8 @@ fn maintenance(receipt: MaintenanceReceipt) -> Value {
     json!({"generation":receipt.generation,"records_copied":receipt.records_copied,
         "tombstones_copied":receipt.tombstones_copied,"parts_before":receipt.parts_before,
         "parts_after":receipt.parts_after,"files_removed":receipt.files_removed,
-        "bytes_removed":receipt.bytes_removed,"reclaim_deferred":receipt.reclaim_deferred})
+        "bytes_removed":receipt.bytes_removed,"reclaim_deferred":receipt.reclaim_deferred,
+        "reclaim_remaining":receipt.reclaim_remaining})
 }
 
 fn inventory(path: &std::path::Path) -> Result<Value> {

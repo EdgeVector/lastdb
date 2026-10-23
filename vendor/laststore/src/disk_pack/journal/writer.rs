@@ -106,9 +106,16 @@ impl JournalWriter {
             self.poisoned = false;
             return Ok(publication);
         }
-        let (publication, tail) = super::resume::checkpoint(&self.lock)?;
+        // Publish once; rotate a bounded stream periodically with one extra receipt.
+        let batches = self.tail.last_batch - (self.tail.first_batch - 1);
+        let publication = if batches >= 32 || self.tail.encoded_bytes >= 16 * 1024 * 1024 {
+            let (publication, tail) = super::resume::checkpoint(&self.lock)?;
+            self.tail = tail;
+            publication
+        } else {
+            crate::disk_pack::publish::publish_locked(&self.lock)?
+        };
         self.current = publication.current.clone();
-        self.tail = tail;
         self.reserved_bytes = 0;
         self.suffix_oldest = None;
         self.poisoned = false;

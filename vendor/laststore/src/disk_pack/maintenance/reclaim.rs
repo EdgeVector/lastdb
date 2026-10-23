@@ -39,28 +39,13 @@ pub(in crate::disk_pack) fn reclaim_locked(
     if tail.stream != current.journal_stream || tail.last_batch != current.frontier {
         return Err(corrupt("reclaim requires a complete journal checkpoint"));
     }
-    let references = lifetime::list_unlocked(root)?;
-    let mut retained = BTreeSet::from([current.generation]);
-    retained.extend(references.iter().map(|item| item.generation));
     let generations = generations(root, policy.max_files)?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
-    // Grace protects each young generation's whole closure, not only young files.
-    for number in &generations {
-        if generation::load_current(root, *number)?.published_ms > cutoff {
-            retained.insert(*number);
-        }
-    }
-    let mut live = BTreeSet::new();
-    for number in &retained {
-        let held = generation::load_current(root, *number)?;
-        let generation = generation::verify(root, &held)?;
-        for coordinate in generation.coordinates {
-            live.insert(coordinate);
-            if live.len() > MAX_RETAINED_PARTS {
-                return Err(crate::disk_pack::resource());
-            }
-        }
-    }
+    let (retained, live) = retained_parts(lock, &current, policy, &generations, cutoff)?;
+    let mut absent = lock
+        .absent_parts
+        .lock()
+        .map_err(|_| corrupt("retired part facts lock"))?;
     let mut old = Vec::new();
     let mut candidates = BTreeMap::new();
     for number in generations {
@@ -71,9 +56,13 @@ pub(in crate::disk_pack) fn reclaim_locked(
         if held.published_ms > cutoff {
             continue;
         }
+        if old.len() == policy.reclaim_generations {
+            receipt.reclaim_remaining = true;
+            break;
+        }
         let generation = generation::read_receipt(root, &held)?;
         for coordinate in &generation.coordinates {
-            if !live.contains(coordinate) {
+            if !live.contains(coordinate) && !absent.contains(coordinate) {
                 candidates.insert(*coordinate, coordinate.path(root)?);
                 if candidates.len() > MAX_RETAINED_PARTS {
                     return Err(crate::disk_pack::resource());
@@ -84,29 +73,91 @@ pub(in crate::disk_pack) fn reclaim_locked(
         old.push(held);
     }
     let mut removals = Vec::new();
+    let mut removed = Vec::new();
     for (coordinate, path) in candidates {
         if let Some(bytes) = removable(root, &coordinate, &path, cutoff)? {
             removals.push((path, bytes));
+            removed.push(coordinate);
+        } else if !path.try_exists()? {
+            removed.push(coordinate);
         }
     }
-    // Every retained part and every candidate is validated before the first deletion.
-    for (path, bytes) in removals {
-        std::fs::remove_file(&path)?;
-        durability::sync_directory(&File::open(path.parent().expect("part parent"))?)?;
-        receipt.files_removed += 1;
-        receipt.bytes_removed += bytes;
-        remove_empty_parents(root, &path)?;
+    remove_parts(root, removals, &mut receipt)?;
+    // Only completed barriers and verified absences enter this optional cache.
+    if absent.len() + removed.len() > MAX_RETAINED_PARTS {
+        absent.clear();
     }
+    absent.extend(removed);
     for held in old {
         let generation = generation::read_receipt(root, &held)?;
         if generation.coordinates.iter().any(|coordinate| {
-            !live.contains(coordinate) && coordinate.path(root).map_or(true, |path| path.exists())
+            !live.contains(coordinate)
+                && !absent.contains(coordinate)
+                && coordinate.path(root).map_or(true, |path| path.exists())
         }) {
             continue;
         }
         remove_receipt(root, &held, policy.max_files, &mut receipt)?;
     }
     Ok(receipt)
+}
+
+fn retained_parts(
+    lock: &WriteLock,
+    current: &Current,
+    policy: &SpacePolicy,
+    generations: &[u64],
+    cutoff: u64,
+) -> Result<(BTreeSet<u64>, BTreeSet<Coordinate>)> {
+    let root = lock.root();
+    let references = lifetime::list_unlocked(root)?;
+    let mut retained = BTreeSet::from([current.generation]);
+    retained.extend(references.iter().map(|item| item.generation));
+    // Grace protects each young generation's whole closure, not only young files.
+    if policy.grace_ms > 0 {
+        for number in generations {
+            if generation::load_current(root, *number)?.published_ms > cutoff {
+                retained.insert(*number);
+            }
+        }
+    }
+    let mut live = BTreeSet::new();
+    for number in &retained {
+        let held = generation::load_current(root, *number)?;
+        let generation = if held == *current {
+            crate::disk_pack::publish::ensure_generation(lock, &held)?
+        } else {
+            generation::verify(root, &held)?
+        };
+        for coordinate in generation.coordinates {
+            live.insert(coordinate);
+            if live.len() > MAX_RETAINED_PARTS {
+                return Err(crate::disk_pack::resource());
+            }
+        }
+    }
+    Ok((retained, live))
+}
+
+fn remove_parts(
+    root: &Path,
+    removals: Vec<(std::path::PathBuf, u64)>,
+    receipt: &mut MaintenanceReceipt,
+) -> Result<()> {
+    // Every retained part and every candidate is validated before the first deletion.
+    let mut parents = BTreeSet::new();
+    for (path, bytes) in removals {
+        std::fs::remove_file(&path)?;
+        parents.insert(path.parent().expect("part parent").to_path_buf());
+        receipt.files_removed += 1;
+        receipt.bytes_removed += bytes;
+    }
+    // Publish every directory deletion barrier before retiring any receipt.
+    for parent in parents {
+        durability::sync_directory(&File::open(&parent)?)?;
+        remove_empty_parents(root, &parent.join("removed-part"))?;
+    }
+    Ok(())
 }
 
 fn validate_roots(root: &Path) -> Result<()> {
@@ -148,6 +199,7 @@ fn generations(root: &Path, max_files: usize) -> Result<Vec<u64>> {
             .ok_or_else(|| corrupt("invalid generation directory"))?;
         out.push(number);
     }
+    out.sort_unstable();
     Ok(out)
 }
 

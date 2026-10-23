@@ -111,6 +111,7 @@ pub(super) fn publish_locked(lock: &WriteLock) -> Result<PublishedGeneration> {
     let dependencies = publisher.dependencies.finish();
     let receipt =
         generation::write_carried(root, &publisher.proposed, &dependencies, &old_receipt)?;
+    lock.note_present(&dependencies)?;
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
     if artifact::current(root)? != previous {
         return Err(corrupt("CURRENT changed during publication"));

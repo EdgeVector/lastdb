@@ -3,6 +3,28 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy, SpaceReserv
 use crate::Result;
 
 impl JournalWriter {
+    /// Current complete retained file count, without a filesystem walk.
+    pub fn dependency_parts(&self) -> Result<u64> {
+        Ok(crate::disk_pack::publish::ensure_generation(&self.lock, &self.current)?.dependencies)
+    }
+
+    /// Replace only lookup pages. Payload objects and their versions stay intact.
+    pub fn repack_lookups(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
+        self.maintenance_checkpoint()?;
+        self.poisoned = true;
+        let (current, receipt) =
+            match crate::disk_pack::maintenance::repack_locked(&self.lock, policy) {
+                Ok(packed) => packed,
+                Err(error) => {
+                    self.poisoned = !crate::disk_pack::artifact::current(&self.root)
+                        .is_ok_and(|disk| disk == self.current);
+                    return Err(error);
+                }
+            };
+        self.current = current;
+        self.poisoned = false;
+        Ok(receipt)
+    }
     /// An uncertain publication requires a reopen before more writes.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
@@ -26,7 +48,7 @@ impl JournalWriter {
     /// Publish replacements without deletion. A node installs this root in its
     /// read view before it calls `reclaim` under that view's exclusive lock.
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
+        self.maintenance_checkpoint()?;
         self.poisoned = true;
         let (current, receipt) =
             match crate::disk_pack::maintenance::compact_locked(&self.lock, policy) {
@@ -52,5 +74,23 @@ impl JournalWriter {
     pub fn reserve_space(&self, bytes: u64, policy: &SpacePolicy) -> Result<SpaceReservation> {
         self.check_admission()?;
         crate::disk_pack::maintenance::reserve_space(&self.root, policy, bytes)
+    }
+
+    fn maintenance_checkpoint(&mut self) -> Result<()> {
+        self.publish()?;
+        if self.tail.last_batch < self.tail.first_batch {
+            return Ok(());
+        }
+        // Replacements can drop every payload in the current stream. Close its
+        // recovery interval first, so reclaim cannot remove bytes that a later
+        // publication must still verify through JOURNAL_TAIL.
+        self.poisoned = true;
+        let (publication, tail) = super::super::resume::checkpoint(&self.lock)?;
+        self.current = publication.current;
+        self.tail = tail;
+        self.reserved_bytes = 0;
+        self.suffix_oldest = None;
+        self.poisoned = false;
+        Ok(())
     }
 }
