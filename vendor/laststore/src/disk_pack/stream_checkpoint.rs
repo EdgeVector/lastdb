@@ -29,6 +29,7 @@ pub(super) fn publish_stream(
     current.journal_stream = tail.stream;
     current.published_ms = artifact::unix_ms();
     let receipt = generation::write_carried(root, &current, &old.coordinates, &old)?;
+    lock.note_present(&old.coordinates)?;
     if artifact::current(root)? != *previous {
         return Err(corrupt("CURRENT changed during stream checkpoint"));
     }

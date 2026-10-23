@@ -99,6 +99,7 @@ pub(in crate::disk_pack) fn repack_locked(
     current.directory = tree;
     let selected = dependencies.finish();
     let generation = generation::write(root, &current, &selected)?;
+    lock.note_present(&selected)?;
     if artifact::current(root)? != previous {
         return Err(corrupt("CURRENT changed during lookup repack"));
     }

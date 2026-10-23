@@ -42,6 +42,10 @@ pub(in crate::disk_pack) fn reclaim_locked(
     let generations = generations(root, policy.max_files)?;
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     let (retained, live) = retained_parts(lock, &current, policy, &generations, cutoff)?;
+    let mut absent = lock
+        .absent_parts
+        .lock()
+        .map_err(|_| corrupt("retired part facts lock"))?;
     let mut old = Vec::new();
     let mut candidates = BTreeMap::new();
     for number in generations {
@@ -58,7 +62,7 @@ pub(in crate::disk_pack) fn reclaim_locked(
         }
         let generation = generation::read_receipt(root, &held)?;
         for coordinate in &generation.coordinates {
-            if !live.contains(coordinate) {
+            if !live.contains(coordinate) && !absent.contains(coordinate) {
                 candidates.insert(*coordinate, coordinate.path(root)?);
                 if candidates.len() > MAX_RETAINED_PARTS {
                     return Err(crate::disk_pack::resource());
@@ -69,16 +73,25 @@ pub(in crate::disk_pack) fn reclaim_locked(
         old.push(held);
     }
     let mut removals = Vec::new();
+    let mut removed = Vec::new();
     for (coordinate, path) in candidates {
         if let Some(bytes) = removable(root, &coordinate, &path, cutoff)? {
             removals.push((path, bytes));
         }
+        removed.push(coordinate);
     }
     remove_parts(root, removals, &mut receipt)?;
+    // Only completed barriers and verified absences enter this optional cache.
+    if absent.len() + removed.len() > MAX_RETAINED_PARTS {
+        absent.clear();
+    }
+    absent.extend(removed);
     for held in old {
         let generation = generation::read_receipt(root, &held)?;
         if generation.coordinates.iter().any(|coordinate| {
-            !live.contains(coordinate) && coordinate.path(root).map_or(true, |path| path.exists())
+            !live.contains(coordinate)
+                && !absent.contains(coordinate)
+                && coordinate.path(root).map_or(true, |path| path.exists())
         }) {
             continue;
         }

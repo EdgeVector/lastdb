@@ -75,6 +75,7 @@ pub(in crate::disk_pack) fn compact_locked(
     compactor.current.directory = tree;
     let dependencies = compactor.dependencies.finish();
     let receipt = generation::write(root, &compactor.current, &dependencies)?;
+    lock.note_present(&dependencies)?;
     if artifact::current(root)? != previous {
         return Err(corrupt("CURRENT changed during compaction"));
     }
