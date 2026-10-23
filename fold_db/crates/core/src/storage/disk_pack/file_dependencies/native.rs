@@ -100,7 +100,8 @@ pub fn read_directories(
                 &directory_key(atom_id, *kind),
             );
             (
-                "atoms".into(),
+                super::super::super::laststore::native_routing::collection_for_key(raw.as_bytes())
+                    .into(),
                 super::super::super::laststore::native_routing::encode(raw.as_bytes()),
             )
         })

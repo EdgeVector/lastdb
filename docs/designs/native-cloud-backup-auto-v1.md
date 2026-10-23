@@ -93,6 +93,7 @@ The short file deletion lock stays held until the local reader protects that gen
 Admission refuses while file deletion is active.
 The reader keeps its generation protected until all reads or upload bytes stop.
 File streams use the same admission. The ordinary read age floor stays unchanged.
+File directory reads use the normal write route for each key.
 
 After Published, reconcile its receipt and finish source cleanup before a successor starts.
 Only [validated Published acceptance](../../lastdb_node/src/native_cloud_backup/terminal.rs#L69) advances the accepted frontier.
