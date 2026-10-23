@@ -42,7 +42,15 @@ jobs:
           mkdir -p "$result_dir"
           echo "BENCH_OUTPUT=$result_dir" >> "$GITHUB_ENV"
 
-      - name: Checkout candidate and benchmark driver
+      - name: Checkout benchmark driver from the workflow revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: benchmark-driver
+          sparse-checkout: scripts/benchmarks
+          persist-credentials: false
+
+      - name: Checkout exact candidate source
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -69,7 +77,7 @@ jobs:
           echo "baseline=$baseline_sha" >> "$GITHUB_OUTPUT"
 
       - name: Check benchmark script syntax
-        run: python3 -m py_compile candidate/scripts/benchmarks/*.py
+        run: python3 -m py_compile benchmark-driver/scripts/benchmarks/*.py
 
       - name: Checkout baseline
         uses: actions/checkout@v5
@@ -133,7 +141,7 @@ jobs:
           BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
         run: |
           timeout --signal=TERM --kill-after=120s 65m \
-            python3 candidate/scripts/benchmarks/run.py \
+            python3 benchmark-driver/scripts/benchmarks/run.py \
               --baseline "$RUNNER_TEMP/bench-target-baseline/dev-release/lastdbd" \
               --candidate "$RUNNER_TEMP/bench-target-candidate/dev-release/lastdbd" \
               --baseline-revision "$BASELINE_SHA" \
@@ -144,7 +152,7 @@ jobs:
         if: always()
         env:
           MEASUREMENT_OUTCOME: ${{ job.status }}
-        run: python3 candidate/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
+        run: python3 benchmark-driver/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
 
       - name: Upload measurements and build receipts
         id: upload
@@ -168,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/benchmark-artifact-metadata.json"
-          python3 candidate/scripts/benchmarks/artifact.py \
+          python3 benchmark-driver/scripts/benchmarks/artifact.py \
             --metadata "$RUNNER_TEMP/benchmark-artifact-metadata.json" \
             --output "$RUNNER_TEMP/benchmark-download-receipt"
 

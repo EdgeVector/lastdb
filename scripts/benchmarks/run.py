@@ -83,6 +83,7 @@ def main():
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",
               "disk": "sum of file lengths in the generated home; allocated blocks not measured"}
     manifest = {"format_version": 1, "profile": args.profile, "recipe": recipe,
+                "driver_revision": os.environ.get("GITHUB_SHA"),
                 "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "report.py", "artifact.py")}}
