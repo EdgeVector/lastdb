@@ -1,0 +1,91 @@
+{
+  "after_revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+  "before_revision": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+  "commands": [
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/accept_builds.py",
+        "--before-revision",
+        "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+        "--after-revision",
+        "e79b711517519c9ce27d0f6f1b405a364be3ba91"
+      ],
+      "end_unix_ns": 1792731883232800000,
+      "exit_code": 0,
+      "start_unix_ns": 1792731882827492000,
+      "step": "accept-builds"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_profile.py",
+        "--variant",
+        "after"
+      ],
+      "end_unix_ns": 1792731928612925000,
+      "exit_code": 0,
+      "start_unix_ns": 1792731883233139000,
+      "step": "optimized-profile"
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_provenance.py",
+        "--variant",
+        "after"
+      ],
+      "end_unix_ns": 1792731928647556000,
+      "exit_code": 0,
+      "start_unix_ns": 1792731928613348000,
+      "step": "profile-provenance"
+    },
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_final_review.py",
+        "--before-revision",
+        "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+        "--after-revision",
+        "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+        "--host-lock",
+        "/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock"
+      ],
+      "end_unix_ns": 1792731929995855000,
+      "exit_code": 1,
+      "start_unix_ns": 1792731928647921000,
+      "step": "six-operations-and-three-pairs"
+    }
+  ],
+  "complete": false,
+  "driver_sha256": "7c36a1993c008fa42ca50e259119f3e2303cc4f0e6b3def3a9972adce4f151f8",
+  "end_unix_ns": 1792731929996186000,
+  "error": "Stop the follow-up window at its first failed stage: six-operations-and-three-pairs",
+  "external_optimized_build_queue_wait": {
+    "complete": true,
+    "driver_sha256": "505cd61f0d19f3c8fd55b92087464e88713e4e21cccde92c0903c3976476100b",
+    "lock_metadata": "pid=25099 cmd=python3 docs/proofs/receipt-cache-followup-20261022/build_clean.py --variant after --repo /Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021 --revision e79b711517519c9ce27d0f6f1b405a364be3ba91 --scratch /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q",
+    "observation_unix_ns": 1792731744802279000,
+    "package_cache_preparation_start_unix_ns": 1792731642546755000,
+    "preparation_receipt_sha256": "3c8ead56215660d2203ad2b4a0039fb3e9bb5ff0a8e929972d48f7385c7e72d0",
+    "queue_entry_unix_ns_from_standard_ticket": 1792730017915573000,
+    "queue_ticket": "01792730017915573000-25099",
+    "queue_wait_limit": "This interval includes the short source-identity checks between lock acquisition and cache preparation; it is separate from all request timings",
+    "shared_queue_mutated": false,
+    "standard_queue_source_sha256": "4c2fd655b69a197b76952fa4a16d4bb7bc861516df763e12ba02ba5d7703bc22",
+    "ticket_device": null,
+    "ticket_inode": null,
+    "ticket_name_source": "The exact FIFO ticket was read in the preceding standard queue inventory",
+    "ticket_owner_uid": null,
+    "ticket_removed_at_acquisition_before_file_identity_capture": true,
+    "wait_plus_initial_source_guard_seconds": 1624.631182
+  },
+  "lock_scope": "Separate exclusive lock acquisition for acceptance, profile, controlled family, and each AUTO cycle",
+  "start_unix_ns": 1792731882827058000
+}

@@ -1,0 +1,52 @@
+{
+  "complete": true,
+  "time_utc": "2026-10-23 06:23:04 UTC",
+  "authorization": "Owned source-only copies released after final measurement, audit, and build cleanup",
+  "entries": [
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022",
+      "realpath": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022",
+      "uid": 501,
+      "device": 16777231,
+      "inode": 1503195909,
+      "head": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+      "common_git_dir": "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+      "clean": true,
+      "detached": true,
+      "removal": {
+        "exit_code": 0,
+        "output": ""
+      }
+    },
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-draft-20261022",
+      "realpath": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-draft-20261022",
+      "uid": 501,
+      "device": 16777231,
+      "inode": 1503203679,
+      "head": "a1941e3a8742d4da4743a02db99153119bdf034b",
+      "common_git_dir": "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+      "clean": true,
+      "detached": true,
+      "removal": {
+        "exit_code": 0,
+        "output": ""
+      }
+    },
+    {
+      "path": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-isolated-optimized-20261022",
+      "realpath": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-isolated-optimized-20261022",
+      "uid": 501,
+      "device": 16777231,
+      "inode": 1503662133,
+      "head": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+      "common_git_dir": "/Users/tomtang/.cache/edgevector-git/lastdb.git",
+      "clean": true,
+      "detached": true,
+      "removal": {
+        "exit_code": 0,
+        "output": ""
+      }
+    }
+  ]
+}

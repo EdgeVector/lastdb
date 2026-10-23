@@ -1,0 +1,52 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-disk-home",
+  "binary_sha256": "707720cd321dd282537306ade3825636e7c21eef2268f43e72b64b016f810b4a",
+  "commands": [
+    {
+      "argv": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-disk-home",
+        "read",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz/home/data/disk-pack",
+        "--input",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz/older-feature-read.json"
+      ],
+      "elapsed_nanos": 8231625,
+      "exit_code": 1,
+      "stderr": "native disk home command failed: corrupt: disk-pack v1: unsupported CURRENT feature\n",
+      "stdout": ""
+    },
+    {
+      "argv": [
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-disk-home",
+        "write",
+        "--home",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz/home/data/disk-pack",
+        "--input",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz/older-feature-write.json"
+      ],
+      "elapsed_nanos": 2585417,
+      "exit_code": 1,
+      "stderr": "native disk home command failed: corrupt: disk-pack v1: unsupported CURRENT feature\n",
+      "stdout": ""
+    }
+  ],
+  "complete": true,
+  "driver_sha256": "c0f0fac583e9e4578f3ed6bd910f24798a906562965259b567ba4b9d6a6f63e5",
+  "exact_physical_file_hashes_unchanged": true,
+  "owner": {
+    "creator_pid": 85861,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz/home",
+    "inode": 1503813430,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "f8f7f91da3e449129ee235f4d4a369b1",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz",
+    "version": 1
+  },
+  "physical_bytes": 1572507,
+  "physical_files": 64,
+  "read_refused": true,
+  "write_refused": true
+}

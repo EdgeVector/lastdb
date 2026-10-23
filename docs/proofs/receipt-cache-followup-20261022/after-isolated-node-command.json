@@ -1,0 +1,28 @@
+{
+  "build_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd",
+    "--bin",
+    "lastdb"
+  ],
+  "build_command": "cargo build --locked --release -p lastdb_node --bin lastdbd --bin lastdb",
+  "build_end_unix_ns": 1792733275140433000,
+  "build_start_unix_ns": 1792733143212056000,
+  "compiler_logs": {
+    "after-isolated-node.stderr.log": {
+      "bytes": 11147,
+      "sha256": "992bd6e4e76afb2abdaaf0ba45fc6389dac6c5be0d9bd80b55ca7697df5c1ee0"
+    },
+    "after-isolated-node.stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "exit_code": 0
+}

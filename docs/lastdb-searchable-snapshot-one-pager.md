@@ -1,58 +1,29 @@
-# LastDB: searchable snapshot and sync-only mutation log
+# LastDB: searchable snapshot and mutation log for sync
 
-Revised 2026-10-22. The local snapshot writer merged in PR 268 as `4118c7baa`.
-The follow-up in PR 271 removes the separate erase recovery records and journal-based cloud repair.
-The sync contract below remains a design requirement. Native cloud activation stays disabled.
+Revised 2026-10-22. The local journal removal merged in PR 268. PR 271 removes erase recovery records and journal-based cloud repair. PR 273 contains receipt pruning and the bounded reference cache. Native cloud activation remains disabled.
 
-LastDB needs two durable data structures: a local searchable snapshot for current data, and a mutation log for sync. Each structure can use several files. The snapshot supplies local reads and crash recovery. The mutation log retains changes after the latest confirmed cloud snapshot. Devices can hold different local snapshots and still exchange those changes. Ordinary reads and local recovery never search or replay the mutation log.
+LastDB uses a local searchable snapshot for current data and crash recovery. The mutation log serves multi-device sync. Devices can hold different local snapshots and exchange changes after a confirmed cloud snapshot. Ordinary reads and local recovery do not search or replay that log. The retained sync code does not yet establish the required common commit boundary.
 
-This branch removes the internal journal, its tail files, rotation, and replay. The snapshot writer creates ordinary payload files and changed search pages. It writes one generation receipt and publishes one root for each complete stored batch. It retains the grouped macOS disk barriers from PR 266 and the concurrent file cleanup from PR 267. The new operational receipts cover generated records, ranges, compaction, reopen, and a forced process stop. They establish no power-loss or performance result.
+The snapshot contains molecule keys, atom references, required bodies, and search pages. A read checks accepted memory first, then fetches missing logical records by key. A range names one hash and ordered bounds. It combines bounded snapshot pages with newer memory changes and deletes. Each request captures a fresh view; supported ascending keyed continuations resume after the last key. Other continuation forms retain their current rules.
 
-The second review also removes erase recovery records and journal-based cloud repair.
-Erase accounting stores the final aggregate values with the delete in one snapshot commit.
-The live debit follows the durable root. No debit replay or pending operation remains.
-The cloud-repair commands, peer adoption records, and restart workers are removed.
-Retired repair state and cloud generations that need adoption receive an explicit refusal.
-The sync mutation log and authenticated retired sync source records remain.
+A write reserves its complete memory and disk work before acceptance. It changes memory as one complete unit and returns a memory ack; some author-clock metadata requires earlier disk completion. The normal flush interval is 500 ms. A flush writes new payload files, changed search pages, and a complete generation receipt. Ordered barriers and one atomic root update select the new snapshot. A durable ack follows all required barriers, including the final macOS device flush.
 
-The earlier repeat benchmark uses three fresh-home pairs against the original journal-backed baseline `6d8aa0d57`. Durable-single request p50 falls from 86.1 to 48.9 ms. Process write bytes per durable update fall from 912.0 to 723.3 KiB. Batch latency shows mixed results.
+Recovery verifies the selected snapshot, receipt, and dependencies. An interruption before root publication keeps the prior snapshot selected. Publication can leave either complete version selected; completed durable commits survive restart. A memory ack remains volatile until flush completion. The 500 ms schedule does not guarantee a maximum loss window. Damaged committed bytes cause an explicit error and require restore.
 
-The focused compaction write delay remains about 2.2 seconds. Automatic maintenance is off in both versions. The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) separates these results from the [first report](proofs/journal-removal-benchmark-20261022/RESULTS.md). Neither comparison isolates the extra erase-meter removal.
+Each new receipt names only file parts with positive current references. Exact counts remove obsolete parts without a full database walk for each write. Shared parts remain until their last current reference goes; older receipts and read holds retain their own protection. A bounded cache shares checked maps and headers across changed keys within one commit. It retains no value bodies and drops before final count changes and receipt output. Its limits are 26 pages, 25 headers, and 32 handles, with a reset at 24 pages or headers.
 
-The snapshot contains current molecule keys, atom references, required bodies, and search pages. A read checks accepted memory first, then fetches missing logical records by key. A range supplies one hash and ordered bounds. It merges bounded snapshot pages with newer memory changes and deletes. Each request captures a fresh view; ascending keyed continuations use the last key, while other forms retain their current offset rules. Optional selected-schema key preload remains supported under its separate budget; neither read route uses the sync log.
+Receipt omission does not delete a file. Periodic reclaim removes obsolete generations below the compaction trigger. A repeated orphan sweep handles files that no receipt names. Both paths retain age, grace, retained-root, and generation-floor checks. Active work, holds, and retries can delay deletion.
 
-A local write reserves its complete memory and disk work before acceptance. It updates memory as one complete unit, then sends the memory ack. The normal flush interval stays 500 ms. The flush writes changed bytes and search pages. Ordered file barriers and one atomic root update commit the snapshot. The durable ack follows all required barriers, including the final device flush on macOS. Author-clock metadata can require disk completion before a memory ack.
+The useful property is a complete local commit boundary. Each snapshot names all required files, so recovery depends on one selected state. The current directory and locator files supply keyed and ordered access. This change keeps both. The cache reduces repeated metadata work; it leaves the 16 KiB search-page write cost unchanged. Shorter compaction pauses remain separate work.
 
-Each new receipt keeps only file parts that its selected snapshot still needs.
-Exact live counts remove obsolete parts from the next receipt without a full database walk per write.
-A shared part stays until its last current reference goes.
-Older receipts and read holds still protect earlier snapshots until reclaim can delete their files.
-The automatic worker schedules periodic reclaim even when the smaller receipt stays below the compaction trigger.
-The orphan sweep also repeats for files that no receipt names, with unchanged age and grace cutoffs.
-The change keeps the current 16 KiB search pages and their write cost.
+The [cache follow-up](proofs/receipt-cache-followup-20261022/RESULTS.md) finds a large retained-space benefit with default cleanup: 1,253 MiB falls to 175 MiB. Each variant has one 12-minute run. The three controlled pairs show durable-single growth of 671 versus 639 KiB per update. Batch32 request p50 rises from 113 to 131 ms; the focused worst compaction write rises from 1.249 to 1.488 seconds. The cache cuts draft CPU cost by 19.6%, but this remains a space tradeoff.
 
-The separate [receipt removal comparison](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) compares journal-free `08d8436cc` with `a1941e3a8` in three fresh-home pairs.
-Durable-single file growth falls from 668.35 to 640.36 KiB per update.
-The durable 32-record batch p50 rises from 99.96 to 164.65 ms, with slower batches in every pair.
-Exact keys, ranges, recovery, shared parts, and automatic cleanup pass.
-The change stays a draft because this latency cost outweighs the measured short-workload benefit.
+Keep PR 273 as a draft for general release. Use existing durable batches when independent updates are ready. A larger generated home must establish older-root admission, compaction, reopen, and further writes within declared limits. The next small engine trial should identify and reduce the separate app notification publication. It needs its own order, failure, memory, and subscriber-delay review.
 
-A crash before the root update leaves the previous snapshot selected. A crash during publication can leave either complete version selected. A completed durable commit survives restart. Recovery opens the selected snapshot without mutation replay. A memory ack remains volatile until the flush completes; 500 ms is a schedule, not a guaranteed maximum loss window. Corrupt committed bytes require an explicit error and a restore procedure.
+The warm set defaults to a 256 MiB byte budget; the former 10,000-record cap is retired. The purge removes least recently used clean records. Held and unflushed records stay protected, and their bytes remain charged during temporary excess. The approved dirty-write share is 25%, but enforcement remains unfinished. Definitions, selected keys, queues, and temporary work have separate reservations. The warm budget does not cap total process memory.
 
-Before cloud activation, required sync entries must commit with the snapshot boundary. The sender must export only covered entries, with original mutation identities and sufficient values or durable file references. An import must commit received progress with its value changes. The cloud snapshot must record a boundary for each source device. Covered entries can leave disk after cloud confirmation of a restorable replacement base and the end of required holds. The retained sync code does not yet establish this complete contract.
+Native snapshots require feature 256; counted receipts also require feature 512. Older programs refuse 512. An older supported snapshot needs one bounded count pass before memory-write admission. Journal-backed homes receive an explicit refusal; this change provides no converter. The local backup bundle excludes node identity and encryption keys, which need separate recovery arrangements.
 
-The warm set defaults to a 256 MiB byte budget; the 10,000-record cap is retired. Each read enters the warm set, and the purge removes least recently used clean records. Held and unflushed records remain protected, so the charge can temporarily exceed the budget. The purge returns it toward the budget after calls end or writes reach disk. The approved dirty-write share is 25%; its enforcement remains implementation work. Separate reservations cover definitions, selected keys, queues, and temporary work; storage objects leave memory after their call.
+Cloud activation requires atomic snapshot and sync-boundary capture. Outgoing entries must retain original identities and sufficient values or durable file references. Imports must commit their progress with their value changes. Each cloud base must identify the covered boundary for every source device. Log deletion requires a confirmed restorable base and completed holds. These requirements remain open, with dirty-share enforcement and lower search-page and compaction costs.
 
-Startup, backup, compaction, and restore use snapshot roots.
-The local backup format is `lastdb-native-backup-2`; it excludes node identity and encryption keys.
-Mandatory feature `256` distinguishes the journal-free format.
-New receipts also require live-count feature `512`; older programs refuse that feature.
-An older supported snapshot receives one bounded metadata walk before the writer accepts a memory write.
-The first commit stores those counts; ordinary later commits use page deltas.
-
-Old journal-backed homes receive an explicit refusal before writer file creation.
-No old-native-journal converter exists in this change.
-Fewer search files, shorter compaction pauses, dirty-share enforcement, and atomic sync capture remain separate work.
-The primary stays unchanged.
-
-Sources: [snapshot protocol](lastdb-snapshot-commits.md), [implementation plan](lastdb-searchable-snapshot-implementation-plan.md), [current code review](lastdb-searchable-snapshot-code-review.md), [operational receipts](proofs/snapshot-commits-20261022/RESULTS.md). Historical measurements: [October 22 barrier report](proofs/native-commit-barriers-20261022/RESULTS.md), [October 21 growth receipts](proofs/write-overhead-20261021/summary.json). The historical workloads do not measure this writer.
+Sources: [protocol](lastdb-snapshot-commits.md), [implementation plan](lastdb-searchable-snapshot-implementation-plan.md), [code review](lastdb-searchable-snapshot-code-review.md). The primary stays unchanged.

@@ -1,0 +1,54 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/derive_auto_size.py"
+      ],
+      "end_unix_ns": 1792736426111060000,
+      "exit_code": 0,
+      "helper": "derive_auto_size.py",
+      "start_unix_ns": 1792736426077440000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/cleanup_rejected_home.py"
+      ],
+      "end_unix_ns": 1792736426226042000,
+      "exit_code": 0,
+      "helper": "cleanup_rejected_home.py",
+      "start_unix_ns": 1792736426111169000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/cleanup_all_builds.py"
+      ],
+      "end_unix_ns": 1792736428623656000,
+      "exit_code": 0,
+      "helper": "cleanup_all_builds.py",
+      "start_unix_ns": 1792736426226195000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/package_all.py"
+      ],
+      "end_unix_ns": 1792736440644015000,
+      "exit_code": 0,
+      "helper": "package_all.py",
+      "start_unix_ns": 1792736428623816000
+    }
+  ],
+  "complete": true,
+  "driver_sha256": "2a494caef6e5affb0d99acf48ba22d12904b0e4d097dd077cdedf6da6e4c9985",
+  "end_unix_ns": 1792736440644021000,
+  "helpers_sha256": {
+    "cleanup_all_builds.py": "e1e1f342c20d2eab060cbcd96bcdf70f51542cdfadbdc63cbe86bae084d2ac34",
+    "cleanup_rejected_home.py": "8703439f03a37ab1ffbef58627eaaa2026551ee860b17b33858c17a1d60b5c93",
+    "derive_auto_size.py": "21bf327b4660730c08b77aee4f688c76a0332a6a4a3736db650a3575089e7cfe",
+    "package_all.py": "e1db5d3a604bf0dd6fee29b6d09156c487d4d79fc3fa27f5e38875dd852fc995"
+  },
+  "start_unix_ns": 1792736426077389000
+}

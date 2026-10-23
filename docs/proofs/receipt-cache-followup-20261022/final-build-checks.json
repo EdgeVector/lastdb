@@ -1,0 +1,99 @@
+{
+  "acceptance_driver_sha256": "72cd6f5887f8eb5101c0dab43ce24e53c10137eb64de38190452b98b2e1efb92",
+  "accepted_binaries": [
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdbd",
+      "sha256": "f5fc7833eccdcfde6ab29f6a5337c5ff733ab31268b2ce4cda6d5319babf7d61"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb",
+      "sha256": "833ccf6fb01685bcd97507d2590ae2b0b478a4eae73a6130279895d546f7be2a"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-disk-home",
+      "sha256": "707720cd321dd282537306ade3825636e7c21eef2268f43e72b64b016f810b4a"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-disk-recovery",
+      "sha256": "8cc3f4d63a4d63d9892861b0e870b8139fdf5aec4ffb2d0982bab79186e72fb9"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-pack-maintain",
+      "sha256": "23e4294ea4f40349d5b61f1cdb1efac05448c4b00c5df5e1dfe7f5b3c05043ca"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdbd",
+      "sha256": "d2c1744439cf5b5dc02cf51e0fd339f9f17f2f269306e4ff0f98e91e41d222d8"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb",
+      "sha256": "8830576668cd33f91825884467bc082b061d5f0790cf2101ec92d345103127e1"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-disk-home",
+      "sha256": "7d376dc5cfeb18e6e1c78a3a0f29c985bb7a252f9e727c5bb1962b864e2a9a88"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-disk-recovery",
+      "sha256": "8eeb556a470109349537e307da538091d1e5527bfe672b7675a3b710eec8b21b"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-pack-maintain",
+      "sha256": "1b5d6663be6ddbf5d1d0e097099cc55c49a69e1568991867c42297ea729a9e55"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/draft-lastdb",
+      "sha256": "863a3f7365cc46f950a4037bbc1ff42c827d1835b842dbe3263c124384e2f618"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/draft-lastdb-disk-home",
+      "sha256": "fdbdaf490b86e144d0f4ba1140a8efd34e3550fcbcd2c0fa699cb87b143f5af9"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/draft-lastdb-disk-recovery",
+      "sha256": "ad6c4120be721dfefd736fbc0cf5342731671edc102e96984d47527a7dc2f683"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/draft-lastdb-pack-maintain",
+      "sha256": "66bfa9767569853c8e63c0fc11272559b8e445d13f339f53a0501c21fdfba45e"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/draft-lastdbd",
+      "sha256": "910a91836d709c9667d513c6410403fef524cfbe28597e030a8f056678d7fd0e"
+    }
+  ],
+  "at_unix_ns": 1792733661556279000,
+  "binary_acceptance_helper_sha256": "b82be01bc19c7346d03102f6bb39701f7bd7a4cd4541fcb5418b582f3b3ba59d",
+  "candidate_revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+  "candidate_version": "lastdbd 0.23.4-pre.0-276-ge79b71151",
+  "candidate_version_guard_passed": true,
+  "complete": true,
+  "draft_copy": "draft-copy.json",
+  "fresh_before_and_after_builds": true,
+  "isolated_owner_receipts": [
+    "before-isolated-owner.json",
+    "after-isolated-owner.json"
+  ],
+  "isolated_source_graphs": [
+    "before-isolated-source-graph.json",
+    "after-isolated-source-graph.json"
+  ],
+  "matching_compiler_and_cargo": true,
+  "matching_measured_node_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd",
+    "--bin",
+    "lastdb"
+  ],
+  "profiles_used_prior_exact_copy_and_per_build_guards": true,
+  "rejected_shared_target_method": "rejected-build-1",
+  "source_tracked_clean_at_acceptance": true,
+  "symmetric_compilation_isolation": "Fresh empty target per source variant; compiler wrappers disabled",
+  "writer_capability_gate_still_required": true
+}

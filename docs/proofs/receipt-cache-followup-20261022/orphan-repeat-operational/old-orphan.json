@@ -1,0 +1,15 @@
+{
+  "body_bytes": 786432,
+  "body_sha256": "2479c561e19d21a8d959c00dc3522d89a1f07a132e39cb1448abe5015d53d9e4",
+  "bytes": 802106,
+  "creation_generation": 27,
+  "current_generation": 27,
+  "decoder": "/opt/homebrew/Cellar/zstd/1.5.7_1/bin/zstd",
+  "decoder_sha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917",
+  "earlier_receipts_precede_part_creation": true,
+  "offered_operation": "Put(key,value), Delete(key) in one supported native write command",
+  "omitted_from_current_inventory": true,
+  "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.g84dplo7/home/data/disk-pack/packs/c96ed35f-42ac-4ca4-a514-a3f64ed4e4d0/part-00000000",
+  "relative_path": "packs/c96ed35f-42ac-4ca4-a514-a3f64ed4e4d0/part-00000000",
+  "sha256": "d7182b195cf56e8c3ceae184b0f44c9866c09c02db9b4bc36bc16dca4d04b8c5"
+}

@@ -1,0 +1,27 @@
+{
+  "captured_unix_ns": 1792733774775513000,
+  "complete": true,
+  "driver_sha256": "77c5956bdc468062abcba24249ab45f2c23e939ace91f069c02d4a3385240566",
+  "original_evidence_sha256": {
+    "after-profile-1/diagnostic-inputs.json": "79c45ddf3c1253e382c054ed527d92e9c9e4124a9158c2d43f8e8935854fe31c",
+    "after-profile-1/inputs.json": "6240129e25b652e6e2d6e1be60241e342173451ff6efa4e1fde544187aabd0f2",
+    "after-profile-1/summary.json": "6223b4e44a3f266121fbf050cc7ce25d12031b4cbb19555054166fbc509217b8",
+    "after-profile-run.json": "d3424052e829e542e64078857d6a4a894b980077cb3e98e72386042d73ab15aa"
+  },
+  "originally_recorded_helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-benchmark-20261022/benchmark.py": "043b05c2cc6f2ad5c6a06d5604f9195895754959055d5cc2ed50db434481e3c9",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-benchmark-20261022/benchmark_support.py": "902af41e7e68033221ae6ee177985160695657516e48370279541e7c1c472617",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_batches.py": "7adaca0bb443a3a910e809fb80b27099c918e3b9fe18bbdc2cac55b7759cc6ce",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_sample.py": "4b2c9bb9a61b24e778ad408d03e464837e050c23813d466791e37662ec90d41c",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_profile.py": "0aa265d9763b0492457ac8472a449ea3497e570ed9e624677b6412de1cce3dee",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/snapshot-commits-20261022/capture.py": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/write-overhead-20261021/io_probe.py": "a15002f55d2feef5d690cfc7012535f1421ae005d731526bce3a2a64d5ece9fd",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/write-overhead-20261021/measure.py": "c59a0420bc5c7ea872a0ac5664ef19849d6b9491ce4317fd155b60d4f77753e0"
+  },
+  "preserved_original_inputs_and_summary": true,
+  "retrospective_helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-part-pruning-benchmark-20261022/reuse.py": "60e51b47d5277e2e0b2e548cfcc9f538bc40d10168f0d42a6da5e29dafb5ff4d"
+  },
+  "retrospective_limit": "These extra helper hashes were captured after the diagnostic; their file modification times precede dispatch",
+  "variant": "after"
+}

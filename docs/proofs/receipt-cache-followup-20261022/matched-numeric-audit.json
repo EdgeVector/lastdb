@@ -1,0 +1,937 @@
+{
+  "all_audits_passed": true,
+  "audit_source_sha256": {
+    "analyze_matched.py": "8bb21fe67110c8e712e265ea80ac5df9915103f4bc6b25e59962e6dca7f13e0b",
+    "matched_audit_extra.py": "e211b7e182b0bc6f985027e142e05001b2c27cf9135a908e3aff3335820cc3a0",
+    "matched_audit_metrics.py": "ee87b6735511f12fa36a8fa4ef2608665d028465cff14e96bfdc4a55f734e5b3"
+  },
+  "input_sha256": {
+    "after-1/checkpoints.json": {
+      "decompressed_bytes": 3319343,
+      "sha256": "3512237177cb11ffde83dadac603bc4cbbffb3116f4c7e1a91392cc655678fe5"
+    },
+    "after-1/cleanup.json": {
+      "decompressed_bytes": 688,
+      "sha256": "49f901beb03caf700d73ec0bf56686ad279eedc97010589d154538b81b39a199"
+    },
+    "after-1/erase-checkpoints.json": {
+      "decompressed_bytes": 752186,
+      "sha256": "b504845b099faee1b9e98c25e199ba5101d213d6916c8f90a60992f7b9e65265"
+    },
+    "after-1/erase-results.json": {
+      "decompressed_bytes": 24882,
+      "sha256": "0f21fdfbca34e81d5364f0008f2059953b311d0c83aca36e23d74fffa2f52e15"
+    },
+    "after-1/focused-checkpoints.json": {
+      "decompressed_bytes": 201170,
+      "sha256": "3f2fba777b128abb71dd187575702d8bc407c399f207198aadf650a74668d6a5"
+    },
+    "after-1/focused-compaction.json": {
+      "decompressed_bytes": 61805,
+      "sha256": "e67202b406802c212ce89a2e80953c07f2dd6e187193c83f8da18c6917ab9abb"
+    },
+    "after-1/inputs.json": {
+      "decompressed_bytes": 4640,
+      "sha256": "1d9a8796cf7c047e20ff6a35dc8469b85ad18221c657954ab6276653dd0048b9"
+    },
+    "after-1/receipts.jsonl": {
+      "decompressed_bytes": 31415471,
+      "sha256": "b56a1887e162aa955c6e95efd3fba53045de811823af8eb101e352e3e5a6d163"
+    },
+    "after-1/summary.json": {
+      "decompressed_bytes": 28141,
+      "sha256": "bd760e301b4e7ddbc705466c65890b3139a7d1061a3ab76c5345e500d4c553ac"
+    },
+    "after-2/checkpoints.json": {
+      "decompressed_bytes": 3323849,
+      "sha256": "343962f6ebb0dd5fe4f0ce10e02fdc692816e586f0c8f29f6fb448566c8bf3fe"
+    },
+    "after-2/cleanup.json": {
+      "decompressed_bytes": 686,
+      "sha256": "6fd8fcc09fac63a7b51b38f56477b5e4e3d8f346fe95752d6e63ae05f411e153"
+    },
+    "after-2/erase-checkpoints.json": {
+      "decompressed_bytes": 755511,
+      "sha256": "21235d011220108f03729e51a528e752d82e1a2637e51d04d93af2c66be2fe93"
+    },
+    "after-2/erase-results.json": {
+      "decompressed_bytes": 24860,
+      "sha256": "cbda012e406dbdb421c210270a90a742c39312e2b5a61b18cee7a1050e797ddc"
+    },
+    "after-2/focused-checkpoints.json": {
+      "decompressed_bytes": 202703,
+      "sha256": "6e788a4a7802d9fe4f193d24f4ca5e289c6ac90a770452c9687051bd767d1372"
+    },
+    "after-2/focused-compaction.json": {
+      "decompressed_bytes": 61752,
+      "sha256": "c85600a669810fde2f2567f4dd9f98b08864b926370778bd084bb24b1104e1dc"
+    },
+    "after-2/inputs.json": {
+      "decompressed_bytes": 4640,
+      "sha256": "d67b3f1af9eaf3e69e0c0f7943a9fead0d7fbe22be021e92066b10ce446efa04"
+    },
+    "after-2/receipts.jsonl": {
+      "decompressed_bytes": 31418044,
+      "sha256": "c87b223ac9eba58097970375a85b5e1d2d6bbde22525c3f13dad40e699febfa4"
+    },
+    "after-2/summary.json": {
+      "decompressed_bytes": 28136,
+      "sha256": "e65d86e8fa331e9a1089f4ce1562d70e7eb558d9629aa797e042dd9b7e6cfbb3"
+    },
+    "after-3/checkpoints.json": {
+      "decompressed_bytes": 3335839,
+      "sha256": "13456fcaf0e3aba6047effd7d9e1ec54e15d684bc3e2a50abe8fac3f80e62057"
+    },
+    "after-3/cleanup.json": {
+      "decompressed_bytes": 686,
+      "sha256": "d784c819491de0a06354d40f1b2283de7c179c450296a21ef039ed767c72f499"
+    },
+    "after-3/erase-checkpoints.json": {
+      "decompressed_bytes": 752744,
+      "sha256": "83835c8779d7339cff9a3be03bdfde71ab39b1e3a2007ef8d94fda8ccd0b2de5"
+    },
+    "after-3/erase-results.json": {
+      "decompressed_bytes": 24860,
+      "sha256": "aa80a35e4d599f98622beffb185d3eb14d9adef7b053d9d7584ec1d02989a3fe"
+    },
+    "after-3/focused-checkpoints.json": {
+      "decompressed_bytes": 201824,
+      "sha256": "aed0abf5d6eebcc05278941cfb4319a790269171990cd9548b0b1aad4f2673a9"
+    },
+    "after-3/focused-compaction.json": {
+      "decompressed_bytes": 61739,
+      "sha256": "ec0091258951b3760dce8fb37543c828f273c0215653cd9e2425c85844393b24"
+    },
+    "after-3/inputs.json": {
+      "decompressed_bytes": 4640,
+      "sha256": "ef89f0505d0ab8500fa2cd84bbe7f62e727b2749e103a6efc1ded48c145c9c19"
+    },
+    "after-3/receipts.jsonl": {
+      "decompressed_bytes": 31415362,
+      "sha256": "bb20ef669bfa3900f386eec5f1294a335d2f2dac706d110f3c9b4cae0b1164f4"
+    },
+    "after-3/summary.json": {
+      "decompressed_bytes": 28109,
+      "sha256": "3da92af9145018c9fd900959fc93a4335eb105977fe97bc6f346736ac8d472e5"
+    },
+    "after-build.json": {
+      "decompressed_bytes": 2766,
+      "sha256": "bb40831b93faf5a71b23ca5880df8e5eeeed83454885f2fb72f2fe298b21134f"
+    },
+    "before-1/checkpoints.json": {
+      "decompressed_bytes": 3331387,
+      "sha256": "09379d5d7747126c918b77408967db29d4e98b5de318f4c4ff1069153d69640c"
+    },
+    "before-1/cleanup.json": {
+      "decompressed_bytes": 688,
+      "sha256": "1b6f07b44d06dd52d47f1782c9133a2cf6892c1a15185ac3ad72e7941eecc37d"
+    },
+    "before-1/erase-checkpoints.json": {
+      "decompressed_bytes": 753427,
+      "sha256": "f811d92fdff9ef3bd25d3e24e40e127a7bfd80dfbbda92a70004c4bc992fcfbe"
+    },
+    "before-1/erase-results.json": {
+      "decompressed_bytes": 24890,
+      "sha256": "a713dd81b6c233cbb20ec8ef29f855c89b8dcf0ec91ed28f33214a5577933412"
+    },
+    "before-1/focused-checkpoints.json": {
+      "decompressed_bytes": 201834,
+      "sha256": "cf1fbd4594cea1a68ba737372f57c76c9a6b6b9409734a58eef042507732352d"
+    },
+    "before-1/focused-compaction.json": {
+      "decompressed_bytes": 61770,
+      "sha256": "1eff494a93fd53beab07be36246f6ad584a48818570dacbbd190ddb68c2755fd"
+    },
+    "before-1/inputs.json": {
+      "decompressed_bytes": 4643,
+      "sha256": "852b9be89c615e4fffb10e1ba7853b5ed9ca250598c882927587df6e50e324eb"
+    },
+    "before-1/receipts.jsonl": {
+      "decompressed_bytes": 31412746,
+      "sha256": "b7b4bbf44e6cd1f7398cdf78a54374db1fd5f3e52b67aff5665532779d344866"
+    },
+    "before-1/summary.json": {
+      "decompressed_bytes": 28110,
+      "sha256": "a25b46b27667b60d3eb28dc1283d0796c416044abcf69688953e913b4e27a7da"
+    },
+    "before-2/checkpoints.json": {
+      "decompressed_bytes": 3332027,
+      "sha256": "7bfd0fbcce483d7fb6587966ae0ee924e1e4b655b096bb47f77b7d02962b4eee"
+    },
+    "before-2/cleanup.json": {
+      "decompressed_bytes": 683,
+      "sha256": "d7139879ff0d724b735e1590185a2d56505c6ba7ebd288fffbfa06f9f5ebd51d"
+    },
+    "before-2/erase-checkpoints.json": {
+      "decompressed_bytes": 754016,
+      "sha256": "c97d33fe140d70430eb5d173e2f6ab8c4a7e3f35884bad4ab01f0171a5fec994"
+    },
+    "before-2/erase-results.json": {
+      "decompressed_bytes": 24864,
+      "sha256": "e3eac72880aad4a05022fc794c2edf35d1f98c681ce2f8c5dba723f2196d13d2"
+    },
+    "before-2/focused-checkpoints.json": {
+      "decompressed_bytes": 201833,
+      "sha256": "e9724b57641041fdc6452e4effb545e444ee6fd76546126177d34a86ca793caf"
+    },
+    "before-2/focused-compaction.json": {
+      "decompressed_bytes": 61731,
+      "sha256": "5e11e23096c6706d9b09e287d073931eb18772f6de7ba1583bd8401a050cc693"
+    },
+    "before-2/inputs.json": {
+      "decompressed_bytes": 4643,
+      "sha256": "0c28efbf84b11243ea6ce46171fc2b1fb3cb58a4c22f371afa278702cc378157"
+    },
+    "before-2/receipts.jsonl": {
+      "decompressed_bytes": 31412702,
+      "sha256": "ae87a1d234f479a43423fa2fbdd3e2f071e8d32753fb4a554460bf65c53c5878"
+    },
+    "before-2/summary.json": {
+      "decompressed_bytes": 28136,
+      "sha256": "28b6703341bfb9c0ea5ddbfbe321d0a9bf3da80d244bea9c8f30d6c2be486470"
+    },
+    "before-3/checkpoints.json": {
+      "decompressed_bytes": 3319972,
+      "sha256": "2d54f6318811d6735c2d3bede8a1328d41deadae5fcc8c559afdf3a81e8b9fce"
+    },
+    "before-3/cleanup.json": {
+      "decompressed_bytes": 683,
+      "sha256": "e0c534dd8be042f42947e49eb6638e8ddce3e276e8cb268f35d5ac6788ef870e"
+    },
+    "before-3/erase-checkpoints.json": {
+      "decompressed_bytes": 755027,
+      "sha256": "3a8dd274310b7028af527a2f8c8c61677268b6a380517513555e84915b18181a"
+    },
+    "before-3/erase-results.json": {
+      "decompressed_bytes": 24854,
+      "sha256": "3ef18e08a9471195073a0ba7e522a9da9784740d595826088803e5148ba68ac3"
+    },
+    "before-3/focused-checkpoints.json": {
+      "decompressed_bytes": 201685,
+      "sha256": "8f54221f12dbdf601e44e5fa8504fd03145a8f437a08c4362defe231f694eb76"
+    },
+    "before-3/focused-compaction.json": {
+      "decompressed_bytes": 61833,
+      "sha256": "47d793ac4fd456600f091285c9bda7614d373d641fa1ae54aa541567c31958a7"
+    },
+    "before-3/inputs.json": {
+      "decompressed_bytes": 4643,
+      "sha256": "00549057ddf6d79448dd49be22b9f17ab90a0124301db3b5afd3be6fd9810b54"
+    },
+    "before-3/receipts.jsonl": {
+      "decompressed_bytes": 31415429,
+      "sha256": "acda63aeef8ea2a92fe65f906bfe15cff112ae4fd2dd27a107703294bba87d5d"
+    },
+    "before-3/summary.json": {
+      "decompressed_bytes": 28107,
+      "sha256": "0aad4f7ef6c0357ccff7764a5f6fb3eb32d2f5b9d1fb7fdb627bba5c493638b3"
+    },
+    "before-build.json": {
+      "decompressed_bytes": 2755,
+      "sha256": "1960fe6e8c45a39054aecc74d929fc23018e973b29837cc6283af1fb6eba44d1"
+    },
+    "pair-runs.json": {
+      "decompressed_bytes": 13252,
+      "sha256": "0c4a5fba50b5bc63b6a1c20625aeef00c7cd3fd9a684a6a2c9020417b9c4176c"
+    },
+    "summary.json": {
+      "decompressed_bytes": 721216,
+      "sha256": "1d8f856b0203a4c805ffc240b3b4a2d0341f8c909267f5a38ad6df57f58b7e7a"
+    }
+  },
+  "limitations": [
+    "Ack sequence times are checked against the last raw ack and timed flush start; the driver omits an exact final-ack marker.",
+    "Process counters describe the captured node, not physical SSD writes.",
+    "Checkpoint peaks omit unsampled processes and activity after the last checkpoint.",
+    "Compaction overlap identifies request intervals, not exact internal gate ownership."
+  ],
+  "paired_distributions_verified": 351,
+  "process_memory": {
+    "all_captured_including_erase": {
+      "paired_peaks_bytes": {
+        "ri_lifetime_max_phys_footprint": {
+          "after": {
+            "max": 59229216,
+            "median": 57902184,
+            "min": 55624760,
+            "values": [
+              57902184,
+              59229216,
+              55624760
+            ]
+          },
+          "after_minus_before": {
+            "max": -573560,
+            "median": -1671144,
+            "min": -5947416,
+            "values": [
+              -1671144,
+              -573560,
+              -5947416
+            ]
+          },
+          "before": {
+            "max": 61572176,
+            "median": 59802776,
+            "min": 59573328,
+            "values": [
+              59573328,
+              59802776,
+              61572176
+            ]
+          },
+          "before_over_after_ratio": {
+            "max": 1.1069202995212923,
+            "median": 1.0288615020117375,
+            "min": 1.0096837344596963,
+            "values": [
+              1.0288615020117375,
+              1.0096837344596963,
+              1.1069202995212923
+            ]
+          },
+          "reduction_percent": {
+            "max": 9.659259078321355,
+            "median": 2.8051882547169384,
+            "min": 0.9590859126673337,
+            "values": [
+              2.8051882547169384,
+              0.9590859126673337,
+              9.659259078321355
+            ]
+          }
+        },
+        "ri_phys_footprint": {
+          "after": {
+            "max": 55346208,
+            "median": 50185320,
+            "min": 48120816,
+            "values": [
+              50185320,
+              55346208,
+              48120816
+            ]
+          },
+          "after_minus_before": {
+            "max": 3276680,
+            "median": -3063784,
+            "min": -9011296,
+            "values": [
+              -3063784,
+              3276680,
+              -9011296
+            ]
+          },
+          "before": {
+            "max": 57132112,
+            "median": 53249104,
+            "min": 52069528,
+            "values": [
+              53249104,
+              52069528,
+              57132112
+            ]
+          },
+          "before_over_after_ratio": {
+            "max": 1.1872639898708284,
+            "median": 1.0610494064798233,
+            "min": 0.9407966666840121,
+            "values": [
+              1.0610494064798233,
+              0.9407966666840121,
+              1.1872639898708284
+            ]
+          },
+          "reduction_percent": {
+            "max": 15.77273390488348,
+            "median": 5.7536817896504004,
+            "min": -6.292893609483073,
+            "values": [
+              5.7536817896504004,
+              -6.292893609483073,
+              15.77273390488348
+            ]
+          }
+        },
+        "ri_resident_size": {
+          "after": {
+            "max": 162938880,
+            "median": 153960448,
+            "min": 136151040,
+            "values": [
+              153960448,
+              136151040,
+              162938880
+            ]
+          },
+          "after_minus_before": {
+            "max": -1212416,
+            "median": -15400960,
+            "min": -29900800,
+            "values": [
+              -15400960,
+              -29900800,
+              -1212416
+            ]
+          },
+          "before": {
+            "max": 169361408,
+            "median": 166051840,
+            "min": 164151296,
+            "values": [
+              169361408,
+              166051840,
+              164151296
+            ]
+          },
+          "before_over_after_ratio": {
+            "max": 1.2196149217809868,
+            "median": 1.100031925082473,
+            "min": 1.0074409250879839,
+            "values": [
+              1.100031925082473,
+              1.2196149217809868,
+              1.0074409250879839
+            ]
+          },
+          "reduction_percent": {
+            "max": 18.006906758756784,
+            "median": 9.093547450904524,
+            "min": 0.7385966663339616,
+            "values": [
+              9.093547450904524,
+              18.006906758756784,
+              0.7385966663339616
+            ]
+          }
+        }
+      },
+      "runs": {
+        "after-1": {
+          "by_identity": {
+            "95850:13630175904983:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 57902184,
+              "ri_phys_footprint": 50185320,
+              "ri_resident_size": 153960448
+            },
+            "96015:13630826364495:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 48808968,
+              "ri_phys_footprint": 46433288,
+              "ri_resident_size": 111706112
+            },
+            "96017:13630963447702:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 53068784,
+              "ri_phys_footprint": 48137200,
+              "ri_resident_size": 121274368
+            },
+            "96281:13631113555291:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 37454760,
+              "ri_phys_footprint": 16941992,
+              "ri_resident_size": 62521344
+            }
+          },
+          "checkpoint_count": 23,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 57902184,
+            "ri_phys_footprint": 50185320,
+            "ri_resident_size": 153960448
+          },
+          "process_count": 4
+        },
+        "after-2": {
+          "by_identity": {
+            "1000:13631934418181:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 59229216,
+              "ri_phys_footprint": 55346208,
+              "ri_resident_size": 136151040
+            },
+            "3363:13632083695937:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 37782512,
+              "ri_phys_footprint": 16712688,
+              "ri_resident_size": 62013440
+            },
+            "96285:13631145956575:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 51053576,
+              "ri_phys_footprint": 43123720,
+              "ri_resident_size": 136036352
+            },
+            "97909:13631791820577:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 48956448,
+              "ri_phys_footprint": 44926008,
+              "ri_resident_size": 109101056
+            }
+          },
+          "checkpoint_count": 23,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 59229216,
+            "ri_phys_footprint": 55346208,
+            "ri_resident_size": 136151040
+          },
+          "process_count": 4
+        },
+        "after-3": {
+          "by_identity": {
+            "13918:13634696186318:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 48317424,
+              "ri_phys_footprint": 43615264,
+              "ri_resident_size": 110690304
+            },
+            "15607:13634838273196:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 53674992,
+              "ri_phys_footprint": 48120816,
+              "ri_resident_size": 119324672
+            },
+            "15687:13634987648571:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 37553136,
+              "ri_phys_footprint": 17417200,
+              "ri_resident_size": 63553536
+            },
+            "6629:13634023948929:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 55624760,
+              "ri_phys_footprint": 47989816,
+              "ri_resident_size": 162938880
+            }
+          },
+          "checkpoint_count": 23,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 55624760,
+            "ri_phys_footprint": 48120816,
+            "ri_resident_size": 162938880
+          },
+          "process_count": 4
+        },
+        "before-1": {
+          "by_identity": {
+            "89104:13629229814669:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 57558168,
+              "ri_phys_footprint": 50349208,
+              "ri_resident_size": 169361408
+            },
+            "95824:13629856725942:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 48464904,
+              "ri_phys_footprint": 44336136,
+              "ri_resident_size": 111411200
+            },
+            "95841:13629992598112:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 59573328,
+              "ri_phys_footprint": 53249104,
+              "ri_resident_size": 126943232
+            },
+            "95846:13630141296491:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 37749744,
+              "ri_phys_footprint": 16958472,
+              "ri_resident_size": 65978368
+            }
+          },
+          "checkpoint_count": 23,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 59573328,
+            "ri_phys_footprint": 53249104,
+            "ri_resident_size": 169361408
+          },
+          "process_count": 4
+        },
+        "before-2": {
+          "by_identity": {
+            "3617:13632117444798:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 59802776,
+              "ri_phys_footprint": 52069528,
+              "ri_resident_size": 166051840
+            },
+            "6110:13632746158041:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 48579592,
+              "ri_phys_footprint": 39617544,
+              "ri_resident_size": 108658688
+            },
+            "6122:13632878438709:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 54969352,
+              "ri_phys_footprint": 49857544,
+              "ri_resident_size": 121765888
+            },
+            "6130:13633021835029:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 38470640,
+              "ri_phys_footprint": 17662960,
+              "ri_resident_size": 63766528
+            }
+          },
+          "checkpoint_count": 23,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 59802776,
+            "ri_phys_footprint": 52069528,
+            "ri_resident_size": 166051840
+          },
+          "process_count": 4
+        },
+        "before-3": {
+          "by_identity": {
+            "6134:13633054826691:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 56886448,
+              "ri_phys_footprint": 48891056,
+              "ri_resident_size": 164151296
+            },
+            "6315:13633695283257:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 48382984,
+              "ri_phys_footprint": 43320328,
+              "ri_resident_size": 109084672
+            },
+            "6360:13633838036551:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 61572176,
+              "ri_phys_footprint": 57132112,
+              "ri_resident_size": 135938048
+            },
+            "6624:13633981112430:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 37553112,
+              "ri_phys_footprint": 16729048,
+              "ri_resident_size": 62504960
+            }
+          },
+          "checkpoint_count": 23,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 61572176,
+            "ri_phys_footprint": 57132112,
+            "ri_resident_size": 164151296
+          },
+          "process_count": 4
+        }
+      }
+    },
+    "matched_plus_focused": {
+      "paired_peaks_bytes": {
+        "ri_lifetime_max_phys_footprint": {
+          "after": {
+            "max": 57902184,
+            "median": 55624760,
+            "min": 51053576,
+            "values": [
+              57902184,
+              51053576,
+              55624760
+            ]
+          },
+          "after_minus_before": {
+            "max": 344016,
+            "median": -1261688,
+            "min": -8749200,
+            "values": [
+              344016,
+              -8749200,
+              -1261688
+            ]
+          },
+          "before": {
+            "max": 59802776,
+            "median": 57558168,
+            "min": 56886448,
+            "values": [
+              57558168,
+              59802776,
+              56886448
+            ]
+          },
+          "before_over_after_ratio": {
+            "max": 1.1713729122520233,
+            "median": 1.0226821293251422,
+            "min": 0.9940586697040651,
+            "values": [
+              0.9940586697040651,
+              1.1713729122520233,
+              1.0226821293251422
+            ]
+          },
+          "reduction_percent": {
+            "max": 14.630090081437018,
+            "median": 2.217906099533579,
+            "min": -0.59768406805442,
+            "values": [
+              -0.59768406805442,
+              14.630090081437018,
+              2.217906099533579
+            ]
+          }
+        },
+        "ri_phys_footprint": {
+          "after": {
+            "max": 50185320,
+            "median": 47989816,
+            "min": 44926008,
+            "values": [
+              50185320,
+              44926008,
+              47989816
+            ]
+          },
+          "after_minus_before": {
+            "max": -163888,
+            "median": -901240,
+            "min": -7143520,
+            "values": [
+              -163888,
+              -7143520,
+              -901240
+            ]
+          },
+          "before": {
+            "max": 52069528,
+            "median": 50349208,
+            "min": 48891056,
+            "values": [
+              50349208,
+              52069528,
+              48891056
+            ]
+          },
+          "before_over_after_ratio": {
+            "max": 1.159006337709774,
+            "median": 1.0187798177846734,
+            "min": 1.0032656561719642,
+            "values": [
+              1.0032656561719642,
+              1.159006337709774,
+              1.0187798177846734
+            ]
+          },
+          "reduction_percent": {
+            "max": 13.719194842711076,
+            "median": 1.8433637432580667,
+            "min": 0.32550263749928376,
+            "values": [
+              0.32550263749928376,
+              13.719194842711076,
+              1.8433637432580667
+            ]
+          }
+        },
+        "ri_resident_size": {
+          "after": {
+            "max": 162938880,
+            "median": 153960448,
+            "min": 136036352,
+            "values": [
+              153960448,
+              136036352,
+              162938880
+            ]
+          },
+          "after_minus_before": {
+            "max": -1212416,
+            "median": -15400960,
+            "min": -30015488,
+            "values": [
+              -15400960,
+              -30015488,
+              -1212416
+            ]
+          },
+          "before": {
+            "max": 169361408,
+            "median": 166051840,
+            "min": 164151296,
+            "values": [
+              169361408,
+              166051840,
+              164151296
+            ]
+          },
+          "before_over_after_ratio": {
+            "max": 1.2206431410333614,
+            "median": 1.100031925082473,
+            "min": 1.0074409250879839,
+            "values": [
+              1.100031925082473,
+              1.2206431410333614,
+              1.0074409250879839
+            ]
+          },
+          "reduction_percent": {
+            "max": 18.075974346324614,
+            "median": 9.093547450904524,
+            "min": 0.7385966663339616,
+            "values": [
+              9.093547450904524,
+              18.075974346324614,
+              0.7385966663339616
+            ]
+          }
+        }
+      },
+      "runs": {
+        "after-1": {
+          "by_identity": {
+            "95850:13630175904983:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 57902184,
+              "ri_phys_footprint": 50185320,
+              "ri_resident_size": 153960448
+            },
+            "96015:13630826364495:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 48808968,
+              "ri_phys_footprint": 46433288,
+              "ri_resident_size": 111706112
+            },
+            "96017:13630963447702:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 47154112,
+              "ri_phys_footprint": 18105280,
+              "ri_resident_size": 73138176
+            }
+          },
+          "checkpoint_count": 18,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 57902184,
+            "ri_phys_footprint": 50185320,
+            "ri_resident_size": 153960448
+          },
+          "process_count": 3
+        },
+        "after-2": {
+          "by_identity": {
+            "1000:13631934418181:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 47268848,
+              "ri_phys_footprint": 18646024,
+              "ri_resident_size": 77905920
+            },
+            "96285:13631145956575:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 51053576,
+              "ri_phys_footprint": 43123720,
+              "ri_resident_size": 136036352
+            },
+            "97909:13631791820577:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 48956448,
+              "ri_phys_footprint": 44926008,
+              "ri_resident_size": 109101056
+            }
+          },
+          "checkpoint_count": 18,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 51053576,
+            "ri_phys_footprint": 44926008,
+            "ri_resident_size": 136036352
+          },
+          "process_count": 3
+        },
+        "after-3": {
+          "by_identity": {
+            "13918:13634696186318:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 48317424,
+              "ri_phys_footprint": 43615264,
+              "ri_resident_size": 110690304
+            },
+            "15607:13634838273196:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 47612864,
+              "ri_phys_footprint": 18449344,
+              "ri_resident_size": 78233600
+            },
+            "6629:13634023948929:e991abecf0bf3523bda6205d712fb8e8": {
+              "ri_lifetime_max_phys_footprint": 55624760,
+              "ri_phys_footprint": 47989816,
+              "ri_resident_size": 162938880
+            }
+          },
+          "checkpoint_count": 18,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 55624760,
+            "ri_phys_footprint": 47989816,
+            "ri_resident_size": 162938880
+          },
+          "process_count": 3
+        },
+        "before-1": {
+          "by_identity": {
+            "89104:13629229814669:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 57558168,
+              "ri_phys_footprint": 50349208,
+              "ri_resident_size": 169361408
+            },
+            "95824:13629856725942:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 48464904,
+              "ri_phys_footprint": 44336136,
+              "ri_resident_size": 111411200
+            },
+            "95841:13629992598112:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 47809568,
+              "ri_phys_footprint": 19170336,
+              "ri_resident_size": 75644928
+            }
+          },
+          "checkpoint_count": 18,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 57558168,
+            "ri_phys_footprint": 50349208,
+            "ri_resident_size": 169361408
+          },
+          "process_count": 3
+        },
+        "before-2": {
+          "by_identity": {
+            "3617:13632117444798:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 59802776,
+              "ri_phys_footprint": 52069528,
+              "ri_resident_size": 166051840
+            },
+            "6110:13632746158041:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 48579592,
+              "ri_phys_footprint": 39617544,
+              "ri_resident_size": 108658688
+            },
+            "6122:13632878438709:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 47498200,
+              "ri_phys_footprint": 18252760,
+              "ri_resident_size": 78168064
+            }
+          },
+          "checkpoint_count": 18,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 59802776,
+            "ri_phys_footprint": 52069528,
+            "ri_resident_size": 166051840
+          },
+          "process_count": 3
+        },
+        "before-3": {
+          "by_identity": {
+            "6134:13633054826691:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 56886448,
+              "ri_phys_footprint": 48891056,
+              "ri_resident_size": 164151296
+            },
+            "6315:13633695283257:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 48382984,
+              "ri_phys_footprint": 43320328,
+              "ri_resident_size": 109084672
+            },
+            "6360:13633838036551:8e6d137bb0683ad99374ee570a1c2e17": {
+              "ri_lifetime_max_phys_footprint": 47547424,
+              "ri_phys_footprint": 18465824,
+              "ri_resident_size": 78725120
+            }
+          },
+          "checkpoint_count": 18,
+          "observed_peaks_bytes": {
+            "ri_lifetime_max_phys_footprint": 56886448,
+            "ri_phys_footprint": 48891056,
+            "ri_resident_size": 164151296
+          },
+          "process_count": 3
+        }
+      }
+    }
+  },
+  "raw_request_counts": {
+    "after-1": 928,
+    "after-2": 929,
+    "after-3": 928,
+    "before-1": 927,
+    "before-2": 927,
+    "before-3": 928
+  },
+  "runs": [
+    "before-1",
+    "after-1",
+    "before-2",
+    "after-2",
+    "before-3",
+    "after-3"
+  ],
+  "source_revisions": {
+    "after": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+    "before": "08d8436ccce9e2493e187a6b0133dc93f47c410f"
+  }
+}

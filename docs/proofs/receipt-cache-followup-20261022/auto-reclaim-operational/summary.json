@@ -1,0 +1,40 @@
+{
+  "all_owned_processes_stopped": true,
+  "automatic_maintenance": true,
+  "complete": true,
+  "dependency_high_water": 4096,
+  "durable_updates_after_startup": 32,
+  "exact_and_range_during_sweep_and_reopen": true,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.gtcy9158/home",
+  "keys": 8,
+  "maintenance_runs": 0,
+  "manual_pack_or_reclaim_calls": 0,
+  "periodic_obsolete_files_removed": [
+    "directory/4be333e1-b930-4ec5-80cf-dcc4bde0cad8/part-64f20f27",
+    "directory/4be333e1-b930-4ec5-80cf-dcc4bde0cad8/part-8cf6af33",
+    "directory/4be333e1-b930-4ec5-80cf-dcc4bde0cad8/part-be85a5d0",
+    "generations/35/part-00000000",
+    "locator/2bdc50c6-0892-4ba1-9107-8a4046d625b5/part-4abe08c6",
+    "locator/5668aa24-e960-4cea-acad-4d11518cf7d6/part-cb8cf7a0",
+    "locator/9a1e754b-9623-420d-9e70-a3cd5f6aa24c/part-00000000",
+    "locator/c5d50344-8e10-4478-a6e0-77135c65c5e7/part-3e35e376",
+    "locator/da84ad01-34f9-45a4-8fe0-abfd22b7dff9/part-8f9f9917",
+    "packs/4eac07c3-79b8-4919-b7ae-7311f67cc093/map/part-00000000",
+    "packs/4eac07c3-79b8-4919-b7ae-7311f67cc093/part-00000000",
+    "packs/7946473a-7fd2-4838-b8a1-8a47911df90d/map/part-00000000",
+    "packs/7946473a-7fd2-4838-b8a1-8a47911df90d/part-00000000",
+    "packs/8d701a1a-8735-4b4b-861b-94ea9a46f654/map/part-00000000",
+    "packs/8d701a1a-8735-4b4b-861b-94ea9a46f654/part-00000000"
+  ],
+  "periodic_seconds": 28.276282834,
+  "scope": "Generated local operations; no power-loss, primary, or cloud claim",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.gtcy9158",
+  "scratch_retained": true,
+  "startup_obsolete_files_removed": [
+    "directory/4be333e1-b930-4ec5-80cf-dcc4bde0cad8/part-10005dd3",
+    "directory/4be333e1-b930-4ec5-80cf-dcc4bde0cad8/part-74733472",
+    "generations/25/part-00000000"
+  ],
+  "startup_seconds": 0.008246124999999882,
+  "update_burst_seconds": 1.5360027920000001
+}

@@ -53,6 +53,11 @@ It removes a part from the new receipt when that part has no live reference.
 Each changed key removes its old payload references and adds its new payload references.
 An unchanged value causes no payload-map work when its search page receives a copy.
 The resolver reads payload block maps and part headers; it does not decode record bodies.
+Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
+The cache serves changed-key references and the fresh-part reference pass.
+It drops before final count changes and receipt output; no cache survives the commit or an error.
+Bootstrap retains its standalone resolver, cumulative work limit, and allowed-part checks.
+Integrity, warm-data admission, file lifetime, root publication, and recovery retain their existing rules.
 Overflow references follow the actual next-page links.
 One live record keeps every payload and map part that its bytes require.
 An obsolete record cannot remove a part that another live record still requires.
@@ -120,10 +125,16 @@ Short retries still handle a deferred sweep before the next regular interval.
 Packs, holds, grace periods, and error backoff can delay the scheduled cleanup.
 Automatic maintenance off still disables the worker.
 
-The [receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records six operational checks and three benchmark pairs at `a1941e3a8`.
+The [earlier receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records six operational checks and three uncached benchmark pairs at `a1941e3a8`.
 The part-lifetime checks pass, including the periodic retry after startup retains a young orphan.
 The matched foreground comparison shows lower file growth with slower batch writes.
-PR 273 remains a draft pending a better latency result.
+The separate [cache follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
+Three controlled baseline/cache pairs show durable-single growth of 670.86 and 639.35 KiB per update.
+Durable batch32 request p50 rises from 113.33 to 131.24 ms; the focused worst write rises from 1.249 to 1.488 seconds.
+Those are medians across runs.
+The default-maintenance run retains 1,253.27 MiB for the baseline and 175.05 MiB for the cache after its quiet tail.
+Each variant has one finite run; this is no steady-state size claim.
+PR 273 stays a draft for general release because latency and larger-home admission need further work.
 
 ## Live-part limits
 
@@ -133,7 +144,9 @@ Live counts and each signed part-delta map use that same entry ceiling.
 A conservative 256-byte entry quote gives 16 MiB per map.
 Page references resolve before the next page enters the ledger.
 Their separate 4,096-entry ceiling quotes at most 1 MiB per active collector.
-Each resolver resets its page and part-header caches at 24 entries.
+The publication cache resets before a reference step at 24 pages or 24 part-header identities.
+Its bounds remain 26 pages, 25 header identities, and 32 file handles.
+Each resolution retains its existing work limit; logical block and overflow-page charges still occur on cache hits.
 These are storage workspace limits; they do not change the logical warm-data byte budget.
 The normal publisher can hold one live-count map and two part-delta maps at the same time.
 The additional count workspace has a conservative 64 MiB quote, with receipt vectors and resolver caches included.
@@ -232,6 +245,7 @@ Those records serve sync and never select the local recovery root.
 | Exclusive snapshot writer and complete commit | `vendor/laststore/src/disk_pack/snapshot/writer.rs` |
 | Changed pages, complete receipt, and root rename | `vendor/laststore/src/disk_pack/publish.rs`, `generation.rs` |
 | Exact live parts, page deltas, and older snapshot count collection | `vendor/laststore/src/disk_pack/live_parts/`, `live_parts.rs`, `tree_edit.rs` |
+| Bounded cache within each publication | `vendor/laststore/src/disk_pack/live_parts.rs`, `live_parts/overflow.rs`, `live_parts/scan.rs`, `tree_edit.rs`, `locator_forest.rs`, `publish.rs` |
 | macOS order and final device flush | `vendor/laststore/src/durability.rs`, `durability/ordered.rs` |
 | Read holds and concurrent reclaim | `vendor/laststore/src/disk_pack/lifetime/`, `snapshot/reclaim.rs`, `maintenance/reclaim/` |
 | Exact local bundle and restore | `vendor/laststore/src/disk_pack/backup/` |

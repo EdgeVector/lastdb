@@ -1,0 +1,63 @@
+{
+  "at_unix_ns": 1792736426204764000,
+  "original_evidence_sha256": {
+    "inputs.json": "8fc83ee5f1afa7d7cb3ab03e1dd28d15bb2aaaceb2454c49ba215a9fdc63972c",
+    "node.log": "7d8dc2f736cf71efdc75850d9a0dd7ffb22ee1e951002781e86500ec17ad028d",
+    "ownership.json": "09d0eaca36fe19930d1db07b9ac02781d0770099d7ca0b66204594659b66b4ba",
+    "receipts.jsonl": "4ef28e85bd388608518ecc1446d0e3643c21bc6543ea826a1dbc448b38c3ca18",
+    "retained-root-verified.json": "a1b5a58fb6a2064d2ed739f08ab8e5b4207cb624ce106f9ede4e42494e895491",
+    "seed-response.json": "d073084174c2912e414527b0999d888481b1d46e42a379a636e8698f85115550",
+    "summary.json": "4eb6dfe03bdcec0eea7fc596d1f8bb516dc9e0290f4bc0d66be4eb6f30e955a2"
+  },
+  "original_false_summary_unchanged": true,
+  "owner": {
+    "creator_pid": 20215,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.9wuprvsp/home",
+    "inode": 1503643410,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "55d591f4237741aa8526246306eb3423",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.9wuprvsp",
+    "version": 1
+  },
+  "pre_cleanup": {
+    "entries": 204,
+    "logical_file_bytes": 1568630
+  },
+  "removed": true,
+  "replacement_proof_sha256": {
+    "after-writer-capability": {
+      "cleanup_sha256": "84cdb0922da78a1232477ff0f940d2fe13489aef5b9d403ebeca541ab5b71473",
+      "summary_sha256": "7e37b8b3d72ea452671b5787317bd6944ea442d509ed159d557ab047f252e9d3"
+    },
+    "auto-reclaim-operational": {
+      "cleanup_sha256": "703f57917bda09f32bafe7de7407e2e4a3dd852610fae6dcda0f9023779b5647",
+      "summary_sha256": "90e8f91826365803095707c4b0819f3368a724861a528a6676f48b1c2800f296"
+    },
+    "before-writer-capability": {
+      "cleanup_sha256": "8aa8b86b991fa1460a6cafa701d46d2fa3589b5079b2e9b788a2e1ab40810f87",
+      "summary_sha256": "f9257a3eb9ae23a2ed985023b04ab03100322b26d31b77bbd1683e8721efe2cd"
+    },
+    "edge-operational": {
+      "cleanup_sha256": "29b711916a7190871333b224af51fc25de15d617ab83e830bdfe029f21e80c34",
+      "summary_sha256": "e35c9f1faa4ebae91563409ef2a3130e7dc018f94c0b79dcde05fc6cb6775feb"
+    },
+    "orphan-repeat-operational": {
+      "cleanup_sha256": "70e282faca29e82cf989ec9b41c7fb668d3a849a388aae28f9d19b247d650aef",
+      "summary_sha256": "8a5577bb61159d451c259f0ed518a95339bfd64c861a121e78e32769d817b7b1"
+    },
+    "overflow-operational": {
+      "cleanup_sha256": "8a3fdeb2abbb64450ca4aaa328ed8d3cc01b87d2dc840bee69cb8bc635a7dbbc",
+      "summary_sha256": "210e26b3f724978a472dc37d1b52abe55d5a3d738c87fad490c7970ad66635a0"
+    },
+    "retention-operational": {
+      "cleanup_sha256": "d84bbb0675233680b6a92f4704ce8645f456a1fdb52390f97e082cc40d3bb08d",
+      "summary_sha256": "62416c31d425cdcb5572a9d1a29a706c469e56652aefd290888061970c56b79a"
+    }
+  },
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.9wuprvsp",
+  "stopped_pids": [
+    20300
+  ]
+}

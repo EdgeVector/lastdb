@@ -39,7 +39,8 @@ Retired repair state and cloud generations that require adoption receive an expl
 Keep the sync mutation log and authenticated retired sync source records.
 
 Native cloud activation remains disabled. The sync contract and proposed resource limits below remain separate work.
-Receipt part removal and periodic cleanup form the next local change.
+Receipt part removal and periodic cleanup are implemented in draft PR 273.
+Commit `e79b71151` adds the bounded cache within each publication.
 Dirty-share enforcement and the other proposed workspace quotas remain separate work.
 
 ## Receipt part removal
@@ -71,18 +72,48 @@ All full count passes have a 65,536-directory-entry ceiling.
 The older-format walk also has a 67,108,864-step ceiling before writer admission.
 The [protocol](lastdb-snapshot-commits.md#live-part-limits) states the memory quotes and work limits.
 
+### Implemented bounded reference cache
+
+Commit `e79b711517519c9ce27d0f6f1b405a364be3ba91` shares checked maps, overflow pages, and part headers within one publication.
+The six source files under `vendor/laststore/src/disk_pack/` are:
+
+- `live_parts.rs`
+- `live_parts/overflow.rs`
+- `live_parts/scan.rs`
+- `tree_edit.rs`
+- `locator_forest.rs`
+- `publish.rs`
+
+The cache serves changed-key references and the fresh-part reference pass.
+It resets before the next reference step at 24 cached pages or 24 part-header identities.
+Its bounds remain 26 pages, 25 header identities, and 32 file handles.
+Every resolution keeps its own existing work limit; cache hits still incur the logical block or overflow-page charge.
+The cache retains no payload bodies and drops before final count changes and receipt output.
+Bootstrap retains its separate cumulative work limit and allowed-part checks.
+Integrity, root publication, recovery, file lifetime, and warm-data policy remain unchanged.
+The change adds no global cache, format bit, journal, or side file.
+
 The separate [measurement plan](proofs/receipt-part-pruning-benchmark-20261022/METHOD.md) freezes equal build commands and generated workloads.
 It compares three before/after pairs for disk growth, process write bytes, and request latency.
 Additional operations cover shared payload parts, long keys, older receipt conversion, reclaim holds, backup restore, and crash reopen.
 An automatic-maintenance operation checks idle reclaim below the compaction trigger, without a manual pack or reclaim request.
 The source and measurement receipts must identify the exact executable used for each result.
 
-The [completed receipt comparison](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) uses candidate `a1941e3a8` against journal-free `08d8436cc`.
+The [earlier receipt comparison](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) uses uncached candidate `a1941e3a8` against journal-free `08d8436cc`.
 All six operational checks and three benchmark pairs pass their data checks.
 Durable-single growth falls from 668.35 to 640.36 KiB per update.
 The durable 32-record batch p50 rises from 99.96 to 164.65 ms.
-Keep PR 273 as a draft; do not recommend a merge in this form.
-The next performance step should share the bounded resolver cache across related keys within one batch, then measure again.
+Those measurements describe the uncached candidate and do not measure `e79b71151`.
+The cache is implemented; the separate [follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) contains its final profiles, controlled pairs, and default-maintenance comparison.
+Three controlled pairs show durable-single growth of 670.86 versus 639.35 KiB per update and batch32 request p50 of 113.33 versus 131.24 ms.
+The focused largest compaction write rises from 1.249 to 1.488 seconds.
+One default-maintenance run per variant retains 1,253.27 versus 175.05 MiB after the quiet tail.
+Keep PR 273 as a draft for general release; the space benefit comes with a latency cost and an unverified larger-home support envelope.
+Use existing durable batches for ready independent updates.
+Before release, verify a representative generated home through older-root admission, actual compaction, exact reads, ranges, reopen, and further durable writes.
+State its directory coordinates, file parts, record counts, memory, space reserve, and request delays.
+The [scale review](proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) states the admission risk; physical directory coordinates are not logical records.
+The next small engine trial should attribute and reduce the separate app feed publication, as described in the [source note](proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md).
 
 ## 1. End state and scope
 

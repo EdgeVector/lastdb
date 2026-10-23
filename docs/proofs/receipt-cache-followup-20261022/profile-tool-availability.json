@@ -1,0 +1,44 @@
+{
+  "complete": true,
+  "scope": "Local tool and owned temporary Python process only; no LastDB node or build",
+  "sample": {
+    "path": "/usr/bin/sample",
+    "owned_process_capture_seconds": 1,
+    "sampling_interval_ms": 1,
+    "exit_code": 0,
+    "output_bytes": 71631,
+    "call_graph_present": true,
+    "owned_scratch_removed": true
+  },
+  "xctrace": {
+    "wrapper_path": "/usr/bin/xctrace",
+    "active_developer_directory": "/Library/Developer/CommandLineTools",
+    "available": false,
+    "reason": "xctrace requires full Xcode; no developer-directory or installation change was attempted"
+  },
+  "existing_release_symbol_observation": {
+    "path": "target/release/lastdbd",
+    "mach_o_uuid": "4618A42E-AC4D-3095-9606-B167316E81D7",
+    "architecture": "arm64",
+    "native_symbol_table_present": true,
+    "dwarf_sections_present": false,
+    "observed_function_symbols": [
+      "laststore::disk_pack::live_parts::resolve_pending",
+      "laststore::disk_pack::live_parts::scan::observe_new_parts",
+      "laststore::disk_pack::live_parts::payload::resolve",
+      "laststore::disk_pack::live_parts::overflow::resolve",
+      "laststore::disk_pack::publish::publish_prepared"
+    ],
+    "limit": "This inspection does not establish profile quality for a later copied executable; each profile must identify its exact executable"
+  },
+  "owned_process_cpu_unit_observation": {
+    "mach_timebase_return_code": 0,
+    "numer": 125,
+    "denom": 3,
+    "rusage_user_plus_system_raw": 711772,
+    "process_time_ns_before": 29609000,
+    "process_time_ns_after": 29666000,
+    "raw_converted_from_mach_ticks_ns": 29657166.666666668,
+    "cpu_load_loop_used": false
+  }
+}

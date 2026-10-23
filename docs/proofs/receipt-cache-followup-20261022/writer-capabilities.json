@@ -1,0 +1,68 @@
+{
+  "complete": true,
+  "end_unix_ns": 1792733664622797000,
+  "helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/auto_retained.py": "ae3ee19406f85bf372a2a5af54c21f7becbc50213b1ed582307f52f2975d7113",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/capability_capture.py": "1273c38d8b55c033025bf3cd9181f51817ad9db31d23c2f1b32dfba60a944cf2",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/retention_capture.py": "424d6bb0eed7f6820af03b6c796391f97b24ead4e86c3d00002f1a34c6940257",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/reuse.py": "d7687c7ea6b15c664600b751b98b511c448bd1ac5152da5efda0d9b1b024463c",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/verify_isolated.py": "a9287dac7d9c5ca769111bc8a7a33b6a4387048ad22eef20db840cc1799206d2"
+  },
+  "runs": [
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/capability_capture.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdbd",
+        "--disk-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/bin/before-lastdb-disk-home",
+        "--source-revision",
+        "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+        "--label",
+        "before-writer-capability",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rccap.en3ii_x7",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/before-writer-capability",
+        "--expected-counted",
+        "no"
+      ],
+      "end_unix_ns": 1792733663089518000,
+      "exit_code": 0,
+      "home_removed": true,
+      "node_features": 509,
+      "start_unix_ns": 1792733661559445000,
+      "tool_features": 509,
+      "variant": "before"
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/capability_capture.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdbd",
+        "--disk-binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-disk-home",
+        "--source-revision",
+        "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+        "--label",
+        "after-writer-capability",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rccap.odd78sic",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/after-writer-capability",
+        "--expected-counted",
+        "yes"
+      ],
+      "end_unix_ns": 1792733664581265000,
+      "exit_code": 0,
+      "home_removed": true,
+      "node_features": 1021,
+      "start_unix_ns": 1792733663125920000,
+      "tool_features": 1021,
+      "variant": "after"
+    }
+  ],
+  "start_unix_ns": 1792733661559045000
+}

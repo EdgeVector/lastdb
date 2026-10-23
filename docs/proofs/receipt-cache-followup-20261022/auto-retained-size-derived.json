@@ -1,0 +1,258 @@
+{
+  "complete": true,
+  "driver_sha256": "21bf327b4660730c08b77aee4f688c76a0332a6a4a3736db650a3575089e7cfe",
+  "runs": [
+    {
+      "active_net_growth": {
+        "allocated_bytes": 1307131904,
+        "bytes": 1305922956,
+        "files": 4334
+      },
+      "active_net_growth_per_second": {
+        "allocated_bytes": 1980124.6046701863,
+        "bytes": 1978293.2151422885,
+        "files": 6.56541241964865
+      },
+      "actual_active_seconds": 660.126085458,
+      "input_sha256": {
+        "numeric-audit.json": "ee0e065a9c67e7eb76c0a0dd6c90ca55d8a509d4f926965f62d684cee9405400",
+        "size-samples.json": "3e8c10a55a372ec473921ddcad948cfd0c62b02e30533c59648fac53564fe6ee",
+        "summary.json": "19b4bd6b121b6d3bf090bddf489c0d7ea4ce4363c4d1270e384ad0bded0b57e2"
+      },
+      "n": 1,
+      "observed_quiet_tail_seconds": 60.119606625,
+      "observed_sample_peaks": {
+        "allocated_bytes": {
+          "sample_ended_unix_ns": 1792734767580883000,
+          "sample_label": "after-last-active-ack",
+          "sample_started_unix_ns": 1792734767412047000,
+          "sample_totals": {
+            "allocated_bytes": 1315446784,
+            "bytes": 1314147603,
+            "files": 4474
+          },
+          "value": 1315446784
+        },
+        "bytes": {
+          "sample_ended_unix_ns": 1792734767580883000,
+          "sample_label": "after-last-active-ack",
+          "sample_started_unix_ns": 1792734767412047000,
+          "sample_totals": {
+            "allocated_bytes": 1315446784,
+            "bytes": 1314147603,
+            "files": 4474
+          },
+          "value": 1314147603
+        },
+        "files": {
+          "sample_ended_unix_ns": 1792734767580883000,
+          "sample_label": "after-last-active-ack",
+          "sample_started_unix_ns": 1792734767412047000,
+          "sample_totals": {
+            "allocated_bytes": 1315446784,
+            "bytes": 1314147603,
+            "files": 4474
+          },
+          "value": 4474
+        }
+      },
+      "quiet_tail_delta": {
+        "allocated_bytes": 0,
+        "bytes": 0,
+        "files": 0
+      },
+      "scope": "Observed interval samples can miss a larger peak. Net active growth divided by actual active seconds describes this finite window; it is not a steady-state slope. Inventories occur around the checkpoints, while the denominator ends at the final ack, so the rate is not an exact write-byte production rate. Tail deltas are signed.",
+      "selected_totals": {
+        "after_active": {
+          "allocated_bytes": 1315446784,
+          "bytes": 1314147603,
+          "files": 4474
+        },
+        "after_quiet_tail": {
+          "allocated_bytes": 1315446784,
+          "bytes": 1314147603,
+          "files": 4474
+        },
+        "seeded": {
+          "allocated_bytes": 8314880,
+          "bytes": 8224647,
+          "files": 140
+        },
+        "stable_final": {
+          "allocated_bytes": 1315446784,
+          "bytes": 1314147603,
+          "files": 4474
+        }
+      },
+      "variant": "before"
+    },
+    {
+      "active_net_growth": {
+        "allocated_bytes": 234475520,
+        "bytes": 233842382,
+        "files": 3655
+      },
+      "active_net_growth_per_second": {
+        "allocated_bytes": 355168.5808247241,
+        "bytes": 354209.5437153226,
+        "files": 5.536361164331213
+      },
+      "actual_active_seconds": 660.18091875,
+      "input_sha256": {
+        "numeric-audit.json": "69053f45a145c6ee44ad9f12e49385fa143752a709559dbb07f4eea592f9cf9e",
+        "size-samples.json": "c80534e5759466b353661d54f655e62ce6cb72e14a69111ad994a2db0ceb74fd",
+        "summary.json": "14315a27a381f0e9e7acd4f5b7ccc2916c7979f4339db10bf007554b441ff554"
+      },
+      "n": 1,
+      "observed_quiet_tail_seconds": 60.081588375,
+      "observed_sample_peaks": {
+        "allocated_bytes": {
+          "sample_ended_unix_ns": 1792735042674641000,
+          "sample_label": "periodic-7",
+          "sample_started_unix_ns": 1792735042585952000,
+          "sample_totals": {
+            "allocated_bytes": 245571584,
+            "bytes": 245204007,
+            "files": 2957
+          },
+          "value": 245571584
+        },
+        "bytes": {
+          "sample_ended_unix_ns": 1792735042674641000,
+          "sample_label": "periodic-7",
+          "sample_started_unix_ns": 1792735042585952000,
+          "sample_totals": {
+            "allocated_bytes": 245571584,
+            "bytes": 245204007,
+            "files": 2957
+          },
+          "value": 245204007
+        },
+        "files": {
+          "sample_ended_unix_ns": 1792735492834900000,
+          "sample_label": "after-last-active-ack",
+          "sample_started_unix_ns": 1792735492752597000,
+          "sample_totals": {
+            "allocated_bytes": 242839552,
+            "bytes": 242116157,
+            "files": 3795
+          },
+          "value": 3795
+        }
+      },
+      "quiet_tail_delta": {
+        "allocated_bytes": -60731392,
+        "bytes": -60691979,
+        "files": -757
+      },
+      "scope": "Observed interval samples can miss a larger peak. Net active growth divided by actual active seconds describes this finite window; it is not a steady-state slope. Inventories occur around the checkpoints, while the denominator ends at the final ack, so the rate is not an exact write-byte production rate. Tail deltas are signed.",
+      "selected_totals": {
+        "after_active": {
+          "allocated_bytes": 242839552,
+          "bytes": 242116157,
+          "files": 3795
+        },
+        "after_quiet_tail": {
+          "allocated_bytes": 182108160,
+          "bytes": 181424178,
+          "files": 3038
+        },
+        "seeded": {
+          "allocated_bytes": 8364032,
+          "bytes": 8273775,
+          "files": 140
+        },
+        "stable_final": {
+          "allocated_bytes": 182108160,
+          "bytes": 181424178,
+          "files": 3038
+        }
+      },
+      "variant": "draft"
+    },
+    {
+      "active_net_growth": {
+        "allocated_bytes": 234442752,
+        "bytes": 233821636,
+        "files": 3660
+      },
+      "active_net_growth_per_second": {
+        "allocated_bytes": 355122.58134634333,
+        "bytes": 354181.74476532795,
+        "files": 5.54399159982398
+      },
+      "actual_active_seconds": 660.174160458,
+      "input_sha256": {
+        "numeric-audit.json": "7c7de831ba9512c40d3d16a7cb34d038f1ba627865ca46ff95a25e7e67a9d7c7",
+        "size-samples.json": "087ded166f3c8c2f35264d76b0e67dd1f46e8110f096ea034120492dc5ebd5ff",
+        "summary.json": "f95fce24a3e855bd4b2f4948ab53786b6059e0e456ba73c47a21d25cda134c01"
+      },
+      "n": 1,
+      "observed_quiet_tail_seconds": 60.084023709,
+      "observed_sample_peaks": {
+        "allocated_bytes": {
+          "sample_ended_unix_ns": 1792735746181903000,
+          "sample_label": "periodic-6",
+          "sample_started_unix_ns": 1792735746110274000,
+          "sample_totals": {
+            "allocated_bytes": 246521856,
+            "bytes": 246186592,
+            "files": 2747
+          },
+          "value": 246521856
+        },
+        "bytes": {
+          "sample_ended_unix_ns": 1792735746181903000,
+          "sample_label": "periodic-6",
+          "sample_started_unix_ns": 1792735746110274000,
+          "sample_totals": {
+            "allocated_bytes": 246521856,
+            "bytes": 246186592,
+            "files": 2747
+          },
+          "value": 246186592
+        },
+        "files": {
+          "sample_ended_unix_ns": 1792736226385034000,
+          "sample_label": "after-last-active-ack",
+          "sample_started_unix_ns": 1792736226299327000,
+          "sample_totals": {
+            "allocated_bytes": 242823168,
+            "bytes": 242111884,
+            "files": 3800
+          },
+          "value": 3800
+        }
+      },
+      "quiet_tail_delta": {
+        "allocated_bytes": -58601472,
+        "bytes": -58562048,
+        "files": -754
+      },
+      "scope": "Observed interval samples can miss a larger peak. Net active growth divided by actual active seconds describes this finite window; it is not a steady-state slope. Inventories occur around the checkpoints, while the denominator ends at the final ack, so the rate is not an exact write-byte production rate. Tail deltas are signed.",
+      "selected_totals": {
+        "after_active": {
+          "allocated_bytes": 242823168,
+          "bytes": 242111884,
+          "files": 3800
+        },
+        "after_quiet_tail": {
+          "allocated_bytes": 184221696,
+          "bytes": 183549836,
+          "files": 3046
+        },
+        "seeded": {
+          "allocated_bytes": 8380416,
+          "bytes": 8290248,
+          "files": 140
+        },
+        "stable_final": {
+          "allocated_bytes": 184221696,
+          "bytes": 183549836,
+          "files": 3046
+        }
+      },
+      "variant": "after"
+    }
+  ]
+}

@@ -9,14 +9,17 @@ The second review also removes erase recovery records and journal-based cloud re
 The native writer merged in PR 268 as `4118c7baa`.
 The second review uses final product source `5919abbfbf2263993ea99700b73bd9c8d43d689b` in PR 271.
 The next change starts from `08d8436cc` and removes obsolete parts from each new receipt.
-Its final measured product source is `a1941e3a8` in draft PR 273.
+The earlier comparison measures uncached product source `a1941e3a8` in draft PR 273.
+Commit `e79b71151` implements the bounded cache within each publication.
+Profiles, three controlled pairs, six product operations, and three default-maintenance runs are complete.
 
 ## Current source
 
 | Area | Current source | Scope left |
 |---|---|---|
-| Local writes | `HomeSnapshot::commit_mutation` writes immutable payload files and changed search pages | Measure the change against a matched baseline |
+| Local writes | `HomeSnapshot::commit_mutation` writes immutable payload files and changed search pages | Three matched pairs show lower growth with slower batch medians |
 | Publications | Each complete stored batch writes one receipt with exact positive live-part counts and publishes one root | Changed pages still use fixed 16 KiB pages |
+| Reference cache | One bounded cache shares checked maps, overflow pages, and part headers within each publication | Node CPU falls against the draft; batch and forced-compaction delays remain above the baseline |
 | Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Periodic reclaim removes wholly obsolete parts; compaction rewrites partly live parts |
 | Recovery | Writer open verifies `CURRENT`, its receipt, and dependency files | No local mutation replay or silent receipt reconstruction |
 | Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Erase aggregates now commit with deletes; debit recovery records are removed |
@@ -106,6 +109,14 @@ The count reaches zero only when no current page, overflow descriptor, or payloa
 Shared parts stay in the receipt until their last reference goes.
 Each page resolves overflow references before the next page enters the bounded ledger.
 Each changed key resolves its old and new payload references before the next key.
+One publication-local `ReferenceCache` now shares the checked immutable maps, overflow pages, and part headers across those resolutions.
+It also serves the fresh-part reference pass and drops before final count changes and receipt output.
+The cache resets at 24 pages or part-header identities; its bounds remain 26 pages, 25 header identities, and 32 handles.
+Each resolution retains its existing work limit and charges logical steps even on cache hits.
+Bootstrap retains its standalone cumulative work and allowed-part checks.
+The six changed files are `live_parts.rs`, `live_parts/overflow.rs`, `live_parts/scan.rs`, `tree_edit.rs`, `locator_forest.rs`, and `publish.rs`.
+All reside under `vendor/laststore/src/disk_pack/`.
+The cache changes no integrity, format, warm-data, root, error, or recovery rule.
 The existing root holds and reclaim rules still protect older snapshots and backups.
 Periodic reclaim removes obsolete receipts even below the compaction trigger.
 The orphan sweep also repeats, with a default ten-minute interval and unchanged age and grace cutoffs.
@@ -117,13 +128,25 @@ A reopen selects only the committed root; private interrupted output remains unu
 Missing or damaged committed dependencies cause an error.
 The code does not infer another root or reconstruct a missing receipt.
 
-The [receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records three pairs against journal-free `08d8436cc`.
+The [earlier receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records three uncached `a1941e3a8` pairs against journal-free `08d8436cc`.
 Durable-single file growth falls from 668.35 to 640.36 KiB per update.
 The durable 32-record batch p50 rises from 99.96 to 164.65 ms; every pair records a slower batch.
 The focused worst write increases from 1.198 to 1.314 seconds.
-The code checks and six operational checks pass, but the performance tradeoff does not support a merge recommendation.
-Each changed key currently creates a fresh resolver, which can repeat map reads for related keys.
-That source path is a possible cause; the report does not claim profile attribution.
+That candidate passes the code and six operational checks, but its performance tradeoff does not support a merge recommendation.
+Each changed key in that source creates a fresh resolver, which can repeat map reads for related keys.
+That source path is a possible cause; the earlier report does not claim profile attribution.
+The separate [cache follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
+Three fresh baseline/cache pairs show durable-single growth of 670.86 and 639.35 KiB per update.
+The durable batch32 request p50 is 113.33 and 131.24 ms; the focused worst write is 1.249 and 1.488 seconds.
+These are medians across runs, without pooled requests.
+The cache profile uses 19.6% less node CPU than the uncached draft and 3.3% more than the fresh baseline.
+One default-maintenance run per variant retains 1,253.27 MiB for the baseline and 175.05 MiB for the cache after the quiet tail.
+The cache's request p50 is 137.18 ms versus 127.46 ms; two requests exceed 500 ms versus none.
+The baseline completes one pack; the cache completes none in this finite window.
+Keep PR 273 as a draft for general release despite the credible measured space benefit.
+A larger generated home must establish legacy admission, actual compaction, reopen, and continued durable writes within declared bounds.
+The follow-up [scale review](proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) separates existing compaction limits from the new old-root count quota.
+Its [next-change review](proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md) identifies the separate app feed publication as a later bounded trial.
 
 New native and artifact roots require `FEATURE_SNAPSHOT_COMMIT`.
 Old journal roots receive an explicit refusal before writer file creation.
