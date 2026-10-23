@@ -27,7 +27,9 @@ pub struct CompactionPublication {
 impl PreparedCompaction {
     /// No writer or publication lock is required for this complete preparation.
     pub fn prepare_publication(&mut self) -> Result<CompactionPublication> {
+        self.ensure_usable()?;
         let root = self.lock.root().to_path_buf();
+        self.failed = true;
         let staged =
             durability::complete_native_commit(&root, || self.prepare_publication_inner())?;
         self.failed = false;
@@ -100,7 +102,6 @@ impl PreparedCompaction {
         self.cached_receipt = Some(written);
         staged.pointer_file.write_all(&staged.current.encode()?)?;
         durability::sync_dirty_file(&staged.pointer_file)?;
-        self.failed = false;
         self.prepared();
         Ok(staged)
     }
