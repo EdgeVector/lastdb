@@ -22,6 +22,10 @@ Compaction preserves both values and the existing reservation ledger.
 Its replacement must leave room for the queued dependency quote.
 A logical write still changes the frontier and invalidates an old reservation.
 Its file copy and catch-up remain outside the publication lock.
+The private output keeps exact file reference counts after each catch-up round.
+A new hash group adds only its locator subtree to those counts.
+The output retains every file with a positive count until publication.
+The final disk-root check still requires an exact match.
 
 The memory publication follows request order inside one view lock.
 Each request first invalidates its changed sources, then installs its clean values.
