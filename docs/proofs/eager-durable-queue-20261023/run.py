@@ -155,14 +155,26 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain'), required=True)
+    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final'), required=True)
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the compiler exclusion for the whole capture')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    if args.mode == 'smoke':
+    if args.mode == 'final':
+        run(scratch / 'candidate', scratch, 'final-smoke', 4, 8, 128, True)
+        run(scratch / 'before', scratch, 'repeat-before-single')
+        run(scratch / 'candidate', scratch, 'final-single')
+        run(scratch / 'candidate', scratch, 'final-concurrent', 4, 8)
+        run(scratch / 'before', scratch, 'repeat-before-concurrent', 4, 8)
+        run(scratch / 'candidate', scratch, 'final-profile', 4, 8, 512, True)
+        run(scratch / 'candidate', scratch, 'final-sustained', 4, 8, 4096, True, True)
+        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
+                        '--name', 'final-semantics'], check=True)
+        old.PROOF = PROOF
+        old.boundaries(scratch / 'candidate', scratch, 'final-boundaries', 'hb')
+    elif args.mode == 'smoke':
         run(scratch / 'candidate', scratch, 'smoke', 4, 8, 128, True)
     elif args.mode == 'bench':
         for label in ('before', 'candidate'):

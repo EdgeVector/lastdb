@@ -22,11 +22,6 @@ pub(super) struct WriteQueue {
 }
 
 impl WriteQueue {
-    pub(super) fn pending_target(&self) -> Option<u64> {
-        (!self.requests.is_empty() || self.prepared.is_some() || self.sealed)
-            .then_some(self.next_sequence)
-    }
-
     /// Compaction preserves the logical frontier and all owned quota. Only a
     /// replacement that cannot leave the promised dependency room must wait.
     pub(super) fn compaction_barrier(&self, parts: u64) -> Option<u64> {

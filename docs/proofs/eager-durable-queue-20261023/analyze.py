@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parent
 
 def analyze(name):
     output = ROOT / name
-    writes = json.loads((output / 'writes.json').read_text())
+    path = output / 'writes.json'
+    writes = json.loads(path.read_text() if path.exists() else gzip.decompress(path.with_suffix('.json.gz').read_bytes()))
     samples = writes['samples']
     first, last = min(s['start_unix_us'] for s in samples), max(s['end_unix_us'] for s in samples)
     marker = 'LASTDB_SNAPSHOT_TIMING '

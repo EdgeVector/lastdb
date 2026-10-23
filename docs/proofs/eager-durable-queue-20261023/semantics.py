@@ -101,16 +101,17 @@ def memory_pressure(node, output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
+    parser.add_argument('--name', default='semantics')
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the host compiler exclusion')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    output, home = driver.PROOF / 'semantics', scratch / 'hm'
+    output, home = driver.PROOF / args.name, scratch / ('hm' if args.name == 'semantics' else 'hmf')
     output.mkdir()
     home.mkdir()
-    node = driver.Node(scratch / 'candidate', home, scratch / 'semantics.log', 4096, False, workers=8)
+    node = driver.Node(scratch / 'candidate', home, scratch / (args.name + '.log'), 4096, False, workers=8)
     node.profile, node.maintenance, node.warm_bytes = True, True, 262144
     driver.save(output / 'inputs.json', {'home': str(home), 'generated_data_only': True,
                 'binary_sha256': hashlib.sha256(node.binary.read_bytes()).hexdigest(),
@@ -134,7 +135,7 @@ def main():
     finally:
         node.stop()
         node.log.close()
-        driver.old.preserve_log(scratch, 'semantics', output)
+        driver.old.preserve_log(scratch, args.name, output)
 
 
 if __name__ == '__main__':
