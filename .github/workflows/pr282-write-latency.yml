@@ -24,7 +24,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: "4"
       CARGO_TERM_COLOR: always
-      METADATA_BEFORE_SHA: 35d94f5aa8a6af0617e2ae99dc0accac529e5800
+      METADATA_BEFORE_SHA: 7cd9869a428591fcc366c2d797c583f7a8967291
     steps:
       - name: Checkout proposed source and capture driver
         uses: actions/checkout@v5
