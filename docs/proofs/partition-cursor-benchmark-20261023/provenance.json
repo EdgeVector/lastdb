@@ -1,0 +1,27 @@
+{
+  "baseline": "a02d25ed0337f9fe6ce01d7b6d68a71d547f2e72",
+  "candidate": "e5e3a413dbd39035cb615de2f0c6e2b5394660d5",
+  "checkout": "/workspace/lastdb-before",
+  "build_command": "CARGO_TARGET_DIR=/workspace/bench-target CARGO_BUILD_JOBS=3 scripts/ci/with-fold-host-cargo-lock.sh -- cargo build -p lastdb_node --bin lastdbd --release --locked",
+  "runs": {
+    "measurements": 24,
+    "focused-measurements": 8
+  },
+  "timed_requests": {
+    "measurements": 57024,
+    "focused-measurements": 28672
+  },
+  "binaries": {
+    "before": "7fdc2f48e729af9a59e1a39101d2c3db03b6fcade61e3e66c9bc020fec1f39c0",
+    "after": "11173b5b768b76be5aa708f32fb9ff48d744edceadd85c5ef289ab5ed30ed638"
+  },
+  "drivers": {
+    "paging.py": "569a975b1fe2a9936078d0c6472216cf1e7e7874e5fcdfee020769c78c3f8db3",
+    "focused.py": "b53185dc56570587fa1c8e609b7c40b8583f015f95a7120ca66aaefd24295f4c",
+    "run.py": "80a8e4c333d58c90e3f1d7e64091ce5534ac1166eeff3768416fb2ebd44bbe75",
+    "run_focused.py": "86e2d822c1b5c73175501ae93346d7e6a427201bd6cf313503dd66516f994bd5"
+  },
+  "free_gib_before_min": 19.579872131347656,
+  "free_gib_before_max": 19.5863037109375,
+  "graceful_stops": 96
+}

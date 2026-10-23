@@ -1,0 +1,12 @@
+{
+  "run_id": "547417a0a16946d5b9819c6b3a75fc51",
+  "home": "/workspace/partition-pairs/encrypted-2-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1623,
+  "allocated_bytes_removed": 490975232,
+  "free_bytes_before": 20533690368,
+  "free_bytes_after": 21027905536
+}

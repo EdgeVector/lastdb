@@ -1,0 +1,11 @@
+{
+  "creator_pid": 101917,
+  "device": 27,
+  "home": "/workspace/partition-focused-pairs/encrypted-2-after/home",
+  "inode": 692055,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "2d1dc2689e3f4c93828ca7324de1f0d1",
+  "scratch": "/workspace/partition-focused-pairs/encrypted-2-after",
+  "version": 1
+}

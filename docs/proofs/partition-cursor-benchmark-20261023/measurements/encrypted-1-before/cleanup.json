@@ -1,0 +1,12 @@
+{
+  "run_id": "a20ea3a657dc4dea8e0e5d3b2fbdfb14",
+  "home": "/workspace/partition-pairs/encrypted-1-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1603,
+  "allocated_bytes_removed": 485834752,
+  "free_bytes_before": 20539269120,
+  "free_bytes_after": 21028294656
+}

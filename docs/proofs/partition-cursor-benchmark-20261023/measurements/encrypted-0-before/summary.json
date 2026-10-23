@@ -1,0 +1,281 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "config": "encrypted",
+  "phases": {
+    "hash_durable_write1": {
+      "acknowledgements": {
+        "durable": 64
+      },
+      "final_flush_ms": 7.245553,
+      "first_request_ms": 60.611251,
+      "max_ms": 60.611251,
+      "mean_ms": 15.537066546875,
+      "median_ms": 14.642179,
+      "p95_ms": 17.243046,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 63.546207256236954,
+      "requests": 64,
+      "total_ms": 994.372259,
+      "wall_through_flush_seconds": 1.007141146
+    },
+    "hash_durable_write32": {
+      "acknowledgements": {
+        "durable": 12
+      },
+      "final_flush_ms": 0.312346,
+      "first_request_ms": 131.653968,
+      "max_ms": 163.994523,
+      "mean_ms": 106.117702,
+      "median_ms": 92.7557165,
+      "p95_ms": 163.994523,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 299.7617053690722,
+      "requests": 12,
+      "total_ms": 1273.4124239999999,
+      "wall_through_flush_seconds": 1.281017532
+    },
+    "hash_missing_point": {
+      "first_request_ms": 0.850692,
+      "max_ms": 0.853031,
+      "mean_ms": 0.5437103984375,
+      "median_ms": 0.597634,
+      "p95_ms": 0.707391,
+      "requests": 128,
+      "total_ms": 69.594931
+    },
+    "hash_queued_write1": {
+      "acknowledgements": {
+        "queued": 64
+      },
+      "final_flush_ms": 39.324732,
+      "first_request_ms": 20.982448,
+      "max_ms": 42.58726,
+      "mean_ms": 8.05982259375,
+      "median_ms": 6.2807835,
+      "p95_ms": 20.982448,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 114.32911096216688,
+      "requests": 64,
+      "total_ms": 515.828646,
+      "wall_through_flush_seconds": 0.559787437
+    },
+    "hash_queued_write32": {
+      "acknowledgements": {
+        "queued": 12
+      },
+      "final_flush_ms": 0.421633,
+      "first_request_ms": 34.867383,
+      "max_ms": 266.780589,
+      "mean_ms": 58.29650891666667,
+      "median_ms": 36.2115265,
+      "p95_ms": 266.780589,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 544.065501405878,
+      "requests": 12,
+      "total_ms": 699.5581070000001,
+      "wall_through_flush_seconds": 0.70579737
+    },
+    "hash_reopen_first_pass": {
+      "first_request_ms": 5.421857,
+      "max_ms": 5.421857,
+      "mean_ms": 2.0590851484375,
+      "median_ms": 1.9306465,
+      "p95_ms": 2.631244,
+      "requests": 128,
+      "total_ms": 263.562899
+    },
+    "hash_warm_point": {
+      "first_request_ms": 0.560848,
+      "max_ms": 1.015065,
+      "mean_ms": 0.5495613776041667,
+      "median_ms": 0.5348305,
+      "p95_ms": 0.642194,
+      "requests": 384,
+      "total_ms": 211.031569
+    },
+    "partition_cursor127_limit16": {
+      "first_request_ms": 17.460752,
+      "max_ms": 17.460752,
+      "mean_ms": 4.76916728125,
+      "median_ms": 4.6013975,
+      "p95_ms": 6.682431,
+      "requests": 96,
+      "total_ms": 457.840059
+    },
+    "partition_cursor_after_empty": {
+      "first_request_ms": 7.938785,
+      "max_ms": 7.938785,
+      "mean_ms": 2.59435975,
+      "median_ms": 2.358752,
+      "p95_ms": 3.550135,
+      "requests": 64,
+      "total_ms": 166.039024
+    },
+    "partition_offset144_limit16": {
+      "first_request_ms": 34.593186,
+      "max_ms": 34.593186,
+      "mean_ms": 10.021476125,
+      "median_ms": 7.682783499999999,
+      "p95_ms": 19.098796,
+      "requests": 96,
+      "total_ms": 962.061708
+    },
+    "partition_short_last_page": {
+      "first_request_ms": 8.861346,
+      "max_ms": 8.861346,
+      "mean_ms": 1.935252328125,
+      "median_ms": 1.7742525,
+      "p95_ms": 2.224714,
+      "requests": 64,
+      "total_ms": 123.856149
+    },
+    "range_between64": {
+      "first_request_ms": 8.983159,
+      "max_ms": 11.357673,
+      "mean_ms": 8.9927904375,
+      "median_ms": 8.932976499999999,
+      "p95_ms": 9.715194,
+      "requests": 96,
+      "total_ms": 863.307882
+    },
+    "range_duplicates_and_miss": {
+      "first_request_ms": 0.961735,
+      "max_ms": 1.01143,
+      "mean_ms": 0.852339578125,
+      "median_ms": 0.840077,
+      "p95_ms": 0.961735,
+      "requests": 64,
+      "total_ms": 54.549733
+    },
+    "range_durable_write1": {
+      "acknowledgements": {
+        "durable": 64
+      },
+      "final_flush_ms": 7.121311,
+      "first_request_ms": 21.05556,
+      "max_ms": 25.115982,
+      "mean_ms": 17.592272875,
+      "median_ms": 17.2803145,
+      "p95_ms": 20.301484,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 56.22681548761447,
+      "requests": 64,
+      "total_ms": 1125.905464,
+      "wall_through_flush_seconds": 1.138246928
+    },
+    "range_durable_write32": {
+      "acknowledgements": {
+        "durable": 12
+      },
+      "final_flush_ms": 0.29237,
+      "first_request_ms": 70.590085,
+      "max_ms": 82.056513,
+      "mean_ms": 73.82041,
+      "median_ms": 73.2040245,
+      "p95_ms": 82.056513,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 430.46833050882213,
+      "requests": 12,
+      "total_ms": 885.84492,
+      "wall_through_flush_seconds": 0.892051686
+    },
+    "range_missing_point": {
+      "first_request_ms": 1.038127,
+      "max_ms": 1.038127,
+      "mean_ms": 0.5959445078125,
+      "median_ms": 0.621321,
+      "p95_ms": 0.810983,
+      "requests": 128,
+      "total_ms": 76.280897
+    },
+    "range_multiget32": {
+      "first_request_ms": 3.789735,
+      "max_ms": 19.011972,
+      "mean_ms": 3.9073434479166664,
+      "median_ms": 3.6842755,
+      "p95_ms": 4.12583,
+      "requests": 96,
+      "total_ms": 375.104971
+    },
+    "range_partition512": {
+      "first_request_ms": 69.023775,
+      "max_ms": 69.023775,
+      "mean_ms": 64.78403775,
+      "median_ms": 64.30234899999999,
+      "p95_ms": 66.967329,
+      "requests": 24,
+      "total_ms": 1554.816906
+    },
+    "range_prefix10": {
+      "first_request_ms": 2.214332,
+      "max_ms": 2.42825,
+      "mean_ms": 2.051337375,
+      "median_ms": 2.021449,
+      "p95_ms": 2.252192,
+      "requests": 96,
+      "total_ms": 196.928388
+    },
+    "range_prefix100": {
+      "first_request_ms": 14.452714,
+      "max_ms": 16.415584,
+      "mean_ms": 13.553226364583333,
+      "median_ms": 13.425974499999999,
+      "p95_ms": 14.452714,
+      "requests": 96,
+      "total_ms": 1301.109731
+    },
+    "range_queued_write1": {
+      "acknowledgements": {
+        "queued": 64
+      },
+      "final_flush_ms": 12.856079,
+      "first_request_ms": 6.995235,
+      "max_ms": 33.781477,
+      "mean_ms": 8.793695328125,
+      "median_ms": 6.862021,
+      "p95_ms": 27.185102,
+      "records_per_request": 1,
+      "records_per_second_through_flush": 110.33731247380695,
+      "requests": 64,
+      "total_ms": 562.796501,
+      "wall_through_flush_seconds": 0.580039504
+    },
+    "range_queued_write32": {
+      "acknowledgements": {
+        "queued": 12
+      },
+      "final_flush_ms": 0.365278,
+      "first_request_ms": 36.122583,
+      "max_ms": 134.763193,
+      "mean_ms": 64.82302366666667,
+      "median_ms": 68.4549625,
+      "p95_ms": 134.763193,
+      "records_per_request": 32,
+      "records_per_second_through_flush": 489.17406893509,
+      "requests": 12,
+      "total_ms": 777.8762839999999,
+      "wall_through_flush_seconds": 0.784996639
+    },
+    "range_reopen_first_pass": {
+      "first_request_ms": 5.045801,
+      "max_ms": 5.045801,
+      "mean_ms": 2.1615216484375,
+      "median_ms": 2.08725,
+      "p95_ms": 2.432564,
+      "requests": 128,
+      "total_ms": 276.674771
+    },
+    "range_warm_point": {
+      "first_request_ms": 0.696291,
+      "max_ms": 1.571186,
+      "mean_ms": 0.5952337369791667,
+      "median_ms": 0.5728625,
+      "p95_ms": 0.690241,
+      "requests": 384,
+      "total_ms": 228.569755
+    }
+  },
+  "source_revision": "a02d25ed0337f9fe6ce01d7b6d68a71d547f2e72",
+  "values_and_delete_visibility_verified": true
+}

@@ -1,0 +1,140 @@
+{
+  "encrypted": {
+    "partition_cursor127_limit16": {
+      "before_median_ms": 2.64266975,
+      "after_median_ms": 2.5207897499999996,
+      "paired_median_change_percent": -4.573896186986282,
+      "paired_changes_percent": [
+        3.647132276615661,
+        -8.87639928128876,
+        -0.27139309268380263,
+        -10.26668736349543
+      ],
+      "before_run_medians_ms": [
+        2.4753695000000002,
+        2.758827,
+        2.5345155000000004,
+        2.7508239999999997
+      ],
+      "after_run_medians_ms": [
+        2.5656495,
+        2.5139424999999997,
+        2.527637,
+        2.4684055000000003
+      ],
+      "before_p95_ms": 4.649339,
+      "after_p95_ms": 3.0698695000000003,
+      "paired_p95_changes_percent": [
+        -30.283524203917423,
+        -13.67747689397152,
+        -34.36346636376264,
+        -45.934999818991415
+      ],
+      "requests_per_run": 1024,
+      "change_of_reported_medians_percent": -4.612002691596273,
+      "paired_geomean_change_percent": -4.117267103616362
+    },
+    "partition_cursor_after_empty": {
+      "before_median_ms": 2.4758195,
+      "after_median_ms": 2.4373000000000005,
+      "paired_median_change_percent": -0.7069551960886045,
+      "paired_changes_percent": [
+        -0.24062088203512522,
+        -1.1732895101420837,
+        1.370114615518192,
+        -7.201392440413413
+      ],
+      "before_run_medians_ms": [
+        2.4576005,
+        2.511912,
+        2.390165,
+        2.4940385000000003
+      ],
+      "after_run_medians_ms": [
+        2.451687,
+        2.48244,
+        2.4229130000000003,
+        2.314433
+      ],
+      "before_p95_ms": 4.974036,
+      "after_p95_ms": 3.8609929999999997,
+      "paired_p95_changes_percent": [
+        -42.76997036756214,
+        52.27487874829537,
+        -36.262368002156066,
+        -16.858847558504632
+      ],
+      "requests_per_run": 1024,
+      "change_of_reported_medians_percent": -1.555828282312166,
+      "paired_geomean_change_percent": -1.8659169951838583
+    },
+    "partition_offset144_limit16": {
+      "before_median_ms": 7.7007010000000005,
+      "after_median_ms": 7.747521,
+      "paired_median_change_percent": 0.62427092878376,
+      "paired_changes_percent": [
+        9.926935110018476,
+        -0.7405623171284126,
+        1.9891041746959326,
+        -9.799392089225801
+      ],
+      "before_run_medians_ms": [
+        7.5389835000000005,
+        7.7925245,
+        7.6088775,
+        8.3184905
+      ],
+      "after_run_medians_ms": [
+        8.287373500000001,
+        7.734816,
+        7.760225999999999,
+        7.503329
+      ],
+      "before_p95_ms": 11.282410500000001,
+      "after_p95_ms": 11.835538,
+      "paired_p95_changes_percent": [
+        76.68234055062963,
+        -29.302303548195553,
+        72.16001692361864,
+        -43.22936558911646
+      ],
+      "requests_per_run": 512,
+      "change_of_reported_medians_percent": 0.6079965966734546,
+      "paired_geomean_change_percent": 0.09440283937252048
+    },
+    "partition_short_last_page": {
+      "before_median_ms": 1.9058000000000002,
+      "after_median_ms": 1.88497675,
+      "paired_median_change_percent": -3.8206877594778255,
+      "paired_changes_percent": [
+        -6.72815801730986,
+        -0.9132175016457911,
+        3.44168073866149,
+        -8.748626339708753
+      ],
+      "before_run_medians_ms": [
+        2.063217,
+        1.9284015,
+        1.7973050000000002,
+        1.8831985
+      ],
+      "after_run_medians_ms": [
+        1.9244005,
+        1.9107910000000001,
+        1.8591625,
+        1.7184445
+      ],
+      "before_p95_ms": 2.7155415,
+      "after_p95_ms": 2.2319500000000003,
+      "paired_p95_changes_percent": [
+        -3.4487070860773406,
+        6.120948644541069,
+        0.8908979538035711,
+        -55.53876785735476
+      ],
+      "requests_per_run": 1024,
+      "change_of_reported_medians_percent": -1.0926251442963664,
+      "paired_geomean_change_percent": -3.3559069506717276
+    }
+  }
+}

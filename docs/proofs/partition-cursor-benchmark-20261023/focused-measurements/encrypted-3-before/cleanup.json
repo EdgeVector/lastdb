@@ -1,0 +1,12 @@
+{
+  "run_id": "ec82d5cf7b18488586f9289d2236a7eb",
+  "home": "/workspace/partition-focused-pairs/encrypted-3-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 382,
+  "allocated_bytes_removed": 158879744,
+  "free_bytes_before": 20863696896,
+  "free_bytes_after": 21023461376
+}
