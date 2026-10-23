@@ -398,5 +398,70 @@
     "path": "counts-sustained/writes.json",
     "bytes": 3688084,
     "sha256": "f69a0d796027798574fad0864dd2f6f4849d6b3427cab91051518085381d0ab1"
+  },
+  {
+    "path": "barrier-before-concurrent/schema-metadata.json",
+    "bytes": 89539,
+    "sha256": "7e5e55f0c0769b5c54f7edc6500bff89eb9eb012728595c9c6f63fefe2682351"
+  },
+  {
+    "path": "barrier-before-concurrent/writes.json",
+    "bytes": 942084,
+    "sha256": "7aae2b596ec25c633e298598e9bb0e5e4e351d70ea0008f7d857e51b09fa0bcf"
+  },
+  {
+    "path": "barrier-before-single/schema-metadata.json",
+    "bytes": 89539,
+    "sha256": "835d24a600722c38e20f5372ef6f676c9f008edcf78176a8305ca714c286f295"
+  },
+  {
+    "path": "barrier-before-single/writes.json",
+    "bytes": 628219,
+    "sha256": "1bf87ff09d6b5d757722f8eb090ac16537783c5ee3dee162e34efd4fc02417ff"
+  },
+  {
+    "path": "barrier-concurrent/schema-metadata.json",
+    "bytes": 89539,
+    "sha256": "0eeae237323c2288c2c739489000f58339108c68fd0b793c962ba17566876230"
+  },
+  {
+    "path": "barrier-concurrent/writes.json",
+    "bytes": 941511,
+    "sha256": "7af4150a469a79848171267f723b5c3293314a1d139d86fa952a9b2408fe3548"
+  },
+  {
+    "path": "barrier-semantics/memory-samples.json",
+    "bytes": 148029,
+    "sha256": "dc0a9366caa1a7f43e2bdda7a72483ae99b6732e83307e570a2d90d7be992e43"
+  },
+  {
+    "path": "barrier-single/schema-metadata.json",
+    "bytes": 89539,
+    "sha256": "c6f5dea5f4cae26f01ee45ec64097f318de8a5d9daa9ef3a51acbf5570de893f"
+  },
+  {
+    "path": "barrier-single/writes.json",
+    "bytes": 628219,
+    "sha256": "6a04e50a62a64804ac7c97ef354c9490cfcbf6ed1a4afd6ac53b57ea655d8ad4"
+  },
+  {
+    "path": "barrier-smoke/schema-metadata.json",
+    "bytes": 89539,
+    "sha256": "601dcb87421374e9be5eb8e26d262a16d5123ab4f1c7917e648220677b869f5e"
+  },
+  {
+    "path": "barrier-smoke/writes.json",
+    "bytes": 169477,
+    "sha256": "ebb684eb66bb92c316fd565d5b04b8275d8c73fcbdb98b14ba5b9b39c4cbb600"
+  },
+  {
+    "path": "barrier-sustained/schema-metadata.json",
+    "bytes": 89539,
+    "sha256": "856d8c8e71466b131897fc1f00627a3297bc607f2f7f0769ac2c8e3747e2f233"
+  },
+  {
+    "path": "barrier-sustained/writes.json",
+    "bytes": 3693886,
+    "sha256": "9a1f3f37b22ab65f087f1c7202567760607ccfe5919f45341a6a2b8ddd386e50"
   }
 ]

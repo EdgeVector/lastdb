@@ -1,0 +1,39 @@
+{
+  "client": {
+    "count": 1000,
+    "errors": 0,
+    "average_ms": 25.53884487,
+    "median_ms": 20.031896,
+    "p95_ms": 51.711583,
+    "p99_ms": 61.780166,
+    "max_ms": 75.670125,
+    "wall_seconds": 25.562705542000003,
+    "batches_per_second": 39.11948985043783,
+    "records_per_second": 39.11948985043783,
+    "latency_unit": "whole batch request; no division by record count"
+  },
+  "scopes": 1000,
+  "physical_commits": 1000,
+  "cohort_histogram": {
+    "1": 1000
+  },
+  "mean_scope_ms": 24.715905,
+  "mean_request_phase_ms": {
+    "accept_ms": 0.022246,
+    "admission_ms": 7.9e-05,
+    "capacity_prepare_ms": 0.036464,
+    "durable_wait_ms": 20.866616,
+    "logical_prepare_ms": 3.786515,
+    "part_room_ms": 0.0
+  },
+  "mean_physical_commit_ms": 19.50872,
+  "physical_commit_counts": {
+    "dependency_parts": 1632775,
+    "device_flushes": 1000,
+    "flushed_files": 13000,
+    "metadata_pages": 23373,
+    "metadata_parts": 2000,
+    "storage_mutations": 14128
+  },
+  "shared_flush_cost_is_not_exclusive_per_client": true
+}
