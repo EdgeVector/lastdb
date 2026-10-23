@@ -10,7 +10,7 @@ impl JournalWriter {
 
     /// Replace only lookup pages. Payload objects and their versions stay intact.
     pub fn repack_lookups(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
+        self.maintenance_checkpoint()?;
         self.poisoned = true;
         let (current, receipt) =
             match crate::disk_pack::maintenance::repack_locked(&self.lock, policy) {
@@ -48,7 +48,7 @@ impl JournalWriter {
     /// Publish replacements without deletion. A node installs this root in its
     /// read view before it calls `reclaim` under that view's exclusive lock.
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
-        self.publish()?;
+        self.maintenance_checkpoint()?;
         self.poisoned = true;
         let (current, receipt) =
             match crate::disk_pack::maintenance::compact_locked(&self.lock, policy) {
@@ -74,5 +74,23 @@ impl JournalWriter {
     pub fn reserve_space(&self, bytes: u64, policy: &SpacePolicy) -> Result<SpaceReservation> {
         self.check_admission()?;
         crate::disk_pack::maintenance::reserve_space(&self.root, policy, bytes)
+    }
+
+    fn maintenance_checkpoint(&mut self) -> Result<()> {
+        self.publish()?;
+        if self.tail.last_batch < self.tail.first_batch {
+            return Ok(());
+        }
+        // Replacements can drop every payload in the current stream. Close its
+        // recovery interval first, so reclaim cannot remove bytes that a later
+        // publication must still verify through JOURNAL_TAIL.
+        self.poisoned = true;
+        let (publication, tail) = super::super::resume::checkpoint(&self.lock)?;
+        self.current = publication.current;
+        self.tail = tail;
+        self.reserved_bytes = 0;
+        self.suffix_oldest = None;
+        self.poisoned = false;
+        Ok(())
     }
 }
