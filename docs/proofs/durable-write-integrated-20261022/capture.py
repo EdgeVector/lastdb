@@ -90,7 +90,7 @@ def notices(node):
     raise RuntimeError("notification replay exceeded generated workload")
 
 
-def boundaries(binary, scratch, name="boundaries-compact", home_name="hc"):
+def boundaries(binary, scratch, name="boundaries-distinct", home_name="hd"):
     output = PROOF / name
     output.mkdir()
     home = scratch / home_name
@@ -107,9 +107,9 @@ def boundaries(binary, scratch, name="boundaries-compact", home_name="hc"):
                 "descriptive_name": schema, "schema_type": "Hash",
                 "key": {"hash_field": "value"}, "fields": ["value"],
                 "field_descriptions": {"value": "generated large native notice value"}}}))
-        item = {"type": "mutation", "schema": schema, "mutation_type": "create",
-                "key_value": {"hash": "large"}, "fields_and_values": {"value": "large"}}
-        body = {"mutations": [item.copy() for _ in range(1025)]}
+        keys = [f"large-{number:04}" for number in range(1025)]
+        body = {"mutations": [{"type": "mutation", "schema": schema, "mutation_type": "create",
+                "key_value": {"hash": key}, "fields_and_values": {"value": key}} for key in keys]}
         response = node.call("/api/mutations/batch", body)
         calls.append({"operation": "large-create", "response": response})
         save(output / "calls.json", calls)
@@ -123,10 +123,11 @@ def boundaries(binary, scratch, name="boundaries-compact", home_name="hc"):
         if len(events) != 1025 or {event["mutation_id"] for event in events} != returned:
             raise RuntimeError("large native notices differ after forced stop")
         save(output / "large-notices.json", events)
-        value = node.call("/api/query", {"schema_name": schema, "fields": ["value"],
-            "filter": {"HashKey": "large"}, "limit": 1})
+        value = [node.call("/api/query", {"schema_name": schema, "fields": ["value"],
+            "filter": {"HashKey": key}, "limit": 1}) for key in (keys[0], keys[-1])]
         save(output / "large-recovery.json", value)
-        if len(value["results"]) != 1 or value["results"][0]["fields"]["value"] != "large":
+        if any(len(result["results"]) != 1 or result["results"][0]["fields"]["value"] != key
+               for result, key in zip(value, (keys[0], keys[-1]))):
             raise RuntimeError("large acknowledged value differs")
         for operation in ("delete", "create", "purge"):
             items = [schemas.payload(schemas.schema_name(n), 1, 1, operation)[0]["mutations"][0]
