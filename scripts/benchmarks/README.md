@@ -1,9 +1,15 @@
 # LastDB benchmarks in GitHub Actions
 
-The `LastDB benchmarks` workflow runs on each PR update and each main push.
-The nightly run starts at 09:27 UTC. A manual run can select either recipe.
-The workflow remains separate from `ci-required`. Slowdowns do not block merge.
-A build failure, rejected request, or incomplete measurement remains an error.
+The `LastDB benchmarks` workflow checks each PR update and merge group.
+Product changes require the `benchmark-complete` check before merge.
+It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
+Build failures, rejected requests, incomplete measurements, and upload failures block completion.
+Documentation-only PRs pass the path check without measurements. Unknown paths require measurements.
+The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
+PR edits to titles or descriptions do not repeat a benchmark.
+
+Use the CI summary and run link in the PR. Do not commit a duplicate report or receipt.
+The required `generated-evidence` check keeps raw output outside Git.
 
 Use the PR process for builds and benchmarks. Do not run them on Tom's machine.
 Lightweight source, syntax, and format checks can run locally. Tests remain retired.
@@ -41,13 +47,20 @@ These checks reject invalid measurements. They do not form a test suite.
 ## Base and candidate
 
 A PR run uses its exact head commit and the base SHA from the PR event.
-The driver comes from the workflow revision, which includes the accepted base on a PR run.
-An older PR branch does not need the new benchmark scripts in its source tree.
-The manifest records the driver revision and its file hashes separately from both product revisions.
 A main push uses its new tip and the previous tip from the push event.
-A nightly or manual run uses the selected commit and its first parent.
+A nightly run uses the selected commit and its first parent.
 The workflow records complete SHAs and executable hashes.
 The running daemon must report the expected revision.
+
+The driver uses the workflow's exact source revision, separate from both product checkouts.
+For a PR, this is the event's merge tree, which includes the current base driver.
+An older PR head need not contain any benchmark scripts. The summary records the driver revision.
+
+The separate `LastDB historical benchmark comparison` manual workflow accepts exact baseline
+and candidate SHAs. An empty candidate uses the selected workflow revision.
+An empty baseline uses the candidate's first parent. Either recipe is available.
+Select the current main workflow to measure old product revisions with the current driver.
+Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
 The workflow caches dependency downloads only. Each version uses a fresh target directory.
