@@ -1,0 +1,91 @@
+{
+  "label": "after",
+  "name": "1-after",
+  "host_before": {
+    "load_average": [
+      5.18408203125,
+      7.4697265625,
+      11.11279296875
+    ],
+    "top_cpu_processes": [
+      "66969  81.0 /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+      "  522  68.4 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd",
+      " 1070  33.3 /System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
+      "34523  21.8 /System/Library/ExtensionKit/Extensions/TGOnDeviceInferenceProviderService.appex/Contents/MacOS/TGOnDeviceInferenceProviderService",
+      " 1126  16.5 /usr/libexec/textunderstandingd",
+      "  842  16.4 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds_stores",
+      "  547  12.2 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds",
+      "  756   8.3 /System/Library/PrivateFrameworks/ModelCatalogRuntime.framework/Versions/A/modelcatalogd",
+      " 1111   1.4 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/corespotlightd",
+      " 2363   1.4 /Applications/Wispr Flow.app/Contents/Resources/swift-helper-app-dist/Wispr Flow.app/Contents/MacOS/Wispr Flow"
+    ]
+  },
+  "complete": true,
+  "batch_read_receipt": {
+    "keys": 64,
+    "all_values_match": true
+  },
+  "phases": {
+    "create": {
+      "count": 300,
+      "mean_ms": 13.414367236666667,
+      "p50_ms": 13.04325,
+      "p95_ms": 14.883959,
+      "p99_ms": 18.609875
+    },
+    "update": {
+      "count": 300,
+      "mean_ms": 14.446449416666667,
+      "p50_ms": 13.3335,
+      "p95_ms": 17.792083,
+      "p99_ms": 42.437667
+    },
+    "conditional_update": {
+      "count": 300,
+      "mean_ms": 13.940467643333333,
+      "p50_ms": 13.90675,
+      "p95_ms": 15.171416,
+      "p99_ms": 16.427542
+    },
+    "concurrent4_update": {
+      "count": 400,
+      "mean_ms": 63.171078035,
+      "p50_ms": 52.977375,
+      "p95_ms": 134.417667,
+      "p99_ms": 201.190417,
+      "requests_per_second": 62.278120814533146
+    },
+    "read_control": {
+      "count": 300,
+      "mean_ms": 0.11100388666666666,
+      "p50_ms": 0.106334,
+      "p95_ms": 0.124792,
+      "p99_ms": 0.150417
+    }
+  },
+  "memory_kib_at_end": 130608,
+  "reopen_read_receipt": {
+    "keys": 64,
+    "all_values_match": true
+  },
+  "host_after": {
+    "load_average": [
+      4.98828125,
+      7.27685546875,
+      10.95849609375
+    ],
+    "top_cpu_processes": [
+      "67970 446.0 lastseek",
+      "68206  38.5 find",
+      " 1070  23.0 /System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
+      "34523  12.7 /System/Library/ExtensionKit/Extensions/TGOnDeviceInferenceProviderService.appex/Contents/MacOS/TGOnDeviceInferenceProviderService",
+      "68768  10.5 (git)",
+      "68755   8.7 gh",
+      " 1111   7.9 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/corespotlightd",
+      " 2179   2.4 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+      "  722   1.7 /System/Library/DriverExtensions/com.apple.DriverKit-AppleBCMWLAN.dext/com.apple.DriverKit-AppleBCMWLAN",
+      " 2363   1.4 /Applications/Wispr Flow.app/Contents/Resources/swift-helper-app-dist/Wispr Flow.app/Contents/MacOS/Wispr Flow"
+    ]
+  },
+  "node_exit": 0
+}

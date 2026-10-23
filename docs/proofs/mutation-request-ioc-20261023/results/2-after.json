@@ -1,0 +1,91 @@
+{
+  "label": "after",
+  "name": "2-after",
+  "host_before": {
+    "load_average": [
+      6.18994140625,
+      7.48779296875,
+      11.01123046875
+    ],
+    "top_cpu_processes": [
+      "67970 405.9 lastseek",
+      "66969  75.0 /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+      "  522  64.7 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd",
+      "68206  44.7 find",
+      " 1070  18.6 /System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
+      "34523  15.3 /System/Library/ExtensionKit/Extensions/TGOnDeviceInferenceProviderService.appex/Contents/MacOS/TGOnDeviceInferenceProviderService",
+      "68951  13.5 /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+      "  547   9.6 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds",
+      "69169   5.7 gh",
+      "  842   5.2 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds_stores"
+    ]
+  },
+  "complete": true,
+  "batch_read_receipt": {
+    "keys": 64,
+    "all_values_match": true
+  },
+  "phases": {
+    "create": {
+      "count": 300,
+      "mean_ms": 12.981133663333333,
+      "p50_ms": 12.182125,
+      "p95_ms": 18.2095,
+      "p99_ms": 30.524541
+    },
+    "update": {
+      "count": 300,
+      "mean_ms": 14.015835686666666,
+      "p50_ms": 12.769625,
+      "p95_ms": 21.265,
+      "p99_ms": 37.531375
+    },
+    "conditional_update": {
+      "count": 300,
+      "mean_ms": 14.85013058,
+      "p50_ms": 13.289917,
+      "p95_ms": 26.064459,
+      "p99_ms": 38.263417
+    },
+    "concurrent4_update": {
+      "count": 400,
+      "mean_ms": 62.158839175,
+      "p50_ms": 49.929,
+      "p95_ms": 136.371666,
+      "p99_ms": 206.112583,
+      "requests_per_second": 62.018677722666524
+    },
+    "read_control": {
+      "count": 300,
+      "mean_ms": 0.1622818,
+      "p50_ms": 0.123375,
+      "p95_ms": 0.219875,
+      "p99_ms": 1.034958
+    }
+  },
+  "memory_kib_at_end": 117424,
+  "reopen_read_receipt": {
+    "keys": 64,
+    "all_values_match": true
+  },
+  "host_after": {
+    "load_average": [
+      10.12109375,
+      8.31103515625,
+      11.224609375
+    ],
+    "top_cpu_processes": [
+      "67970 560.8 lastseek",
+      "71281  80.5 /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/mrgbuild.after.wh2qrakv/bin/after-lastdbd",
+      "71266  44.0 find",
+      " 1070  19.1 /System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
+      "34523   9.9 /System/Library/ExtensionKit/Extensions/TGOnDeviceInferenceProviderService.appex/Contents/MacOS/TGOnDeviceInferenceProviderService",
+      "  994   8.6 /usr/libexec/networkserviceproxy",
+      " 1578   6.1 /Users/tomtang/.host-track/apps/routines/current/dist/routines",
+      "  971   4.8 /usr/libexec/nsurlsessiond",
+      " 2198   4.0 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/155.0.8059.80/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer)",
+      "  996   3.9 /System/Library/PrivateFrameworks/CloudKitDaemon.framework/Support/cloudd"
+    ]
+  },
+  "node_exit": 0
+}

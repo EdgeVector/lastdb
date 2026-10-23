@@ -1,0 +1,91 @@
+{
+  "label": "before",
+  "name": "4-before",
+  "host_before": {
+    "load_average": [
+      11.50439453125,
+      10.189453125,
+      11.6728515625
+    ],
+    "top_cpu_processes": [
+      "66969  87.6 /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+      " 1070  86.9 /System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
+      "71669  74.8 /System/Library/PrivateFrameworks/IntelligencePlatformCore.framework/Versions/A/knowledgeconstructiond",
+      "  522  70.0 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd",
+      "  842  20.7 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds_stores",
+      "  547  15.4 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/Metadata.framework/Versions/A/Support/mds",
+      "  587   6.4 /usr/libexec/AirPlayXPCHelper",
+      "  523   2.7 /System/Library/PrivateFrameworks/MediaRemote.framework/Support/mediaremoted",
+      " 2083   1.9 /Users/tomtang/.bun/bin/bun",
+      " 2363   1.6 /Applications/Wispr Flow.app/Contents/Resources/swift-helper-app-dist/Wispr Flow.app/Contents/MacOS/Wispr Flow"
+    ]
+  },
+  "complete": true,
+  "batch_read_receipt": {
+    "keys": 64,
+    "all_values_match": true
+  },
+  "phases": {
+    "create": {
+      "count": 300,
+      "mean_ms": 13.383086416666666,
+      "p50_ms": 12.956916,
+      "p95_ms": 17.194125,
+      "p99_ms": 20.280666
+    },
+    "update": {
+      "count": 300,
+      "mean_ms": 13.406247633333333,
+      "p50_ms": 12.937208,
+      "p95_ms": 16.3075,
+      "p99_ms": 18.954958
+    },
+    "conditional_update": {
+      "count": 300,
+      "mean_ms": 13.120735646666667,
+      "p50_ms": 12.970583,
+      "p95_ms": 15.05475,
+      "p99_ms": 16.153083
+    },
+    "concurrent4_update": {
+      "count": 400,
+      "mean_ms": 51.8550224125,
+      "p50_ms": 42.007333,
+      "p95_ms": 105.5405,
+      "p99_ms": 134.133,
+      "requests_per_second": 75.1779721023943
+    },
+    "read_control": {
+      "count": 300,
+      "mean_ms": 0.11921861,
+      "p50_ms": 0.115292,
+      "p95_ms": 0.128625,
+      "p99_ms": 0.144167
+    }
+  },
+  "memory_kib_at_end": 125136,
+  "reopen_read_receipt": {
+    "keys": 64,
+    "all_values_match": true
+  },
+  "host_after": {
+    "load_average": [
+      8.9658203125,
+      9.69140625,
+      11.45849609375
+    ],
+    "top_cpu_processes": [
+      " 1014  96.0 /System/Library/PrivateFrameworks/FileProvider.framework/Support/fileproviderd",
+      " 1070  88.3 /System/Library/PrivateFrameworks/MediaAnalysis.framework/Versions/A/mediaanalysisd",
+      " 1241  13.3 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "75378  12.9 gh",
+      " 1578   4.7 /Users/tomtang/.host-track/apps/routines/current/dist/routines",
+      " 1279   4.2 /System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
+      "  603   2.2 /usr/sbin/coreaudiod",
+      " 2363   2.1 /Applications/Wispr Flow.app/Contents/Resources/swift-helper-app-dist/Wispr Flow.app/Contents/MacOS/Wispr Flow",
+      " 2368   1.7 /Applications/Wispr Flow.app/Contents/Frameworks/Wispr Flow Helper (Renderer).app/Contents/MacOS/Wispr Flow Helper (Renderer)",
+      "  722   1.5 /System/Library/DriverExtensions/com.apple.DriverKit-AppleBCMWLAN.dext/com.apple.DriverKit-AppleBCMWLAN"
+    ]
+  },
+  "node_exit": 0
+}

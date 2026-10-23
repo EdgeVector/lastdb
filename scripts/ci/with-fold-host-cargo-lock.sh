@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# Serialize heavy fold cargo behind a host-local exclusive lock so daily
-# db-perf-guard can claim a free window instead of competing with N pickup
-# workers.
+# Optional host-local coordination for one bounded performance measurement.
+# Ordinary builds, checks, lints, and local app runs do not require this wrapper.
+# Build first; do not hold this lock through rebuilds or a measurement suite.
 #
 # Usage:
-#   scripts/ci/with-fold-host-cargo-lock.sh [--timeout SECS] -- cargo build -p fold_db --lib
-#   scripts/ci/with-fold-host-cargo-lock.sh --timeout 600 -- cargo check -p fold_db --lib
+#   scripts/ci/with-fold-host-cargo-lock.sh [--timeout SECS] -- COMMAND [ARGS...]
+#   COMMAND must have its own finite deadline; --timeout limits acquisition only.
 #
 # Env:
 #   FOLD_HOST_CARGO_LOCK_PATH   override lock file (default:
 #                               ~/.cache/fold-db-perf-guard/host-cargo.lock)
-#   FOLD_HOST_CARGO_LOCK_TIMEOUT  default acquire timeout seconds (0 = forever)
+#   FOLD_HOST_CARGO_LOCK_TIMEOUT  acquire timeout seconds (default 60; 0 = forever)
 #
 # Exit codes:
 #   4  lock acquire timeout
@@ -20,17 +20,21 @@
 
 set -euo pipefail
 
-timeout_secs="${FOLD_HOST_CARGO_LOCK_TIMEOUT:-0}"
+timeout_secs="${FOLD_HOST_CARGO_LOCK_TIMEOUT:-60}"
 lock_path="${FOLD_HOST_CARGO_LOCK_PATH:-${HOME}/.cache/fold-db-perf-guard/host-cargo.lock}"
 
 usage() {
   cat >&2 <<'USAGE'
 usage: scripts/ci/with-fold-host-cargo-lock.sh [--timeout SECS] [--lock PATH] -- COMMAND [ARGS...]
 
-Acquires the host fold-cargo exclusive lock and holds it until COMMAND exits.
-Agents and scheduled routines should wrap heavy fold cargo:
-  build | bench | check | clippy
-so db-perf-guard can run measurements without permanent concurrent-cargo starve.
+Optional coordination for one bounded performance measurement.
+Ordinary builds, checks, lints, and local app runs do not require this wrapper.
+Build first. Do not wrap rebuilds or a full measurement suite.
+
+Waits up to 60 seconds by default, then exits 4 if the lock is busy.
+--timeout or FOLD_HOST_CARGO_LOCK_TIMEOUT overrides that acquisition wait.
+The lock stays held until COMMAND exits; give COMMAND its own finite deadline.
+This lock does not guarantee an idle host. See CLAUDE.md for the local policy.
 USAGE
 }
 

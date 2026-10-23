@@ -1,0 +1,10 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-23T18:25:43.727750Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lastdb-ioc-bench.PbYyEV/2-after/n
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lastdb-ioc-bench.PbYyEV/2-after/h
+  Owner:  157544675fd84634d35227929ca8f2a6
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lastdb-ioc-bench.PbYyEV/2-after/n
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/lastdb-ioc-bench.PbYyEV/2-after/h
+  Owner:  157544675fd84634d35227929ca8f2a6
+lastdbd: shutdown signal received, exiting

@@ -63,11 +63,29 @@ cargo build -p lastdb_node
 cargo build -p schema_service_core
 cargo build -p fold_db
 
-scripts/ci/with-fold-host-cargo-lock.sh -- cargo …  # agents/routines: serialize heavy Cargo work under the host lock
-
 # Full workspace — use before opening/pushing a PR, or when shared crates move
 cargo clippy --workspace --lib --bins -- -D warnings
 ```
+
+### Local build coordination (Tom, 2026-10-23)
+
+Run ordinary builds, `cargo check`, `cargo clippy`, format checks, and local
+app checks directly. These commands do not require the shared host lock.
+This is a local project policy. GitHub does not require this lock.
+
+- Use the worktree's target directory. Do not share a target directory between
+  unrelated worktrees. Cargo can manage its own file locks.
+- If the machine is busy, reduce build jobs, for example with
+  `CARGO_BUILD_JOBS=2`. Do not put every build in one host queue.
+- The host lock is optional coordination for performance measurements.
+  Build the candidate before the lock. Hold the lock for one measurement,
+  then release it. Do not hold it through rebuilds or a full measurement suite.
+- Use a finite command deadline and a short lock wait. The wrapper defaults
+  to a 60-second lock wait. If the lock is busy, defer the measurement.
+  Ordinary development continues.
+- The lock does not guarantee an idle machine. Check host load for performance
+  evidence. If other work affects a measurement, defer or repeat that measurement.
+  Do not stop another agent's job or make ordinary builds wait for it.
 
 How to pick `-p`: use the card's `Surfaces:` line and the crate that owns the
 edited files (`lastdb_node`, `fold_db`, `schema_service_core`, …). Workspace
