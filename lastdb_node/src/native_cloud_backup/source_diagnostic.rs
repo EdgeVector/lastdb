@@ -32,7 +32,24 @@ pub(super) fn report(error: &StorageError) {
     );
 }
 
-fn static_reason(detail: &str) -> &'static str {
+fn static_reason(mut detail: &str) -> &'static str {
+    let mut fallback = "source_other";
+    // Storage adapters add only these fixed wrappers. Strip at most three;
+    // still return only an allowlist entry or a fixed code, never the tail.
+    for _ in 0..3 {
+        let next = [
+            ("laststore: ", "laststore_other"),
+            ("corrupt: ", "laststore_corrupt_other"),
+            ("config: ", "laststore_config_other"),
+        ]
+        .into_iter()
+        .find_map(|(prefix, code)| detail.strip_prefix(prefix).map(|tail| (tail, code)));
+        let Some((tail, code)) = next else {
+            break;
+        };
+        detail = tail;
+        fallback = code;
+    }
     if let Some(reason) = REASONS.iter().copied().find(|allowed| *allowed == detail) {
         return reason;
     }
@@ -48,7 +65,7 @@ fn static_reason(detail: &str) -> &'static str {
     WRAPPERS
         .iter()
         .find(|(prefix, _)| detail.starts_with(*prefix))
-        .map_or("source_other", |(_, reason)| *reason)
+        .map_or(fallback, |(_, reason)| *reason)
 }
 
 // Return only these source literals, never the caller's detail or a digest of it.
