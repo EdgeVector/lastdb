@@ -6,7 +6,7 @@ The [source review](lastdb-searchable-snapshot-code-review.md) separates current
 
 The disk reader and snapshot writer use saved LastStore placement and key identities.
 Native disk storage is the product default; this document does not activate or change a primary home.
-The artifact format remains separate. No existing home upgrades implicitly.
+The artifact format remains separate. The home identity and key codecs stay unchanged.
 
 ## Home descriptor
 
@@ -14,7 +14,10 @@ The exact marker `laststore-pack-home-v1` contains 4,096 bytes.
 Every native CURRENT requires native-home feature `0x4` and snapshot feature `0x100` (`256`).
 Complete object bounds, packed keys, and atom records retain their feature checks.
 The reader refuses retired journal feature `0x2` before writer file creation.
-Startup performs no migration, and no old-native-journal converter exists.
+Startup does not convert a retired journal home, and no old-native-journal converter exists.
+An older supported snapshot without live-count feature `512` receives a bounded metadata count pass before writer admission.
+Its first ordinary commit stores those counts and requires feature `512`.
+Older programs refuse that feature.
 CURRENT bytes 160..192 contain the SHA-256 of the entire descriptor, including its stored checksum.
 A valid but different descriptor therefore cannot silently change the destination of a key.
 An older reader refuses the unknown feature before any value read.

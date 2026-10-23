@@ -3,6 +3,8 @@
 The baseline is `08d8436ccce9e2493e187a6b0133dc93f47c410f`.
 Both variants use the journal-free writer.
 The change removes obsolete dependency parts from each new snapshot receipt.
+The automatic worker also schedules periodic reclaim below its compaction trigger.
+The matched benchmark keeps automatic maintenance off in both versions to isolate foreground costs.
 
 Both variants use the same compiler, dependency lock, release command, and target directory.
 The baseline source stays in a separate clean DEV worktree.
@@ -36,5 +38,7 @@ It checks shared payload and map parts through reclaim, then removes their last 
 Large offered inputs stay in the owned temporary home; the receipts retain their byte counts and hashes.
 
 The operations use generated data only.
+An additional automatic-maintenance operation waits for the startup drain, then creates obsolete files below the compaction trigger.
+It sends no manual pack or reclaim request and checks later idle cleanup with exact keys and ranges.
 The primary, archive, cloud, and shared services stay unchanged.
 The measurements do not establish power-loss behavior or physical SSD write counts.

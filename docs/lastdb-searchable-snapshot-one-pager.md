@@ -27,6 +27,7 @@ Each new receipt keeps only file parts that its selected snapshot still needs.
 Exact live counts remove obsolete parts from the next receipt without a full database walk per write.
 A shared part stays until its last current reference goes.
 Older receipts and read holds still protect earlier snapshots until reclaim can delete their files.
+The automatic worker schedules periodic reclaim even when the smaller receipt stays below the compaction trigger.
 The change keeps the current 16 KiB search pages and their write cost.
 
 A crash before the root update leaves the previous snapshot selected. A crash during publication can leave either complete version selected. A completed durable commit survives restart. Recovery opens the selected snapshot without mutation replay. A memory ack remains volatile until the flush completes; 500 ms is a schedule, not a guaranteed maximum loss window. Corrupt committed bytes require an explicit error and a restore procedure.

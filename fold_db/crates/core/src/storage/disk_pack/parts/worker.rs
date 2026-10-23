@@ -1,4 +1,4 @@
-//! The single task that runs maintenance when the part count passes its mark.
+//! One task for high-water packing and periodic obsolete-generation reclaim.
 //!
 //! The worker is a loop over bounded steps. A pack has priority: it runs whenever
 //! the count passes the trigger, even while old generations wait for reclaim or
@@ -13,7 +13,7 @@ use tracing::Instrument;
 /// Longest pause between two failed packs.
 const MAX_BACKOFF_SECS: u64 = 60;
 /// Tries of a reclaim that another process deferred. The waits grow from 1 s to 30 s,
-/// so the worker keeps trying for about 20 minutes before it waits for the next pack.
+/// so the worker tries for about 20 minutes before it returns to the idle interval.
 const RECLAIM_RETRIES: u32 = 40;
 /// Old generations that the reclaim step of a pack retires.
 const PACK_SLICE_GENERATIONS: usize = 32;
@@ -27,6 +27,8 @@ const DRAIN_TARGET_MILLIS: u64 = 2_000;
 /// Waits between two failed reclaim calls: they start at 30 s and double to 15 minutes.
 const RECLAIM_FAILURE_MIN_SECS: u64 = 30;
 const RECLAIM_FAILURE_MAX_SECS: u64 = 900;
+/// Obsolete receipts can accrue while the current live-part count stays flat.
+const IDLE_RECLAIM_SECS: u64 = 30;
 /// Longest wait before a restart of a worker that panicked.
 const RESTART_MAX_SECS: u64 = 60;
 
@@ -126,10 +128,11 @@ fn panic_detail(error: tokio::task::JoinError) -> String {
         .unwrap_or_else(|| "non-text panic".to_string())
 }
 
-/// What the worker still owes the home after a pack or a drain call.
+/// Explicit drain work and periodic reclaim, independent of live-part growth.
 struct Debt {
-    /// When the next reclaim call is due. `None`: no old generation waits.
+    /// Explicit drain or retry deadline. It takes precedence over the idle timer.
     reclaim_at: Option<Instant>,
+    idle_reclaim_at: Instant,
     deferrals: u32,
     failures: u32,
     slice: usize,
@@ -143,30 +146,33 @@ struct Debt {
 impl Debt {
     /// A stop or a crash can leave old generations from an earlier run.
     fn at_start() -> Self {
+        let now = Instant::now();
         Self {
-            reclaim_at: Some(Instant::now()),
+            reclaim_at: Some(now),
+            idle_reclaim_at: now + Duration::from_secs(IDLE_RECLAIM_SECS),
             deferrals: 0,
             failures: 0,
             slice: DRAIN_SLICE_START,
             sweep: true,
             sweep_deferrals: 0,
-            sweep_at: Instant::now(),
+            sweep_at: now,
         }
     }
 
-    /// Time to the next step that is not a pack. `None` waits for a wake.
-    fn wait(&self) -> Option<Duration> {
+    /// An explicit retry keeps its backoff; otherwise the earliest idle or sweep
+    /// deadline wakes the worker without a publication notification.
+    fn wait(&self) -> Duration {
         let now = Instant::now();
         let at = match (self.reclaim_at, self.sweep.then_some(self.sweep_at)) {
             (Some(reclaim), _) => reclaim,
-            (None, Some(sweep)) => sweep,
-            (None, None) => return None,
+            (None, Some(sweep)) => sweep.min(self.idle_reclaim_at),
+            (None, None) => self.idle_reclaim_at,
         };
-        Some(at.saturating_duration_since(now))
+        at.saturating_duration_since(now)
     }
 
     fn reclaim_due(&self) -> bool {
-        self.reclaim_at.is_some_and(|at| at <= Instant::now())
+        self.reclaim_at.unwrap_or(self.idle_reclaim_at) <= Instant::now()
     }
 
     /// The sweep follows the drain: it waits while any old generation waits.
@@ -176,6 +182,7 @@ impl Debt {
 
     /// Record the result of a pack or a drain call.
     fn after_call(&mut self, report: &NativeMaintenanceReport, pack: bool) {
+        self.idle_reclaim_at = Instant::now() + Duration::from_secs(IDLE_RECLAIM_SECS);
         if report.reclaim_error.is_some() {
             self.failed();
         } else if report.reclaim_deferred {
@@ -199,7 +206,9 @@ impl Debt {
     /// No pack waits for it, and the retries wait on a timer.
     fn deferred(&mut self) {
         if self.deferrals >= RECLAIM_RETRIES {
-            tracing::warn!("native storage reclaim stayed deferred; it waits for the next pack");
+            tracing::warn!(
+                "native storage reclaim stayed deferred; it waits for the next idle interval or pack"
+            );
             self.reclaim_at = None;
             self.deferrals = 0;
             return;
@@ -237,14 +246,9 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
     loop {
         let pack_due = !held && ledger.wants_maintenance();
         if !pack_due && !debt.reclaim_due() && !debt.sweep_due() {
-            if let Some(pause) = debt.wait() {
-                tokio::select! {
-                    () = ledger.wake.notified() => held = false,
-                    () = tokio::time::sleep(pause) => {}
-                }
-            } else {
-                ledger.wake.notified().await;
-                held = false;
+            tokio::select! {
+                () = ledger.wake.notified() => held = false,
+                () = tokio::time::sleep(debt.wait()) => {}
             }
             continue;
         }

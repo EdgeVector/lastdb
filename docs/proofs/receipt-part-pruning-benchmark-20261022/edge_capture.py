@@ -82,7 +82,7 @@ def command(capture, binary, label, verb, request=None, **flags):
     receipt["result"] = compact(value)
     save(capture.output / f"{label}-command.json", receipt)
     capture.remember("large-native-command", label=label, **receipt)
-    return value
+    return value.get("result", value)
 
 
 def inventory(capture, binaries, label):

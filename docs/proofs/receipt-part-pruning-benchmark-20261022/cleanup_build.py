@@ -32,7 +32,8 @@ def cleaned_runs():
     if manifest.get("complete") is not True or len(manifest["runs"]) != 6:
         raise ValueError("All six measured runs must finish before build cleanup")
     folders = [ROOT / row["run"] for row in manifest["runs"]]
-    folders += [ROOT / name for name in ("retention-operational", "edge-operational")]
+    folders += [ROOT / name for name in ("retention-operational", "edge-operational", "overflow-operational",
+                                        "auto-reclaim-operational")]
     result = []
     for folder in folders:
         if folder.is_symlink() or folder.resolve(strict=True).parent != ROOT:
@@ -42,6 +43,15 @@ def cleaned_runs():
                 or cleanup.get("removed") is not True or Path(cleanup["scratch"]).exists()):
             raise ValueError("A generated home lacks its successful exact-path cleanup")
         result.append({"run": folder.name, "cleanup_sha256": digest(folder / "cleanup.json")})
+    older = load(ROOT / "edge-operational" / "older-program-refusal.json")
+    if (older.get("complete") is not True or older.get("read_refused") is not True
+            or older.get("write_refused") is not True or older.get("exact_physical_file_hashes_unchanged") is not True):
+        raise ValueError("The older-program read and write refusal proof is incomplete")
+    failure = ROOT / "failed-retention-operational-envelope-1"
+    if (load(failure / "summary.json").get("complete") is not False
+            or load(failure / "failure-diagnosis.json").get("product_failure_established") is not False
+            or load(failure / "failed-scratch-cleanup.json").get("removed") is not True):
+        raise ValueError("Preserve the original parser failure and finish its exact owned cleanup")
     return result
 
 
@@ -69,6 +79,14 @@ def main():
     if before_disk.exists():
         entries += [(Path(value["binary"]), value["binary_sha256"])
                     for value in load(before_disk)["binaries"].values()]
+    rejected = load(ROOT / "failed-build-1.json")
+    if rejected.get("complete") is not False or rejected.get("nodes_started") is not False:
+        raise ValueError("The rejected build attempt lost its failure distinction")
+    entries.append((Path(rejected["quarantined_binary"]), rejected["binary_sha256"]))
+    intermediate = load(ROOT / "intermediate-c6645-archive.json")
+    if intermediate["owner"] != owner:
+        raise ValueError("The intermediate candidate has a different build-scratch owner")
+    entries += [(Path(item["archived"]), item["sha256"]) for item in intermediate["binary_moves"]]
     directory = root / "bin"
     if ({path.name for path in root.iterdir()} != {"owner.json", "bin"} or directory.is_symlink()
             or set(directory.iterdir()) != {path for path, _ in entries}):

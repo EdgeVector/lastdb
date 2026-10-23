@@ -56,6 +56,7 @@ The format adds no journal, side file, or receipt chain for recovery.
 - Resolve each page's overflow and payload references before the next page enters the ledger.
 - Keep a shared file part until its last current reference goes.
 - Leave old receipts, read holds, backup references, and reclaim barriers intact.
+- Schedule periodic reclaim below the compaction trigger so a stable live-part count cannot leave old files indefinitely.
 - Collect older receipt counts at writer open, before any memory ack.
 - Transfer those counts into the first counted commit.
 - Collect complete new counts after a full snapshot build or compaction.
@@ -63,12 +64,14 @@ The format adds no journal, side file, or receipt chain for recovery.
 The receipt and each signed part map retain the existing 65,536-coordinate ceiling.
 The separate pending-reference ceiling is 4,096 entries per page collector.
 The existing mutation quote reserves current plus additional coordinates before admission.
-The older-format walk has a 67,108,864-step ceiling and a 65,536-directory-entry ceiling before writer admission.
+All full count passes have a 65,536-directory-entry ceiling.
+The older-format walk also has a 67,108,864-step ceiling before writer admission.
 The [protocol](lastdb-snapshot-commits.md#live-part-limits) states the memory quotes and work limits.
 
 The separate [measurement plan](proofs/receipt-part-pruning-benchmark-20261022/METHOD.md) freezes equal build commands and generated workloads.
 It compares three before/after pairs for disk growth, process write bytes, and request latency.
 Additional operations cover shared payload parts, long keys, older receipt conversion, reclaim holds, backup restore, and crash reopen.
+An automatic-maintenance operation checks idle reclaim below the compaction trigger, without a manual pack or reclaim request.
 The source and measurement receipts must identify the exact executable used for each result.
 
 ## 1. End state and scope

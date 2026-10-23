@@ -111,6 +111,10 @@ These rules preserve the concurrent reclaim handoff from issue 267.
 An older receipt retains its own parts after a newer receipt omits them.
 Removal from a receipt does not itself delete a file.
 Reclaim still checks all retained roots, read holds, durable references, and its generation floor.
+The automatic maintenance worker schedules reclaim after a 30-second idle interval, even when the live-part count stays below its compaction trigger.
+The worker uses its existing bounded drain and installed-root hold; it does not pack the live data for this cleanup.
+Packs, holds, grace periods, and error backoff can delay the scheduled cleanup.
+Automatic maintenance off still disables the worker.
 
 ## Live-part limits
 
@@ -126,7 +130,8 @@ The normal publisher can hold one live-count map and two part-delta maps at the 
 The additional count workspace has a conservative 64 MiB quote, with receipt vectors and resolver caches included.
 That quote excludes existing mutation inputs and search-page workspaces; it is not a total process memory cap.
 
-The older-format metadata walk admits at most 67,108,864 page or reference steps and 65,536 directory entries.
+Every full count pass admits at most 65,536 directory entries, including a new build and compaction.
+The older-format metadata walk also admits at most 67,108,864 page or reference steps.
 A refusal occurs at writer open, before memory accepts a write.
 The first write still uses the older receipt count for conservative part admission.
 An older receipt at the part ceiling can require compaction before that write.

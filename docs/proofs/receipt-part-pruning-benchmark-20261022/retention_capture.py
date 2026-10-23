@@ -66,7 +66,7 @@ def command(capture, binary, label, verb, home, request=None, **flags):
         raise RuntimeError(f"The physical {label} command failed; inspect its receipt")
     value = json.loads(result.stdout)
     save(capture.output / f"{label}-response.json", value)
-    return value
+    return value.get("result", value)
 
 
 def inventory(capture, binaries, home, label):
