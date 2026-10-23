@@ -85,4 +85,4 @@ pub(crate) use fetch::{fetch_field_atom_batches, field_value_from_atom, FieldAto
 pub use hash::apply_hash_filter;
 pub use hash_range::apply_hash_range_filter;
 pub use range::apply_range_filter;
-pub use storage_bounds::expand_filter_range_bounds_for_apply;
+pub use storage_bounds::filter_range_bounds_for_apply;

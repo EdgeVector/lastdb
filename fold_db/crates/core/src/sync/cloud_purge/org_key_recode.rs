@@ -97,7 +97,7 @@ fn recode_slot(
         let plain = if old.encoding() == crate::atom::HashKeyEncoding::Plain {
             hash.to_string()
         } else {
-            hashes.iter().find(|candidate| old.storage_hash_read_candidates(molecule,candidate).is_ok_and(|values| values.iter().any(|value|value==hash))).cloned().ok_or_else(||error("legacy org hash has no exact key-field plaintext; source cannot be exported"))?
+            hashes.iter().find(|candidate| old.storage_hash(molecule,candidate).is_ok_and(|value|value==hash)).cloned().ok_or_else(||error("legacy org hash has no exact key-field plaintext; source cannot be exported"))?
         };
         new.storage_hash(molecule, &plain).map_err(error)?
     };

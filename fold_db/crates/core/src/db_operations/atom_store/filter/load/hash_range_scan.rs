@@ -48,10 +48,11 @@ impl AtomStore {
         storage_prefix: Option<&str>,
         hash: &str,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let prefixes = self
+        let prefix = self
             .key_codec_for_molecule(molecule_uuid)?
-            .api_hash_range_scan_prefixes_for_read(molecule_uuid, hash)
+            .api_hash_range_scan_prefix_for_hash(molecule_uuid, hash)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
+        let prefixes = [prefix];
         if let Some(rows) = self
             .preloaded_per_key_prefixes_for_api(&prefixes, storage_prefix, Some(hash))
             .await?

@@ -1,0 +1,2 @@
+{"at_unix_ns": 1792701723214147324, "operation": "owned-node-start", "pid": 24321}
+{"at_unix_ns": 1792701723680272739, "exit_code": 0, "forced": false, "operation": "owned-node-stop", "pid": 24321, "shutdown_receipt": {"flush_ok": true, "pid": 24321, "start_ts": 1792701723, "version": 1}, "shutdown_receipt_error": null}

@@ -116,20 +116,20 @@ impl MutationManager {
         if slots.len() > 10_000 {
             return Ok(transaction::require_durable(runtime)?);
         }
-        let groups = slots
+        let slot_keys = slots
             .iter()
             .map(|(molecule, hash, range)| {
                 self.db_ops
                     .atoms()
                     .key_codec_for_molecule(molecule)?
-                    .api_hash_range_record_keys_for_read(molecule, hash, range)
+                    .api_hash_range_record_key(molecule, hash, range)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let winners = self
             .db_ops
             .atoms()
-            .load_first_present_candidate(scope, &groups)
+            .load_visible_per_key_records(scope, &slot_keys)
             .await?;
         if winners.len() != slots.len() {
             return Err(SchemaError::StorageRead {
@@ -144,16 +144,13 @@ impl MutationManager {
             .collect();
         let bindings = self.removed_path_bindings(schema, &molecules).await?;
         let mut absent = Vec::new();
-        for (((molecule, hash, range), candidates), winner) in
-            slots.into_iter().zip(groups).zip(winners)
+        for (((molecule, hash, range), base), winner) in
+            slots.into_iter().zip(slot_keys).zip(winners)
         {
             if winner.is_some() {
                 continue;
             }
-            let sources: Vec<_> = candidates
-                .iter()
-                .map(|key| crate::schema::types::field::build_storage_key(scope, key))
-                .collect();
+            let sources = vec![crate::schema::types::field::build_storage_key(scope, &base)];
             for binding in &bindings[&molecule] {
                 absent.push(LogicalPathAbsence::new(
                     LogicalPath {

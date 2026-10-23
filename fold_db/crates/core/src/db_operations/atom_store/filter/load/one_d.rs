@@ -210,9 +210,7 @@ impl AtomStore {
             storage_prefix,
             ..
         } = target;
-        let prefixes = self
-            .key_codec_for_molecule(molecule_uuid)?
-            .molecule_record_prefixes_for_read(molecule_uuid);
+        let prefixes = [molecule_key_codec::molecule_record_prefix(molecule_uuid)];
         let scanned = self
             .scan_per_key_prefixes(&prefixes, storage_prefix)
             .await
@@ -249,28 +247,14 @@ impl AtomStore {
         range: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Option<(String, PerKeyRecord)>, SchemaError> {
-        let hash_cands = self
+        let key = self
             .key_codec_for_molecule(molecule_uuid)?
-            .storage_hash_read_candidates(molecule_uuid, hash)
+            .api_hash_range_record_key(molecule_uuid, hash, range)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        let range_cands = self
-            .key_codec_for_molecule(molecule_uuid)?
-            .storage_range_read_candidates(molecule_uuid, range)
-            .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        for sh in &hash_cands {
-            for sr in &range_cands {
-                let key = molecule_key_codec::hash_range_record_key(molecule_uuid, sh, sr);
-                if let Some(hit) = self.get_per_key(&key, storage_prefix).await? {
-                    return Ok(Some(hit));
-                }
-            }
-        }
-        Ok(None)
+        self.get_per_key(&key, storage_prefix).await
     }
 
-    /// Range-scan the range-only slot under the unified key layout.
-    /// Bounds use API form. Try each supported physical bound encoding in
-    /// order and return the first nonempty range.
+    /// Range-scan the range-only slot with API bounds encoded once.
     async fn scan_per_key_range_slot(
         &self,
         molecule_uuid: &str,
@@ -278,35 +262,14 @@ impl AtomStore {
         end_seg: &str,
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, PerKeyRecord)>, SchemaError> {
-        let start_cands = self
-            .key_codec_for_molecule(molecule_uuid)?
-            .storage_range_read_candidates(molecule_uuid, start_seg)
+        let codec = self.key_codec_for_molecule(molecule_uuid)?;
+        let start = codec
+            .api_hash_range_record_key(molecule_uuid, EMPTY_KEY_COMPONENT, start_seg)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        let end_cands = self
-            .key_codec_for_molecule(molecule_uuid)?
-            .storage_range_read_candidates(molecule_uuid, end_seg)
+        let end = codec
+            .api_hash_range_record_key(molecule_uuid, EMPTY_KEY_COMPONENT, end_seg)
             .map_err(|e| SchemaError::InvalidData(e.to_string()))?;
-        let n = start_cands.len().min(end_cands.len());
-        let mut out = Vec::new();
-        for i in 0..n {
-            let start = molecule_key_codec::hash_range_record_key(
-                molecule_uuid,
-                EMPTY_KEY_COMPONENT,
-                &start_cands[i],
-            );
-            let end = molecule_key_codec::hash_range_record_key(
-                molecule_uuid,
-                EMPTY_KEY_COMPONENT,
-                &end_cands[i],
-            );
-            out = self
-                .scan_per_key_range(&start, &end, storage_prefix)
-                .await?;
-            if !out.is_empty() {
-                break;
-            }
-        }
-        Ok(out)
+        self.scan_per_key_range(&start, &end, storage_prefix).await
     }
 
     /// Decode scanned unified `mk:` keys into 1-D hash-only or range-only records.

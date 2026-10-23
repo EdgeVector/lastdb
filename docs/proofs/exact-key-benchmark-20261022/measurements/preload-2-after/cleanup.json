@@ -1,0 +1,12 @@
+{
+  "run_id": "ed8f8c09a59242fba2894b9eb8832cef",
+  "home": "/workspace/ec-pairs/preload-2-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 8025,
+  "allocated_bytes_removed": 737943552,
+  "free_bytes_before": 20657614848,
+  "free_bytes_after": 21403881472
+}

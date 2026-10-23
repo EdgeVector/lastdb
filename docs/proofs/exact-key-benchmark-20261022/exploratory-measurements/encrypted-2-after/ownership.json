@@ -1,0 +1,11 @@
+{
+  "creator_pid": 23284,
+  "device": 27,
+  "home": "/workspace/eb-pairs/encrypted-2-after/home",
+  "inode": 1484951,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "bc9924f01fc249f186bdaed446577693",
+  "scratch": "/workspace/eb-pairs/encrypted-2-after",
+  "version": 1
+}

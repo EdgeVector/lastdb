@@ -41,21 +41,16 @@ impl AtomStore {
         let mut changes = BTreeMap::new();
         let codec = self.key_codec_for_molecule(molecule)?;
         for (hash, range, absent) in model.changes(scope, molecule) {
-            let candidates = codec
-                .api_hash_range_record_keys_for_read(molecule, &hash, &range)
+            let primary = codec
+                .api_hash_range_record_key(molecule, &hash, &range)
                 .map_err(key_error)?;
-            for candidate in candidates {
-                changes.insert(candidate, None);
-            }
+            changes.insert(primary.clone(), None);
             if absent {
                 continue;
             }
             let Some(value) = model.lookup_key(scope, molecule, &hash, &range).into_tip() else {
                 continue;
             };
-            let primary = codec
-                .api_hash_range_record_key(molecule, &hash, &range)
-                .map_err(key_error)?;
             changes.insert(
                 primary,
                 Some(PerKeyRecord {
