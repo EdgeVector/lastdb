@@ -3,6 +3,11 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy};
 use crate::Result;
 
 impl HomeJournal {
+    /// True only when a publication requires recovery before admission.
+    pub fn is_poisoned(&self) -> bool {
+        self.writer.is_poisoned()
+    }
+
     /// Read calls keep this typed writer lease through their last file access.
     pub fn read_lease(&self) -> crate::disk_pack::lifetime::WriterReadLease {
         self.writer.read_lease()

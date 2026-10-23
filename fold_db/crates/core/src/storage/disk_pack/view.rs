@@ -40,6 +40,11 @@ pub(super) struct NativeReadView {
 }
 
 impl PackRuntime {
+    /// The same failure mark that refuses new record reads and writes.
+    pub fn requires_recovery(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
+    }
+
     /// Detect accepted writes and durable root changes across a paged backup.
     pub(crate) fn snapshot_boundary(&self) -> (u64, u64, u64) {
         let view = self.view.read().expect("native snapshot boundary");
@@ -69,7 +74,7 @@ impl PackRuntime {
             accepted_batches: view.accepted.len(),
             accepted_sequence: queue.sequence(),
             completed_sequence: *self.completed.borrow(),
-            writer_failed: self.failed.load(Ordering::Acquire),
+            writer_failed: self.requires_recovery(),
             warm_records: core.paths,
             warm_record_limit: 0,
             core_warm_paths: core.paths,

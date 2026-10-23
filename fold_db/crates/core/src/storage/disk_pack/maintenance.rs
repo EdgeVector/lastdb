@@ -84,7 +84,9 @@ impl PackRuntime {
             receipt = match writer.pack(&policy) {
                 Ok(receipt) => receipt,
                 Err(error) => {
-                    self.failed.store(true, Ordering::Release);
+                    if writer.is_poisoned() {
+                        self.failed.store(true, Ordering::Release);
+                    }
                     return Err(map(error));
                 }
             };

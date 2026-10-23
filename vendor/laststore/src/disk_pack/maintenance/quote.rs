@@ -5,28 +5,19 @@ use std::path::Path;
 
 /// Worst-case uncompressed output, calculated from exact live locator entries.
 /// Compression can never reduce this reservation and then enlarge its output beyond it.
+/// Stream the selected trees with per-path I/O budgets and checked byte arithmetic.
 pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
     // Complete receipt, its private publication, empty-tree floors, and checkpoint slack.
     let mut bytes = 8 * 1024 * 1024u64;
-    let mut records = 0u64;
-    let mut groups = 0u64;
     let mut call = artifact::metadata_call(root, current.clone());
     let mut directory = TreeCursor::seek(&mut call, current.directory.clone(), b"")?;
     while let Some((key, value)) = directory.next(&mut call)? {
-        groups += 1;
-        if groups > 65_536 {
-            return Err(crate::disk_pack::resource());
-        }
         let entry = DirectoryEntry::decode(&value)?;
         super::compact::collection(&key, entry.group)?;
         let mut cursor = TreeCursor::seek(&mut call, entry.locator, b"")?;
         // Include directory long-key overflow, initial tree pages, part headers, map tails.
         add(&mut bytes, 128 * 1024 + key.len() as u64)?;
         while let Some((key, value)) = cursor.next(&mut call)? {
-            records += 1;
-            if records > 1_000_000 {
-                return Err(crate::disk_pack::resource());
-            }
             let location = Location::decode_for_current(&value, current)?;
             if location.version.batch > current.frontier {
                 return Err(corrupt("compaction quote frontier"));

@@ -3,6 +3,11 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy, SpaceReserv
 use crate::Result;
 
 impl JournalWriter {
+    /// An uncertain publication requires a reopen before more writes.
+    pub fn is_poisoned(&self) -> bool {
+        self.poisoned
+    }
+
     /// Retain this writer's lease and its read/reclaim gate, without file access.
     pub fn read_lease(&self) -> crate::disk_pack::lifetime::WriterReadLease {
         crate::disk_pack::lifetime::WriterReadLease::new(std::sync::Arc::clone(&self.lock))
@@ -23,7 +28,15 @@ impl JournalWriter {
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.publish()?;
         self.poisoned = true;
-        let (current, receipt) = crate::disk_pack::maintenance::compact_locked(&self.lock, policy)?;
+        let (current, receipt) =
+            match crate::disk_pack::maintenance::compact_locked(&self.lock, policy) {
+                Ok(packed) => packed,
+                Err(error) => {
+                    let disk = crate::disk_pack::artifact::current(&self.root);
+                    self.poisoned = !disk.is_ok_and(|disk| disk == self.current);
+                    return Err(error);
+                }
+            };
         self.current = current;
         self.poisoned = false;
         Ok(receipt)
