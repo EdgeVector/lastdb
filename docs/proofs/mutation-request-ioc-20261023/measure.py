@@ -8,6 +8,10 @@ import json
 import math
 import os
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import shutil
 import signal
 import socket
@@ -245,9 +249,11 @@ def execute(args, name, label):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('before', 'after', 'scratch', 'output'):
-        parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--' + name, type=Path, required=name != 'output',
+                            default=default_output('mutation-request-ioc-20261023') if name == 'output' else None)
     parser.add_argument('--rounds', type=int, default=4)
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     args.scratch = args.scratch.resolve(strict=True)
     if args.scratch.parent != Path(os.environ['TMPDIR']).resolve() or not args.scratch.name.startswith('lastdb-ioc-bench.'):
         raise SystemExit('Use an owned mktemp directory under TMPDIR')

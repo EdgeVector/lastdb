@@ -6,10 +6,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import resource
 import statistics
 import subprocess
-import sys
 import threading
 import time
 
@@ -227,13 +230,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=default_output('atom-scale-review-20261022'))
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--records", type=int, required=True)
     parser.add_argument("--seed-batch", type=int, default=128)
     parser.add_argument("--baseline-seconds", type=float, default=20)
     parser.add_argument("--automatic-worker", action="store_true")
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     if not 4096 <= args.records <= 100000 or not 1 <= args.seed_batch <= 256:
         parser.error("records must be 4096..100000, seed batch 1..256")
     capture, complete, error = Measure(args), False, None

@@ -93,8 +93,12 @@ if [[ -z "$criterion_dir" ]]; then
 fi
 
 if [[ -z "$log_dir" ]]; then
-  log_dir="${TMPDIR:-/tmp}/fold-db-perf-guard"
+  log_dir="$(python3 "$repo_root/scripts/benchmark_output.py" --label db-perf-guard)"
 fi
+
+# Reject explicit output paths in this or another Git worktree before writes.
+python3 "$repo_root/scripts/benchmark_output.py" --check "$log_dir" >/dev/null
+python3 "$repo_root/scripts/benchmark_output.py" --check "$criterion_dir" >/dev/null
 
 mkdir -p "$CARGO_TARGET_DIR" "$log_dir"
 rm -rf "$criterion_dir"
