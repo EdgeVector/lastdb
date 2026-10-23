@@ -51,7 +51,8 @@ impl AutomaticMaintenance {
             written_bytes: AtomicU64::new(0),
             worker: Mutex::new(None),
             stop: tokio::sync::watch::channel(false).0,
-            cleanup: AtomicBool::new(false),
+            // A previous process may stop after publication but before cleanup.
+            cleanup: AtomicBool::new(true),
             runs: AtomicU64::new(0),
             full_runs: AtomicU64::new(0),
             bytes_removed: AtomicU64::new(0),
