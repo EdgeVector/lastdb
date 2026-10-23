@@ -1,0 +1,183 @@
+name: Large-range continuation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "fold_db/crates/core/src/**"
+      - "lastdb_host/src/handlers/query/**"
+      - "lastdb_host/src/handlers/query.rs"
+      - "scripts/benchmarks/range_continuation/**"
+      - ".github/workflows/range-continuation.yml"
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Exact baseline commit; blank selects the candidate parent
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: range-continuation-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  range-continuation:
+    name: Generated16384-key ranges and matched narrow reads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "4"
+      CARGO_TERM_COLOR: always
+      RUSTC_WRAPPER: ""
+      RUSTC_WORKSPACE_WRAPPER: ""
+      SCCACHE_DISABLE: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Prepare external evidence directory
+        run: |
+          result_dir="$RUNNER_TEMP/range-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$result_dir"
+          echo "RANGE_OUTPUT=$result_dir" >> "$GITHUB_ENV"
+
+      - name: Checkout exact candidate and driver
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Select exact source revisions
+        id: revisions
+        working-directory: candidate
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          MANUAL_BASE: ${{ inputs.base_sha }}
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse HEAD)"
+          baseline_sha="${PR_BASE:-${MANUAL_BASE:-}}"
+          if [ -z "$baseline_sha" ]; then
+            baseline_sha="$(git rev-parse HEAD^)"
+          fi
+          [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$baseline_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "candidate=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "baseline=$baseline_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact baseline
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.revisions.outputs.baseline }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Reserve build space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Select one Rust toolchain
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+          rustc --version --verbose > "$RANGE_OUTPUT/toolchain.txt"
+
+      - name: Cache dependency downloads only
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+          key: range-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
+          restore-keys: range-downloads-${{ runner.os }}-
+
+      - name: Build both exact optimized daemons
+        env:
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+          BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          for version in baseline candidate; do
+            if [ "$version" = baseline ]; then revision="$BASELINE_SHA"; else revision="$CANDIDATE_SHA"; fi
+            target_dir="$RUNNER_TEMP/range-target-$version"
+            test ! -e "$target_dir"
+            (
+              cd "$version"
+              export CARGO_TARGET_DIR="$target_dir"
+              export FOLDDB_BUILD_VERSION_OVERRIDE="range-$revision"
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+            ) 2>&1 | tee "$RANGE_OUTPUT/build-$version.log"
+          done
+
+      - name: Run generated range operations and matched reads
+        env:
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+          BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=120s 55m \
+            python3 candidate/scripts/benchmarks/range_continuation/run.py \
+              --baseline "$RUNNER_TEMP/range-target-baseline/dev-release/lastdbd" \
+              --candidate "$RUNNER_TEMP/range-target-candidate/dev-release/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" --candidate-revision "$CANDIDATE_SHA" \
+              --output "$RANGE_OUTPUT" 2>&1 | tee "$RANGE_OUTPUT/measurement.log"
+
+      - name: Publish complete or failed results
+        if: always()
+        env:
+          MEASUREMENT_OUTCOME: ${{ job.status }}
+        run: |
+          python3 candidate/scripts/benchmarks/range_continuation/report.py \
+            --output "$RANGE_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
+
+      - name: Upload complete raw evidence and build logs
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: range-continuation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RANGE_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Verify uploaded evidence identity and expiry
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+          BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/range-artifact-metadata.json"
+          python3 candidate/scripts/benchmarks/range_continuation/artifact.py \
+            --metadata "$RUNNER_TEMP/range-artifact-metadata.json" \
+            --output "$RUNNER_TEMP/range-artifact-receipt"
+
+      - name: Retain compact download receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: range-continuation-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/range-artifact-receipt/artifact.json
+          retention-days: 14
+          if-no-files-found: error

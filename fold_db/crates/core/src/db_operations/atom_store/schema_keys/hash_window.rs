@@ -2,8 +2,9 @@
 
 use super::*;
 use crate::atom::MoleculeKeyCodec;
+use crate::db_operations::atom_store::filter::HashTipSelection;
 use crate::resident::core_keys::CoreKeyRange;
-use crate::schema::types::field::KeyWindow;
+use std::ops::Bound;
 
 type SelectedWindow = (Vec<CoreStoredKey>, Option<String>);
 
@@ -11,31 +12,12 @@ impl AtomStore {
     pub(crate) async fn preloaded_window(
         &self,
         molecule: &str,
-        hash: &str,
+        selection: &HashTipSelection<'_>,
         scope: Option<&str>,
-        window: &KeyWindow,
         include_tombstones: bool,
     ) -> Result<Option<Vec<TipRow>>, SchemaError> {
-        self.preloaded_hash_tip_window(molecule, hash, scope, Some(window), include_tombstones)
-            .await
-    }
-
-    pub(crate) async fn preloaded_hash_tip_window(
-        &self,
-        molecule: &str,
-        api_hash: &str,
-        scope: Option<&str>,
-        window: Option<&KeyWindow>,
-        include_tombstones: bool,
-    ) -> Result<Option<Vec<TipRow>>, SchemaError> {
-        let (mut skip, limit, mut after) = match window {
-            Some(KeyWindow::Offset { offset, limit }) => (*offset, *limit, None),
-            Some(KeyWindow::After { after, limit }) if after.hash.as_deref() == Some(api_hash) => {
-                (0, *limit, Some(after.range.clone().unwrap_or_default()))
-            }
-            Some(KeyWindow::After { .. }) => return Ok(None),
-            None => (0, usize::MAX, None),
-        };
+        let (mut skip, limit, mut after) =
+            (selection.skip, selection.limit, selection.after.clone());
         let Some(runtime) = self.schema_keys_runtime() else {
             return Ok(None);
         };
@@ -43,12 +25,11 @@ impl AtomStore {
         let Some(lease) = self.ready_key_lease(&runtime, scope, molecule) else {
             return Ok(None);
         };
-        let hash = codec.storage_hash(molecule, api_hash).map_err(key_error)?;
         let mut output = Vec::new();
         while output.len() < limit {
             let ask = skip.saturating_add(limit - output.len()).clamp(1, 1024);
             let Some(selected) = runtime.with_schema_key_selection(|| {
-                select_window(&lease, &hash, &codec, molecule, after.as_deref(), ask)
+                select_window(&lease, selection, &codec, molecule, after.as_deref(), ask)
             }) else {
                 return Ok(None);
             };
@@ -59,7 +40,7 @@ impl AtomStore {
                     ReadyTipKey::new(
                         molecule,
                         key,
-                        Some(api_hash),
+                        Some(selection.api_hash),
                         codec.range_encoding().writes_ope(),
                     )
                 })
@@ -104,7 +85,7 @@ impl AtomStore {
 
 fn select_window(
     lease: &CoreKeyLease,
-    hash: &str,
+    selection: &HashTipSelection<'_>,
     codec: &MoleculeKeyCodec,
     molecule: &str,
     after: Option<&str>,
@@ -114,7 +95,13 @@ fn select_window(
         .map(|range| codec.storage_range(molecule, range))
         .transpose()
         .map_err(key_error)?;
-    let mut request = CoreKeyRange::all(hash, ask);
+    let mut request = CoreKeyRange::all(&selection.storage_hash, ask);
+    request.start = Bound::Included(&selection.range_start);
+    request.end = selection
+        .range_end
+        .as_deref()
+        .map_or(Bound::Unbounded, Bound::Excluded);
+    request.prefix = selection.range_prefix.as_deref();
     request.after = encoded_after.as_deref();
     request.include_tombstones = true;
     let page = lease.select(request).map_err(key_error)?;
