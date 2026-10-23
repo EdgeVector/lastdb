@@ -1,0 +1,12 @@
+Fixture ready: plain
+Fixture ready: preload
+Starting plain-0-before
+range_prefix10: 1.927 ms median
+range_between64: 7.426 ms median
+range_fully_warm_queued_write32: 53.948 ms median
+Traceback (most recent call last):
+  File "/workspace/lastdb/docs/proofs/native-routing-benchmark-20261023/controlled.py", line 178, in <module>
+    main()
+  File "/workspace/lastdb/docs/proofs/native-routing-benchmark-20261023/controlled.py", line 167, in main
+    cleanup(bench.root, bench.output)
+TypeError: cleanup() takes 1 positional argument but 2 were given

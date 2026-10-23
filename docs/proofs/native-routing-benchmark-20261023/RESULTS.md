@@ -1,6 +1,12 @@
 # Exact native routing: assessment and before/after benchmarks
 
-**Recommendation: hold; not recommended for merge yet.** This is a sound, small
+**Updated assessment after the controlled repeat: keep for clarity.** Point-read
+medians were within 0.3% with identical fixtures and CPU affinity, and queued batch
+medians were 4–5% lower, with mixed pair results. See [CONTROLLED_RESULTS.md](CONTROLLED_RESULTS.md).
+The earlier measurements and hold rationale below are retained as history.
+
+
+**Earlier assessment: hold; not recommended for merge yet.** This is a sound, small
 maintainability simplification, but the measured performance is too inconsistent
 to justify merging it for a net 41-line saving. There is no demonstrated general
 speedup. Large point-read variation prevents a confident causal regression claim,

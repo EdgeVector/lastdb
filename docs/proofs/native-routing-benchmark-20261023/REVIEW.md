@@ -59,3 +59,13 @@ checks Delete/Purge visibility. No blocking correctness finding was identified.
 Performance is inconsistent, with a slower plain Hash point median in both
 measurements; recommendation: hold, not recommended for merge yet. The net 41-line
 benefit does not justify the current point-read uncertainty. See RESULTS.md.
+
+## Controlled repeat update
+
+The Rust source and binaries are unchanged. A same-fixture, CPU-pinned diagnostic
+completed 16 measured runs (138,240 timed requests) with all integrity checks
+passing. Point medians were within 0.3%; queued batch medians were 4–5% lower but
+individual pair signs were mixed. The large earlier point-read slowdown did not
+reproduce under these controls. Updated recommendation: keep for clarity, without
+a general speedup claim. This diagnostic does not establish performance in the
+earlier unpinned environment. See CONTROLLED_RESULTS.md for data and limitations.

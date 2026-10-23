@@ -1,0 +1,12 @@
+{
+  "run_id": "d8c37c24c0224ebe940ecfefa16ab4d8",
+  "home": "/workspace/nrc-pairs/fixture-preload/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 352,
+  "allocated_bytes_removed": 156209152,
+  "free_bytes_before": 19528019968,
+  "free_bytes_after": 19685048320
+}

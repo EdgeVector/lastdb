@@ -1,0 +1,11 @@
+{
+  "creator_pid": 179921,
+  "device": 27,
+  "home": "/workspace/nrc2-pairs/plain-0-after/home",
+  "inode": 922179,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "7c795cc52a9442929414918b7fac562d",
+  "scratch": "/workspace/nrc2-pairs/plain-0-after",
+  "version": 1
+}
