@@ -3,7 +3,8 @@ use super::*;
 use laststore::disk_pack::maintenance::{CompactionPublication, PreparedCompaction};
 use laststore::disk_pack::snapshot::ReclaimPlan;
 
-pub(super) type MaintenanceReady = (MaintenanceReceipt, u64, ReclaimPlan, Current);
+pub(in crate::storage::disk_pack) type MaintenanceReady =
+    (MaintenanceReceipt, u64, ReclaimPlan, Current);
 
 enum Attempt {
     Ready(MaintenanceReady),
@@ -135,7 +136,9 @@ impl PackRuntime {
         )))
     }
 
-    pub(super) fn capture_native_cleanup(&self) -> StorageResult<MaintenanceReady> {
+    pub(in crate::storage::disk_pack) fn capture_native_cleanup(
+        &self,
+    ) -> StorageResult<MaintenanceReady> {
         self.require_initialized()?;
         if self.failed.load(Ordering::Acquire) {
             return Err(StorageError::BackendError(

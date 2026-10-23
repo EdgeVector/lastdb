@@ -21,10 +21,6 @@ pub(super) struct SparsePages {
 }
 
 impl SparsePages {
-    pub(super) fn new(root: &Path, tree: &TreeRoot, generation: u64) -> Result<Self> {
-        Self::protected(root, tree, generation, Default::default())
-    }
-
     pub(super) fn protected(
         root: &Path,
         tree: &TreeRoot,
