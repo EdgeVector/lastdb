@@ -85,7 +85,7 @@ def main():
     manifest = {"format_version": 1, "profile": args.profile, "recipe": recipe,
                 "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
-                            for name in ("run.py", "node.py", "workload.py", "report.py")}}
+                            for name in ("run.py", "node.py", "workload.py", "report.py", "artifact.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):
         order = ("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")

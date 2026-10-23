@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   # Supersede PR measurements only. Every main push keeps its own run.
@@ -35,6 +36,12 @@ jobs:
       CARGO_TERM_COLOR: always
       BENCH_PROFILE: ${{ github.event_name == 'schedule' && 'nightly' || inputs.profile || 'standard' }}
     steps:
+      - name: Prepare external result directory
+        run: |
+          result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$result_dir"
+          echo "BENCH_OUTPUT=$result_dir" >> "$GITHUB_ENV"
+
       - name: Checkout candidate and benchmark driver
         uses: actions/checkout@v5
         with:
@@ -96,8 +103,8 @@ jobs:
           BASELINE_SHA: ${{ steps.revisions.outputs.baseline }}
         run: |
           set -euo pipefail
-          mkdir -p results
-          rustc --version --verbose > results/toolchain.txt
+          mkdir -p "$BENCH_OUTPUT"
+          rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
           for version in baseline candidate; do
             if [ "$version" = baseline ]; then revision="$BASELINE_SHA"; else revision="$CANDIDATE_SHA"; fi
             (
@@ -106,7 +113,7 @@ jobs:
               export CARGO_TARGET_DIR="$RUNNER_TEMP/bench-target-$version"
               export FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision"
               cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-            ) 2>&1 | tee "results/build-$version.log"
+            ) 2>&1 | tee "$BENCH_OUTPUT/build-$version.log"
           done
 
       - name: Measure alternating baseline and candidate pairs
@@ -120,19 +127,45 @@ jobs:
               --candidate "$RUNNER_TEMP/bench-target-candidate/dev-release/lastdbd" \
               --baseline-revision "$BASELINE_SHA" \
               --candidate-revision "$CANDIDATE_SHA" \
-              --profile "$BENCH_PROFILE" --output results
+              --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT"
 
       - name: Publish benchmark summary
         if: always()
         env:
           MEASUREMENT_OUTCOME: ${{ job.status }}
-        run: python3 candidate/scripts/benchmarks/report.py --output results --job-status "$MEASUREMENT_OUTCOME"
+        run: python3 candidate/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
 
       - name: Upload measurements and build receipts
+        id: upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lastdb-benchmarks-${{ github.run_id }}-${{ github.run_attempt }}
-          path: results/
+          path: ${{ env.BENCH_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Verify upload and record its download receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+          CANDIDATE_SHA: ${{ steps.revisions.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/benchmark-artifact-metadata.json"
+          python3 candidate/scripts/benchmarks/artifact.py \
+            --metadata "$RUNNER_TEMP/benchmark-artifact-metadata.json" \
+            --output "$RUNNER_TEMP/benchmark-download-receipt"
+
+      - name: Retain the compact download receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-benchmark-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/benchmark-download-receipt/artifact.json
           retention-days: 14
           if-no-files-found: error

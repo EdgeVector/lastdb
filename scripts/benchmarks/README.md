@@ -58,6 +58,10 @@ The artifact retains raw samples, read receipts, p50/p95/p99 response times, and
 It also retains records per second, sampled daemon memory size, disk growth, and build logs.
 Per-pair changes and each run's metrics remain available beside the combined result.
 Artifacts expire after 14 days. Raw results do not enter the source repository.
+Each run keeps raw output in its unique runner temporary directory.
+The workflow verifies the archive ID, nonzero size, SHA-256 digest, and expiration through the GitHub API.
+The job summary records the download URL, digest, source revision, and expiration.
+A separate compact receipt artifact retains those fields as `artifact.json`.
 The driver stops each owned daemon and removes its generated home before it completes.
 The artifact contains no generated identity or database home.
 
