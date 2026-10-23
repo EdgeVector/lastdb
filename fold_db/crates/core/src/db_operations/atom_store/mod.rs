@@ -33,6 +33,7 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod file_blob_seal;
 mod filter;
 mod hard_erase_journal;
 mod helpers;

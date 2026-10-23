@@ -10,8 +10,8 @@
 //! `LASTDB_ALLOW_PLAIN_CAS=1` for an explicit legacy migration.
 
 use super::delivery_wire::{
-    content_addressed_blob_sealed_under_dek, decode_blob_bytes, decode_blob_bytes_with_dek,
-    ContentAddressedBlob,
+    content_addressed_blob_sealed_for_access, content_addressed_blob_sealed_under_dek,
+    decode_blob_bytes, decode_blob_bytes_with_dek, ContentAddressedBlob, FileBlobAccess,
 };
 use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
@@ -19,7 +19,10 @@ use crate::storage::KvStore;
 use std::sync::Arc;
 
 mod dedup;
-pub use dedup::{put_blob_sealed_under_dek_dedup_in_ops, SealedPutOutcome};
+pub use dedup::{
+    put_blob_sealed_under_dek_dedup_in_ops, put_blob_sealed_with_access_dedup_in_ops,
+    SealedPutOutcome,
+};
 
 const CAS_BLOB_TREE: &str = "cas_blobs";
 
@@ -48,16 +51,16 @@ pub async fn put_blob_in_ops(
     if let Some(access) = blob.access.as_ref() {
         if !access.dek.is_empty() {
             let plain = if blob.local_cipher_suite.is_some() {
-                return put_raw_record(ops, blob).await;
+                decode_blob_bytes_with_dek(blob, &access.dek)?
             } else {
                 decode_blob_bytes(blob)?
             };
-            return put_blob_sealed_under_dek_in_ops(
+            return put_blob_sealed_for_access_in_ops(
                 ops,
                 &plain,
                 blob.media_type.clone(),
                 blob.name.clone(),
-                &access.dek,
+                access,
             )
             .await
             .map(|_| ());
@@ -74,6 +77,19 @@ pub async fn put_blob_in_ops(
         "refusing plain cas_blobs write (Operation Trinity); provide file KDK or set LASTDB_ALLOW_PLAIN_CAS=1"
             .into(),
     ))
+}
+
+/// Store a pointer's exact versioned identity without placing its key on the row.
+pub async fn put_blob_sealed_for_access_in_ops(
+    ops: &DbOperations,
+    plaintext: &[u8],
+    media_type: Option<String>,
+    name: Option<String>,
+    access: &FileBlobAccess,
+) -> Result<ContentAddressedBlob, FoldDbError> {
+    let sealed = content_addressed_blob_sealed_for_access(plaintext, media_type, name, access)?;
+    put_raw_record(ops, &sealed).await?;
+    Ok(sealed)
 }
 
 /// Seal plaintext under the file KDK and store in `cas_blobs` (no DEK on disk).
@@ -141,7 +157,15 @@ pub async fn get_blob_in_ops(
 ) -> Result<Option<ContentAddressedBlob>, FoldDbError> {
     let store = namespace(ops).await?;
     match store.get(blob_ref.as_bytes()).await? {
-        Some(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Some(bytes) => {
+            let blob: ContentAddressedBlob = serde_json::from_slice(&bytes)?;
+            if blob.blob_ref != blob_ref {
+                return Err(FoldDbError::SecurityError(
+                    "local CAS record key differs".into(),
+                ));
+            }
+            Ok(Some(blob))
+        }
         None => Ok(None),
     }
 }

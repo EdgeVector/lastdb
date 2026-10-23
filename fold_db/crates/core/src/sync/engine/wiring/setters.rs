@@ -3,7 +3,7 @@
 use super::*;
 
 impl SyncEngine {
-    /// Wire the node's 32-byte E2E content key for download cursor payloads.
+    /// Wire the account content key for cursor payloads and new file keys.
     /// See the `enc_key` field doc.
     pub fn set_at_rest_key(&mut self, key: [u8; 32]) {
         self.enc_key = Some(key);

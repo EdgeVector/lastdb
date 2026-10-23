@@ -14,7 +14,6 @@ use crate::durable_flush::{self, BatchPlacementLog};
 use crate::error::FoldDbError;
 use crate::sharing::blob_cas::{self, SealedPutOutcome};
 use crate::sharing::delivery_wire::lastdb_file_pointer_with_access_and_thumbnail;
-use crate::sharing::file_blob_seal::local_file_blob_ref;
 
 use super::FoldDB;
 
@@ -46,8 +45,8 @@ impl LocalFileBlobPut {
 impl FoldDB {
     /// Store `plaintext` in the local `cas_blobs` plane and return its pointer.
     ///
-    /// - The row is sealed under the convergent per-blob key, so identical
-    ///   bytes give an identical `blob_ref`, DEK and pointer on every node.
+    /// - Identical bytes in one account give the same file key and ciphertext
+    ///   reference. The account key stays private inside the atom store.
     /// - The pointer carries no `name` or `media_type` unless the caller passes
     ///   them. Without them, identical bytes in one schema give the same atom,
     ///   so a second record that holds the pointer adds one tip and no atom.
@@ -56,7 +55,7 @@ impl FoldDB {
     ///   crash could keep the record that names the blob and lose the blob. The
     ///   barrier syncs the one group that holds the row, not the whole store.
     /// - A repeat put of bytes that are already stored does not append a second
-    ///   copy; see [`blob_cas::put_blob_sealed_under_dek_dedup_in_ops`].
+    ///   copy; see [`blob_cas::put_blob_sealed_with_access_dedup_in_ops`].
     /// - The native record format, pending memory and disk space admit the write.
     ///
     /// No record is written. The put registers the upload with the blob counter,
@@ -92,19 +91,20 @@ impl FoldDB {
                 },
             ));
         }
-        let blob_ref = local_file_blob_ref(plaintext)?;
+        let (blob_ref, envelope) = self.db_ops().atoms().seal_local_file_blob(plaintext)?;
         let access = blob_ref.to_access();
         // Record which group the write lands in, so the barrier below syncs
         // that group and not every dirty group on the node.
         let placements = BatchPlacementLog::shared();
         let outcome = durable_flush::scope(
             Arc::clone(&placements),
-            blob_cas::put_blob_sealed_under_dek_dedup_in_ops(
+            blob_cas::put_blob_sealed_with_access_dedup_in_ops(
                 self.db_ops(),
-                plaintext,
+                plaintext.len() as u64,
                 media_type.map(str::to_string),
                 name.map(str::to_string),
-                &blob_ref.dek,
+                &access,
+                &envelope,
             ),
         )
         .await?;

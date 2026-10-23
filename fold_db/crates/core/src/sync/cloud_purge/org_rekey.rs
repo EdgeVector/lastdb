@@ -60,6 +60,7 @@ pub(super) async fn export_main_rows(
         admission,
     } = context;
     reserve_scope(ops, physical, instances, admission)?;
+    let protection = super::org_element_protection::store(destination, "main", target_key).await?;
     let mut output = Vec::new();
     let mut blob_refs = BTreeSet::new();
     for (instance, molecules) in instances {
@@ -90,10 +91,14 @@ pub(super) async fn export_main_rows(
             let key = recode_row_key(ops, &key, molecules, bundles, &hashes)?;
             recode_value(ops, &mut value, molecules, bundles, &hashes)?;
             let bytes = serde_json::to_vec(&value).map_err(error)?;
-            output.push((
-                format!("{fresh}:{key}").into_bytes(),
-                crate::crypto::seal_at_rest_utf8(target_key, &bytes).map_err(error)?,
-            ));
+            output.push(
+                super::org_element_protection::row(
+                    &protection,
+                    format!("{fresh}:{key}").into_bytes(),
+                    bytes,
+                )
+                .await?,
+            );
         }
         for (atom, molecule) in atom_rows {
             blob_refs.extend(crate::atom::file_pointer::blob_refs_of_atom(
@@ -108,14 +113,18 @@ pub(super) async fn export_main_rows(
             crate::atom::seal_atom_json(&bundles[&molecule].content_dek(), &mut value)
                 .map_err(error)?;
             let bytes = serde_json::to_vec(&value).map_err(error)?;
-            output.push((
-                format!(
-                    "{fresh}:{}",
-                    crate::atom::atom_key_codec::body_key(atom.uuid())
+            output.push(
+                super::org_element_protection::row(
+                    &protection,
+                    format!(
+                        "{fresh}:{}",
+                        crate::atom::atom_key_codec::body_key(atom.uuid())
+                    )
+                    .into_bytes(),
+                    bytes,
                 )
-                .into_bytes(),
-                crate::crypto::seal_at_rest_utf8(target_key, &bytes).map_err(error)?,
-            ));
+                .await?,
+            );
         }
     }
     super::org_files::copy_blobs(ops, &blob_refs, target_key, destination, admission).await?;

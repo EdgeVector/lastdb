@@ -104,13 +104,15 @@ pub fn open_remote_file(
     );
     let plain = crate::crypto::envelope::decrypt_envelope(&key, ciphertext)
         .map_err(|_| invalid("recovered file authentication"))?;
-    let digest = cloud_backup_protocol::bytes_sha256(&plain);
-    if plain.len() as u64 > maximum
-        || access.file_hash != digest.as_str()
-        || access.blob_ref != format!("sha256:{}", digest.as_str())
-    {
+    if plain.len() as u64 > maximum {
         return Err(invalid("recovered file plaintext identity"));
     }
+    crate::sharing::file_blob_seal::verify_file_blob_identity(
+        access,
+        cloud_backup_protocol::bytes_sha256(&plain).as_str(),
+        cloud_backup_protocol::bytes_sha256(ciphertext).as_str(),
+    )
+    .map_err(|_| invalid("recovered file identity"))?;
     Ok(plain)
 }
 

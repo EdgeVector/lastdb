@@ -8,6 +8,7 @@ mod files;
 pub mod inventory;
 mod job;
 pub(crate) mod memory;
+mod org_element_protection;
 pub mod org_export;
 mod org_files;
 mod org_key_recode;

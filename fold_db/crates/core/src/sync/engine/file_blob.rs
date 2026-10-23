@@ -6,20 +6,20 @@
 //! blob reads are an explicit, on-demand recovery/query concern.
 
 use super::super::*;
-use crate::crypto::{CryptoProvider, LocalCryptoProvider};
-use crate::hex::hex_lower;
-use crate::sharing::delivery_wire::{
-    file_blob_cipher_suite_supported, FileThumbnailAccess, FileThumbnailRef, FILE_THUMBNAIL_TIER,
-};
+use crate::sharing::delivery_wire::{FileThumbnailAccess, FileThumbnailRef, FILE_THUMBNAIL_TIER};
 // The pure convergent seal lives in `sharing` so a node without a sync engine
 // derives the same `blob_ref`, DEK and pointer. `?` converts its error into
 // `SyncError::Crypto` with the unchanged message.
 pub use crate::sharing::file_blob_seal::FileBlobRef;
-use crate::sharing::file_blob_seal::{decode_hex_32, seal_file_blob};
+use crate::sharing::file_blob_seal::{
+    file_blob_storage_hash, seal_file_blob, seal_file_blob_for_access,
+};
 use crate::sync::engine::{FileBlobDurability, FILE_BLOB_ABSENT_IDENTITY_CAP};
 use crate::sync::error::SyncResult;
-use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
+
+mod identity;
+use identity::open_file_blob;
 
 const FILE_BLOB_KNOWN_NAMESPACE: &str = "sync_file_blob_known";
 
@@ -37,49 +37,21 @@ pub struct FileThumbnailUpload {
     pub kind: String,
 }
 
-async fn open_file_blob(blob_ref: &FileBlobRef, ciphertext: &[u8]) -> SyncResult<Vec<u8>> {
-    if !file_blob_cipher_suite_supported(&blob_ref.cipher_suite) {
-        return Err(SyncError::Crypto(format!(
-            "unsupported file blob cipher suite '{}'",
-            blob_ref.cipher_suite
-        )));
-    }
-    let dek = decode_hex_32(&blob_ref.dek)?;
-    let plaintext = LocalCryptoProvider::from_key(dek)
-        .decrypt(ciphertext)
-        .await?;
-    let digest = hex_lower(Sha256::digest(&plaintext));
-    if digest != blob_ref.file_hash {
-        return Err(SyncError::Crypto(format!(
-            "file blob plaintext hash mismatch: expected {}, got {digest}",
-            blob_ref.file_hash
-        )));
-    }
-    let expected_ref = format!("sha256:{digest}");
-    if blob_ref.blob_ref != expected_ref {
-        return Err(SyncError::Crypto(format!(
-            "file blob_ref mismatch: expected {expected_ref}, got {}",
-            blob_ref.blob_ref
-        )));
-    }
-    Ok(plaintext)
-}
-
 impl SyncEngine {
-    async fn known_file_blob_ref(&self, file_hash: &str) -> SyncResult<Option<FileBlobRef>> {
+    async fn known_file_blob_ref(&self, storage_hash: &str) -> SyncResult<Option<FileBlobRef>> {
         let known = self.store.open_namespace(FILE_BLOB_KNOWN_NAMESPACE).await?;
-        let Some(bytes) = known.get(file_hash.as_bytes()).await? else {
+        let Some(bytes) = known.get(storage_hash.as_bytes()).await? else {
             return Ok(None);
         };
         let blob_ref = serde_json::from_slice::<FileBlobRef>(&bytes).map_err(|e| {
             SyncError::Serialization(format!(
-                "known file blob ref for {file_hash} is invalid: {e}"
+                "known file blob ref for {storage_hash} is invalid: {e}"
             ))
         })?;
-        if blob_ref.file_hash != file_hash {
+        if file_blob_storage_hash(&blob_ref.blob_ref)? != storage_hash {
             return Err(SyncError::Serialization(format!(
-                "known file blob ref hash mismatch: expected {file_hash}, got {}",
-                blob_ref.file_hash
+                "known file blob ref hash mismatch: expected {storage_hash}, got {}",
+                blob_ref.blob_ref
             )));
         }
         Ok(Some(blob_ref))
@@ -90,10 +62,15 @@ impl SyncEngine {
         let bytes = serde_json::to_vec(blob_ref).map_err(|e| {
             SyncError::Serialization(format!(
                 "known file blob ref for {} could not serialize: {e}",
-                blob_ref.file_hash
+                blob_ref.blob_ref
             ))
         })?;
-        known.put(blob_ref.file_hash.as_bytes(), bytes).await?;
+        known
+            .put(
+                file_blob_storage_hash(&blob_ref.blob_ref)?.as_bytes(),
+                bytes,
+            )
+            .await?;
         Ok(())
     }
 
@@ -106,9 +83,9 @@ impl SyncEngine {
     /// Upload a personal content-addressed file blob and best-effort confirm it
     /// for storage metering after the object PUT succeeds.
     ///
-    /// The caller passes plaintext bytes. This method seals them under a
-    /// convergent per-content DEK (same plaintext → same DEK and ciphertext on
-    /// every device) and returns the metadata that must be stored with the DB
+    /// The caller passes plaintext bytes. This method seals them under an
+    /// account-derived per-content DEK (same plaintext → same DEK and ciphertext
+    /// on devices with the same account key) and returns the metadata for the DB
     /// pointer or shared slice so authorized readers can open the ciphertext.
     ///
     /// **Known-ref short-circuit is conditional on remote presence.** A prior
@@ -125,8 +102,15 @@ impl SyncEngine {
     /// object is gone; this path does not depend on that alone.
     pub async fn upload_file_blob(&self, plaintext: &[u8]) -> SyncResult<FileBlobRef> {
         self.ensure_file_blob_upload_allowed().await?;
-        let file_hash = hex_lower(Sha256::digest(plaintext));
-        if let Some(blob_ref) = self.known_file_blob_ref(&file_hash).await? {
+        let account_key = self.enc_key.as_ref().ok_or_else(|| {
+            SyncError::Crypto("file blob encryption requires the account content key".into())
+        })?;
+        let (reference, encrypted_blob) = seal_file_blob(plaintext, account_key)?;
+        let file_hash = file_blob_storage_hash(&reference.blob_ref)?;
+        if let Some(blob_ref) = self.known_file_blob_ref(file_hash).await? {
+            // The memo branch downloads a complete remote object; do not retain
+            // another complete envelope while it authenticates that response.
+            drop(encrypted_blob);
             match self.download_file_blob(&blob_ref).await {
                 Ok(Some(bytes)) if bytes.as_slice() == plaintext => {
                     return Ok(blob_ref);
@@ -154,10 +138,9 @@ impl SyncEngine {
             return self.reupload_known_file_blob(plaintext, &blob_ref).await;
         }
 
-        let (blob_ref, encrypted_blob) = seal_file_blob(plaintext)?;
-        self.put_encrypted_file_blob(&blob_ref, encrypted_blob)
+        self.put_encrypted_file_blob(&reference, encrypted_blob)
             .await?;
-        Ok(blob_ref)
+        Ok(reference)
     }
 
     /// Re-encrypt `plaintext` under the known DEK and PUT the ciphertext.
@@ -170,17 +153,7 @@ impl SyncEngine {
         plaintext: &[u8],
         known: &FileBlobRef,
     ) -> SyncResult<FileBlobRef> {
-        let digest = hex_lower(Sha256::digest(plaintext));
-        if digest != known.file_hash {
-            return Err(SyncError::Crypto(format!(
-                "reupload plaintext hash {digest} does not match known file_hash {}",
-                known.file_hash
-            )));
-        }
-        let dek = decode_hex_32(&known.dek)?;
-        let encrypted = LocalCryptoProvider::from_key(dek)
-            .encrypt(plaintext)
-            .await?;
+        let encrypted = seal_file_blob_for_access(plaintext, &known.to_access())?;
         let mut blob_ref = known.clone();
         blob_ref.encrypted_size_bytes = encrypted.len() as u64;
         self.put_encrypted_file_blob(&blob_ref, encrypted).await?;
@@ -193,7 +166,7 @@ impl SyncEngine {
         encrypted_blob: Vec<u8>,
     ) -> SyncResult<()> {
         self.ensure_file_blob_upload_allowed().await?;
-        let file_hash = blob_ref.file_hash.as_str();
+        let file_hash = file_blob_storage_hash(&blob_ref.blob_ref)?;
         let estimated_size_bytes = encrypted_blob.len() as u64;
         // Re-presign on every attempt: SlowDown / transport backoff can outlive
         // a single presigned URL, and a failed PUT must not remember the blob.
@@ -249,8 +222,11 @@ impl SyncEngine {
             ));
         }
 
-        let (thumb_ref, encrypted_thumb) = seal_file_blob(&thumbnail.bytes)?;
-        let thumb_hash = thumb_ref.file_hash.as_str();
+        let account_key = self.enc_key.as_ref().ok_or_else(|| {
+            SyncError::Crypto("thumbnail encryption requires the account content key".into())
+        })?;
+        let (thumb_ref, encrypted_thumb) = seal_file_blob(&thumbnail.bytes, account_key)?;
+        let thumb_hash = file_blob_storage_hash(&thumb_ref.blob_ref)?;
         let estimated_size_bytes = encrypted_thumb.len() as u64;
         self.cache_thumb_ciphertext(thumb_hash, &encrypted_thumb)
             .await?;
@@ -270,6 +246,7 @@ impl SyncEngine {
 
         Ok(FileThumbnailRef {
             blob_ref: thumb_ref.blob_ref,
+            file_hash: Some(thumb_ref.file_hash),
             tier: FILE_THUMBNAIL_TIER.to_string(),
             access: FileThumbnailAccess {
                 dek: thumb_ref.dek,
@@ -308,24 +285,24 @@ impl SyncEngine {
     /// existing one — the authoritative DEK lives on the persisted pointer,
     /// not in the memo.
     pub async fn download_file_blob(&self, blob_ref: &FileBlobRef) -> SyncResult<Option<Vec<u8>>> {
+        let storage_hash = file_blob_storage_hash(&blob_ref.blob_ref)?;
         let ciphertext = self
-            .retry_s3(
-                &format!("file-blob download {}", blob_ref.file_hash),
-                || {
-                    let hash = blob_ref.file_hash.clone();
-                    let owner_scope = blob_ref.owner_scope.clone();
-                    async move {
-                        let url = self
-                            .auth
-                            .presign_file_download_owner_scope(&hash, owner_scope.as_deref())
-                            .await?;
-                        self.s3.download(&url).await
-                    }
-                },
-            )
+            .retry_s3(&format!("file-blob download {storage_hash}"), || {
+                let hash = storage_hash.to_string();
+                let owner_scope = blob_ref.owner_scope.clone();
+                async move {
+                    let url = self
+                        .auth
+                        .presign_file_download_owner_scope(&hash, owner_scope.as_deref())
+                        .await?;
+                    self.s3.download(&url).await
+                }
+            })
             .await?;
         let Some(ciphertext) = ciphertext else {
-            self.forget_missing_file_blob(&blob_ref.file_hash).await;
+            if blob_ref.owner_scope.is_none() {
+                self.forget_missing_file_blob(storage_hash).await;
+            }
             return Ok(None);
         };
         open_file_blob(blob_ref, &ciphertext).await.map(Some)

@@ -2,7 +2,7 @@
 
 use crate::atom::{atom_binary_row_parts, atom_key_codec};
 use crate::crypto::is_sealed_at_rest;
-use crate::sharing::delivery_wire::file_blob_cipher_suite_supported;
+use crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE;
 use serde::Deserialize;
 
 /// Counters and metadata in the same physical collection retain their outer seal.
@@ -26,7 +26,7 @@ pub(crate) fn has_inner_protection(namespace: &str, key: &[u8], value: &[u8]) ->
         return false;
     }
     if namespace == "cas_blobs" {
-        return cas_has_inner_seal(value);
+        return cas_has_inner_seal(key, value);
     }
     atom_has_inner_seal(value)
 }
@@ -51,6 +51,10 @@ pub(crate) fn atom_has_inner_seal(value: &[u8]) -> bool {
 #[derive(Deserialize)]
 struct FileContent<'a> {
     #[serde(borrow)]
+    blob_ref: &'a str,
+    #[serde(borrow)]
+    content_sha256: &'a str,
+    #[serde(borrow)]
     local_cipher_suite: &'a str,
     #[serde(borrow)]
     bytes_b64: &'a str,
@@ -58,10 +62,14 @@ struct FileContent<'a> {
     access: Option<serde::de::IgnoredAny>,
 }
 
-pub(crate) fn cas_has_inner_seal(value: &[u8]) -> bool {
+pub(crate) fn cas_has_inner_seal(key: &[u8], value: &[u8]) -> bool {
     serde_json::from_slice::<FileContent<'_>>(value).is_ok_and(|file| {
         file.access.is_none()
-            && file_blob_cipher_suite_supported(file.local_cipher_suite)
-            && is_sealed_at_rest(file.bytes_b64.as_bytes())
+            && file.local_cipher_suite == FILE_BLOB_CIPHER_SUITE
+            && file.blob_ref.as_bytes() == key
+            && key.strip_prefix(b"sha256:") == Some(file.content_sha256.as_bytes())
+            && file
+                .bytes_b64
+                .starts_with(crate::crypto::AT_REST_ENC_PREFIX)
     })
 }

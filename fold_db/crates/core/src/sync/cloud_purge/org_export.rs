@@ -87,6 +87,7 @@ pub async fn export_scoped_store_from_ops(
         )
         .map_err(error)?,
     );
+    super::org_element_protection::initialize(&store, target_key).await?;
     let org_key = crate::sharing::org_sync_target::e2e_key_bytes(target).map_err(error)?;
     let molecules: BTreeSet<_> = instances.values().flatten().cloned().collect();
     let key_names: Vec<_> = molecules

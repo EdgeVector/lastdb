@@ -27,19 +27,9 @@ pub fn expected(atom: &Atom) -> StorageResult<Vec<FileDependency>> {
             "video-poster" => FileDependencyKind::Poster,
             _ => return Err(invalid("unsupported thumbnail dependency kind")),
         };
-        let file_hash = thumbnail
-            .blob_ref
-            .strip_prefix("sha256:")
-            .ok_or_else(|| invalid("thumbnail dependency identity"))?
-            .to_owned();
-        let access = FileBlobAccess {
-            blob_ref: thumbnail.blob_ref,
-            file_hash,
-            owner_scope: None,
-            cipher_suite: thumbnail.access.cipher_suite,
-            dek: thumbnail.access.dek,
-            encrypted_size_bytes: Some(thumbnail.access.encrypted_size_bytes),
-        };
+        let access = thumbnail
+            .file_access()
+            .map_err(|_| invalid("thumbnail dependency identity"))?;
         out.push(make(atom.uuid(), &pointer, kind, SecretAccess(access))?);
     }
     if refs.iter().any(|reference| {
@@ -57,8 +47,17 @@ fn make(
     kind: FileDependencyKind,
     access: SecretAccess,
 ) -> StorageResult<FileDependency> {
-    let file_hash = Digest::try_from(access.0.file_hash.clone())
-        .map_err(|_| invalid("file dependency requires canonical plaintext digest"))?;
+    // This record also enters a plaintext local capture spool. New files expose
+    // only their ciphertext digest there; the plaintext digest stays in access.
+    let public_hash =
+        if access.0.cipher_suite == crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE {
+            crate::sharing::file_blob_seal::file_blob_storage_hash(&access.0.blob_ref)
+                .map_err(|_| invalid("file dependency storage digest"))?
+        } else {
+            &access.0.file_hash
+        };
+    let file_hash = Digest::try_from(public_hash.to_owned())
+        .map_err(|_| invalid("file dependency requires canonical digest"))?;
     let stored = access
         .0
         .encrypted_size_bytes

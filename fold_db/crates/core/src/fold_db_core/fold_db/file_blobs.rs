@@ -126,12 +126,12 @@ impl FoldDB {
         // Operation Trinity: never leave plaintext file bytes in cas_blobs.
         // When the caller requests a local cache, seal under the file KDK.
         if request.cache_local_plaintext {
-            blob_cas::put_blob_sealed_under_dek_in_ops(
+            blob_cas::put_blob_sealed_for_access_in_ops(
                 self.db_ops(),
                 plaintext,
                 request.media_type.clone(),
                 request.name.clone(),
-                &access.dek,
+                &access,
             )
             .await?;
         }
@@ -151,7 +151,7 @@ impl FoldDB {
             request.mutation_type,
         )
         .with_metadata(HashMap::from([
-            ("file_hash".to_string(), blob_ref.file_hash.clone()),
+            ("file_blob_ref".to_string(), blob_ref.blob_ref.clone()),
             (
                 "encrypted_size_bytes".to_string(),
                 blob_ref.encrypted_size_bytes.to_string(),

@@ -2,7 +2,10 @@
 
 use super::types::{ContentAddressedAtom, ContentAddressedBlob, ExtractedFile, FileBlobAccess};
 use super::validate::validate_file_blob_access_for_ref;
-use super::{file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE, LEGACY_FILE_KEY};
+use super::{
+    file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_LEGACY,
+    LEGACY_FILE_KEY,
+};
 use crate::error::FoldDbError;
 use crate::hex::hex_lower;
 use base64::{engine::general_purpose::STANDARD as B64_STD, Engine as _};
@@ -36,8 +39,13 @@ pub fn content_addressed_blob_with_access(
     access: Option<FileBlobAccess>,
 ) -> ContentAddressedBlob {
     let content_sha256 = hex_lower(Sha256::digest(raw_bytes));
+    let blob_ref = access
+        .as_ref()
+        .filter(|access| access.cipher_suite == FILE_BLOB_CIPHER_SUITE)
+        .map(|access| access.blob_ref.clone())
+        .unwrap_or_else(|| format!("sha256:{content_sha256}"));
     ContentAddressedBlob {
-        blob_ref: format!("sha256:{content_sha256}"),
+        blob_ref,
         content_sha256,
         bytes_b64: B64_STD.encode(raw_bytes),
         media_type,
@@ -74,7 +82,69 @@ pub fn content_addressed_blob_sealed_under_dek(
         name,
         size: raw_bytes.len() as u64,
         access: None,
-        local_cipher_suite: Some(FILE_BLOB_CIPHER_SUITE.to_string()),
+        local_cipher_suite: Some(FILE_BLOB_CIPHER_SUITE_LEGACY.to_string()),
+        stored_at: None,
+    })
+}
+
+/// Preserve the original access identity when plaintext enters the local CAS.
+pub fn content_addressed_blob_sealed_for_access(
+    raw_bytes: &[u8],
+    media_type: Option<String>,
+    name: Option<String>,
+    access: &FileBlobAccess,
+) -> Result<ContentAddressedBlob, FoldDbError> {
+    validate_file_blob_access_for_ref(access, &access.blob_ref)?;
+    let encrypted = crate::sharing::file_blob_seal::seal_file_blob_for_access(raw_bytes, access)?;
+    content_addressed_blob_from_envelope(
+        raw_bytes.len() as u64,
+        media_type,
+        name,
+        access,
+        &encrypted,
+    )
+}
+
+/// Store an already authenticated original binary envelope without a second seal.
+/// The caller verifies its plaintext digest. This function verifies size and address.
+pub fn content_addressed_blob_from_envelope(
+    plaintext_size: u64,
+    media_type: Option<String>,
+    name: Option<String>,
+    access: &FileBlobAccess,
+    envelope: &[u8],
+) -> Result<ContentAddressedBlob, FoldDbError> {
+    validate_file_blob_access_for_ref(access, &access.blob_ref)?;
+    if envelope.first() != Some(&1)
+        || plaintext_size.checked_add(crate::sharing::file_blob_seal::FILE_BLOB_ENVELOPE_OVERHEAD)
+            != Some(envelope.len() as u64)
+        || access
+            .encrypted_size_bytes
+            .is_some_and(|size| size != envelope.len() as u64)
+    {
+        return Err(FoldDbError::SecurityError(
+            "file blob envelope size differs".into(),
+        ));
+    }
+    let digest = hex_lower(Sha256::digest(envelope));
+    crate::sharing::file_blob_seal::verify_file_blob_identity(access, &access.file_hash, &digest)?;
+    let stored_hash = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
+        digest
+    } else {
+        access.file_hash.clone()
+    };
+    let mut bytes_b64 = String::with_capacity(4 + envelope.len().div_ceil(3) * 4);
+    bytes_b64.push_str("ENC:");
+    B64_STD.encode_string(envelope, &mut bytes_b64);
+    Ok(ContentAddressedBlob {
+        blob_ref: access.blob_ref.clone(),
+        content_sha256: stored_hash,
+        bytes_b64,
+        media_type,
+        name,
+        size: plaintext_size,
+        access: None,
+        local_cipher_suite: Some(access.cipher_suite.clone()),
         stored_at: None,
     })
 }
@@ -129,13 +199,38 @@ pub fn decode_blob_bytes_with_dek(
             "local CAS claims sealed suite but bytes are not ENC:…".into(),
         ));
     }
-    let raw = crate::crypto::open_at_rest(&dek, sealed)
-        .map_err(|e| FoldDbError::SecurityError(format!("open local CAS under file KDK: {e}")))?;
+    let raw = if blob.local_cipher_suite.as_deref() == Some(FILE_BLOB_CIPHER_SUITE) {
+        let encoded = blob
+            .bytes_b64
+            .strip_prefix("ENC:")
+            .ok_or_else(|| FoldDbError::SecurityError("v2 local CAS requires ENC text".into()))?;
+        let envelope = B64_STD
+            .decode(encoded)
+            .map_err(|error| FoldDbError::SecurityError(error.to_string()))?;
+        let digest = hex_lower(Sha256::digest(&envelope));
+        if blob.content_sha256 != digest || blob.blob_ref != format!("sha256:{digest}") {
+            return Err(FoldDbError::SecurityError(
+                "local CAS ciphertext identity differs".into(),
+            ));
+        }
+        crate::crypto::envelope::decrypt_envelope(&dek, &envelope)
+    } else {
+        crate::crypto::open_at_rest(&dek, sealed)
+    }
+    .map_err(|e| FoldDbError::SecurityError(format!("open local CAS under file KDK: {e}")))?;
     verify_blob_plaintext(blob, &raw)?;
     Ok(raw)
 }
 
 fn verify_blob_plaintext(blob: &ContentAddressedBlob, raw: &[u8]) -> Result<(), FoldDbError> {
+    if blob.size != raw.len() as u64 {
+        return Err(FoldDbError::SecurityError(
+            "blob plaintext size differs".into(),
+        ));
+    }
+    if blob.local_cipher_suite.as_deref() == Some(FILE_BLOB_CIPHER_SUITE) {
+        return Ok(());
+    }
     let digest = hex_lower(Sha256::digest(raw));
     if digest != blob.content_sha256 {
         return Err(FoldDbError::SecurityError(format!(
@@ -143,18 +238,19 @@ fn verify_blob_plaintext(blob: &ContentAddressedBlob, raw: &[u8]) -> Result<(), 
             blob.content_sha256
         )));
     }
+    if let Some(access) = blob
+        .access
+        .as_ref()
+        .filter(|access| access.cipher_suite == FILE_BLOB_CIPHER_SUITE)
+    {
+        crate::sharing::file_blob_seal::seal_file_blob_for_access(raw, access)?;
+        return Ok(());
+    }
     let expected_ref = format!("sha256:{digest}");
     if blob.blob_ref != expected_ref {
         return Err(FoldDbError::SecurityError(format!(
             "blob_ref mismatch: expected {expected_ref}, got {}",
             blob.blob_ref
-        )));
-    }
-    if blob.size as usize != raw.len() {
-        return Err(FoldDbError::SecurityError(format!(
-            "blob size mismatch: declared {}, actual {}",
-            blob.size,
-            raw.len()
         )));
     }
     Ok(())

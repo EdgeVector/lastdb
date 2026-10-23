@@ -10,6 +10,7 @@ pub(super) fn extract(
     input: impl BufRead,
     output: &mut impl Write,
     dependency: &FileDependency,
+    require_inner_only: bool,
 ) -> StorageResult<u64> {
     let mut json = Json { input };
     json.expect(b'{')?;
@@ -28,6 +29,7 @@ pub(super) fn extract(
             "size" => 4,
             "local_cipher_suite" => 8,
             "bytes_b64" => 16,
+            "access" => 32,
             _ => 0,
         };
         if bit != 0 && seen & bit != 0 {
@@ -58,6 +60,7 @@ pub(super) fn extract(
                 }
             }
             "bytes_b64" => json.string(output)?,
+            "access" if require_inner_only => json.literal(b"null")?,
             _ => json.skip(0)?,
         }
         match json.peek()? {
@@ -74,7 +77,7 @@ pub(super) fn extract(
             _ => return Err(invalid("native CAS JSON member separator")),
         }
     }
-    if seen != 31 || json.peek()?.is_some() {
+    if seen & 31 != 31 || json.peek()?.is_some() {
         return Err(invalid("native CAS selector inventory"));
     }
     let size = size.ok_or_else(|| invalid("native CAS size"))?;

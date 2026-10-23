@@ -2,7 +2,7 @@
 
 use super::{memory, org_rows::error};
 use crate::db_operations::DbOperations;
-use crate::storage::{LastStoreNamespacedStore, NamespacedStore};
+use crate::storage::{KvStore, LastStoreNamespacedStore};
 use crate::sync::SyncResult;
 use std::collections::BTreeSet;
 
@@ -22,10 +22,7 @@ pub(super) async fn copy_blobs(
         &ids,
     )?;
     let source = ops.open_namespace("cas_blobs").await.map_err(error)?;
-    let target = destination
-        .open_namespace("cas_blobs")
-        .await
-        .map_err(error)?;
+    let target = super::org_element_protection::store(destination, "cas_blobs", key).await?;
     for (id, size) in ids.into_iter().zip(sizes) {
         let size = size.ok_or_else(|| error("org source lacks an exact referenced file blob"))?;
         admission.check(memory::read_peak(size)?)?;
@@ -34,8 +31,7 @@ pub(super) async fn copy_blobs(
             .await
             .map_err(error)?
             .ok_or_else(|| error("org source file disappeared after size preflight"))?;
-        let encrypted = crate::crypto::seal_at_rest_utf8(key, &bytes).map_err(error)?;
-        target.put(id.as_bytes(), encrypted).await.map_err(error)?;
+        target.put(id.as_bytes(), bytes).await.map_err(error)?;
     }
     Ok(())
 }

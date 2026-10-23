@@ -51,7 +51,10 @@ impl NativeAuthorizedFileSource {
         };
         let request = FileRequest {
             action,
-            file_hash: dependency.file_hash().as_str(),
+            // The legacy wire field is an opaque storage address, not plaintext identity.
+            file_hash: dependency
+                .storage_hash()
+                .map_err(|_| NativeBackupError::Source)?,
         };
         let mut response: FileResponse = self
             .client
@@ -94,7 +97,12 @@ impl NativeAuthorizedFileSource {
             owner_scope: Text::try_from(owner.to_owned())?,
             // The current pointer codec carries no app namespace. Never infer one.
             app_id: None,
-            file_hash: dependency.file_hash().clone(),
+            file_hash: cloud_backup_protocol::Digest::try_from(
+                dependency
+                    .storage_hash()
+                    .map_err(|_| NativeBackupError::Source)?
+                    .to_owned(),
+            )?,
             expected_ciphertext_bytes: DecimalU64::new(dependency.expected_stored_bytes()),
         };
         let request = SourceReadRequest {

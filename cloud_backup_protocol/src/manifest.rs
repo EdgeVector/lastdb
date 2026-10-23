@@ -134,6 +134,7 @@ impl ExternalFileDependency {
                 self.encryption_suite.as_str(),
                 "lastdb-file-blob-convergent-v1:aes-256-gcm"
                     | "lastdb-file-blob-dek-v1:aes-256-gcm"
+                    | "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256"
             )
         {
             return Err(ProtocolError::invalid("file_dependency"));

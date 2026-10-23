@@ -40,7 +40,13 @@ use crate::db_operations::DbOperations;
 use crate::error::FoldDbError;
 use crate::hex::sha256_hex;
 use crate::schema::SchemaError;
-use crate::sharing::delivery_wire::content_addressed_blob_sealed_under_dek;
+use crate::sharing::delivery_wire::{
+    content_addressed_blob_from_envelope, FileBlobAccess, FILE_BLOB_CIPHER_SUITE,
+    FILE_BLOB_CIPHER_SUITE_LEGACY,
+};
+use crate::sharing::file_blob_seal::{
+    file_blob_storage_hash, seal_file_blob_for_access, FILE_BLOB_ENVELOPE_OVERHEAD,
+};
 use crate::storage::{KvStore, StorageError};
 use chrono::Utc;
 use std::sync::Arc;
@@ -81,29 +87,68 @@ pub async fn put_blob_sealed_under_dek_dedup_in_ops(
     name: Option<String>,
     dek_hex: &str,
 ) -> Result<SealedPutOutcome, FoldDbError> {
+    let file_hash = sha256_hex(plaintext);
+    let access = FileBlobAccess {
+        blob_ref: format!("sha256:{file_hash}"),
+        file_hash,
+        owner_scope: None,
+        cipher_suite: FILE_BLOB_CIPHER_SUITE_LEGACY.into(),
+        dek: dek_hex.into(),
+        encrypted_size_bytes: Some(plaintext.len() as u64 + FILE_BLOB_ENVELOPE_OVERHEAD),
+    };
+    let envelope = seal_file_blob_for_access(plaintext, &access)?;
+    put_blob_sealed_with_access_dedup_in_ops(
+        ops,
+        plaintext.len() as u64,
+        media_type,
+        name,
+        &access,
+        &envelope,
+    )
+    .await
+}
+
+/// Put one prepared envelope without changing its key, suite or CAS reference.
+pub async fn put_blob_sealed_with_access_dedup_in_ops(
+    ops: &DbOperations,
+    plaintext_len: u64,
+    media_type: Option<String>,
+    name: Option<String>,
+    access: &FileBlobAccess,
+    envelope: &[u8],
+) -> Result<SealedPutOutcome, FoldDbError> {
     let runtime = ops.namespaced_store().disk_pack_runtime();
     // Take the native gate before the blob lock. Its private read view sees
     // earlier accepted rows, so a pending put cannot look absent or stale.
     crate::storage::disk_pack::transaction::background_scope(runtime, async {
-        let content_sha256 = sha256_hex(plaintext);
-        let blob_ref = format!("sha256:{content_sha256}");
+        let blob_ref = &access.blob_ref;
+        let stored_hash = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
+            file_blob_storage_hash(blob_ref)?
+        } else {
+            &access.file_hash
+        };
         let _target_gate = ops
             .atoms()
-            .lock_liveness_blobs(std::slice::from_ref(&blob_ref))
+            .lock_liveness_blobs(std::slice::from_ref(blob_ref))
             .await;
         let store = namespace(ops).await?;
         let wanted = Wanted {
-            blob_ref: &blob_ref,
-            content_sha256: &content_sha256,
-            plain_len: plaintext.len(),
-            dek_hex,
+            blob_ref,
+            content_sha256: stored_hash,
+            plain_len: plaintext_len,
+            dek_hex: &access.dek,
         };
         let outcome = match inspect_existing(&store, &wanted).await {
             Existing::Intact => SealedPutOutcome::AlreadyPresent,
             Existing::Absent | Existing::Unusable => {
-                let mut sealed =
-                    content_addressed_blob_sealed_under_dek(plaintext, media_type, name, dek_hex)?;
-                if sealed.blob_ref != blob_ref {
+                let mut sealed = content_addressed_blob_from_envelope(
+                    plaintext_len,
+                    media_type,
+                    name,
+                    access,
+                    envelope,
+                )?;
+                if sealed.blob_ref != *blob_ref {
                     return Err(FoldDbError::SecurityError(format!(
                         "sealed blob_ref {} does not match the gate target {blob_ref}",
                         sealed.blob_ref
@@ -114,13 +159,13 @@ pub async fn put_blob_sealed_under_dek_dedup_in_ops(
                 sealed.stored_at = Some(Utc::now().to_rfc3339());
                 let value = encode_row(&sealed)?;
                 drop(sealed);
-                put_row(&store, &blob_ref, value).await?;
+                put_row(&store, blob_ref, value).await?;
                 SealedPutOutcome::Stored
             }
         };
         // The same native request holds the row and its counter.
         ops.atoms()
-            .register_blob_upload(&blob_ref)
+            .register_blob_upload(blob_ref)
             .await
             .map_err(FoldDbError::Schema)?;
         Ok(outcome)
@@ -167,7 +212,7 @@ fn storage_error(error: StorageError) -> FoldDbError {
 struct Wanted<'a> {
     blob_ref: &'a str,
     content_sha256: &'a str,
-    plain_len: usize,
+    plain_len: u64,
     dek_hex: &'a str,
 }
 
@@ -190,12 +235,12 @@ async fn inspect_existing(store: &Arc<dyn KvStore>, wanted: &Wanted<'_>) -> Exis
     let same_blob = format_known
         && row.blob_ref == wanted.blob_ref
         && row.content_sha256 == wanted.content_sha256
-        && row.size == wanted.plain_len as u64;
+        && row.size == wanted.plain_len;
     // Opening checks the AEAD tag (sealed rows) and the plaintext hash against
     // the row, so a row that passes holds exactly these bytes.
     let opens = same_blob
         && decode_blob_bytes_with_dek(&row, wanted.dek_hex)
-            .is_ok_and(|raw| raw.len() == wanted.plain_len);
+            .is_ok_and(|raw| raw.len() as u64 == wanted.plain_len);
     if !opens {
         return Existing::Unusable;
     }

@@ -20,7 +20,7 @@ impl SyncEngine {
             }
             let plaintext = delivery_wire::decode_blob_bytes_with_dek(&blob, &item.reference.dek)
                 .map_err(|_| fail("source local file authentication failed"))?;
-            verify(&item.reference, &plaintext)?;
+            verify(&item.reference, &plaintext, &blob.content_sha256)?;
             // Keep the exact verified existing ciphertext, metadata and bytes.
             // A second seal would add memory and change this physical source.
             return Ok(None);
@@ -40,13 +40,21 @@ impl SyncEngine {
             .decrypt(&ciphertext)
             .await
             .map_err(|_| fail("source file encryption authentication failed"))?;
-        verify(&item.reference, &plaintext)?;
-        drop(ciphertext);
-        let blob = delivery_wire::content_addressed_blob_sealed_under_dek(
+        verify(
+            &item.reference,
             &plaintext,
+            &crate::hex::sha256_hex(&ciphertext),
+        )?;
+        let mut access = item.reference.to_access();
+        // Older pointers can omit this length; the authenticated download now
+        // supplies the exact value for the local record constructor.
+        access.encrypted_size_bytes = Some(ciphertext.len() as u64);
+        let blob = delivery_wire::content_addressed_blob_from_envelope(
+            plaintext.len() as u64,
             None,
             None,
-            &item.reference.dek,
+            &access,
+            &ciphertext,
         )
         .map_err(|_| fail("source file materialization encryption failed"))?;
         Ok(Some((
@@ -109,7 +117,7 @@ impl SyncEngine {
         let url = self
             .auth
             .presign_file_download_owner_scope(
-                &item.reference.file_hash,
+                crate::sharing::file_blob_seal::file_blob_storage_hash(&item.reference.blob_ref)?,
                 item.reference.owner_scope.as_deref(),
             )
             .await?;
@@ -119,16 +127,18 @@ impl SyncEngine {
     }
 }
 
-fn verify(reference: &FileBlobRef, plaintext: &[u8]) -> SyncResult<()> {
+fn verify(reference: &FileBlobRef, plaintext: &[u8], ciphertext_hash: &str) -> SyncResult<()> {
     let size = (plaintext.len() as u64)
         .checked_add(crate::sharing::file_blob_seal::FILE_BLOB_ENVELOPE_OVERHEAD)
         .ok_or_else(|| fail("source file size overflows"))?;
-    if (reference.encrypted_size_bytes != 0 && size != reference.encrypted_size_bytes)
-        || crate::hex::sha256_hex(plaintext) != reference.file_hash
-        || reference.blob_ref != format!("sha256:{}", reference.file_hash)
-    {
+    if reference.encrypted_size_bytes != 0 && size != reference.encrypted_size_bytes {
         return Err(fail("source file exact size or plaintext hash differs"));
     }
+    crate::sharing::file_blob_seal::verify_file_blob_identity(
+        &reference.to_access(),
+        &crate::hex::sha256_hex(plaintext),
+        ciphertext_hash,
+    )?;
     Ok(())
 }
 

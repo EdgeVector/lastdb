@@ -344,12 +344,13 @@ pub struct SyncEngine {
     /// merge results during sync replay so a peer can attribute the
     /// merged write to this node's identity instead of an ephemeral keypair.
     node_signer: Arc<Ed25519KeyPair>,
-    /// Optional 32-byte E2E content key for download cursor payloads.
+    /// Account content key for portable cursor payloads and new file keys.
     ///
     /// Production wires the engine to the encrypted store view, so cursor rows
     /// also pass through the local at-rest seam. This key adds the portable
     /// E2E envelope used before that local seam, preserving dual-read support
-    /// for older cursor rows. `None` (keyless tests) stores raw cursor bytes.
+    /// for older cursor rows. New file and thumbnail uploads require this key.
+    /// Legacy cursor paths retain their existing keyless behavior.
     enc_key: Option<[u8; 32]>,
     /// Accumulated serialized byte size of personal log entries uploaded since
     /// the last successful compaction. Drives the SIZE-based compaction trigger

@@ -175,29 +175,21 @@ pub(super) fn collect_required(
         if let Some(thumbnail) =
             delivery_wire::file_thumbnail_ref_from_atom_value(atom.content()).map_err(error)?
         {
-            let access: delivery_wire::FileThumbnailAccess = serde_json::from_value(
-                atom.content()
-                    .pointer("/$lastdb_file/thumbnail/access")
-                    .cloned()
-                    .ok_or_else(|| SyncError::Storage("thumbnail encryption key absent".into()))?,
-            )
-            .map_err(error)?;
-            let file_hash = thumbnail
-                .blob_ref
-                .strip_prefix("sha256:")
-                .ok_or_else(|| SyncError::Storage("invalid thumbnail file reference".into()))?
-                .to_string();
+            let access = thumbnail.file_access().map_err(error)?;
+            let storage_hash =
+                crate::sharing::file_blob_seal::file_blob_storage_hash(&thumbnail.blob_ref)?
+                    .to_string();
             insert_required(
                 required,
                 FileBlobRef {
                     blob_ref: thumbnail.blob_ref,
-                    file_hash: file_hash.clone(),
+                    file_hash: access.file_hash,
                     owner_scope: None,
                     cipher_suite: access.cipher_suite,
                     dek: access.dek,
-                    encrypted_size_bytes: access.encrypted_size_bytes,
+                    encrypted_size_bytes: access.encrypted_size_bytes.unwrap_or(0),
                 },
-                Some(file_hash.clone()),
+                Some(storage_hash),
             )?;
         }
     }

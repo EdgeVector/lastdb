@@ -47,14 +47,14 @@ impl AuthorizedFileSource {
             FileDependencyKind::Main => {
                 self.auth
                     .presign_file_download_owner_scope(
-                        dependency.file_hash().as_str(),
+                        dependency.storage_hash()?,
                         dependency.access().owner_scope.as_deref(),
                     )
                     .await
             }
             FileDependencyKind::Thumbnail | FileDependencyKind::Poster => {
                 self.auth
-                    .presign_thumb_download(dependency.file_hash().as_str())
+                    .presign_thumb_download(dependency.storage_hash()?)
                     .await
             }
         }

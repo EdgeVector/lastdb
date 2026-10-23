@@ -1,21 +1,22 @@
-//! Pure convergent seal for personal file blobs.
+//! Pure account-derived encryption for personal file blobs.
 //!
 //! These helpers hold no network, no store and no cloud-sync state. They derive
-//! the per-blob key and the AES-GCM envelope from the plaintext hash alone, so
+//! the per-blob key from the private account key and plaintext hash, so
 //! both the cloud-sync upload path and the local `cas_blobs` write path agree on
 //! the same `blob_ref`, the same DEK and the same pointer. They compile with the
 //! `sharing` feature only; the cloud-sync engine imports them.
 
 use crate::hex::hex_lower;
-use crate::sharing::delivery_wire::{FileBlobAccess, FILE_BLOB_CIPHER_SUITE};
+use crate::sharing::delivery_wire::{
+    file_blob_cipher_suite_supported, FileBlobAccess, FILE_BLOB_CIPHER_SUITE,
+    FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1,
+};
 use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Domain-separation salt for HKDF materials (not a secrecy secret — secrecy
-/// of personal CAS remains owner-scoped presign auth; the DEK is still stored
-/// on the pointer for share grants and for open without re-derivation).
-const FILE_BLOB_HKDF_SALT: &[u8] = b"lastdb-file-blob-convergent-v1";
+const FILE_BLOB_ACCOUNT_SALT: &[u8] = b"lastdb-file-blob-account-v2";
+const FILE_BLOB_NONCE_SALT: &[u8] = b"lastdb-file-blob-account-v2:nonce";
 
 /// Bytes the v1 envelope adds to the plaintext: version (1) + nonce (12) +
 /// AES-GCM tag (16). `encrypted_size_bytes = plaintext.len() + this`.
@@ -55,14 +56,13 @@ impl From<FileBlobSealError> for crate::error::FoldDbError {
 
 /// Metadata that authorizes opening one content-addressed file blob.
 ///
-/// `file_hash` / `blob_ref` address the B2 object by SHA-256 of the plaintext.
+/// `file_hash` is the plaintext SHA-256. New `blob_ref`s name ciphertext SHA-256.
 /// `dek` is the raw 32-byte blob key, hex encoded for storage in the DB pointer
 /// or delivery metadata. Sharing this metadata is what grants access to the
 /// ciphertext; the account sync key is not involved in blob decryption.
 ///
-/// Under [`FILE_BLOB_CIPHER_SUITE`], the DEK is derived deterministically from
-/// the plaintext hash (convergent encryption) so concurrent seals of the same
-/// content agree on both the DEK and the remote ciphertext.
+/// Under [`FILE_BLOB_CIPHER_SUITE`], the private account key and plaintext hash
+/// produce one file key. The same account's devices produce identical ciphertext.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileBlobRef {
     pub blob_ref: String,
@@ -98,29 +98,45 @@ pub(crate) fn decode_hex_32(input: &str) -> Result<[u8; 32], FileBlobSealError> 
     })
 }
 
-/// Derive the convergent file-blob DEK and AES-GCM nonce from the plaintext
-/// SHA-256 (hex). Same content → same materials on every device, so concurrent
-/// seals produce byte-identical envelopes and cannot poison the CAS key.
-pub(crate) fn derive_convergent_file_blob_materials(
+/// Bind a file key to the private account key and original plaintext digest.
+fn derive_account_file_blob_key(
+    account_key: &[u8; 32],
     file_hash_hex: &str,
-) -> Result<([u8; 32], [u8; 12]), FileBlobSealError> {
+) -> Result<[u8; 32], FileBlobSealError> {
     let hash_bytes = decode_hex_32(file_hash_hex)?;
-    let hk = Hkdf::<Sha256>::new(Some(FILE_BLOB_HKDF_SALT), &hash_bytes);
+    let hk = Hkdf::<Sha256>::new(Some(FILE_BLOB_ACCOUNT_SALT), account_key);
     let mut dek = [0u8; 32];
-    hk.expand(b"dek", &mut dek)
-        .map_err(|e| FileBlobSealError::new(format!("file blob DEK HKDF expand failed: {e}")))?;
+    hk.expand(
+        &[b"file-dek\0".as_slice(), hash_bytes.as_slice()].concat(),
+        &mut dek,
+    )
+    .map_err(|e| FileBlobSealError::new(format!("file blob DEK HKDF expand failed: {e}")))?;
+    Ok(dek)
+}
+
+/// The pointer's file key is sufficient to reproduce a repair or recipient copy.
+fn file_blob_nonce(dek: &[u8; 32]) -> Result<[u8; 12], FileBlobSealError> {
+    let hk = Hkdf::<Sha256>::new(Some(FILE_BLOB_NONCE_SALT), dek);
     let mut nonce = [0u8; 12];
-    hk.expand(b"nonce", &mut nonce)
+    hk.expand(b"aes-256-gcm-nonce", &mut nonce)
         .map_err(|e| FileBlobSealError::new(format!("file blob nonce HKDF expand failed: {e}")))?;
-    Ok((dek, nonce))
+    Ok(nonce)
+}
+
+fn legacy_convergent_nonce(file_hash: &str) -> Result<[u8; 12], FileBlobSealError> {
+    let hash = decode_hex_32(file_hash)?;
+    let hk = Hkdf::<Sha256>::new(Some(b"lastdb-file-blob-convergent-v1"), &hash);
+    let mut nonce = [0; 12];
+    hk.expand(b"nonce", &mut nonce)
+        .map_err(|error| FileBlobSealError::new(error.to_string()))?;
+    Ok(nonce)
 }
 
 /// Seal under a fixed nonce using the same v1 envelope wire format as
 /// [`crate::crypto::envelope::encrypt_envelope`] so
 /// `LocalCryptoProvider::decrypt` can open the result.
 ///
-/// Only the cloud-sync upload needs the ciphertext; the local path computes the
-/// size from [`FILE_BLOB_ENVELOPE_OVERHEAD`] and seals under the at-rest seam.
+/// Local CAS stores these exact bytes inside its existing `ENC:` text wrapper.
 pub(crate) fn encrypt_envelope_with_nonce(
     key: &[u8; 32],
     nonce_bytes: &[u8; 12],
@@ -145,36 +161,108 @@ pub(crate) fn encrypt_envelope_with_nonce(
     Ok(envelope)
 }
 
-/// Convergent seal: the blob reference and the ciphertext for `plaintext`.
+/// Account-derived file reference and its exact deterministic ciphertext.
 pub(crate) fn seal_file_blob(
     plaintext: &[u8],
+    account_key: &[u8; 32],
 ) -> Result<(FileBlobRef, Vec<u8>), FileBlobSealError> {
     let file_hash = hex_lower(Sha256::digest(plaintext));
-    let (dek, nonce) = derive_convergent_file_blob_materials(&file_hash)?;
+    let dek = derive_account_file_blob_key(account_key, &file_hash)?;
+    let nonce = file_blob_nonce(&dek)?;
     // One plaintext per DEK (content-addressed): fixed nonce is safe and makes
     // re-seals of the same bytes produce identical ciphertext.
     let encrypted = encrypt_envelope_with_nonce(&dek, &nonce, plaintext)?;
-    let blob_ref = file_blob_ref(file_hash, &dek, encrypted.len() as u64);
+    let blob_ref = file_blob_ref(file_hash, &dek, &encrypted);
     Ok((blob_ref, encrypted))
 }
 
-/// The reference [`seal_file_blob`] would produce for `plaintext`, without
-/// sealing it: hash, derive the DEK, and compute the envelope size. No network
-/// and no allocation proportional to the plaintext.
-pub fn local_file_blob_ref(plaintext: &[u8]) -> Result<FileBlobRef, FileBlobSealError> {
-    let file_hash = hex_lower(Sha256::digest(plaintext));
-    let (dek, _nonce) = derive_convergent_file_blob_materials(&file_hash)?;
-    let encrypted_size = plaintext.len() as u64 + FILE_BLOB_ENVELOPE_OVERHEAD;
-    Ok(file_blob_ref(file_hash, &dek, encrypted_size))
+/// Compute the reference by sealing once and hashing the binary envelope.
+/// Callers that also need ciphertext should retain the result of `seal_file_blob`.
+pub fn local_file_blob_ref(
+    plaintext: &[u8],
+    account_key: &[u8; 32],
+) -> Result<FileBlobRef, FileBlobSealError> {
+    seal_file_blob(plaintext, account_key).map(|(reference, _)| reference)
 }
 
-fn file_blob_ref(file_hash: String, dek: &[u8; 32], encrypted_size_bytes: u64) -> FileBlobRef {
+fn file_blob_ref(file_hash: String, dek: &[u8; 32], ciphertext: &[u8]) -> FileBlobRef {
     FileBlobRef {
-        blob_ref: format!("sha256:{file_hash}"),
+        blob_ref: format!("sha256:{}", hex_lower(Sha256::digest(ciphertext))),
         file_hash,
         owner_scope: None,
         cipher_suite: FILE_BLOB_CIPHER_SUITE.to_string(),
         dek: hex_lower(dek),
-        encrypted_size_bytes,
+        encrypted_size_bytes: ciphertext.len() as u64,
     }
+}
+
+/// The public storage digest. This is not the plaintext digest for v2 files.
+pub fn file_blob_storage_hash(blob_ref: &str) -> Result<&str, FileBlobSealError> {
+    blob_ref
+        .strip_prefix("sha256:")
+        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .ok_or_else(|| FileBlobSealError::new("file blob storage digest is invalid".into()))
+}
+
+/// Check authenticated plaintext/ciphertext digests against the original pointer.
+/// Stream readers can supply these digests without a file-sized allocation.
+pub fn verify_file_blob_identity(
+    access: &FileBlobAccess,
+    plaintext_sha256: &str,
+    ciphertext_sha256: &str,
+) -> Result<(), FileBlobSealError> {
+    if !file_blob_cipher_suite_supported(&access.cipher_suite)
+        || access.file_hash != plaintext_sha256
+    {
+        return Err(FileBlobSealError::new(
+            "file blob plaintext identity differs".into(),
+        ));
+    }
+    let expected = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
+        ciphertext_sha256
+    } else {
+        plaintext_sha256
+    };
+    if file_blob_storage_hash(&access.blob_ref)? != expected {
+        return Err(FileBlobSealError::new(
+            "file blob storage identity differs".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Reproduce a v2 envelope exactly. Older pointers keep their supplied key.
+pub fn seal_file_blob_for_access(
+    plaintext: &[u8],
+    access: &FileBlobAccess,
+) -> Result<Vec<u8>, FileBlobSealError> {
+    let plaintext_sha256 = hex_lower(Sha256::digest(plaintext));
+    let encrypted = if access.cipher_suite == FILE_BLOB_CIPHER_SUITE {
+        let key = decode_hex_32(&access.dek)?;
+        let nonce = file_blob_nonce(&key)?;
+        encrypt_envelope_with_nonce(&key, &nonce, plaintext)?
+    } else if access.cipher_suite == FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1 {
+        encrypt_envelope_with_nonce(
+            &decode_hex_32(&access.dek)?,
+            &legacy_convergent_nonce(&plaintext_sha256)?,
+            plaintext,
+        )?
+    } else {
+        crate::crypto::envelope::encrypt_envelope(&decode_hex_32(&access.dek)?, plaintext)
+            .map_err(|error| FileBlobSealError::new(error.to_string()))?
+    };
+    verify_file_blob_identity(
+        access,
+        &plaintext_sha256,
+        &hex_lower(Sha256::digest(&encrypted)),
+    )?;
+    if access
+        .encrypted_size_bytes
+        .is_some_and(|size| size != encrypted.len() as u64)
+    {
+        return Err(FileBlobSealError::new(
+            "file blob ciphertext size differs".into(),
+        ));
+    }
+    Ok(encrypted)
 }
