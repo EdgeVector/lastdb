@@ -46,6 +46,10 @@ Receipt removal alone does not remove a file from disk.
 The automatic worker schedules reclaim at a 30-second idle interval, even below its compaction trigger.
 It uses the existing installed-root capture and bounded drain, without a pack.
 Explicit retry deadlines take precedence over the idle timer.
+The orphan sweep also repeats at a 30-second to ten-minute interval, with a ten-minute default.
+It retains the configured minimum file age, grace cutoff, retained roots, and concurrent generation floor.
+Repeated native writes can create private payload parts that no final receipt names.
+Ordinary receipt reclaim cannot discover those parts; the separate bounded orphan sweep can remove them.
 Packs, active writes, holds, grace periods, and error backoff can delay cleanup.
 Automatic maintenance off still disables the worker.
 

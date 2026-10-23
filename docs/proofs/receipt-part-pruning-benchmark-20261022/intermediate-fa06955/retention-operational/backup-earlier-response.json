@@ -1,0 +1,10 @@
+{
+  "bytes": 582160,
+  "command": "backup",
+  "complete": true,
+  "elapsed_nanos": 324615750,
+  "files": 51,
+  "frontier": 21,
+  "generation": 22,
+  "includes_identity": false
+}

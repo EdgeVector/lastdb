@@ -113,6 +113,10 @@ Removal from a receipt does not itself delete a file.
 Reclaim still checks all retained roots, read holds, durable references, and its generation floor.
 The automatic maintenance worker schedules reclaim after a 30-second idle interval, even when the live-part count stays below its compaction trigger.
 The worker uses its existing bounded drain and installed-root hold; it does not pack the live data for this cleanup.
+The orphan sweep repeats after each result, with an interval between 30 seconds and ten minutes.
+Its default interval is ten minutes; the configured minimum file age and grace remain the deletion cutoffs.
+The repeat covers young files that the startup sweep retains and private files that no receipt ever names.
+Short retries still handle a deferred sweep before the next regular interval.
 Packs, holds, grace periods, and error backoff can delay the scheduled cleanup.
 Automatic maintenance off still disables the worker.
 

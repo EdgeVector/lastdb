@@ -122,6 +122,12 @@ def main():
         analyzer.main()
     finally:
         sys.argv = previous
+    report = root / "summary.txt"
+    text = report.read_text()
+    old_heading = "Controlled journal removal comparison: three fresh-home pairs; n=3 per variant.\n"
+    if not text.startswith(old_heading) or text.count(old_heading) != 1:
+        raise ValueError("The inherited analysis heading differs from its expected exact text")
+    report.write_text(text.replace(old_heading, "Controlled receipt part pruning comparison: three fresh-home pairs; n=3 per variant.\n", 1))
     summary = analyzer.load(root / "summary.json")
     helpers = {str(path): analyzer.digest(path) for path in helper_files()}
     if any(run["helpers_sha256"] != helpers for run in summary["runs"].values()):

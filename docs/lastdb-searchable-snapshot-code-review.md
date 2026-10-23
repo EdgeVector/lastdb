@@ -16,7 +16,7 @@ The next change starts from `08d8436cc` and removes obsolete parts from each new
 |---|---|---|
 | Local writes | `HomeSnapshot::commit_mutation` writes immutable payload files and changed search pages | Measure the change against a matched baseline |
 | Publications | Each complete stored batch writes one receipt with exact positive live-part counts and publishes one root | Changed pages still use fixed 16 KiB pages |
-| Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Compaction still removes superseded files |
+| Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Periodic reclaim removes wholly obsolete parts; compaction rewrites partly live parts |
 | Recovery | Writer open verifies `CURRENT`, its receipt, and dependency files | No local mutation replay or silent receipt reconstruction |
 | Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Erase aggregates now commit with deletes; debit recovery records are removed |
 | Format | Every supported root requires feature `256`; new receipts also require live-count feature `512` | Older supported snapshots collect counts before writer admission; old programs refuse `512` |
@@ -103,8 +103,12 @@ The receipt no longer inherits every prior file part.
 The publisher removes old page references and adds references from its fresh private metadata pages.
 The count reaches zero only when no current page, overflow descriptor, or payload block requires that part.
 Shared parts stay in the receipt until their last reference goes.
-Each page resolves its references before the next page enters the bounded ledger.
+Each page resolves overflow references before the next page enters the bounded ledger.
+Each changed key resolves its old and new payload references before the next key.
 The existing root holds and reclaim rules still protect older snapshots and backups.
+Periodic reclaim removes obsolete receipts even below the compaction trigger.
+The orphan sweep also repeats, with a default ten-minute interval and unchanged age and grace cutoffs.
+This sweep finds private output and superseded batch output that no receipt names.
 
 The writer marks itself poisoned before commit file work.
 An uncertain result stops new admission until the caller reopens the writer.

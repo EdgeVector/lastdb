@@ -136,8 +136,8 @@ struct Debt {
     deferrals: u32,
     failures: u32,
     slice: usize,
-    /// The orphan sweep is due once no old generation waits. A crash can leave
-    /// part files that no receipt names, so each process sweeps once after its drain.
+    /// The orphan sweep follows the drain and repeats. Superseded private
+    /// payloads and interrupted output can leave parts that no receipt names.
     sweep: bool,
     sweep_deferrals: u32,
     sweep_at: Instant,
@@ -350,16 +350,19 @@ async fn run_once(
     result
 }
 
-/// A crash can leave output files that no receipt names. Remove those older than
+/// Private output can leave files that no receipt names. Remove those older than
 /// `LASTDB_ORPHAN_MIN_AGE_MS` (default ten minutes), or the grace when that is longer.
-/// Another process that holds the home defers the sweep, so it repeats on a timer.
+/// Repeat after 30..600 seconds, independent of the unchanged deletion-age cutoff.
+/// A deferral keeps the existing shorter retry deadline until its retry limit.
 async fn sweep_orphans(runtime: &Arc<PackRuntime>, ledger: &PartsLedger, debt: &mut Debt) {
     let min_age = ledger.grace_ms.max(ledger.orphan_min_age_ms);
-    match runtime.sweep_orphans_native(min_age).await {
+    let result = runtime.sweep_orphans_native(min_age).await;
+    debt.sweep_at = Instant::now() + Duration::from_millis(min_age.clamp(30_000, 600_000));
+    match result {
         Ok((_, _, true)) => {
             if debt.sweep_deferrals >= RECLAIM_RETRIES {
                 tracing::warn!("native storage orphan sweep stayed deferred");
-                debt.sweep = false;
+                debt.sweep_deferrals = 0;
                 return;
             }
             let pause = (1u64 << debt.sweep_deferrals.min(5)).min(30);
@@ -374,11 +377,11 @@ async fn sweep_orphans(runtime: &Arc<PackRuntime>, ledger: &PartsLedger, debt: &
                     "native storage removed unreferenced part files"
                 );
             }
-            debt.sweep = false;
+            debt.sweep_deferrals = 0;
         }
         Err(error) => {
             tracing::warn!(%error, "native storage orphan sweep failed");
-            debt.sweep = false;
+            debt.sweep_deferrals = 0;
         }
     }
 }

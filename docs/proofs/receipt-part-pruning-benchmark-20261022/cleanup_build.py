@@ -33,7 +33,7 @@ def cleaned_runs():
         raise ValueError("All six measured runs must finish before build cleanup")
     folders = [ROOT / row["run"] for row in manifest["runs"]]
     folders += [ROOT / name for name in ("retention-operational", "edge-operational", "overflow-operational",
-                                        "auto-reclaim-operational")]
+                                        "auto-reclaim-operational", "orphan-repeat-operational")]
     result = []
     for folder in folders:
         if folder.is_symlink() or folder.resolve(strict=True).parent != ROOT:
@@ -87,6 +87,10 @@ def main():
     if intermediate["owner"] != owner:
         raise ValueError("The intermediate candidate has a different build-scratch owner")
     entries += [(Path(item["archived"]), item["sha256"]) for item in intermediate["binary_moves"]]
+    later = load(ROOT / "intermediate-fa06955-archive.json")
+    if later.get("all_bytes_unchanged") is not True or later["owner"] != owner:
+        raise ValueError("The later intermediate archive differs from its unchanged owned build copies")
+    entries += [(Path(item["archived"]), item["sha256"]) for item in later["binary_moves"]]
     directory = root / "bin"
     if ({path.name for path in root.iterdir()} != {"owner.json", "bin"} or directory.is_symlink()
             or set(directory.iterdir()) != {path for path, _ in entries}):

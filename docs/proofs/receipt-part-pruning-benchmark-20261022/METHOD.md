@@ -36,9 +36,13 @@ The offered bytes exceed one 8 MiB payload part.
 It identifies an actual record that crosses a part boundary and retains that record during partial deletes.
 It checks shared payload and map parts through reclaim, then removes their last references and checks their removal.
 Large offered inputs stay in the owned temporary home; the receipts retain their byte counts and hashes.
+The older binary must refuse reads and writes of the counted format without any physical file change.
+A separate 64-key operation checks actual external key chains in both locator leaves and their parent.
+It verifies shared overflow references after incremental deletes, replacements, reclaim, and reopen.
 
 The operations use generated data only.
 An additional automatic-maintenance operation waits for the startup drain, then creates obsolete files below the compaction trigger.
 It sends no manual pack or reclaim request and checks later idle cleanup with exact keys and ranges.
+The repeated orphan sweep also requires a separate generated-data operation, with its precise scope in the final report.
 The primary, archive, cloud, and shared services stay unchanged.
 The measurements do not establish power-loss behavior or physical SSD write counts.

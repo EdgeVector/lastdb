@@ -1,0 +1,24 @@
+{
+  "at_unix_ns": 1792718608020618000,
+  "ownership": {
+    "creator_pid": 66961,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.hodpajy3/home",
+    "inode": 1502653867,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "f21a81fe223046d68c6fca7b1b741900",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.hodpajy3",
+    "version": 1
+  },
+  "pre_cleanup": {
+    "entries": 154,
+    "logical_file_bytes": 28685561
+  },
+  "removed": true,
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.hodpajy3",
+  "stopped_pids": [
+    66962,
+    66994
+  ]
+}

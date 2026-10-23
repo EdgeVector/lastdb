@@ -39,7 +39,8 @@ Retired repair state and cloud generations that require adoption receive an expl
 Keep the sync mutation log and authenticated retired sync source records.
 
 Native cloud activation remains disabled. The sync contract and proposed resource limits below remain separate work.
-Dirty-share enforcement, new workspace quotas, and performance improvements beyond journal removal are not part of this change.
+Receipt part removal and periodic cleanup form the next local change.
+Dirty-share enforcement and the other proposed workspace quotas remain separate work.
 
 ## Receipt part removal
 
@@ -53,10 +54,12 @@ The format adds no journal, side file, or receipt chain for recovery.
 - Retire old page references as `TreeEdit` replaces each page.
 - Read only fresh private metadata pages to add their references.
 - Change payload counts only for keys that the batch inserts or replaces.
-- Resolve each page's overflow and payload references before the next page enters the ledger.
+- Resolve each page's overflow references before the next page enters the ledger.
+- Resolve each changed key's old and new payload references before the next key.
 - Keep a shared file part until its last current reference goes.
 - Leave old receipts, read holds, backup references, and reclaim barriers intact.
-- Schedule periodic reclaim below the compaction trigger so a stable live-part count cannot leave old files indefinitely.
+- Schedule periodic reclaim below the compaction trigger; holds, grace periods, and backoff can delay cleanup.
+- Repeat the orphan sweep for parts that no receipt names, with unchanged deletion cutoffs.
 - Collect older receipt counts at writer open, before any memory ack.
 - Transfer those counts into the first counted commit.
 - Collect complete new counts after a full snapshot build or compaction.
