@@ -19,7 +19,7 @@ pub struct SnapshotWriter {
     pub(super) poisoned: bool,
     pub(super) dependencies: u64,
     pub(super) legacy_live: Option<LiveParts>,
-    pub(super) lock: Arc<WriteLock>,
+    pub(in crate::disk_pack) lock: Arc<WriteLock>,
     admission: Arc<AdmissionLedger>,
     pub(super) compaction: crate::disk_pack::maintenance::CompactionPolicy,
 }
@@ -113,7 +113,16 @@ impl SnapshotWriter {
     pub fn commit_reserved(
         &mut self,
         mutations: Vec<SnapshotMutation>,
+        reservation: SnapshotReservation,
+    ) -> Result<PublishedGeneration> {
+        self.commit_reserved_base(mutations, reservation, None)
+    }
+
+    pub(super) fn commit_reserved_base(
+        &mut self,
+        mutations: Vec<SnapshotMutation>,
         mut reservation: SnapshotReservation,
+        base: Option<super::merge::MergePublication<'_>>,
     ) -> Result<PublishedGeneration> {
         self.check_admission()?;
         let actual = SnapshotQuote::from_iter_with_limit(
@@ -125,7 +134,7 @@ impl SnapshotWriter {
         self.poisoned = true;
         let root = self.root.clone();
         let publication =
-            durability::complete_native_commit(&root, || self.commit(mutations, actual))?;
+            durability::complete_native_commit(&root, || self.commit(mutations, actual, base))?;
         reservation.complete()?;
         self.current = publication.current.clone();
         self.dependencies = publication.dependency_parts;
@@ -137,6 +146,7 @@ impl SnapshotWriter {
         &mut self,
         mutations: Vec<SnapshotMutation>,
         quote: SnapshotQuote,
+        base: Option<super::merge::MergePublication<'_>>,
     ) -> Result<PublishedGeneration> {
         let mut proposed = self.current.clone();
         proposed.generation = publish::fresh_generation(&self.root, self.current.generation)?;
@@ -196,6 +206,20 @@ impl SnapshotWriter {
             return Err(corrupt("snapshot payload exceeded its admitted dimensions"));
         }
         drop(payload_timing);
+        if let Some(base) = base {
+            prepared
+                .try_reserve_exact(base.delta.mutations.len())
+                .map_err(|_| super::super::resource())?;
+            prepared.extend(base.delta.mutations);
+            return publish::publish_prepared_base(
+                &self.lock,
+                &self.current,
+                proposed,
+                prepared,
+                payload,
+                base.output.publication_base(),
+            );
+        }
         let legacy_live = self.legacy_live.take();
         publish::publish_prepared(
             &self.lock,

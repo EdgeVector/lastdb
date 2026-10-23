@@ -115,6 +115,10 @@ impl AdmissionLedger {
 }
 
 impl SnapshotReservation {
+    pub(in crate::disk_pack) fn identity(&self) -> u64 {
+        self.id
+    }
+
     pub(super) fn created(&self) -> Instant {
         self.created
     }

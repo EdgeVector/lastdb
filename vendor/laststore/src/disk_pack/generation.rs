@@ -30,6 +30,16 @@ pub(super) fn write_live(
     live: &LiveParts,
     prior: Option<&Generation>,
 ) -> Result<Generation> {
+    write_live_cached(root, current, live, prior, None)
+}
+
+pub(in crate::disk_pack) fn write_live_cached(
+    root: &Path,
+    current: &Current,
+    live: &LiveParts,
+    prior: Option<&Generation>,
+    cached: Option<&Generation>,
+) -> Result<Generation> {
     if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
         return Err(corrupt("counted receipt requires its format feature"));
     }
@@ -41,18 +51,7 @@ pub(super) fn write_live(
     if path.try_exists()? {
         return verify(root, current);
     }
-    write_live_at(root, current, live, prior, path)
-}
-
-/// Prepare a complete counted receipt at the caller's private publication path.
-pub(in crate::disk_pack) fn write_live_at(
-    root: &Path,
-    current: &Current,
-    live: &LiveParts,
-    prior: Option<&Generation>,
-    path: std::path::PathBuf,
-) -> Result<Generation> {
-    write_live_at_with_cache(root, current, live, prior, None, path)
+    write_live_at_with_cache(root, current, live, prior, cached, path)
 }
 
 /// Reuse verified immutable part facts while recomputing snapshot live counts.

@@ -9,8 +9,8 @@ use crate::Result;
 /// An equivalent compaction may replace physical addresses before commit.
 /// Physical space and protected logical records remain separate owned tokens.
 pub struct MutationReservation {
-    payload: SnapshotReservation,
-    quote: MutationQuote,
+    pub(super) payload: SnapshotReservation,
+    pub(super) quote: MutationQuote,
     frontier: u64,
     required_features: u64,
 }
@@ -37,6 +37,16 @@ impl HomeSnapshot {
         operations: Vec<HomeMutation>,
         reservation: MutationReservation,
     ) -> Result<crate::disk_pack::PublishedGeneration> {
+        self.validate_mutation(&operations, &reservation)?;
+        self.writer
+            .commit_reserved(self.address(operations)?, reservation.payload)
+    }
+
+    pub(super) fn validate_mutation(
+        &self,
+        operations: &[HomeMutation],
+        reservation: &MutationReservation,
+    ) -> Result<()> {
         if reservation.frontier != self.current().frontier
             || reservation.required_features != self.current().required_features
         {
@@ -48,7 +58,7 @@ impl HomeSnapshot {
             .check_dependency_capacity(reservation.quote.dependency_parts())?;
         let actual = self
             .descriptor
-            .quote_mutation_with_limit(&operations, self.current().batch_operation_limit())?;
+            .quote_mutation_with_limit(operations, self.current().batch_operation_limit())?;
         if actual.map_pages() > reservation.quote.map_pages()
             || actual.dependency_parts() > reservation.quote.dependency_parts()
             || actual.physical_bytes() > reservation.quote.physical_bytes()
@@ -57,8 +67,7 @@ impl HomeSnapshot {
                 "complete mutation exceeded its admitted dimensions",
             ));
         }
-        self.writer
-            .commit_reserved(self.address(operations)?, reservation.payload)
+        Ok(())
     }
 
     /// Reserve payload and directory dependency capacity for all stored parts.

@@ -204,6 +204,16 @@ impl PackRuntime {
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
+        self.commit_prepared_group_merged(prepared, hidden_changes, requests, None)
+    }
+
+    pub(super) fn commit_prepared_group_merged(
+        &self,
+        prepared: PreparedCommit,
+        hidden_changes: &[(String, String)],
+        requests: &[Arc<transaction::PendingBatch>],
+        compaction: Option<&maintenance::PackHandoff>,
+    ) -> StorageResult<()> {
         let PreparedCommit {
             operations,
             batch_bytes: _,
@@ -227,7 +237,11 @@ impl PackRuntime {
                 .collect()
         };
         let mut writer = self.writer.lock().expect("native snapshot writer");
-        let result = writer.commit_mutation(operations, reservation);
+        let started = std::time::Instant::now();
+        let (result, receipt) = match compaction {
+            Some(handoff) => handoff.commit(&mut writer, operations, reservation),
+            None => (writer.commit_mutation(operations, reservation), None),
+        };
         let publication = match result {
             Ok(publication) => {
                 self.parts
@@ -242,6 +256,9 @@ impl PackRuntime {
         };
         let _timing = laststore::commit_timing::stage("memory_publication_us");
         self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
+        if let (Some(handoff), Some(receipt)) = (compaction, receipt) {
+            handoff.record(self.finish_merged_pack(&writer, receipt, started));
+        }
         drop(space);
         self.failed.store(false, Ordering::Release);
         Ok(())

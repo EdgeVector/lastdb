@@ -19,9 +19,13 @@ pub(super) struct WriteQueue {
     prepared: Option<write::PreparedCommit>,
     next_sequence: u64,
     sealed: bool,
+    pub(super) compaction: Option<Arc<maintenance::PackHandoff>>,
 }
 
 impl WriteQueue {
+    pub(super) fn requests_idle(&self) -> bool {
+        self.requests.is_empty()
+    }
     /// Equivalent rewrites preserve quota. Format transitions and replacements
     /// that cannot leave the promised dependency room wait for admitted work.
     pub(super) fn compaction_barrier(&self, parts: u64, changes_features: bool) -> Option<u64> {
@@ -177,6 +181,7 @@ impl PackRuntime {
             result
         })
         .await;
+        self.complete_pack_handoff();
         match result {
             Ok((sequence, requests)) => {
                 for request in &requests {
@@ -215,7 +220,7 @@ impl PackRuntime {
     }
 
     fn commit_queue_inner(&self) -> StorageResult<(u64, Vec<Arc<transaction::PendingBatch>>)> {
-        let (prepared, hidden, requests) = {
+        let (prepared, hidden, requests, compaction) = {
             let mut queue = self.queue.lock().expect("native accepted queue");
             queue.sealed = true;
             let hidden = queue
@@ -228,10 +233,14 @@ impl PackRuntime {
                 .iter()
                 .map(|request| Arc::clone(&request.pending))
                 .collect::<Vec<_>>();
-            (queue.prepared.take(), hidden, requests)
+            let compaction = queue.prepared.as_ref().and(queue.compaction.clone());
+            if let Some(handoff) = &compaction {
+                handoff.claim();
+            }
+            (queue.prepared.take(), hidden, requests, compaction)
         };
         if let Some(prepared) = prepared {
-            self.commit_prepared_group(prepared, &hidden, &requests)?;
+            self.commit_prepared_group_merged(prepared, &hidden, &requests, compaction.as_deref())?;
         } else {
             let current = self
                 .view

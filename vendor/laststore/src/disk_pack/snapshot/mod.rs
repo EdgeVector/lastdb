@@ -2,6 +2,7 @@
 
 mod admission;
 mod maintenance;
+mod merge;
 mod quote;
 mod reclaim;
 mod writer;

@@ -10,6 +10,7 @@ enum Attempt {
     Ready(Box<MaintenanceReady>),
     Queue(u64),
     Changed,
+    Handoff(tokio::sync::oneshot::Receiver<StorageResult<super::handoff::HandoffResult>>),
 }
 
 impl PackRuntime {
@@ -57,13 +58,29 @@ impl PackRuntime {
                     let boundary = runtime.write_gate.blocking_lock();
                     let wait_ms = millis_since(waiting);
                     let started = std::time::Instant::now();
-                    let mut result =
-                        runtime.attempt_native_pack(&mut output, &mut staged, started, retry);
+                    let mut output = Some(output);
+                    let mut result = runtime.attempt_native_pack(
+                        output.as_mut().expect("private compaction"),
+                        &mut staged,
+                        started,
+                        retry,
+                    );
+                    if matches!(&result, Ok(Attempt::Changed)) {
+                        match runtime
+                            .offer_pack_merge(output.take().expect("private compaction"), retry)
+                        {
+                            super::handoff::Offer::Retry(next) => output = Some(*next),
+                            super::handoff::Offer::Queued(receive) => {
+                                result = Ok(Attempt::Handoff(receive))
+                            }
+                        }
+                    }
                     drop(boundary);
                     tracing::debug!(target: "fold_db::compaction", retry,
                         wait_ms,
                         changed = matches!(&result, Ok(Attempt::Changed)),
                         ready = matches!(&result, Ok(Attempt::Ready(_))),
+                        handoff = matches!(&result, Ok(Attempt::Handoff(..))),
                         held_ms = millis_since(started), "compaction publication attempted");
                     if let Ok(Attempt::Ready(ready)) = &mut result {
                         let held = millis_since(started);
@@ -75,16 +92,54 @@ impl PackRuntime {
                     Ok((output, result))
                 })
                 .await?;
-            output = next;
             match result? {
                 Attempt::Ready(ready) => return Ok(*ready),
+                Attempt::Handoff(receive) => {
+                    match receive.await.map_err(|_| {
+                        StorageError::BackendError(
+                            "compaction handoff owner stopped before its durable result".into(),
+                        )
+                    })?? {
+                        super::handoff::HandoffResult::Ready(ready) => return Ok(*ready),
+                        super::handoff::HandoffResult::Retry(next) => {
+                            output = *next;
+                            continue;
+                        }
+                    }
+                }
                 Attempt::Queue(target) => self.wait_for_queue(target).await?,
                 Attempt::Changed => tokio::task::yield_now().await,
             }
+            output = next.expect("retry retains private compaction");
         }
         Err(StorageError::WriteResourceLimit {
             detail: "compaction_behind: the root or admitted prefix changed across 8 publication attempts; retry maintenance".into(),
         })
+    }
+
+    pub(in crate::storage::disk_pack) fn finish_merged_pack(
+        &self,
+        writer: &HomeSnapshot,
+        receipt: MaintenanceReceipt,
+        started: std::time::Instant,
+    ) -> StorageResult<MaintenanceReady> {
+        let plan = writer.capture_reclaim().map_err(map)?;
+        let held = millis_since(started);
+        let pack_millis = receipt.copy_millis.saturating_add(held);
+        self.parts.progress.completed(&receipt, held);
+        self.parts.record_run(
+            &parts::RunCounts {
+                parts_before: receipt.parts_before,
+                parts_after: receipt.parts_after,
+                records: receipt.records_copied + receipt.tombstones_copied,
+            },
+            pack_millis,
+            writer.current(),
+        );
+        tracing::debug!(target: "fold_db::compaction", retry = receipt.publication_retries,
+            wait_ms = 0u64, changed = false, ready = true, merged = true,
+            held_ms = held, "compaction publication attempted");
+        Ok((receipt, pack_millis, plan, writer.current().clone()))
     }
 
     fn attempt_native_pack(

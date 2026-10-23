@@ -5,7 +5,10 @@ use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePo
 use tracing::Instrument;
 
 mod concurrent;
+mod handoff;
 mod publish;
+
+pub(super) use handoff::PackHandoff;
 
 /// Explicit native maintenance options. Preview is the default at the node route.
 #[derive(Clone, Copy, Debug)]

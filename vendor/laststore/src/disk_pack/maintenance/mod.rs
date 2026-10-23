@@ -4,6 +4,7 @@ mod cache;
 mod catch_up;
 mod compact;
 mod concurrent;
+mod merge;
 mod quote;
 mod reclaim;
 mod space;
@@ -54,6 +55,7 @@ pub(super) use compact::compact_locked;
 pub(super) use reclaim::{reclaim_at, reclaim_locked, sweep_orphans_at, sweep_orphans_locked};
 
 pub use concurrent::{CompactionPlan, PreparedCompaction};
+pub(in crate::disk_pack) use merge::MergeDelta;
 pub use staged::CompactionPublication;
 pub(in crate::disk_pack) use staged::{cleanup_abandoned, PENDING_GENERATION};
 

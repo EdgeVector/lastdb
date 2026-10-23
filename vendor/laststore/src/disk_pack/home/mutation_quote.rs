@@ -18,6 +18,31 @@ pub struct MutationQuote {
 }
 
 impl MutationQuote {
+    pub(in crate::disk_pack) fn locator_delta(
+        operations: &[crate::disk_pack::snapshot::PreparedMutation],
+        operation_limit: usize,
+    ) -> Result<Self> {
+        let payload = SnapshotQuote::from_iter_with_limit(
+            operations.iter().map(|operation| {
+                crate::disk_pack::snapshot::SnapshotMutationShape::new(
+                    operation.collection.len(),
+                    operation.group,
+                    operation.key.len(),
+                    None,
+                )
+            }),
+            operation_limit,
+        )?;
+        let mut groups = BTreeMap::<(&str, u16), BTreeMap<&str, ()>>::new();
+        for operation in operations {
+            groups
+                .entry((&operation.collection, operation.group))
+                .or_default()
+                .insert(&operation.key, ());
+        }
+        quote_maps(payload, groups)
+    }
+
     /// Extend a prefix from the new request's dimensions only. Repeated map
     /// and dependency bounds are conservative; fixed publication space is paid once.
     pub(super) fn extended(self, incoming: Self, limit: usize) -> Result<Self> {
@@ -69,46 +94,53 @@ impl HomeDescriptor {
                 .or_default()
                 .insert(&operation.key, ());
         }
-        let mut map_pages = 0u64;
-        let mut dependency_parts = 0u64;
-        let mut directory_pages = 0u64;
-        for ((collection, _), keys) in groups {
-            // Eight levels, two outputs at each split, and at most five
-            // overflow pages per new key. Existing descriptors are reused.
-            let locator_pages = keys.keys().try_fold(0u64, |pages, key| {
-                add(pages, 16 + locator_overflow(key.len()))
-            })?;
-            // A new group can also require its initial empty locator part.
-            map_pages = add(map_pages, add(locator_pages, 1)?)?;
-            // Contiguous overflow chains can leave four unused page positions.
-            dependency_parts = add(
-                dependency_parts,
-                locator_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4) + 1,
-            )?;
-            directory_pages = add(directory_pages, 16 + overflow(collection.len() + 4))?;
-        }
-        map_pages = add(map_pages, directory_pages)?;
-        dependency_parts = add(
-            dependency_parts,
-            directory_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4),
-        )?;
-        let blocks = payload
-            .logical_bytes()
-            .div_ceil(crate::disk_pack::BLOCK_BYTES as u64);
-        dependency_parts = add(
-            dependency_parts,
-            blocks.div_ceil(2008)
-                + blocks
-                    .div_ceil(crate::disk_pack::MAP_ENTRIES)
-                    .div_ceil(crate::disk_pack::PAGES_PER_PART),
-        )?;
-        Ok(MutationQuote {
-            payload,
-            map_pages,
-            dependency_parts,
-            physical_bytes: physical_bytes(payload, map_pages)?,
-        })
+        quote_maps(payload, groups)
     }
+}
+
+fn quote_maps(
+    payload: SnapshotQuote,
+    groups: BTreeMap<(&str, u16), BTreeMap<&str, ()>>,
+) -> Result<MutationQuote> {
+    let mut map_pages = 0u64;
+    let mut dependency_parts = 0u64;
+    let mut directory_pages = 0u64;
+    for ((collection, _), keys) in groups {
+        // Eight levels, two outputs at each split, and at most five
+        // overflow pages per new key. Existing descriptors are reused.
+        let locator_pages = keys.keys().try_fold(0u64, |pages, key| {
+            add(pages, 16 + locator_overflow(key.len()))
+        })?;
+        // A new group can also require its initial empty locator part.
+        map_pages = add(map_pages, add(locator_pages, 1)?)?;
+        // Contiguous overflow chains can leave four unused page positions.
+        dependency_parts = add(
+            dependency_parts,
+            locator_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4) + 1,
+        )?;
+        directory_pages = add(directory_pages, 16 + overflow(collection.len() + 4))?;
+    }
+    map_pages = add(map_pages, directory_pages)?;
+    dependency_parts = add(
+        dependency_parts,
+        directory_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4),
+    )?;
+    let blocks = payload
+        .logical_bytes()
+        .div_ceil(crate::disk_pack::BLOCK_BYTES as u64);
+    dependency_parts = add(
+        dependency_parts,
+        blocks.div_ceil(2008)
+            + blocks
+                .div_ceil(crate::disk_pack::MAP_ENTRIES)
+                .div_ceil(crate::disk_pack::PAGES_PER_PART),
+    )?;
+    Ok(MutationQuote {
+        payload,
+        map_pages,
+        dependency_parts,
+        physical_bytes: physical_bytes(payload, map_pages)?,
+    })
 }
 
 fn physical_bytes(payload: SnapshotQuote, map_pages: u64) -> Result<u64> {
