@@ -15,6 +15,7 @@ pub(super) struct AutomaticMaintenance {
     worker: AtomicBool,
     cleanup: AtomicBool,
     runs: AtomicU64,
+    full_runs: AtomicU64,
     bytes_removed: AtomicU64,
     last_repack_ms: AtomicU64,
     last_cleanup_ms: AtomicU64,
@@ -30,6 +31,7 @@ pub struct AutomaticMaintenanceStatus {
     written_lookup_bytes: u64,
     cleanup_pending: bool,
     runs: u64,
+    full_runs: u64,
     bytes_removed: u64,
     last_repack_ms: u64,
     last_cleanup_ms: u64,
@@ -49,6 +51,7 @@ impl AutomaticMaintenance {
             worker: AtomicBool::new(false),
             cleanup: AtomicBool::new(false),
             runs: AtomicU64::new(0),
+            full_runs: AtomicU64::new(0),
             bytes_removed: AtomicU64::new(0),
             last_repack_ms: AtomicU64::new(0),
             last_cleanup_ms: AtomicU64::new(0),
@@ -76,6 +79,7 @@ impl AutomaticMaintenance {
             written_lookup_bytes: self.written_bytes.load(Relaxed),
             cleanup_pending: self.cleanup.load(Relaxed),
             runs: self.runs.load(Relaxed),
+            full_runs: self.full_runs.load(Relaxed),
             bytes_removed: self.bytes_removed.load(Relaxed),
             last_repack_ms: self.last_repack_ms.load(Relaxed),
             last_cleanup_ms: self.last_cleanup_ms.load(Relaxed),
@@ -136,7 +140,16 @@ impl PackRuntime {
         let started = Instant::now();
         let mut writer = self.journal.lock().expect("native journal owner");
         if repack {
-            let receipt = match writer.repack_lookups(&policy) {
+            // Lookup-only steps retain live payload objects. Periodically pack
+            // their current records too, so one live record cannot retain a
+            // batch's obsolete bodies forever. Start with a complete pack.
+            let full = self.automatic.runs.load(Relaxed) % 8 == 0;
+            let packed = if full {
+                writer.pack(&policy)
+            } else {
+                writer.repack_lookups(&policy)
+            };
+            let receipt = match packed {
                 Ok(receipt) => receipt,
                 Err(error) => {
                     if writer.is_poisoned() {
@@ -165,6 +178,9 @@ impl PackRuntime {
             self.automatic.written_bytes.store(0, Relaxed);
             self.automatic.cleanup.store(true, Relaxed);
             self.automatic.runs.fetch_add(1, Relaxed);
+            if full {
+                self.automatic.full_runs.fetch_add(1, Relaxed);
+            }
             self.automatic
                 .last_repack_ms
                 .store(started.elapsed().as_millis() as u64, Relaxed);

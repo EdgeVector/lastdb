@@ -1,5 +1,6 @@
 //! Bounded same-home compaction and exact-reference reclaim under the writer lease.
 
+mod cache;
 mod compact;
 mod lookup;
 mod quote;

@@ -1,3 +1,4 @@
+use super::cache::PackCaches;
 use super::space::reserve_replacement;
 use super::stream::RecordBody;
 use super::{MaintenanceReceipt, SpacePolicy};
@@ -49,16 +50,23 @@ pub(in crate::disk_pack) fn compact_locked(
             ..Default::default()
         },
     };
-    let mut call = artifact::metadata_call(root, previous.clone());
+    let mut caches = PackCaches::new();
+    let mut call = caches.call(root, &previous);
     let mut cursor = TreeCursor::seek(&mut call, previous.directory.clone(), b"")?;
     while let Some((key, value)) = cursor.next(&mut call)? {
         let entry = DirectoryEntry::decode(&value)?;
         let collection = collection(&key, entry.group)?;
-        let replacement =
-            compactor.group(&previous, &collection, &entry, &mut pack, &mut locators)?;
+        caches.keep(call);
+        let replacement = compactor.group(
+            &previous,
+            &collection,
+            &entry,
+            (&mut pack, &mut locators, &mut caches),
+        )?;
         directory.add(&key, replacement.encode()?)?;
-        call = artifact::metadata_call(root, previous.clone());
+        call = caches.call(root, &previous);
     }
+    caches.keep(call);
     let data = pack.finish()?;
     compactor.dependencies.add_payload(
         data.object,
@@ -92,12 +100,11 @@ impl Compactor<'_> {
         previous: &Current,
         collection: &str,
         entry: &DirectoryEntry,
-        pack: &mut PackWriter,
-        locators: &mut LocatorForest,
+        (pack, locators, caches): (&mut PackWriter, &mut LocatorForest, &mut PackCaches),
     ) -> Result<DirectoryEntry> {
         let root = self.lock.root();
         let mut locator = locators.tree()?;
-        let mut call = artifact::metadata_call(root, previous.clone());
+        let mut call = caches.call(root, previous);
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
         while let Some((key, value)) = cursor.next(&mut call)? {
             let location = Location::decode_for_current(&value, previous)?;
@@ -121,8 +128,10 @@ impl Compactor<'_> {
                 &key,
                 location.encode_for_features(self.current.required_features)?,
             )?;
-            call = artifact::metadata_call(root, previous.clone());
+            caches.keep(call);
+            call = caches.call(root, previous);
         }
+        caches.keep(call);
         let locator = locators.complete_tree(locator)?;
         Ok(DirectoryEntry {
             group: entry.group,
