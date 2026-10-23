@@ -1,0 +1,11 @@
+{
+  "creator_pid": 191675,
+  "device": 27,
+  "home": "/workspace/pf-pairs/plain-3-before/home",
+  "inode": 554095,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "f2a024d457314cf3b4ac3b3895418e63",
+  "scratch": "/workspace/pf-pairs/plain-3-before",
+  "version": 1
+}

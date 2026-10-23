@@ -1,0 +1,12 @@
+{
+  "run_id": "f415e19df4c14ac1bcf9a3c42a447436",
+  "home": "/workspace/pf-pairs/preload-2-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1115,
+  "allocated_bytes_removed": 769552384,
+  "free_bytes_before": 17726902272,
+  "free_bytes_after": 18498879488
+}
