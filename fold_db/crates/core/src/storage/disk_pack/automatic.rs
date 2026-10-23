@@ -40,7 +40,7 @@ impl AutomaticMaintenance {
     pub(super) fn new(parts: u64) -> StorageResult<Self> {
         let part_growth = setting("LASTDB_LOOKUP_REPACK_PARTS", 2048, 32)?;
         Ok(Self {
-            enabled: std::env::var("LASTDB_AUTO_MAINTENANCE").as_deref() != Ok("0"),
+            enabled: env_flag::var_parse("LASTDB_AUTO_MAINTENANCE").unwrap_or(true),
             trigger_bytes: setting("LASTDB_LOOKUP_REPACK_BYTES", 256 * 1024 * 1024, 16384)?,
             part_growth,
             trigger_parts: AtomicU64::new(part_growth),
