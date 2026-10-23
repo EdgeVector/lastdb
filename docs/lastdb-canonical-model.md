@@ -279,7 +279,7 @@ The disk queue starts immediately. No collection timer delays the ack.
 An internal file change clears affected core records before a later call can use them.
 
 Native reads and writes always use the core model. No old memory mode flag selects that route.
-`LASTDB_RESIDENT_PERSIST_MS` remains a validated legacy setting. It does not delay native snapshot writes.
+The obsolete `LASTDB_RESIDENT_PERSIST_MS` setting has no effect, including at startup.
 The warm byte budget, definition allowance, selected-key allowance, and write allowance cover separate owners.
 They do not define one whole-process memory cap.
 The approved dirty-write share is 25%; the reviewed code reports the threshold but does not yet enforce that share.

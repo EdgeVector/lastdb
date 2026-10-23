@@ -62,14 +62,13 @@ impl FoldDB {
         }
     }
 
-    /// Log native memory admission and flush delay.
+    /// Log native memory admission.
     pub(super) fn log_resident_policy() {
         let resident_policy = crate::resident::ResidentPolicy::from_env();
         info!(
             target: "fold_node::database",
             budget_bytes = resident_policy.budget_bytes,
-            persist_ms = ?resident_policy.persist_interval.map(|d| d.as_millis() as u64),
-            "native memory policy and flush delay"
+            "native memory admission policy"
         );
         // This remains conservative process headroom after the graph cache
         // removal. Actual native pool charges have their own status counters.

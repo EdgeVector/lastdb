@@ -35,10 +35,8 @@ mod metrics;
 mod warm_bytes;
 
 pub use config::{
-    parse_resident_bytes, parse_resident_max_deferred, parse_resident_persist_interval,
-    ResidentPolicy, DEFAULT_RESIDENT_BYTES, DEFAULT_RESIDENT_MAX_DEFERRED,
-    DEFAULT_RESIDENT_PERSIST_MS, RESIDENT_BYTES_ENV, RESIDENT_MAX_DEFERRED_ENV,
-    RESIDENT_PERSIST_MS_ENV,
+    parse_resident_bytes, parse_resident_max_deferred, ResidentPolicy, DEFAULT_RESIDENT_BYTES,
+    DEFAULT_RESIDENT_MAX_DEFERRED, RESIDENT_BYTES_ENV, RESIDENT_MAX_DEFERRED_ENV,
 };
 pub(crate) use core_set::CoreMemorySource;
 pub use core_set::{CoreMemoryStats, CoreMemoryValue, CoreWarmByteStats};
