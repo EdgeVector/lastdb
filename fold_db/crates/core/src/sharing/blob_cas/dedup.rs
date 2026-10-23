@@ -32,9 +32,8 @@
 //! The bytes are copied as little as the formats allow. The sealed row is built
 //! only when a write is needed, it is stamped in place (no clone), it is
 //! serialized into one buffer sized up front, and it is dropped before the store
-//! write. The store layers below still copy the value (seal, base64, group
-//! buffer); that cost is why one local blob is bounded (see
-//! `LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT`).
+//! write. Sealing and serialization still use file-sized buffers. Native
+//! pending-memory and disk-space admission account for the stored row.
 
 use super::{decode_blob_bytes_with_dek, is_local_cas_sealed, namespace, ContentAddressedBlob};
 use crate::db_operations::DbOperations;

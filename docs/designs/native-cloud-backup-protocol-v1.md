@@ -139,7 +139,10 @@ NativeRoot is a service-visible summary:
 home identity and digest, full CURRENT digest, native generation, frontier, and required native features.
 Detailed directory roots, placement, codecs, layout, and logical markers remain in the existing native format.
 Backup capture and restore use the native decoder to check those details.
-The current native profile supports mask 0x1fd, requires 0x1c5, uses codecs 0x0101, and requires logical marker layout:v3:keys with ASCII value 4.
+The current native profile supports mask 0x1fd, requires 0x1c5, and uses codecs 0x0101.
+The authenticated logical marker `layout:v3:keys` accepts ASCII value `4` or `5`.
+Value `5` permits atom and CAS records without a duplicate outer envelope.
+The existing encryption inside those records stays in place.
 Unsupported features cause refusal before destination publication.
 The snapshot-commit bit 0x100 is required. The retired journal bit 0x2 is refused.
 Native readers and this unreleased cloud profile refuse the old journal format without automatic conversion.
@@ -589,7 +592,7 @@ The former 16 MiB backup authentication and 32 MiB native-CAS allocation guards 
 
 The existing native record body bound remains `u32::MAX` bytes.
 External ciphertext still obeys the 64 MiB object, 512 extent, manifest page byte, and total backup limits.
-The normal local file API keeps its separate owner-configurable 16 MiB default.
+The normal local file API has no separate configured file size cap.
 The [file capture design](native-backup-file-capture-v1.md) records the exact disk, allocation, and dependency count rules.
 The native hold also requires native disk admission and visible retained-byte accounting.
 Backup capture cannot delete held files to satisfy a cap.

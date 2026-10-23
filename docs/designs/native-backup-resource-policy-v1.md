@@ -64,8 +64,8 @@ The complete referenced backup remains subject to its one TiB policy and the oth
 The first reached bound controls admission.
 These limits do not promise every maximum at once.
 
-The normal local file API keeps its separate owner-configurable 16 MiB default.
-Backup authentication does not use that default as a file-size guard.
+The normal local file API has no separate configured file size cap.
+Native record-format bounds and shared memory admission remain in place.
 The disk-stream path preserves existing encryption formats, keys, and exact ciphertext.
 It requires the complete tag, plaintext identity, exact length, and EOF before a successful proof.
 

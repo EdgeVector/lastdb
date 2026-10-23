@@ -10,7 +10,7 @@ mod json_string;
 pub(super) mod scratch;
 mod verify;
 
-/// This digest names the exact outer account-encrypted native record bytes.
+/// This digest names the exact stored native record, with or without an account wrapper.
 /// Native file inventory already protects these bytes; no BlobPart is required.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

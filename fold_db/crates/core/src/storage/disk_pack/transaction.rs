@@ -150,10 +150,12 @@ impl PendingBatch {
                         + 2 * operation.key.len()
                         + operation.body.as_ref().map_or(0, Vec::len)) as u64,
                 )
-                .filter(|bytes| *bytes <= 128 * 1024 * 1024 - 256)
+                .filter(|bytes| {
+                    *bytes <= lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES - 256
+                })
                 .ok_or_else(|| {
                     self.remember_preparation_limit(StorageError::MutationLimit {
-                        detail: "complete native mutation exceeds 128 MiB".into(),
+                        detail: "complete native mutation exceeds pending memory allowance".into(),
                     })
                 })?;
         }
@@ -335,9 +337,9 @@ pub(super) fn batch_bytes(
                     + 2 * operation.key.len()
                     + operation.body.as_ref().map_or(0, Vec::len)) as u64,
             )
-            .filter(|bytes| *bytes <= 128 * 1024 * 1024)
+            .filter(|bytes| *bytes <= lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES)
             .ok_or_else(|| StorageError::MutationLimit {
-                detail: "complete native batch exceeds 128 MiB".into(),
+                detail: "complete native batch exceeds pending memory allowance".into(),
             })?;
     }
     Ok(bytes)

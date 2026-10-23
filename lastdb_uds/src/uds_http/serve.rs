@@ -283,17 +283,17 @@ where
     // wrapped in a DeadlineStream so every recv re-arms the *remaining*
     // aggregate budget — a slow-drip peer can't reset the window per byte (B4).
     let read_half = stream.try_clone()?;
-    let response = match read_request(io::BufReader::new(DeadlineStream::new(
-        &read_half,
-        read_deadline,
-    ))) {
+    let base = uds_access_context(owner_user_id, socket_kind, transport, verification);
+    let response = match read_request_with_owner_blob(
+        io::BufReader::new(DeadlineStream::new(&read_half, read_deadline)),
+        base.is_owner,
+    ) {
         Ok(request) => {
             // Re-read peer pid on the live stream for ops attribution. Accept
             // already gated same-user; this is best-effort and never blocks
             // the request if the credential read fails.
             let peer_pid = peer_pid_from_stream(stream);
-            let base = uds_access_context(owner_user_id, socket_kind, transport, verification)
-                .with_peer_pid(peer_pid);
+            let base = base.with_peer_pid(peer_pid);
             // Multi-DB handle (design-org-db-handle-platform-gap): SDK sends
             // `X-LastDB-Db`; Mini scopes mutate/query via storage_prefix.
             // Invalid locators fail closed with 400 so a typo cannot silently

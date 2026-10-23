@@ -105,8 +105,8 @@ fn map(error: laststore::Error) -> StorageError {
 fn budget() -> ReadBudget {
     ReadBudget {
         pages: 4096,
-        blocks: 16384,
-        bytes: 256 * 1024 * 1024,
+        blocks: lastdb_storage_policy::native_read::EAGER_BLOCKS,
+        bytes: lastdb_storage_policy::native_read::EAGER_WORK_BYTES,
         keys: 10000,
     }
 }

@@ -159,7 +159,9 @@ fn read_ciphertext(
     if entry.stored_source_bytes.get()
         > maximum.saturating_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
     {
-        return Err(invalid("configured local file API cap"));
+        return Err(StorageError::ReadResourceLimit {
+            detail: "recovered file input exceeds native pending memory allowance".into(),
+        });
     }
     let bytes = files::read_bytes(
         &object_path(data_root, &entry.stored_source_sha256),
@@ -228,7 +230,8 @@ impl PackRuntime {
             pointer,
             kind,
             access,
-            crate::fold_db_core::fold_db::local_file_blob_max_bytes() as u64,
+            lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+                - cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES,
         )
     }
 }

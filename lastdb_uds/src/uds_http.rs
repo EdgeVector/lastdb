@@ -37,11 +37,8 @@ pub const MAX_HEADERS_TOTAL: usize = 64 * 1024;
 /// Largest number of header lines accepted.
 pub const MAX_HEADER_COUNT: usize = 256;
 
-/// Largest request body accepted, in bytes.
-///
-/// The app-socket raw blob CAS route carries pack blobs whose base64 JSON
-/// envelope can exceed 100 MiB, so the socket-level cap permits those bodies.
-/// Individual JSON routes reject malformed or non-JSON payloads.
+/// Largest general request body accepted, in bytes.
+/// Owner raw local-file PUTs use native input memory admission instead.
 pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
 
 /// A request read off the control socket.
@@ -97,7 +94,7 @@ pub enum UdsHttpError {
     /// `Content-Length` was absent-but-required, unparseable, or contradictory
     /// across duplicate headers.
     InvalidContentLength,
-    /// The declared body length exceeded [`MAX_BODY_LEN`].
+    /// The declared body length exceeded the request's body allowance.
     BodyTooLarge,
     /// The request carried a `Transfer-Encoding` header. The control socket
     /// frames bodies by `Content-Length` only; a `Transfer-Encoding` (e.g.
@@ -220,32 +217,6 @@ fn parse_header(line: &[u8]) -> Result<(String, String), UdsHttpError> {
     Ok((name.to_string(), value.to_string()))
 }
 
-/// Resolve the body length from parsed headers, rejecting contradictory
-/// duplicate `Content-Length` values and an over-cap length.
-fn resolve_content_length(headers: &[(String, String)]) -> Result<usize, UdsHttpError> {
-    let mut length = 0usize;
-    let mut seen = false;
-    for (name, value) in headers {
-        if name.eq_ignore_ascii_case("content-length") {
-            let parsed = value
-                .trim()
-                .parse::<usize>()
-                .map_err(|_| UdsHttpError::InvalidContentLength)?;
-            if seen && parsed != length {
-                // Duplicate, disagreeing Content-Length is a request-smuggling
-                // shape; refuse rather than guess.
-                return Err(UdsHttpError::InvalidContentLength);
-            }
-            length = parsed;
-            seen = true;
-        }
-    }
-    if length > MAX_BODY_LEN {
-        return Err(UdsHttpError::BodyTooLarge);
-    }
-    Ok(length)
-}
-
 /// Read and parse one HTTP/1.1 request from a control-socket stream.
 ///
 /// The reader is any [`BufRead`] — in production a `BufReader<UnixStream>`; in
@@ -255,6 +226,13 @@ fn resolve_content_length(headers: &[(String, String)]) -> Result<usize, UdsHttp
 /// [`MAX_BODY_LEN`]) are enforced; every failure is a content-free
 /// [`UdsHttpError`].
 pub fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, UdsHttpError> {
+    read_request_with_owner_blob(&mut reader, false)
+}
+
+fn read_request_with_owner_blob<R: BufRead>(
+    mut reader: R,
+    allow_owner_blob: bool,
+) -> Result<UdsRequest, UdsHttpError> {
     let Some(request_line) = read_line(&mut reader, MAX_LINE_LEN)? else {
         return Err(UdsHttpError::Empty);
     };
@@ -285,12 +263,7 @@ pub fn read_request<R: BufRead>(mut reader: R) -> Result<UdsRequest, UdsHttpErro
         return Err(UdsHttpError::UnsupportedTransferEncoding);
     }
 
-    let content_length = resolve_content_length(&headers)?;
-    let mut body = vec![0u8; content_length];
-    reader.read_exact(&mut body).map_err(|e| match e.kind() {
-        io::ErrorKind::UnexpectedEof => UdsHttpError::UnexpectedEof,
-        _ => UdsHttpError::Io(e),
-    })?;
+    let body = body::read(&mut reader, &headers, &method, &target, allow_owner_blob)?;
 
     Ok(UdsRequest {
         method,
@@ -376,6 +349,7 @@ fn peer_pid_from_stream(_stream: &std::os::unix::net::UnixStream) -> Option<i32>
     None
 }
 
+mod body;
 mod serve;
 
 pub use serve::{

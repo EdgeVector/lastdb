@@ -26,6 +26,7 @@ fn put_blob_local_request(
     name: Option<&str>,
     media_type: Option<&str>,
 ) -> Result<Vec<u8>, String> {
+    admit_local_file_input(bytes.len() as u64)?;
     let mut metadata = serde_json::Map::new();
     if let Some(name) = name {
         metadata.insert("name".into(), name.into());
@@ -50,7 +51,15 @@ fn put_blob_local_request(
         client_headers(),
         bytes.len()
     );
-    let mut request = Vec::with_capacity(head.len() + bytes.len());
+    let capacity = head
+        .len()
+        .checked_add(bytes.len())
+        .ok_or_else(|| "local file request length overflow".to_string())?;
+    admit_local_file_input(capacity as u64)?;
+    let mut request = Vec::new();
+    request
+        .try_reserve_exact(capacity)
+        .map_err(|_| "local file request allocation refused".to_string())?;
     request.extend_from_slice(head.as_bytes());
     request.extend_from_slice(bytes);
     Ok(request)
@@ -64,13 +73,6 @@ pub(crate) fn put_blob_local(
     name: Option<&str>,
     media_type: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    if bytes.len() > lastdb_uds::uds_http::MAX_BODY_LEN {
-        return Err(format!(
-            "{} bytes is over the {} byte request cap of the daemon socket",
-            bytes.len(),
-            lastdb_uds::uds_http::MAX_BODY_LEN
-        ));
-    }
     let request = put_blob_local_request(bytes, name, media_type)?;
     let response = request_with_timeout(socket, &request, admin_scan_client_timeout())?;
     parse_json_response(&response, PUT_BLOB_LOCAL_PATH)?
@@ -80,21 +82,58 @@ pub(crate) fn put_blob_local(
 }
 
 pub(crate) fn read_put_blob_local_input(file: Option<&Path>) -> Result<Vec<u8>, String> {
-    use std::io::{IsTerminal, Read};
+    use std::io::IsTerminal;
 
     if let Some(path) = file {
-        return std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()));
+        let input =
+            std::fs::File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+        admit_local_file_input(
+            input
+                .metadata()
+                .map_err(|e| format!("file metadata: {e}"))?
+                .len(),
+        )?;
+        return read_local_file_input(input);
     }
     let stdin = std::io::stdin();
     if stdin.is_terminal() {
         return Err("provide --file PATH, or pipe the bytes on stdin".to_string());
     }
+    read_local_file_input(stdin.lock())
+}
+
+fn admit_local_file_input(bytes: u64) -> Result<(), String> {
+    if bytes > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES {
+        return Err("local file input exceeds native pending memory allowance".into());
+    }
+    Ok(())
+}
+
+fn read_local_file_input(mut input: impl std::io::Read) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    stdin
-        .lock()
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("read stdin: {e}"))?;
-    Ok(bytes)
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = input
+            .read(&mut buffer)
+            .map_err(|e| format!("read local file input: {e}"))?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        let length = bytes
+            .len()
+            .checked_add(count)
+            .ok_or_else(|| "local file input length overflow".to_string())?;
+        admit_local_file_input(length as u64)?;
+        if length > bytes.capacity() {
+            let maximum =
+                lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES as usize;
+            let capacity = bytes.capacity().saturating_mul(2).max(length).min(maximum);
+            bytes
+                .try_reserve_exact(capacity - bytes.len())
+                .map_err(|_| "local file input allocation refused".to_string())?;
+        }
+        bytes.extend_from_slice(&buffer[..count]);
+    }
 }
 
 pub(crate) fn db_put_blob_local(socket: &Path, args: &PutBlobLocalArgs) -> Result<(), String> {

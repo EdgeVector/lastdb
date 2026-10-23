@@ -47,7 +47,7 @@ The [shared resource policy](native-backup-resource-policy-v1.md) separates fixe
 Native physical parts stay at eight MiB. External ciphertext still obeys the 64 MiB object and 512 extent limits.
 
 The one GiB metadata allowance does not cap a private payload file; filesystem capacity admission protects payload and scratch space separately.
-The normal local file API keeps its separate owner-configurable 16 MiB default.
+The normal local file API has no separate configured file size cap.
 Restore also limits external pointer and kind identities to 43,690 within an eight MiB allowance.
 Files outside the actual format, extent, metadata, or disk bounds receive an explicit refusal.
 Older pointer atoms without certificates still receive an explicit refusal.

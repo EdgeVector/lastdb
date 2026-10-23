@@ -71,8 +71,7 @@ impl SnapshotQuote {
         let logical_bytes = self
             .logical_bytes
             .checked_add(incoming.logical_bytes)
-            .filter(|bytes| *bytes <= super::MAX_BATCH_BYTES)
-            .ok_or_else(|| super::capacity("batch byte admission limit"))?;
+            .ok_or_else(|| super::capacity("batch byte count overflow"))?;
         Ok(Self {
             operations,
             logical_bytes,
@@ -116,9 +115,6 @@ impl SnapshotQuote {
         }
         if operations == 0 {
             return Err(super::refuse("batch operation admission limit"));
-        }
-        if length > super::MAX_BATCH_BYTES {
-            return Err(super::refuse("batch byte admission limit"));
         }
         Ok(Self {
             operations,

@@ -125,12 +125,11 @@ when an intact row for the same bytes was already there. The CLI form is
 `lastdb db put-blob-local [--file PATH]` (stdin when `--file` is absent); it
 prints the pointer.
 
-- A blob is at most 16 MiB (one LastGit slab) unless the owner sets
-  `LASTDB_LOCAL_FILE_BLOB_MAX_BYTES`. The route answers `413` above the limit,
-  before it decodes or copies the body. The limit bounds memory: a sealed row
-  is about 1.33 times the plaintext, one put holds the body, the sealed text and
-  its serialized form at once, and the store layers copy the value again (seal,
-  base64, group buffer). Store larger files as slabs.
+- The local file API has no separate configured file size cap.
+  It keeps the existing record format and its body-length bound.
+  Shared memory and disk admission still control the write.
+  The exact owner-only raw file route can exceed the general socket body allowance.
+  App requests and JSON requests retain the general socket allowance.
 - The row is sealed under the convergent key (the DEK is derived from the
   plaintext hash), so identical bytes give an identical `blob_ref`, DEK and
   pointer. Without `name` and `media_type` the pointer is identical too, so a

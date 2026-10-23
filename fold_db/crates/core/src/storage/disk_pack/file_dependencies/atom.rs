@@ -1,12 +1,24 @@
 //! Shared inactive-root decoder. It refuses nonportable molecule key bundles.
 use super::{budget_json, invalid, StorageResult};
 use crate::atom::Atom;
+use std::borrow::Cow;
 
 const VALUE_MAX: u64 = 4 * 1024 * 1024;
 
 pub fn open_atom(key: &[u8; 32], stored: &[u8]) -> StorageResult<Atom> {
-    let row = crate::crypto::at_rest::open_at_rest_bounded(key, stored, VALUE_MAX)
-        .map_err(|_| invalid("native atom envelope"))?;
+    if stored.len() as u64 > VALUE_MAX {
+        return Err(invalid("native atom record exceeds its bound"));
+    }
+    // Old records retain the account wrapper. New records expose only their
+    // header and already-sealed content; neither form may skip the inner tag.
+    let row = if crate::crypto::at_rest::is_sealed_at_rest(stored) {
+        Cow::Owned(
+            crate::crypto::at_rest::open_at_rest_bounded(key, stored, VALUE_MAX)
+                .map_err(|_| invalid("native atom envelope"))?,
+        )
+    } else {
+        Cow::Borrowed(stored)
+    };
     let parts =
         crate::atom::atom_binary_row_parts(&row).map_err(|_| invalid("native atom frame"))?;
     let (mut header, sealed) = if let Some((header, sealed)) = parts {

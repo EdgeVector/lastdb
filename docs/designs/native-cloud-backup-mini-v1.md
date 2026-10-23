@@ -85,7 +85,8 @@ A saved credential response completes locally after a lost response. An unknown 
 Both commands require the native source gate. They do not enable the service or create account Ready authority.
 
 Large local file blobs remain distinct from external backup-owned extents.
-An owner can raise `LASTDB_LOCAL_FILE_BLOB_MAX_BYTES` for a normal local blob write and a normal restored read.
+The normal local file API has no separate configured file size cap.
+Native record-format bounds and shared memory admission remain in place.
 The full pointer must become an `Any` field value through a normal mutation.
 A native-CAS proof covers that file through the native files. It does not prove the external-extent path.
 Start prints its request ID before submission. A repeat can use that exact ID.

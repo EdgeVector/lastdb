@@ -7,15 +7,22 @@
 //! The storage layer refuses earlier physical layouts. A native home also needs
 //! the current logical identity marker before it can serve. A home from a build
 //! that kept blob reference edges has the key format `3`: it has no blob
-//! counters, so this build (key format `4`) refuses it and asks for a new empty
-//! home.
+//! counters, so this build refuses it and asks for a new empty home.
+//! Format `5` permits direct atom/CAS records with their existing inner seal.
+//! The encrypted marker advances durably before the node can serve new writes,
+//! so a format-4 reader refuses the home rather than hiding those records.
 
 use super::AtomStore;
 use crate::storage::{KvMutation, StorageError};
 
-/// `4`: local file blobs have counters and a time-bucketed dwell queue
-/// (`bref:v3:`). Format `3` kept blob reference edges.
-pub(crate) const KEY_FORMAT: &[u8] = b"4";
+/// `5`: element-protected atom/CAS records need no outer namespace envelope.
+/// `4` has the same counters and keys, with an additional outer value envelope.
+pub(crate) const KEY_FORMAT: &[u8] = b"5";
+const PREVIOUS_KEY_FORMAT: &[u8] = b"4";
+
+pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
+    value == KEY_FORMAT || value == PREVIOUS_KEY_FORMAT
+}
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.
@@ -65,12 +72,10 @@ impl AtomStore {
         if values.iter().all(Option::is_none) {
             return Ok(true);
         }
-        let proofs = current_key_format_rows()?;
-        if proofs.iter().zip(&values).any(|(proof, stored)| {
-            let KvMutation::Put { value, .. } = proof else {
-                unreachable!("initialization proofs only contain puts");
-            };
-            stored.as_ref() != Some(value)
+        if values.iter().any(|stored| {
+            stored
+                .as_deref()
+                .is_none_or(|value| !is_supported_key_format(value))
         }) {
             return Err(StorageError::InvalidOperation(
                 "current creation has an incomplete or different key-proof batch".into(),
@@ -87,19 +92,22 @@ impl AtomStore {
     }
 
     pub(crate) async fn require_current_key_format(&self) -> Result<(), StorageError> {
-        if self
+        let stored = self
             .main_store
             .inner()
             .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
-            .await?
-            .as_deref()
-            != Some(KEY_FORMAT)
-        {
-            return Err(StorageError::InvalidOperation(
+            .await?;
+        match stored.as_deref() {
+            Some(value) if value == KEY_FORMAT => Ok(()),
+            Some(value) if value == PREVIOUS_KEY_FORMAT => {
+                // The normal boot owns a native request scope here. Its durable
+                // commit finishes before construction returns or data writes run.
+                self.initialize_key_format().await
+            }
+            _ => Err(StorageError::InvalidOperation(
                 "this home does not use the current key format; create a new empty home".into(),
-            ));
+            )),
         }
-        Ok(())
     }
 }
 

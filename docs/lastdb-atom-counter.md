@@ -185,13 +185,14 @@ Two markers keep one build from opening a home with another counter model.
   `FEATURE_ATOM_RECORDS` (value 128): every atom body is one record at
   `atom:{uuid}\0b` in `atoms`. A build that does not know the bit refuses the
   home. This build refuses a home without the bit.
-- The logical key format marker is `layout:v3:keys` with the value `4`
-  (`atom_store/key_format.rs`). A home written by an earlier build carries
-  another value or an older marker. This build refuses it with "create a new
-  empty home". An older build refuses a home that holds the value `4`.
+- The logical key format marker is `layout:v3:keys` with the value `5`
+  (`atom_store/key_format.rs`). Value `4` uses the same counter model.
+  The new reader accepts it and advances the encrypted marker before new writes.
+  Value `5` permits atom and CAS records without a duplicate outer envelope.
+  An older reader refuses value `5` before it can discard those records.
 
-The design has no migration. A home from an earlier layout is refused; it is not
-converted.
+Earlier counter layouts remain refused. The marker advance rewrites no existing
+atom, CAS record, or pack file. See [the element encryption policy](designs/native-element-encryption-v1.md).
 
 ## Conflict records and their retention
 

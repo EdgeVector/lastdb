@@ -3113,6 +3113,7 @@ version = "0.1.0"
 dependencies = [
  "env_flag",
  "fold_db",
+ "lastdb_storage_policy",
  "libc",
  "serde_json",
  "tracing",

@@ -35,7 +35,7 @@ impl KvStore for EncryptingKvStore {
     }
 
     async fn put(&self, key: &[u8], value: Vec<u8>) -> StorageResult<()> {
-        let sealed = self.seal_value(key, &value).await?;
+        let sealed = self.protect_value(key, value).await?;
         self.inner.put(key, sealed).await
     }
 
@@ -257,7 +257,7 @@ impl KvStore for EncryptingKvStore {
     async fn batch_put(&self, items: Vec<(Vec<u8>, Vec<u8>)>) -> StorageResult<()> {
         let mut encrypted_items = Vec::with_capacity(items.len());
         for (key, value) in items {
-            let sealed = self.seal_value(&key, &value).await?;
+            let sealed = self.protect_value(&key, value).await?;
             encrypted_items.push((key, sealed));
         }
         self.inner.batch_put(encrypted_items).await
@@ -272,7 +272,7 @@ impl KvStore for EncryptingKvStore {
         for mutation in mutations {
             sealed.push(match mutation {
                 KvMutation::Put { key, value } => {
-                    let value = self.seal_value(&key, &value).await?;
+                    let value = self.protect_value(&key, value).await?;
                     KvMutation::Put { key, value }
                 }
                 KvMutation::Delete { key } => KvMutation::Delete { key },
@@ -285,7 +285,7 @@ impl KvStore for EncryptingKvStore {
         let mut encrypted_items = Vec::with_capacity(items.len());
 
         for (key, value) in items {
-            let sealed = self.seal_value(&key, &value).await?;
+            let sealed = self.protect_value(&key, value).await?;
             encrypted_items.push((key, sealed));
         }
 

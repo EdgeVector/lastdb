@@ -40,7 +40,7 @@ pub(crate) const ENCRYPTED_PREFIX: &str = "ENC:";
 /// per-store drift that codec exists to prevent.
 pub(crate) const DEFLATED_PREFIX: &str = AT_REST_ENC_DEFLATE_PREFIX;
 
-/// A decorator that transparently encrypts values on write and decrypts on read.
+/// A decorator that protects values that have no existing element-level seal.
 ///
 /// This wraps any `KvStore` implementation, inserting an encryption layer
 /// between the `TypedKvStore` serialization boundary and the actual backend.
@@ -55,8 +55,9 @@ pub(crate) const DEFLATED_PREFIX: &str = AT_REST_ENC_DEFLATE_PREFIX;
 ///
 /// Keys are NOT encrypted — only values. This preserves indexing and scan_prefix.
 ///
-/// New binary writes use `ENB:` + flags + ciphertext. Legacy `ENC:` and `ENZ:`
-/// values remain readable.
+/// Atom bodies and CAS records with their existing inner protection write
+/// directly. Other values retain the outer envelope. Reads also open old
+/// outer-wrapped atoms and CAS records without rewriting them.
 ///
 /// Write-side compression policy for one store instance.
 ///
@@ -86,8 +87,8 @@ impl KvCompressionPolicy {
 }
 
 pub struct EncryptingKvStore {
-    /// The namespace this handle serves. Only used to name a discard in the
-    /// log and the counter; never used to decide policy.
+    /// The namespace selects exact inner-protected record families and names
+    /// discarded values in the log and counter.
     namespace: Arc<str>,
     inner: Arc<dyn KvStore>,
     crypto: Arc<dyn CryptoProvider>,
@@ -98,8 +99,8 @@ pub struct EncryptingKvStore {
 impl EncryptingKvStore {
     /// Create a new encrypting store wrapping the given inner store.
     ///
-    /// There is no migration mode. A value without an at-rest envelope reads as
-    /// absent: `decision-2026-09-14-drop-dual-read-unsealed-is-gone`.
+    /// There is no plaintext migration mode. Only exact atom/CAS records with
+    /// inner protection may omit the namespace envelope.
     pub fn new(namespace: &str, inner: Arc<dyn KvStore>, crypto: Arc<dyn CryptoProvider>) -> Self {
         Self {
             namespace: Arc::from(namespace),
@@ -117,9 +118,7 @@ impl EncryptingKvStore {
 
     /// True when a stored value carries an at-rest envelope marker (`ENC:` /
     /// `ENZ:` / `ENB:`) — i.e. it was written through an encrypting layer.
-    /// Used by the reseal sweep to tell rows it may rewrite from the rest, and
-    /// by the `reap-unsealed` pass as the *only* test that decides whether a
-    /// row stays: sealed stays, un-enveloped goes.
+    /// Maintenance also preserves exact atom/CAS families with inner protection.
     pub(crate) fn is_encrypted_value(value: &[u8]) -> bool {
         is_sealed_at_rest(value)
     }
@@ -172,6 +171,14 @@ impl EncryptingKvStore {
             Self::encode_ciphertext(&ciphertext)
         };
         Ok(sealed)
+    }
+
+    /// Preserve an existing element seal; wrap only records that still need one.
+    async fn protect_value(&self, key: &[u8], value: Vec<u8>) -> StorageResult<Vec<u8>> {
+        if inner_protected::has_inner_protection(&self.namespace, key, &value) {
+            return Ok(value);
+        }
+        self.seal_value(key, &value).await
     }
 
     /// Open one stored value.
@@ -231,10 +238,18 @@ impl EncryptingKvStore {
         Ok(None)
     }
 
-    /// Open a stored value, or report it absent when it carries no envelope.
-    ///
-    /// `context` names the read for the discard log.
+    /// Open a legacy outer envelope or return an exact inner-protected record.
     async fn open_or_discard(&self, key: &[u8], stored: Vec<u8>) -> StorageResult<Option<Vec<u8>>> {
+        if inner_protected::has_inner_protection(&self.namespace, key, &stored) {
+            return Ok(Some(stored));
+        }
+        if inner_protected::is_inner_protected_family(&self.namespace, key)
+            && !is_sealed_at_rest(&stored)
+        {
+            return Err(StorageError::EncryptionError(
+                "atom or file record lacks its required inner protection".into(),
+            ));
+        }
         let crypto = self.select_crypto(key);
         let started = std::time::Instant::now();
         let result = self.open_sealed_value(stored, crypto.as_ref()).await;
@@ -293,5 +308,6 @@ impl EncryptingKvStore {
 }
 
 mod fill;
+pub(crate) mod inner_protected;
 mod kv_store_impl;
 mod maintenance;
