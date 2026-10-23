@@ -1,0 +1,29 @@
+{
+  "argv": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-pack-maintain",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.b95k8umz/home/data/disk-pack",
+    "--grace-ms",
+    "0"
+  ],
+  "elapsed_nanos": 26968792,
+  "exit_code": 0,
+  "input": null,
+  "result": {
+    "elapsed_nanos": 23336417,
+    "result": {
+      "bytes_removed": 12963348,
+      "files_removed": 6,
+      "generation": 24,
+      "parts_after": 0,
+      "parts_before": 0,
+      "reclaim_deferred": false,
+      "records_copied": 0,
+      "tombstones_copied": 0
+    }
+  },
+  "stderr": "",
+  "stdout_bytes": 196,
+  "stdout_sha256": "e0235a0f36293ca24e1125ed755c5945d2b2aee351cf9b362789db9c1347fa29"
+}

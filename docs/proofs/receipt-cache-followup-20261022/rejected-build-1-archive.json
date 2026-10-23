@@ -1,0 +1,138 @@
+{
+  "all_bytes_unchanged": true,
+  "at_unix_ns": 1792732257665847000,
+  "complete": true,
+  "draft_copies_and_receipts_untouched": true,
+  "driver_sha256": "892e668b2dce660825dedf1ff4be13df85034f44a699741402fd99d99a7f9a64",
+  "moves": [
+    {
+      "archived": "rejected-build-1/before-cache-preparation.json",
+      "files_sha256": {
+        "before-cache-preparation.json": "abaefe56c3c9d14bbb7ad1ec83131b8e10ba1c01e4cd480f3d87d5fb9392333d"
+      },
+      "original": "before-cache-preparation.json"
+    },
+    {
+      "archived": "rejected-build-1/before-build.json",
+      "files_sha256": {
+        "before-build.json": "578b97e1eb7090f887e8c5a9ff07be249a63259da7e67611683f58535f2b9a78"
+      },
+      "original": "before-build.json"
+    },
+    {
+      "archived": "rejected-build-1/before-cli-build.json",
+      "files_sha256": {
+        "before-cli-build.json": "64622c7374878e1ee38261ef9e5a20e007281314f9ed3d7a024cd6f02c07ae09"
+      },
+      "original": "before-cli-build.json"
+    },
+    {
+      "archived": "rejected-build-1/before-disk-build.json",
+      "files_sha256": {
+        "before-disk-build.json": "9ec78707b1fcc6e15c9d03a844d8c71b5d4a9fdabeca9582430380fa1c443444"
+      },
+      "original": "before-disk-build.json"
+    },
+    {
+      "archived": "rejected-build-1/after-cache-preparation.json",
+      "files_sha256": {
+        "after-cache-preparation.json": "3c8ead56215660d2203ad2b4a0039fb3e9bb5ff0a8e929972d48f7385c7e72d0"
+      },
+      "original": "after-cache-preparation.json"
+    },
+    {
+      "archived": "rejected-build-1/after-build.json",
+      "files_sha256": {
+        "after-build.json": "1dd669ac631bc6029d8b549bee89996ad3e5257d12b843a15a344e4298b46dd2"
+      },
+      "original": "after-build.json"
+    },
+    {
+      "archived": "rejected-build-1/after-cli-build.json",
+      "files_sha256": {
+        "after-cli-build.json": "d0ca747ec75b0eeece4d6b534540d993e2912778f085efa9927313eeb4f07756"
+      },
+      "original": "after-cli-build.json"
+    },
+    {
+      "archived": "rejected-build-1/after-disk-build.json",
+      "files_sha256": {
+        "after-disk-build.json": "7efb89d16b06e6f4dc4165a3f2d00907183ea08200a62ba1e17fdec407aa0241"
+      },
+      "original": "after-disk-build.json"
+    },
+    {
+      "archived": "rejected-build-1/final-build-checks.json",
+      "files_sha256": {
+        "final-build-checks.json": "e3d7995cddffe534c003580d63a1b4dd8e5dcb8b54101ac9a07f29951e8dd7a8"
+      },
+      "original": "final-build-checks.json"
+    },
+    {
+      "archived": "rejected-build-1/followup-window.json",
+      "files_sha256": {
+        "followup-window.json": "cb8ac0bd96e15b2a632247527acbefa3995a0b38eb397b2a2b8271f714c9788f"
+      },
+      "original": "followup-window.json"
+    },
+    {
+      "archived": "rejected-build-1/review-runs.json",
+      "files_sha256": {
+        "review-runs.json": "a7793a96d765fb4e68099535f0e248840f23584e2923576750de46d5a1d0d3f6"
+      },
+      "original": "review-runs.json"
+    },
+    {
+      "archived": "rejected-build-1/operational-runs.json",
+      "files_sha256": {
+        "operational-runs.json": "7ffe2bcaf33e84b0288e9f95357fc72efcb6b7291d06218470aa1ed748c4208e"
+      },
+      "original": "operational-runs.json"
+    },
+    {
+      "archived": "rejected-build-1/retention-operational",
+      "files_sha256": {
+        "inputs.json": "8fc83ee5f1afa7d7cb3ab03e1dd28d15bb2aaaceb2454c49ba215a9fdc63972c",
+        "node.log": "7d8dc2f736cf71efdc75850d9a0dd7ffb22ee1e951002781e86500ec17ad028d",
+        "ownership.json": "09d0eaca36fe19930d1db07b9ac02781d0770099d7ca0b66204594659b66b4ba",
+        "receipts.jsonl": "4ef28e85bd388608518ecc1446d0e3643c21bc6543ea826a1dbc448b38c3ca18",
+        "retained-root-response.json": "73a4c943194c0bcd65677bd75c64f9ab2fcf3d7de6b53ff71254800d651e12a7",
+        "retained-root-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "retained-root-verified.json": "a1b5a58fb6a2064d2ed739f08ab8e5b4207cb624ce106f9ede4e42494e895491",
+        "seed-input.jsonl": "47635559eb782210e95a588c0cd7b968c24a17262f0de7fd8c9b9a82d659efd3",
+        "seed-response.json": "d073084174c2912e414527b0999d888481b1d46e42a379a636e8698f85115550",
+        "seed-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary.json": "4eb6dfe03bdcec0eea7fc596d1f8bb516dc9e0290f4bc0d66be4eb6f30e955a2"
+      },
+      "original": "retention-operational"
+    },
+    {
+      "archived": "rejected-build-1/after-profile-run.json",
+      "files_sha256": {
+        "after-profile-run.json": "21e45780916331364c5d97dc3abbf70f905223434587bd07efe717cfc9fed1de"
+      },
+      "original": "after-profile-run.json"
+    },
+    {
+      "archived": "rejected-build-1/after-profile-1",
+      "files_sha256": {
+        "cleanup.json": "8286e17d8dceecc76eae304e5e5a805674227ea9664dff73302d63c9649d8ad7",
+        "diagnostic-inputs.json": "44acf67314bac8f833be17cb9a3afd764bac442c27ffb4ae1101f94c50a9abe8",
+        "inputs.json": "2289f73963cc9f2988ec4d9c901a6536c85c0d254695926bbcdfe974f3232533",
+        "node.log": "5160d25a81ef730c539bfc8323c6aab277ebfb57336520253ed5e98d2503b9ed",
+        "ownership.json": "a4385cca9501720e681bd9064ba3ba0de946dcf8def171160c6e4282f7f53011",
+        "profile-provenance.json": "1dd9f6ce53e42fc5e4fa9d302ac8cfcc64abe8f844eaf44a9f4911726ae37ba9",
+        "receipts.jsonl": "23e58c71b200b569e6deed5142cdcbf28e7e9760b9793991669779f05450da86",
+        "sample-stderr.txt": "5a71c0591ab3c3829403026bf40c9dec744f1db7a86b5628bf853b803557afef",
+        "sample-stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sample.txt": "bf365883fef1be867e0d6f5cee1fd9ae03a73ef3cd6bd279dfeaf109d495ebbc",
+        "summary.json": "1807660014b5308bffbc7600ce7471dde3cbb59fe900e6c00dc68e08f33f1d7e"
+      },
+      "original": "after-profile-1"
+    }
+  ],
+  "old_false_summary_remains_false": true,
+  "old_owned_binaries_untouched": true,
+  "recovery_scope": "Fresh canonical receipts are allowed only for new isolated-target builds and fresh generated homes",
+  "rejection_manifest_sha256": "069dade4cc31d41d2cc6cbded5f671849a3c137ffe6d7ebca518eb5b688825a8"
+}

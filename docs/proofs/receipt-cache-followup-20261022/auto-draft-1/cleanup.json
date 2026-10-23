@@ -1,0 +1,24 @@
+{
+  "at_unix_ns": 1792735555316571000,
+  "ownership": {
+    "creator_pid": 77612,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcauto.mq7xuvyt/home",
+    "inode": 1503964200,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "1bf6092d23a94fd6b70486aaba7f7174",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcauto.mq7xuvyt",
+    "version": 1
+  },
+  "pre_cleanup": {
+    "entries": 4999,
+    "logical_file_bytes": 196995125
+  },
+  "removed": true,
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcauto.mq7xuvyt",
+  "stopped_pids": [
+    40000,
+    77613
+  ]
+}

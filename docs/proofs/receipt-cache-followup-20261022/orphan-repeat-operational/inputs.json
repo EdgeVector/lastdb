@@ -1,0 +1,37 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdbd",
+  "binary_sha256": "d2c1744439cf5b5dc02cf51e0fd339f9f17f2f269306e4ff0f98e91e41d222d8",
+  "helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/orphan_repeat_capture.py": "d9bd790376f51c72d438d61897261fd6d43dcd5ef3b78ee8899772e09f9fea41"
+  },
+  "limits": {
+    "generated_body_bytes": 786432,
+    "inventory_depth": 8,
+    "inventory_entries": 40000,
+    "native_files": 20000,
+    "periodic_seconds": 90,
+    "run_seconds": 300
+  },
+  "minimum_orphan_age_ms": 10000,
+  "physical_binaries": {
+    "disk": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-disk-home",
+      "sha256": "7d376dc5cfeb18e6e1c78a3a0f29c985bb7a252f9e727c5bb1962b864e2a9a88"
+    },
+    "maintenance": {
+      "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.after.bkmpcn9g/bin/after-lastdb-pack-maintain",
+      "sha256": "1b5d6663be6ddbf5d1d0e097099cc55c49a69e1568991867c42297ea729a9e55"
+    }
+  },
+  "revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+  "stages": [
+    "AUTO off seed",
+    "stopped old native duplicate batch",
+    "twelve-second age wait",
+    "stopped young native duplicate batch",
+    "AUTO startup removes old and keeps young",
+    "live update advances floor",
+    "periodic sweep removes young",
+    "exact keys, ranges, reopen"
+  ]
+}

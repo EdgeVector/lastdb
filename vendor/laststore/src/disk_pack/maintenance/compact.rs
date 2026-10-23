@@ -48,6 +48,7 @@ pub(super) fn copy(
     let root = lock.root();
     let old = generation::read_receipt(root, previous)?;
     let mut current = previous.clone();
+    current.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
     // Private UUID objects need an age, not a receipt identity. Writers can
     // publish source+1 during this copy; reserving a receipt name here could
     // jump the output age beyond the next catch-up cut. Allocate only at swap.

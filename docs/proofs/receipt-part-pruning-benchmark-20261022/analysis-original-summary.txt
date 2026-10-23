@@ -1,0 +1,159 @@
+Controlled receipt part pruning comparison: three fresh-home pairs; n=3 per variant.
+Automatic maintenance is off; flush is 500 ms. This is not default-product performance.
+Numbers show medians [minimum, maximum] across the three runs or matched pair changes.
+Ack p50/p95 describe calls within each run. Calls are not pooled as independent repeats.
+Darwin process I/O is process accounting, not physical SSD writes. OS caches are uncontrolled.
+Full generated payload captures stay local under a hash index; committed evidence retains request timings and payload hashes.
+
+durable-single-64
+  ack_mean_ms: before 31.70 [28.55, 34.32]; after 37.59 [30.38, 46.14]; paired reduction % -9.53 [-61.59, 4.17]
+  ack_p50_ms: before 28.98 [28.18, 30.16]; after 30.65 [29.09, 43.58]; paired reduction % -1.62 [-54.64, -0.38]
+  ack_p95_ms: before 48.97 [30.79, 58.77]; after 69.19 [35.14, 70.62]; paired reduction % -20.17 [-124.74, 28.26]
+  durable_completion_wall_seconds: before 2.03 [1.83, 2.20]; after 2.41 [1.95, 2.96]; paired reduction % -9.45 [-61.44, 4.23]
+  process_ri_diskio_byteswritten_per_record: before 736512.00 [734208.00, 737408.00]; after 708224.00 [706304.00, 710528.00]; paired reduction % 3.80 [3.53, 3.96]
+  new_or_grown_logical_bytes_per_record: before 684391.44 [682087.70, 684913.84]; after 655727.30 [654186.02, 658030.91]; paired reduction % 4.09 [3.85, 4.26]
+  new_or_grown_allocated_bytes_per_record: before 690816.00 [688512.00, 691392.00]; after 662208.00 [660608.00, 664512.00]; paired reduction % 4.05 [3.81, 4.22]
+  logical_bytes_net_per_record: before 684391.44 [682087.70, 684913.84]; after 655727.30 [654186.02, 658030.91]; paired reduction % 4.09 [3.85, 4.26]
+  allocated_bytes_net_per_record: before 690816.00 [688512.00, 691392.00]; after 662208.00 [660608.00, 664512.00]; paired reduction % 4.05 [3.81, 4.22]
+  new_path_files_per_record: before 14.06 [13.97, 14.08]; after 14.09 [14.05, 14.14]; paired reduction % -0.56 [-0.56, -0.11]
+  frontier_delta: before 130.00 [130.00, 131.00]; after 131.00 [130.00, 131.00]; paired reduction % 0.00 [-0.77, 0.00]
+  requests_per_commit: before 0.49 [0.49, 0.49]; after 0.49 [0.49, 0.49]; paired reduction % 0.00 [0.00, 0.76]
+  accepted_native_requests_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  generations_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  Commit counts differ. Product cost includes internal native work; no fixed per-commit cost claim.
+
+durable-batch32-16
+  ack_mean_ms: before 101.05 [100.35, 124.52]; after 168.96 [142.69, 196.86]; paired reduction % -58.10 [-68.38, -41.20]
+  ack_p50_ms: before 99.96 [99.93, 114.12]; after 164.65 [140.67, 176.80]; paired reduction % -54.93 [-64.72, -40.77]
+  ack_p95_ms: before 116.40 [115.52, 170.81]; after 189.19 [168.60, 330.18]; paired reduction % -62.53 [-93.31, -45.96]
+  durable_completion_wall_seconds: before 1.64 [1.63, 2.02]; after 2.73 [2.31, 3.18]; paired reduction % -57.41 [-67.61, -40.69]
+  process_ri_diskio_byteswritten_per_record: before 151040.00 [150848.00, 151328.00]; after 148080.00 [147792.00, 148752.00]; paired reduction % 2.15 [1.39, 2.15]
+  new_or_grown_logical_bytes_per_record: before 148185.09 [147993.99, 148473.04]; after 145178.13 [144890.01, 145850.04]; paired reduction % 2.22 [1.45, 2.22]
+  new_or_grown_allocated_bytes_per_record: before 148272.00 [148080.00, 148560.00]; after 145272.00 [144984.00, 145944.00]; paired reduction % 2.21 [1.44, 2.22]
+  logical_bytes_net_per_record: before 148185.09 [147993.99, 148473.04]; after 145178.13 [144890.01, 145850.04]; paired reduction % 2.22 [1.45, 2.22]
+  allocated_bytes_net_per_record: before 148272.00 [148080.00, 148560.00]; after 145272.00 [144984.00, 145944.00]; paired reduction % 2.21 [1.44, 2.22]
+  new_path_files_per_record: before 1.28 [1.27, 1.28]; after 1.27 [1.27, 1.28]; paired reduction % 0.76 [-0.77, 0.91]
+  frontier_delta: before 34.00 [34.00, 34.00]; after 35.00 [35.00, 35.00]; paired reduction % -2.94 [-2.94, -2.94]
+  requests_per_commit: before 0.47 [0.47, 0.47]; after 0.46 [0.46, 0.46]; paired reduction % 2.86 [2.86, 2.86]
+  accepted_native_requests_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  generations_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  Commit counts differ. Product cost includes internal native work; no fixed per-commit cost claim.
+
+queued-single-256
+  ack_mean_ms: before 21.09 [20.69, 23.15]; after 27.63 [21.55, 28.09]; paired reduction % -21.36 [-33.52, -2.15]
+  ack_p50_ms: before 20.62 [19.91, 21.01]; after 24.10 [20.71, 24.19]; paired reduction % -15.12 [-21.06, -0.41]
+  ack_p95_ms: before 25.13 [23.73, 34.60]; after 45.76 [28.56, 46.06]; paired reduction % -33.12 [-82.10, -20.37]
+  durable_completion_wall_seconds: before 5.44 [5.33, 5.96]; after 7.12 [5.55, 7.23]; paired reduction % -21.31 [-33.66, -2.11]
+  process_ri_diskio_byteswritten_per_record: before 782656.00 [782464.00, 783392.00]; after 680416.00 [680256.00, 681536.00]; paired reduction % 13.04 [12.92, 13.17]
+  new_or_grown_logical_bytes_per_record: before 755011.70 [754819.54, 755651.14]; after 652611.72 [652488.89, 653704.22]; paired reduction % 13.56 [13.42, 13.64]
+  new_or_grown_allocated_bytes_per_record: before 757600.00 [757408.00, 758256.00]; after 655200.00 [655120.00, 656320.00]; paired reduction % 13.51 [13.37, 13.59]
+  logical_bytes_net_per_record: before 755011.70 [754819.54, 755651.14]; after 652611.72 [652488.89, 653704.22]; paired reduction % 13.56 [13.42, 13.64]
+  allocated_bytes_net_per_record: before 757600.00 [757408.00, 758256.00]; after 655200.00 [655120.00, 656320.00]; paired reduction % 13.51 [13.37, 13.59]
+  new_path_files_per_record: before 11.28 [11.27, 11.30]; after 11.35 [11.30, 11.36]; paired reduction % -0.45 [-0.76, -0.24]
+  frontier_delta: before 262.00 [262.00, 263.00]; after 264.00 [262.00, 265.00]; paired reduction % -0.76 [-1.15, 0.38]
+  requests_per_commit: before 0.98 [0.97, 0.98]; after 0.97 [0.97, 0.98]; paired reduction % 0.76 [-0.38, 1.13]
+  accepted_native_requests_per_commit: before 1.98 [1.97, 1.98]; after 1.97 [1.96, 1.98]; paired reduction % 0.57 [-0.38, 0.75]
+  generations_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  Commit counts differ. Product cost includes internal native work; no fixed per-commit cost claim.
+
+queued-batch32-8
+  ack_mean_ms: before 127.92 [115.39, 142.87]; after 185.77 [173.28, 198.80]; paired reduction % -35.46 [-72.29, -30.02]
+  ack_p50_ms: before 126.22 [115.52, 139.49]; after 179.83 [172.85, 185.82]; paired reduction % -36.94 [-60.86, -28.92]
+  ack_p95_ms: before 150.37 [122.45, 188.95]; after 232.43 [200.37, 311.30]; paired reduction % -33.26 [-154.21, -23.01]
+  durable_completion_wall_seconds: before 1.05 [0.95, 1.19]; after 1.52 [1.42, 1.64]; paired reduction % -35.02 [-72.68, -27.01]
+  process_ri_diskio_byteswritten_per_record: before 172448.00 [171808.00, 172704.00]; after 161280.00 [160832.00, 162304.00]; paired reduction % 6.13 [5.88, 6.87]
+  new_or_grown_logical_bytes_per_record: before 169616.46 [168976.37, 169873.23]; after 158354.22 [157906.29, 159377.90]; paired reduction % 6.29 [6.04, 7.04]
+  new_or_grown_allocated_bytes_per_record: before 169680.00 [169040.00, 169936.00]; after 158432.00 [157984.00, 159456.00]; paired reduction % 6.28 [6.03, 7.03]
+  logical_bytes_net_per_record: before 169616.46 [168976.37, 169873.23]; after 158354.22 [157906.29, 159377.90]; paired reduction % 6.29 [6.04, 7.04]
+  allocated_bytes_net_per_record: before 169680.00 [169040.00, 169936.00]; after 158432.00 [157984.00, 159456.00]; paired reduction % 6.28 [6.03, 7.03]
+  new_path_files_per_record: before 1.85 [1.85, 1.92]; after 1.88 [1.87, 1.88]; paired reduction % -1.06 [-1.27, 2.24]
+  frontier_delta: before 17.00 [17.00, 17.00]; after 18.00 [18.00, 18.00]; paired reduction % -5.88 [-5.88, -5.88]
+  requests_per_commit: before 0.47 [0.47, 0.47]; after 0.44 [0.44, 0.44]; paired reduction % 5.56 [5.56, 5.56]
+  accepted_native_requests_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  generations_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  Commit counts differ. Product cost includes internal native work; no fixed per-commit cost claim.
+
+compaction
+  compact_wall_seconds: before 2.59 [2.52, 2.74]; after 2.89 [2.67, 2.92]; paired reduction % -6.71 [-14.57, -3.26]
+  pack_millis: before 1160.00 [1067.00, 1241.00]; after 1489.00 [1375.00, 1647.00]; paired reduction % -28.87 [-32.72, -28.36]
+  reclaim_millis: before 1448.00 [1319.00, 1491.00]; after 1250.00 [1211.00, 1350.00]; paired reduction % 16.16 [-2.35, 16.37]
+  warm_read_probe_ack_seconds: before 0.000643 [0.000630, 0.000690]; after 0.000833 [0.000617, 0.000845]; paired reduction % -31.44 [-32.12, 10.55]
+  durable_write_probe_ack_seconds: before 1.194245 [1.092137, 1.275511]; after 1.411591 [0.031403, 1.700283]; paired reduction % -29.25 [-33.30, 97.37]
+  Actual request overlaps, out of three: {"after": {"durable_write": 3, "warm_read": 3}, "before": {"durable_write": 3, "warm_read": 3}}
+
+durable-single-after-compact-24
+  ack_mean_ms: before 29.28 [27.68, 39.08]; after 31.62 [29.92, 31.84]; paired reduction % -7.99 [-15.00, 23.43]
+  ack_p50_ms: before 26.84 [26.83, 32.47]; after 29.94 [26.41, 30.64]; paired reduction % -11.58 [-14.19, 18.67]
+  ack_p95_ms: before 44.46 [33.17, 73.71]; after 39.16 [33.70, 49.89]; paired reduction % 24.19 [-18.03, 32.32]
+  durable_completion_wall_seconds: before 0.70 [0.67, 0.94]; after 0.76 [0.72, 0.77]; paired reduction % -7.96 [-14.94, 23.36]
+  process_ri_diskio_byteswritten_per_record: before 616106.67 [614741.33, 618837.33]; after 616106.67 [613376.00, 620202.67]; paired reduction % -0.22 [-0.22, 0.44]
+  new_or_grown_logical_bytes_per_record: before 563748.88 [562391.08, 566481.54]; after 563748.54 [561022.21, 567852.46]; paired reduction % -0.24 [-0.24, 0.48]
+  new_or_grown_allocated_bytes_per_record: before 570197.33 [568832.00, 572928.00]; after 570197.33 [567466.67, 574293.33]; paired reduction % -0.24 [-0.24, 0.48]
+  logical_bytes_net_per_record: before 563748.88 [562391.08, 566481.54]; after 563748.54 [561022.21, 567852.46]; paired reduction % -0.24 [-0.24, 0.48]
+  allocated_bytes_net_per_record: before 570197.33 [568832.00, 572928.00]; after 570197.33 [567466.67, 574293.33]; paired reduction % -0.24 [-0.24, 0.48]
+  new_path_files_per_record: before 10.46 [10.38, 10.54]; after 10.50 [10.42, 10.62]; paired reduction % -0.79 [-1.20, 0.40]
+  frontier_delta: before 49.00 [49.00, 49.00]; after 49.00 [49.00, 49.00]; paired reduction % 0.00 [0.00, 0.00]
+  requests_per_commit: before 0.49 [0.49, 0.49]; after 0.49 [0.49, 0.49]; paired reduction % 0.00 [0.00, 0.00]
+  accepted_native_requests_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+  generations_per_commit: before 1.00 [1.00, 1.00]; after 1.00 [1.00, 1.00]; paired reduction % 0.00 [0.00, 0.00]
+
+Peak process memory bytes: before 51889256 [50218016, 58180736]; after 51758136 [51282976, 57525352].
+Observed lifetime peaks at checkpoints include seed and compaction; final shutdown is outside the sample scope.
+requests_per_commit counts HTTP mutation calls; accepted_native_requests_per_commit measures native queue coalescence.
+All six runs confirm complete values, graceful reopen, stopped owned nodes, and exact owned cleanup.
+No power-loss, cloud, primary, significance, or default-maintenance claim.
+
+Separate focused compaction probe sweep
+64 fixed requests per role; nominal starts are 20 ms + 50 ms × ordinal.
+Each role uses one sequential stream. A blocked request delays later starts; the recorded lateness includes this delay.
+Overlap refers to the compaction request interval. It does not locate the internal write gate.
+Per-run percentiles retain their sample counts; requests from different runs are not pooled.
+warm_read
+  overlap_count: before 27.000 [24.000, 28.000]; after 29.000 [28.000, 29.000]
+  all_ack_median_ms: before 0.364 [0.307, 0.372]; after 0.275 [0.273, 0.285]
+  all_ack_p95_ms: before 0.469 [0.449, 0.629]; after 0.391 [0.371, 0.410]
+  all_ack_max_ms: before 0.551 [0.514, 1.747]; after 2.862 [0.623, 2.879]
+  overlap_ack_median_ms: before 0.370 [0.281, 0.395]; after 0.259 [0.253, 0.265]
+  overlap_ack_p95_ms: before 0.498 [0.410, 0.522]; after 0.371 [0.368, 0.381]
+  overlap_ack_max_ms: before 0.551 [0.514, 0.629]; after 0.623 [0.525, 0.736]
+  lateness_median_ms: before 9.190 [8.217, 10.022]; after 10.022 [10.016, 10.023]
+  lateness_p95_ms: before 10.064 [10.056, 10.070]; after 10.062 [10.061, 10.067]
+  lateness_max_ms: before 10.163 [10.063, 10.202]; after 10.109 [10.090, 10.286]
+durable_write
+  overlap_count: before 3.000 [3.000, 3.000]; after 3.000 [3.000, 3.000]
+  all_ack_median_ms: before 27.887 [23.937, 28.162]; after 29.941 [26.778, 30.424]
+  all_ack_p95_ms: before 54.008 [41.675, 70.146]; after 39.560 [35.273, 41.157]
+  all_ack_max_ms: before 1197.647 [1084.465, 1271.670]; after 1314.040 [1297.286, 1316.090]
+  overlap_ack_median_ms: before 59.998 [54.866, 63.528]; after 75.263 [59.158, 78.204]
+  overlap_ack_p95_ms: before 1197.647 [1084.465, 1271.670]; after 1314.040 [1297.286, 1316.090]
+  overlap_ack_max_ms: before 1197.647 [1084.465, 1271.670]; after 1314.040 [1297.286, 1316.090]
+  lateness_median_ms: before 474.829 [382.152, 709.550]; after 693.783 [543.577, 752.122]
+  lateness_p95_ms: before 1156.076 [1021.135, 1223.760]; after 1269.641 [1229.043, 1272.884]
+  lateness_max_ms: before 1175.583 [1049.362, 1242.983]; after 1301.308 [1266.359, 1302.169]
+
+Separate durable erase workload
+64 single deletes of keys 0–63, then one 129-delete request for keys 64–192; 319 records remain.
+Each phase checks all known keys, deleted absence, and range pages. A graceful reopen checks the final state.
+Isolated current-receipt obsolete-part pruning; both variants use the journal-free writer.
+erase-durable-single-64
+  ack_median_ms: before 31.872 [30.053, 32.010]; after 34.986 [33.128, 41.233]
+  ack_p95_ms: before 34.055 [33.684, 55.547]; after 60.234 [40.999, 87.580]
+  ack_max_ms: before 43.961 [43.597, 68.083]; after 63.704 [44.775, 161.117]
+  wall_through_final_flush_seconds: before 2.058 [2.038, 2.216]; after 2.534 [2.186, 3.244]
+  final_explicit_flush_seconds: before 0.000 [0.000, 0.000]; after 0.000 [0.000, 0.000]
+  logical_bytes_net_per_erased_record: before 919325.906 [917012.188, 919840.344]; after 883756.875 [882206.688, 884518.562]
+  allocated_bytes_net_per_erased_record: before 925376.000 [923008.000, 925888.000]; after 889792.000 [888256.000, 890624.000]
+  new_or_grown_allocated_bytes_per_erased_record: before 925376.000 [923008.000, 925888.000]; after 889792.000 [888256.000, 890624.000]
+  process_ri_diskio_byteswritten_per_erased_record: before 971392.000 [968704.000, 971904.000]; after 935808.000 [934272.000, 936960.000]
+  process_ri_diskio_bytesread_per_erased_record: before 1408.000 [1024.000, 1472.000]; after 1664.000 [512.000, 1792.000]
+erase-durable-batch129
+  ack_median_ms: before 271.019 [250.067, 271.435]; after 439.538 [417.609, 444.494]
+  ack_p95_ms: before 271.019 [250.067, 271.435]; after 439.538 [417.609, 444.494]
+  ack_max_ms: before 271.019 [250.067, 271.435]; after 439.538 [417.609, 444.494]
+  wall_through_final_flush_seconds: before 0.271 [0.251, 0.272]; after 0.440 [0.418, 0.445]
+  final_explicit_flush_seconds: before 0.000 [0.000, 0.000]; after 0.000 [0.000, 0.000]
+  logical_bytes_net_per_erased_record: before 83580.597 [83578.163, 83581.442]; after 82818.884 [82818.814, 82821.442]
+  allocated_bytes_net_per_erased_record: before 83634.605 [83634.605, 83634.605]; after 82872.558 [82872.558, 82872.558]
+  new_or_grown_allocated_bytes_per_erased_record: before 83634.605 [83634.605, 83634.605]; after 82872.558 [82872.558, 82872.558]
+  process_ri_diskio_byteswritten_per_erased_record: before 84301.395 [84301.395, 84301.395]; after 83539.349 [83539.349, 83539.349]
+  process_ri_diskio_bytesread_per_erased_record: before 349.271 [95.256, 444.527]; after 952.558 [349.271, 5080.310]

@@ -1,0 +1,134 @@
+{
+  "all_local_manifests_under_source": true,
+  "argv": [
+    "cargo",
+    "metadata",
+    "--locked",
+    "--format-version",
+    "1"
+  ],
+  "local_packages": [
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/app_identity_crypto/Cargo.toml",
+      "manifest_sha256": "2da5314edfcb6260786a6265169063d5fab7241eb45264202b715e99de60b47e",
+      "package": "app_identity_crypto"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/env_flag/Cargo.toml",
+      "manifest_sha256": "7f69a389c6fd9da7da6ca7c89a5188516de31261e260d827ec1c6ce57ce48f49",
+      "package": "env_flag"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/vendor/fastembed-4.9.0-no-image/Cargo.toml",
+      "manifest_sha256": "7f23b9126aafd6aafb13fafc7d7bf6ab6953e5c81fce751bed46b5d459b8defb",
+      "package": "fastembed"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/fold_db/crates/core/Cargo.toml",
+      "manifest_sha256": "cb9f890c6c11058ca7da0a1f11966bbc4066dea5dc317b33d5f88eebe466ce20",
+      "package": "fold_db"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/folddb_profile/Cargo.toml",
+      "manifest_sha256": "5bd0e65f6ac32fffa5fe0e4d67e4689bdee74c9c7f9e19af0346fc6a125f68fa",
+      "package": "folddb_profile"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/scripts/generate_schema_org_classifications/Cargo.toml",
+      "manifest_sha256": "e5f00e708eda2f20f7b5a626e34fea2fa7258c1917d41efea5f7bc0518383ee7",
+      "package": "generate_schema_org_classifications"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/scripts/generate_validated_schema_org_seeds/Cargo.toml",
+      "manifest_sha256": "788bc3e13d4bb41deb8c969db0448e64b16d428507aeeda93010baca0e5ed488",
+      "package": "generate_validated_schema_org_seeds"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/vendor/lastdb_docstore/Cargo.toml",
+      "manifest_sha256": "e8ee468396a1d5c387859b31c1dd412824f7d3ffe39c3e0ab3a6f5815c5e7f59",
+      "package": "lastdb_docstore"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/lastdb_host/Cargo.toml",
+      "manifest_sha256": "46301aa82ea65fd1a646d59f45a237ec2da1652d2a380e29072942a90c78418c",
+      "package": "lastdb_host"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/lastdb_identity/Cargo.toml",
+      "manifest_sha256": "18fb5b528bb8b5002fca4916930768ecfd0c8b0e96032d1498ef756b554e9f33",
+      "package": "lastdb_identity"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/lastdb_node/Cargo.toml",
+      "manifest_sha256": "d76a54b27e88453725f95dc16354b043ea5d6e37aa75eea2df6f6fea57a39ca3",
+      "package": "lastdb_node"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/lastdb_uds/Cargo.toml",
+      "manifest_sha256": "b27c86779d405400eece2910efa73767dab0fcefd88305f5dbeabb95e5ae9b77",
+      "package": "lastdb_uds"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/vendor/laststore/Cargo.toml",
+      "manifest_sha256": "a4aa130b6f353a5dbe82281d8ebb9c7f383ae1614be65beb36679820fbb20f17",
+      "package": "laststore"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/fold_db/crates/observability/Cargo.toml",
+      "manifest_sha256": "f261260f54001445b48afb2b6b012ef9d679c5ea261990dacb0e1857663f79de",
+      "package": "observability"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/schema_core_resolver/Cargo.toml",
+      "manifest_sha256": "c6d52982a7a76363f85b92cc054e88450e62eacf9bf2d7b5167d8c4b38d49d52",
+      "package": "schema_core_resolver"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/resolver_pack_publisher/Cargo.toml",
+      "manifest_sha256": "b51e8ab4dfe4abfa28900f10916aa6ea14b0c70524b4677d2c4156443ee2540d",
+      "package": "schema_resolver_pack_publisher"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/client/Cargo.toml",
+      "manifest_sha256": "c061dd2c2fe2d70317738b590b3eb7daa71e86b75303903b6026360ba677c3ab",
+      "package": "schema_service_client"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/core/Cargo.toml",
+      "manifest_sha256": "e43bec72cb797759eeba435da3daba4463b402757bb81afc9382d29eee084b7a",
+      "package": "schema_service_core"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/schema_service_s3/Cargo.toml",
+      "manifest_sha256": "5e25a5c6f0ec59c4b8e5445da2a686bdbd1b35e258294bedb94461f07d20c761",
+      "package": "schema_service_s3"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/server_http/Cargo.toml",
+      "manifest_sha256": "b2ab3d920d5bf355dd8b968fa050a613455eadb10b67080e821278415a63ed45",
+      "package": "schema_service_server_http"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/server_lambda/Cargo.toml",
+      "manifest_sha256": "d6c918c5fcb3c3fe89e446ea725c031184d5d1064970667658744ac477a1cc1c",
+      "package": "schema_service_server_lambda"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/server_shared/Cargo.toml",
+      "manifest_sha256": "4bbc26991f1ce60147843f8b0821522814813ae6a1cd17aaf415951825cfd2a2",
+      "package": "schema_service_server_shared"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/worker/Cargo.toml",
+      "manifest_sha256": "ccc61d9c969a627e6b69b642191f708ea15fff7c3a691796a5fe53a07e37549d",
+      "package": "schema_service_worker"
+    },
+    {
+      "manifest": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022/schema_service/crates/schema_types/Cargo.toml",
+      "manifest_sha256": "fb7e51e5c09dcd9951e9d2d2c73cc7169c36f0869f81baabea5fc68a94972af7",
+      "package": "schema_types"
+    }
+  ],
+  "metadata_stdout_sha256": "cf422ba982b930b35911bd3193b31cc3ad0a4ca28c636facfc93c311e8ceb9f3",
+  "metadata_target_directory": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd/target"
+}

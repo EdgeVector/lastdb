@@ -1,5 +1,6 @@
 use super::admission::AdmissionLedger;
 use super::{PreparedMutation, SnapshotMutation, SnapshotQuote, SnapshotReservation};
+use crate::disk_pack::live_parts::LiveParts;
 use crate::disk_pack::pack_write::PackWriter;
 use crate::disk_pack::write_lock::WriteLock;
 use crate::disk_pack::{
@@ -17,6 +18,7 @@ pub struct SnapshotWriter {
     pub(super) current: Current,
     pub(super) poisoned: bool,
     pub(super) dependencies: u64,
+    pub(super) legacy_live: Option<LiveParts>,
     pub(super) lock: Arc<WriteLock>,
     admission: Arc<AdmissionLedger>,
     pub(super) compaction: crate::disk_pack::maintenance::CompactionPolicy,
@@ -35,11 +37,24 @@ impl SnapshotWriter {
     fn open_locked(lock: WriteLock) -> Result<Self> {
         let current = artifact::current(lock.root())?;
         let receipt = publish::ensure_generation(&lock, &current)?;
+        // Legacy metadata work and its resource checks precede every memory ack.
+        // The first commit transfers these counts into the counted receipt.
+        let legacy_live =
+            if current.required_features & crate::disk_pack::FEATURE_LIVE_PART_COUNTS == 0 {
+                Some(LiveParts::bootstrap(
+                    lock.root(),
+                    &current,
+                    &receipt.coordinates,
+                )?)
+            } else {
+                None
+            };
         Ok(Self {
             root: lock.root().to_path_buf(),
             current,
             poisoned: false,
             dependencies: receipt.dependencies,
+            legacy_live,
             lock: Arc::new(lock),
             admission: Arc::default(),
             compaction: Default::default(),
@@ -119,7 +134,7 @@ impl SnapshotWriter {
     }
 
     fn commit(
-        &self,
+        &mut self,
         mutations: Vec<SnapshotMutation>,
         quote: SnapshotQuote,
     ) -> Result<PublishedGeneration> {
@@ -181,6 +196,14 @@ impl SnapshotWriter {
             return Err(corrupt("snapshot payload exceeded its admitted dimensions"));
         }
         drop(payload_timing);
-        publish::publish_prepared(&self.lock, &self.current, proposed, prepared, payload)
+        let legacy_live = self.legacy_live.take();
+        publish::publish_prepared(
+            &self.lock,
+            &self.current,
+            proposed,
+            prepared,
+            payload,
+            legacy_live,
+        )
     }
 }

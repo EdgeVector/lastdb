@@ -1,0 +1,11 @@
+{
+  "device": 16777231,
+  "inode": 1503727100,
+  "owner_uid": 501,
+  "primary_data": false,
+  "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcbuild.before.llforttd",
+  "run_id": "a1769792d5cb431687b77388e2fca072",
+  "source_worktree": "/Users/tomtang/.fkanban/worktrees/lastdb-receipt-cache-baseline-20261022",
+  "variant": "before",
+  "version": 1
+}

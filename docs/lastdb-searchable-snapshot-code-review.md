@@ -1,6 +1,7 @@
 # LastDB storage code review
 
-Reviewed 2026-10-22 against the current branch and its recorded source commits.
+Revised 2026-10-23 for integration with main `0f07ddeb1` and the PR 271 squash merge `192ea406a`.
+The earlier October 22 review and performance reports retain their recorded source commits.
 Commit `47088b89c0bff5142a519db685051849112a787a` supplies the initial native writer.
 The implementation starts from main `6d8aa0d573e91a94fd4fd308a7f0eacca022e852`.
 It retains the macOS barriers from PR 266 and the reclaim handoff from PR 267.
@@ -8,19 +9,27 @@ This document separates source facts, the first product run, and historical perf
 The second review also removes erase recovery records and journal-based cloud repair.
 The native writer merged in PR 268 as `4118c7baa`.
 The second review uses final product source `5919abbfbf2263993ea99700b73bd9c8d43d689b` in PR 271.
+The next change starts from `08d8436cc` and removes obsolete parts from each new receipt.
+The earlier comparison measures uncached product source `a1941e3a8` in PR 273.
+Commit `e79b71151` implements the bounded cache within each publication.
+Profiles, three controlled pairs, six product operations, and three default-maintenance runs are complete.
+Those results precede this integration and do not measure its performance.
+Tom approved the code merges on October 23. The primary stays unchanged.
+The [integration report](proofs/journal-receipt-integration-20261023/README.md) records the final source checks and their local execution limit.
 
 ## Current source
 
 | Area | Current source | Scope left |
 |---|---|---|
-| Local writes | `HomeSnapshot::commit_mutation` writes immutable payload files and changed search pages | Measure the change against a matched baseline |
-| Publications | Each complete stored batch writes one generation receipt and publishes one root | Receipt copies still retain conservative prior dependencies |
-| Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Compaction still removes superseded files |
+| Local writes | Native values and app notices commit together before the acknowledgement | Earlier matched pairs measure different source and write policy |
+| Publications | Each complete stored batch writes one receipt with exact positive live-part counts and publishes one root | Changed pages still use fixed 16 KiB pages |
+| Reference cache | One bounded cache shares checked maps, overflow pages, and part headers within each publication | Earlier profiles show lower CPU cost against the uncached source |
+| Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Periodic reclaim removes wholly obsolete parts; compaction rewrites partly live parts |
 | Recovery | Writer open verifies `CURRENT`, its receipt, and dependency files | No local mutation replay or silent receipt reconstruction |
 | Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Erase aggregates now commit with deletes; debit recovery records are removed |
-| Format | Every supported root requires snapshot feature `256`; retired feature `2` is refused | No converter for old native journal homes exists |
+| Format | Every supported root requires feature `256`; new receipts also require feature `512` and count semantic version 1 | Older supported uncounted snapshots collect counts before writer admission; version-zero counted prototypes receive an explicit refusal |
 | macOS durability | Ordered file barriers precede root publication; a final device flush precedes durable success | Process interruption does not prove power-loss behavior |
-| File lifetime | Read holds, backup references, and the installed-root reclaim handoff remain | Compaction still has a write pause |
+| File lifetime | Exact read holds, backup references, private output protection, and the installed-root reclaim handoff remain | Staged compaction prepares complete counts before its final publication gate; a synchronous fallback retains its caller's boundary |
 | Backup and restore | `lastdb-native-backup-2` contains the exact snapshot inventory and no journal state | A data-only bundle excludes node identity and encryption keys |
 | Cloud sync | Native startup and activation still refuse cloud configuration | Atomic snapshot/log capture and a sync-only mutation log remain future work |
 | Warm records | No 10,000-record cap; the default byte budget is 256 MiB | Preserve counted temporary overshoot for held and dirty records |
@@ -52,7 +61,8 @@ Retired repair state and cloud generations that require adoption receive an expl
 Ordinary sync mutations and authenticated retired sync source records remain.
 
 The review also removes unused acceptance timestamps, pressure wrappers, and dependency batch fields.
-Reserved format bytes remain zero and retain their integrity check.
+Retired batch bytes remain reserved in older receipts.
+New counted receipts use bytes 24 through 31 of each dependency record for a positive live count.
 Payload reservations no longer charge a phantom journal prefix.
 The complete-batch policy cap stays 128 MiB.
 The offline write command now holds a complete disk-space reservation through publication.
@@ -85,23 +95,72 @@ HomeSnapshot::commit_mutation
 
 This route does not write required sync entries.
 That atomic capture contract remains future work, and cloud activation stays blocked.
-Author-clock reservations retain their durability requirements before a memory ack.
-The ordinary flush interval stays 500 ms.
-A memory ack remains volatile until the flush completes.
-The interval does not set a guaranteed maximum loss window.
+Author-clock reservations retain their durability requirements before writer admission.
+Current main commits ordinary native requests and their app notices before acknowledgement.
+The final device barrier and clean core memory publication precede the acknowledgement.
+No collection timer delays ordinary native requests.
 
 The writer reserves the complete stored batch before file output.
 The payload quote includes worst-case frames, part headers, and complete block-map pages.
 The complete mutation quote adds changed tree pages, one maximum-size receipt, and root space.
 The writer also checks actual payload dimensions against its admitted quote.
 The node retains separate disk and memory reservations.
-An engine reservation alone does not authorize a memory ack.
+An engine reservation alone does not authorize a native write acknowledgement.
+
+The receipt no longer inherits every prior file part.
+The publisher removes old page references and adds references from its fresh private metadata pages.
+The count reaches zero only when no current page, overflow descriptor, or payload block requires that part.
+Shared parts stay in the receipt until their last reference goes.
+Each page resolves overflow references before the next page enters the bounded ledger.
+Each changed key resolves its old and new payload references before the next key.
+One publication-local `ReferenceCache` now shares the checked immutable maps, overflow pages, and part headers across those resolutions.
+It also serves the fresh-part reference pass and drops before final count changes and receipt output.
+The cache resets at 24 pages or part-header identities; its bounds remain 26 pages, 25 header identities, and 32 handles.
+Each resolution retains its existing work limit and charges logical steps even on cache hits.
+Bootstrap retains its standalone cumulative work and allowed-part checks.
+The six changed files are `live_parts.rs`, `live_parts/overflow.rs`, `live_parts/scan.rs`, `tree_edit.rs`, `locator_forest.rs`, and `publish.rs`.
+All reside under `vendor/laststore/src/disk_pack/`.
+The cache changes no integrity, format, warm-data, root, error, or recovery rule.
+The existing root holds and reclaim rules still protect older snapshots and backups.
+Every directory reference also retains its locator object's part-zero allocator template.
+Complete builds and all compaction paths collect counts from the final reachable tree, including grafted subtrees.
+Full count passes retain bounded stacks and page-local ledgers without a directory-entry or logical-record quota.
+The supported format defines the cumulative work bound; the arbitrary older-format step quota is removed.
+Counted generation prefixes store semantic version 1 at bytes 96 through 103.
+Version-zero counted prototypes receive an explicit refusal before the writer loads their dependency ledger.
+Native backup manifests accept optional feature 512 and reject unknown feature bits.
+Periodic reclaim removes obsolete receipts even below the compaction trigger.
+The orphan sweep also repeats, with a default ten-minute interval and unchanged age and grace cutoffs.
+This sweep finds private output and superseded batch output that no receipt names.
 
 The writer marks itself poisoned before commit file work.
 An uncertain result stops new admission until the caller reopens the writer.
 A reopen selects only the committed root; private interrupted output remains unused.
 Missing or damaged committed dependencies cause an error.
 The code does not infer another root or reconstruct a missing receipt.
+
+The [earlier receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records three uncached `a1941e3a8` pairs against journal-free `08d8436cc`.
+Durable-single file growth falls from 668.35 to 640.36 KiB per update.
+The durable 32-record batch p50 rises from 99.96 to 164.65 ms; every pair records a slower batch.
+The focused worst write increases from 1.198 to 1.314 seconds.
+That candidate passes the code and six operational checks, but its performance tradeoff does not support a merge recommendation.
+Each changed key in that source creates a fresh resolver, which can repeat map reads for related keys.
+That source path is a possible cause; the earlier report does not claim profile attribution.
+The separate [cache follow-up report](proofs/receipt-cache-followup-20261022/RESULTS.md) covers `e79b71151`.
+Three fresh baseline/cache pairs show durable-single growth of 670.86 and 639.35 KiB per update.
+The durable batch32 request p50 is 113.33 and 131.24 ms; the focused worst write is 1.249 and 1.488 seconds.
+These are medians across runs, without pooled requests.
+The cache profile uses 19.6% less node CPU than the uncached draft and 3.3% more than the fresh baseline.
+One default-maintenance run per variant retains 1,253.27 MiB for the baseline and 175.05 MiB for the cache after the quiet tail.
+The cache's request p50 is 137.18 ms versus 127.46 ms; two requests exceed 500 ms versus none.
+The baseline completes one pack; the cache completes none in this finite window.
+The October 22 recommendation kept PR 273 as a draft pending further review.
+Tom approved the code merges on October 23, with the primary unchanged.
+The integration removes the arbitrary count quotas from the earlier source and preserves main's concurrent compaction paths.
+The follow-up [scale review](proofs/receipt-cache-followup-20261022/SCALE-REVIEW.md) describes the frozen source and its former quotas.
+Its [next-change review](proofs/receipt-cache-followup-20261022/NEXT-CHANGE-REVIEW.md) proposed one app notice publication per batch.
+Current main already commits those notices with the native values.
+The historical benchmark reports remain useful comparisons for their recorded executables; they do not measure this integration.
 
 New native and artifact roots require `FEATURE_SNAPSHOT_COMMIT`.
 Old journal roots receive an explicit refusal before writer file creation.

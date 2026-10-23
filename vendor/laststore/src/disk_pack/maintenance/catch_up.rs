@@ -12,20 +12,14 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     if cut == previous {
         return Ok(0);
     }
-    if cut.frontier < previous.frontier
-        || cut.generation <= previous.generation
-        || cut.required_features != previous.required_features
-    {
-        return Err(corrupt(
-            "compaction catch-up root is not a newer compatible snapshot",
-        ));
-    }
+    super::concurrent::ensure_newer_compatible(previous, cut)?;
     let root = job.lock.root();
     let mut proposed = cut.clone();
     proposed.generation = cut
         .generation
         .checked_add(1)
         .ok_or_else(|| corrupt("generation exhaustion"))?;
+    proposed.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
     proposed.directory = job.output.current.directory.clone();
     if cut.frontier == previous.frontier {
         // A physical rewrite changes addresses, not values. The private output
@@ -77,14 +71,14 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
         };
         directory_changes.push((key, replacement.encode()?));
         if directory_changes.len() == cut.batch_operation_limit().min(256) {
-            directory.put_many(&mut output_call, &directory_changes)?;
+            directory.put_many_untracked(&mut output_call, &directory_changes)?;
             directory_changes.clear();
         }
         call = artifact::metadata_call(root, cut.clone());
     }
     if !directory_changes.is_empty() {
         let mut call = artifact::metadata_call(root, proposed.clone());
-        directory.put_many(&mut call, &directory_changes)?;
+        directory.put_many_untracked(&mut call, &directory_changes)?;
     }
     let mut dependencies = carried_dependencies(
         root,
@@ -96,7 +90,7 @@ pub(super) fn run(job: &mut PreparedCompaction, cut: &Current, limit: u64) -> Re
     for output in locators.finish()? {
         dependencies.add_tree(&output.tree, output.parts)?;
     }
-    let (tree, _, parts) = directory.finish()?;
+    let (tree, _, parts, _) = directory.finish_with_changes()?;
     dependencies.add_tree(&tree, parts)?;
     proposed.directory = tree;
     job.output.current = proposed;
@@ -118,7 +112,10 @@ fn carried_dependencies(
     output: Vec<crate::disk_pack::dependency::Coordinate>,
     templates: std::collections::BTreeSet<uuid::Uuid>,
 ) -> Result<Dependencies> {
-    let mut dependencies = Dependencies::from_coordinates(output)?;
+    let mut dependencies = Dependencies::new();
+    for coordinate in output {
+        dependencies.add(coordinate)?;
+    }
     // New groups can retain a live locator object from before the source cut.
     // The shared allocator also needs its empty page zero for later groups,
     // even when none of the currently selected trees points to that page.
@@ -184,14 +181,14 @@ impl Graft<'_> {
             budget.note()?;
             changes.push((key, value));
             if changes.len() == self.cut.batch_operation_limit().min(256) {
-                tree = locators.edit(output_call, tree, &changes)?;
+                tree = locators.edit_untracked(output_call, tree, &changes)?;
                 changes.clear();
                 source = artifact::metadata_call(self.root, self.cut.clone());
                 *output_call = artifact::metadata_call(self.root, self.proposed.clone());
             }
         }
         if !changes.is_empty() {
-            tree = locators.edit(output_call, tree, &changes)?;
+            tree = locators.edit_untracked(output_call, tree, &changes)?;
         }
         Ok(tree)
     }

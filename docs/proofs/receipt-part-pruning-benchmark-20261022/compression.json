@@ -1,0 +1,161 @@
+{
+  "all_complete": true,
+  "files": [
+    {
+      "compressed": {
+        "bytes": 11321964,
+        "sha256": "ae0fd4845709c66f84ffb4b274ef3e92b4963a89726fa0143108cae062bf19ff"
+      },
+      "compressed_path": "before-1/receipts.full.local.gz",
+      "path": "before-1/receipts.jsonl",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 31412708,
+        "sha256": "353b635cb5529e3b6ad5c95eb49fd85e1597a620dc2be1bb2c901f732e2045af"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 312331,
+        "sha256": "85571454f90549353217f7ecfce39dab1485622907edb295c07090f19cebe30b"
+      },
+      "compressed_path": "before-1/checkpoints.json.gz",
+      "path": "before-1/checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 3323455,
+        "sha256": "80d1dcba2a2d67ac21df692e1e1cf557a01e8d5a54c8f17acbbc93a2c62d4829"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 11321739,
+        "sha256": "5f82e444b2798877c0cbee2cc587d64c761a40a69f37f7b9587505125bb47d6e"
+      },
+      "compressed_path": "after-1/receipts.full.local.gz",
+      "path": "after-1/receipts.jsonl",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 31415405,
+        "sha256": "ccf6a3f835f6042e82433c87126eaae5ea959d76c760fca9b1ff26a324588710"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 312249,
+        "sha256": "505f1dad8d27461e833c5161db7a1783cad02af68fa3ad9cf66ff6b39e13eda9"
+      },
+      "compressed_path": "after-1/checkpoints.json.gz",
+      "path": "after-1/checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 3320922,
+        "sha256": "db7e527a5a648897d2b09b7b6d48f7d8ae42ad38634005f89d4bac4172e1ea03"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 11322161,
+        "sha256": "dda749d17542e1821e3c95299b9fb8fd2efbe8abd71d9c36ca7d398a432fabca"
+      },
+      "compressed_path": "after-2/receipts.full.local.gz",
+      "path": "after-2/receipts.jsonl",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 31412802,
+        "sha256": "124af090056a82f227d83a1735a09fa2cdad8ed746de2f84cfc25a899006df2c"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 312386,
+        "sha256": "2c225e550b84b3be6e63be77541f1548a1058a19ac200238eb5094d1ca6caa34"
+      },
+      "compressed_path": "after-2/checkpoints.json.gz",
+      "path": "after-2/checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 3332837,
+        "sha256": "64963db673c95f9ee25090786047682645f7e4138c407c8a0dc8107d91617d75"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 11321884,
+        "sha256": "2cd17c9aa812e7c3e069224f3b97890aeb805dda4d6446517f625506fc4dc101"
+      },
+      "compressed_path": "before-2/receipts.full.local.gz",
+      "path": "before-2/receipts.jsonl",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 31415498,
+        "sha256": "fa23650aa99c568bd2fda79e4acec384594cc4e501510a1632189448efe19151"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 312090,
+        "sha256": "edff0439c695ad6c6bc2e725b55b0b54e7abfcd904ac58cba7635f46402e371b"
+      },
+      "compressed_path": "before-2/checkpoints.json.gz",
+      "path": "before-2/checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 3325487,
+        "sha256": "c769e3c7db3ae9bd15e22f225d828d87a9aed6569c17198c52a7c7c1fd8f5232"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 11321792,
+        "sha256": "54ff6ff5080adc032dedaa8fd1557046f746dc61348b3cefe55dfff0c0d51151"
+      },
+      "compressed_path": "before-3/receipts.full.local.gz",
+      "path": "before-3/receipts.jsonl",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 31415211,
+        "sha256": "2fadd9fbe31e64a14bb6a9e70dc249321f7ca60cb21a985525163206ab557927"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 313590,
+        "sha256": "29835cd1fdf2beeb55c62a6c81802dc9c69a0e36c4ad74b3c498d5aedef6201b"
+      },
+      "compressed_path": "before-3/checkpoints.json.gz",
+      "path": "before-3/checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 3325465,
+        "sha256": "876bc89bf4c7f7725e8ae84ca0388fd95dc22ef4331f2bed40b0ee64a7858eee"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 11322424,
+        "sha256": "9637bd1ca5c4a68b053437c90010bb3f19d808abcc1df35a14a2f6b138ab456c"
+      },
+      "compressed_path": "after-3/receipts.full.local.gz",
+      "path": "after-3/receipts.jsonl",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 31418101,
+        "sha256": "09af4596c67639ecb0147f541d67ba571b12b55d626b7a2c63659b5fb2dc6546"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 314379,
+        "sha256": "8b636f324527c8e0ceff97c3b882c9b405688a05e7877d9d6d033a7a87022bf6"
+      },
+      "compressed_path": "after-3/checkpoints.json.gz",
+      "path": "after-3/checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 3339706,
+        "sha256": "367a8dc0c769f549325fbc208bffe8b4385bdf99f3fa7fc1621c18a1dd70ecd7"
+      }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "argv": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+    "write",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.8y4g9xix/home/data/disk-pack",
+    "--input",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.8y4g9xix/physical-inputs/advance-old-floor.json"
+  ],
+  "elapsed_nanos": 17829000,
+  "exit_code": 0,
+  "input": {
+    "bytes": 92,
+    "path": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.8y4g9xix/physical-inputs/advance-old-floor.json",
+    "sha256": "8c223b6fc3ba6e797ca2f177c64168f05b3ceeec9361a7143853af8053ff109a"
+  },
+  "result": {
+    "disk": {
+      "directory_reads": 0,
+      "file_opens": 128,
+      "footer_bytes": 0,
+      "format_probe_bytes": 904448,
+      "group_opens": 0,
+      "legacy_replay_bytes": 0,
+      "payload_bytes": 0,
+      "read_operations": 90,
+      "temporary_bytes_peak": 65664
+    },
+    "elapsed_nanos": 14796375,
+    "frontier": 27,
+    "generation": 28,
+    "operations": 1,
+    "previous_frontier": 26,
+    "published": true,
+    "snapshot_quote": {
+      "dependency_parts": 5,
+      "map_pages": 33,
+      "physical_bytes": 5923135,
+      "scope": "complete_snapshot"
+    }
+  },
+  "stderr": "",
+  "stdout_bytes": 419,
+  "stdout_sha256": "cc70c1b238669555ce6ee25a480f55d18854baa5838f2e58f36022e8f0649b9e"
+}

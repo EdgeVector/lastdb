@@ -1,0 +1,26 @@
+{
+  "CARGO_TARGET_DIR": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target",
+  "argv": [
+    "cargo",
+    "clean",
+    "--release",
+    "-p",
+    "lastdb_node"
+  ],
+  "driver_sha256": "8f0d5d48daab5d87defb81f3875f65fba3d0dee6a5dbaeb4eaa8022fcfcf3fb7",
+  "end_unix_ns": 1792717207145896000,
+  "exit_code": 0,
+  "owner": {
+    "device": 16777231,
+    "inode": 1502479711,
+    "owner_uid": 501,
+    "primary_data": false,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9",
+    "run_id": "0e69d8232d274a55a3d2fe48dc51a1f7",
+    "version": 1
+  },
+  "reason": "Shared-target build-script cache watched the baseline worktree's git state and retained its version stamp",
+  "scope": "Candidate-only build-cache preparation; no product source, measured build argv, or baseline binary change",
+  "source_revision": "c6645bda5272703b84fd7228f7684ec5cd4767d4",
+  "start_unix_ns": 1792717206698304000
+}

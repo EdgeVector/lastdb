@@ -1,0 +1,8 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": false,
+  "error": "The operational proof requires precise current-part accounting",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.9wuprvsp/home",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.9wuprvsp",
+  "scratch_retained": true
+}

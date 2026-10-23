@@ -41,6 +41,7 @@ impl SnapshotWriter {
         }
         self.current = staged.current.clone();
         self.dependencies = staged.parts;
+        self.legacy_live = None;
         let mut receipt = output.receipt();
         receipt.generation = self.current.generation;
         receipt.parts_after = self.dependencies;
@@ -84,6 +85,7 @@ impl SnapshotWriter {
         self.compaction.completed(&receipt);
         self.current = current;
         self.dependencies = receipt.parts_after;
+        self.legacy_live = None;
         self.poisoned = false;
         Ok(receipt)
     }
@@ -136,7 +138,9 @@ impl SnapshotWriter {
         )
     }
 
-    /// The caller owns the write boundary. Only a bounded final delta runs here.
+    /// Synchronous fallback: replay a bounded final delta, seed complete live
+    /// counts, and publish while the caller owns the write boundary. The node's
+    /// staged path seeds before it takes the final publication boundary.
     pub fn finish_pack(
         &mut self,
         mut output: crate::disk_pack::maintenance::PreparedCompaction,
@@ -157,6 +161,7 @@ impl SnapshotWriter {
         self.compaction.completed(&receipt);
         self.current = current;
         self.dependencies = receipt.parts_after;
+        self.legacy_live = None;
         self.poisoned = false;
         Ok(receipt)
     }

@@ -1,0 +1,35 @@
+{
+  "all_bytes_unchanged": true,
+  "at_unix_ns": 1792732675114334000,
+  "complete": true,
+  "driver_sha256": "8d22308986d33e92c8426c85ce278e538b598f56d086506778f6681628cc933f",
+  "fresh_symmetric_before_after_profiles_planned": true,
+  "genuine_old_baseline_preserved": true,
+  "moves": {
+    "before-profile-1": "historical-before-profile-1",
+    "before-profile-run.json": "historical-before-profile-run.json",
+    "before-profile-stack-analysis.json": "historical-before-profile-stack-analysis.json"
+  },
+  "original_files_sha256": {
+    "before-profile-1": {
+      "cleanup.json": "2996b33d99071a06f5621613c3318af70e901cac005a18a76d6fae8ba40d69ae",
+      "diagnostic-inputs.json": "77317a6d33fea2a33e4cc1130244b855117462160034e11d338d97d97063ab87",
+      "inputs.json": "ce3ee12b2fd49fdf81459296515f99044737ebc2ec1e6dc37b04d943d7b2975b",
+      "node.log": "be8d6f33ed72d539ff0b46c580f8aa4295092855b9fd043f262200028fa57fef",
+      "ownership.json": "03c33d73edaa3a6bf0d66217378ffd9ff263c8a2f132b83b4d120ebc386b51e3",
+      "profile-provenance.json": "86435e2d9666a4fa5b5b465aa1804342b07bb5595e8093d4f35cb25b18e7378f",
+      "receipts.jsonl": "a5f024c4d27e3e7767a60b389afe682adfa4aa5805b3821142476cef7c1a7026",
+      "sample-stderr.txt": "17783bdb35316b01e05b9179d44594c55f77697ae724ddfe6b727c3577b91d34",
+      "sample-stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sample.txt": "2aad0e15ce0ba50abaec4c189304da6bb6b513d62d6f79acfc8a8ad8e1cf0d44",
+      "summary.json": "da57d2ab860c38dc5f95176deecfe63cf2b118453c9c697df377dd207cf441d0"
+    },
+    "before-profile-run.json": {
+      "before-profile-run.json": "d99f449d9ed706b754423dcae38cf5a8fb91783fda896576b80dbdfa6368545e"
+    },
+    "before-profile-stack-analysis.json": {
+      "before-profile-stack-analysis.json": "7485e0b5969bcd07452cfc201330a179346e6e6e33259d6de1715c0db12f50fc"
+    }
+  },
+  "resumed_filename_comparison_failure": true
+}

@@ -1,0 +1,22 @@
+{
+  "all_metrics_identical": true,
+  "all_original_summaries_unchanged": true,
+  "argv": [
+    "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/summarize.py",
+    "--before-revision",
+    "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+    "--after-revision",
+    "e79b711517519c9ce27d0f6f1b405a364be3ba91"
+  ],
+  "complete": true,
+  "driver_sha256": "a724857b67ff250c39bd847d93273025e6e83c129580bce3e86997f3ca8488a3",
+  "exit_code": 0,
+  "original_summary_files_checked": 24,
+  "original_summary_sha256": "1d8f856b0203a4c805ffc240b3b4a2d0341f8c909267f5a38ad6df57f58b7e7a",
+  "packaged_summary_sha256": "911b0d10f6e73ab211ded844353774ede3f326c5d481bf214ed84a58c99c5fd6",
+  "permitted_metadata_change": "Only each run's raw-versus-compact request evidence source",
+  "stderr": "",
+  "stdout": "{\"complete\": true, \"pairs\": 3, \"output\": \"/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/summary.json\"}\n{\"complete\": true, \"round\": 4, \"matched_phases\": 6, \"focused_phase_separate\": true}\n",
+  "text_identical": true
+}

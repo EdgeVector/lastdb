@@ -1,0 +1,13 @@
+{
+  "elapsed_nanos": 132203459,
+  "result": {
+    "bytes_removed": 1358003,
+    "files_removed": 77,
+    "generation": 27,
+    "parts_after": 0,
+    "parts_before": 0,
+    "reclaim_deferred": false,
+    "records_copied": 0,
+    "tombstones_copied": 0
+  }
+}

@@ -109,13 +109,6 @@ impl Dependencies {
         }
     }
 
-    pub(super) fn from_coordinates(entries: Vec<Coordinate>) -> Result<Self> {
-        if entries.len() > MAX_DEPENDENCIES {
-            return Err(super::resource());
-        }
-        Ok(Self { entries })
-    }
-
     pub(super) fn add_tree(
         &mut self,
         tree: &TreeRoot,

@@ -1,0 +1,173 @@
+{
+  "accepted_sequence_delta": 3,
+  "ack_sequence_seconds": 0.271315708,
+  "all_values_verified": true,
+  "batch_ack_seconds": 0.271019041,
+  "chunk_claim": "129 keys cross the 64-key product boundary; no internal chunk timer is measured",
+  "client_requests": 1,
+  "completed_sequence_delta": 3,
+  "ended_monotonic_ns": 34785335416,
+  "ended_unix_ns": 1792720181338832000,
+  "expected_internal_erase_chunks": 3,
+  "expected_values_sha256": "187bc6d6c0eb8dd8131835ab2eb0910be462e390475c65ee9ce9c8d5bcb14fd7",
+  "final_explicit_flush": {
+    "durable": true,
+    "native_flush": {
+      "completed_sequence": 134,
+      "frontier": 819,
+      "generation": 822,
+      "target_sequence": 134
+    },
+    "ok": true,
+    "user_hash": "f1acfdbae107cfa73c1ed4076d9a86d2"
+  },
+  "final_explicit_flush_seconds": 0.000143083,
+  "frontier_delta": 3,
+  "generation_delta": 3,
+  "growth": {
+    "allocated_bytes_net": 10788864,
+    "bytes_net": 10781583,
+    "files_net": 19,
+    "new_or_grown": {
+      "directory": {
+        "bytes": 1064960,
+        "files": 3
+      },
+      "generations": {
+        "bytes": 344064,
+        "files": 3
+      },
+      "locator": {
+        "bytes": 8699904,
+        "files": 7
+      },
+      "packs": {
+        "bytes": 672655,
+        "files": 6
+      }
+    }
+  },
+  "inputs": {
+    "body_value_bytes": 0,
+    "changed_field_values": 0,
+    "erased_source_body_bytes": 132096,
+    "erased_source_fields_json_bytes": 142638,
+    "fields_json_bytes": 258,
+    "first_key": 64,
+    "last_key": 192,
+    "logical_mutations": 129,
+    "ordered_input_sha256": "879266f8644500b3a57fd4c35b635fc239e47914baf2616ad7acff28badc83b6",
+    "request_json_bytes": 22203,
+    "requests": 1,
+    "title_value_bytes": 0
+  },
+  "inventory_after": {
+    "allocated_bytes": 159010816,
+    "bytes": 158190307,
+    "families": {
+      "directory": {
+        "allocated_bytes": 23085056,
+        "bytes": 23085056,
+        "files": 269
+      },
+      "generations": {
+        "allocated_bytes": 16351232,
+        "bytes": 16351232,
+        "files": 269
+      },
+      "locator": {
+        "allocated_bytes": 109674496,
+        "bytes": 109674496,
+        "files": 401
+      },
+      "packs": {
+        "allocated_bytes": 9887744,
+        "bytes": 9071296,
+        "files": 538
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 1482
+  },
+  "inventory_before": {
+    "allocated_bytes": 148221952,
+    "bytes": 147408724,
+    "families": {
+      "directory": {
+        "allocated_bytes": 22020096,
+        "bytes": 22020096,
+        "files": 266
+      },
+      "generations": {
+        "allocated_bytes": 16007168,
+        "bytes": 16007168,
+        "files": 266
+      },
+      "locator": {
+        "allocated_bytes": 100974592,
+        "bytes": 100974592,
+        "files": 394
+      },
+      "packs": {
+        "allocated_bytes": 9207808,
+        "bytes": 8398641,
+        "files": 532
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 1463
+  },
+  "kind": "erase-phase",
+  "label": "erase-durable-batch129",
+  "process": {
+    "cumulative_counter_delta": {
+      "ri_diskio_bytesread": 12288,
+      "ri_diskio_byteswritten": 10874880,
+      "ri_logical_writes": 11747712,
+      "ri_system_time": 2281179,
+      "ri_user_time": 4890366
+    },
+    "memory_after_bytes": {
+      "ri_phys_footprint": 43779056,
+      "ri_resident_size": 105775104
+    },
+    "memory_before_bytes": {
+      "ri_phys_footprint": 37323736,
+      "ri_resident_size": 99483648
+    },
+    "process_lifetime_max_memory_bytes": 47563760
+  },
+  "records_after": 319,
+  "records_before": 448,
+  "records_erased": 129,
+  "request_ack": {
+    "max_ms": 271.019041,
+    "mean_ms": 271.019041,
+    "median_ms": 271.019041,
+    "min_ms": 271.019041,
+    "p95_ms": 271.019041,
+    "samples": 1
+  },
+  "request_timeline": [
+    {
+      "elapsed_seconds": 0.271019041,
+      "ended_monotonic_ns": 34785077541,
+      "request_id": "benchmark-36751a13553540f9ab0654a7cc60b272-895",
+      "started_monotonic_ns": 34514058500
+    }
+  ],
+  "requested_durability": "durable",
+  "scope": "Isolated current-receipt obsolete-part pruning; both variants use the journal-free writer",
+  "started_monotonic_ns": 34513847375,
+  "started_unix_ns": 1792720181067341000,
+  "wall_through_final_flush_seconds": 0.271488041,
+  "width": 129
+}

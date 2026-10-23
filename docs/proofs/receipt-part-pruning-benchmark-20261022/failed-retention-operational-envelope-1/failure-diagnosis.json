@@ -1,0 +1,14 @@
+{
+  "accepted_candidate_unchanged": true,
+  "all_owned_processes_stopped": true,
+  "benchmark_runs_started": false,
+  "correction": "The operational command adapters retain the full original response and return its result object to callers.",
+  "failed_home_retained_for_now": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.ocpgkdzu",
+  "failure_kind": "Operational proof parser error",
+  "incorrect_assumption": "The proof accessed files at the top level.",
+  "observed_shape": "The maintenance command returns result.files with elapsed_nanos at the top level.",
+  "original_inventory_response": "retained-root-response.json",
+  "original_inventory_sha256": "b551331b681c28ecee22836eb86cc7779c8e9e33546ec2a7781b117a9710fc7a",
+  "original_summary": "summary.json",
+  "product_failure_established": false
+}

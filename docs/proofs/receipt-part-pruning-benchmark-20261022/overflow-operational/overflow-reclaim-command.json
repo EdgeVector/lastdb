@@ -1,0 +1,29 @@
+{
+  "argv": [
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+    "reclaim",
+    "--home",
+    "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.f_txvnpw/home/data/disk-pack",
+    "--grace-ms",
+    "0"
+  ],
+  "elapsed_nanos": 45547458,
+  "exit_code": 0,
+  "input": null,
+  "result": {
+    "elapsed_nanos": 43095875,
+    "result": {
+      "bytes_removed": 1016648,
+      "files_removed": 61,
+      "generation": 23,
+      "parts_after": 0,
+      "parts_before": 0,
+      "reclaim_deferred": false,
+      "records_copied": 0,
+      "tombstones_copied": 0
+    }
+  },
+  "stderr": "",
+  "stdout_bytes": 196,
+  "stdout_sha256": "f3123c5104e5289899608c7c15252309e8f9a3094b27f13de82fdae46153d02e"
+}

@@ -2,11 +2,13 @@
 //!
 //! Every published generation names the file parts it needs in one receipt. The
 //! receipt holds at most `MAX_DEPENDENCY_PARTS` entries, each publication writes
-//! it again in full, and only maintenance (pack, then reclaim) shrinks it. The
-//! count is therefore a hard limit and a per-write cost. This ledger records the
-//! count after every publication. A single worker copies outside the write gate
+//! it again in full, and each publication omits parts with no live references.
+//! The count is therefore a hard limit and a per-write cost. This ledger records
+//! the count after every publication. One worker copies outside the write gate
 //! and catches up before a short handoff. Admission refuses new work at the
-//! 85-percent soft limit if writers outrun compaction.
+//! 85-percent soft limit if writers outrun compaction. A 30-second idle interval
+//! schedules obsolete-generation reclaim even when the live count stays flat.
+//! Cleanup holds the installed root before it releases the write gate.
 
 use super::*;
 use laststore::disk_pack::MAX_DEPENDENCY_PARTS;

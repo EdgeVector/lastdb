@@ -1,5 +1,6 @@
 use super::dependency::Dependencies;
 use super::generation;
+use super::live_parts::{self, Changes, LiveParts, ReferenceCache};
 use super::locator_forest::LocatorChanges;
 use super::pack_write::WrittenData;
 use super::snapshot::PreparedMutation;
@@ -19,7 +20,7 @@ pub struct PublishedGeneration {
     pub current: Current,
     /// Immutable receipt identity that retains the complete CURRENT bytes.
     pub receipt: Uuid,
-    /// Complete retained dependency parts, including conservative prior references.
+    /// Complete parts with positive live references in this snapshot.
     pub dependency_parts: u64,
     /// Operations included in this complete snapshot commit.
     pub mutations: u64,
@@ -44,9 +45,10 @@ struct Publisher<'a> {
 pub(super) fn publish_prepared(
     lock: &WriteLock,
     previous: &Current,
-    proposed: Current,
+    mut proposed: Current,
     mutations: Vec<PreparedMutation>,
     payload: Option<WrittenData>,
+    legacy_live: Option<LiveParts>,
 ) -> Result<PublishedGeneration> {
     let root = lock.root();
     let old_receipt = {
@@ -54,6 +56,14 @@ pub(super) fn publish_prepared(
         ensure_generation(lock, previous)?
     };
     let lookup_timing = crate::commit_timing::stage("lookup_files_us");
+    let mut live = if previous.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
+        LiveParts::from_receipt(&old_receipt)?
+    } else {
+        legacy_live
+            .ok_or_else(|| corrupt("uncounted writer lacks its admitted live-part bootstrap"))?
+    };
+    proposed.required_features |= super::FEATURE_LIVE_PART_COUNTS;
+    let mut references = ReferenceCache::new(root, &proposed);
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
@@ -63,7 +73,7 @@ pub(super) fn publish_prepared(
         pages: 0,
         parts: 0,
         mutations: 0,
-        dependencies: Dependencies::from_coordinates(old_receipt.coordinates.clone())?,
+        dependencies: Dependencies::new(),
     };
     if let Some(payload) = payload {
         publisher.dependencies.add_payload(
@@ -72,15 +82,18 @@ pub(super) fn publish_prepared(
             payload.map_pages,
         )?;
     }
-    publisher.batch(mutations)?;
+    publisher.batch(mutations, &mut references)?;
+    let mut changes = Changes::default();
     for output in publisher.locators.finish()? {
+        changes.merge(output.changes)?;
         publisher.pages += output.pages;
         publisher.parts += output.parts.len() as u64;
         publisher
             .dependencies
             .add_tree(&output.tree, output.parts)?;
     }
-    let (directory, pages, parts) = publisher.directory.finish()?;
+    let (directory, pages, parts, retired) = publisher.directory.finish_with_changes()?;
+    changes.merge(retired)?;
     publisher.proposed.directory = directory;
     publisher.pages += pages;
     publisher.parts += parts.len() as u64;
@@ -88,10 +101,18 @@ pub(super) fn publish_prepared(
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
+    finish_live(
+        root,
+        previous,
+        &publisher.proposed,
+        &mut live,
+        &dependencies,
+        changes,
+        references,
+    )?;
     drop(lookup_timing);
     let generation_timing = crate::commit_timing::stage("new_generation_us");
-    let receipt =
-        generation::write_carried(root, &publisher.proposed, &dependencies, &old_receipt)?;
+    let receipt = generation::write_live(root, &publisher.proposed, &live, Some(&old_receipt))?;
     drop(generation_timing);
     crate::commit_timing::count("metadata_pages", publisher.pages);
     crate::commit_timing::count("metadata_parts", publisher.parts);
@@ -114,8 +135,28 @@ pub(super) fn publish_prepared(
     })
 }
 
+fn finish_live(
+    root: &Path,
+    previous: &Current,
+    proposed: &Current,
+    live: &mut LiveParts,
+    dependencies: &[super::dependency::Coordinate],
+    mut changes: Changes,
+    mut references: ReferenceCache,
+) -> Result<()> {
+    live_parts::observe_new_parts(root, proposed, dependencies, &mut changes, &mut references)?;
+    drop(references);
+    live_parts::add_directory_empty_root(root, previous, -1, &mut changes)?;
+    live_parts::add_directory_empty_root(root, proposed, 1, &mut changes)?;
+    live.apply(root, proposed, changes)
+}
+
 impl Publisher<'_> {
-    fn batch(&mut self, mut mutations: Vec<PreparedMutation>) -> Result<()> {
+    fn batch(
+        &mut self,
+        mut mutations: Vec<PreparedMutation>,
+        references: &mut ReferenceCache,
+    ) -> Result<()> {
         self.mutations += mutations.len() as u64;
         // Physical sort preserves the original operation version for repeated keys.
         mutations.sort_by(|a, b| {
@@ -162,13 +203,13 @@ impl Publisher<'_> {
             let changes: Vec<_> = changes.into_iter().collect();
             let tree = if let Some(entry) = &entry {
                 self.locators
-                    .edit(&mut call, entry.locator.clone(), &changes)?
+                    .edit(&mut call, references, entry.locator.clone(), &changes)?
             } else {
                 if changes.len() > self.proposed.batch_operation_limit() {
                     return Err(corrupt("invalid new locator change count"));
                 }
                 self.locators
-                    .create(&mut call, self.directory.root(), &changes)?
+                    .create(&mut call, references, self.directory.root(), &changes)?
             };
             let value = DirectoryEntry {
                 group,
@@ -181,6 +222,7 @@ impl Publisher<'_> {
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
         self.directory.put_many(
             &mut call,
+            references,
             &directory_changes.into_iter().collect::<Vec<_>>(),
         )
     }

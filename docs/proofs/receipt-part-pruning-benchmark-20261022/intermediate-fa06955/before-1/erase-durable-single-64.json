@@ -1,0 +1,547 @@
+{
+  "accepted_sequence_delta": 131,
+  "ack_sequence_seconds": 2.050666375,
+  "all_values_verified": true,
+  "completed_sequence_delta": 131,
+  "ended_monotonic_ns": 34864270750,
+  "ended_unix_ns": 1792718678876657000,
+  "expected_values_sha256": "89414443c5b37a2da1b798aef551f93a20a6e6ad5f3aa6856a3d8b33f359e80f",
+  "final_explicit_flush": {
+    "durable": true,
+    "native_flush": {
+      "completed_sequence": 131,
+      "frontier": 819,
+      "generation": 822,
+      "target_sequence": 131
+    },
+    "ok": true,
+    "user_hash": "9a83e9f58aedfb693c5ecc20c9f0480c"
+  },
+  "final_explicit_flush_seconds": 0.000150667,
+  "frontier_delta": 131,
+  "generation_delta": 131,
+  "growth": {
+    "allocated_bytes_net": 59240448,
+    "bytes_net": 58853847,
+    "files_net": 741,
+    "new_or_grown": {
+      "directory": {
+        "bytes": 10420224,
+        "files": 131
+      },
+      "generations": {
+        "bytes": 11108352,
+        "files": 131
+      },
+      "locator": {
+        "bytes": 34504704,
+        "files": 217
+      },
+      "packs": {
+        "bytes": 2820567,
+        "files": 262
+      }
+    }
+  },
+  "inputs": {
+    "body_value_bytes": 0,
+    "changed_field_values": 0,
+    "erased_source_body_bytes": 65536,
+    "erased_source_fields_json_bytes": 70710,
+    "fields_json_bytes": 128,
+    "first_key": 0,
+    "last_key": 63,
+    "logical_mutations": 64,
+    "ordered_input_sha256": "f8833b4c3137cb6c7afc687373e16b4f4d1cf0509ea1f55ed2ffbab79d2f8c80",
+    "request_json_bytes": 11968,
+    "requests": 64,
+    "title_value_bytes": 0
+  },
+  "inventory_after": {
+    "allocated_bytes": 148385792,
+    "bytes": 147572738,
+    "families": {
+      "directory": {
+        "allocated_bytes": 21987328,
+        "bytes": 21987328,
+        "files": 266
+      },
+      "generations": {
+        "allocated_bytes": 15974400,
+        "bytes": 15974400,
+        "files": 266
+      },
+      "locator": {
+        "allocated_bytes": 101203968,
+        "bytes": 101203968,
+        "files": 393
+      },
+      "packs": {
+        "allocated_bytes": 9207808,
+        "bytes": 8398815,
+        "files": 532
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 1462
+  },
+  "inventory_before": {
+    "allocated_bytes": 89145344,
+    "bytes": 88718891,
+    "families": {
+      "directory": {
+        "allocated_bytes": 11567104,
+        "bytes": 11567104,
+        "files": 135
+      },
+      "generations": {
+        "allocated_bytes": 4866048,
+        "bytes": 4866048,
+        "files": 135
+      },
+      "locator": {
+        "allocated_bytes": 66699264,
+        "bytes": 66699264,
+        "files": 176
+      },
+      "packs": {
+        "allocated_bytes": 6000640,
+        "bytes": 5578248,
+        "files": 270
+      },
+      "root-markers": {
+        "allocated_bytes": 12288,
+        "bytes": 8227,
+        "files": 5
+      }
+    },
+    "files": 721
+  },
+  "kind": "erase-phase",
+  "label": "erase-durable-single-64",
+  "process": {
+    "cumulative_counter_delta": {
+      "ri_diskio_bytesread": 163840,
+      "ri_diskio_byteswritten": 62185472,
+      "ri_logical_writes": 95965568,
+      "ri_system_time": 15428062,
+      "ri_user_time": 16103819
+    },
+    "memory_after_bytes": {
+      "ri_phys_footprint": 45368328,
+      "ri_resident_size": 110968832
+    },
+    "memory_before_bytes": {
+      "ri_phys_footprint": 18940936,
+      "ri_resident_size": 77496320
+    },
+    "process_lifetime_max_memory_bytes": 47612936
+  },
+  "records_after": 448,
+  "records_before": 512,
+  "records_erased": 64,
+  "request_ack": {
+    "max_ms": 39.954833,
+    "mean_ms": 31.990100312499997,
+    "median_ms": 31.798707999999994,
+    "min_ms": 29.765916999999998,
+    "p95_ms": 35.617833000000005,
+    "samples": 64
+  },
+  "request_timeline": [
+    {
+      "elapsed_seconds": 0.032526292,
+      "ended_monotonic_ns": 32845972375,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-805",
+      "started_monotonic_ns": 32813446083
+    },
+    {
+      "elapsed_seconds": 0.030837792,
+      "ended_monotonic_ns": 32876867750,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-806",
+      "started_monotonic_ns": 32846029958
+    },
+    {
+      "elapsed_seconds": 0.030836541,
+      "ended_monotonic_ns": 32907761416,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-807",
+      "started_monotonic_ns": 32876924875
+    },
+    {
+      "elapsed_seconds": 0.030871291,
+      "ended_monotonic_ns": 32938689166,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-808",
+      "started_monotonic_ns": 32907817875
+    },
+    {
+      "elapsed_seconds": 0.031004542,
+      "ended_monotonic_ns": 32969743583,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-809",
+      "started_monotonic_ns": 32938739041
+    },
+    {
+      "elapsed_seconds": 0.030884542,
+      "ended_monotonic_ns": 33000675958,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-810",
+      "started_monotonic_ns": 32969791416
+    },
+    {
+      "elapsed_seconds": 0.031100917,
+      "ended_monotonic_ns": 33031828708,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-811",
+      "started_monotonic_ns": 33000727791
+    },
+    {
+      "elapsed_seconds": 0.029836958,
+      "ended_monotonic_ns": 33061720708,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-812",
+      "started_monotonic_ns": 33031883750
+    },
+    {
+      "elapsed_seconds": 0.035617833,
+      "ended_monotonic_ns": 33097387791,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-813",
+      "started_monotonic_ns": 33061769958
+    },
+    {
+      "elapsed_seconds": 0.031260125,
+      "ended_monotonic_ns": 33128699416,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-814",
+      "started_monotonic_ns": 33097439291
+    },
+    {
+      "elapsed_seconds": 0.029893625,
+      "ended_monotonic_ns": 33158640541,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-815",
+      "started_monotonic_ns": 33128746916
+    },
+    {
+      "elapsed_seconds": 0.030143042,
+      "ended_monotonic_ns": 33188830875,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-816",
+      "started_monotonic_ns": 33158687833
+    },
+    {
+      "elapsed_seconds": 0.031752834,
+      "ended_monotonic_ns": 33220636875,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-817",
+      "started_monotonic_ns": 33188884041
+    },
+    {
+      "elapsed_seconds": 0.031165917,
+      "ended_monotonic_ns": 33251854000,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-818",
+      "started_monotonic_ns": 33220688083
+    },
+    {
+      "elapsed_seconds": 0.032874667,
+      "ended_monotonic_ns": 33284815083,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-819",
+      "started_monotonic_ns": 33251940416
+    },
+    {
+      "elapsed_seconds": 0.030842042,
+      "ended_monotonic_ns": 33315709875,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-820",
+      "started_monotonic_ns": 33284867833
+    },
+    {
+      "elapsed_seconds": 0.031954625,
+      "ended_monotonic_ns": 33347715166,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-821",
+      "started_monotonic_ns": 33315760541
+    },
+    {
+      "elapsed_seconds": 0.032880291,
+      "ended_monotonic_ns": 33380640666,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-822",
+      "started_monotonic_ns": 33347760375
+    },
+    {
+      "elapsed_seconds": 0.032018083,
+      "ended_monotonic_ns": 33412702458,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-823",
+      "started_monotonic_ns": 33380684375
+    },
+    {
+      "elapsed_seconds": 0.032127042,
+      "ended_monotonic_ns": 33444882083,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-824",
+      "started_monotonic_ns": 33412755041
+    },
+    {
+      "elapsed_seconds": 0.032720333,
+      "ended_monotonic_ns": 33477653916,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-825",
+      "started_monotonic_ns": 33444933583
+    },
+    {
+      "elapsed_seconds": 0.032054792,
+      "ended_monotonic_ns": 33509756000,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-826",
+      "started_monotonic_ns": 33477701208
+    },
+    {
+      "elapsed_seconds": 0.030877417,
+      "ended_monotonic_ns": 33540688125,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-827",
+      "started_monotonic_ns": 33509810708
+    },
+    {
+      "elapsed_seconds": 0.030043667,
+      "ended_monotonic_ns": 33570779208,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-828",
+      "started_monotonic_ns": 33540735541
+    },
+    {
+      "elapsed_seconds": 0.030869917,
+      "ended_monotonic_ns": 33601698083,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-829",
+      "started_monotonic_ns": 33570828166
+    },
+    {
+      "elapsed_seconds": 0.032042625,
+      "ended_monotonic_ns": 33633791875,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-830",
+      "started_monotonic_ns": 33601749250
+    },
+    {
+      "elapsed_seconds": 0.029933208,
+      "ended_monotonic_ns": 33663773583,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-831",
+      "started_monotonic_ns": 33633840375
+    },
+    {
+      "elapsed_seconds": 0.03181925,
+      "ended_monotonic_ns": 33695645500,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-832",
+      "started_monotonic_ns": 33663826250
+    },
+    {
+      "elapsed_seconds": 0.030989334,
+      "ended_monotonic_ns": 33726677750,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-833",
+      "started_monotonic_ns": 33695688416
+    },
+    {
+      "elapsed_seconds": 0.03209525,
+      "ended_monotonic_ns": 33758829291,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-834",
+      "started_monotonic_ns": 33726734041
+    },
+    {
+      "elapsed_seconds": 0.032928917,
+      "ended_monotonic_ns": 33791818208,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-835",
+      "started_monotonic_ns": 33758889291
+    },
+    {
+      "elapsed_seconds": 0.030786417,
+      "ended_monotonic_ns": 33822655250,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-836",
+      "started_monotonic_ns": 33791868833
+    },
+    {
+      "elapsed_seconds": 0.039954833,
+      "ended_monotonic_ns": 33862662666,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-837",
+      "started_monotonic_ns": 33822707833
+    },
+    {
+      "elapsed_seconds": 0.032028458,
+      "ended_monotonic_ns": 33894741458,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-838",
+      "started_monotonic_ns": 33862713000
+    },
+    {
+      "elapsed_seconds": 0.031802708,
+      "ended_monotonic_ns": 33926600208,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-839",
+      "started_monotonic_ns": 33894797500
+    },
+    {
+      "elapsed_seconds": 0.03297075,
+      "ended_monotonic_ns": 33959623666,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-840",
+      "started_monotonic_ns": 33926652916
+    },
+    {
+      "elapsed_seconds": 0.032023833,
+      "ended_monotonic_ns": 33991700458,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-841",
+      "started_monotonic_ns": 33959676625
+    },
+    {
+      "elapsed_seconds": 0.032051209,
+      "ended_monotonic_ns": 34023802250,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-842",
+      "started_monotonic_ns": 33991751041
+    },
+    {
+      "elapsed_seconds": 0.031794708,
+      "ended_monotonic_ns": 34055648083,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-843",
+      "started_monotonic_ns": 34023853375
+    },
+    {
+      "elapsed_seconds": 0.030083667,
+      "ended_monotonic_ns": 34085777833,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-844",
+      "started_monotonic_ns": 34055694166
+    },
+    {
+      "elapsed_seconds": 0.0298845,
+      "ended_monotonic_ns": 34115713625,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-845",
+      "started_monotonic_ns": 34085829125
+    },
+    {
+      "elapsed_seconds": 0.030970083,
+      "ended_monotonic_ns": 34146732166,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-846",
+      "started_monotonic_ns": 34115762083
+    },
+    {
+      "elapsed_seconds": 0.030146917,
+      "ended_monotonic_ns": 34176934708,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-847",
+      "started_monotonic_ns": 34146787791
+    },
+    {
+      "elapsed_seconds": 0.029795917,
+      "ended_monotonic_ns": 34206784208,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-848",
+      "started_monotonic_ns": 34176988291
+    },
+    {
+      "elapsed_seconds": 0.031018,
+      "ended_monotonic_ns": 34237846541,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-849",
+      "started_monotonic_ns": 34206828541
+    },
+    {
+      "elapsed_seconds": 0.033986417,
+      "ended_monotonic_ns": 34271878500,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-850",
+      "started_monotonic_ns": 34237892083
+    },
+    {
+      "elapsed_seconds": 0.0316855,
+      "ended_monotonic_ns": 34303622500,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-851",
+      "started_monotonic_ns": 34271937000
+    },
+    {
+      "elapsed_seconds": 0.033098083,
+      "ended_monotonic_ns": 34336772291,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-852",
+      "started_monotonic_ns": 34303674208
+    },
+    {
+      "elapsed_seconds": 0.031052583,
+      "ended_monotonic_ns": 34367873916,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-853",
+      "started_monotonic_ns": 34336821333
+    },
+    {
+      "elapsed_seconds": 0.029765917,
+      "ended_monotonic_ns": 34397689250,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-854",
+      "started_monotonic_ns": 34367923333
+    },
+    {
+      "elapsed_seconds": 0.031050125,
+      "ended_monotonic_ns": 34428782291,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-855",
+      "started_monotonic_ns": 34397732166
+    },
+    {
+      "elapsed_seconds": 0.031979,
+      "ended_monotonic_ns": 34460810750,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-856",
+      "started_monotonic_ns": 34428831750
+    },
+    {
+      "elapsed_seconds": 0.031876333,
+      "ended_monotonic_ns": 34492737416,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-857",
+      "started_monotonic_ns": 34460861083
+    },
+    {
+      "elapsed_seconds": 0.031958792,
+      "ended_monotonic_ns": 34524746000,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-858",
+      "started_monotonic_ns": 34492787208
+    },
+    {
+      "elapsed_seconds": 0.0310125,
+      "ended_monotonic_ns": 34555804750,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-859",
+      "started_monotonic_ns": 34524792250
+    },
+    {
+      "elapsed_seconds": 0.03433975,
+      "ended_monotonic_ns": 34590196250,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-860",
+      "started_monotonic_ns": 34555856500
+    },
+    {
+      "elapsed_seconds": 0.035780916,
+      "ended_monotonic_ns": 34626032166,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-861",
+      "started_monotonic_ns": 34590251250
+    },
+    {
+      "elapsed_seconds": 0.035033834,
+      "ended_monotonic_ns": 34661114125,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-862",
+      "started_monotonic_ns": 34626080291
+    },
+    {
+      "elapsed_seconds": 0.034786208,
+      "ended_monotonic_ns": 34695950291,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-863",
+      "started_monotonic_ns": 34661164083
+    },
+    {
+      "elapsed_seconds": 0.033748875,
+      "ended_monotonic_ns": 34729748208,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-864",
+      "started_monotonic_ns": 34695999333
+    },
+    {
+      "elapsed_seconds": 0.032144125,
+      "ended_monotonic_ns": 34761947666,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-865",
+      "started_monotonic_ns": 34729803541
+    },
+    {
+      "elapsed_seconds": 0.032118292,
+      "ended_monotonic_ns": 34794118833,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-866",
+      "started_monotonic_ns": 34762000541
+    },
+    {
+      "elapsed_seconds": 0.030511,
+      "ended_monotonic_ns": 34824684166,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-867",
+      "started_monotonic_ns": 34794173166
+    },
+    {
+      "elapsed_seconds": 0.039322459,
+      "ended_monotonic_ns": 34864050750,
+      "request_id": "benchmark-d1e9bcd0b4fa4a108be755bb5d42a2e3-868",
+      "started_monotonic_ns": 34824728291
+    }
+  ],
+  "requested_durability": "durable",
+  "scope": "Isolated current-receipt obsolete-part pruning; both variants use the journal-free writer",
+  "started_monotonic_ns": 32813420250,
+  "started_unix_ns": 1792718676825789000,
+  "wall_through_final_flush_seconds": 2.0508505,
+  "width": 1
+}

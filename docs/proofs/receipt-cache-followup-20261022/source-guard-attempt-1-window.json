@@ -1,0 +1,44 @@
+{
+  "after_revision": "e79b711517519c9ce27d0f6f1b405a364be3ba91",
+  "before_revision": "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+  "commands": [
+    {
+      "argv": [
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/scripts/ci/with-fold-host-cargo-lock.sh",
+        "--",
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/verify_isolated.py",
+        "--before-revision",
+        "08d8436ccce9e2493e187a6b0133dc93f47c410f",
+        "--after-revision",
+        "e79b711517519c9ce27d0f6f1b405a364be3ba91"
+      ],
+      "end_unix_ns": 1792733340121621000,
+      "exit_code": 1,
+      "start_unix_ns": 1792733339829025000,
+      "step": "isolated-source-and-real-writer-gates"
+    }
+  ],
+  "complete": false,
+  "driver_sha256": "ef4a9728f82b063435fcbb32d22c50709bf0b98502bbae3e69b5617412aa9470",
+  "end_unix_ns": 1792733340121860000,
+  "error": "Stop at the first failed product or audit stage: isolated-source-and-real-writer-gates",
+  "genuine_historical_baseline_profile": "historical-before-profile-archive.json",
+  "helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/accept_isolated.py": "8ba91a85d9574c98834fb3e8548570759dc525aa83e418aa86abe885221a57c8",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/aggregate_native_sample.py": "f91beb7c3b3bd3a4b155c3e0163c58b1f3533486d9cd769565db227302adcb68",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_auto.py": "54dc996ac0497ecdd6bc69c58149d73376e55be0434f567de3b98a681f4f3bc9",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/analyze_matched.py": "8bb21fe67110c8e712e265ea80ac5df9915103f4bc6b25e59962e6dca7f13e0b",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/capability_capture.py": "2916300c24753f7590377f80d292df6825d6888d9b1158750833a8fe700391bf",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/matched_audit_extra.py": "e211b7e182b0bc6f985027e142e05001b2c27cf9135a908e3aff3335820cc3a0",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/matched_audit_metrics.py": "ee87b6735511f12fa36a8fa4ef2608665d028465cff14e96bfdc4a55f734e5b3",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/profile_provenance.py": "77c5956bdc468062abcba24249ab45f2c23e939ace91f069c02d4a3385240566",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_auto.py": "db49fcf1a8cf0138bb31d92e33f31cb10ba9a90c418b4a9aeb1f3c120e610c2b",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_final_review.py": "f8433b523c2593545de5574ac0376dd8fc3db9b4f5b169ed6882c815d441b76a",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/run_profile.py": "0aa265d9763b0492457ac8472a449ea3497e570ed9e624677b6412de1cce3dee",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/receipt-cache-followup-20261022/verify_isolated.py": "a9287dac7d9c5ca769111bc8a7a33b6a4387048ad22eef20db840cc1799206d2"
+  },
+  "no_timed_requests_during_numeric_audit": true,
+  "rejected_attempt_archive": "rejected-build-1-archive.json",
+  "start_unix_ns": 1792733339828648000
+}

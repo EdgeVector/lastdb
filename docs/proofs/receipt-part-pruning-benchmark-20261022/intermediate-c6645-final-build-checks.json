@@ -1,0 +1,66 @@
+{
+  "accepted_binaries": [
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdbd",
+      "sha256": "68e70fc84bfac3fa6596044f1932547ad0c3beb5d1e9cc02d3320873dbdb8dd6"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdb",
+      "sha256": "32cb6b13162f645569fdafba61538c1672deb14bc251d3e04c468283bce44593"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdb-disk-home",
+      "sha256": "192a687285d4f656ddf0e1ed08f82bf46c03ff9ed25d94a9f25f7de7776819b0"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdb-disk-recovery",
+      "sha256": "a72ab9967797c726250d3c6898c07c9f82cb4d8c70dd91c182fc82623f10ceec"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/before-lastdb-pack-maintain",
+      "sha256": "cb668498b8850ff780017f0fc1a66c5f0bf80dbbdbcb9ad86fa737185b8dc472"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdbd",
+      "sha256": "a96655fff03a5756b39815dd469f111632013c6672121c8c0f75e4c3bd349317"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb",
+      "sha256": "d0e47f1bf69e8c88dce190928d6d9f7451bcd83be3ad88e4328cd2b675995e30"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-home",
+      "sha256": "fdbdaf490b86e144d0f4ba1140a8efd34e3550fcbcd2c0fa699cb87b143f5af9"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-disk-recovery",
+      "sha256": "ad6c4120be721dfefd736fbc0cf5342731671edc102e96984d47527a7dc2f683"
+    },
+    {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rprune.rl_ggur9/bin/after-lastdb-pack-maintain",
+      "sha256": "66bfa9767569853c8e63c0fc11272559b8e445d13f339f53a0501c21fdfba45e"
+    }
+  ],
+  "candidate_only_cache_preparation": "candidate-cache-refresh.json",
+  "candidate_revision": "c6645bda5272703b84fd7228f7684ec5cd4767d4",
+  "candidate_version": "lastdbd 0.23.4-pre.0-272-gc6645bda5",
+  "candidate_version_guard_passed": true,
+  "complete": true,
+  "matching_compiler_and_cargo": true,
+  "matching_measured_node_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "lastdb_node",
+    "--bin",
+    "lastdbd",
+    "--bin",
+    "lastdb"
+  ],
+  "nodes_started_before_acceptance": false,
+  "rejected_binary_used_for_measurements": false,
+  "rejected_original_attempt": "failed-build-1.json",
+  "source_tracked_clean_at_acceptance": true
+}

@@ -1,0 +1,48 @@
+{
+  "all_owned_processes_stopped": true,
+  "cause": "Shared-target node-only cache preparation left baseline engine/tool artifacts; the node version stamp did not prove linked library identity",
+  "driver_sha256": "a07f5f0db2009bf95194acd195fb3790d6fe5d4833e86041c8feb20559758b4f",
+  "failed_owned_home_retained": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rop.9wuprvsp",
+  "invalid_for_cache_performance_claim": "after-profile-1",
+  "no_matched_or_auto_run_started": true,
+  "original_false_summary_preserved": true,
+  "physical_tools": {
+    "lastdb-disk-home": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/after-lastdb-disk-home",
+      "same_sha256_as_08d_baseline": "192a687285d4f656ddf0e1ed08f82bf46c03ff9ed25d94a9f25f7de7776819b0"
+    },
+    "lastdb-disk-recovery": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/after-lastdb-disk-recovery",
+      "same_sha256_as_08d_baseline": "a72ab9967797c726250d3c6898c07c9f82cb4d8c70dd91c182fc82623f10ceec"
+    },
+    "lastdb-pack-maintain": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/rcache.i38lbm_q/bin/after-lastdb-pack-maintain",
+      "same_sha256_as_08d_baseline": "cb668498b8850ff780017f0fc1a66c5f0bf80dbbdbcb9ad86fa737185b8dc472"
+    }
+  },
+  "prior_acceptance_preserved_but_insufficient_for_engine_provenance": true,
+  "product_failure_established": false,
+  "product_source_change_required_established": false,
+  "receipt_feature_observed": 509,
+  "recorded_unix_ns": 1792732129742759000,
+  "rejected_evidence_sha256": {
+    "after-build.json": "1dd669ac631bc6029d8b549bee89996ad3e5257d12b843a15a344e4298b46dd2",
+    "after-cache-preparation.json": "3c8ead56215660d2203ad2b4a0039fb3e9bb5ff0a8e929972d48f7385c7e72d0",
+    "after-cli-build.json": "d0ca747ec75b0eeece4d6b534540d993e2912778f085efa9927313eeb4f07756",
+    "after-disk-build.json": "7efb89d16b06e6f4dc4165a3f2d00907183ea08200a62ba1e17fdec407aa0241",
+    "after-profile-1/diagnostic-inputs.json": "44acf67314bac8f833be17cb9a3afd764bac442c27ffb4ae1101f94c50a9abe8",
+    "after-profile-1/profile-provenance.json": "1dd9f6ce53e42fc5e4fa9d302ac8cfcc64abe8f844eaf44a9f4911726ae37ba9",
+    "after-profile-1/summary.json": "1807660014b5308bffbc7600ce7471dde3cbb59fe900e6c00dc68e08f33f1d7e",
+    "after-profile-run.json": "21e45780916331364c5d97dc3abbf70f905223434587bd07efe717cfc9fed1de",
+    "final-build-checks.json": "e3d7995cddffe534c003580d63a1b4dd8e5dcb8b54101ac9a07f29951e8dd7a8",
+    "followup-window.json": "cb8ac0bd96e15b2a632247527acbefa3995a0b38eb397b2a2b8271f714c9788f",
+    "operational-runs.json": "7ffe2bcaf33e84b0288e9f95357fc72efcb6b7291d06218470aa1ed748c4208e",
+    "retention-operational/ownership.json": "09d0eaca36fe19930d1db07b9ac02781d0770099d7ca0b66204594659b66b4ba",
+    "retention-operational/retained-root-verified.json": "a1b5a58fb6a2064d2ed739f08ab8e5b4207cb624ce106f9ede4e42494e895491",
+    "retention-operational/seed-response.json": "d073084174c2912e414527b0999d888481b1d46e42a379a636e8698f85115550",
+    "retention-operational/summary.json": "4eb6dfe03bdcec0eea7fc596d1f8bb516dc9e0290f4bc0d66be4eb6f30e955a2",
+    "review-runs.json": "a7793a96d765fb4e68099535f0e248840f23584e2923576750de46d5a1d0d3f6"
+  },
+  "rejected_for_measurement": true,
+  "required_feature_bit_missing": 512
+}
