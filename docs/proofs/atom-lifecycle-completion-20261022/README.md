@@ -1,7 +1,7 @@
 # Atom lifecycle product receipts
 
 These receipts use fresh generated homes. They use the actual daemon and public local API.
-The primary and its archive stay unchanged. No tests run.
+These operations do not access the primary or its archive. No tests run.
 
 The source revision and executable hashes appear in each `inputs.json`.
 The request receipts contain response hashes and exact read-result hashes.
@@ -137,7 +137,7 @@ Their timing results exclude the later file-handle and space-quote corrections.
 They establish no actual 85-percent threshold recovery, configured disk-cap stress, or power-loss result.
 The [source review](../atom-scale-review-20261022/SOURCE_REVIEW.md) accepts the three corrections, subject to the final corrected binary's checks.
 
-## Final corrected binary
+## Corrected binary before the main merge
 
 `run-5/summary.json` and `automatic-final/summary.json` both record `complete: true`.
 They use Rust implementation `bb7a4a7f5219265cb660ba8084b72fdbb2833554`.
@@ -175,7 +175,7 @@ Both owned node processes stopped, and both exact owned temporary homes were rem
 The backup manifest and cleanup receipts remain with the results.
 These captures contain no external file blobs and establish no power-loss or configured disk-cap stress result.
 
-## Final independent approvals
+## Independent approvals before the main merge
 
 The [scale approval addendum](../atom-scale-review-20261022/APPROVAL_ADDENDUM.md) approves the corrected source and both final product captures.
 The [safety review](../atom-safety-review-20261022/README.md) approves the same source and later documentation-only commits.
@@ -190,6 +190,45 @@ The original format refusals and missed interruption observation remain separate
 
 The final PR receipt commit changes documentation and evidence only.
 Its required CI remains the final merge gate.
+
+## Combined source after the main advance
+
+Main PR #272 merged before this PR. It removed arbitrary compaction count caps and added the storage-failure health response.
+Commit `66ce0b50126179cf36fe3ebc33fdc6be0dc891ae` retains both changes with the atom lifecycle implementation.
+Both independent reviewers approve that combined source:
+
+- [Safety merge review](../atom-safety-review-20261022/MERGE_REVIEW.md).
+- [Scale merge review](../atom-scale-review-20261022/MERGE_REVIEW.md).
+
+The combined build passed for the daemon and both native maintenance commands under the shared host lock.
+`run-6/summary.json` and `automatic-main-integration/summary.json` both record `complete: true` for that source.
+The daemon SHA-256 is `6d02f61e52467d70f2f8b24260b3202348263e67b3e4f7a4018276b6fecd0baa`.
+The recovery command SHA-256 is `15c464061fb8cc57b4bf2f93f0568cecd75aa2e79872e4719847b1e204bf3cec`.
+Each input receipt retains the driver hash. No Rust source changed after that build.
+
+The lifecycle capture again starts with 4,096 records and two long keys and ends with 4,090 records after eight deletes.
+All exact reads and list membership matched the accepted values across concurrent compaction, recent copies, backup restore, and reopens.
+The copy interruption observed private payload bytes before SIGKILL. The reopen returned the accepted values.
+The concurrent full copy caught 2,824 changed entries across four rounds.
+The four recent copies took 44 to 80 ms. The largest observed handoff was 23 ms.
+These small-home timings establish no large-home latency bound.
+
+The list returned 72 successful partial pages across 84 total pages.
+TTL expiry removed 24 records while two foreground updates completed. Schema drop and molecule drain completed.
+The complete verifier read 24,546 counters and 16,360 tips with zero mismatches.
+The data-only backup completed during the copy and excluded identity files.
+Its 144 files contain 180,030,126 bytes. The retained manifest records their names and hashes.
+
+The automatic worker first refused an oversized final delta, then completed its retry.
+It reduced 263 selected parts to 12 and accepted a later durable update.
+The final count is 24 parts. The writer remains healthy, and the maintenance error is clear.
+Its complete verifier read 24,582 counters and 16,384 tips with zero mismatches.
+This ordinary trigger operation does not reach the physical 85-percent threshold.
+
+Both owned nodes stopped. Both exact owned temporary homes were removed after the receipt and ownership checks.
+Their cleanup receipts retain those facts. This work makes no primary or archive change.
+The earlier limits remain: no external file blobs, hardware power loss, physical soft-limit transition, or exhausted-disk boundary.
+The final evidence commit contains documentation only and retains its own required CI gate.
 
 ## Product operations
 

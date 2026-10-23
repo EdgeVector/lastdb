@@ -1,0 +1,8 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-23T00:59:53.890715Z  WARN fold_db::storage::disk_pack::parts::worker: native storage reclaim failed error=Invalid operation: native home creation refused: current creation requires its durable key proofs first
+2026-10-23T00:59:54.088617Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/aa6.o1YNDm/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/aa6.o1YNDm/home
+  Owner:  8e04630b723f3cc074a48b1387480074
+2026-10-23T01:00:01.040528Z  WARN fold_db::storage::disk_pack::parts::worker: native storage maintenance failed error=write resource limit exceeded: compaction_behind: final catch-up exceeds its bounded key budget; retry after maintenance failures=1
+lastdbd: shutdown signal received, exiting
