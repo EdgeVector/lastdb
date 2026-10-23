@@ -54,6 +54,8 @@ The oracle always reads with the `main` binaries, so the reader does not share t
 | `backup_restore.py` | Backup and restore of a home with one locator object. |
 | `listing_cost.py` | Cost of many part files in one directory. |
 | `node_pack.py` | Gate hold of the automatic pack in a node with writers. |
+| `mixed_version_write.py` | Mixed-version safety: main writes, then new continues on the same home (S2 migration). |
+| `forward_compat.py` | Forward compatibility: main-build reader on new-build home (S2 layout). |
 
 ## Commands
 
@@ -101,6 +103,10 @@ LDBIN=$NEW python3 kill_chain.py --rounds 20 --maintenance frequent --oracle-bin
 LDBIN=$NEW python3 backup_restore.py --oracle-bin $MAIN
 # S2: cost of many part files in one directory.
 python3 listing_cost.py
+# S2: mixed-version writer safety (main writes, new continues on same home).
+LDBIN=$NEW python3 mixed_version_write.py --main-bin $MAIN
+# S2: forward compatibility (main reader on new-build home).
+LDBIN=$MAIN python3 forward_compat.py --new-bin $NEW
 ```
 
 ## Results
@@ -233,8 +239,9 @@ Many part files in one directory (`listing_cost.py`, empty files named like part
 
 ### Bounds
 
-- Memory of the pack cache: at most 4,096 block-map pages of 16 KiB (64 MiB, reached only by a home with that many
-  batches), 256 decoded blocks of 4 KiB (1 MiB), 32,768 verified part records (about 6 MiB) and 64 open part files.
+- Memory of the pack cache: at most 4,096 cached block-map pages of 16 KiB (64 MiB) plus at most 4,096 new pages
+  read in one call (64 MiB), for a peak of 128 MiB of pages (reached only by a home with many thousands of batches).
+  Also 256 decoded blocks of 4 KiB (1 MiB), 32,768 verified part records (about 6 MiB) and 64 open part files.
   The pages of trees are dropped every 256 records. The peak resident memory that was measured is above: 31 MB at
   1.4 million records, 7 MB at 98,000 records. `main` used 14 MB and 5 MB.
 - Open files: the pack keeps up to 64 part files open between records. Before, a read call kept at most 32 and

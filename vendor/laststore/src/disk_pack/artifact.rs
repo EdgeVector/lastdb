@@ -49,6 +49,17 @@ pub(super) fn require_marker(root: &Path) -> Result<()> {
 }
 
 /// Administrative work still has finite per-path allocation and I/O limits.
+/// 
+/// Safety: This creates a ReadCall without a generation hold (_generation_hold: None).
+/// Callers MUST ensure that either:
+/// 1. They hold a WriteLock for the entire lifetime of the ReadCall, which prevents
+///    concurrent reclaim of the generation's files, OR
+/// 2. The generation's files are protected by some other mechanism (e.g., retained by
+///    an active reader or writer).
+/// 
+/// All current uses (compact_locked, publish_locked, dependency walks) satisfy (1) by
+/// holding WriteLock for the entire operation. If this invariant changes, the caller
+/// must acquire a GenerationHold explicitly.
 pub(super) fn metadata_call(root: &Path, current: Current) -> ReadCall {
     ReadCall {
         root: root.to_path_buf(),

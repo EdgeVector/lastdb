@@ -91,6 +91,8 @@ impl Read for RecordBody<'_> {
         self.hash.update(&out[..count]);
         self.position += count as u64;
         // The digest covers the whole record, so it is finished once, at the last byte.
+        // This optimization is safe only because read_exact() (used by RecordBody callers)
+        // guarantees all bytes are read. A partial read would defer the check unsafely.
         if self.position == self.location.record_bytes {
             let actual: [u8; 32] = self.hash.clone().finalize().into();
             if actual != self.location.digest {
