@@ -7,8 +7,10 @@ mod effects;
 mod empty;
 pub(crate) mod publication;
 mod request;
+mod resources;
 pub(crate) use effects::{stage_absences, stage_core_memory, stage_paths};
 pub(crate) use request::{background_scope, request_scope};
+pub(crate) use resources::with_resource;
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
 
 /// One serialized operation in the existing private preparation and flush log.
@@ -31,6 +33,7 @@ pub(super) struct PendingBatch {
     data: Mutex<PendingData>,
     publications: publication::PendingPublications,
     retained: Mutex<Vec<Box<dyn Send>>>,
+    resources: Mutex<Vec<resources::Resource>>,
     raw_memory_reservation: Mutex<Option<Arc<crate::memory_budget::DeferReservation>>>,
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
@@ -56,6 +59,7 @@ impl PendingBatch {
             data: Mutex::new(PendingData::default()),
             publications: publication::PendingPublications::default(),
             retained: Mutex::new(Vec::new()),
+            resources: Mutex::new(resources::capture(runtime)),
             raw_memory_reservation: Mutex::new(None),
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),

@@ -53,29 +53,40 @@ impl MutationManager {
             .aggregate_named_lock(format!("aggregate_guard_lock\u{1f}{guard_key}"))
             .write_owned()
             .await;
-        let guard = self
-            .read_reconciled_aggregate_guard(&guard_key, storage_prefix.as_deref())
-            .await?
-            .ok_or_else(|| {
-                SchemaError::InvalidData("aggregate source partition is not enrolled".into())
-            })?;
-        guard.validate().map_err(SchemaError::InvalidData)?;
-        Self::check_finalize_guard_association(&guard, &finalize, source_hash, &target_key)?;
-        self.validate_enrolled_aggregate_schemas(&guard)?;
+        self.with_aggregate_guards(_guard_lock, async {
+            let guard = self
+                .read_reconciled_aggregate_guard(&guard_key, storage_prefix.as_deref())
+                .await?
+                .ok_or_else(|| {
+                    SchemaError::InvalidData("aggregate source partition is not enrolled".into())
+                })?;
+            guard.validate().map_err(SchemaError::InvalidData)?;
+            Self::check_finalize_guard_association(&guard, &finalize, source_hash, &target_key)?;
+            self.validate_enrolled_aggregate_schemas(&guard)?;
 
-        let target_lock_key = Self::aggregate_target_lock_key(
-            storage_prefix.as_deref(),
-            &finalize.target_schema_name,
-            &target_key,
-        );
-        let _target_lock = self
-            .aggregate_named_lock(target_lock_key)
-            .write_owned()
-            .await;
-        self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
-            .await?;
-        self.finalize_with_repair_grant(finalize, target_key, &guard, storage_prefix.as_deref())
+            let target_lock_key = Self::aggregate_target_lock_key(
+                storage_prefix.as_deref(),
+                &finalize.target_schema_name,
+                &target_key,
+            );
+            let _target_lock = self
+                .aggregate_named_lock(target_lock_key)
+                .write_owned()
+                .await;
+            self.with_aggregate_guards(_target_lock, async {
+                self.check_finalize_target_owner(&guard, storage_prefix.as_deref())
+                    .await?;
+                self.finalize_with_repair_grant(
+                    finalize,
+                    target_key,
+                    &guard,
+                    storage_prefix.as_deref(),
+                )
+                .await
+            })
             .await
+        })
+        .await
     }
 
     /// The enrolled guard must describe exactly the association being finalized.

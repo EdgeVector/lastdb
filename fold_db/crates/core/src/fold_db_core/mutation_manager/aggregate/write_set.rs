@@ -97,34 +97,40 @@ impl MutationManager {
                     .collect(),
             )
             .await?;
-        if guard_locks.unenrolled() {
-            return self
-                .write_mutations_batch_inner_with_clock(
+        let unenrolled = guard_locks.unenrolled();
+        self.with_aggregate_guards(guard_locks, async {
+            if unenrolled {
+                return self
+                    .write_mutations_batch_inner_with_clock(
+                        mutations,
+                        storage_prefix,
+                        origin,
+                        author_clock_barrier,
+                    )
+                    .await;
+            }
+
+            let by_target = self
+                .resolve_invalidation_targets(candidates, &mutations, storage_prefix)
+                .await?;
+            let _target_locks = self
+                .acquire_aggregate_named_locks(by_target.keys().cloned().collect())
+                .await;
+            self.with_aggregate_guards(_target_locks, async {
+                let (invalidations, invalidated_guards) = self.build_invalidations(by_target)?;
+                self.apply_invalidations(invalidations, invalidated_guards, storage_prefix)
+                    .await?;
+
+                self.write_mutations_batch_inner_with_clock(
                     mutations,
                     storage_prefix,
                     origin,
                     author_clock_barrier,
                 )
-                .await;
-        }
-
-        let by_target = self
-            .resolve_invalidation_targets(candidates, &mutations, storage_prefix)
-            .await?;
-        let _target_locks = self
-            .acquire_aggregate_named_locks(by_target.keys().cloned().collect())
-            .await;
-
-        let (invalidations, invalidated_guards) = self.build_invalidations(by_target)?;
-        self.apply_invalidations(invalidations, invalidated_guards, storage_prefix)
-            .await?;
-
-        self.write_mutations_batch_inner_with_clock(
-            mutations,
-            storage_prefix,
-            origin,
-            author_clock_barrier,
-        )
+                .await
+            })
+            .await
+        })
         .await
     }
 

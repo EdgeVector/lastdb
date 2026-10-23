@@ -95,7 +95,7 @@ impl MutationManager {
     /// Apply one already-signed source and reconstruct its local member/summary.
     pub(in crate::fold_db_core::mutation_manager) async fn apply_aggregate_source(
         &self,
-        mut source: Mutation,
+        source: Mutation,
         storage_prefix: Option<&str>,
         origin: WriteOrigin,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
@@ -104,27 +104,48 @@ impl MutationManager {
             .aggregate_named_lock(format!("aggregate_guard_lock\u{1f}{}", ctx.guard_key))
             .write_owned()
             .await;
-        let (raw_current, raw_pending, matching_provisional_retry) =
-            self.load_raw_guards(&ctx).await?;
-        let lock_keys = Self::target_lock_keys(&ctx, raw_current.as_ref(), raw_pending.as_ref())?;
-        let _target_locks = self.acquire_aggregate_named_locks(lock_keys).await;
-        let gs = self
-            .reconcile_guard_state(&ctx, raw_current, raw_pending, matching_provisional_retry)
-            .await?;
+        self.with_aggregate_guards(_guard_lock, async {
+            let (raw_current, raw_pending, matching_provisional_retry) =
+                self.load_raw_guards(&ctx).await?;
+            let lock_keys =
+                Self::target_lock_keys(&ctx, raw_current.as_ref(), raw_pending.as_ref())?;
+            let _target_locks = self.acquire_aggregate_named_locks(lock_keys).await;
+            self.with_aggregate_guards(_target_locks, async {
+                let gs = self
+                    .reconcile_guard_state(
+                        &ctx,
+                        raw_current,
+                        raw_pending,
+                        matching_provisional_retry,
+                    )
+                    .await?;
 
+                self.apply_guarded_source(source, &ctx, gs).await
+            })
+            .await
+        })
+        .await
+    }
+
+    async fn apply_guarded_source(
+        &self,
+        mut source: Mutation,
+        ctx: &ApplyCtx<'_>,
+        gs: GuardState,
+    ) -> Result<ResidentCommitReceipt, SchemaError> {
         let expected = &ctx.expected_guard;
         let migration_winner =
             gs.source_conflict(expected).is_some() || gs.target_conflict(expected).is_some();
-        Self::reject_request_migration(origin, migration_winner)?;
+        Self::reject_request_migration(ctx.origin, migration_winner)?;
         if gs.loses_replay_conflict(expected) {
-            return self.apply_losing_replay(source, &ctx, &gs).await;
+            return self.apply_losing_replay(source, ctx, &gs).await;
         }
-        let plan = Self::plan_publish(&ctx, &gs);
+        let plan = Self::plan_publish(ctx, &gs);
 
-        let (source_fields, current_source_winner) = self.read_source_fields(&ctx, &source).await?;
+        let (source_fields, current_source_winner) = self.read_source_fields(ctx, &source).await?;
         let source_existed = !source_fields.is_empty();
-        let old_member = self.read_old_member(&ctx, &gs).await?;
-        let incoming = Self::build_incoming_member(&ctx, &source);
+        let old_member = self.read_old_member(ctx, &gs).await?;
+        let incoming = Self::build_incoming_member(ctx, &source);
         Self::check_source_advance(
             &source,
             &source_fields,
@@ -137,11 +158,11 @@ impl MutationManager {
         // Conflict invalidation follows every request-shape and source-value
         // check. A rejected AggregateSet must not stale either target.
         if migration_winner {
-            self.invalidate_affected(&ctx, &gs).await?;
+            self.invalidate_affected(ctx, &gs).await?;
         }
 
         let mut summary = self
-            .read_summary_state(&ctx, &source, &gs, &old_member)
+            .read_summary_state(ctx, &source, &gs, &old_member)
             .await?;
 
         // A deterministic replay winner can move a source partition or take a
@@ -154,7 +175,7 @@ impl MutationManager {
             source_existed && old_member.is_none() && !gs.recovering_first_enrollment;
         let apply = self
             .compute_member_apply(
-                &ctx,
+                ctx,
                 replacement_base,
                 &incoming,
                 &summary.current_summary,
@@ -170,25 +191,25 @@ impl MutationManager {
         // durable invalid marker must precede it because those schema writes
         // cannot become durable atomically after a process stop.
         if changes_member || repairs_guard {
-            self.invalidate_affected(&ctx, &gs).await?;
+            self.invalidate_affected(ctx, &gs).await?;
             summary.guard_token.clone_from(&source.uuid);
         }
         if repairs_guard {
-            self.put_provisional_guards(&ctx, &gs, &plan).await?;
+            self.put_provisional_guards(ctx, &gs, &plan).await?;
         }
 
         source.aggregate_set = None;
         source.synchronous = Some(true);
         let (data_mutations, derived_clock) =
-            self.build_data_mutations(source, &ctx, &incoming, apply, &summary.guard_token)?;
+            self.build_data_mutations(source, ctx, &incoming, apply, &summary.guard_token)?;
         let data_receipt = self
-            .write_data_generation(&ctx, data_mutations, derived_clock, &summary.guard_token)
+            .write_data_generation(ctx, data_mutations, derived_clock, &summary.guard_token)
             .await?;
         if repairs_guard {
-            self.commit_guards(&ctx, &gs, plan).await?;
+            self.commit_guards(ctx, &gs, plan).await?;
         }
         if changes_member && association_stable && prior_valid {
-            self.write_valid_marker(&ctx, &summary.guard_token).await?;
+            self.write_valid_marker(ctx, &summary.guard_token).await?;
         }
         Ok(data_receipt)
     }

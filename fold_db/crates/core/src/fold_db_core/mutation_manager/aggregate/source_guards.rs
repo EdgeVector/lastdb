@@ -18,6 +18,21 @@ impl OrdinarySourceGuards {
 }
 
 impl MutationManager {
+    /// Transfer critical-section ownership to each accepted native batch so a
+    /// handler timeout cannot release a guard before its accepted writes finish.
+    pub(super) async fn with_aggregate_guards<T>(
+        &self,
+        guards: impl Send + Sync + 'static,
+        future: impl std::future::Future<Output = Result<T, SchemaError>>,
+    ) -> Result<T, SchemaError> {
+        crate::storage::disk_pack::transaction::with_resource(
+            self.db_ops.namespaced_store().disk_pack_runtime(),
+            guards,
+            future,
+        )
+        .await
+    }
+
     pub(super) async fn acquire_ordinary_source_guards(
         &self,
         mut keys: Vec<String>,
