@@ -47,7 +47,7 @@ name = "lastdb-pack"
 path = "src/bin/lastdb-pack.rs"
 
 [lib]
-test = false
+test = true
 doctest = false
 bench = false
 
