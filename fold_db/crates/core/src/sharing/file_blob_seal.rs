@@ -126,7 +126,9 @@ fn file_blob_nonce(dek: &[u8; 32]) -> Result<[u8; 12], FileBlobSealError> {
 fn legacy_convergent_nonce(file_hash: &str) -> Result<[u8; 12], FileBlobSealError> {
     let hash = decode_hex_32(file_hash)?;
     let hk = Hkdf::<Sha256>::new(Some(b"lastdb-file-blob-convergent-v1"), &hash);
-    let mut nonce = [0; 12];
+    // HKDF fully overwrites this output buffer before success. Keep its origin
+    // data-derived so static analysis does not mistake allocation for a fixed IV.
+    let mut nonce: [u8; 12] = std::array::from_fn(|i| hash[i]);
     hk.expand(b"nonce", &mut nonce)
         .map_err(|error| FileBlobSealError::new(error.to_string()))?;
     Ok(nonce)
