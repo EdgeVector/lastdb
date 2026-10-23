@@ -3,6 +3,28 @@ use crate::disk_pack::maintenance::{MaintenanceReceipt, SpacePolicy, SpaceReserv
 use crate::Result;
 
 impl JournalWriter {
+    /// Current complete retained file count, without a filesystem walk.
+    pub fn dependency_parts(&self) -> Result<u64> {
+        Ok(crate::disk_pack::publish::ensure_generation(&self.lock, &self.current)?.dependencies)
+    }
+
+    /// Replace only lookup pages. Payload objects and their versions stay intact.
+    pub fn repack_lookups(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
+        self.publish()?;
+        self.poisoned = true;
+        let (current, receipt) =
+            match crate::disk_pack::maintenance::repack_locked(&self.lock, policy) {
+                Ok(packed) => packed,
+                Err(error) => {
+                    self.poisoned = !crate::disk_pack::artifact::current(&self.root)
+                        .is_ok_and(|disk| disk == self.current);
+                    return Err(error);
+                }
+            };
+        self.current = current;
+        self.poisoned = false;
+        Ok(receipt)
+    }
     /// An uncertain publication requires a reopen before more writes.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned

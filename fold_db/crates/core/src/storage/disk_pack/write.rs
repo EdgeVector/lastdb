@@ -236,6 +236,10 @@ impl PackRuntime {
                 return Err(map(error));
             }
         };
+        self.automatic.published(
+            publication.dependency_parts,
+            publication.metadata_pages_written,
+        );
         self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
         drop(space);
         self.failed.store(false, Ordering::Release);

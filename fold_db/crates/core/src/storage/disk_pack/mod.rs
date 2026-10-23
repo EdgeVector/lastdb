@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+mod automatic;
 mod backup;
 mod initialization;
 mod kv;
@@ -42,6 +43,7 @@ const NAMESPACES: &str = "namespaces\0";
 /// Shared native home, complete published root, and exclusive journal owner.
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
+    automatic: automatic::AutomaticMaintenance,
     home: Arc<DiskHome>,
     view: RwLock<view::NativeReadView>,
     journal: Mutex<HomeJournal>,
@@ -127,9 +129,12 @@ impl PackNamespacedStore {
         let journal = home.journal().map_err(map)?;
         let read_lease = journal.read_lease();
         let current = journal.current().clone();
+        let automatic =
+            automatic::AutomaticMaintenance::new(journal.dependency_parts().map_err(map)?)?;
         let metrics = Arc::new(PersistLaneMetrics::new());
         Ok(Self {
             runtime: Arc::new(PackRuntime {
+                automatic,
                 home,
                 view: RwLock::new(view::NativeReadView {
                     current,

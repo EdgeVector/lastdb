@@ -1,6 +1,7 @@
 //! Bounded same-home compaction and exact-reference reclaim under the writer lease.
 
 mod compact;
+mod lookup;
 mod quote;
 mod reclaim;
 mod space;
@@ -29,7 +30,10 @@ pub struct MaintenanceReceipt {
     pub bytes_removed: u64,
     /// Active readers cause deletion to defer, while replacement can still publish.
     pub reclaim_deferred: bool,
+    /// A bounded reclaim left older generations for a later step.
+    pub reclaim_remaining: bool,
 }
 
 pub(super) use compact::compact_locked;
+pub(super) use lookup::repack_locked;
 pub(super) use reclaim::reclaim_locked;
