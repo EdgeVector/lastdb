@@ -1,0 +1,12 @@
+{
+  "run_id": "f4da40d9747c490b8563385518ea82cc",
+  "home": "/workspace/nrc2-pairs/plain-3-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 615,
+  "allocated_bytes_removed": 404160512,
+  "free_bytes_before": 19519971328,
+  "free_bytes_after": 19925446656
+}

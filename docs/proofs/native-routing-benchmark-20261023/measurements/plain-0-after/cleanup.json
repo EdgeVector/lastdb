@@ -1,0 +1,12 @@
+{
+  "run_id": "20b80e0183634563a0d18202edac16cc",
+  "home": "/workspace/native-routing-pairs/plain-0-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1587,
+  "allocated_bytes_removed": 483119104,
+  "free_bytes_before": 19765456896,
+  "free_bytes_after": 20251729920
+}

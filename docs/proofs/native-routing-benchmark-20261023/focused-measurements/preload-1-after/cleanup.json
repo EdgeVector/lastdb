@@ -1,0 +1,12 @@
+{
+  "run_id": "a4a06d6dc10b47e5bd9d6cbb76e80a81",
+  "home": "/workspace/native-routing-focused-pairs/preload-1-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 685,
+  "allocated_bytes_removed": 426946560,
+  "free_bytes_before": 19815514112,
+  "free_bytes_after": 20243947520
+}

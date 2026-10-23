@@ -1,0 +1,12 @@
+{
+  "run_id": "f8a27c18bed74cf1b04c2f9d411a572d",
+  "home": "/workspace/native-routing-pairs/encrypted-3-after/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1632,
+  "allocated_bytes_removed": 505724928,
+  "free_bytes_before": 19740491776,
+  "free_bytes_after": 20249481216
+}

@@ -1,0 +1,29 @@
+{
+  "baseline": "bd517062ed3b86aef3e431d1e2cd64fd9dd08aa5",
+  "candidate": "6965ecb93a4007e50130cc479b4a4040ad03c997",
+  "binaries": {
+    "before": "b7779e3bd832d0c4f87c57295f30075b92023ee1917960277763caeb6488b6e2",
+    "after": "6dcb3078b8c11e9e02076b3d2c6a0501a02b5ee00ddc39606fa5a2c493b0f177"
+  },
+  "controlled_driver_sha256": "5209526b352146e039a4797ae1382295432e16ccee4119135b690b9697b83ee8",
+  "fixture_digests": {
+    "plain": {
+      "bytes": 155886725,
+      "files": 342,
+      "sha256": "73570b4b057bcf53a2b2b79659d37e2efa8d9192743deea50a24dc0d0cd4a404"
+    },
+    "preload": {
+      "bytes": 155728042,
+      "files": 337,
+      "sha256": "89d8eade446223ccb5834ff161bd03582a24e20b6fa0a584cdf2e45c665cdfa3"
+    }
+  },
+  "client_cpu": 0,
+  "server_cpu": 1,
+  "daemon_workers": 4,
+  "measured_runs": 16,
+  "timed_requests": 138240,
+  "graceful_stops": 34,
+  "setup_fixtures": 2,
+  "initial_unpaired_attempt_excluded": true
+}

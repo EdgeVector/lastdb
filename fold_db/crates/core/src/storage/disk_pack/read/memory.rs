@@ -11,15 +11,13 @@ impl PackRuntime {
     }
 }
 
-/// Enumerate the same alternate coordinates as an ordinary native exact read.
+/// The exact physical dependency of one core definition record.
 pub(crate) fn core_memory_sources(namespace: &str, key: &[u8]) -> Vec<CoreMemorySource> {
-    kv::coordinates(namespace, key)
-        .into_iter()
-        .map(|(collection, key)| CoreMemorySource {
-            collection,
-            key: Some(key),
-        })
-        .collect()
+    let (collection, key) = kv::coordinate(namespace, key);
+    vec![CoreMemorySource {
+        collection,
+        key: Some(key),
+    }]
 }
 
 pub(crate) fn core_memory_get<T: Any + Send + Sync>(

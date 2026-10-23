@@ -1,0 +1,11 @@
+{
+  "creator_pid": 179921,
+  "device": 27,
+  "home": "/workspace/nrc2-pairs/preload-3-before/home",
+  "inode": 919132,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "971b8dd780814f6ea6e79d05956e7ae9",
+  "scratch": "/workspace/nrc2-pairs/preload-3-before",
+  "version": 1
+}
