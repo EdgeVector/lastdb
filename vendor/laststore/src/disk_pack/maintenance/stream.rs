@@ -66,12 +66,13 @@ impl Read for RecordBody<'_> {
         let absolute = u64::from(self.location.first_position) + self.position;
         let ordinal = self.location.first_block + absolute / BLOCK_BYTES as u64;
         // A record can exceed one read call's block/byte budget. The stream
-        // retains one decoded block and resets the finite I/O budget per block;
-        // it never allocates the whole record or accumulates its block cache.
-        if self.block != Some(ordinal) {
+        // resets the finite I/O budget at each block boundary, so the block
+        // cache never grows with the record. The initial call can reuse the
+        // caller's bounded caches and metadata checks.
+        if self.block.is_some_and(|previous| previous != ordinal) {
             *self.call = artifact::metadata_call(&self.call.root, self.call.current.clone());
-            self.block = Some(ordinal);
         }
+        self.block = Some(ordinal);
         let block = self
             .call
             .read_block(&self.location, ordinal)
