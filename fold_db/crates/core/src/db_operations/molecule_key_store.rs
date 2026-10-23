@@ -6,7 +6,7 @@
 //! (`mkw:`). Catalog sharing adds a wrap; it never reseals molecule data.
 
 use crate::atom::MoleculeKeyCodec;
-use crate::crypto::{is_sealed_at_rest, open_at_rest, seal_at_rest_utf8};
+use crate::crypto::{is_sealed_at_rest, seal_at_rest_utf8};
 use crate::schema::types::Schema;
 use crate::storage::error::StorageResult;
 use crate::storage::traits::KvStore;
@@ -23,7 +23,12 @@ const BUNDLE_VERSION: u8 = 1;
 const NODE_DOMAIN: &str = "node";
 
 mod cache;
+mod frozen;
 mod metadata;
+
+pub(crate) use frozen::{
+    node_bundle_storage_keys, open_frozen_node_bundle, NODE_KEY_ROW_MAX_BYTES,
+};
 
 pub(crate) type MoleculeKeyCache = Arc<RwLock<HashMap<String, MoleculeKeyBundle>>>;
 
@@ -301,9 +306,18 @@ fn open_wrap(
             "molecule key bundle wrap is not encrypted".into(),
         ));
     }
-    let plaintext = open_at_rest(wrapping_key, wrap.sealed_bundle.as_bytes()).map_err(|error| {
-        StorageError::InvalidOperation(format!("unwrap molecule key bundle: {error}"))
-    })?;
+    // The generated bundle contains only three fixed-size keys. Bound any
+    // historical compressed envelope before its plaintext can reach JSON.
+    let plaintext = zeroize::Zeroizing::new(
+        crate::crypto::at_rest::open_at_rest_bounded(
+            wrapping_key,
+            wrap.sealed_bundle.as_bytes(),
+            4096,
+        )
+        .map_err(|error| {
+            StorageError::InvalidOperation(format!("unwrap molecule key bundle: {error}"))
+        })?,
+    );
     serde_json::from_slice(&plaintext).map_err(|error| {
         StorageError::SerializationError(format!("decode molecule key bundle: {error}"))
     })

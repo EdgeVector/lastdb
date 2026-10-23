@@ -124,7 +124,7 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
                 .map_err(super::super::map)?
                 .ok_or_else(|| invalid("metadata references an absent atom"))?
         };
-        let atom = open_atom(self.key, &body)?;
+        let atom = open_atom(self.key, &body, self.current, &mut self.read)?;
         if atom.uuid() != atom_id {
             return Err(invalid("metadata atom identity differs"));
         }
