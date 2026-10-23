@@ -20,7 +20,8 @@ pub struct CompactionPlan {
 pub struct PreparedCompaction {
     pub(super) identity: uuid::Uuid,
     pub(super) lock: Arc<WriteLock>,
-    pub(super) source: GenerationHold,
+    // Keep original inputs protected until this job and its private output drop.
+    _source: GenerationHold,
     pub(super) caught: GenerationHold,
     pub(super) output: PackOutput,
     pub(super) protection: crate::disk_pack::private_files::OutputFiles,
@@ -89,7 +90,7 @@ impl CompactionPlan {
         Ok(PreparedCompaction {
             identity: uuid::Uuid::new_v4(),
             lock: self.lock,
-            source: self.source,
+            _source: self.source,
             caught: self.caught,
             output,
             protection: self.protection,
