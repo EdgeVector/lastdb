@@ -40,6 +40,11 @@ impl MutationManager {
             .write_owned()
             .await;
         self.with_aggregate_guards(_guard_lock, async {
+            let source_hash = repair
+                .source_partition_key_value
+                .hash
+                .as_deref()
+                .expect("checked source hash");
             let guard = self
                 .read_reconciled_aggregate_guard(&guard_key, storage_prefix.as_deref())
                 .await?

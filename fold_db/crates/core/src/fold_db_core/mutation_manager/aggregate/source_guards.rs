@@ -23,12 +23,13 @@ impl MutationManager {
     pub(super) async fn with_aggregate_guards<T>(
         &self,
         guards: impl Send + Sync + 'static,
-        future: impl std::future::Future<Output = Result<T, SchemaError>>,
+        future: impl std::future::Future<Output = Result<T, SchemaError>> + Send,
     ) -> Result<T, SchemaError> {
         crate::storage::disk_pack::transaction::with_resource(
             self.db_ops.namespaced_store().disk_pack_runtime(),
             guards,
-            future,
+            // Bound the async layout in nested replay and aggregate callers.
+            futures::FutureExt::boxed(future),
         )
         .await
     }
