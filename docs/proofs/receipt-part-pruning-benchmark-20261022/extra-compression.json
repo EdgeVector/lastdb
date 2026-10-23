@@ -1,0 +1,162 @@
+{
+  "all_complete": true,
+  "driver_sha256": "4424fa7ed78f0df046fb8f1f092a415c594dac0231657d6eda3fdb130d7e2a11",
+  "files": [
+    {
+      "compressed": {
+        "bytes": 21921,
+        "sha256": "1c4e1f9ae1dc7b1f725fc9f5648bde848301e9144640b6acf229e47a46f711a1"
+      },
+      "compressed_path": "before-1/focused-checkpoints.json.gz",
+      "path": "before-1/focused-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 201959,
+        "sha256": "2ddc9f348a915d4c4852314c65dd7c1064a72e6ce00162cbd041fa7c6a8bfaf3"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 74072,
+        "sha256": "603f7a6b9a004ba4fd1ac42a20855939a9c9b63966978c76b21d581a55091646"
+      },
+      "compressed_path": "before-1/erase-checkpoints.json.gz",
+      "path": "before-1/erase-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 754036,
+        "sha256": "bd91749872151dc77ddc5bf296718899235be699c04f08b1143fe5ce00906954"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 21809,
+        "sha256": "12b281b0fd2231bd487ac8ed090b3bfe0224dc2e5e51569f2f226f9dde7a5dd2"
+      },
+      "compressed_path": "after-1/focused-checkpoints.json.gz",
+      "path": "after-1/focused-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 200348,
+        "sha256": "55e0951522f1f960d14d6ef297763dc314e44a3770277f9e78bac7ab14f4c683"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 73982,
+        "sha256": "e9bcf4e0763890e8d2a35520072ed56485e59322694b510b98366381231dea05"
+      },
+      "compressed_path": "after-1/erase-checkpoints.json.gz",
+      "path": "after-1/erase-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 751602,
+        "sha256": "e7763efb069085abb4ba86b8dcfface5fcddc1973d86c72cf15bae97d6fb01c6"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 22129,
+        "sha256": "7460a6b96cde271660c88cc96780b8a38e35ddf18b7bc7390dd21aaa561f13b3"
+      },
+      "compressed_path": "after-2/focused-checkpoints.json.gz",
+      "path": "after-2/focused-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 202308,
+        "sha256": "680dac97cf9295257634d6077f8ba5caffff541c2efc7cd07ac63c1eccbe027a"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 74604,
+        "sha256": "fbae773f29f3b8161a599af488d2a92b6e7b0669110f78ea0b8dc75bf9b01209"
+      },
+      "compressed_path": "after-2/erase-checkpoints.json.gz",
+      "path": "after-2/erase-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 754513,
+        "sha256": "f2236a885065fe7fd8a5bfc867d47157f2ba1cdc4399bd95e41897c07ccec4cb"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 22118,
+        "sha256": "879a32090965d722fdf6283b5fdd19fa3dea14989f21a350983dea9cd9be5637"
+      },
+      "compressed_path": "before-2/focused-checkpoints.json.gz",
+      "path": "before-2/focused-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 203151,
+        "sha256": "59f60bcce1578a8ab61164741da379c064b0219dbfbab73034878d6cd7cbf0a2"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 74500,
+        "sha256": "5dd9c268361e72cb68d0dbcd6e6b257335fcdf75db709ba8699112e0b01bba00"
+      },
+      "compressed_path": "before-2/erase-checkpoints.json.gz",
+      "path": "before-2/erase-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 754012,
+        "sha256": "2cc01b1fcdec06cf3484dbd07a9754f464c9da05b0a82f831efabcf9ec93c382"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 22086,
+        "sha256": "f709a6689a744709bd8524d0de4ab6ae83ca9f2d85e085e9a7904c5306f54cdf"
+      },
+      "compressed_path": "before-3/focused-checkpoints.json.gz",
+      "path": "before-3/focused-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 202939,
+        "sha256": "75e37b05b57a58405e7402bb3bd2baf9b57361a9923798f0e038812a5bb90f52"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 74348,
+        "sha256": "cd478c18372e1d54886b106e1287fdb6065b40b4597b466072e3471a9b234bca"
+      },
+      "compressed_path": "before-3/erase-checkpoints.json.gz",
+      "path": "before-3/erase-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 755621,
+        "sha256": "a9e3204126a53c20ee32701ef6989ff74b7f20e545fe22a9670b3ba688eea0a4"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 21888,
+        "sha256": "93b774eb9505657e94ad4b602a160535337766dbdebdf5f96bda850bf71a7007"
+      },
+      "compressed_path": "after-3/focused-checkpoints.json.gz",
+      "path": "after-3/focused-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 201021,
+        "sha256": "679485cdb44bc8629108ebb2b0e49fe0468f87c9d493571ebaa9d6859ef09337"
+      }
+    },
+    {
+      "compressed": {
+        "bytes": 73882,
+        "sha256": "03954ed2498892eccdcd0aab79ee0edeaf1b82f488a28ad5db453e24f52c686f"
+      },
+      "compressed_path": "after-3/erase-checkpoints.json.gz",
+      "path": "after-3/erase-checkpoints.json",
+      "round_trip_bytes_match": true,
+      "uncompressed": {
+        "bytes": 752649,
+        "sha256": "2fa9b224d66ee02465393b7e6118db71f203ec28cd7c1705d15fb1e447560d60"
+      }
+    }
+  ]
+}

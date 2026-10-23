@@ -43,6 +43,10 @@ It verifies shared overflow references after incremental deletes, replacements, 
 The operations use generated data only.
 An additional automatic-maintenance operation waits for the startup drain, then creates obsolete files below the compaction trigger.
 It sends no manual pack or reclaim request and checks later idle cleanup with exact keys and ranges.
-The repeated orphan sweep also requires a separate generated-data operation, with its precise scope in the final report.
+The separate orphan operation creates real native Put/Delete payloads before startup.
+It advances the generation floor, observes startup retention below the age cutoff, then requires removal by the repeated automatic sweep.
+It does not claim a second physical writer operates beside a live node.
 The primary, archive, cloud, and shared services stay unchanged.
 The measurements do not establish power-loss behavior or physical SSD write counts.
+
+The [final report](RESULTS.md) identifies the exact candidate and preserves the earlier complete intermediate round separately.

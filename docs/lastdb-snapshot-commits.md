@@ -120,6 +120,11 @@ Short retries still handle a deferred sweep before the next regular interval.
 Packs, holds, grace periods, and error backoff can delay the scheduled cleanup.
 Automatic maintenance off still disables the worker.
 
+The [receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records six operational checks and three benchmark pairs at `a1941e3a8`.
+The part-lifetime checks pass, including the periodic retry after startup retains a young orphan.
+The matched foreground comparison shows lower file growth with slower batch writes.
+PR 273 remains a draft pending a better latency result.
+
 ## Live-part limits
 
 One receipt admits at most 65,536 dependency parts.

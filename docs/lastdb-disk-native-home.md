@@ -77,6 +77,8 @@ Reopen verifies the selected snapshot and its generation receipt; it performs no
 Interrupted private output remains outside that snapshot.
 Read holds and explicit references protect files until safe reclaim.
 The [file lifetime protocol](lastdb-disk-file-lifetime.md) defines that removal authority.
+The [receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) checks exact part lifetime and periodic cleanup.
+Its three matched pairs show lower file growth with higher batch latency; the change stays a draft.
 
 ## Explicit command
 

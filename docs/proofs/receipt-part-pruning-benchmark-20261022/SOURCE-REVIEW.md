@@ -102,6 +102,11 @@ The automatic-maintenance operation distinguishes periodic cleanup from the star
 The workload does not exercise a payload map part above part zero, the maximum-size home, or the workspace ceiling.
 No primary, archive, cloud, or physical SSD write claim is part of this report.
 
+The [independent operational audit](independent-operational-audit.json) checks final candidate `a1941e3a8` and its exact binaries.
+The [final report](RESULTS.md) records correct data with lower file growth and slower batch writes across three pairs.
+The automatic operations use zero grace and startup delay; the orphan retry uses a ten-second age cutoff.
+They do not establish default cleanup latency or a concurrent-reader race stress result.
+
 The source map is `disk_pack/live_parts.rs`, its five child modules, `tree_edit.rs`, `locator_forest.rs`, `publish.rs`, and `generation.rs`.
 The removed helpers are `Dependencies::from_coordinates`, the conservative generation writer, and the unused three-result `TreeEdit::finish` adapter.
 The change keeps the directory, locator, payload, block-map, generation, and `CURRENT` files that the searchable snapshot still needs.

@@ -9,6 +9,7 @@ The second review also removes erase recovery records and journal-based cloud re
 The native writer merged in PR 268 as `4118c7baa`.
 The second review uses final product source `5919abbfbf2263993ea99700b73bd9c8d43d689b` in PR 271.
 The next change starts from `08d8436cc` and removes obsolete parts from each new receipt.
+Its final measured product source is `a1941e3a8` in draft PR 273.
 
 ## Current source
 
@@ -115,6 +116,14 @@ An uncertain result stops new admission until the caller reopens the writer.
 A reopen selects only the committed root; private interrupted output remains unused.
 Missing or damaged committed dependencies cause an error.
 The code does not infer another root or reconstruct a missing receipt.
+
+The [receipt removal report](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) records three pairs against journal-free `08d8436cc`.
+Durable-single file growth falls from 668.35 to 640.36 KiB per update.
+The durable 32-record batch p50 rises from 99.96 to 164.65 ms; every pair records a slower batch.
+The focused worst write increases from 1.198 to 1.314 seconds.
+The code checks and six operational checks pass, but the performance tradeoff does not support a merge recommendation.
+Each changed key currently creates a fresh resolver, which can repeat map reads for related keys.
+That source path is a possible cause; the report does not claim profile attribution.
 
 New native and artifact roots require `FEATURE_SNAPSHOT_COMMIT`.
 Old journal roots receive an explicit refusal before writer file creation.

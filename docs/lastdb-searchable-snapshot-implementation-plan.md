@@ -77,6 +77,13 @@ Additional operations cover shared payload parts, long keys, older receipt conve
 An automatic-maintenance operation checks idle reclaim below the compaction trigger, without a manual pack or reclaim request.
 The source and measurement receipts must identify the exact executable used for each result.
 
+The [completed receipt comparison](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) uses candidate `a1941e3a8` against journal-free `08d8436cc`.
+All six operational checks and three benchmark pairs pass their data checks.
+Durable-single growth falls from 668.35 to 640.36 KiB per update.
+The durable 32-record batch p50 rises from 99.96 to 164.65 ms.
+Keep PR 273 as a draft; do not recommend a merge in this form.
+The next performance step should share the bounded resolver cache across related keys within one batch, then measure again.
+
 ## 1. End state and scope
 
 - The local searchable snapshot owns keyed reads, ranges, local commits, and crash recovery.

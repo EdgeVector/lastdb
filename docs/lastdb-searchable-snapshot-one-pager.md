@@ -15,7 +15,7 @@ The cloud-repair commands, peer adoption records, and restart workers are remove
 Retired repair state and cloud generations that need adoption receive an explicit refusal.
 The sync mutation log and authenticated retired sync source records remain.
 
-The repeat benchmark uses three fresh-home pairs against the original journal-backed baseline `6d8aa0d57`. Durable-single request p50 falls from 86.1 to 48.9 ms. Process write bytes per durable update fall from 912.0 to 723.3 KiB. Batch latency shows mixed results.
+The earlier repeat benchmark uses three fresh-home pairs against the original journal-backed baseline `6d8aa0d57`. Durable-single request p50 falls from 86.1 to 48.9 ms. Process write bytes per durable update fall from 912.0 to 723.3 KiB. Batch latency shows mixed results.
 
 The focused compaction write delay remains about 2.2 seconds. Automatic maintenance is off in both versions. The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) separates these results from the [first report](proofs/journal-removal-benchmark-20261022/RESULTS.md). Neither comparison isolates the extra erase-meter removal.
 
@@ -30,6 +30,12 @@ Older receipts and read holds still protect earlier snapshots until reclaim can 
 The automatic worker schedules periodic reclaim even when the smaller receipt stays below the compaction trigger.
 The orphan sweep also repeats for files that no receipt names, with unchanged age and grace cutoffs.
 The change keeps the current 16 KiB search pages and their write cost.
+
+The separate [receipt removal comparison](proofs/receipt-part-pruning-benchmark-20261022/RESULTS.md) compares journal-free `08d8436cc` with `a1941e3a8` in three fresh-home pairs.
+Durable-single file growth falls from 668.35 to 640.36 KiB per update.
+The durable 32-record batch p50 rises from 99.96 to 164.65 ms, with slower batches in every pair.
+Exact keys, ranges, recovery, shared parts, and automatic cleanup pass.
+The change stays a draft because this latency cost outweighs the measured short-workload benefit.
 
 A crash before the root update leaves the previous snapshot selected. A crash during publication can leave either complete version selected. A completed durable commit survives restart. Recovery opens the selected snapshot without mutation replay. A memory ack remains volatile until the flush completes; 500 ms is a schedule, not a guaranteed maximum loss window. Corrupt committed bytes require an explicit error and a restore procedure.
 
