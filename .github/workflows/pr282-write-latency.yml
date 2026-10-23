@@ -24,7 +24,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: "4"
       CARGO_TERM_COLOR: always
-      METADATA_BEFORE_SHA: f6f3ffcaceacfb517f202e65f536b72b30549a67
+      METADATA_BEFORE_SHA: 2b4718493f61ec4a1b38c6f6d7a7505851be4c50
     steps:
       - name: Checkout proposed source and capture driver
         uses: actions/checkout@v5
@@ -121,6 +121,33 @@ jobs:
             --after-binary "$RUNNER_TEMP/matched-target-candidate/dev-release/lastdbd" \
             --before-revision "$METADATA_BEFORE_SHA" --after-revision "$AFTER_SHA" \
             --pairs 1 --count 1000 --profile --output "$EVIDENCE_ROOT/metadata-only"
+      - name: Record measured results in the CI summary
+        if: always() && steps.build.outcome == 'success'
+        run: |
+          {
+            echo 'Eight records per request; latency covers the whole request.'
+            echo ''
+            echo '| Capture | Source and clients | Runs | Mean ms | P99 ms |'
+            echo '| --- | --- | --- | --- | --- |'
+            for capture in matched metadata-only; do
+              path="$EVIDENCE_ROOT/$capture/comparison.json"
+              if [ -f "$path" ]; then
+                jq -r --arg capture "$capture" '.groups | to_entries[] |
+                  "| \($capture) | \(.key) | \(.value.runs) | \(.value.median_run_average_ms) | \(.value.median_run_p99_ms) |"' "$path"
+              fi
+            done
+            echo ''
+            echo '| Compaction | Active publications | Active explicit completions | Bytes removed during writes | Mean ms | P99 ms |'
+            echo '| --- | --- | --- | --- | --- | --- |'
+            for mode in automatic tier full; do
+              path="$EVIDENCE_ROOT/compaction-$mode/$mode/compaction-progress.json"
+              if [ -f "$path" ]; then
+                jq -r '"| \(.mode) | \(.maintenance_runs_observed_during_writes) | \(.explicit_completed_during_writes) | \(.explicit_bytes_removed_during_writes) | \(.latency.average_ms) | \(.latency.p99_ms) |"' "$path"
+              fi
+            done
+            echo ''
+            echo 'Missing captures remain incomplete. Latency slowdowns are advisory; correctness and active compaction checks must pass.'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Retain all samples and build receipts
         id: artifact
         if: always()
