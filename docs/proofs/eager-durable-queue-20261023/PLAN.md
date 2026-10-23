@@ -32,3 +32,9 @@ The capture checks values, read holds, purge counts, and the final warm size.
 
 The source checks use format, strict Clippy, size, and existing source lints.
 The work does not add or run tests.
+
+The final campaign repeats both controls and the revised candidate.
+It also checks an active 1 GiB disk cap on another generated home.
+The production cap and grace policy stay unchanged.
+The explicit compaction capture uses zero grace for prompt space release.
+Retained live mutations and notices can still increase the total disk size.

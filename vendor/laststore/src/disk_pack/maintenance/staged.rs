@@ -57,16 +57,20 @@ impl PreparedCompaction {
             pointer,
             pointer_file,
         };
-        // This full metadata walk stays outside the final publication gate.
-        // The retained source and private-output protection cover its inputs.
+        // Recompute live counts outside the gate. Receipt caches carry only
+        // immutable part facts; their snapshot-local counts are never reused.
         let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
             root,
             &staged.current,
             &self.output.dependencies,
         )?;
-        let written =
-            generation::write_live_at(root, &staged.current, &live, None, staged.receipt.clone())?;
+        let cut = generation::read_receipt(root, self.caught.current())?;
+        let written = generation::write_live_at_with_cache(
+            root, &staged.current, &live, Some(&cut), self.cached_receipt.as_ref(),
+            staged.receipt.clone(),
+        )?;
         staged.parts = written.dependencies;
+        self.cached_receipt = Some(written);
         staged.pointer_file.write_all(&staged.current.encode()?)?;
         durability::sync_dirty_file(&staged.pointer_file)?;
         self.prepared();

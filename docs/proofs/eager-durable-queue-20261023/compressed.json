@@ -3,5 +3,10 @@
     "path": "sustained/writes.json",
     "bytes": 3689060,
     "sha256": "ae2db5f52e326257943ee77270cd9a0d33801c726cfc19f22160fe9f5639746e"
+  },
+  {
+    "path": "final-sustained/writes.json",
+    "bytes": 3690522,
+    "sha256": "64f2795f02bb4d287cf6ff218f65e67e61cf7f122adde87d77fc13b40038803c"
   }
 ]

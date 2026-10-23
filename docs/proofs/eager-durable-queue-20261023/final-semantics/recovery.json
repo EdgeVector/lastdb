@@ -1,0 +1,21 @@
+{
+  "expected": 280,
+  "actual": 280,
+  "all_values_match": true,
+  "schemas": [
+    {
+      "schema": "IndependentBatch000",
+      "expected": 152,
+      "actual": 152,
+      "all_values_match": true,
+      "mismatches": []
+    },
+    {
+      "schema": "IndependentBatch001",
+      "expected": 128,
+      "actual": 128,
+      "all_values_match": true,
+      "mismatches": []
+    }
+  ]
+}

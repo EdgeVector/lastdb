@@ -1,0 +1,13 @@
+{
+  "source": "327c26ebb3eaed364528603467247b8ec4eccfce",
+  "binary_sha256": "10f2765678ea28d338722b3cee276d1372d552251b9b50d2c0036e4bcd59d3d5",
+  "baseline_source": "bcdcbba38b20188bbd8c506326d6c451f0363f50",
+  "baseline_binary_sha256": "9abbf878c01f6dc6a3462592a8ede52a3230ce4b3110acc0a7e87da1600c60aa",
+  "compiler_exclusion": true,
+  "other_host_work_controlled": false,
+  "load_before": [
+    23.40625,
+    12.9189453125,
+    14.12939453125
+  ]
+}

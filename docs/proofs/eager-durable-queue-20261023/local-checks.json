@@ -28,5 +28,14 @@
     "commit": "0ad0f833e8a6564909839685d8f839d2562df1f4",
     "url": "https://github.com/EdgeVector/lastdb/actions/runs/39985636975"
   },
-  "follow_up_source_checks": "pending after logical-frontier reservation and change-feed tip changes"
+  "follow_up_source_checks": {
+    "source": "327c26ebb3eaed364528603467247b8ec4eccfce",
+    "format_and_source_lints": "pass",
+    "required_ci": "success",
+    "ci_url": "https://github.com/EdgeVector/lastdb/actions/runs/39987812420",
+    "full_workspace_clippy": "pass",
+    "off_lane_bins": "pass",
+    "optimized_build": "pass",
+    "binary_sha256": "10f2765678ea28d338722b3cee276d1372d552251b9b50d2c0036e4bcd59d3d5"
+  }
 }

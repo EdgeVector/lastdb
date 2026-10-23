@@ -1,0 +1,1922 @@
+[
+  {
+    "key": "cas-000",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "6854efdb-efd9-4360-bf28-b501eec3dcc5",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 47480,
+            "gate_wait": 0,
+            "prepare": 1215,
+            "publish": 0
+          },
+          "revision": 1,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 49.0265
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-000\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-000\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 50.498334
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-000\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-000\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 51.30325
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-000\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-000\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 49.955666
+      }
+    ]
+  },
+  {
+    "key": "cas-001",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-001\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-001\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 38.519708
+      },
+      {
+        "client": 1,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "71a10a80-9343-4b06-9826-d9e4cbb362bd",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 35987,
+            "gate_wait": 0,
+            "prepare": 931,
+            "publish": 0
+          },
+          "revision": 5,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 36.860334
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-001\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-001\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 39.14525
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-001\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-001\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 37.801291
+      }
+    ]
+  },
+  {
+    "key": "cas-002",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "84084607-1c51-4ba9-9ccc-615e00e6198d",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 25031,
+            "gate_wait": 0,
+            "prepare": 1595,
+            "publish": 0
+          },
+          "revision": 9,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 26.050833
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-002\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-002\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 29.314584
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-002\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-002\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 26.754
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-002\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-002\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 28.7445
+      }
+    ]
+  },
+  {
+    "key": "cas-003",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-003\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-003\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 39.815584
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-003\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-003\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 38.983958
+      },
+      {
+        "client": 2,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "ee956923-c30a-472e-a648-7cdd3b886b97",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 36170,
+            "gate_wait": 0,
+            "prepare": 2235,
+            "publish": 0
+          },
+          "revision": 13,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 37.172833
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-003\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-003\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 38.244208
+      }
+    ]
+  },
+  {
+    "key": "cas-004",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-004\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-004\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 38.072375
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-004\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-004\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 38.841917
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-004\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-004\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 37.253667
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "56fee2df-dd01-41d7-9291-c587fbafaa0a",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 35543,
+            "gate_wait": 0,
+            "prepare": 1956,
+            "publish": 0
+          },
+          "revision": 17,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 36.583417
+      }
+    ]
+  },
+  {
+    "key": "cas-005",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "98212abe-062d-4813-a3c3-22abc6463129",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 39849,
+            "gate_wait": 0,
+            "prepare": 2059,
+            "publish": 0
+          },
+          "revision": 21,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 40.766917
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-005\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-005\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 42.483083
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-005\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-005\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 41.654167
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-005\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-005\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 43.507833
+      }
+    ]
+  },
+  {
+    "key": "cas-006",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-006\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-006\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 40.026958
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-006\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-006\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 39.044458
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-006\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-006\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 38.269125
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "ee4e053a-d1af-4b2e-97d0-29a5ae0d96e1",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 36539,
+            "gate_wait": 0,
+            "prepare": 1877,
+            "publish": 0
+          },
+          "revision": 25,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 37.428458
+      }
+    ]
+  },
+  {
+    "key": "cas-007",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-007\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-007\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 20.564417
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-007\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-007\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 18.958
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-007\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-007\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 19.624792
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "e5ab74c0-9c2f-4add-8c87-ea697f4d379a",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 17425,
+            "gate_wait": 0,
+            "prepare": 1932,
+            "publish": 0
+          },
+          "revision": 29,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 18.403834
+      }
+    ]
+  },
+  {
+    "key": "cas-008",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-008\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-008\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 40.429959
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-008\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-008\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 41.008375
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-008\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-008\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 39.488084
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "524df244-48e7-4a7c-80a9-9f45e12b75b7",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 38085,
+            "gate_wait": 0,
+            "prepare": 1769,
+            "publish": 0
+          },
+          "revision": 33,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 38.8435
+      }
+    ]
+  },
+  {
+    "key": "cas-009",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-009\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-009\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 51.637584
+      },
+      {
+        "client": 1,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "a2f2fd04-b270-4364-ad76-133a2297b462",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 49682,
+            "gate_wait": 0,
+            "prepare": 1835,
+            "publish": 0
+          },
+          "revision": 37,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 50.389625
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-009\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-009\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 52.032
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-009\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-009\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 51.178208
+      }
+    ]
+  },
+  {
+    "key": "cas-010",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-010\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-010\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 33.181958
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-010\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-010\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 32.741167
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-010\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-010\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 33.724083
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "8e915cf0-04b8-44dc-a230-8bf170b903db",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 31514,
+            "gate_wait": 0,
+            "prepare": 1212,
+            "publish": 0
+          },
+          "revision": 41,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 32.24275
+      }
+    ]
+  },
+  {
+    "key": "cas-011",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "db380a6c-becf-424b-9494-daae6b4b032c",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 29115,
+            "gate_wait": 0,
+            "prepare": 1265,
+            "publish": 0
+          },
+          "revision": 45,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 29.685375
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-011\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-011\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 30.128875
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-011\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-011\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 30.595625
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-011\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-011\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 31.205083
+      }
+    ]
+  },
+  {
+    "key": "cas-012",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "ce52adba-b7a6-458d-9111-1f10e71620d7",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 18429,
+            "gate_wait": 0,
+            "prepare": 1361,
+            "publish": 0
+          },
+          "revision": 49,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 19.045667
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-012\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-012\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 19.460041
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-012\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-012\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 20.487542
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-012\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-012\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 20.057208
+      }
+    ]
+  },
+  {
+    "key": "cas-013",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "27a1c965-274e-4a47-8d8a-241ca96becee",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 27260,
+            "gate_wait": 0,
+            "prepare": 1359,
+            "publish": 0
+          },
+          "revision": 53,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 27.890583
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-013\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-013\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 28.344583
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-013\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-013\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 28.755583
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-013\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-013\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 29.383375
+      }
+    ]
+  },
+  {
+    "key": "cas-014",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "c3fe6233-9ec3-4ec7-8680-021406444c27",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 41613,
+            "gate_wait": 0,
+            "prepare": 1291,
+            "publish": 0
+          },
+          "revision": 57,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 42.275458
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-014\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-014\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 42.744833
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-014\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-014\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 43.188833
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-014\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-014\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 43.851292
+      }
+    ]
+  },
+  {
+    "key": "cas-015",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-015\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-015\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 23.222125
+      },
+      {
+        "client": 1,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "b0c24787-60b4-4b0c-a10d-b41045097a27",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 22043,
+            "gate_wait": 0,
+            "prepare": 1370,
+            "publish": 0
+          },
+          "revision": 61,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 22.593125
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-015\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-015\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 24.177458
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-1\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-015\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-015\"}':                  expected <absent>, found \"writer-1\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 23.768458
+      }
+    ]
+  },
+  {
+    "key": "cas-016",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-016\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-016\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 24.621875
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-016\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-016\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 23.545458
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-016\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-016\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 23.967667
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "eaff938c-ef76-4515-9193-7f3aaaaf66cd",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 22356,
+            "gate_wait": 0,
+            "prepare": 1418,
+            "publish": 0
+          },
+          "revision": 65,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 23.073667
+      }
+    ]
+  },
+  {
+    "key": "cas-017",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-017\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-017\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 20.986458
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-017\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-017\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 19.781084
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-017\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-017\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 20.390583
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "6364a47e-c166-4803-9188-55d045d4851a",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 18729,
+            "gate_wait": 0,
+            "prepare": 1413,
+            "publish": 0
+          },
+          "revision": 69,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 19.370583
+      }
+    ]
+  },
+  {
+    "key": "cas-018",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-018\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-018\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 29.64075
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-018\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-018\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 30.491083
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-018\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-018\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 30.060583
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "d4499fea-623e-4920-945c-eb5eef944fc9",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 28476,
+            "gate_wait": 0,
+            "prepare": 1428,
+            "publish": 0
+          },
+          "revision": 73,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 29.069084
+      }
+    ]
+  },
+  {
+    "key": "cas-019",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-019\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-019\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 19.520541
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-019\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-019\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 18.28425
+      },
+      {
+        "client": 2,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "109d1022-d130-4969-92de-20e66b6c3a37",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 17199,
+            "gate_wait": 0,
+            "prepare": 1390,
+            "publish": 0
+          },
+          "revision": 77,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 17.755125
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-019\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-019\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 18.998792
+      }
+    ]
+  },
+  {
+    "key": "cas-020",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-020\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-020\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 19.0825
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-020\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-020\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 18.545375
+      },
+      {
+        "client": 2,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "ad48218b-971f-472d-87ce-736109e4d070",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 16932,
+            "gate_wait": 0,
+            "prepare": 1361,
+            "publish": 0
+          },
+          "revision": 81,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 17.483084
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-2\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-020\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-020\"}':                  expected <absent>, found \"writer-2\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 18.126333
+      }
+    ]
+  },
+  {
+    "key": "cas-021",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-021\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-021\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 17.483375
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-021\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-021\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 16.806875
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-021\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-021\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 16.386375
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "6ce96a2e-ea83-4b39-b3bc-73c676f917ab",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 15244,
+            "gate_wait": 0,
+            "prepare": 1327,
+            "publish": 0
+          },
+          "revision": 85,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 15.897791
+      }
+    ]
+  },
+  {
+    "key": "cas-022",
+    "responses": [
+      {
+        "client": 0,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-022\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-022\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 24.22575
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-022\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-022\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 24.696042
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-3\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-022\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-022\"}':                  expected <absent>, found \"writer-3\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 25.266083
+      },
+      {
+        "client": 3,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "b290a0f1-8864-4172-94d6-961d3971f82c",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 23033,
+            "gate_wait": 0,
+            "prepare": 1419,
+            "publish": 0
+          },
+          "revision": 89,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 23.673792
+      }
+    ]
+  },
+  {
+    "key": "cas-023",
+    "responses": [
+      {
+        "client": 0,
+        "status": 200,
+        "receipt": {
+          "background_tasks_drained": false,
+          "convergence_pending": true,
+          "durability": "durable",
+          "mutation_id": "efb48807-aa41-41d6-a337-b266ac5b80ed",
+          "ok": true,
+          "operations": {
+            "created": 1,
+            "deleted": 0,
+            "no_op": 0,
+            "total": 1,
+            "updated": 0
+          },
+          "resident_stages_us": {
+            "ack": 23024,
+            "gate_wait": 0,
+            "prepare": 1368,
+            "publish": 0
+          },
+          "revision": 93,
+          "size": 34,
+          "success": true,
+          "touched_group_ids": [],
+          "user_hash": "30715cc165484abc0ded420e83e4b0b7"
+        },
+        "ms": 23.614125
+      },
+      {
+        "client": 1,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-023\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-023\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 25.036417
+      },
+      {
+        "client": 2,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-023\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-023\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 24.610584
+      },
+      {
+        "client": 3,
+        "status": 409,
+        "receipt": {
+          "actual": "\"writer-0\"",
+          "error": "cas_conflict",
+          "expected": "<absent>",
+          "field": "value",
+          "key": "{\"hash\":\"IndependentBatch000\",\"range\":\"cas-023\"}",
+          "message": "CAS conflict on schema 'IndependentBatch000' field 'value' key '{\"hash\":\"IndependentBatch000\",\"range\":\"cas-023\"}':                  expected <absent>, found \"writer-0\"",
+          "ok": false,
+          "schema": "IndependentBatch000"
+        },
+        "ms": 24.210917
+      }
+    ]
+  }
+]

@@ -27,6 +27,7 @@ capture, schemas, save = old.capture, old.schemas, old.save
 
 class Node(capture.Node):
     warm_bytes = 268435456
+    disk_cap = None
 
     def start(self):
         env = {key: value for key, value in os.environ.items()
@@ -40,6 +41,8 @@ class Node(capture.Node):
                    LASTDB_SNAPSHOT_TIMING=str(int(self.profile)),
                    LASTDB_CORE_WARM_BYTES=str(self.warm_bytes),
                    RUST_MIN_STACK='67108864', RUST_LOG='warn')
+        if self.disk_cap is not None:
+            env['LASTDB_DISK_CAP_BYTES'] = str(self.disk_cap)
         self.process = subprocess.Popen([str(self.binary), '--data-dir', str(self.home)],
                                         env=env, stdout=self.log, stderr=self.log)
         deadline = time.monotonic() + 90
@@ -108,18 +111,19 @@ def recover(node, args, expected):
         json.dumps(events, separators=(',', ':')).encode(), mtime=0))
 
 
-def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, sustained=False):
+def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, sustained=False, disk_cap=None):
     output = PROOF / name
     output.mkdir()
     home = scratch / ('h' + str(len(list(scratch.glob('h*')))))
     home.mkdir()
     args = argparse.Namespace(output=output, count=count, schemas=64, clients=clients, batch_size=batch)
     node = Node(binary, home, scratch / (name + '.log'), 4096, False, workers=8)
-    node.profile, node.maintenance = profile, True
+    node.profile, node.maintenance, node.disk_cap = profile, True, disk_cap
     save(output / 'inputs.json', {'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
          'home': str(home), 'generated_data_only': True, 'schemas': 64, 'calls': count,
          'clients': clients, 'batch': batch, 'distinct_schemas_between_clients': True,
          'profile': profile, 'auto_maintenance': True, 'sustained_compaction': sustained,
+         'disk_cap_bytes': disk_cap,
          'durability': 'omitted; durable required', 'load_before': os.getloadavg()})
     done = threading.Event()
     try:
@@ -169,11 +173,14 @@ def main():
         run(scratch / 'candidate', scratch, 'final-concurrent', 4, 8)
         run(scratch / 'before', scratch, 'repeat-before-concurrent', 4, 8)
         run(scratch / 'candidate', scratch, 'final-profile', 4, 8, 512, True)
+        run(scratch / 'before', scratch, 'repeat-before-single-profile', 1, 1, 512, True)
+        run(scratch / 'candidate', scratch, 'final-single-profile', 1, 1, 512, True)
         run(scratch / 'candidate', scratch, 'final-sustained', 4, 8, 4096, True, True)
         subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
                         '--name', 'final-semantics'], check=True)
         old.PROOF = PROOF
         old.boundaries(scratch / 'candidate', scratch, 'final-boundaries', 'hb')
+        run(scratch / 'candidate', scratch, 'final-capped', 4, 8, 512, True, True, 1073741824)
     elif args.mode == 'smoke':
         run(scratch / 'candidate', scratch, 'smoke', 4, 8, 128, True)
     elif args.mode == 'bench':
