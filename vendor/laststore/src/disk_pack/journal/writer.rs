@@ -106,8 +106,7 @@ impl JournalWriter {
             self.poisoned = false;
             return Ok(publication);
         }
-        // A materialized batch needs one root publication. Rotate a bounded
-        // stream only occasionally; rotation publishes a second full receipt.
+        // Publish once; rotate a bounded stream periodically with one extra receipt.
         let batches = self.tail.last_batch - (self.tail.first_batch - 1);
         let publication = if batches >= 32 || self.tail.encoded_bytes >= 16 * 1024 * 1024 {
             let (publication, tail) = super::resume::checkpoint(&self.lock)?;

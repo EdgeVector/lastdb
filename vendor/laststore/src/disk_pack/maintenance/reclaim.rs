@@ -77,8 +77,10 @@ pub(in crate::disk_pack) fn reclaim_locked(
     for (coordinate, path) in candidates {
         if let Some(bytes) = removable(root, &coordinate, &path, cutoff)? {
             removals.push((path, bytes));
+            removed.push(coordinate);
+        } else if !path.try_exists()? {
+            removed.push(coordinate);
         }
-        removed.push(coordinate);
     }
     remove_parts(root, removals, &mut receipt)?;
     // Only completed barriers and verified absences enter this optional cache.
