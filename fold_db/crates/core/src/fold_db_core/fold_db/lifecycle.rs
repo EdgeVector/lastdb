@@ -7,6 +7,9 @@ impl FoldDB {
     /// Shutdown joins them before it records a clean flush.
     pub fn request_background_stop(&self) {
         self.sync_coordinator.request_background_stop();
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            runtime.request_automatic_stop();
+        }
     }
 
     /// Upper bound on how long [`FoldDB::shutdown`] waits for tracked tasks.
@@ -109,6 +112,11 @@ impl FoldDB {
             "Shutting down FoldDB: draining background tasks, flushing sync and storage"
         );
         self.request_background_stop();
+        if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+            if let Err(error) = runtime.stop_automatic().await {
+                pre_flush_errors.push(error.to_string());
+            }
+        }
         // Stop periodic flusher before the final barrier so we do not race
         // two flushes (and so Drop does not try to abort a still-running tick).
         self.background_flush.stop().await;

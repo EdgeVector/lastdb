@@ -12,7 +12,8 @@ pub(super) struct AutomaticMaintenance {
     trigger_parts: AtomicU64,
     parts: AtomicU64,
     written_bytes: AtomicU64,
-    worker: AtomicBool,
+    worker: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    stop: tokio::sync::watch::Sender<bool>,
     cleanup: AtomicBool,
     runs: AtomicU64,
     full_runs: AtomicU64,
@@ -48,7 +49,8 @@ impl AutomaticMaintenance {
             trigger_parts: AtomicU64::new(part_growth),
             parts: AtomicU64::new(parts),
             written_bytes: AtomicU64::new(0),
-            worker: AtomicBool::new(false),
+            worker: Mutex::new(None),
+            stop: tokio::sync::watch::channel(false).0,
             cleanup: AtomicBool::new(false),
             runs: AtomicU64::new(0),
             full_runs: AtomicU64::new(0),
@@ -89,16 +91,46 @@ impl AutomaticMaintenance {
 }
 
 impl PackRuntime {
+    /// Stop new maintenance before the daemon begins its final write barriers.
+    pub fn request_automatic_stop(&self) {
+        self.automatic.stop.send_replace(true);
+    }
+
+    /// Finish any current publication before the Tokio runtime can shut down.
+    pub async fn stop_automatic(&self) -> StorageResult<()> {
+        self.request_automatic_stop();
+        let task = self
+            .automatic
+            .worker
+            .lock()
+            .expect("native maintenance task")
+            .take();
+        if let Some(task) = task {
+            task.await.map_err(|error| {
+                StorageError::BackendError(format!("native maintenance task did not stop: {error}"))
+            })?;
+        }
+        Ok(())
+    }
+
     pub(super) fn ensure_automatic(self: &Arc<Self>) {
+        let mut worker = self
+            .automatic
+            .worker
+            .lock()
+            .expect("native maintenance task");
         if !self.automatic.enabled
             || tokio::runtime::Handle::try_current().is_err()
-            || self.automatic.worker.swap(true, Relaxed)
+            || *self.automatic.stop.borrow()
+            || worker.is_some()
         {
             return;
         }
         let weak = Arc::downgrade(self);
-        tokio::spawn(async move {
+        let mut stop = self.automatic.stop.subscribe();
+        *worker = Some(tokio::spawn(async move {
             loop {
+                if *stop.borrow() { return; }
                 let Some(runtime) = weak.upgrade() else { return };
                 let pending = runtime.automatic.cleanup.load(Relaxed);
                 let due = runtime.automatic.wants_repack();
@@ -106,6 +138,7 @@ impl PackRuntime {
                     if !runtime.initializing.load(Ordering::Acquire)
                         && !runtime.requires_recovery() && (pending || due) {
                     let gate = runtime.enter_write().await;
+                    if *stop.borrow() { return; }
                     let working = Arc::clone(&runtime);
                     let result = super::super::laststore::LastStoreKvStore::run_blocking(move || {
                         let _gate = gate;
@@ -121,11 +154,17 @@ impl PackRuntime {
                     }
                 }
                 drop(runtime);
-                tokio::time::sleep(if failed { Duration::from_secs(30) } else if pending || due {
+                if *stop.borrow() { return; }
+                let delay = if failed { Duration::from_secs(30) } else if pending || due {
                     Duration::from_millis(250)
-                } else { Duration::from_secs(1) }).await;
+                } else { Duration::from_secs(1) };
+                tokio::select! {
+                    biased;
+                    _ = stop.changed() => {},
+                    () = tokio::time::sleep(delay) => {},
+                }
             }
-        }.instrument(tracing::info_span!("native_lookup_maintenance")));
+        }.instrument(tracing::info_span!("native_lookup_maintenance"))));
     }
 
     fn automatic_step(&self, repack: bool) -> StorageResult<()> {
