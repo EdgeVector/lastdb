@@ -147,12 +147,13 @@ def boundaries(binary, scratch, name="boundaries-distinct", home_name="hd"):
                      for n in range(2)]
             if operation in ("delete", "purge"):
                 for entry in items:
-                    entry.pop("fields_and_values")
+                    entry["fields_and_values"] = {}
             # Both erase schemas need existing keys independently of the large case.
             if operation == "delete":
                 seed = {"mutations": [schemas.payload(schemas.schema_name(n), 0, 1, "create")[0]["mutations"][0]
                                       for n in range(2)]}
                 calls.append({"operation": "erase-keys", "response": node.call("/api/mutations/batch", seed)})
+                save(output / "calls.json", calls)
             receipt = node.call("/api/mutations/batch", {"mutations": items})
             calls.append({"operation": operation, "response": receipt})
             save(output / "calls.json", calls)
@@ -204,7 +205,7 @@ def refused_request(binary, scratch):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scratch", type=Path, required=True)
-    parser.add_argument("--mode", choices=("benchmarks", "boundaries", "final"), required=True)
+    parser.add_argument("--mode", choices=("benchmarks", "boundaries", "final", "verify"), required=True)
     args = parser.parse_args()
     if os.environ.get("FOLD_HOST_CARGO_LOCK_HELD") != "1":
         raise RuntimeError("hold the compiler exclusion during measurements")
@@ -224,6 +225,9 @@ def main():
             "compiler_exclusion": True, "other_host_work_controlled": False,
             "baseline_source": "abab443a97f6c4aedbe1eb469c21dbc16f519427"})
     schemas.recovery = fast.recovery_with_notifications
+    if args.mode == "verify":
+        boundaries(scratch / "final", scratch, "final-verified", "hv")
+        return
     if args.mode == "final":
         binary = scratch / "final"
         shutil.copyfile(ROOT / "target/dev-release/lastdbd", binary)

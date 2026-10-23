@@ -18,5 +18,19 @@
   ],
   "publication_range_finding": "Five historical proof blobs exceed 2 MiB although the final tree contains their lossless gzip versions. Publish the reviewed final tree from a clean branch; retain the original local branch for history.",
   "retired_tests_run": false,
-  "primary_access": false
+  "primary_access": false,
+  "final_source": "6327e37603b47e8493586b175407ccd660e55117",
+  "final_main": "bd517062ed3b86aef3e431d1e2cd64fd9dd08aa5",
+  "final_binary_sha256": "f6c456078dd73854c96df9f565057d9301b2f873b9f671c37033690972ec7d09",
+  "source_matches_initial_pr_rust": true,
+  "final_build": true,
+  "off_lane_clippy": true,
+  "initial_ci_run": 39899963737,
+  "initial_ci": "success",
+  "final_erases": "durable; absent after each forced stop; all 8 notices once",
+  "large_native_request": "1025 distinct keys; 5128 stored operations; one full device flush; all notices recovered",
+  "measured_requests": 5768,
+  "measured_errors": 0,
+  "final_ci": "required again after receipt update",
+  "cleanup_complete": true
 }

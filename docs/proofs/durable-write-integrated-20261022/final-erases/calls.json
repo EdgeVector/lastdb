@@ -1,0 +1,122 @@
+[
+  {
+    "operation": "create",
+    "response": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "durable",
+      "mutation_ids": [
+        "bb4ca389-160c-4169-bba2-36a9e1c65875",
+        "92e7727c-1ee4-4677-99c9-dee723ba2fc4"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 2,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 14955,
+        "gate_wait": 0,
+        "prepare": 1407,
+        "publish": 0
+      },
+      "revision": 1,
+      "touched_group_ids": [],
+      "user_hash": "5bef7815c95a167a94fad17514c00e13"
+    }
+  },
+  {
+    "operation": "delete",
+    "response": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "durable",
+      "mutation_ids": [
+        "460e88d9-01c2-447d-b0cd-91543320259e",
+        "b653ac8a-ed96-4af3-8e38-c84dfebcef46"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 0,
+        "deleted": 2,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 0,
+        "gate_wait": 0,
+        "prepare": 0,
+        "publish": 0
+      },
+      "revision": 2,
+      "touched_group_ids": [],
+      "user_hash": "5bef7815c95a167a94fad17514c00e13"
+    }
+  },
+  {
+    "operation": "create",
+    "response": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "durable",
+      "mutation_ids": [
+        "8b2e5487-7bf1-472d-a454-ccdd8c43a62c",
+        "4134e583-c01e-41bd-af80-9cea5a8d9c25"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 2,
+        "deleted": 0,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 15690,
+        "gate_wait": 0,
+        "prepare": 2470,
+        "publish": 0
+      },
+      "revision": 1027,
+      "touched_group_ids": [],
+      "user_hash": "5bef7815c95a167a94fad17514c00e13"
+    }
+  },
+  {
+    "operation": "purge",
+    "response": {
+      "background_tasks_drained": false,
+      "convergence_pending": true,
+      "count": 2,
+      "durability": "durable",
+      "mutation_ids": [
+        "7ef6b4ec-1149-45d3-86d2-d823c98ab16f",
+        "85f894c3-9f8c-47d9-9ff7-3c886718a272"
+      ],
+      "ok": true,
+      "operations": {
+        "created": 0,
+        "deleted": 2,
+        "no_op": 0,
+        "total": 2,
+        "updated": 0
+      },
+      "resident_stages_us": {
+        "ack": 0,
+        "gate_wait": 0,
+        "prepare": 0,
+        "publish": 0
+      },
+      "revision": 1028,
+      "touched_group_ids": [],
+      "user_hash": "5bef7815c95a167a94fad17514c00e13"
+    }
+  }
+]
