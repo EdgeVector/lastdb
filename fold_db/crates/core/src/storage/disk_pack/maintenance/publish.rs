@@ -22,16 +22,23 @@ impl PackRuntime {
             let runtime = Arc::clone(self);
             let (next, mut staged) =
                 super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                    let prepared_from = std::time::Instant::now();
+                    let capturing = std::time::Instant::now();
+                    // A client can own the gate before its blocking commit
+                    // takes the writer mutex. Capture after that publication,
+                    // never an old root inside its already reserved boundary.
+                    let boundary = runtime.write_gate.blocking_lock();
                     let cut = runtime
                         .writer
                         .lock()
                         .expect("native snapshot writer")
                         .capture_pack_root()
                         .map_err(map)?;
+                    drop(boundary);
+                    let capture_ms = millis_since(capturing);
+                    let prepared_from = std::time::Instant::now();
                     let frontier = cut.current().frontier;
                     let staged = output.catch_up_and_prepare(cut).map_err(map)?;
-                    tracing::debug!(target: "fold_db::compaction", retry, frontier,
+                    tracing::debug!(target: "fold_db::compaction", retry, frontier, capture_ms,
                         prepared_ms = millis_since(prepared_from),
                         parts = staged.dependency_parts(), "private compaction prepared");
                     Ok((output, staged))
