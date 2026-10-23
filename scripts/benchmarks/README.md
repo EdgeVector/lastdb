@@ -96,6 +96,7 @@ Payload preparation and response validation stay outside that timer.
 Throughput includes client validation and scheduler costs. It does not prove maximum daemon throughput.
 The workload uses a closed loop. It sends each client's next request after the prior response.
 Memory samples occur every 200 ms during a case. They exclude seed and startup.
-Disk size counts file lengths, not allocated blocks. Background maintenance can change disk size between cases.
+Disk size counts file lengths, not allocated blocks. Background maintenance can change disk size during a sample.
+Files and directories removed before their size read contribute no bytes to that sample.
 The standard batch-write p99 uses only 32 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.

@@ -154,7 +154,12 @@ class Node:
             parent, depth = stack.pop()
             if depth > 12 or entries > 1_000_000 or time.monotonic() > deadline:
                 raise RuntimeError("The owned-home size check exceeded its bound")
-            for path in parent.iterdir():
+            try:
+                children = list(parent.iterdir())
+            except FileNotFoundError:
+                # Maintenance can remove a queued retired-generation directory.
+                continue
+            for path in children:
                 entries += 1
                 if entries > 1_000_000 or time.monotonic() > deadline:
                     raise RuntimeError("The owned-home size check exceeded its bound")
