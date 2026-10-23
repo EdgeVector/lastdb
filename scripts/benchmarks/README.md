@@ -65,11 +65,22 @@ Select the current main workflow to measure old product revisions with the curre
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
-The workflow caches dependency downloads only. Each version uses a fresh target directory.
-This prevents an old storage library from entering a candidate through an artifact cache.
+The workflow caches dependency downloads and exact compiled baseline programs.
+Main pushes save the accepted candidate program for later baseline use.
+Only trusted main pushes publish reusable programs.
+The cache key includes the full source SHA, compiler, runner image, architecture, build flags, and build recipe.
+An exact cache hit must also pass metadata, executable SHA-256, and executable revision checks.
+A missing or rejected cache triggers a fresh baseline build.
+The candidate always builds from source. Each actual build uses a fresh target directory.
+No compiled target directory enters the cache.
+The summary states whether each program came from a fresh build or an exact cache hit.
+The first main run fills the cache. Image, compiler, source, or recipe changes require another build.
+Cache expiry or upload failure affects speed only; the source build remains available.
 Builds finish before measurements start. The two daemons never run together.
 Each pair reverses the prior pair's base/candidate order.
 Every run starts with independent generated data. No primary data or archive data enters a run.
+Old benchmark numbers and generated database homes never supply a new measurement.
+Both versions run on the current GitHub machine, even when the baseline program comes from the cache.
 The daemon uses its default storage, memory limits, and automatic maintenance settings.
 Cloud stays off because the generated home has no cloud configuration.
 
