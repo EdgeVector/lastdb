@@ -1,10 +1,12 @@
 //! Filtered molecule loads and selected page records.
 
+mod hash_selection;
 mod load;
 mod page_records;
 mod partition_page;
 mod per_key;
 
+pub(crate) use hash_selection::HashTipSelection;
 pub(crate) use per_key::SchemaKeyMembership;
 
 use super::types::PerKeyRecord;

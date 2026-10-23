@@ -56,6 +56,49 @@ pub struct MutationComponents {
 pub const MUTATION_CLOUD_PUBLICATION_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(30);
 
+/// Per-class operation counts as the route renders them.
+pub(super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
+    serde_json::json!({
+        "created": operations.created,
+        "updated": operations.updated,
+        "deleted": operations.deleted,
+        "no_op": operations.no_op,
+        "total": operations.total(),
+    })
+}
+
+/// Resident-commit stage clocks, in microseconds.
+///
+/// These ride the response rather than `status.request_ops` phases: the phase
+/// set is a partition of the request's wall clock and these spans overlap
+/// buckets that already exist, so publishing them there would corrupt every
+/// request's `unattributed` remainder. See
+/// `fold_db::fold_db_core::mutation_manager::receipt`.
+pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
+    serde_json::json!({
+        "prepare": stages.prepare_us,
+        "gate_wait": stages.gate_wait_us,
+        "publish": stages.publish_us,
+        "ack": stages.ack_us,
+    })
+}
+
+pub(super) async fn wait_for_requested_convergence<H: HostNode>(
+    host: &H,
+    convergence: MutationConvergence,
+) -> bool {
+    if !convergence.waits() {
+        return false;
+    }
+
+    let index_wait_started = std::time::Instant::now();
+    let background_tasks_drained = host
+        .wait_for_background_tasks(MUTATION_BACKGROUND_TASK_TIMEOUT)
+        .await;
+    request_phases::add_phase(RequestPhase::IndexWait, index_wait_started.elapsed());
+    background_tasks_drained
+}
+
 /// Build the `{ mutation_id, success, … }` payload of a committed mutation.
 fn mutation_response(
     mutation_id: &str,
@@ -112,33 +155,47 @@ fn build_mutations<H: HostNode>(
     key_values
         .into_iter()
         .map(|key_value| {
-            let mut mutation = Mutation::new(
-                plan.canonical.clone(),
-                components.fields_and_values.clone(),
-                key_value,
-                host.public_key(),
-                components.mutation_type,
-            );
-            mutation
-                .source_file_name
-                .clone_from(&components.source_file_name);
-            if components.durability.waits_for_persist() {
-                mutation.synchronous = Some(true);
-            }
-            let mutation = match components.expected.clone() {
-                Some(expectation) => mutation.with_expected(expectation),
-                None => mutation,
-            };
-            let mutation = match components.must_exist {
-                Some(flag) => mutation.with_must_exist(flag),
-                None => mutation,
-            };
-            match components.aggregate_set.clone() {
-                Some(aggregate) => mutation.with_aggregate_set(aggregate),
-                None => mutation,
-            }
+            configure_mutation(
+                Mutation::new(
+                    plan.canonical.clone(),
+                    components.fields_and_values.clone(),
+                    key_value,
+                    host.public_key(),
+                    components.mutation_type,
+                ),
+                components.source_file_name.clone(),
+                components.durability,
+                components.expected.clone(),
+                components.must_exist,
+                components.aggregate_set.clone(),
+            )
         })
         .collect()
+}
+
+/// Set the caller's options without copying an owned mutation payload.
+fn configure_mutation(
+    mut mutation: Mutation,
+    source_file_name: Option<String>,
+    durability: MutationDurability,
+    expected: Option<fold_db::schema::types::cas::CasExpectation>,
+    must_exist: Option<bool>,
+    aggregate_set: Option<AggregateSet>,
+) -> Mutation {
+    mutation.source_file_name = source_file_name;
+    if durability.waits_for_persist() {
+        mutation.synchronous = Some(true);
+    }
+    if let Some(expectation) = expected {
+        mutation = mutation.with_expected(expectation);
+    }
+    if let Some(flag) = must_exist {
+        mutation = mutation.with_must_exist(flag);
+    }
+    if let Some(aggregate) = aggregate_set {
+        mutation = mutation.with_aggregate_set(aggregate);
+    }
+    mutation
 }
 
 /// Build, admit, and commit the selected mutations under the caller's access

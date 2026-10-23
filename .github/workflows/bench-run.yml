@@ -35,6 +35,7 @@ jobs:
           result_dir="$RUNNER_TEMP/lastdb-benchmarks-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir -p "$result_dir"
           echo "BENCH_OUTPUT=$result_dir" >> "$GITHUB_ENV"
+          echo "BENCH_BINARY_ROOT=$RUNNER_TEMP/benchmark-programs" >> "$GITHUB_ENV"
 
       - name: Checkout benchmark driver from the workflow revision
         uses: actions/checkout@v5
@@ -79,6 +80,18 @@ jobs:
           toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
+      - name: Identify compiler, runner image, and exact build recipe
+        id: build-context
+        run: python3 driver/scripts/benchmarks/build.py context --output "$BENCH_OUTPUT/build-context.json"
+
+      - name: Restore the exact baseline program
+        id: baseline-build
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
       - name: Cache dependency downloads only
         uses: actions/cache@v4
         with:
@@ -90,24 +103,41 @@ jobs:
           key: benchmark-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
           restore-keys: benchmark-downloads-${{ runner.os }}-
 
-      - name: Build both optimized daemons
+      - name: Prepare verified baseline and freshly built candidate
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
           BASELINE_SHA: ${{ inputs.baseline }}
+          BASELINE_CACHE_HIT: ${{ steps.baseline-build.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          mkdir -p "$BENCH_OUTPUT"
           rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
           for version in baseline candidate; do
             if [ "$version" = baseline ]; then revision="$BASELINE_SHA"; else revision="$CANDIDATE_SHA"; fi
-            (
-              cd "$version"
-              # Separate fresh targets avoid stale cached storage libraries.
-              export CARGO_TARGET_DIR="$RUNNER_TEMP/bench-target-$version"
-              export FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision"
-              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-            ) 2>&1 | tee "$BENCH_OUTPUT/build-$version.log"
+            args=()
+            if [ "$version" = baseline ] && [ "$BASELINE_CACHE_HIT" = true ]; then args+=(--reuse); fi
+            python3 driver/scripts/benchmarks/build.py build "${args[@]}" \
+              --source "$version" --revision "$revision" --label "$version" \
+              --context "$BENCH_OUTPUT/build-context.json" \
+              --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
           done
+
+      # Only trusted main pushes publish programs that other PRs can reuse.
+      # Cache availability never substitutes for measurements or verified uploads.
+      - name: Save the exact baseline program on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
+      - name: Save the accepted candidate for future baselines
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.candidate }}
+          key: lastdb-benchmark-program-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
 
       - name: Measure alternating baseline and candidate pairs
         env:
@@ -117,8 +147,8 @@ jobs:
         run: |
           timeout --signal=TERM --kill-after=120s 65m \
             python3 driver/scripts/benchmarks/run.py \
-              --baseline "$RUNNER_TEMP/bench-target-baseline/dev-release/lastdbd" \
-              --candidate "$RUNNER_TEMP/bench-target-candidate/dev-release/lastdbd" \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
               --baseline-revision "$BASELINE_SHA" \
               --candidate-revision "$CANDIDATE_SHA" \
               --driver-revision "$DRIVER_SHA" \
