@@ -61,6 +61,10 @@ impl Source {
             native_objects_verified: 0,
             external_files_verified: 0,
             manifest_pages_verified: 0,
+            native_files: None,
+            native_bytes: None,
+            metadata_pack_objects_verified: Some(0),
+            multi_file_pack_objects_verified: Some(0),
             retained_source_bytes: None,
             blocked_reason: None,
         }

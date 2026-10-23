@@ -6,6 +6,9 @@ use lastdb_node::native_cloud_backup::NativeBackupRequest;
 
 #[path = "native_backup/offline.rs"]
 mod offline;
+#[path = "native_backup/setup.rs"]
+mod setup;
+pub(super) use setup::{is_setup, setup};
 
 pub(super) fn run(home: &Path, action: NativeBackupCommand) -> Result<(), String> {
     let (request, json) = match action {

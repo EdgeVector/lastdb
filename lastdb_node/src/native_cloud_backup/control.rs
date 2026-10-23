@@ -231,6 +231,10 @@ fn status_for(home: &Path, selection: Option<Id>) -> Result<NativeBackupStatus> 
         native_objects_verified: 0,
         external_files_verified: 0,
         manifest_pages_verified: 0,
+        native_files: None,
+        native_bytes: None,
+        metadata_pack_objects_verified: None,
+        multi_file_pack_objects_verified: None,
         retained_source_bytes: None,
         reserved_cloud_bytes: None,
         cloud_usage: None,
@@ -265,6 +269,10 @@ fn status_for(home: &Path, selection: Option<Id>) -> Result<NativeBackupStatus> 
     value.native_objects_verified = saved.native_objects_verified;
     value.external_files_verified = saved.external_files_verified;
     value.manifest_pages_verified = saved.manifest_pages_verified;
+    value.native_files = saved.native_files;
+    value.native_bytes = saved.native_bytes;
+    value.metadata_pack_objects_verified = saved.metadata_pack_objects_verified;
+    value.multi_file_pack_objects_verified = saved.multi_file_pack_objects_verified;
     value.retained_source_bytes = saved.retained_source_bytes;
     value.blocked_reason = saved.blocked_reason.clone();
     if let Some(result) = store::read::<JobResult>(&root.join("terminal.json"))? {

@@ -46,6 +46,14 @@ pub(super) struct Saved {
     pub native_objects_verified: u64,
     pub external_files_verified: u64,
     pub manifest_pages_verified: u64,
+    #[serde(default)]
+    pub native_files: Option<u64>,
+    #[serde(default)]
+    pub native_bytes: Option<u64>,
+    #[serde(default)]
+    pub metadata_pack_objects_verified: Option<u64>,
+    #[serde(default)]
+    pub multi_file_pack_objects_verified: Option<u64>,
     pub retained_source_bytes: Option<u64>,
     pub blocked_reason: Option<String>,
 }
@@ -60,6 +68,7 @@ impl Saved {
         if self.format != 1 {
             return Err(BackupError::Invalid);
         }
+        self.validate_inventory()?;
         self.recovery.validate_for(&CloudScope {
             account_id: self.account.clone(),
             account_generation: DecimalU64::new(0),
@@ -86,6 +95,30 @@ impl Saved {
         }
         if let Some(commit) = &self.commit {
             commit.validate_for(self.begin.as_ref().ok_or(BackupError::Invalid)?)?;
+        }
+        Ok(())
+    }
+    fn validate_inventory(&self) -> Result<()> {
+        if self.native_files.is_some() != self.native_bytes.is_some()
+            || self.native_files.is_some_and(|files| {
+                files == 0
+                    || files > cloud_backup_protocol::limits::NATIVE_FILES_MAX as u64
+                    || self.native_objects_verified > files
+            })
+            || self.native_bytes.is_some_and(|bytes| {
+                bytes == 0 || bytes > cloud_backup_protocol::limits::BACKUP_STORED_BYTES_MAX
+            })
+            || self.metadata_pack_objects_verified.is_some()
+                != self.multi_file_pack_objects_verified.is_some()
+            || self
+                .metadata_pack_objects_verified
+                .is_some_and(|count| count > self.native_objects_verified)
+            || self
+                .multi_file_pack_objects_verified
+                .zip(self.metadata_pack_objects_verified)
+                .is_some_and(|(multi, all)| multi > all)
+        {
+            return Err(BackupError::Invalid);
         }
         Ok(())
     }
@@ -120,6 +153,13 @@ pub struct NativeBackupStatus {
     pub native_objects_verified: u64,
     pub external_files_verified: u64,
     pub manifest_pages_verified: u64,
+    /// Exact original native inventory, retained after terminal cleanup.
+    pub native_files: Option<u64>,
+    pub native_bytes: Option<u64>,
+    /// Verified transfer objects, counted during the normal saved-plan upload pass.
+    pub metadata_pack_objects_verified: Option<u64>,
+    /// MetadataPack objects containing at least two original native files.
+    pub multi_file_pack_objects_verified: Option<u64>,
     pub retained_source_bytes: Option<u64>,
     pub reserved_cloud_bytes: Option<u64>,
     pub cloud_usage: Option<cloud_backup_protocol::usage::UsageReadResponse>,

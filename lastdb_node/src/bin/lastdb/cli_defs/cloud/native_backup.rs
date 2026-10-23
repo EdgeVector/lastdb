@@ -2,6 +2,28 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum NativeBackupCommand {
+    /// Create one fresh DEV identity without a daemon, store, or cloud request.
+    Init {
+        /// Absent absolute home; its real parent must already exist.
+        #[arg(long)]
+        into: PathBuf,
+        /// New protected file at <into>/recovery-phrase.txt; never print the phrase.
+        #[arg(long)]
+        recovery_phrase_out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Register this fresh identity for native backup; keep Cloud Sync Off.
+    Connect {
+        /// Use only the compiled DEV auth endpoint.
+        #[arg(long, required = true)]
+        dev: bool,
+        /// Read the first-account invite from bounded stdin, never from an argument.
+        #[arg(long)]
+        invite_code_stdin: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Save one durable backup request on the owner daemon.
     Start {
         /// Exact UUID to reuse after a lost response. Omission creates one before submission.

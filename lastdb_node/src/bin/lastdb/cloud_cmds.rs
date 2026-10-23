@@ -22,6 +22,12 @@ pub(super) use intent::*;
 pub(super) use inventory::*;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
+    let action = match action {
+        CloudCommand::Backup { action } if native_backup::is_setup(&action) => {
+            return native_backup::setup(data_dir.as_deref(), action);
+        }
+        action => action,
+    };
     if recovery_home::handles(&action) {
         return recovery_home::command(data_dir.as_deref(), action);
     }
