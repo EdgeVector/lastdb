@@ -41,6 +41,9 @@ These checks reject invalid measurements. They do not form a test suite.
 ## Base and candidate
 
 A PR run uses its exact head commit and the base SHA from the PR event.
+The driver comes from the workflow revision, which includes the accepted base on a PR run.
+An older PR branch does not need the new benchmark scripts in its source tree.
+The manifest records the driver revision and its file hashes separately from both product revisions.
 A main push uses its new tip and the previous tip from the push event.
 A nightly or manual run uses the selected commit and its first parent.
 The workflow records complete SHAs and executable hashes.
