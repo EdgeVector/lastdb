@@ -217,15 +217,10 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
             return Err(corrupt("generation receipt boundary or CURRENT mismatch"));
         }
         for entry in page.payload()[128 + first_bytes as usize..].chunks_exact(80) {
-            let coordinate = dependency_record::decode(current, entry)?;
+            let stored: &[u8; 80] = entry.try_into().expect("fixed dependency record");
+            let coordinate = read_dependency(root, current, stored, verify_parts)?;
             if coordinates.last().is_some_and(|prior| *prior >= coordinate) {
                 return Err(corrupt("generation coordinates are not strictly ordered"));
-            }
-            let stored: &[u8; 80] = entry.try_into().expect("fixed dependency record");
-            if verify_parts
-                && coordinate.capture(root, current)? != dependency_record::immutable(stored)
-            {
-                return Err(corrupt("generation dependency differs from immutable part"));
             }
             coordinates.push(coordinate);
             records.push(entry.try_into().expect("fixed dependency record"));
@@ -257,4 +252,17 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
         coordinates,
         records,
     })
+}
+
+fn read_dependency(
+    root: &Path,
+    current: &Current,
+    stored: &[u8; 80],
+    verify_parts: bool,
+) -> Result<Coordinate> {
+    let coordinate = dependency_record::decode(current, stored)?;
+    if verify_parts && coordinate.capture(root, current)? != dependency_record::immutable(stored) {
+        return Err(corrupt("generation dependency differs from immutable part"));
+    }
+    Ok(coordinate)
 }
