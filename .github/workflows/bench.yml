@@ -1,67 +1,66 @@
-name: Bench
+name: Single mutation revision comparison
 
-# Performance-regression guard for the fold_db criterion benches
-# (fold_db/crates/core/benches/{query_path_bench,db_operations_bench,
-# encrypt_scan_bench}.rs). db_operations_bench includes storage metering
-# attribution coverage.
-#
-# DELIBERATELY OFF THE MERGE-QUEUE CRITICAL PATH. The benches seed up to 120K
-# records per case and take many minutes; putting them on every PR / in the
-# merge queue would re-inflate the queue build time that #959 + #964 just
-# halved (see project_fold_ci_build_time). So this workflow NEVER triggers on
-# `pull_request` / `merge_group` and is NOT a member of the `ci-required`
-# umbrella in ci.yml — it cannot block a merge.
-#
-# It runs instead:
-#   - on a weekly schedule (catches drift that lands without the label), and
-#   - on demand, when a maintainer adds the `run-benches` label to a PR
-#     (opt-in perf check for a change that's expected to move the curves), or
-#   - via manual workflow_dispatch.
-#
-# It runs the benches, then scripts/lints/bench-compare.py compares the fresh
-# criterion medians against the committed baseline
-# (fold_db/crates/core/benches/baseline/baseline.json) and FAILS on a >2x
-# regression of a guarded case (FLAT point-lookups guarded tighter at 1.6x).
-# Because it's not a required check, that failure is a loud signal to a human,
-# not a merge block.
-
+# Temporary CI runner for the requested historical comparison. Do not merge
+# this workflow over the general benchmark workflow in PR #296.
 on:
-  schedule:
-    # Mondays 08:00 UTC — a quiet window; weekly is enough for drift detection.
-    - cron: "0 8 * * 1"
-  pull_request:
-    types: [labeled]
   workflow_dispatch:
+    inputs:
+      before:
+        description: Complete baseline commit SHA
+        default: 12fb0890b396e6adcbe62d1db257bbe814160239
+        required: true
+        type: string
+      after:
+        description: Complete simplified commit SHA
+        default: fa83333bc31640c574827eda5685afea14aa95cc
+        required: true
+        type: string
 
 permissions:
   contents: read
-
-concurrency:
-  # One bench run per ref; a newer push/label supersedes an in-flight one.
-  group: bench-${{ github.ref }}
-  cancel-in-progress: true
+  actions: read
 
 jobs:
-  bench:
-    name: fold_db benches + regression guard
-    # On a PR, run ONLY when the `run-benches` label was just added — every
-    # other label event is a no-op. (schedule / workflow_dispatch have no
-    # label, so the guard is PR-event-specific.)
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.label.name == 'run-benches'
-    runs-on: ubuntu-latest
-    # The benches seed up to 120K-record corpora across several cardinalities for
-    # multiple groups; allow ample headroom on a shared runner.
+  compare:
+    name: Single mutation latency, four alternating pairs
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      # Match the rest of the workspace's CI: no debuginfo, cap link parallelism.
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: "4"
+      CARGO_TERM_COLOR: always
+      BEFORE_SHA: ${{ inputs.before }}
+      AFTER_SHA: ${{ inputs.after }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Prepare external evidence directory
+        run: |
+          set -euo pipefail
+          [[ "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$AFTER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          output="$RUNNER_TEMP/mutation-comparison-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$output"
+          echo "BENCH_OUTPUT=$output" >> "$GITHUB_ENV"
 
-      - name: Free disk space
+      - name: Checkout benchmark driver
+        uses: actions/checkout@v5
+        with:
+          path: driver
+          persist-credentials: false
+
+      - name: Checkout exact baseline
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.before }}
+          path: before
+          persist-credentials: false
+
+      - name: Checkout exact simplified revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.after }}
+          path: after
+          persist-credentials: false
+
+      - name: Reserve disk space for both optimized builds
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
@@ -70,64 +69,85 @@ jobs:
           haskell: true
           large-packages: true
           docker-images: true
-          swap-storage: true
+          swap-storage: false
 
-      - name: Install Rust
-        run: rustup show active-toolchain
-
-      - name: Configure git for private dependencies
-        # Org-level GH_PAT — see gbrain preferences/edgevector-gh-pat.
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1-bench"
-
-      - name: Reset criterion output
-        run: rm -rf target/criterion
-
-      # Run benches. Criterion writes per-case estimates under
-      # target/criterion/<group>/<id>/new/estimates.json, which the guard reads.
-      # The query-path bench is split by guarded group so one long process cannot
-      # starve late-suite guarded cases before the regression guard runs.
-      # FOLD_BENCH_FAST_GUARD keeps the scheduled guard bounded; local full
-      # benchmark runs keep Criterion's default warmup/measurement windows.
-      - name: Run benches
+      - name: Select one Rust toolchain and check driver syntax
+        working-directory: driver
         run: |
-          for query_group in \
-            indexed_point_lookup \
-            point_lookup_vs_schema_count \
-            realistic_message_lookup \
-            indexed_full_read \
-            value_filter_scan \
-            hashrange_page_list_vs_N \
-            count_rows_vs_field_count \
-            count_rows_vs_row_count \
-            concurrent_list_reads \
-            concurrent_mixed_read_write
-          do
-            echo "::group::query_path_bench ${query_group}"
-            FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
-              --bench query_path_bench -- "${query_group}"
-            echo "::endgroup::"
-          done
-          FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
-            --bench db_operations_bench
-          cargo bench -p fold_db --bench encrypt_scan_bench
-          # (api_query_latency_bench was deleted with the fold_db_node crate
-          # in the Mini-only cutover, 2026-07-12.)
+          set -euo pipefail
+          toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/python-cache" python3 -m py_compile \
+            docs/proofs/mutation-request-ioc-20261023/measure.py \
+            docs/proofs/mutation-request-ioc-20261023/report.py
+          command -v lsof || sudo apt-get install -y --no-install-recommends lsof
 
-      - name: Regression guard (vs committed baseline)
-        run: python3 scripts/lints/bench-compare.py
-
-      # Keep the raw criterion output as an artifact so a maintainer can inspect
-      # the full report / HTML when the guard flags a regression.
-      - name: Upload criterion report
-        if: always()
-        uses: actions/upload-artifact@v7
+      - name: Cache dependency downloads only
+        uses: actions/cache@v4
         with:
-          name: criterion-report
-          path: target/criterion
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+          key: mutation-compare-downloads-${{ runner.os }}-${{ hashFiles('before/Cargo.lock', 'after/Cargo.lock') }}
+          restore-keys: mutation-compare-downloads-${{ runner.os }}-
+
+      - name: Build both exact revisions with separate fresh targets
+        run: |
+          set -euo pipefail
+          rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
+          for label in before after; do
+            if [ "$label" = before ]; then revision="$BEFORE_SHA"; else revision="$AFTER_SHA"; fi
+            (
+              cd "$label"
+              [ "$(git rev-parse HEAD)" = "$revision" ]
+              export CARGO_TARGET_DIR="$RUNNER_TEMP/mutation-target-$label"
+              export FOLDDB_BUILD_VERSION_OVERRIDE="bench-$revision"
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+              "$CARGO_TARGET_DIR/dev-release/lastdbd" --version | grep -F "bench-$revision"
+            ) 2>&1 | tee "$BENCH_OUTPUT/build-$label.log"
+          done
+
+      - name: Measure the single mutation route on generated homes
+        run: |
+          set -euo pipefail
+          export TMPDIR="$RUNNER_TEMP"
+          scratch="$(mktemp -d "$TMPDIR/lastdb-ioc-bench.XXXXXX")"
+          timeout --signal=TERM --kill-after=120s 25m \
+            python3 driver/docs/proofs/mutation-request-ioc-20261023/measure.py \
+              --before "$RUNNER_TEMP/mutation-target-before/dev-release/lastdbd" \
+              --after "$RUNNER_TEMP/mutation-target-after/dev-release/lastdbd" \
+              --scratch "$scratch" --output "$BENCH_OUTPUT" --rounds 4 \
+            2>&1 | tee "$BENCH_OUTPUT/measurement.log"
+          rmdir "$scratch"
+
+      - name: Publish the latency comparison
+        if: always()
+        run: |
+          python3 driver/docs/proofs/mutation-request-ioc-20261023/report.py \
+            --output "$BENCH_OUTPUT" --before "$BEFORE_SHA" --after "$AFTER_SHA"
+
+      - name: Upload raw evidence
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.BENCH_OUTPUT }}/
           retention-days: 14
-          if-no-files-found: ignore
+          if-no-files-found: error
+
+      - name: Verify the uploaded archive and retain its receipt
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/mutation-artifact.json"
+          python3 driver/docs/proofs/mutation-request-ioc-20261023/report.py \
+            --output "$BENCH_OUTPUT" --before "$BEFORE_SHA" --after "$AFTER_SHA" \
+            --artifact-metadata "$RUNNER_TEMP/mutation-artifact.json"
