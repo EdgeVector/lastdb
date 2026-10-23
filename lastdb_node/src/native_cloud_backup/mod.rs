@@ -7,6 +7,7 @@ mod identity;
 mod model;
 mod publication;
 mod setup;
+mod source_diagnostic;
 mod store;
 mod terminal;
 mod transfer;
@@ -123,6 +124,7 @@ impl From<cloud_backup_protocol::ProtocolError> for BackupError {
 impl From<fold_db::storage::StorageError> for BackupError {
     fn from(error: fold_db::storage::StorageError) -> Self {
         use fold_db::storage::StorageError;
+        source_diagnostic::report(&error);
         match error {
             StorageError::ReadResourceLimit { .. }
             | StorageError::WriteResourceLimit { .. }
