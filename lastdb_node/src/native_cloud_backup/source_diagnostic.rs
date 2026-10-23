@@ -69,7 +69,7 @@ fn static_reason(mut detail: &str) -> &'static str {
 }
 
 // Return only these source literals, never the caller's detail or a digest of it.
-const REASONS: &[&str] = [
+const REASONS: &[&str] = &[
     "accepted backup capture ordinal moved backwards",
     "account-v2 native CAS requires ENC text",
     "active cloud job cannot release its native source",
