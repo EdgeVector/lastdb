@@ -14,10 +14,34 @@ PROOF = Path(__file__).resolve().parent
 ROOT = PROOF.parents[2]
 
 
+def build():
+    subprocess.run(['cargo', 'build', '-p', 'lastdb_node', '--bin', 'lastdbd',
+                    '--profile', 'dev-release', '--locked'], cwd=ROOT, check=True)
+    return ROOT / 'target/dev-release/lastdbd'
+
+
+def baseline(source, scratch):
+    branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=ROOT, text=True).strip()
+    if not branch or subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True):
+        raise RuntimeError('baseline build requires a clean owned branch')
+    pinned = subprocess.check_output(['git', 'rev-parse', source], cwd=ROOT, text=True).strip()
+    try:
+        subprocess.run(['git', 'switch', '--detach', pinned], cwd=ROOT, check=True)
+        binary = build()
+        shutil.copyfile(scratch / 'before', scratch / 'before-bcd')
+        shutil.copyfile(binary, scratch / 'before')
+        (scratch / 'before').chmod(0o755)
+        digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    finally:
+        subprocess.run(['git', 'switch', branch], cwd=ROOT, check=True)
+    return pinned, digest
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--mode', choices=('final', 'metadata', 'groups'), default='final')
+    parser.add_argument('--baseline-source')
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the host compiler exclusion for build and captures')
@@ -29,9 +53,11 @@ def main():
                                       cwd=ROOT, text=True)
     if changed:
         raise RuntimeError('commit product source before the final build')
-    subprocess.run(['cargo', 'build', '-p', 'lastdb_node', '--bin', 'lastdbd',
-                    '--profile', 'dev-release', '--locked'], cwd=ROOT, check=True)
-    binary = ROOT / 'target/dev-release/lastdbd'
+    baseline_source = identity['baseline_source']
+    baseline_digest = identity['baseline_binary_sha256']
+    if args.baseline_source:
+        baseline_source, baseline_digest = baseline(args.baseline_source, scratch)
+    binary = build()
     raw = binary.read_bytes()
     latest = hashlib.sha256(raw).hexdigest()
     markers = {label: label.encode() in raw for label in (
@@ -50,8 +76,8 @@ def main():
     (PROOF / (args.mode + '-identity.json')).write_text(json.dumps({
         'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'binary_sha256': latest, 'implementation_markers': markers,
-        'baseline_source': identity['baseline_source'],
-        'baseline_binary_sha256': identity['baseline_binary_sha256'],
+        'baseline_source': baseline_source,
+        'baseline_binary_sha256': baseline_digest,
         'compiler_exclusion': True, 'other_host_work_controlled': False,
         'load_before': os.getloadavg()}, indent=2) + '\n')
     subprocess.run([sys.executable, str(PROOF / 'run.py'), '--scratch', str(scratch), '--mode', args.mode],

@@ -95,7 +95,11 @@ impl PreparedCompaction {
         )?;
         let cut = generation::read_receipt(root, self.caught.current())?;
         let written = generation::write_live_at_with_cache(
-            root, &staged.current, &live, Some(&cut), self.cached_receipt.as_ref(),
+            root,
+            &staged.current,
+            &live,
+            Some(&cut),
+            self.cached_receipt.as_ref(),
             staged.receipt.clone(),
         )?;
         staged.parts = written.dependencies;
@@ -108,6 +112,11 @@ impl PreparedCompaction {
 }
 
 impl CompactionPublication {
+    /// A receipt-format transition must follow already admitted mutations.
+    pub fn changes_required_features(&self) -> bool {
+        self.current.required_features != self.expected.required_features
+    }
+
     /// Exact replacement dependency count for pending mutation headroom.
     pub fn dependency_parts(&self) -> u64 {
         self.parts

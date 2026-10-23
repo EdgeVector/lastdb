@@ -98,7 +98,8 @@ pub(in crate::disk_pack) fn write_live_at_with_cache(
         for dependency in &dependencies[ordinal..ordinal + entries] {
             let mut entry = match (carried.get(dependency), cached.get(dependency)) {
                 (Some(left), Some(right))
-                    if dependency_record::immutable(&left) != dependency_record::immutable(&right) =>
+                    if dependency_record::immutable(&left)
+                        != dependency_record::immutable(&right) =>
                 {
                     return Err(corrupt(
                         "immutable dependency facts changed during compaction",

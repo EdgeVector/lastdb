@@ -87,7 +87,10 @@ impl PackRuntime {
             .queue
             .lock()
             .expect("native accepted queue")
-            .compaction_barrier(staged.dependency_parts())
+            .compaction_barrier(
+                staged.dependency_parts(),
+                staged.changes_required_features(),
+            )
         {
             return Ok(Attempt::Queue(target));
         }

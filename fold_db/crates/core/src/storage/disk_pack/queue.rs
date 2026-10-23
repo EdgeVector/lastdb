@@ -22,9 +22,12 @@ pub(super) struct WriteQueue {
 }
 
 impl WriteQueue {
-    /// Compaction preserves the logical frontier and all owned quota. Only a
-    /// replacement that cannot leave the promised dependency room must wait.
-    pub(super) fn compaction_barrier(&self, parts: u64) -> Option<u64> {
+    /// Equivalent rewrites preserve quota. Format transitions and replacements
+    /// that cannot leave the promised dependency room wait for admitted work.
+    pub(super) fn compaction_barrier(&self, parts: u64, changes_features: bool) -> Option<u64> {
+        if changes_features && !self.requests.is_empty() {
+            return Some(self.next_sequence);
+        }
         self.prepared.as_ref().and_then(|prepared| {
             (parts.saturating_add(prepared.dependency_parts())
                 > laststore::disk_pack::MAX_DEPENDENCY_PARTS)
