@@ -18,6 +18,7 @@ pub struct CompactionPlan {
 
 /// Private complete output. Dropping it leaves only reclaimable unreferenced files.
 pub struct PreparedCompaction {
+    pub(super) identity: uuid::Uuid,
     pub(super) lock: Arc<WriteLock>,
     pub(super) source: GenerationHold,
     pub(super) caught: GenerationHold,
@@ -70,6 +71,7 @@ impl CompactionPlan {
         output.receipt.tier_boundary = boundary;
 
         Ok(PreparedCompaction {
+            identity: uuid::Uuid::new_v4(),
             lock: self.lock,
             source: self.source,
             caught: self.caught,

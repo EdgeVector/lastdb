@@ -12,6 +12,9 @@ pub const PENDING_GENERATION: &str = "GENERATION.pending-";
 
 /// Bytes and generation identity are immutable after preparation.
 pub struct CompactionPublication {
+    identity: Uuid,
+    owner: std::sync::Arc<WriteLock>,
+    _protection: crate::disk_pack::private_files::OutputFiles,
     pub(in crate::disk_pack) expected: Current,
     pub(in crate::disk_pack) current: Current,
     pub(in crate::disk_pack) parts: u64,
@@ -25,6 +28,9 @@ impl PreparedCompaction {
     /// No writer or publication lock is required for this complete preparation.
     pub fn prepare_publication(&mut self) -> Result<CompactionPublication> {
         let root = self.lock.root();
+        for coordinate in &self.output.dependencies {
+            self.protection.protect_path(&coordinate.path(root)?)?;
+        }
         let expected = self.caught.current().clone();
         let mut current = self.output.current.clone();
         current.generation =
@@ -39,6 +45,9 @@ impl PreparedCompaction {
             .create_new(true)
             .open(&pointer)?;
         let mut staged = CompactionPublication {
+            identity: self.identity,
+            owner: std::sync::Arc::clone(&self.lock),
+            _protection: self.protection.clone(),
             expected,
             current,
             parts: 0,
@@ -63,8 +72,14 @@ impl PreparedCompaction {
 }
 
 impl CompactionPublication {
+    pub(in crate::disk_pack) fn belongs_to(&self, output: &PreparedCompaction) -> bool {
+        self.identity == output.identity && std::sync::Arc::ptr_eq(&self.owner, &output.lock)
+    }
+
     pub(in crate::disk_pack) fn install(&mut self, lock: &WriteLock) -> Result<bool> {
-        if lock.root() != self.root || artifact::current(&self.root)? != self.expected {
+        if !std::ptr::eq(lock, self.owner.as_ref())
+            || artifact::current(&self.root)? != self.expected
+        {
             return Err(corrupt(
                 "prepared compaction disk root differs from its writer",
             ));

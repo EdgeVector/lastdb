@@ -107,7 +107,6 @@ impl Progress {
             (_, 3) => "catch_up",
             (_, 4) => "swap",
             (_, 5) => "reclaim",
-            (_, 6) => "active",
             _ => "active",
         };
         NativeCompactionStatus {

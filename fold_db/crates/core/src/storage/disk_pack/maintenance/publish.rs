@@ -45,9 +45,14 @@ impl PackRuntime {
                         return Ok((output, Ok(Attempt::Busy)));
                     };
                     let started = std::time::Instant::now();
-                    let result =
+                    let mut result =
                         runtime.attempt_native_pack(&mut output, &mut staged, started, retry);
                     drop(boundary);
+                    if let Ok(Attempt::Ready(ready)) = &mut result {
+                        let held = millis_since(started);
+                        ready.1 = ready.0.copy_millis.saturating_add(held);
+                        runtime.parts.progress.completed(&ready.0, held);
+                    }
                     // Large path maps and temporary files never drop under the gate.
                     drop(staged);
                     Ok((output, result))
@@ -113,9 +118,12 @@ impl PackRuntime {
             }
         };
         receipt.publication_retries = retry;
-        let swap = millis_since(started);
-        self.parts.progress.completed(&receipt, swap);
-        let pack_millis = receipt.copy_millis.saturating_add(swap);
+        let mut view = self.view.write().expect("native complete read view");
+        view.current = writer.current().clone();
+        let plan = writer.capture_reclaim().map_err(map)?;
+        let current = view.current.clone();
+        drop(view);
+        let pack_millis = receipt.copy_millis.saturating_add(millis_since(started));
         self.parts.record_run(
             &parts::RunCounts {
                 parts_before: receipt.parts_before,
@@ -125,14 +133,11 @@ impl PackRuntime {
             pack_millis,
             writer.current(),
         );
-        let mut view = self.view.write().expect("native complete read view");
-        view.current = writer.current().clone();
-        let plan = writer.capture_reclaim().map_err(map)?;
         Ok(Attempt::Ready(Box::new((
             receipt,
             pack_millis,
             plan,
-            view.current.clone(),
+            current,
         ))))
     }
 
