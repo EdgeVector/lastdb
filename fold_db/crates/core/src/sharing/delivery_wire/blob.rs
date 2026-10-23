@@ -43,8 +43,10 @@ pub fn content_addressed_blob_with_access(
     let blob_ref = access
         .as_ref()
         .filter(|access| access.cipher_suite == FILE_BLOB_CIPHER_SUITE)
-        .map(|access| access.blob_ref.clone())
-        .unwrap_or_else(|| format!("sha256:{content_sha256}"));
+        .map_or_else(
+            || format!("sha256:{content_sha256}"),
+            |access| access.blob_ref.clone(),
+        );
     ContentAddressedBlob {
         blob_ref,
         content_sha256,
