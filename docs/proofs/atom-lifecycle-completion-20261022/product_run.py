@@ -262,6 +262,7 @@ class ProductRun(LifecycleOperations, base.Capture):
         self.verify("concurrent-copy")
         for revision in range(3):
             self.mutate("update", range(64, 80), 200 + revision, durability="durable")
+            self.write_long(0, 200 + revision)
             self.write_long(1, 200 + revision)
             self.compact()
             self.verify(f"recent-tier-{revision}")

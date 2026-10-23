@@ -95,7 +95,10 @@ impl TreeQuote<'_> {
             }
         } else if tree.kind == TreeKind::Directory {
             for index in 0..page.count() {
-                let entry = DirectoryEntry::decode(key_layout::value(page.entry(index)))?;
+                let value: &[u8; 128] = key_layout::value(page.entry(index))
+                    .try_into()
+                    .map_err(|_| corrupt("tier quote directory value width"))?;
+                let entry = DirectoryEntry::decode(value)?;
                 self.tree(&entry.locator)?;
             }
         }
