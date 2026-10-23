@@ -25,7 +25,7 @@ use crate::qos::Lane;
 use crate::HostError;
 
 use self::cloud::attach_cloud_receipt;
-use self::fields::{fields_payload_bytes, require_durable_aggregate_receipt};
+use self::fields::require_durable_aggregate_receipt;
 use self::plan::MutationPlan;
 
 mod plan;
