@@ -132,7 +132,7 @@ impl PackNamespacedStore {
         let automatic =
             automatic::AutomaticMaintenance::new(journal.dependency_parts().map_err(map)?)?;
         let metrics = Arc::new(PersistLaneMetrics::new());
-        Ok(Self {
+        let store = Self {
             runtime: Arc::new(PackRuntime {
                 automatic,
                 home,
@@ -159,7 +159,9 @@ impl PackNamespacedStore {
                 failed_write: Mutex::new(None),
                 space_policy,
             }),
-        })
+        };
+        store.runtime.ensure_automatic();
+        Ok(store)
     }
 }
 

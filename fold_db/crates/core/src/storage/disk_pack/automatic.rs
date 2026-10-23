@@ -86,7 +86,10 @@ impl AutomaticMaintenance {
 
 impl PackRuntime {
     pub(super) fn ensure_automatic(self: &Arc<Self>) {
-        if !self.automatic.enabled || self.automatic.worker.swap(true, Relaxed) {
+        if !self.automatic.enabled
+            || tokio::runtime::Handle::try_current().is_err()
+            || self.automatic.worker.swap(true, Relaxed)
+        {
             return;
         }
         let weak = Arc::downgrade(self);
@@ -96,7 +99,8 @@ impl PackRuntime {
                 let pending = runtime.automatic.cleanup.load(Relaxed);
                 let due = runtime.automatic.wants_repack();
                 let mut failed = false;
-                if !runtime.requires_recovery() && (pending || due) {
+                    if !runtime.initializing.load(Ordering::Acquire)
+                        && !runtime.requires_recovery() && (pending || due) {
                     let gate = runtime.enter_write().await;
                     let working = Arc::clone(&runtime);
                     let result = super::super::laststore::LastStoreKvStore::run_blocking(move || {
