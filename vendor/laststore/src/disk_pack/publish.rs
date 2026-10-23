@@ -51,10 +51,8 @@ pub(super) fn publish_prepared(
     legacy_live: Option<LiveParts>,
 ) -> Result<PublishedGeneration> {
     let root = lock.root();
-    let old_receipt = {
-        let _timing = crate::commit_timing::stage("prior_generation_us");
-        ensure_generation(lock, previous)?
-    };
+    let old_receipt =
+        crate::commit_timing::during("prior_generation_us", || ensure_generation(lock, previous))?;
     let lookup_timing = crate::commit_timing::stage("lookup_files_us");
     let mut live = if previous.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
         LiveParts::from_receipt(&old_receipt)?
@@ -82,9 +80,13 @@ pub(super) fn publish_prepared(
             payload.map_pages,
         )?;
     }
-    publisher.batch(mutations, &mut references)?;
+    crate::commit_timing::during("locator_edits_us", || {
+        publisher.batch(mutations, &mut references)
+    })?;
     let mut changes = Changes::default();
-    for output in publisher.locators.finish()? {
+    let outputs =
+        crate::commit_timing::during("locator_finish_us", || publisher.locators.finish())?;
+    for output in outputs {
         changes.merge(output.changes)?;
         publisher.pages += output.pages;
         publisher.parts += output.parts.len() as u64;
@@ -92,7 +94,10 @@ pub(super) fn publish_prepared(
             .dependencies
             .add_tree(&output.tree, output.parts)?;
     }
-    let (directory, pages, parts, retired) = publisher.directory.finish_with_changes()?;
+    let (directory, pages, parts, retired) =
+        crate::commit_timing::during("directory_finish_us", || {
+            publisher.directory.finish_with_changes()
+        })?;
     changes.merge(retired)?;
     publisher.proposed.directory = directory;
     publisher.pages += pages;
@@ -101,15 +106,17 @@ pub(super) fn publish_prepared(
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
-    finish_live(
-        root,
-        previous,
-        &publisher.proposed,
-        &mut live,
-        &dependencies,
-        changes,
-        references,
-    )?;
+    crate::commit_timing::during("live_parts_us", || {
+        finish_live(
+            root,
+            previous,
+            &publisher.proposed,
+            &mut live,
+            &dependencies,
+            changes,
+            references,
+        )
+    })?;
     drop(lookup_timing);
     let generation_timing = crate::commit_timing::stage("new_generation_us");
     let receipt = generation::write_live(root, &publisher.proposed, &live, Some(&old_receipt))?;

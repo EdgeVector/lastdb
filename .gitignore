@@ -105,3 +105,9 @@
 
 # Keep the full local response seal; commit the compact file hashes beside it.
 /docs/proofs/warm-set-read-boundaries-20261019/sealed-originals.json
+
+# Matched-write raw output belongs in external artifacts, including compressed data.
+/docs/proofs/matched-write-concurrency-20261023/*
+!/docs/proofs/matched-write-concurrency-20261023/*.py
+!/docs/proofs/matched-write-concurrency-20261023/REPORT.md
+!/docs/proofs/matched-write-concurrency-20261023/artifact.json

@@ -59,6 +59,7 @@ impl SparsePages {
 
     /// Close the private descriptor between trees; finish still owns its barrier.
     pub(super) fn park(&mut self) {
+        crate::commit_timing::count("metadata_writer_parks", u64::from(self.file.is_some()));
         drop(self.file.take());
     }
 
@@ -74,6 +75,7 @@ impl SparsePages {
                 return Err(corrupt("private shared metadata part length changed"));
             }
             self.file = Some(file);
+            crate::commit_timing::count("metadata_writer_reopens", 1);
         }
         Ok(())
     }
