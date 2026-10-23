@@ -54,6 +54,7 @@ def main():
     parser.add_argument("--durability", choices=("default", "durable"), default="default")
     args = parser.parse_args()
     args.output = resolve_output(args.output)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     client = UnixHTTP(args.socket)
     before = request(client, "/api/db/native-status")[1]
     rows = []
