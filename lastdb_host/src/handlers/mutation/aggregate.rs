@@ -1,6 +1,16 @@
 //! Aggregate finalize and repair handlers.
 
-use super::*;
+use fold_db::access::AccessContext;
+use fold_db::request_phases::{self, RequestPhase};
+use fold_db::schema::types::{AggregateFinalize, AggregateRepair};
+use serde_json::Value;
+
+use crate::host_node::HostNode;
+use crate::qos::Lane;
+use crate::HostError;
+
+use super::fields::{require_durable_aggregate_receipt, resolve_aggregate_schema_triplet};
+use super::{operations_json, stages_json};
 
 /// Execute `POST /api/aggregate/finalize` after a caller verifies a complete
 /// member-partition repair. The core checks the exact guard association and
