@@ -10,6 +10,7 @@ mod block_plan;
 mod build;
 mod bytes;
 mod call;
+mod call_bounded;
 mod call_io;
 pub mod conversion;
 pub(crate) mod conversion_fence;
@@ -103,11 +104,11 @@ pub const MAX_DEPENDENCY_PARTS: u64 = dependency::MAX_DEPENDENCIES as u64;
 const LEGACY_BATCH_OPERATIONS: usize = 4096;
 const LARGE_BATCH_OPERATIONS: usize = 16_384;
 
-const PAGE_BYTES: usize = 16_384;
+pub(crate) use lastdb_storage_policy::native_v1::{
+    BLOCK_BYTES, MAP_ENTRIES, PAGES_PER_PART, PAGE_BYTES, PART_BYTES,
+};
 const HEADER_BYTES: usize = 128;
 const PAGE_PAYLOAD: usize = PAGE_BYTES - HEADER_BYTES;
-const BLOCK_BYTES: usize = 4_096;
-const PART_BYTES: u64 = 8_388_608;
 const KEY_BYTES: usize = 65_535;
 const KEY_DESCRIPTOR: usize = 176;
 const VALUE_BYTES: usize = 128;
@@ -115,7 +116,6 @@ const LEAF_WIDTH: usize = KEY_DESCRIPTOR + VALUE_BYTES;
 const INTERNAL_WIDTH: usize = KEY_DESCRIPTOR + 8;
 const LEAF_ENTRIES: usize = 53;
 const INTERNAL_ENTRIES: usize = 88;
-const MAP_ENTRIES: u64 = 677;
 
 fn corrupt(reason: &'static str) -> crate::Error {
     crate::Error::Corrupt(format!("disk-pack v1: {reason}"))

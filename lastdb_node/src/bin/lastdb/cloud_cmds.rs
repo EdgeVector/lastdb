@@ -10,6 +10,8 @@ mod cloud_purge_dispatch;
 mod intent;
 #[path = "cloud_cmds/inventory.rs"]
 mod inventory;
+#[path = "cloud_cmds/native_backup.rs"]
+mod native_backup;
 #[path = "cloud_cmds/recovery_home.rs"]
 mod recovery_home;
 #[path = "cloud_cmds/resume_primary.rs"]
@@ -30,6 +32,10 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
     match action {
+        CloudCommand::Backup { action } => {
+            drop(runtime);
+            native_backup::run(&home, action)
+        }
         CloudCommand::PrepareRecoveryHome { .. }
         | CloudCommand::RecoverDevCredentialsHome { .. } => {
             unreachable!("handled before home resolution")

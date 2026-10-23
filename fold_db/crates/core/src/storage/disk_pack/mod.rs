@@ -11,6 +11,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
+pub mod backup_capture;
+pub mod backup_manifest;
+mod cloud_work;
+pub mod file_dependencies;
+pub mod file_recovery;
+pub use cloud_work::NativeCloudWorkGuard;
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
@@ -20,6 +26,7 @@ mod namespace_delete;
 mod parts;
 mod queue;
 mod read;
+mod restore;
 mod rows;
 mod rows_yielding;
 pub(crate) mod schema_keys;
@@ -35,6 +42,7 @@ pub use parts::NativePartsStatus;
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
+pub use restore::{prepare_restored_node, validate_restored_atom_key};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 

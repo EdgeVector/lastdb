@@ -53,7 +53,7 @@ pub(super) async fn build_mutations(
                 Some(CounterEvent::Created)
             }
             AtomPlan::Delete { blobs, size } => {
-                removals.extend(delete_removals(scope, &atom));
+                removals.extend(delete_removals(scope, &atom, !blobs.is_empty()));
                 blob_deltas.atom_counter_deleted(&blobs);
                 commit.deleted.push(DeletedAtom {
                     uuid: atom.clone(),
@@ -137,17 +137,22 @@ async fn create_puts(
         body,
     )];
     puts.push(counter_put(scope, atom, counter)?);
+    puts.extend(super::file_dependencies::create(scope, &offer.atom)?);
     Ok(puts)
 }
 
 /// Body and counter of an atom whose count reached zero.
-fn delete_removals(scope: Option<&str>, atom: &str) -> Vec<KvMutation> {
-    vec![
+fn delete_removals(scope: Option<&str>, atom: &str, file_dependency: bool) -> Vec<KvMutation> {
+    let mut removals = vec![
         KvMutation::delete(
             build_storage_key(scope, &atom_key_codec::counter_key(atom)).into_bytes(),
         ),
         KvMutation::delete(build_storage_key(scope, &atom_key_codec::body_key(atom)).into_bytes()),
-    ]
+    ];
+    if file_dependency {
+        removals.extend(super::file_dependencies::remove(scope, atom));
+    }
+    removals
 }
 
 fn to_bytes<T: serde::Serialize>(value: &T, what: &str) -> Result<Vec<u8>, SchemaError> {

@@ -163,7 +163,7 @@ impl Page {
             let end = u64::from(offset) + u64::from(stored);
             if offset < 128
                 || !(81..=4192).contains(&stored)
-                || !(1..=4096).contains(&decoded)
+                || !(1..=super::BLOCK_BYTES as u32).contains(&decoded)
                 || end > super::PART_BYTES
                 || u64_at(entry, 16) != 0
                 || previous.is_some_and(|(last_part, last_end)| {
@@ -266,12 +266,12 @@ impl ReadCall {
         if self.pages.len() as u64 >= self.budget.pages {
             return Err(resource());
         }
-        let part =
-            u32::try_from(number / 512).map_err(|_| corrupt("page part exceeds format limit"))?;
+        let part = u32::try_from(number / crate::disk_pack::PAGES_PER_PART)
+            .map_err(|_| corrupt("page part exceeds format limit"))?;
         let path = directory.join(format!("part-{part:08x}"));
         let bytes = self.read_extent(
             &path,
-            (number % 512) * PAGE_BYTES as u64,
+            (number % crate::disk_pack::PAGES_PER_PART) * PAGE_BYTES as u64,
             PAGE_BYTES,
             true,
             ReadClass::FormatProbe,

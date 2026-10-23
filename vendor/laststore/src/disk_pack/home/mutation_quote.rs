@@ -81,15 +81,26 @@ impl HomeDescriptor {
             // A new group can also require its initial empty locator part.
             map_pages = add(map_pages, add(locator_pages, 1)?)?;
             // Contiguous overflow chains can leave four unused page positions.
-            dependency_parts = add(dependency_parts, locator_pages.div_ceil(508) + 1)?;
+            dependency_parts = add(
+                dependency_parts,
+                locator_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4) + 1,
+            )?;
             directory_pages = add(directory_pages, 16 + overflow(collection.len() + 4))?;
         }
         map_pages = add(map_pages, directory_pages)?;
-        dependency_parts = add(dependency_parts, directory_pages.div_ceil(508))?;
-        let blocks = payload.logical_bytes().div_ceil(4096);
         dependency_parts = add(
             dependency_parts,
-            blocks.div_ceil(2008) + blocks.div_ceil(677).div_ceil(512),
+            directory_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4),
+        )?;
+        let blocks = payload
+            .logical_bytes()
+            .div_ceil(crate::disk_pack::BLOCK_BYTES as u64);
+        dependency_parts = add(
+            dependency_parts,
+            blocks.div_ceil(2008)
+                + blocks
+                    .div_ceil(crate::disk_pack::MAP_ENTRIES)
+                    .div_ceil(crate::disk_pack::PAGES_PER_PART),
         )?;
         Ok(MutationQuote {
             payload,

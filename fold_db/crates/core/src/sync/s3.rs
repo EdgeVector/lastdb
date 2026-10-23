@@ -202,7 +202,7 @@ impl S3Client {
     /// which cannot pull a ~1 GiB personal snapshot and blocked cloud-restore
     /// cutovers (rehearsal 2026-07-13: "S3 download response body timed out
     /// after 30s" on `latest.enc`).
-    fn snapshot_transfer_timeout(&self, bytes: usize, expires_in_secs: u64) -> Duration {
+    pub(crate) fn snapshot_transfer_timeout(&self, bytes: usize, expires_in_secs: u64) -> Duration {
         let transfer_secs = (bytes as u64).saturating_add(S3_SNAPSHOT_UPLOAD_BYTES_PER_SEC - 1)
             / S3_SNAPSHOT_UPLOAD_BYTES_PER_SEC;
         let slow_uplink_floor = self

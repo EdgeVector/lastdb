@@ -109,6 +109,7 @@ mod db_catalog;
 mod db_maintenance;
 mod file_blob;
 mod file_blob_local;
+mod native_backup_routes;
 mod org_authority;
 mod org_sync;
 mod query_batch;

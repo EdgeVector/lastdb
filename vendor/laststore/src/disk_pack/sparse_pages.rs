@@ -63,12 +63,14 @@ impl SparsePages {
     }
 
     fn reopen_part(&mut self) -> Result<()> {
-        if self.file.is_none() && self.next % 512 != 0 {
-            let part = self.next / 512;
+        if self.file.is_none() && self.next % crate::disk_pack::PAGES_PER_PART != 0 {
+            let part = self.next / crate::disk_pack::PAGES_PER_PART;
             let file = OpenOptions::new()
                 .append(true)
                 .open(self.directory.join(format!("part-{part:08x}")))?;
-            if file.metadata()?.len() != self.next % 512 * super::PAGE_BYTES as u64 {
+            if file.metadata()?.len()
+                != self.next % crate::disk_pack::PAGES_PER_PART * super::PAGE_BYTES as u64
+            {
                 return Err(corrupt("private shared metadata part length changed"));
             }
             self.file = Some(file);
@@ -95,7 +97,7 @@ impl SparsePages {
             match self.protection.create_new(&path) {
                 Ok(file) => {
                     self.file = Some(file);
-                    self.next = u64::from(part) * 512;
+                    self.next = u64::from(part) * crate::disk_pack::PAGES_PER_PART;
                     self.part_numbers.push(part);
                     return Ok(());
                 }
@@ -134,10 +136,13 @@ impl SparsePages {
 
 impl TreePages for SparsePages {
     fn reserve(&mut self, count: usize) -> Result<u64> {
-        if !(1..=512).contains(&count) {
+        if !(1..=crate::disk_pack::PAGES_PER_PART as usize).contains(&count) {
             return Err(corrupt("invalid contiguous metadata reservation"));
         }
-        if (self.file.is_none() && self.next % 512 == 0) || self.next % 512 + count as u64 > 512 {
+        if (self.file.is_none() && self.next % crate::disk_pack::PAGES_PER_PART == 0)
+            || self.next % crate::disk_pack::PAGES_PER_PART + count as u64
+                > crate::disk_pack::PAGES_PER_PART
+        {
             self.allocate()?;
         } else {
             self.reopen_part()?;
@@ -155,7 +160,7 @@ impl TreePages for SparsePages {
             .write_all(&bytes)?;
         self.written_pages += 1;
         self.next += 1;
-        if self.next % 512 == 0 {
+        if self.next % crate::disk_pack::PAGES_PER_PART == 0 {
             self.sync_part()?;
         }
         Ok(number)

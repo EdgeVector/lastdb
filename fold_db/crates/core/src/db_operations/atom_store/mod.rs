@@ -37,7 +37,7 @@ mod filter;
 mod hard_erase_journal;
 mod helpers;
 mod keep_small;
-mod key_format;
+pub(crate) mod key_format;
 mod locks;
 mod molecule_bindings;
 mod molecule_counters;

@@ -26,7 +26,10 @@ pub(super) fn replacement_bytes(root: &Path, current: &Current) -> Result<u64> {
             add(&mut bytes, locator_bytes(key.len()))?;
             if location.source != Source::Tombstone {
                 // Each record can straddle one initial block. Include frames and block map entries.
-                let blocks = location.record_bytes.div_ceil(4096) + 1;
+                let blocks = location
+                    .record_bytes
+                    .div_ceil(crate::disk_pack::BLOCK_BYTES as u64)
+                    + 1;
                 add(&mut bytes, location.record_bytes)?;
                 add(
                     &mut bytes,

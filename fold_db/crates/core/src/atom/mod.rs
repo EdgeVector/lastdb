@@ -21,9 +21,9 @@ pub mod tombstone;
 pub use atom_def::Atom;
 pub use atom_entry::AtomEntry;
 pub use content_at_rest::{
-    atom_content_binary_enabled, atom_row_header, open_atom_binary_row, open_atom_json,
-    open_content_value, parse_atom_binary_row, seal_atom_binary_row, seal_atom_json,
-    seal_content_value, ATOM_BINARY_ROW_PREFIX,
+    atom_binary_row_parts, atom_content_binary_enabled, atom_row_header, open_atom_binary_row,
+    open_atom_json, open_content_value, parse_atom_binary_row, seal_atom_binary_row,
+    seal_atom_json, seal_content_value, ATOM_BINARY_ROW_PREFIX,
 };
 pub use molecule_hash_range::{
     ImportedTip, MoleculeHashRange, PendingTipConflict, TipAuthor, TipConflictKind,

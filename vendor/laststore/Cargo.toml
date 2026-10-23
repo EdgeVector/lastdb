@@ -13,6 +13,7 @@ categories = ["database-implementations", "filesystem"]
 exclude = ["target/", ".git/"]
 
 [dependencies]
+lastdb_storage_policy = { path = "../../lastdb_storage_policy" }
 crc32fast = "1.5"
 serde_json = "1"
 aes-gcm = "0.10"

@@ -65,6 +65,9 @@ pub(super) async fn dispatch_sync_deliver(
         DataRoute::SyncCloudOn => {
             heap_route_ctx_host!(execute_sync_cloud_on_route, ctx, host).await
         }
+        DataRoute::SyncNativeBackup => {
+            super::super::native_backup_routes::execute(req, ctx, host).await
+        }
         DataRoute::SyncCloudPurgeResync => cloud_purge_routes::execute(req, ctx, host).await,
         DataRoute::SyncCloudResumePrimary => {
             execute_sync_cloud_resume_primary_route(req, ctx, host)
