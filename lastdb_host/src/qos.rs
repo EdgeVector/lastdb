@@ -45,7 +45,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tokio::time::Instant;
 
 use crate::host_node::{ReadBusy, ReadPermit};
 
@@ -284,41 +283,40 @@ impl QosGate {
     /// [`ReadBusy`] if the lane's deadline elapses before a slot is free — the
     /// graceful shed the caller maps to a `503` with a retry hint.
     pub async fn acquire(&self, lane: Lane) -> Result<QosPermit, ReadBusy> {
+        let (timeout, sheds) = match lane {
+            Lane::Interactive => (self.config.interactive_deadline, &self.interactive_sheds),
+            Lane::Bulk => (self.config.bulk_deadline, &self.bulk_sheds),
+        };
         let busy = ReadBusy {
             retry_after_secs: self.config.retry_after_secs,
         };
-        match lane {
-            Lane::Interactive => {
-                let deadline = Instant::now() + self.config.interactive_deadline;
-                if let Some(global) = acquire_by(&self.total, deadline).await {
-                    Ok(QosPermit {
-                        _lane: None,
-                        _global: global,
-                    })
-                } else {
-                    self.interactive_sheds.fetch_add(1, Ordering::Relaxed);
-                    Err(busy)
-                }
-            }
-            Lane::Bulk => {
-                let deadline = Instant::now() + self.config.bulk_deadline;
-                let Some(lane_permit) = acquire_by(&self.bulk, deadline).await else {
-                    self.bulk_sheds.fetch_add(1, Ordering::Relaxed);
-                    return Err(busy);
-                };
-                if let Some(global) = acquire_by(&self.total, deadline).await {
-                    Ok(QosPermit {
-                        _lane: Some(lane_permit),
-                        _global: global,
-                    })
-                } else {
-                    // Dropping lane_permit releases the bulk slot.
-                    drop(lane_permit);
-                    self.bulk_sheds.fetch_add(1, Ordering::Relaxed);
-                    Err(busy)
-                }
-            }
+        // One timeout covers both waits; bulk cannot reset its budget after
+        // taking a lane slot. Cancellation drops any permit already acquired.
+        let result = tokio::time::timeout(timeout, async {
+            let lane_permit = match lane {
+                Lane::Interactive => None,
+                Lane::Bulk => Some(
+                    Arc::clone(&self.bulk)
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| busy)?,
+                ),
+            };
+            let global = Arc::clone(&self.total)
+                .acquire_owned()
+                .await
+                .map_err(|_| busy)?;
+            Ok(QosPermit {
+                _lane: lane_permit,
+                _global: global,
+            })
+        })
+        .await
+        .unwrap_or(Err(busy));
+        if result.is_err() {
+            sheds.fetch_add(1, Ordering::Relaxed);
         }
+        result
     }
 }
 
@@ -341,14 +339,4 @@ impl QosPermit {
     pub fn boxed(self) -> Box<dyn ReadPermit> {
         Box::new(self)
     }
-}
-
-/// Wait for one permit from `sem` until `deadline`. `Some` on success, `None` on
-/// timeout. The semaphore is never closed, so `acquire_owned` cannot error for
-/// any other reason.
-async fn acquire_by(sem: &Arc<Semaphore>, deadline: Instant) -> Option<OwnedSemaphorePermit> {
-    tokio::time::timeout_at(deadline, Arc::clone(sem).acquire_owned())
-        .await
-        .ok()
-        .and_then(Result::ok)
 }
