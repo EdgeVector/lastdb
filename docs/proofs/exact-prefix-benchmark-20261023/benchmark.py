@@ -6,6 +6,9 @@ import json
 import math
 import os
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import platform
 import random
 import statistics
@@ -281,11 +284,13 @@ class Bench(Capture):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('binary', 'scratch', 'output'):
-        parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--' + name, type=Path, required=name != 'output',
+                            default=default_output('exact-prefix-benchmark-20261023') if name == 'output' else None)
     parser.add_argument('--source-revision', required=True)
     parser.add_argument('--config', choices=['plain', 'encrypted', 'preload'], required=True)
     parser.add_argument('--rustc', default='rustc 1.96.1')
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     bench = Bench(args)
     summary = {'complete': False}
     try:

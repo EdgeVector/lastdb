@@ -11,6 +11,10 @@ import http.client
 import json
 import math
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import socket
 import statistics
 import time
@@ -46,8 +50,9 @@ def main():
     parser.add_argument("--count", type=int, default=500)
     parser.add_argument("--value-bytes", type=int, default=4096)
     parser.add_argument("--keys", type=int, default=128)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=default_output('write-under-10ms-20261021'))
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     client = UnixHTTP(args.socket)
     before = request(client, "/api/db/native-status")[1]
     rows = []

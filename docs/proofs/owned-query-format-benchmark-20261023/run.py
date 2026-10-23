@@ -6,6 +6,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import shutil
 import sys
 import time
@@ -188,11 +191,13 @@ def execute(args, fixture=None, expected=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('binaries', 'output', 'scratch', 'provenance'):
-        parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--' + name, type=Path, required=name != 'output',
+                            default=default_output('owned-query-format-benchmark-20261023') if name == 'output' else None)
     parser.add_argument('--rounds', type=int, default=4)
     parser.add_argument('--client-cpu', type=int, default=0)
     parser.add_argument('--server-cpu', type=int, default=1)
     opts = parser.parse_args()
+    opts.output = resolve_output(opts.output)
     if opts.client_cpu == opts.server_cpu or not {opts.client_cpu, opts.server_cpu} <= os.sched_getaffinity(0):
         raise RuntimeError('Need two distinct allowed CPUs')
     os.sched_setaffinity(0, {opts.client_cpu})

@@ -5,6 +5,9 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import resource
 import signal
 import subprocess
@@ -152,12 +155,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, default=default_output('compaction-benchmark-20261023'))
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--records", type=int, default=100000)
     parser.add_argument("--label", choices=("before", "after"), required=True)
     parser.add_argument("--pair", type=int, required=True)
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     if not 4096 <= args.records <= 100000 or not 0 <= args.pair < 3:
         parser.error("records must be 4096..100000 and pair must be 0..2")
     signal.signal(signal.SIGTERM, interrupted)

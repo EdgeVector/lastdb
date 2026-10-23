@@ -4,6 +4,9 @@ import argparse
 import fcntl
 import json
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'scripts'))
+from benchmark_output import default_output, resolve_output
 import subprocess
 import sys
 import time
@@ -16,10 +19,11 @@ HERE = Path(__file__).resolve().parent
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binaries', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path, default=default_output('exact-prefix-benchmark-20261023'))
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--rounds', type=int, default=4)
     args = parser.parse_args()
+    args.output = resolve_output(args.output)
     args.output.mkdir(parents=True, exist_ok=False)
     args.scratch.mkdir(mode=0o700, parents=True, exist_ok=False)
     index = []
