@@ -23,7 +23,11 @@ The snapshot contains current molecule keys, atom references, required bodies, a
 
 A local write reserves its complete memory and disk work before acceptance. It updates memory as one complete unit, then sends the memory ack. The normal flush interval stays 500 ms. The flush writes changed bytes and search pages. Ordered file barriers and one atomic root update commit the snapshot. The durable ack follows all required barriers, including the final device flush on macOS. Author-clock metadata can require disk completion before a memory ack.
 
-The writer keeps the files that the previous selected snapshot still needs. It changes only the required pages, without a full snapshot rewrite after each write.
+Each new receipt keeps only file parts that its selected snapshot still needs.
+Exact live counts remove obsolete parts from the next receipt without a full database walk per write.
+A shared part stays until its last current reference goes.
+Older receipts and read holds still protect earlier snapshots until reclaim can delete their files.
+The change keeps the current 16 KiB search pages and their write cost.
 
 A crash before the root update leaves the previous snapshot selected. A crash during publication can leave either complete version selected. A completed durable commit survives restart. Recovery opens the selected snapshot without mutation replay. A memory ack remains volatile until the flush completes; 500 ms is a schedule, not a guaranteed maximum loss window. Corrupt committed bytes require an explicit error and a restore procedure.
 
@@ -31,6 +35,16 @@ Before cloud activation, required sync entries must commit with the snapshot bou
 
 The warm set defaults to a 256 MiB byte budget; the 10,000-record cap is retired. Each read enters the warm set, and the purge removes least recently used clean records. Held and unflushed records remain protected, so the charge can temporarily exceed the budget. The purge returns it toward the budget after calls end or writes reach disk. The approved dirty-write share is 25%; its enforcement remains implementation work. Separate reservations cover definitions, selected keys, queues, and temporary work; storage objects leave memory after their call.
 
-Startup, backup, compaction, and restore now use snapshot roots. The local backup format is `lastdb-native-backup-2`; it excludes node identity and encryption keys. Mandatory feature `256` distinguishes the new format. Old journal-backed homes receive an explicit refusal before writer file creation. No old-native-journal converter exists in this change. Fewer metadata files, shorter compaction pauses, dirty-share enforcement, and atomic sync capture remain separate work. The primary stays unchanged.
+Startup, backup, compaction, and restore use snapshot roots.
+The local backup format is `lastdb-native-backup-2`; it excludes node identity and encryption keys.
+Mandatory feature `256` distinguishes the journal-free format.
+New receipts also require live-count feature `512`; older programs refuse that feature.
+An older supported snapshot receives one bounded metadata walk before the writer accepts a memory write.
+The first commit stores those counts; ordinary later commits use page deltas.
+
+Old journal-backed homes receive an explicit refusal before writer file creation.
+No old-native-journal converter exists in this change.
+Fewer search files, shorter compaction pauses, dirty-share enforcement, and atomic sync capture remain separate work.
+The primary stays unchanged.
 
 Sources: [snapshot protocol](lastdb-snapshot-commits.md), [implementation plan](lastdb-searchable-snapshot-implementation-plan.md), [current code review](lastdb-searchable-snapshot-code-review.md), [operational receipts](proofs/snapshot-commits-20261022/RESULTS.md). Historical measurements: [October 22 barrier report](proofs/native-commit-barriers-20261022/RESULTS.md), [October 21 growth receipts](proofs/write-overhead-20261021/summary.json). The historical workloads do not measure this writer.

@@ -1,3 +1,4 @@
+use super::live_parts::Changes;
 use super::page::Page;
 use super::sparse_pages::SparsePages;
 use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
@@ -12,6 +13,7 @@ pub(super) struct TreeEdit<P = SparsePages> {
     root: TreeRoot,
     pages: P,
     failed: bool,
+    changes: Changes,
 }
 
 struct PathStep {
@@ -34,11 +36,11 @@ impl TreeEdit {
         Self::with_pages(tree, pages)
     }
 
-    pub(super) fn finish(self) -> Result<(TreeRoot, u64, Vec<u32>)> {
-        let (tree, pages) = self.finish_tree()?;
+    pub(super) fn finish_with_changes(self) -> Result<(TreeRoot, u64, Vec<u32>, Changes)> {
+        let (tree, pages, changes) = self.finish_tree()?;
         let written = pages.written_pages;
         let parts = pages.finish()?;
-        Ok((tree, written, parts))
+        Ok((tree, written, parts, changes))
     }
 }
 
@@ -49,6 +51,7 @@ impl<P: TreePages> TreeEdit<P> {
             root: tree,
             pages,
             failed: false,
+            changes: Changes::default(),
         })
     }
 
@@ -98,6 +101,15 @@ impl<P: TreePages> TreeEdit<P> {
     ) -> Result<Vec<Child>> {
         let page = call.tree_page(&self.root, path.number)?;
         validate_page(call, &self.root, &page, &path)?;
+        self.changes.observe_page(
+            self.root.kind,
+            self.root.object,
+            path.number,
+            &page,
+            &call.current,
+            -1,
+        )?;
+        super::live_parts::resolve_references(&call.root, &call.current, &mut self.changes)?;
         if path.level == 0 {
             return self.edit_leaf(call, &page, changes);
         }
@@ -205,11 +217,11 @@ impl<P: TreePages> TreeEdit<P> {
     }
 
     /// Keep private pages available to other trees in the same object.
-    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P)> {
+    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P, Changes)> {
         if self.failed {
             return Err(corrupt("refusing failed tree edit"));
         }
-        Ok((self.root, self.pages))
+        Ok((self.root, self.pages, self.changes))
     }
 }
 

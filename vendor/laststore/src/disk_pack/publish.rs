@@ -1,5 +1,6 @@
 use super::dependency::Dependencies;
 use super::generation;
+use super::live_parts::{self, Changes, LiveParts};
 use super::locator_forest::LocatorChanges;
 use super::pack_write::WrittenData;
 use super::snapshot::PreparedMutation;
@@ -19,7 +20,7 @@ pub struct PublishedGeneration {
     pub current: Current,
     /// Immutable receipt identity that retains the complete CURRENT bytes.
     pub receipt: Uuid,
-    /// Complete retained dependency parts, including conservative prior references.
+    /// Complete parts with positive live references in this snapshot.
     pub dependency_parts: u64,
     /// Operations included in this complete snapshot commit.
     pub mutations: u64,
@@ -44,12 +45,20 @@ struct Publisher<'a> {
 pub(super) fn publish_prepared(
     lock: &WriteLock,
     previous: &Current,
-    proposed: Current,
+    mut proposed: Current,
     mutations: Vec<PreparedMutation>,
     payload: Option<WrittenData>,
+    legacy_live: Option<LiveParts>,
 ) -> Result<PublishedGeneration> {
     let root = lock.root();
     let old_receipt = ensure_generation(lock, previous)?;
+    let mut live = if previous.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
+        LiveParts::from_receipt(&old_receipt)?
+    } else {
+        legacy_live
+            .ok_or_else(|| corrupt("uncounted writer lacks its admitted live-part bootstrap"))?
+    };
+    proposed.required_features |= super::FEATURE_LIVE_PART_COUNTS;
     let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
     let mut publisher = Publisher {
         root,
@@ -59,7 +68,7 @@ pub(super) fn publish_prepared(
         pages: 0,
         parts: 0,
         mutations: 0,
-        dependencies: Dependencies::from_coordinates(old_receipt.coordinates.clone())?,
+        dependencies: Dependencies::new(),
     };
     if let Some(payload) = payload {
         publisher.dependencies.add_payload(
@@ -69,14 +78,17 @@ pub(super) fn publish_prepared(
         )?;
     }
     publisher.batch(mutations)?;
+    let mut changes = Changes::default();
     for output in publisher.locators.finish()? {
+        changes.merge(output.changes)?;
         publisher.pages += output.pages;
         publisher.parts += output.parts.len() as u64;
         publisher
             .dependencies
             .add_tree(&output.tree, output.parts)?;
     }
-    let (directory, pages, parts) = publisher.directory.finish()?;
+    let (directory, pages, parts, retired) = publisher.directory.finish_with_changes()?;
+    changes.merge(retired)?;
     publisher.proposed.directory = directory;
     publisher.pages += pages;
     publisher.parts += parts.len() as u64;
@@ -84,8 +96,11 @@ pub(super) fn publish_prepared(
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
-    let receipt =
-        generation::write_carried(root, &publisher.proposed, &dependencies, &old_receipt)?;
+    live_parts::observe_new_parts(root, &publisher.proposed, &dependencies, &mut changes)?;
+    live_parts::add_directory_empty_root(root, previous, -1, &mut changes)?;
+    live_parts::add_directory_empty_root(root, &publisher.proposed, 1, &mut changes)?;
+    live.apply(root, &publisher.proposed, changes)?;
+    let receipt = generation::write_live(root, &publisher.proposed, &live, Some(&old_receipt))?;
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
     if artifact::current(root)? != *previous {
         return Err(corrupt("CURRENT changed during publication"));

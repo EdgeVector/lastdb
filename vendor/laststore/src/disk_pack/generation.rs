@@ -1,5 +1,6 @@
 use super::bytes::*;
 use super::dependency::Coordinate;
+use super::live_parts::LiveParts;
 use super::page::Page;
 use super::page_write::{directory, PageFields, PageWriter};
 use super::{artifact, corrupt, Current, PAGE_BYTES};
@@ -18,27 +19,23 @@ pub(super) struct Generation {
     pub(super) records: Vec<[u8; 80]>,
 }
 
-pub(super) fn write(
+pub(super) fn write_live(
     root: &Path,
     current: &Current,
-    dependencies: &[Coordinate],
+    live: &LiveParts,
+    prior: Option<&Generation>,
 ) -> Result<Generation> {
-    write_with_prior(root, current, dependencies, None)
-}
-
-pub(super) fn write_carried(
-    root: &Path,
-    current: &Current,
-    dependencies: &[Coordinate],
-    prior: &Generation,
-) -> Result<Generation> {
-    write_with_prior(root, current, dependencies, Some(prior))
+    if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
+        return Err(corrupt("counted receipt requires its format feature"));
+    }
+    write_with_prior(root, current, &live.coordinates(), live, prior)
 }
 
 fn write_with_prior(
     root: &Path,
     current: &Current,
     dependencies: &[Coordinate],
+    live: &LiveParts,
     prior: Option<&Generation>,
 ) -> Result<Generation> {
     if dependencies.len() > super::dependency::MAX_DEPENDENCIES {
@@ -82,10 +79,11 @@ fn write_with_prior(
                     .ok()
                     .map(|at| prior.records[at])
             });
-            let entry = match carried {
+            let mut entry = match carried {
                 Some(entry) => entry,
                 None => dependency.capture(root, current)?,
             };
+            put64(&mut entry, 24, live.reference_count(dependency)?);
             dependency_record::decode(current, &entry)?;
             payload.extend_from_slice(&entry);
             records.push(entry);
@@ -223,7 +221,10 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
             if coordinates.last().is_some_and(|prior| *prior >= coordinate) {
                 return Err(corrupt("generation coordinates are not strictly ordered"));
             }
-            if verify_parts && coordinate.capture(root, current)? != entry {
+            let stored: &[u8; 80] = entry.try_into().expect("fixed dependency record");
+            if verify_parts
+                && coordinate.capture(root, current)? != dependency_record::immutable(stored)
+            {
                 return Err(corrupt("generation dependency differs from immutable part"));
             }
             coordinates.push(coordinate);

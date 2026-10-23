@@ -8,17 +8,18 @@ This document separates source facts, the first product run, and historical perf
 The second review also removes erase recovery records and journal-based cloud repair.
 The native writer merged in PR 268 as `4118c7baa`.
 The second review uses final product source `5919abbfbf2263993ea99700b73bd9c8d43d689b` in PR 271.
+The next change starts from `08d8436cc` and removes obsolete parts from each new receipt.
 
 ## Current source
 
 | Area | Current source | Scope left |
 |---|---|---|
 | Local writes | `HomeSnapshot::commit_mutation` writes immutable payload files and changed search pages | Measure the change against a matched baseline |
-| Publications | Each complete stored batch writes one generation receipt and publishes one root | Receipt copies still retain conservative prior dependencies |
+| Publications | Each complete stored batch writes one receipt with exact positive live-part counts and publishes one root | Changed pages still use fixed 16 KiB pages |
 | Current record bytes | A payload locator uses `Source::Pack`; a delete uses `Source::Tombstone` | Compaction still removes superseded files |
 | Recovery | Writer open verifies `CURRENT`, its receipt, and dependency files | No local mutation replay or silent receipt reconstruction |
 | Internal journal | The journal writer, reader, stream, tail, rotation, and command are removed | Erase aggregates now commit with deletes; debit recovery records are removed |
-| Format | Every supported root requires snapshot feature `256`; retired feature `2` is refused | No converter for old native journal homes exists |
+| Format | Every supported root requires feature `256`; new receipts also require live-count feature `512` | Older supported snapshots collect counts before writer admission; old programs refuse `512` |
 | macOS durability | Ordered file barriers precede root publication; a final device flush precedes durable success | Process interruption does not prove power-loss behavior |
 | File lifetime | Read holds, backup references, and the installed-root reclaim handoff remain | Compaction still has a write pause |
 | Backup and restore | `lastdb-native-backup-2` contains the exact snapshot inventory and no journal state | A data-only bundle excludes node identity and encryption keys |
@@ -52,7 +53,8 @@ Retired repair state and cloud generations that require adoption receive an expl
 Ordinary sync mutations and authenticated retired sync source records remain.
 
 The review also removes unused acceptance timestamps, pressure wrappers, and dependency batch fields.
-Reserved format bytes remain zero and retain their integrity check.
+Retired batch bytes remain reserved in older receipts.
+New counted receipts use bytes 24 through 31 of each dependency record for a positive live count.
 Payload reservations no longer charge a phantom journal prefix.
 The complete-batch policy cap stays 128 MiB.
 The offline write command now holds a complete disk-space reservation through publication.
@@ -96,6 +98,13 @@ The complete mutation quote adds changed tree pages, one maximum-size receipt, a
 The writer also checks actual payload dimensions against its admitted quote.
 The node retains separate disk and memory reservations.
 An engine reservation alone does not authorize a memory ack.
+
+The receipt no longer inherits every prior file part.
+The publisher removes old page references and adds references from its fresh private metadata pages.
+The count reaches zero only when no current page, overflow descriptor, or payload block requires that part.
+Shared parts stay in the receipt until their last reference goes.
+Each page resolves its references before the next page enters the bounded ledger.
+The existing root holds and reclaim rules still protect older snapshots and backups.
 
 The writer marks itself poisoned before commit file work.
 An uncertain result stops new admission until the caller reopens the writer.

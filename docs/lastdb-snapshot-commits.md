@@ -18,6 +18,9 @@ An ordinary read does not open a mutation log or replay a suffix.
 
 The mandatory `FEATURE_SNAPSHOT_COMMIT` bit is `256`, or `0x100`.
 The current reader requires that bit and refuses the retired journal feature bit `2`.
+New publications also require `FEATURE_LIVE_PART_COUNTS`, bit `512`.
+That bit permits positive reference counts in each receipt dependency record.
+An older program refuses this bit before it creates writer files.
 The other required feature checks still control packed keys, complete object bounds, native home identity, and atom records.
 The home descriptor still controls the key and placement codecs.
 
@@ -45,8 +48,13 @@ The write follows this order:
 8. Rename that file over `CURRENT` and complete the root directory barrier.
 9. Complete the platform durability scope before the commit returns durable success.
 
-The publisher carries the prior dependency list and adds the new files.
-That list is conservative: it can retain superseded files until compaction.
+The publisher carries the prior live counts and adds the exact changed-page deltas.
+It removes a part from the new receipt when that part has no live reference.
+Each copied leaf removes its old payload references and adds its new payload references.
+The resolver reads payload block maps and part headers; it does not decode record bodies.
+Overflow references follow the actual next-page links.
+One live record keeps every payload and map part that its bytes require.
+An obsolete record cannot remove a part that another live record still requires.
 Each receipt contains the complete `CURRENT` bytes and the exact dependency identities.
 No published payload or metadata part receives an append.
 An unchanged tree path can retain its existing pages.
@@ -81,6 +89,12 @@ Files from an interrupted private commit stay outside the selected snapshot.
 Their existence does not authorize their use as committed data.
 A damaged or incomplete selected generation causes an error; the code does not guess another root.
 
+An older supported snapshot without bit `512` receives one metadata walk when the writer opens.
+The walk precedes every memory ack and checks all reachable parts against the older receipt.
+The first commit transfers those counts into the new complete receipt.
+Counted snapshots use receipt counts and page deltas; an ordinary commit does not walk the full database.
+Full snapshot creation and compaction collect counts from their complete new trees.
+
 Each read holds its selected generation until its last file access.
 A read lease from the writer also retains the system writer lease.
 Backup and conversion references retain their exact selected generation.
@@ -93,6 +107,31 @@ Its generation floor excludes new output from deletion.
 An orphan sweep also checks the file creation generation before concurrent deletion.
 An incomplete or unknown new file stays in place.
 These rules preserve the concurrent reclaim handoff from issue 267.
+An older receipt retains its own parts after a newer receipt omits them.
+Removal from a receipt does not itself delete a file.
+Reclaim still checks all retained roots, read holds, durable references, and its generation floor.
+
+## Live-part limits
+
+One receipt admits at most 65,536 dependency parts.
+The existing mutation quote checks current parts plus worst-case additional parts before admission.
+Live counts and each signed part-delta map use that same entry ceiling.
+A conservative 256-byte entry quote gives 16 MiB per map.
+Page references resolve before the next page enters the ledger.
+Their separate 4,096-entry ceiling quotes at most 1 MiB per active collector.
+Each resolver resets its page and part-header caches at 24 entries.
+These are storage workspace limits; they do not change the logical warm-data byte budget.
+The normal publisher can hold one live-count map and two part-delta maps at the same time.
+The additional count workspace has a conservative 64 MiB quote, with receipt vectors and resolver caches included.
+That quote excludes existing mutation inputs and search-page workspaces; it is not a total process memory cap.
+
+The older-format metadata walk admits at most 67,108,864 page or reference steps and 65,536 directory entries.
+A refusal occurs at writer open, before memory accepts a write.
+The first write still uses the older receipt count for conservative part admission.
+An older receipt at the part ceiling can require compaction before that write.
+Normal page resolution uses a format-derived work ceiling that covers every representable pending extent and overflow chain.
+The resolver checks all count additions and removals before it writes the receipt.
+An invalid count or missing required part causes an error before `CURRENT` publication.
 
 ## Backup and restore
 
@@ -177,6 +216,7 @@ Those records serve sync and never select the local recovery root.
 | Mandatory format feature and refusal | `vendor/laststore/src/disk_pack/mod.rs`, `current.rs` |
 | Exclusive snapshot writer and complete commit | `vendor/laststore/src/disk_pack/snapshot/writer.rs` |
 | Changed pages, complete receipt, and root rename | `vendor/laststore/src/disk_pack/publish.rs`, `generation.rs` |
+| Exact live parts, page deltas, and older snapshot count collection | `vendor/laststore/src/disk_pack/live_parts/`, `live_parts.rs`, `tree_edit.rs` |
 | macOS order and final device flush | `vendor/laststore/src/durability.rs`, `durability/ordered.rs` |
 | Read holds and concurrent reclaim | `vendor/laststore/src/disk_pack/lifetime/`, `snapshot/reclaim.rs`, `maintenance/reclaim/` |
 | Exact local bundle and restore | `vendor/laststore/src/disk_pack/backup/` |

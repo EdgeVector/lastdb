@@ -37,6 +37,7 @@ impl SnapshotWriter {
         };
         self.current = current;
         self.dependencies = receipt.parts_after;
+        self.legacy_live = None;
         self.poisoned = false;
         Ok(receipt)
     }

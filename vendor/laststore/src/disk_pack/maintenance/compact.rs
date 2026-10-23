@@ -29,6 +29,7 @@ pub(in crate::disk_pack) fn compact_locked(
     let reserve = super::quote::replacement_bytes(root, &previous)?;
     let _space = reserve_replacement(root, policy, reserve)?;
     let mut current = previous.clone();
+    current.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
     current.generation = publish::fresh_generation(root, previous.generation)?;
     current.previous_generation = previous.generation;
     current.published_ms = artifact::unix_ms();
@@ -66,7 +67,12 @@ pub(in crate::disk_pack) fn compact_locked(
     compactor.dependencies.add_contiguous_tree(&tree, parts)?;
     compactor.current.directory = tree;
     let dependencies = compactor.dependencies.finish();
-    let receipt = generation::write(root, &compactor.current, &dependencies)?;
+    let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
+        root,
+        &compactor.current,
+        &dependencies,
+    )?;
+    let receipt = generation::write_live(root, &compactor.current, &live, None)?;
     if artifact::current(root)? != previous {
         return Err(corrupt("CURRENT changed during compaction"));
     }

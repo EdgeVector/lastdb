@@ -1,6 +1,7 @@
 //! Independent locator roots share final object-wide page addresses and barriers.
 
 use super::dependency::MAX_DEPENDENCIES;
+use super::live_parts::Changes;
 use super::page_write::PageWriter;
 use super::sparse_pages::SparsePages;
 use super::tree_edit::{MapChange, TreeEdit};
@@ -16,6 +17,7 @@ pub(super) struct LocatorOutput {
     pub(super) tree: TreeRoot,
     pub(super) pages: u64,
     pub(super) parts: Vec<u32>,
+    pub(super) changes: Changes,
 }
 
 /// Page zero is one shared empty leaf. Nonempty roots, children and overflow
@@ -23,6 +25,7 @@ pub(super) struct LocatorOutput {
 pub(super) struct LocatorForest {
     object: Uuid,
     pages: Option<PageWriter>,
+    changes: Changes,
 }
 
 impl LocatorForest {
@@ -37,6 +40,7 @@ impl LocatorForest {
         Ok(Self {
             object,
             pages: Some(pages),
+            changes: Changes::default(),
         })
     }
 
@@ -61,7 +65,8 @@ impl LocatorForest {
         }
         let mut edit = TreeEdit::with_pages(tree, self.take_pages()?)?;
         edit.put_many(call, changes)?;
-        let (tree, pages) = edit.finish_tree()?;
+        let (tree, pages, changes) = edit.finish_tree()?;
+        self.changes.merge(changes)?;
         self.restore_pages(&tree, pages)?;
         Ok(tree)
     }
@@ -101,6 +106,7 @@ impl LocatorForest {
             },
             pages: written,
             parts: (0..parts).map(|part| part as u32).collect(),
+            changes: self.changes,
         })
     }
 }
@@ -112,6 +118,7 @@ pub(super) struct LocatorChanges {
     generation: u64,
     new: Option<LocatorForest>,
     edited: BTreeMap<Uuid, (TreeRoot, SparsePages)>,
+    changes: Changes,
 }
 
 impl LocatorChanges {
@@ -121,6 +128,7 @@ impl LocatorChanges {
             generation,
             new: None,
             edited: BTreeMap::new(),
+            changes: Changes::default(),
         }
     }
 
@@ -160,7 +168,8 @@ impl LocatorChanges {
         };
         let mut edit = TreeEdit::from_pages(tree, pages)?;
         edit.put_many(call, changes)?;
-        let (tree, mut pages) = edit.finish_tree()?;
+        let (tree, mut pages, changes) = edit.finish_tree()?;
+        self.changes.merge(changes)?;
         pages.park();
         self.edited.insert(tree.object, (tree.clone(), pages));
         Ok(tree)
@@ -177,7 +186,11 @@ impl LocatorChanges {
                 tree,
                 pages: written,
                 parts: pages.finish()?,
+                changes: Changes::default(),
             });
+        }
+        if let Some(output) = outputs.first_mut() {
+            output.changes.merge(self.changes)?;
         }
         Ok(outputs)
     }

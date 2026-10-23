@@ -22,6 +22,7 @@ mod hash_range;
 pub mod home;
 mod key_layout;
 pub mod lifetime;
+mod live_parts;
 mod location;
 mod locator_forest;
 pub mod maintenance;
@@ -86,6 +87,10 @@ pub const FEATURE_ATOM_RECORDS: u64 = 128;
 /// Old journal-backed homes require explicit conversion and are not opened.
 pub const FEATURE_SNAPSHOT_COMMIT: u64 = 256;
 
+/// Each generation receipt stores exact live references for its file parts.
+/// Older programs refuse this feature before they can publish an uncounted root.
+pub const FEATURE_LIVE_PART_COUNTS: u64 = 512;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_NATIVE_HOME
     | FEATURE_FILE_LIFETIME
@@ -93,7 +98,8 @@ const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_LARGE_BATCHES
     | FEATURE_PACKED_KEYS
     | FEATURE_ATOM_RECORDS
-    | FEATURE_SNAPSHOT_COMMIT;
+    | FEATURE_SNAPSHOT_COMMIT
+    | FEATURE_LIVE_PART_COUNTS;
 
 /// Most dependency parts one published generation can name. A writer that
 /// reaches it refuses further writes until maintenance replaces the receipt.

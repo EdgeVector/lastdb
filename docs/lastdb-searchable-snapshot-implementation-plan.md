@@ -41,6 +41,35 @@ Keep the sync mutation log and authenticated retired sync source records.
 Native cloud activation remains disabled. The sync contract and proposed resource limits below remain separate work.
 Dirty-share enforcement, new workspace quotas, and performance improvements beyond journal removal are not part of this change.
 
+## Receipt part removal
+
+The follow-up starts from the journal-free `08d8436cc` source.
+It replaces the inherited dependency list with exact live-part counts in each new receipt.
+Feature bit `512` distinguishes the counted receipt; older programs refuse the bit.
+The receipt keeps its existing 80-byte dependency width and uses bytes 24 through 31 for the count.
+The format adds no journal, side file, or receipt chain for recovery.
+
+- Remove `Dependencies::from_coordinates` and the conservative generation writer.
+- Retire old page references as `TreeEdit` replaces each page.
+- Read only fresh private metadata pages to add their references.
+- Resolve each page's overflow and payload references before the next page enters the ledger.
+- Keep a shared file part until its last current reference goes.
+- Leave old receipts, read holds, backup references, and reclaim barriers intact.
+- Collect older receipt counts at writer open, before any memory ack.
+- Transfer those counts into the first counted commit.
+- Collect complete new counts after a full snapshot build or compaction.
+
+The receipt and each signed part map retain the existing 65,536-coordinate ceiling.
+The separate pending-reference ceiling is 4,096 entries per page collector.
+The existing mutation quote reserves current plus additional coordinates before admission.
+The older-format walk has a 67,108,864-step ceiling and a 65,536-directory-entry ceiling before writer admission.
+The [protocol](lastdb-snapshot-commits.md#live-part-limits) states the memory quotes and work limits.
+
+The separate [measurement plan](proofs/receipt-part-pruning-benchmark-20261022/METHOD.md) freezes equal build commands and generated workloads.
+It compares three before/after pairs for disk growth, process write bytes, and request latency.
+Additional operations cover shared payload parts, long keys, older receipt conversion, reclaim holds, backup restore, and crash reopen.
+The source and measurement receipts must identify the exact executable used for each result.
+
 ## 1. End state and scope
 
 - The local searchable snapshot owns keyed reads, ranges, local commits, and crash recovery.
@@ -132,7 +161,9 @@ Retain existing encoded key order, prefix bounds, and inclusive or exclusive end
 ## 4. Crash recovery, compaction, and backup
 
 Startup validates `CURRENT` and opens its named snapshot metadata.
-It does not enumerate all user records or open the sync log for local recovery.
+A counted snapshot needs no full metadata walk at writer open.
+An older supported snapshot needs one bounded walk to collect live counts before writer admission.
+Neither route opens the sync log for local recovery.
 Search and payload integrity checks occur before affected data reaches a caller.
 
 | Interruption | Required result |

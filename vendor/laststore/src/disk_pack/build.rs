@@ -112,6 +112,7 @@ impl ArtifactBuilder {
             required_features: super::FEATURE_OBJECT_METADATA
                 | super::FEATURE_PACKED_KEYS
                 | super::FEATURE_SNAPSHOT_COMMIT
+                | super::FEATURE_LIVE_PART_COUNTS
                 | super::FEATURE_FILE_LIFETIME
                 | if native.is_some() {
                     super::FEATURE_NATIVE_HOME | super::FEATURE_LARGE_BATCHES
@@ -174,7 +175,9 @@ impl ArtifactBuilder {
             home_digest: self.home_digest,
         };
         let temporary = self.root.join("CURRENT.pending");
-        super::generation::write(&self.root, &current, &self.dependencies.finish())?;
+        let allowed = self.dependencies.finish();
+        let live = super::live_parts::LiveParts::bootstrap(&self.root, &current, &allowed)?;
+        super::generation::write_live(&self.root, &current, &live, None)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
