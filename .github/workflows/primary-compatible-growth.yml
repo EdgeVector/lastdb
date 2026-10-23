@@ -1,0 +1,85 @@
+name: Primary compatible growth proof
+
+on:
+  pull_request:
+    branches: [hotfix/compaction-primary-20261022]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: primary-compatible-growth-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  native-growth:
+    name: Compatible native growth and shutdown
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "3"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/cargo-target
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          path: baseline
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: candidate
+      - name: Confirm Apple silicon and Rust
+        run: |
+          [[ "$(uname -m)" == arm64 ]]
+          cd candidate
+          rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            baseline -> ../cargo-target
+            candidate -> ../cargo-target
+          shared-key: primary-compatible-growth-macos-arm64
+      - name: Build the deployed compatible baseline
+        working-directory: baseline
+        run: |
+          cargo build --profile dev-release --locked -p lastdb_node --bin lastdb --bin lastdbd -p laststore --bin lastdb-pack-maintain --bin lastdb-disk-home
+          mkdir -p ../baseline-bin
+          cp ../cargo-target/dev-release/lastdb ../cargo-target/dev-release/lastdbd ../cargo-target/dev-release/lastdb-pack-maintain ../cargo-target/dev-release/lastdb-disk-home ../baseline-bin/
+      - name: Build the exact proposed source
+        working-directory: candidate
+        run: |
+          cargo build --profile dev-release --locked -p lastdb_node --bin lastdb --bin lastdbd -p laststore --bin lastdb-pack-maintain --bin lastdb-disk-home
+          mkdir -p ../candidate-bin
+          cp ../cargo-target/dev-release/lastdb ../cargo-target/dev-release/lastdbd ../cargo-target/dev-release/lastdb-pack-maintain ../cargo-target/dev-release/lastdb-disk-home ../candidate-bin/
+      - name: Capture real generated-data operations
+        env:
+          SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 candidate/docs/proofs/primary-growth-ci-20261023/run.py --baseline-bin "$PWD/baseline-bin" --candidate-bin "$PWD/candidate-bin" --report "$PWD/growth-report" --source "$SOURCE"
+      - name: Record exact program hashes
+        env:
+          SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          printf '%s\n' "$SOURCE" > candidate-bin/source.txt
+          cd candidate-bin
+          shasum -a 256 lastdb lastdbd lastdb-pack-maintain lastdb-disk-home > SHA256SUMS
+          ./lastdb --version > version.txt
+      - name: Upload generated-data receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: primary-compatible-growth-receipts
+          path: growth-report
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload the checked Apple silicon programs
+        uses: actions/upload-artifact@v7
+        with:
+          name: primary-compatible-growth-programs
+          path: candidate-bin
+          if-no-files-found: error
+          retention-days: 14
