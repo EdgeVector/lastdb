@@ -1,0 +1,14 @@
+{
+  "source": "d3b40a311f4381807499f625481fb50a3d5967ef",
+  "main": "a02d25ed0337f9fe6ce01d7b6d68a71d547f2e72",
+  "product_diff": "",
+  "binaries": {
+    "before": "18b61d57b703ecb0b676fcfd52aa1e2604bf87bba6b273e3e9e9587abdc70871",
+    "candidate": "98506e8e0e7a177487e8f762e075e716b7b8f19d6d5b311696f9d620ac6926f0"
+  },
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/wi.CYgYZH",
+  "uid": 501,
+  "compiler_exclusion": true,
+  "other_host_work_controlled": false,
+  "baseline_source": "abab443a97f6c4aedbe1eb469c21dbc16f519427"
+}

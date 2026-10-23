@@ -106,9 +106,10 @@ impl AtomStore {
         // bundle is a legacy molecule and correctly falls back to node keys.
         self.load_molecule_key_bundle(molecule).await?;
         let codec = self.key_codec_for_molecule(molecule)?;
-        let prefixes = codec
-            .api_hash_range_scan_prefixes_for_read(molecule, api_hash)
+        let prefix = codec
+            .api_hash_range_scan_prefix_for_hash(molecule, api_hash)
             .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        let prefixes = [prefix];
 
         let want = max_keys.saturating_add(1);
         let mut raw_rows = self
@@ -149,7 +150,7 @@ impl AtomStore {
         Ok(MoleculeHashBucketReport {
             molecule: molecule.to_string(),
             api_hash: api_hash.to_string(),
-            storage_prefixes: prefixes,
+            storage_prefixes: prefixes.into(),
             rows: entries.len() as u64,
             more_remaining,
             entries,

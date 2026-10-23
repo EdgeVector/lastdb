@@ -1,0 +1,13 @@
+{
+  "request_ops": {
+    "ring_capacity": 256,
+    "sample_count": 0
+  },
+  "uds": {
+    "in_flight": 0,
+    "queue_capacity": 256,
+    "queue_full_rejects": 0,
+    "submitted": 0,
+    "workers": 8
+  }
+}

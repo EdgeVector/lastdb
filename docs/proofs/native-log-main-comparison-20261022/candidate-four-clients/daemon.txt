@@ -1,0 +1,11 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-22T16:19:23.815862Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h5/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h5
+  Owner:  080a01d59b0764869bbe1ba50f2fe008
+2026-10-22T16:19:57.759746Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 32s before this start.
+2026-10-22T16:19:58.237997Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h5/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h5
+  Owner:  080a01d59b0764869bbe1ba50f2fe008
+lastdbd: shutdown signal received, exiting

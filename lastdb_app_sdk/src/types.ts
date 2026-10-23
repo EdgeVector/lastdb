@@ -700,8 +700,8 @@ export interface MutationOp {
    */
   convergence?: MutationConvergence;
   /**
-   * Optional local persistence policy. Omit for the node default (`queued`).
-   * Pass `durable` when the response must follow a local persistence barrier.
+   * Optional requested local policy. Current native nodes always commit to disk.
+   * Pass `durable` to require that guarantee from older nodes as well.
    */
   durability?: MutationDurability;
   /**

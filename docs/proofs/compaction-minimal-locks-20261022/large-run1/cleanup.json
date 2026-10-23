@@ -1,0 +1,27 @@
+{
+  "at_unix_ns": 1792722325026219000,
+  "ownership": {
+    "creator_pid": 14416,
+    "device": 16777231,
+    "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/home",
+    "inode": 1502912110,
+    "owner_uid": 501,
+    "primary_data": false,
+    "run_id": "da7a8fff43d94d0492abd04617e05a01",
+    "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS",
+    "version": 1
+  },
+  "pre_cleanup": {
+    "entries": 1495,
+    "logical_file_bytes": 1038248614
+  },
+  "removed": true,
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS",
+  "stopped_pids": [
+    14417,
+    33738,
+    33816,
+    35965,
+    57198
+  ]
+}

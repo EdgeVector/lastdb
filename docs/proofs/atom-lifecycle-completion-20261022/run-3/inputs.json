@@ -1,0 +1,24 @@
+{
+  "binary": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-atom-lifecycle-completion-20261022/target/dev-release/lastdbd",
+  "binary_sha256": "672faa0a41739709524530f2e658c4df045fe571279d5becf23790f6b8654378",
+  "body_bytes": 1024,
+  "claim_limit": "Product run and process interruption; no power-loss proof",
+  "clock": "perf_counter_ns",
+  "deleted": [
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87
+  ],
+  "driver_sha256": "d25c17456d4b65a60812bf4e2bab46300ada3e286e78ea675ffb4f59dcc3f246",
+  "filesystem_cache": "uncontrolled",
+  "records": 4096,
+  "recovery_sha256": "0577c9f57f8f8990ccca2e5fae0a77f6cf50eafb27c4e871c56c099a0ee536fe",
+  "recreated": [],
+  "source_revision": "8ca6c30f0507eb166c519cb13c20cb9b3990608e",
+  "update_rounds": 12
+}

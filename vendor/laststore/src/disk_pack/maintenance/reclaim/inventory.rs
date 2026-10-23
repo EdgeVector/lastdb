@@ -5,9 +5,13 @@ pub(super) fn generations(
     max_files: usize,
     published: &BTreeSet<u64>,
     ceiling: Option<u64>,
+    epoch: &DeletionEpoch,
 ) -> Result<Vec<u64>> {
     let mut out = Vec::new();
     for (seen, entry) in std::fs::read_dir(root.join("generations"))?.enumerate() {
+        if !epoch.valid()? {
+            break;
+        }
         let entry = entry?;
         // Each generation owns a receipt file. Use the home inventory budget;
         // a lower independent limit can permanently prevent valid cleanup.
@@ -26,8 +30,11 @@ pub(super) fn generations(
         if ceiling.is_some_and(|floor| number > floor) && !published.contains(&number) {
             continue;
         }
-        if !published.contains(&number) && remove_unfinished(&entry.path())? {
+        if !published.contains(&number) && remove_unfinished(&entry.path(), epoch)? {
             continue;
+        }
+        if !epoch.valid()? {
+            break;
         }
         out.push(number);
     }

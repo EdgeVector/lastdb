@@ -90,12 +90,15 @@ impl Read for RecordBody<'_> {
         out[..count].copy_from_slice(&block.bytes[start..start + count]);
         self.hash.update(&out[..count]);
         self.position += count as u64;
-        let actual: [u8; 32] = self.hash.clone().finalize().into();
-        if self.position == self.location.record_bytes && actual != self.location.digest {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "compaction source record digest differs",
-            ));
+        // The digest covers the whole record, so it is finished once, at the last byte.
+        if self.position == self.location.record_bytes {
+            let actual: [u8; 32] = self.hash.clone().finalize().into();
+            if actual != self.location.digest {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "compaction source record digest differs",
+                ));
+            }
         }
         Ok(count)
     }

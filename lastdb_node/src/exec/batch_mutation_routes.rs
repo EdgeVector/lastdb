@@ -107,22 +107,43 @@ pub(super) async fn execute_mutations_batch_route(
         Err(message) => return error_response(503, message, ctx),
     };
 
-    let result = handlers::execute_mutations_batch(host, components, ctx)
-        .await
-        .and_then(|value| {
-            let mutation_ids = value
-                .get("mutation_ids")
-                .and_then(Value::as_array)
-                .filter(|ids| ids.len() == watch_hints.len())
-                .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
-                .ok_or_else(|| {
-                    HostError::new(500, "Batch receipt does not match its input identities")
-                })?;
-            let mut durable_events = Vec::with_capacity(watch_hints.len());
-            let mut change_record_elapsed = std::time::Duration::ZERO;
-            for ((schema, mt, hash, range), mutation_id) in
-                watch_hints.into_iter().zip(mutation_ids)
-            {
+    let (result, captured_notifications) = fold_db::db_operations::ChangeFeedStore::capture_native(
+        watch_hints
+            .iter()
+            .map(|(schema, operation, hash, range)| {
+                let canonical = handlers::resolve_schema_name(host, schema)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| schema.clone());
+                (
+                    canonical,
+                    durable_change_event(
+                        schema.clone(),
+                        operation.clone(),
+                        hash.clone(),
+                        range.clone(),
+                        String::new(),
+                        &Value::Null,
+                    ),
+                )
+            })
+            .collect(),
+        handlers::execute_mutations_batch(host, components, ctx),
+    )
+    .await;
+    let result = result.and_then(|value| {
+        let mutation_ids = value
+            .get("mutation_ids")
+            .and_then(Value::as_array)
+            .filter(|ids| ids.len() == watch_hints.len())
+            .and_then(|ids| ids.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
+            .ok_or_else(|| {
+                HostError::new(500, "Batch receipt does not match its input identities")
+            })?;
+        let mut durable_events = Vec::with_capacity(watch_hints.len());
+        let mut change_record_elapsed = std::time::Duration::ZERO;
+        for ((schema, mt, hash, range), mutation_id) in watch_hints.into_iter().zip(mutation_ids) {
+            if !captured_notifications.contains(mutation_id) {
                 durable_events.push(durable_change_event(
                     schema.clone(),
                     mt.clone(),
@@ -131,17 +152,18 @@ pub(super) async fn execute_mutations_batch_route(
                     mutation_id.to_string(),
                     &value,
                 ));
-                let change_record_started = std::time::Instant::now();
-                host.local_outbox.append(schema, mt, hash, range);
-                change_record_elapsed += change_record_started.elapsed();
             }
-            change_feed_reservation.submit(durable_events);
-            fold_db::request_phases::add_phase(
-                fold_db::request_phases::RequestPhase::ChangeRecord,
-                change_record_elapsed,
-            );
-            Ok(value)
-        });
+            let change_record_started = std::time::Instant::now();
+            host.local_outbox.append(schema, mt, hash, range);
+            change_record_elapsed += change_record_started.elapsed();
+        }
+        change_feed_reservation.submit(durable_events);
+        fold_db::request_phases::add_phase(
+            fold_db::request_phases::RequestPhase::ChangeRecord,
+            change_record_elapsed,
+        );
+        Ok(value)
+    });
     let response_started = std::time::Instant::now();
     let response = render(result, ctx);
     fold_db::request_phases::add_phase(

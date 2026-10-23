@@ -26,6 +26,7 @@ pub(super) struct PageFields {
 }
 
 pub(super) struct PageWriter {
+    protection: super::private_files::OutputFiles,
     directory: PathBuf,
     object: Uuid,
     generation: u64,
@@ -35,12 +36,23 @@ pub(super) struct PageWriter {
 
 impl PageWriter {
     pub(super) fn new(path: PathBuf, object: Uuid, generation: u64) -> Result<Self> {
+        Self::protected(path, object, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        path: PathBuf,
+        object: Uuid,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         nonnil(object)?;
         if generation == 0 {
             return Err(corrupt("zero creation generation"));
         }
+        protection.protect_directory(&path)?;
         directory(&path)?;
         Ok(Self {
+            protection,
             directory: path,
             object,
             generation,
@@ -61,15 +73,13 @@ impl PageWriter {
         if payload.len() > PAGE_PAYLOAD {
             return Err(corrupt("page write payload too large"));
         }
-        let part =
-            u32::try_from(self.next / 512).map_err(|_| corrupt("metadata part exhaustion"))?;
-        if self.next % 512 == 0 {
+        let part = u32::try_from(self.next / crate::disk_pack::PAGES_PER_PART)
+            .map_err(|_| corrupt("metadata part exhaustion"))?;
+        if self.next % crate::disk_pack::PAGES_PER_PART == 0 {
             self.sync_part()?;
             self.file = Some(
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(self.directory.join(format!("part-{part:08x}")))?,
+                self.protection
+                    .create_new(&self.directory.join(format!("part-{part:08x}")))?,
             );
         }
         let bytes = encode_page(self.object, self.generation, self.next, fields, payload)?;
@@ -101,11 +111,12 @@ impl PageWriter {
     /// No published metadata part is modified by this method.
     pub(super) fn finish_block_map(mut self, logical_bytes: u64, data_parts: u64) -> Result<()> {
         drop(self.file.take());
-        for part in 0..self.next.div_ceil(512) {
+        for part in 0..self.next.div_ceil(crate::disk_pack::PAGES_PER_PART) {
             let part_number = u32::try_from(part).map_err(|_| corrupt("map part exhaustion"))?;
             let path = self.directory.join(format!("part-{part_number:08x}"));
             let mut file = OpenOptions::new().read(true).write(true).open(path)?;
-            let pages = (self.next - part * 512).min(512);
+            let pages = (self.next - part * crate::disk_pack::PAGES_PER_PART)
+                .min(crate::disk_pack::PAGES_PER_PART);
             if file.metadata()?.len() != pages * PAGE_BYTES as u64 {
                 return Err(corrupt("private map part length"));
             }
@@ -119,7 +130,7 @@ impl PageWriter {
                     || bytes[11] != 0
                     || uuid_at(&bytes, 24) != self.object
                     || u64_at(&bytes, 16) != self.generation
-                    || u64_at(&bytes, 40) != part * 512 + index
+                    || u64_at(&bytes, 40) != part * crate::disk_pack::PAGES_PER_PART + index
                 {
                     return Err(corrupt("private block-map identity"));
                 }

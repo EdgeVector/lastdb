@@ -1,18 +1,16 @@
 //! Does another writer share the node with a background job?
 //!
-//! A background job that deletes in batches (the retention janitor, the blob dwell
-//! pass) seals the write queue with each batch, so every writer that arrives waits
-//! until the batch is durable. The job rests between batches for a share of the
-//! time it kept writers waiting. When no other writer is there, the rest protects
-//! nobody, and the job goes on at once.
+//! Background jobs share the open private collection window and await durability.
+//! Their duty cost includes their own preparation gate hold and the shared flush
+//! hold, including post-commit delivery while the queue remains sealed. It excludes
+//! the open collection window, when other writers can prepare. A job rests for a
+//! share of that blocked time when another writer uses the node.
 //!
 //! "No other writer" means that no other task has opened a write scope for a
 //! quiet period (60 s by default, [`QUIET_SECS_ENV`]). The watch remembers the last
-//! write scope of another task. A writer that writes less often than the pass
-//! would otherwise find the pass flat out between two of its writes, and nearly
-//! every write of it would meet a sealed batch (a flush for each write). So one
-//! write scope of another task keeps the job in the duty-paced mode for the whole
-//! quiet period. A long rest ends early only when the quiet period has passed.
+//! write scope of another task. The quiet period keeps the duty share for sparse
+//! writers instead of treating each gap as an idle node. A long rest ends early
+//! only when the quiet period has passed.
 //!
 //! The watch counts the write scopes that the process opens
 //! (`storage::disk_pack::transaction::blocked`). The scopes of the job itself are
@@ -40,6 +38,12 @@ pub struct WriterWatch {
 }
 
 impl WriterWatch {
+    /// Measure this task's native gate holds plus its shared durable flush hold.
+    pub async fn measure<F: std::future::Future>(work: F) -> (F::Output, Duration, u64) {
+        let (output, cost) = crate::storage::disk_pack::transaction::blocked::measure(work).await;
+        (output, cost.blocked, cost.scopes)
+    }
+
     /// Start a watch at the current count. The quiet period is read from the
     /// environment.
     #[must_use]

@@ -111,7 +111,7 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
-        self.wait_for_part_room().await;
+        self.check_part_room()?;
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
@@ -234,6 +234,7 @@ impl PackRuntime {
                 return Err(map(error));
             }
         };
+        let _timing = laststore::commit_timing::stage("memory_publication_us");
         self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
         drop(space);
         self.failed.store(false, Ordering::Release);

@@ -1,0 +1,8 @@
+{
+  "source_commit": "550836f1b4a8bc18623fe2a7eb119cb7fe6d4f46",
+  "binary_sha256": "39116c706f4d8d2c823dd5f34cc0a22585f772559f40b950b03288ee0e97942c",
+  "original_run_stopped_on_capacity_refusal": true,
+  "recovery_disk_cap_bytes": 34359738368,
+  "recovery_dependency_high_water": 65535,
+  "method": "Restart the same owned generated home, recover every acknowledged final record, force-stop after a durable sentinel, restart and verify all known keys. Then run capacity_refusal from capture.py."
+}

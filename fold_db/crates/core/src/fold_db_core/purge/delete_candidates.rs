@@ -13,43 +13,32 @@ pub(crate) struct DeleteCandidate {
     pub(crate) storage_prefix: Option<String>,
 }
 
-pub(crate) fn delete_candidates_for_key(
+pub(crate) fn delete_candidate_for_key(
     db_ops: &Arc<DbOperations>,
     field: &FieldVariant,
     key: &KeyValue,
-) -> Result<Vec<DeleteCandidate>, SchemaError> {
+) -> Result<Option<DeleteCandidate>, SchemaError> {
     let Some(uuid) = field.common().molecule_uuid() else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let Some((hash, range)) = field.slot_coordinates(key) else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let codec = db_ops.atoms().key_codec_for_molecule(uuid)?;
-    let keys = codec
-        .api_hash_range_record_keys_for_read(uuid, &hash, &range)
+    let hash = codec
+        .storage_hash(uuid, &hash)
         .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
-    keys.into_iter()
-        .map(|base| {
-            let molecule_uuid =
-                crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(&base)
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData("Delete candidate lacks a molecule UUID".into())
-                    })?
-                    .to_string();
-            let (hash, range) =
-                crate::atom::molecule_key_codec::decode_hash_range(&base, &molecule_uuid)
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData("Delete candidate has an invalid key".into())
-                    })?;
-            Ok(DeleteCandidate {
-                mk_key: build_storage_key(field.common().storage_prefix(), &base),
-                molecule_uuid,
-                hash,
-                range,
-                storage_prefix: field.common().storage_prefix().map(str::to_string),
-            })
-        })
-        .collect()
+    let range = codec
+        .storage_range(uuid, &range)
+        .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+    let base = crate::atom::molecule_key_codec::hash_range_record_key(uuid, &hash, &range);
+    Ok(Some(DeleteCandidate {
+        mk_key: build_storage_key(field.common().storage_prefix(), &base),
+        molecule_uuid: uuid.clone(),
+        hash,
+        range,
+        storage_prefix: field.common().storage_prefix().map(str::to_string),
+    }))
 }
 
 /// Preserve the signed source order for every finite readable physical key.
@@ -69,7 +58,7 @@ pub(crate) fn plan_normal_delete_barriers(
             mutation.author_clock_writer_id.clone()
         };
         for field in schema.runtime_fields.values() {
-            for candidate in delete_candidates_for_key(db_ops, field, &mutation.key_value)? {
+            if let Some(candidate) = delete_candidate_for_key(db_ops, field, &mutation.key_value)? {
                 let barrier = DeleteBarrier {
                     mk_key: candidate.mk_key.clone(),
                     written_at,

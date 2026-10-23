@@ -1,0 +1,14 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-22T16:14:21.908111Z  WARN fold_db::storage::disk_pack::parts::worker: native storage reclaim failed error=Invalid operation: native home creation refused: current creation requires its durable key proofs first
+2026-10-22T16:14:23.799015Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=1
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h3/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h3
+  Owner:  e0ade497f8893b89819ce0c5e146a54f
+2026-10-22T16:15:23.942541Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-22T16:16:23.944177Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-22T16:17:23.943632Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h3/data/folddb.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h3
+  Owner:  e0ade497f8893b89819ce0c5e146a54f
+lastdbd: shutdown signal received, exiting

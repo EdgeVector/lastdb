@@ -15,7 +15,7 @@ use crate::storage::{KvMutation, StorageError};
 
 /// `4`: local file blobs have counters and a time-bucketed dwell queue
 /// (`bref:v3:`). Format `3` kept blob reference edges.
-const KEY_FORMAT: &[u8] = b"4";
+pub(crate) const KEY_FORMAT: &[u8] = b"4";
 
 /// The backend permits these exact keys together while current creation is
 /// pending. No ordinary source record can enter that home before this boundary.

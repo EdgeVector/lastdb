@@ -38,7 +38,7 @@ pub(super) fn resolve(
         let coordinate = Coordinate {
             kind: key.kind,
             object: key.object,
-            part: u32::try_from(number / 512)
+            part: u32::try_from(number / crate::disk_pack::PAGES_PER_PART)
                 .map_err(|_| corrupt("live overflow part exceeds format"))?,
         };
         resolver.allow(coordinate)?;

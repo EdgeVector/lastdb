@@ -3,7 +3,7 @@
 //! The cost follows the number of keys of the request, not the size of the
 //! schema. Nothing here reads a whole schema, a history row or a range.
 
-use super::delete_candidates::{delete_candidates_for_key, DeleteCandidate};
+use super::delete_candidates::{delete_candidate_for_key, DeleteCandidate};
 use super::*;
 use crate::db_operations::atom_store::PerKeyRecord;
 use crate::schema::types::Schema;
@@ -116,7 +116,7 @@ fn candidate_plans(
             continue;
         }
         for (key_index, key) in keys.iter().enumerate() {
-            for candidate in delete_candidates_for_key(db_ops, field, key)? {
+            if let Some(candidate) = delete_candidate_for_key(db_ops, field, key)? {
                 if seen.insert(candidate.mk_key.clone()) {
                     plans.push((key_index, candidate));
                 }

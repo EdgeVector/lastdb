@@ -41,7 +41,7 @@ pub(in crate::disk_pack) fn observe_new_parts(
             if call.pages.len() >= 24 {
                 call = artifact::metadata_call(root, current.clone());
             }
-            let number = u64::from(coordinate.part) * 512 + offset;
+            let number = u64::from(coordinate.part) * crate::disk_pack::PAGES_PER_PART + offset;
             let page = call.page(directory, coordinate.object, number)?;
             if page.generation() != current.generation {
                 return Err(corrupt("new live metadata part contains an old page"));
@@ -53,8 +53,8 @@ pub(in crate::disk_pack) fn observe_new_parts(
     Ok(())
 }
 
-/// Empty locator roots are counted by their directory entries. The directory's
-/// own empty root has no incoming entry and therefore needs one explicit count.
+/// Directory entries retain each locator object's page-zero allocator template.
+/// The directory's own empty root has no incoming entry and needs one count.
 pub(in crate::disk_pack) fn add_directory_empty_root(
     root: &Path,
     current: &Current,
@@ -75,7 +75,7 @@ pub(in crate::disk_pack) fn add_directory_empty_root(
             Coordinate {
                 kind: 1,
                 object: current.directory.object,
-                part: u32::try_from(current.directory.page / 512)
+                part: u32::try_from(current.directory.page / crate::disk_pack::PAGES_PER_PART)
                     .map_err(|_| corrupt("empty-directory part exceeds format"))?,
             },
             sign,

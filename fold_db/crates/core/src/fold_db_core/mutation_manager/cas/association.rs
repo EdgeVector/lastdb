@@ -163,17 +163,17 @@ impl MutationManager {
             });
         }
         let atoms = self.db_ops.atoms();
-        let mut groups = vec![Vec::new(); slots.len()];
+        let mut slot_keys = vec![String::new(); slots.len()];
         for ((molecule, hash, range), position) in slots {
-            groups[position] = atoms
+            slot_keys[position] = atoms
                 .key_codec_for_molecule(&molecule)?
-                .api_hash_range_record_keys_for_read(&molecule, &hash, &range)
+                .api_hash_range_record_key(&molecule, &hash, &range)
                 .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
         }
         let records = atoms
-            .load_first_present_candidate(storage_prefix, &groups)
+            .load_visible_per_key_records(storage_prefix, &slot_keys)
             .await?;
-        if records.len() != groups.len() {
+        if records.len() != slot_keys.len() {
             return Err(SchemaError::StorageRead {
                 detail: "protein erasure association count differs".into(),
             });

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 /// Only fresh, private parts. Published parts are never opened for writes.
 pub(super) struct SparsePages {
+    protection: super::private_files::OutputFiles,
     directory: PathBuf,
     object: Uuid,
     kind: TreeKind,
@@ -20,7 +21,12 @@ pub(super) struct SparsePages {
 }
 
 impl SparsePages {
-    pub(super) fn new(root: &Path, tree: &TreeRoot, generation: u64) -> Result<Self> {
+    pub(super) fn protected(
+        root: &Path,
+        tree: &TreeRoot,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
         tree.validate()?;
         let directory = root
             .join(tree.kind.directory())
@@ -29,6 +35,10 @@ impl SparsePages {
             return Err(corrupt("tree edit namespace or generation"));
         }
         Ok(Self {
+            protection: {
+                protection.protect_directory(&directory)?;
+                protection
+            },
             directory,
             object: tree.object,
             kind: tree.kind,
@@ -53,12 +63,14 @@ impl SparsePages {
     }
 
     fn reopen_part(&mut self) -> Result<()> {
-        if self.file.is_none() && self.next % 512 != 0 {
-            let part = self.next / 512;
+        if self.file.is_none() && self.next % crate::disk_pack::PAGES_PER_PART != 0 {
+            let part = self.next / crate::disk_pack::PAGES_PER_PART;
             let file = OpenOptions::new()
                 .append(true)
                 .open(self.directory.join(format!("part-{part:08x}")))?;
-            if file.metadata()?.len() != self.next % 512 * super::PAGE_BYTES as u64 {
+            if file.metadata()?.len()
+                != self.next % crate::disk_pack::PAGES_PER_PART * super::PAGE_BYTES as u64
+            {
                 return Err(corrupt("private shared metadata part length changed"));
             }
             self.file = Some(file);
@@ -82,15 +94,24 @@ impl SparsePages {
                 continue;
             }
             let path = self.directory.join(format!("part-{part:08x}"));
-            match OpenOptions::new().write(true).create_new(true).open(path) {
+            match self.protection.create_new(&path) {
                 Ok(file) => {
                     self.file = Some(file);
-                    self.next = u64::from(part) * 512;
+                    self.next = u64::from(part) * crate::disk_pack::PAGES_PER_PART;
                     self.part_numbers.push(part);
                     return Ok(());
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
+                Err(crate::Error::Io(error))
+                    if error.kind() == std::io::ErrorKind::AlreadyExists =>
+                {
+                    continue
+                }
+                Err(crate::Error::WriteCapacity(reason))
+                    if reason == super::private_files::ACTIVE_DELETION =>
+                {
+                    continue
+                }
+                Err(error) => return Err(error),
             }
         }
         Err(crate::Error::Config(
@@ -115,10 +136,13 @@ impl SparsePages {
 
 impl TreePages for SparsePages {
     fn reserve(&mut self, count: usize) -> Result<u64> {
-        if !(1..=512).contains(&count) {
+        if !(1..=crate::disk_pack::PAGES_PER_PART as usize).contains(&count) {
             return Err(corrupt("invalid contiguous metadata reservation"));
         }
-        if (self.file.is_none() && self.next % 512 == 0) || self.next % 512 + count as u64 > 512 {
+        if (self.file.is_none() && self.next % crate::disk_pack::PAGES_PER_PART == 0)
+            || self.next % crate::disk_pack::PAGES_PER_PART + count as u64
+                > crate::disk_pack::PAGES_PER_PART
+        {
             self.allocate()?;
         } else {
             self.reopen_part()?;
@@ -136,7 +160,7 @@ impl TreePages for SparsePages {
             .write_all(&bytes)?;
         self.written_pages += 1;
         self.next += 1;
-        if self.next % 512 == 0 {
+        if self.next % crate::disk_pack::PAGES_PER_PART == 0 {
             self.sync_part()?;
         }
         Ok(number)

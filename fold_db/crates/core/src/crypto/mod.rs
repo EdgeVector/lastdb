@@ -19,6 +19,7 @@ pub mod keyring;
 pub mod keyring_provider;
 pub mod keyring_store;
 pub mod provider;
+pub mod stream;
 
 pub use at_rest::{
     at_rest_compression_enabled, at_rest_compression_stats, at_rest_raw_enabled,

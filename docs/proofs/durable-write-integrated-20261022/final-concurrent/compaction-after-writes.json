@@ -1,0 +1,38 @@
+{
+  "start_unix_us": 1792729901001975,
+  "end_unix_us": 1792729902365391,
+  "status": 200,
+  "receipt": {
+    "compact": {
+      "native_disk": {
+        "bytes_after": 88634384,
+        "bytes_before": 389654056,
+        "bytes_removed": 369184497,
+        "catch_up_records": 0,
+        "catch_up_rounds": 2,
+        "disk_cap_bytes": 0,
+        "dry_run": false,
+        "executed": true,
+        "files_after": 48,
+        "files_before": 2053,
+        "files_removed": 2017,
+        "frontier": 403,
+        "generation": 405,
+        "pack_millis": 689,
+        "parts_after": 11,
+        "parts_before": 1613,
+        "publication_retries": 0,
+        "reclaim_deferred": false,
+        "reclaim_error": null,
+        "reclaim_millis": 630,
+        "reclaim_only": false,
+        "reclaim_remaining": false,
+        "records_copied": 8918,
+        "tier_boundary": 0,
+        "tombstones_copied": 3072
+      }
+    },
+    "ok": true,
+    "user_hash": "8bed40778e2ffa506ca63d8993d193fe"
+  }
+}

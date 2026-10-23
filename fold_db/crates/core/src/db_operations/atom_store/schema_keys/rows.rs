@@ -47,9 +47,9 @@ impl AtomStore {
         if !sourced {
             return Ok(());
         }
-        let candidates = self
+        let base = self
             .key_codec_for_molecule(molecule)?
-            .api_hash_range_record_keys_for_read(
+            .api_hash_range_record_key(
                 molecule,
                 api_key.hash.as_deref().unwrap_or_default(),
                 api_key.range.as_deref().unwrap_or_default(),
@@ -61,19 +61,18 @@ impl AtomStore {
             molecule,
             api_key,
             &record.entry.atom_uuid,
-            &candidates,
+            std::slice::from_ref(&base),
         )?;
         Ok(())
     }
 
-    pub(in crate::db_operations::atom_store) fn note_selected_query_tip_candidates(
+    pub(in crate::db_operations::atom_store) fn note_selected_query_tip_key(
         &self,
         scope: Option<&str>,
         molecule: &str,
         api_key: &KeyValue,
         record: &PerKeyRecord,
         base: &str,
-        candidates: &[String],
     ) -> Result<(), SchemaError> {
         if self
             .schema_keys_runtime()
@@ -94,7 +93,7 @@ impl AtomStore {
             molecule,
             api_key,
             &record.entry.atom_uuid,
-            candidates,
+            &[base.to_owned()],
         )?;
         Ok(())
     }
@@ -151,14 +150,14 @@ impl AtomStore {
         scope: Option<&str>,
         molecule: &str,
         api_key: &KeyValue,
-        candidates: &[String],
+        base: &str,
     ) -> Result<(), SchemaError> {
         crate::storage::disk_pack::logical_paths::absence::admit(
             self.schema_keys_runtime(),
             scope,
             molecule,
             api_key,
-            candidates,
+            &[base.to_owned()],
         )?;
         Ok(())
     }

@@ -13,6 +13,7 @@ pub(super) struct TreeEdit<P = SparsePages> {
     root: TreeRoot,
     pages: P,
     failed: bool,
+    track_changes: bool,
     changes: Changes,
 }
 
@@ -27,7 +28,16 @@ struct PathStep {
 
 impl TreeEdit {
     pub(super) fn new(root: &Path, tree: TreeRoot, generation: u64) -> Result<Self> {
-        let pages = SparsePages::new(root, &tree, generation)?;
+        Self::protected(root, tree, generation, Default::default())
+    }
+
+    pub(super) fn protected(
+        root: &Path,
+        tree: TreeRoot,
+        generation: u64,
+        protection: super::private_files::OutputFiles,
+    ) -> Result<Self> {
+        let pages = SparsePages::protected(root, &tree, generation, protection)?;
         Self::from_pages(tree, pages)
     }
 
@@ -51,12 +61,26 @@ impl<P: TreePages> TreeEdit<P> {
             root: tree,
             pages,
             failed: false,
+            track_changes: true,
             changes: Changes::default(),
         })
     }
 
     pub(super) fn root(&self) -> &TreeRoot {
         &self.root
+    }
+
+    /// A complete off-gate seed accounts catch-up output after all grafts finish.
+    pub(super) fn put_many_untracked(
+        &mut self,
+        call: &mut ReadCall,
+        changes: &[MapChange],
+    ) -> Result<()> {
+        let mut references = ReferenceCache::new(&call.root, &call.current);
+        let tracked = std::mem::replace(&mut self.track_changes, false);
+        let result = self.put_many(call, &mut references, changes);
+        self.track_changes = tracked;
+        result
     }
 
     /// Install sorted final locators, copying each touched old page only once.
@@ -107,15 +131,17 @@ impl<P: TreePages> TreeEdit<P> {
     ) -> Result<Vec<Child>> {
         let page = call.tree_page(&self.root, path.number)?;
         validate_page(call, &self.root, &page, &path)?;
-        self.changes.observe_page(
-            self.root.kind,
-            self.root.object,
-            path.number,
-            &page,
-            &call.current,
-            -1,
-        )?;
-        references.resolve(&mut self.changes)?;
+        if self.track_changes {
+            self.changes.observe_page(
+                self.root.kind,
+                self.root.object,
+                path.number,
+                &page,
+                &call.current,
+                -1,
+            )?;
+            references.resolve(&mut self.changes)?;
+        }
         if path.level == 0 {
             return self.edit_leaf(call, references, &page, changes);
         }
@@ -235,7 +261,7 @@ impl<P: TreePages> TreeEdit<P> {
         old: Option<&[u8]>,
         new: &[u8; 128],
     ) -> Result<()> {
-        if self.root.kind == super::TreeKind::Locator {
+        if self.track_changes && self.root.kind == super::TreeKind::Locator {
             if let Some(old) = old {
                 self.changes.observe_location(old, &call.current, -1)?;
             }

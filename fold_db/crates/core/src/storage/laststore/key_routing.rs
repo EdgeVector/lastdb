@@ -5,6 +5,7 @@ use super::*;
 /// Current physical prefixes and their exact destination collections.
 const ROUTED_PREFIXES: &[(&str, &str)] = &[
     ("atom:", "atoms"),
+    ("fdep:v1:", "atoms"),
     ("mref:v1:", "molecule_ref_edges"),
     ("bref:v3:", "atoms"),
     ("protein:", "proteins"),
@@ -20,10 +21,6 @@ pub(super) fn main_collection_for_key(key: &[u8]) -> &'static str {
         .and_then(|key| crate::storage::current_keys::source_key(key).ok());
     bare.and_then(|key| classify_main_key(key.as_bytes()))
         .unwrap_or(TIPS_COLLECTION)
-}
-
-pub(super) fn main_collections_for_key(key: &[u8]) -> Vec<&'static str> {
-    vec![main_collection_for_key(key)]
 }
 
 /// A structural prefix selects only current families. A prefix that stops

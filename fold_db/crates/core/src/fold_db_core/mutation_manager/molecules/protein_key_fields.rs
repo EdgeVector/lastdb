@@ -45,7 +45,7 @@ impl MutationManager {
         fields: &mut KeyFields,
     ) -> Result<(), SchemaError> {
         let mut requests = Vec::new();
-        let mut groups = Vec::new();
+        let mut slot_keys = Vec::new();
         for (idx, name) in required {
             if fields[idx].contains_key(name) {
                 continue;
@@ -59,11 +59,11 @@ impl MutationManager {
             let Some((hash, range)) = field.slot_coordinates(&keys[*idx]) else {
                 continue;
             };
-            groups.push(
+            slot_keys.push(
                 self.db_ops
                     .atoms()
                     .key_codec_for_molecule(molecule)?
-                    .api_hash_range_record_keys_for_read(molecule, &hash, &range)
+                    .api_hash_range_record_key(molecule, &hash, &range)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))?,
             );
             requests.push((*idx, name));
@@ -75,7 +75,7 @@ impl MutationManager {
         let records = self
             .db_ops
             .atoms()
-            .load_first_present_candidate_with_key(scope, &groups)
+            .load_visible_per_key_records(scope, &slot_keys)
             .await?;
         if records.len() != requests.len() {
             return Err(SchemaError::StorageRead {
@@ -85,9 +85,7 @@ impl MutationManager {
         let selected: Vec<_> = requests
             .into_iter()
             .zip(records)
-            .filter_map(|(request, record)| {
-                record.map(|(_, record)| (request, record.entry.atom_uuid))
-            })
+            .filter_map(|(request, record)| record.map(|record| (request, record.entry.atom_uuid)))
             .collect();
         let uuids: Vec<&str> = selected.iter().map(|(_, uuid)| uuid.as_str()).collect();
         let atoms = self.db_ops.atoms().get_atoms(&uuids, scope).await?;

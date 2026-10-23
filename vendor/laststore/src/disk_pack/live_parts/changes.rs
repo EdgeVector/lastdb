@@ -62,7 +62,7 @@ impl Changes {
             Coordinate {
                 kind: dependency_kind,
                 object,
-                part: u32::try_from(number / 512)
+                part: u32::try_from(number / super::super::PAGES_PER_PART)
                     .map_err(|_| corrupt("live-page part exceeds format"))?,
             },
             sign,
@@ -124,16 +124,16 @@ impl Changes {
             if entry.converted_frontier > current.frontier {
                 return Err(corrupt("live-page directory beyond selected frontier"));
             }
-            if entry.locator.page == 0 && entry.locator.height == 1 {
-                self.add_part(
-                    Coordinate {
-                        kind: 2,
-                        object: entry.locator.object,
-                        part: 0,
-                    },
-                    sign,
-                )?;
-            }
+            // New groups reuse this object's page-zero allocator template even
+            // when every selected nonempty root lives in a later part.
+            self.add_part(
+                Coordinate {
+                    kind: 2,
+                    object: entry.locator.object,
+                    part: 0,
+                },
+                sign,
+            )?;
         } else {
             checked_location(value, current)?;
         }

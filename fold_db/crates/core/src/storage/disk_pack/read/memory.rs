@@ -11,15 +11,13 @@ impl PackRuntime {
     }
 }
 
-/// Enumerate the same alternate coordinates as an ordinary native exact read.
+/// The exact physical dependency of one core definition record.
 pub(crate) fn core_memory_sources(namespace: &str, key: &[u8]) -> Vec<CoreMemorySource> {
-    kv::coordinates(namespace, key)
-        .into_iter()
-        .map(|(collection, key)| CoreMemorySource {
-            collection,
-            key: Some(key),
-        })
-        .collect()
+    let (collection, key) = kv::coordinate(namespace, key);
+    vec![CoreMemorySource {
+        collection,
+        key: Some(key),
+    }]
 }
 
 pub(crate) fn core_memory_get<T: Any + Send + Sync>(
@@ -39,6 +37,9 @@ pub(crate) fn core_memory_get<T: Any + Send + Sync>(
     let Some(context) = super::ReadContext::captured(&runtime) else {
         return Ok(None);
     };
+    if context.hidden_prefix {
+        return Ok(None);
+    }
     if let Some(value) = context.core_model.memory_get(owner, name) {
         return super::snapshots::read_snapshot_insert_arc(
             Some(runtime),
@@ -81,6 +82,10 @@ pub(crate) fn core_memory_insert<T: Any + Send + Sync>(
     }
     let runtime = runtime.ok_or_else(lock_error)?;
     let context = super::ReadContext::captured(&runtime).ok_or_else(lock_error)?;
+    if context.hidden_prefix {
+        let value = CoreWarmSet::memory_uncached(value);
+        return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
+    }
     if let Some(value) = context.core_model.memory_get(owner, &name) {
         return super::snapshots::read_snapshot_insert_arc(Some(runtime), owner, name, value);
     }

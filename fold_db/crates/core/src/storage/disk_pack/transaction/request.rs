@@ -3,34 +3,17 @@
 use super::*;
 use crate::storage::laststore::LastStoreKvStore;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Reply {
-    Memory,
-    Durable,
-    Background,
-}
-
 pub(crate) async fn request_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
-    memory_ack: bool,
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
 {
-    scope(
-        runtime,
-        if memory_ack {
-            Reply::Memory
-        } else {
-            Reply::Durable
-        },
-        future,
-    )
-    .await
+    scope(runtime, future, false).await
 }
 
-/// Return after durability; unreserved work seals the current collection window.
+/// Return after the complete private background commit reaches disk.
 pub(crate) async fn background_scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
     future: impl std::future::Future<Output = Result<T, E>>,
@@ -38,13 +21,13 @@ pub(crate) async fn background_scope<T, E>(
 where
     E: From<StorageError>,
 {
-    scope(runtime, Reply::Background, future).await
+    scope(runtime, future, true).await
 }
 
 async fn scope<T, E>(
     runtime: Option<Arc<PackRuntime>>,
-    reply: Reply,
     future: impl std::future::Future<Output = Result<T, E>>,
+    background: bool,
 ) -> Result<T, E>
 where
     E: From<StorageError>,
@@ -55,13 +38,11 @@ where
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }
-    let delay = match reply {
-        Reply::Memory => Some(super::super::space::memory_flush_delay()?),
-        Reply::Background => Some(std::time::Duration::from_millis(500)),
-        Reply::Durable => None,
-    };
-    runtime.wait_for_part_room().await;
+    let mut timing = super::super::timing::start();
+    runtime.check_part_room()?;
+    super::super::timing::mark(&mut timing, "part_room_us");
     let gate = runtime.enter_prepare().await;
+    super::super::timing::mark(&mut timing, "admission_us");
     let held_from = std::time::Instant::now();
     let pending = Arc::new(PendingBatch::new(&runtime));
     let result = read::write_scope(
@@ -82,45 +63,41 @@ where
         return Err(error.into());
     }
     let result = result??;
+    super::super::timing::mark(&mut timing, "logical_prepare_us");
     if pending.is_empty()? {
         // Preserve an explicit durability fence without adding an empty batch.
-        let durable = reply != Reply::Memory || pending.durable_only.load(Ordering::Acquire);
-        let target = durable.then(|| runtime.seal_queue());
+        let target = runtime.seal_queue();
         drop(gate);
-        let hold = note_gate_hold(held_from, 0, 0, &BatchShape::default());
-        // A durable fence seals the queue, so writers wait until it is durable.
-        if let Some(target) = target {
-            runtime.wait_for_queue(target).await?;
-            super::blocked::note(held_from.elapsed());
-        } else {
-            super::blocked::note(hold);
-        }
+        note_gate_hold(held_from, 0, 0, &BatchShape::default());
+        runtime.wait_for_queue(target).await?;
+        super::blocked::note(held_from.elapsed());
         return Ok(result);
     }
     let operations = pending.freeze_operations();
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
-    let delay = delay.filter(|_| {
-        !pending.durable_only.load(Ordering::Acquire) && pending.has_reserved_raw_memory()
-    });
     let owner = Arc::clone(&runtime);
     // A cancelled pre-admission caller cannot release the queue's older quota.
     let (prepared, gate) =
         LastStoreKvStore::run_blocking(move || Ok((owner.prepare_queued(operations)?, gate)))
             .await?;
-    let delay = protect_paths(&runtime, &pending, delay)?;
-    let wait = reply != Reply::Memory || delay.is_none();
-    // A batch with no early publication seals the queue: every later writer waits
-    // in `enter_prepare` until the batch is durable, though the gate is free.
-    let sealed = delay.is_none();
+    super::super::timing::mark(&mut timing, "capacity_prepare_us");
+    protect_paths(&runtime, &pending, None)?;
+    // Every caller waits for the complete snapshot and clean core publication.
     // Publication, ownership transfer and worker creation contain no await.
-    let sequence = runtime.accept_queued(pending, prepared, delay)?;
+    let pending_timing = Arc::clone(&pending);
+    let sequence = runtime.accept_queued(pending, prepared, false, None)?;
     drop(gate);
+    super::super::timing::mark(&mut timing, "accept_us");
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
-    if wait {
-        runtime.wait_for_queue(sequence).await?;
-    }
-    super::blocked::note(if sealed { held_from.elapsed() } else { hold });
+    runtime.wait_for_queue(sequence).await?;
+    super::super::timing::mark(&mut timing, "durable_wait_us");
+    super::super::timing::request(timing, sequence, background);
+    super::blocked::note(if background {
+        hold.saturating_add(pending_timing.flush_blocked())
+    } else {
+        held_from.elapsed()
+    });
     Ok(result)
 }
 
@@ -244,6 +221,16 @@ fn protect_paths(
     pending: &PendingBatch,
     delay: Option<std::time::Duration>,
 ) -> StorageResult<Option<std::time::Duration>> {
+    // Recheck the complete staged batch before consuming its typed paths. A
+    // late metadata stage must not reuse an insufficient memory owner. The
+    // durable fallback invalidates/refetches records without an uncharged cache.
+    if !pending.has_reserved_raw_memory() {
+        pending
+            .raw_memory_reservation
+            .lock()
+            .expect("native model reservation")
+            .take();
+    }
     let paths = std::mem::take(&mut *pending.paths.lock().expect("native private paths"));
     let absences = std::mem::take(&mut *pending.absences.lock().expect("native private absences"));
     let definitions = std::mem::take(

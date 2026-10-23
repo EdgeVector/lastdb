@@ -1,0 +1,10 @@
+2026-10-22T20:21:50.185433Z  WARN lastdbd::session_ledger: Previous session entered supervised shutdown (signal (graceful shutdown started)) but did not complete its clean drain; down for 25m58s before this start.
+2026-10-22T20:21:50.191531Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al0.vnrS0e/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al0.vnrS0e/home
+  Owner:  a6a029879d53a8e8ae71c065afb877b8
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al0.vnrS0e/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/al0.vnrS0e/home
+  Owner:  a6a029879d53a8e8ae71c065afb877b8
+lastdbd: shutdown signal received, exiting

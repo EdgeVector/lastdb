@@ -1,3 +1,4 @@
+use super::cache::PackCaches;
 use super::space::reserve_replacement;
 use super::stream::RecordBody;
 use super::{MaintenanceReceipt, SpacePolicy};
@@ -13,31 +14,60 @@ use crate::disk_pack::{
 use crate::Result;
 
 struct Compactor<'a> {
-    lock: &'a WriteLock,
+    root: &'a std::path::Path,
     current: Current,
     dependencies: Dependencies,
     receipt: MaintenanceReceipt,
+}
+
+pub(super) struct PackOutput {
+    pub(super) current: Current,
+    pub(super) dependencies: Vec<crate::disk_pack::dependency::Coordinate>,
+    pub(super) receipt: MaintenanceReceipt,
 }
 
 pub(in crate::disk_pack) fn compact_locked(
     lock: &WriteLock,
     policy: &SpacePolicy,
 ) -> Result<(Current, MaintenanceReceipt)> {
+    let previous = artifact::current(lock.root())?;
+    let reserve = super::quote::replacement_bytes(lock.root(), &previous)?;
+    let _space = reserve_replacement(lock.root(), policy, reserve)?;
+    publish::ensure_generation(lock, &previous)?;
+    let protection =
+        crate::disk_pack::private_files::OutputFiles::new(std::sync::Arc::clone(&lock.files));
+    let output = copy(lock, &previous, &protection)?;
+    super::concurrent::publish_output(lock, &previous, output)
+}
+
+pub(super) fn copy(
+    lock: &WriteLock,
+    previous: &Current,
+    protection: &crate::disk_pack::private_files::OutputFiles,
+) -> Result<PackOutput> {
     let root = lock.root();
-    let previous = artifact::current(root)?;
-    let old = publish::ensure_generation(lock, &previous)?;
-    let reserve = super::quote::replacement_bytes(root, &previous)?;
-    let _space = reserve_replacement(root, policy, reserve)?;
+    let old = generation::read_receipt(root, previous)?;
     let mut current = previous.clone();
     current.required_features |= crate::disk_pack::FEATURE_LIVE_PART_COUNTS;
-    current.generation = publish::fresh_generation(root, previous.generation)?;
+    // Private UUID objects need an age, not a receipt identity. Writers can
+    // publish source+1 during this copy; reserving a receipt name here could
+    // jump the output age beyond the next catch-up cut. Allocate only at swap.
+    current.generation = previous
+        .generation
+        .checked_add(1)
+        .ok_or_else(|| corrupt("generation exhaustion"))?;
     current.previous_generation = previous.generation;
     current.published_ms = artifact::unix_ms();
-    let mut directory = TreeWriter::new(root, TreeKind::Directory, current.generation)?;
-    let mut pack = PackWriter::new(root, current.generation)?;
-    let mut locators = LocatorForest::new(root, current.generation)?;
+    let mut directory = TreeWriter::protected(
+        root,
+        TreeKind::Directory,
+        current.generation,
+        protection.clone(),
+    )?;
+    let mut pack = PackWriter::protected(root, current.generation, protection.clone())?;
+    let mut locators = LocatorForest::protected(root, current.generation, protection.clone())?;
     let mut compactor = Compactor {
-        lock,
+        root,
         current,
         dependencies: Dependencies::new(),
         receipt: MaintenanceReceipt {
@@ -45,15 +75,22 @@ pub(in crate::disk_pack) fn compact_locked(
             ..Default::default()
         },
     };
-    let mut call = artifact::metadata_call(root, previous.clone());
+    let mut caches = PackCaches::new();
+    let mut call = caches.call(root, previous);
     let mut cursor = TreeCursor::seek(&mut call, previous.directory.clone(), b"")?;
     while let Some((key, value)) = cursor.next(&mut call)? {
         let entry = DirectoryEntry::decode(&value)?;
         let collection = collection(&key, entry.group)?;
-        let replacement =
-            compactor.group(&previous, &collection, &entry, &mut pack, &mut locators)?;
+        // The group takes the caches while it runs and gives them back at its end.
+        caches.keep(call);
+        let replacement = compactor.group(
+            previous,
+            &collection,
+            &entry,
+            (&mut pack, &mut locators, &mut caches),
+        )?;
         directory.add(&key, replacement.encode()?)?;
-        call = artifact::metadata_call(root, previous.clone());
+        call = caches.call(root, previous);
     }
     let data = pack.finish()?;
     compactor
@@ -67,20 +104,11 @@ pub(in crate::disk_pack) fn compact_locked(
     compactor.dependencies.add_contiguous_tree(&tree, parts)?;
     compactor.current.directory = tree;
     let dependencies = compactor.dependencies.finish();
-    let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
-        root,
-        &compactor.current,
-        &dependencies,
-    )?;
-    let receipt = generation::write_live(root, &compactor.current, &live, None)?;
-    if artifact::current(root)? != previous {
-        return Err(corrupt("CURRENT changed during compaction"));
-    }
-    publish::publish_current(root, &compactor.current)?;
-    lock.remember_checked(&compactor.current)?;
-    compactor.receipt.generation = compactor.current.generation;
-    compactor.receipt.parts_after = receipt.dependencies;
-    Ok((compactor.current, compactor.receipt))
+    Ok(PackOutput {
+        current: compactor.current,
+        dependencies,
+        receipt: compactor.receipt,
+    })
 }
 
 impl Compactor<'_> {
@@ -89,19 +117,13 @@ impl Compactor<'_> {
         previous: &Current,
         collection: &str,
         entry: &DirectoryEntry,
-        pack: &mut PackWriter,
-        locators: &mut LocatorForest,
+        (pack, locators, caches): (&mut PackWriter, &mut LocatorForest, &mut PackCaches),
     ) -> Result<DirectoryEntry> {
-        let root = self.lock.root();
+        let root = self.root;
         let mut locator = locators.tree()?;
-        let mut call = artifact::metadata_call(root, previous.clone());
+        let mut call = caches.call(root, previous);
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
-        let mut records = 0u64;
         while let Some((key, value)) = cursor.next(&mut call)? {
-            records += 1;
-            if records > 1_000_000 {
-                return Err(crate::disk_pack::resource());
-            }
             let location = Location::decode_for_current(&value, previous)?;
             if location.version.batch > previous.frontier {
                 return Err(corrupt("compaction record beyond source frontier"));
@@ -123,8 +145,10 @@ impl Compactor<'_> {
                 &key,
                 location.encode_for_features(self.current.required_features)?,
             )?;
-            call = artifact::metadata_call(root, previous.clone());
+            caches.keep(call);
+            call = caches.call(root, previous);
         }
+        caches.keep(call);
         let locator = locators.complete_tree(locator)?;
         Ok(DirectoryEntry {
             group: entry.group,

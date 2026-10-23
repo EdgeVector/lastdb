@@ -258,8 +258,8 @@ gate. It runs one release batch for each page that has due entries. The window i
 `LASTDB_CONFLICT_RETENTION_SECS` (30 days). The clock starts when this node records
 the pair.
 
-- Pacing. A release batch seals the write queue, so a writer that arrives waits
-  for the hold of the gate and then for the flush of the batch. The janitor rests
+- Pacing. A background release batch shares the bounded collection window.
+  It returns after durability. Its measured cost includes the gate and shared flush holds. The janitor rests
   after each batch for `blocked * (100 - duty) / duty`, where `blocked` is that
   time and `duty` is `LASTDB_CONFLICT_JANITOR_DUTY_PCT` (10). The rest is at least
   25 ms and at most 30 s. When no other task opened a write scope for a quiet period
@@ -371,11 +371,10 @@ release the kept conflict records of the slots they remove. See
   `body_present` and a state: `live`, `suspect`, `inconsistent` or `absent`. One
   call takes up to 10,000 ids. It cannot list the referrers: the counter holds a
   number, not a list.
-- A batch that has no early publication seals the write queue. Every later writer then
-  waits until that batch is durable, though the gate is already free. The batches of
-  the janitor, the dwell pass and the drain have no early publication, and neither has
-  a `durable` request. This is why the janitor and the dwell pass pace
-  by the time writers wait, and not by the hold of the gate alone.
+- A private background batch can share the bounded collection window without early publication.
+  Write preparation can read that owned prefix; ordinary reads retain the committed state.
+  The janitor, dwell pass, and molecule drain still return after durability.
+  A batch that requires a sealed fence includes that flush wait in its measured writer cost.
 
 ## Checking and repair
 

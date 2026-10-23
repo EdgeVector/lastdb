@@ -1,0 +1,12 @@
+{
+  "run_id": "e985a223af2146cdba66618abc480733",
+  "home": "/workspace/prefix-pairs/encrypted-0-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1616,
+  "allocated_bytes_removed": 509308928,
+  "free_bytes_before": 20710424576,
+  "free_bytes_after": 21222961152
+}

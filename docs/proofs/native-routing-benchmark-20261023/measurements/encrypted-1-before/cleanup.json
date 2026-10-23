@@ -1,0 +1,12 @@
+{
+  "run_id": "44ccef7486444893bb300ef805174864",
+  "home": "/workspace/native-routing-pairs/encrypted-1-before/home",
+  "primary_data": false,
+  "ownership_verified": true,
+  "no_active_daemon": true,
+  "home_removed": true,
+  "files_removed": 1608,
+  "allocated_bytes_removed": 496345088,
+  "free_bytes_before": 19750453248,
+  "free_bytes_after": 20250001408
+}

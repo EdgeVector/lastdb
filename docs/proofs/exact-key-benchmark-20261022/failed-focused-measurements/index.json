@@ -1,0 +1,18 @@
+[
+  {
+    "name": "encrypted-0-before",
+    "pair": 0,
+    "label": "before",
+    "config": "encrypted",
+    "source_revision": "4118c7baa12539c8c6bcf4391c497159f2a1529a",
+    "seconds": 31.66931128501892
+  },
+  {
+    "name": "encrypted-0-after",
+    "pair": 0,
+    "label": "after",
+    "config": "encrypted",
+    "source_revision": "d7a5f441cc084a9624fac97d60d811c9b230702b",
+    "seconds": 35.16703248023987
+  }
+]

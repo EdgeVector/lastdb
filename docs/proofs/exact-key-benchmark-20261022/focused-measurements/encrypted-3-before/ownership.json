@@ -1,0 +1,11 @@
+{
+  "creator_pid": 26815,
+  "device": 27,
+  "home": "/workspace/fc-pairs/encrypted-3-before/home",
+  "inode": 1048631,
+  "owner_uid": 1000,
+  "primary_data": false,
+  "run_id": "173d83fc267d46818f837063e403b08f",
+  "scratch": "/workspace/fc-pairs/encrypted-3-before",
+  "version": 1
+}

@@ -32,6 +32,8 @@ impl From<crate::storage::StorageError> for PurgeAttemptError {
 }
 
 pub(crate) struct PurgeEnvelope {
+    pub(in crate::fold_db_core::mutation_manager) notification_capture:
+        Option<crate::db_operations::change_feed::native::Captured>,
     /// The request author clock must reach durable metadata before this data.
     pub(in crate::fold_db_core::mutation_manager) author_clock_barrier:
         Option<super::super::super::author_clock::AuthorClockPersistBarrier>,

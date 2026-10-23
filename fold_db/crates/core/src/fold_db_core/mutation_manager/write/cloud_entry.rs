@@ -1,6 +1,7 @@
 //! Moved verbatim out of the parent module; see the parent for context.
 
 use super::*;
+use crate::schema::types::MutationType;
 
 impl MutationManager {
     /// Single-route sibling that can secure a durable delete's cloud intent.
@@ -79,8 +80,21 @@ impl MutationManager {
         let author_clock_persist = self.prepare_mutation_author_clocks(&mut mutations)?;
         // Submit before resident apply. Each data envelope waits on a clone of
         // this barrier, so durable LWW data cannot pass its durable clock.
-        let author_clock_barrier =
-            author_clock_persist.map(|(reservation, state)| reservation.submit_with_barrier(state));
+        let inline_clock = self.db_ops.namespaced_store().disk_pack_runtime().is_some()
+            && mutations.iter().all(|mutation| {
+                matches!(
+                    mutation.mutation_type,
+                    MutationType::Create | MutationType::Update
+                ) && mutation.aggregate_set.is_none()
+            });
+        let author_clock_barrier = author_clock_persist.and_then(|(reservation, state)| {
+            if inline_clock {
+                drop(reservation);
+                None
+            } else {
+                Some(reservation.submit_with_barrier(state))
+            }
+        });
         // One logical counter per caller batch, so its first local mutation
         // carries the common revision. Per-item author times preserve order.
         let revision = authored_locally

@@ -1,0 +1,27 @@
+{
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/main",
+  "binary_sha256": "b17c7901a3642f938b4cdf5d45008171534120a806c840ba23385bf1df81022a",
+  "source_commit": "8067843c4f9626470edc971ab10c10e829f021d8",
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/cmp.99RWgO/h0",
+  "generated_data": true,
+  "mode": "main",
+  "count": 1000,
+  "clients": 1,
+  "schemas": 64,
+  "uds_workers": 8,
+  "records_per_batch": 1,
+  "value_bytes": 64,
+  "dependency_high_water": 4096,
+  "maintenance_start_delay_seconds": 0,
+  "memory_flush_interval_ms": 500,
+  "disk_cap_bytes": null,
+  "durability_parameter": "default; omitted",
+  "numeric_latency_trace": false,
+  "shared_schema_between_clients": false,
+  "load_before": [
+    4.2353515625,
+    3.86279296875,
+    3.10302734375
+  ],
+  "method": "Closed-loop real batch API calls; each client rotates through separate generated schemas. Every latency sample is retained."
+}

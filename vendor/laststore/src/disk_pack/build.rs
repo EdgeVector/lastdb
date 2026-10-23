@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// Streaming construction core, with separate artifact and native-home entry points.
-/// Every output file remains retained. Construction does not select a node backend.
+/// The initial receipt retains reachable output files. Construction does not select a node backend.
 pub struct ArtifactBuilder {
     root: PathBuf,
     directory: TreeWriter,

@@ -2,9 +2,9 @@
 //! The node backend and memory acknowledgement path remain separate integrations.
 
 use laststore::disk_pack::home::{DiskHome, HomeBuilder, HomeDescriptor};
-use laststore::disk_pack::{MutationVersion, RangeBounds, ReadBudget, ReadCosts};
+use laststore::disk_pack::{MutationVersion, RangeBounds, ReadBudget};
 use laststore::observe_disk_reads;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -14,6 +14,9 @@ use std::time::Instant;
 #[path = "disk_home/io.rs"]
 mod disk_home_io;
 use disk_home_io::*;
+#[path = "disk_home/output.rs"]
+mod disk_home_output;
+use disk_home_output::{CommandOutput, RangePage, RangeRecord, ReadResult};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const LINE_BYTES: u64 = 2_200_000;
@@ -35,7 +38,10 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("native disk home command failed: {error}");
+            eprintln!(
+                "native disk home command failed: {}",
+                disk_home_output::command_error(error.as_ref())
+            );
             ExitCode::FAILURE
         }
     }
@@ -75,7 +81,7 @@ fn options() -> Result<(String, PathBuf, Option<PathBuf>, u16)> {
 fn run() -> Result<()> {
     let (command, home, input, fanout) = options()?;
     let started = Instant::now();
-    let (result, disk) = observe_disk_reads(|| -> Result<Value> {
+    let (result, disk) = observe_disk_reads(|| -> Result<CommandOutput> {
         if command == "build" {
             return build(&home, input.as_deref().expect("input"), fanout);
         }
@@ -94,18 +100,10 @@ fn run() -> Result<()> {
             _ => unreachable!("validated command"),
         }
     });
-    let mut output = result?;
-    output["elapsed_nanos"] = json!(started.elapsed().as_nanos());
-    output["disk"] = json!({"file_opens":disk.file_opens,"read_operations":disk.read_operations,
-        "format_probe_bytes":disk.format_probe_bytes,"payload_bytes":disk.payload_bytes,
-        "group_opens":disk.group_opens,"legacy_replay_bytes":disk.legacy_replay_bytes,
-        "footer_bytes":disk.footer_bytes,
-        "directory_reads":disk.directory_reads,"temporary_bytes_peak":disk.temporary_bytes_peak});
-    println!("{output}");
-    Ok(())
+    disk_home_output::write_response(result?, started.elapsed().as_nanos(), disk)
 }
 
-fn build(home: &std::path::Path, input: &std::path::Path, fanout: u16) -> Result<Value> {
+fn build(home: &std::path::Path, input: &std::path::Path, fanout: u16) -> Result<CommandOutput> {
     let descriptor = HomeDescriptor::new(fanout, 0)?;
     let mut builder = HomeBuilder::create(home, descriptor.clone(), 0)?;
     let mut input = BufReader::new(File::open(input)?);
@@ -141,11 +139,16 @@ fn build(home: &std::path::Path, input: &std::path::Path, fanout: u16) -> Result
         writer.finish()?;
     }
     let current = builder.finish()?;
-    Ok(
-        json!({"built":true,"records":count,"generation":current.generation,
-        "frontier":current.frontier,"required_features":current.required_features,
-        "hash_fanout":fanout,"placement_codec":current.placement_codec,"key_codec":current.key_codec}),
-    )
+    Ok(CommandOutput::Build {
+        built: true,
+        records: count,
+        generation: current.generation,
+        frontier: current.frontier,
+        required_features: current.required_features,
+        hash_fanout: fanout,
+        placement_codec: current.placement_codec,
+        key_codec: current.key_codec,
+    })
 }
 
 fn budget(request: &Value) -> Result<ReadBudget> {
@@ -166,16 +169,7 @@ fn budget(request: &Value) -> Result<ReadBudget> {
     Ok(budget)
 }
 
-fn costs(cost: ReadCosts) -> Value {
-    json!({"batch_read_runs":cost.batch_read_runs,"file_handles_peak":cost.file_handles_peak,"file_handle_reuses":cost.file_handle_reuses,
-        "file_bytes":cost.file_bytes,"budget_bytes":cost.budget_bytes,
-        "directory_pages":cost.directory_pages,"locator_pages":cost.locator_pages,
-        "map_pages":cost.map_pages,"overflow_pages":cost.overflow_pages,
-        "payload_blocks":cost.payload_blocks,"shared_pages":cost.shared_pages,
-        "shared_blocks":cost.shared_blocks,"examined_keys":cost.examined_keys})
-}
-
-fn read(home: &DiskHome, request: Value) -> Result<Value> {
+fn read(home: &DiskHome, request: Value) -> Result<CommandOutput> {
     let addresses = request
         .get("coordinates")
         .and_then(Value::as_array)
@@ -191,17 +185,25 @@ fn read(home: &DiskHome, request: Value) -> Result<Value> {
         })
         .collect();
     let mut call = home.read(budget(&request)?)?;
-    let results: Vec<_> = call.get_many(&coordinates?)?.into_iter().map(|result|match result {
-        Ok(body)=>json!({"body_hex":body.map(|bytes|hex(&bytes))}),
-        Err(error)=>json!({"error":error.to_string(),"resource_exhausted":matches!(error,laststore::Error::ReadBudgetExceeded)}),
-    }).collect();
-    Ok(
-        json!({"results":results,"generation":call.current().generation,
-        "frontier":call.current().frontier,"costs":costs(call.costs())}),
-    )
+    let results = call
+        .get_many(&coordinates?)?
+        .into_iter()
+        .map(|result| match result {
+            Ok(body) => ReadResult::Body {
+                body_hex: body.map(|bytes| hex(&bytes)),
+            },
+            Err(error) => ReadResult::failed(&error),
+        })
+        .collect();
+    Ok(CommandOutput::Read {
+        results,
+        generation: call.current().generation,
+        frontier: call.current().frontier,
+        costs: call.costs().into(),
+    })
 }
 
-fn range(home: &DiskHome, request: Value) -> Result<Value> {
+fn range(home: &DiskHome, request: Value) -> Result<CommandOutput> {
     let page_size = request
         .get("page_size")
         .and_then(Value::as_u64)
@@ -233,16 +235,29 @@ fn range(home: &DiskHome, request: Value) -> Result<Value> {
     for _ in 0..max_pages {
         let page = cursor.next_page(page_size as usize)?;
         exhausted = page.exhausted;
-        pages.push(json!({"exhausted":exhausted,"records":page.records.into_iter().map(|record|json!({
-            "key":record.key,"body_hex":hex(&record.body),"batch":record.version.batch,"operation":record.version.operation,
-        })).collect::<Vec<_>>()}));
+        pages.push(RangePage {
+            exhausted,
+            records: page
+                .records
+                .into_iter()
+                .map(|record| RangeRecord {
+                    key: record.key,
+                    body_hex: hex(&record.body),
+                    batch: record.version.batch,
+                    operation: record.version.operation,
+                })
+                .collect(),
+        });
         if exhausted {
             break;
         }
     }
     drop(cursor);
-    Ok(
-        json!({"pages":pages,"exhausted":exhausted,"generation":call.current().generation,
-        "frontier":call.current().frontier,"costs":costs(call.costs())}),
-    )
+    Ok(CommandOutput::Range {
+        pages,
+        exhausted,
+        generation: call.current().generation,
+        frontier: call.current().frontier,
+        costs: call.costs().into(),
+    })
 }

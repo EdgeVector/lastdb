@@ -14,7 +14,6 @@ struct Collector<'a> {
     allowed: &'a [Coordinate],
     live: LiveParts,
     work: Work,
-    groups: u64,
 }
 
 struct TreePath {
@@ -49,12 +48,7 @@ pub(super) fn collect(root: &Path, current: &Current, allowed: &[Coordinate]) ->
         current,
         allowed,
         live: LiveParts::new(),
-        work: if current.required_features & crate::disk_pack::FEATURE_LIVE_PART_COUNTS == 0 {
-            Work::bootstrap()
-        } else {
-            Work::seed()
-        },
-        groups: 0,
+        work: Work::seed(),
     };
     let tree = current.directory.clone();
     collector.tree(&tree, TreePath::root(&tree))?;
@@ -85,7 +79,7 @@ impl Collector<'_> {
                 2
             },
             object: tree.object,
-            part: u32::try_from(path.number / 512)
+            part: u32::try_from(path.number / crate::disk_pack::PAGES_PER_PART)
                 .map_err(|_| corrupt("bootstrap tree part exceeds format"))?,
         };
         if self.allowed.binary_search(&coordinate).is_err() {
@@ -158,10 +152,6 @@ impl Collector<'_> {
     }
 
     fn directory_entry(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.groups += 1;
-        if self.groups > MAX_DEPENDENCIES as u64 {
-            return Err(super::super::resource());
-        }
         let entry = DirectoryEntry::decode(value.try_into().expect("directory value"))?;
         if key.len() < 4
             || usize::from(u16_at(key, 0)) + 4 != key.len()

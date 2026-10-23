@@ -1,0 +1,238 @@
+//! Verified backup-owned ciphertext outside the immutable native root.
+//! Pointer keys remain in the original encrypted atoms. No native row is rewritten.
+use super::{PackRuntime, StorageError, StorageResult};
+use crate::sharing::delivery_wire::{file_blob_cipher_suite_supported, FileBlobAccess};
+use cloud_backup_protocol::{DecimalU64, Digest, ExternalFileDependency, FileDependencyKind, Id};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+
+mod files;
+mod verified;
+pub use files::{prepare_directory, save_entry};
+pub use verified::{open_verified_ciphertext, verify_remote_ciphertext, VerifiedRecoveredFile};
+
+pub const DIRECTORY: &str = "native-file-recovery-v1";
+const METADATA_MAX_BYTES: u64 = lastdb_storage_policy::backup_decode::DIRECTORY_MAX_BYTES;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryDirectory {
+    pub version: u8,
+    pub home_id: Id,
+    pub source_current_sha256: Digest,
+    pub commit_sha256: Digest,
+    pub account_public_key: Digest,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryFile {
+    pub logical_pointer_sha256: Digest,
+    pub kind: FileDependencyKind,
+    pub stored_source_sha256: Digest,
+    pub stored_source_bytes: DecimalU64,
+    pub encryption_suite: String,
+}
+
+impl RecoveryFile {
+    pub fn from_dependency(value: &ExternalFileDependency) -> StorageResult<Self> {
+        value.validate().map_err(|_| invalid("file dependency"))?;
+        let file = Self {
+            logical_pointer_sha256: value.logical_pointer_sha256.clone(),
+            kind: value.kind,
+            stored_source_sha256: value.stored_source_sha256.clone(),
+            stored_source_bytes: value.stored_source_bytes,
+            encryption_suite: value.encryption_suite.as_str().into(),
+        };
+        file.validate()?;
+        Ok(file)
+    }
+
+    pub fn key(&self) -> String {
+        entry_key(&self.logical_pointer_sha256, self.kind)
+    }
+
+    pub fn validate(&self) -> StorageResult<()> {
+        if !(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES
+            ..=cloud_backup_protocol::limits::BACKUP_STORED_BYTES_MAX)
+            .contains(&self.stored_source_bytes.get())
+            || !file_blob_cipher_suite_supported(&self.encryption_suite)
+        {
+            return Err(invalid("unsupported recovered file size or suite"));
+        }
+        Ok(())
+    }
+}
+
+pub fn entry_key(pointer: &Digest, kind: FileDependencyKind) -> String {
+    let kind = match kind {
+        FileDependencyKind::Main => "main",
+        FileDependencyKind::Thumbnail => "thumbnail",
+        FileDependencyKind::Poster => "poster",
+    };
+    format!("{}-{kind}", pointer.as_str())
+}
+
+pub fn object_path(data_root: &Path, digest: &Digest) -> PathBuf {
+    data_root
+        .join(DIRECTORY)
+        .join("objects")
+        .join(digest.as_str())
+}
+
+/// Open the existing version-one remote file envelope under its original key.
+/// Limits apply before AES-GCM allocates. The helper never accepts at-rest ENC.
+pub fn open_remote_file(
+    access: &FileBlobAccess,
+    ciphertext: &[u8],
+    maximum: u64,
+) -> StorageResult<Vec<u8>> {
+    if !file_blob_cipher_suite_supported(&access.cipher_suite)
+        || ciphertext.first() != Some(&1)
+        || (ciphertext.len() as u64)
+            < cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES
+        || ciphertext.len() as u64
+            > maximum
+                .saturating_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
+        || access.encrypted_size_bytes != Some(ciphertext.len() as u64)
+    {
+        return Err(invalid("recovered file envelope bounds"));
+    }
+    let key = zeroize::Zeroizing::new(
+        crate::hex::hex_decode_array::<32>(&access.dek)
+            .ok_or_else(|| invalid("recovered file key"))?,
+    );
+    let plain = crate::crypto::envelope::decrypt_envelope(&key, ciphertext)
+        .map_err(|_| invalid("recovered file authentication"))?;
+    let digest = cloud_backup_protocol::bytes_sha256(&plain);
+    if plain.len() as u64 > maximum
+        || access.file_hash != digest.as_str()
+        || access.blob_ref != format!("sha256:{}", digest.as_str())
+    {
+        return Err(invalid("recovered file plaintext identity"));
+    }
+    Ok(plain)
+}
+
+/// Read by the exact pointer digest and kind. An absent resolver is a local miss.
+/// Ordinary local writes can advance CURRENT; the immutable home identity stays.
+pub fn resolve(
+    data_root: &Path,
+    home_id: &Id,
+    pointer: &Value,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+    maximum: u64,
+) -> StorageResult<Option<Vec<u8>>> {
+    let pointer_id = cloud_backup_protocol::logical_pointer_sha256(pointer)
+        .map_err(|_| invalid("recovered file pointer"))?;
+    resolve_entry(data_root, home_id, &pointer_id, kind, access, maximum)
+}
+
+/// Eager normal serving API. The local file API admission bounds its Vec result.
+pub fn resolve_entry(
+    data_root: &Path,
+    home_id: &Id,
+    pointer_id: &Digest,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+    maximum: u64,
+) -> StorageResult<Option<Vec<u8>>> {
+    let Some(bytes) = read_ciphertext(data_root, home_id, pointer_id, kind, access, maximum)?
+    else {
+        return Ok(None);
+    };
+    open_remote_file(access, &bytes, maximum).map(Some)
+}
+
+fn read_ciphertext(
+    data_root: &Path,
+    home_id: &Id,
+    pointer_id: &Digest,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+    maximum: u64,
+) -> StorageResult<Option<Vec<u8>>> {
+    let Some(entry) = binding(data_root, home_id, pointer_id, kind, access)? else {
+        return Ok(None);
+    };
+    if entry.stored_source_bytes.get()
+        > maximum.saturating_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
+    {
+        return Err(invalid("configured local file API cap"));
+    }
+    let bytes = files::read_bytes(
+        &object_path(data_root, &entry.stored_source_sha256),
+        entry.stored_source_bytes.get(),
+    )?;
+    if cloud_backup_protocol::bytes_sha256(&bytes) != entry.stored_source_sha256 {
+        return Err(invalid("recovered file stored identity"));
+    }
+    Ok(Some(bytes))
+}
+
+fn binding(
+    data_root: &Path,
+    home_id: &Id,
+    pointer_id: &Digest,
+    kind: FileDependencyKind,
+    access: &FileBlobAccess,
+) -> StorageResult<Option<RecoveryFile>> {
+    let root = data_root.join(DIRECTORY);
+    if !files::directory_present(&root)? {
+        return Ok(None);
+    }
+    for child in ["entries", "objects"] {
+        if !files::directory_present(&root.join(child))? {
+            return Err(invalid("recovery child directory"));
+        }
+    }
+    let directory: RecoveryDirectory =
+        files::read_json(&root.join("directory.json"), METADATA_MAX_BYTES)?;
+    if directory.version != 1 || directory.home_id != *home_id {
+        return Err(invalid("recovered file home identity"));
+    }
+    let path = root.join("entries").join(entry_key(pointer_id, kind));
+    if !files::regular_present(&path)? {
+        return Ok(None);
+    }
+    let entry: RecoveryFile = files::read_json(&path, METADATA_MAX_BYTES)?;
+    entry.validate()?;
+    if entry.logical_pointer_sha256 != *pointer_id
+        || entry.kind != kind
+        || entry.encryption_suite != access.cipher_suite
+        || access.encrypted_size_bytes != Some(entry.stored_source_bytes.get())
+    {
+        return Err(invalid("recovered file pointer binding"));
+    }
+    Ok(Some(entry))
+}
+
+impl PackRuntime {
+    pub(crate) fn resolve_recovered_file(
+        &self,
+        pointer: &Digest,
+        kind: FileDependencyKind,
+        access: &FileBlobAccess,
+    ) -> StorageResult<Option<Vec<u8>>> {
+        let root = self
+            .home
+            .path()
+            .parent()
+            .ok_or_else(|| invalid("node root"))?;
+        let home_id = Id::try_from(self.home.descriptor().identity.to_string())
+            .map_err(|_| invalid("native home identity"))?;
+        resolve_entry(
+            root,
+            &home_id,
+            pointer,
+            kind,
+            access,
+            crate::fold_db_core::fold_db::local_file_blob_max_bytes() as u64,
+        )
+    }
+}
+
+fn invalid(field: &'static str) -> StorageError {
+    StorageError::InvalidOperation(field.into())
+}

@@ -4,6 +4,7 @@ use super::*;
 use laststore::disk_pack::maintenance::{space_usage, MaintenanceReceipt, SpacePolicy, SpaceUsage};
 use tracing::Instrument;
 
+mod concurrent;
 mod publish;
 
 /// Explicit native maintenance options. Preview is the default at the node route.
@@ -13,13 +14,15 @@ pub struct NativeMaintenanceOptions {
     pub dry_run: bool,
     /// Release only unneeded generation files; do not rewrite live data.
     pub reclaim_only: bool,
+    /// Copy all live payloads; an explicit compact defaults to a full copy.
+    pub full_copy: bool,
     /// An explicit grace override; None keeps the product's 24-hour default.
     pub grace_ms: Option<u64>,
     /// Measure the native root before and after. The measure walks every file,
     /// so the automatic high-water run leaves it off.
     pub report_usage: bool,
     /// Most old generations one reclaim retires, oldest first. `None` reclaims all
-    /// of them under one hold; a bounded call lets writers in between calls.
+    /// of them under one hold; a bounded call limits one cleanup step.
     pub reclaim_generations: Option<usize>,
 }
 
@@ -51,6 +54,10 @@ pub struct NativeMaintenanceReport {
     /// Milliseconds in the pack step and in the reclaim step.
     pub pack_millis: u64,
     pub reclaim_millis: u64,
+    pub tier_boundary: u64,
+    pub catch_up_rounds: u64,
+    pub catch_up_records: u64,
+    pub publication_retries: u64,
 }
 
 impl PackRuntime {
@@ -65,8 +72,7 @@ impl PackRuntime {
             != 0
     }
 
-    /// Publish replacements under the write gate, then release it before cleanup.
-    /// A separate maintenance owner excludes competing cleanup and pack calls.
+    /// Copy and prepare outside the gate, then conditionally publish one root.
     pub async fn maintain_native(
         self: &Arc<Self>,
         options: NativeMaintenanceOptions,
@@ -89,24 +95,54 @@ impl PackRuntime {
         keep_pack_on_reclaim_error: bool,
     ) -> StorageResult<NativeMaintenanceReport> {
         let runtime = Arc::clone(self);
-        // This owner survives cancellation of the HTTP caller. Keep its serial
-        // lease in the blocking closure until every file operation ends.
+        let copying = !options.dry_run && !options.reclaim_only;
+        let permit = if copying {
+            Some(Arc::clone(&runtime.compaction_slots).try_acquire_owned().map_err(|_| StorageError::WriteResourceLimit {
+                detail: "compaction_busy: two copies already own the bounded compaction resources; retry maintenance".into(),
+            })?)
+        } else {
+            None
+        };
+        // This owner survives HTTP cancellation and retains its resource permit
+        // until every blocking file operation ends.
         tokio::spawn(
             async move {
-                let maintenance = Arc::clone(&runtime.maintenance_gate).lock_owned().await;
+                let _permit = permit;
+                let _progress = copying.then(|| runtime.parts.progress.begin());
                 let measuring = Arc::clone(&runtime);
                 let before = super::super::laststore::LastStoreKvStore::run_blocking(move || {
                     measuring.maintenance_usage(options)
                 })
                 .await?;
-                let gate = runtime.enter_write().await;
+                let ready = if copying {
+                    let output = runtime
+                        .copy_native_pack(options)
+                        .await
+                        .inspect_err(|error| {
+                            runtime.parts.record_failure(error);
+                        })?;
+                    runtime
+                        .publish_native_pack(output)
+                        .await
+                        .inspect_err(|error| {
+                            runtime.parts.record_failure(error);
+                        })?
+                } else {
+                    let capture = Arc::clone(&runtime);
+                    super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                        capture.capture_native_cleanup()
+                    })
+                    .await?
+                };
+                if copying {
+                    runtime.parts.progress.phase(5);
+                }
                 super::super::laststore::LastStoreKvStore::run_blocking(move || {
-                    let _maintenance = maintenance;
                     runtime.maintain_native_blocking(
                         options,
                         keep_pack_on_reclaim_error,
                         before,
-                        gate,
+                        ready,
                     )
                 })
                 .await
@@ -138,7 +174,7 @@ impl PackRuntime {
         options: NativeMaintenanceOptions,
         keep_pack_on_reclaim_error: bool,
         before: SpaceUsage,
-        gate: tokio::sync::OwnedMutexGuard<()>,
+        ready: publish::MaintenanceReady,
     ) -> StorageResult<NativeMaintenanceReport> {
         self.require_initialized()?;
         if self.failed.load(Ordering::Acquire) {
@@ -147,11 +183,9 @@ impl PackRuntime {
             ));
         }
         let policy = self.maintenance_policy(options);
-        let (mut receipt, pack_millis, plan, current) =
-            self.prepare_maintenance(options, &policy)?;
+        let (mut receipt, pack_millis, plan, current) = ready;
         // The installed floor and all active old reads protect their complete
         // closures. Future output cannot appear in an older deletion plan.
-        drop(gate);
         let mut reclaim_millis = 0;
         let mut reclaim_error = None;
         if !options.dry_run {
@@ -188,6 +222,10 @@ impl PackRuntime {
             reclaim_error,
             pack_millis,
             reclaim_millis,
+            tier_boundary: receipt.tier_boundary,
+            catch_up_rounds: receipt.catch_up_rounds,
+            catch_up_records: receipt.catch_up_records,
+            publication_retries: receipt.publication_retries,
         })
     }
 }

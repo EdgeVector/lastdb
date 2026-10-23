@@ -160,7 +160,7 @@ waits.
 
 ### Cost to writers
 
-A batch of the drain seals the write queue, so a writer that arrives while a batch is open waits
+Historical measurements below used batches that sealed the write queue. A writer then waited
 for the gate and then for the flush of the batch (0.3 to 1 s on a busy disk). The drain rests for
 a share of the time its batches kept writers waiting (a duty of 10 percent), and only while a
 writer is there. So about one write in ten meets a batch while a writer is there, and a node with
@@ -286,3 +286,12 @@ replace the single hash without a change to the drain steps.
 - A catalog row put for a schema that is not installed yet binds nothing
   (`catalog_membership.rs`). Such a molecule has no binding counter. A candidate arises only from
   an unbind that finds a binding, so this gap cannot start a drain by itself.
+
+
+## Concurrent snapshot maintenance
+
+The current background path shares the bounded collection window without early publication.
+Only write preparation reads its private prefix. Ordinary reads retain the committed state.
+The drain returns after durability and paces from its measured writer cost.
+The earlier latency measurements above describe the former sealed-batch path.
+See `docs/lastdb-concurrent-compaction.md` and its product receipts.

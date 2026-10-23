@@ -1,0 +1,6 @@
+{
+  "sha": "8067843c4f9626470edc971ab10c10e829f021d8",
+  "url": "https://github.com/EdgeVector/lastdb/commit/8067843c4f9626470edc971ab10c10e829f021d8",
+  "title": "Keep reclaim moving under reads, pack a stuck home first, name the capacity error (#264)",
+  "verified_after_runs": true
+}

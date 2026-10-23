@@ -1,0 +1,10 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": false,
+  "data_retained_for_review": true,
+  "error": "RuntimeError: /api/mutations/batch: HTTP 400, non-JSON response",
+  "expected_live_records": 4097,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as2.LvHRkB/home",
+  "scope": "Independent generated product use; process interruption, not power loss",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/as2.LvHRkB"
+}

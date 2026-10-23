@@ -9,7 +9,12 @@ use crate::Result;
 use std::path::Path;
 use uuid::Uuid;
 
+mod carried;
 mod dependency_record;
+
+// Version zero was a pre-merge counted-receipt prototype without allocator
+// template references. It cannot safely enter the finalized count ledger.
+const LIVE_RECEIPT_VERSION: u64 = 1;
 
 /// Complete generation identity; ordinary reads do not enumerate this receipt.
 pub(super) struct Generation {
@@ -28,22 +33,6 @@ pub(super) fn write_live(
     if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
         return Err(corrupt("counted receipt requires its format feature"));
     }
-    write_with_prior(root, current, &live.coordinates(), live, prior)
-}
-
-fn write_with_prior(
-    root: &Path,
-    current: &Current,
-    dependencies: &[Coordinate],
-    live: &LiveParts,
-    prior: Option<&Generation>,
-) -> Result<Generation> {
-    if dependencies.len() > super::dependency::MAX_DEPENDENCIES {
-        return Err(super::resource());
-    }
-    if dependencies.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(corrupt("generation coordinates are not strictly ordered"));
-    }
     let parent = root.join("generations");
     if !parent.try_exists()? {
         directory(&parent)?;
@@ -51,6 +40,26 @@ fn write_with_prior(
     let path = parent.join(current.generation.to_string());
     if path.try_exists()? {
         return verify(root, current);
+    }
+    write_live_at(root, current, live, prior, path)
+}
+
+/// Prepare a complete counted receipt at the caller's private publication path.
+pub(in crate::disk_pack) fn write_live_at(
+    root: &Path,
+    current: &Current,
+    live: &LiveParts,
+    prior: Option<&Generation>,
+    path: std::path::PathBuf,
+) -> Result<Generation> {
+    if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
+        return Err(corrupt("counted receipt requires its format feature"));
+    }
+    let dependencies = live.coordinates();
+    if dependencies.len() > super::dependency::MAX_DEPENDENCIES
+        || dependencies.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(corrupt("invalid prepared generation coordinates"));
     }
     let object = Uuid::new_v4();
     let mut pages = PageWriter::new(path, object, current.generation)?;
@@ -61,10 +70,12 @@ fn write_with_prior(
         .try_reserve_exact(count)
         .map_err(|_| super::resource())?;
     let page_count = 1 + count.saturating_sub(150).div_ceil(201);
+    let base_prefix = prefix(current, count as u64, page_count as u64, &current_bytes);
+    let mut carried = carried::Carried::new(prior);
     let mut ordinal = 0;
     for number in 0..page_count {
         let entries = (count - ordinal).min(if number == 0 { 150 } else { 201 });
-        let mut payload = prefix(current, count as u64, page_count as u64, &current_bytes);
+        let mut payload = base_prefix.clone();
         put64(&mut payload, 24, ordinal as u64);
         put32(&mut payload, 32, entries as u32);
         if number == 0 {
@@ -72,14 +83,7 @@ fn write_with_prior(
             payload.extend_from_slice(&current_bytes);
         }
         for dependency in &dependencies[ordinal..ordinal + entries] {
-            let carried = prior.and_then(|prior| {
-                prior
-                    .coordinates
-                    .binary_search(dependency)
-                    .ok()
-                    .map(|at| prior.records[at])
-            });
-            let mut entry = match carried {
+            let mut entry = match carried.get(dependency) {
                 Some(entry) => entry,
                 None => dependency.capture(root, current)?,
             };
@@ -110,7 +114,7 @@ fn write_with_prior(
     Ok(Generation {
         object,
         dependencies: count as u64,
-        coordinates: dependencies.to_vec(),
+        coordinates: dependencies,
         records,
     })
 }
@@ -124,7 +128,32 @@ fn prefix(current: &Current, count: u64, pages: u64, bytes: &[u8; 4096]) -> Vec<
     put64(&mut prefix, 72, pages);
     put64(&mut prefix, 80, current.published_ms);
     put64(&mut prefix, 88, current.required_features);
+    put64(&mut prefix, 96, receipt_version(current));
     prefix
+}
+
+fn receipt_version(current: &Current) -> u64 {
+    if current.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
+        LIVE_RECEIPT_VERSION
+    } else {
+        0
+    }
+}
+
+fn dependency_count(current: &Current, first: &Page) -> Result<u64> {
+    if first.payload().len() < 128 {
+        return Err(corrupt("generation prefix length"));
+    }
+    if u64_at(first.payload(), 96) != receipt_version(current) {
+        return Err(corrupt("unsupported generation receipt semantic version"));
+    }
+    let count = u64_at(first.payload(), 16);
+    if count > super::dependency::MAX_DEPENDENCIES as u64 {
+        return Err(corrupt(
+            "generation dependency count exceeds artifact limit",
+        ));
+    }
+    Ok(count)
 }
 
 pub(super) fn verify(root: &Path, current: &Current) -> Result<Generation> {
@@ -175,15 +204,7 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
         current.generation,
         current.required_features,
     )?;
-    if first.payload().len() < 128 {
-        return Err(corrupt("generation prefix length"));
-    }
-    let count = u64_at(first.payload(), 16);
-    if count > super::dependency::MAX_DEPENDENCIES as u64 {
-        return Err(corrupt(
-            "generation dependency count exceeds artifact limit",
-        ));
-    }
+    let count = dependency_count(current, &first)?;
     let pages = 1 + count.saturating_sub(150).div_ceil(201);
     let current_bytes = current.encode()?;
     let expected_prefix = prefix(current, count, pages, &current_bytes);
@@ -230,10 +251,10 @@ fn read(root: &Path, current: &Current, verify_parts: bool) -> Result<Generation
             break;
         }
         number = next;
-        let part = number / 512;
+        let part = number / crate::disk_pack::PAGES_PER_PART;
         let bytes = call.read_extent(
             &path.join(format!("part-{part:08x}")),
-            number % 512 * PAGE_BYTES as u64,
+            number % crate::disk_pack::PAGES_PER_PART * PAGE_BYTES as u64,
             PAGE_BYTES,
             true,
             ReadClass::FormatProbe,

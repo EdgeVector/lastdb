@@ -270,6 +270,8 @@ pub enum DataRoute {
     /// `POST /api/sync/cloud-on` — restore `cloud_sync.json` if paused, then
     /// re-enable live engine (pull→snapshot when past grace). OWNER only.
     SyncCloudOn,
+    /// `POST /api/sync/native-backup` — explicit owner native backup work or status.
+    SyncNativeBackup,
     /// `POST /api/sync/cloud-resume-primary` — durable owner job or status.
     SyncCloudResumePrimary,
     /// `POST /api/sync/quarantine-replay-blocker` — clear the exact active

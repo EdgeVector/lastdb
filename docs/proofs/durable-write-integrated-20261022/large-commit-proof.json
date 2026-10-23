@@ -1,0 +1,34 @@
+{
+  "commit": {
+    "counts": {
+      "dependency_parts": 110,
+      "device_flushes": 1,
+      "flushed_files": 18,
+      "metadata_pages": 2757,
+      "metadata_parts": 7,
+      "storage_mutations": 5128
+    },
+    "ended_us": 1792729905838271,
+    "kind": "commit",
+    "ok": true,
+    "phases_us": {
+      "device_flush_us": 7684,
+      "file_set_flush_us": 485,
+      "final_drain_us": 7688,
+      "lookup_files_us": 213287,
+      "memory_publication_us": 7618,
+      "new_generation_us": 485,
+      "ordered_barrier_us": 3246,
+      "payload_us": 11728,
+      "prior_generation_us": 55,
+      "root_publication_us": 4035
+    },
+    "requests": 1,
+    "sequence": 11,
+    "started_us": 1792729905591232,
+    "total_us": 247036
+  },
+  "acknowledged_notices": 1025,
+  "reopened_notice_count": 1025,
+  "startup_background_scopes_are_outside_this_commit": true
+}

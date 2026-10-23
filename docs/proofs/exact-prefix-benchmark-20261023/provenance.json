@@ -1,0 +1,12 @@
+{
+  "baseline": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+  "candidate": "155d9192f9b1d682a979343138933671699c5265",
+  "build_command": "CARGO_TARGET_DIR=/workspace/bench-target CARGO_BUILD_JOBS=3 scripts/ci/with-fold-host-cargo-lock.sh -- cargo build -p lastdb_node --bin lastdbd --release --locked",
+  "checkout": "/workspace/lastdb",
+  "runs": 24,
+  "timed_requests": 49344,
+  "binaries": {
+    "before": "234a022f0fa64fc341f8af6be9a935dc868a452272314442ef9469d35a1c07cf",
+    "after": "882b6abae7eefe388def66110212045350767345697eb604dba1c86ba4ab06de"
+  }
+}

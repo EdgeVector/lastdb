@@ -135,6 +135,8 @@ fn barrier(file: &File) -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn full_barrier(file: &File) -> Result<()> {
+    let _timing = crate::commit_timing::stage("device_flush_us");
+    crate::commit_timing::count("device_flushes", 1);
     timed(&FULL_SYNCS, &FULL_SYNC_MICROS, || {
         rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)?;
         Ok(())

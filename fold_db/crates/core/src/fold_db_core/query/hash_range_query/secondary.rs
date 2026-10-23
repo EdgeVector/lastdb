@@ -107,17 +107,17 @@ impl HashRangeQueryProcessor {
             .await?;
         for ((kv, (h, r)), record) in storage_kv_for_slots.iter().zip(storage_slots).zip(records) {
             let Some((tip_key, rec)) = record else {
-                let candidates = self
+                let base = self
                     .db_ops
                     .atoms()
                     .key_codec_for_molecule(context.molecule)?
-                    .api_hash_range_record_keys_for_read(context.molecule, h, r)
+                    .api_hash_range_record_key(context.molecule, h, r)
                     .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
                 self.db_ops.atoms().note_missing_query_key(
                     prefix.as_deref(),
                     context.molecule,
                     kv,
-                    &candidates,
+                    &base,
                 )?;
                 continue;
             };

@@ -35,6 +35,7 @@ pub(super) struct PendingBatch {
     after_commit: Mutex<Vec<AfterCommit>>,
     frozen: AtomicBool,
     durable_only: AtomicBool,
+    flush_blocked_us: std::sync::atomic::AtomicU64,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
     absences: Mutex<Vec<super::logical_paths::LogicalPathAbsence>>,
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
@@ -59,6 +60,7 @@ impl PendingBatch {
             after_commit: Mutex::new(Vec::new()),
             frozen: AtomicBool::new(false),
             durable_only: AtomicBool::new(false),
+            flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
             paths: Mutex::new(Vec::new()),
             absences: Mutex::new(Vec::new()),
             definitions: Mutex::new(BTreeMap::new()),
@@ -209,6 +211,17 @@ impl PendingBatch {
         data.latest.keys().cloned().collect()
     }
 
+    pub(super) fn note_flush_blocked(&self, took: std::time::Duration) {
+        self.flush_blocked_us.store(
+            took.as_micros().try_into().unwrap_or(u64::MAX),
+            Ordering::Release,
+        );
+    }
+
+    pub(super) fn flush_blocked(&self) -> std::time::Duration {
+        std::time::Duration::from_micros(self.flush_blocked_us.load(Ordering::Acquire))
+    }
+
     /// Verify final staged bytes, not the request size when quota was retained.
     pub(super) fn has_reserved_raw_memory(&self) -> bool {
         let required = self.memory_quote();
@@ -338,7 +351,7 @@ pub(crate) async fn scope<T, E>(
 where
     E: From<StorageError>,
 {
-    request_scope(runtime, false, future).await
+    request_scope(runtime, future).await
 }
 
 /// Keep the request's shutdown/defer resource with its complete stored batch.

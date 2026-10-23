@@ -7,7 +7,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-pub(super) const MAX_DEPENDENCIES: usize = 65_536;
+pub(super) const MAX_DEPENDENCIES: usize = lastdb_storage_policy::native_v1::MAX_DEPENDENCY_PARTS;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Coordinate {
@@ -67,7 +67,7 @@ impl Coordinate {
             let page = Page::decode(
                 buffer,
                 self.object,
-                u64::from(self.part) * 512,
+                u64::from(self.part) * crate::disk_pack::PAGES_PER_PART,
                 current.generation,
                 current.required_features,
             )?;
@@ -141,7 +141,7 @@ impl Dependencies {
         data_parts: u64,
         map_pages: u64,
     ) -> Result<()> {
-        let map_parts = map_pages.div_ceil(512);
+        let map_parts = map_pages.div_ceil(crate::disk_pack::PAGES_PER_PART);
         if data_parts
             .checked_add(map_parts)
             .map_or(true, |count| count > MAX_DEPENDENCIES as u64)

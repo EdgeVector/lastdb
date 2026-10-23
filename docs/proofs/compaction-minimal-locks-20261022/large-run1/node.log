@@ -1,0 +1,34 @@
+=== LastDB recovery phrase generated (redacted; not printed in test/CI/non-TTY) ===
+2026-10-23T02:12:28.243584Z  WARN lastdbd::boot: boot decrypt proof namespace is empty; it proved nothing about the at-rest key this boot (the sentinel is checked separately) namespace="metadata" enforcing=true elapsed_ms=0
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/home
+  Owner:  c8d3944d0cffd0f7ae1ef0fa890f9eff
+2026-10-23T02:13:28.257386Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-23T02:14:28.258567Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-23T02:15:28.259166Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-23T02:16:28.260176Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/home
+  Owner:  c8d3944d0cffd0f7ae1ef0fa890f9eff
+2026-10-23T02:16:38.251979Z  WARN lastdbd::session_ledger: Previous session ended UNCLEANLY (no clean shutdown record); down for 1s before this start.
+2026-10-23T02:16:38.260130Z  WARN fold_node::database: keep-small snapshot was not written by a clean shutdown; storage reports are incomplete until the liveness bootstrap runs
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/home
+  Owner:  c8d3944d0cffd0f7ae1ef0fa890f9eff
+2026-10-23T02:17:38.278254Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/home
+  Owner:  c8d3944d0cffd0f7ae1ef0fa890f9eff
+2026-10-23T02:18:18.926130Z  INFO native_parts_supervisor:native_parts_worker: fold_db::storage::disk_pack::parts::worker: native storage removed unreferenced part files files=3 bytes=1540096
+2026-10-23T02:19:13.868692Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-23T02:20:13.869125Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-23T02:21:13.870488Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+2026-10-23T02:22:13.877657Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+lastdbd: shutdown signal received, exiting
+lastdbd serving /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/q.sock
+  Home:   /private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml2.8atkrS/home
+  Owner:  c8d3944d0cffd0f7ae1ef0fa890f9eff
+2026-10-23T02:24:03.236091Z  WARN fold_db::sync::mutation_log: plane is no longer capture-free; skipping self-compaction so the rewrite cannot enter the mutation log collection="indexes"
+lastdbd: shutdown signal received, exiting

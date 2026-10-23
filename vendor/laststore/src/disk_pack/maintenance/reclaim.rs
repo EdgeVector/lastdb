@@ -1,5 +1,6 @@
 use super::{MaintenanceReceipt, SpacePolicy};
 use crate::disk_pack::dependency::Coordinate;
+use crate::disk_pack::private_files::DeletionEpoch;
 use crate::disk_pack::write_lock::WriteLock;
 use crate::disk_pack::{artifact, corrupt, generation, lifetime, Current, FEATURE_FILE_LIFETIME};
 use crate::{durability, Result};
@@ -53,7 +54,13 @@ pub(in crate::disk_pack) fn reclaim_locked(
     lock: &WriteLock,
     policy: &SpacePolicy,
 ) -> Result<MaintenanceReceipt> {
-    reclaim_at(lock, policy, artifact::current(lock.root())?, false)
+    reclaim_at(
+        lock,
+        policy,
+        artifact::current(lock.root())?,
+        false,
+        &lock.files.epoch()?,
+    )
 }
 
 pub(in crate::disk_pack) fn reclaim_at(
@@ -61,13 +68,14 @@ pub(in crate::disk_pack) fn reclaim_at(
     policy: &SpacePolicy,
     current: Current,
     concurrent: bool,
+    epoch: &DeletionEpoch,
 ) -> Result<MaintenanceReceipt> {
     let root = lock.root();
     let mut receipt = MaintenanceReceipt {
         generation: current.generation,
         ..Default::default()
     };
-    if current.required_features & FEATURE_FILE_LIFETIME == 0 {
+    if current.required_features & FEATURE_FILE_LIFETIME == 0 || !epoch.valid()? {
         receipt.reclaim_deferred = true;
         return Ok(receipt);
     }
@@ -87,7 +95,7 @@ pub(in crate::disk_pack) fn reclaim_at(
     };
     validate_roots(root)?;
     let mut dirty = Dirty::default();
-    cleanup_retired(root, policy.max_files, &mut receipt, &mut dirty)?;
+    cleanup_retired(root, policy.max_files, &mut receipt, &mut dirty, epoch)?;
     dirty.flush()?;
     let references = lifetime::list_unlocked(root)?;
     let mut retained = BTreeSet::from([current.generation]);
@@ -98,8 +106,13 @@ pub(in crate::disk_pack) fn reclaim_at(
         policy.max_files,
         &retained,
         concurrent.then_some(current.generation),
+        epoch,
     )?;
     generations.sort_unstable();
+    if !epoch.valid()? {
+        receipt.reclaim_deferred = true;
+        return Ok(receipt);
+    }
     let cutoff = artifact::unix_ms().saturating_sub(policy.grace_ms);
     // Grace protects each young generation's whole closure, not only young files.
     // With no grace nothing is young, so the scan is skipped.
@@ -127,7 +140,11 @@ pub(in crate::disk_pack) fn reclaim_at(
         skipped,
         old,
     };
-    plan.apply(root, policy, &live, &mut receipt, &mut dirty)?;
+    plan.apply(lock, policy, &live, &mut receipt, &mut dirty, epoch)?;
+    if !epoch.valid()? {
+        receipt.reclaim_deferred = true;
+        receipt.reclaim_remaining = true;
+    }
     Ok(receipt)
 }
 
@@ -141,22 +158,35 @@ struct Obsolete {
 
 impl Obsolete {
     fn apply(
-        self,
-        root: &Path,
+        mut self,
+        lock: &WriteLock,
         policy: &SpacePolicy,
         live: &BTreeSet<Coordinate>,
         receipt: &mut MaintenanceReceipt,
         dirty: &mut Dirty,
+        epoch: &DeletionEpoch,
     ) -> Result<()> {
+        let root = lock.root();
         for (path, bytes) in self.removals {
+            let Some(_deletion) = epoch.delete(&path, false)? else {
+                self.skipped.push(path);
+                receipt.reclaim_remaining = true;
+                if !epoch.valid()? {
+                    break;
+                }
+                continue;
+            };
             std::fs::remove_file(&path)?;
             dirty.mark(path.parent().expect("part parent"));
             receipt.files_removed += 1;
             receipt.bytes_removed += bytes;
-            remove_empty_parents(root, &path, dirty)?;
+            remove_empty_parents(lock, &path, dirty, epoch)?;
         }
         // Every removal is durable before the first receipt that lists it retires.
         dirty.flush()?;
+        if !epoch.valid()? {
+            return Ok(());
+        }
         // Each old receipt lists only live parts and candidates. When no candidate
         // remains on disk, every old receipt may retire without another read of it.
         let blocked = self.skipped.iter().any(|path| path.exists());
@@ -171,10 +201,10 @@ impl Obsolete {
                     continue;
                 }
             }
-            retire_receipt(root, held.generation, dirty)?;
+            retire_receipt(root, held.generation, dirty, epoch)?;
         }
         dirty.flush()?;
-        cleanup_retired(root, policy.max_files, receipt, dirty)?;
+        cleanup_retired(root, policy.max_files, receipt, dirty, epoch)?;
         dirty.flush()
     }
 }
@@ -247,13 +277,21 @@ fn validate_parents(root: &Path, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn retire_receipt(root: &Path, number: u64, dirty: &mut Dirty) -> Result<()> {
+fn retire_receipt(
+    root: &Path,
+    number: u64,
+    dirty: &mut Dirty,
+    epoch: &DeletionEpoch,
+) -> Result<()> {
     let path = root.join("generations").join(number.to_string());
     let parent = root.join("retired-generations");
     if !parent.try_exists()? {
         crate::disk_pack::page_write::directory(&parent)?;
     }
     let target = parent.join(number.to_string());
+    let Some(_deletion) = epoch.delete(&path, true)? else {
+        return Ok(());
+    };
     // Leave the complete receipt readable until it atomically leaves the live set.
     // A restart can finish deletion in this exclusively owned retirement namespace.
     {
@@ -270,6 +308,7 @@ fn cleanup_retired(
     max_files: usize,
     receipt: &mut MaintenanceReceipt,
     dirty: &mut Dirty,
+    epoch: &DeletionEpoch,
 ) -> Result<()> {
     let parent = root.join("retired-generations");
     if !parent.try_exists()? {
@@ -280,6 +319,9 @@ fn cleanup_retired(
             return Err(crate::disk_pack::resource());
         }
         let entry = entry?;
+        let Some(_deletion) = epoch.delete(&entry.path(), true)? else {
+            break;
+        };
         if !entry.file_type()?.is_dir()
             || entry
                 .file_name()
@@ -315,7 +357,13 @@ fn cleanup_retired(
     Ok(())
 }
 
-fn remove_empty_parents(root: &Path, path: &Path, dirty: &mut Dirty) -> Result<()> {
+fn remove_empty_parents(
+    lock: &WriteLock,
+    path: &Path,
+    dirty: &mut Dirty,
+    epoch: &DeletionEpoch,
+) -> Result<()> {
+    let root = lock.root();
     let mut parent = path.parent();
     for _ in 0..3 {
         let Some(directory) = parent else {
@@ -324,6 +372,9 @@ fn remove_empty_parents(root: &Path, path: &Path, dirty: &mut Dirty) -> Result<(
         if directory == root || directory.parent() == Some(root) {
             break;
         }
+        let Some(_deletion) = epoch.delete(directory, true)? else {
+            break;
+        };
         match std::fs::remove_dir(directory) {
             Ok(()) => {
                 if let Some(up) = directory.parent() {

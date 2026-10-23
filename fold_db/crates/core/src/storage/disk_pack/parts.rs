@@ -4,10 +4,11 @@
 //! receipt holds at most `MAX_DEPENDENCY_PARTS` entries, each publication writes
 //! it again in full, and each publication omits parts with no live references.
 //! The count is therefore a hard limit and a per-write cost. This ledger records
-//! the count after every publication. One worker packs above the high-water mark
-//! and schedules obsolete-generation reclaim at a 30-second idle interval even
-//! when the count stays flat. Cleanup captures an installed-root hold before it
-//! releases the write gate.
+//! the count after every publication. One worker copies outside the write gate
+//! and catches up before a short handoff. Admission refuses new work at the
+//! 85-percent soft limit if writers outrun compaction. A 30-second idle interval
+//! schedules obsolete-generation reclaim even when the live count stays flat.
+//! Cleanup holds the installed root before it releases the write gate.
 
 use super::*;
 use laststore::disk_pack::MAX_DEPENDENCY_PARTS;
@@ -16,26 +17,30 @@ use std::sync::{Mutex, Weak};
 use tokio::sync::Notify;
 
 mod orphans;
+mod progress;
+mod retry;
+pub use progress::NativeCompactionStatus;
 mod worker;
 
 /// Parts after which maintenance starts. Every publication writes the receipt
 /// in full (80 bytes a part for each batch), so a write costs more as the
 /// count grows. A receipt of this size is about 330 KiB. A smaller mark costs
-/// more maintenance runs, because each run packs every live record again.
+/// more maintenance runs, including recent-tier copies and periodic full copies.
 const DEFAULT_HIGH_WATER: u64 = 4096;
 /// Never trigger above this share of the limit (percent), so a write that needs
 /// room for its own parts still fits while maintenance runs.
 const TRIGGER_CEILING_PERCENT: u64 = 75;
-/// Parts that must accrue after a run before the next run starts, however high the count is
-/// (at most half the high-water mark, so a small mark still works).
+/// Parts that must accrue after a run before the next normal run starts
+/// (at most half the high-water mark). Soft-limit recovery cannot require growth.
 const MIN_GROWTH: u64 = 1024;
-/// Above this share of the limit (percent) a new write waits for maintenance
-/// instead of risking a refusal at the limit.
-const SOFT_LIMIT_PERCENT: u64 = 90;
+/// Above this share of the limit (percent) admission refuses a new write until
+/// maintenance restores room, before the hard receipt limit.
+const SOFT_LIMIT_PERCENT: u64 = 85;
 
 /// Counters and settings. Atomics only: a status read never takes a lock that a
 /// writer holds.
 pub(super) struct PartsLedger {
+    pub(super) progress: Arc<progress::Progress>,
     current: AtomicU64,
     /// Last root seen by a publication or a maintenance run. A status read uses
     /// it while maintenance holds the view lock, so status never waits for reclaim.
@@ -70,8 +75,7 @@ pub(super) struct PartsLedger {
     reclaim_failures: AtomicU64,
     reclaim_error: Mutex<Option<String>>,
     running: AtomicBool,
-    /// Set by a failed run, cleared by a published replacement. A failing worker
-    /// cannot make room, so a writer does not wait for it.
+    /// Set by a failed run, cleared by a published replacement.
     failing: AtomicBool,
     runs: AtomicU64,
     failures: AtomicU64,
@@ -124,6 +128,8 @@ pub struct NativePartsStatus {
     /// The last reclaim error, until a reclaim ends without error. A reclaim that
     /// cannot run leaves old generations on disk, so the disk grows with each pack.
     pub reclaim_last_error: Option<String>,
+    #[serde(flatten)]
+    pub compaction: NativeCompactionStatus,
 }
 
 impl PartsLedger {
@@ -134,6 +140,7 @@ impl PartsLedger {
             .unwrap_or(DEFAULT_HIGH_WATER)
             .min(ceiling);
         Arc::new(Self {
+            progress: Arc::default(),
             current: AtomicU64::new(opened),
             generation: AtomicU64::new(root.generation),
             frontier: AtomicU64::new(root.frontier),
@@ -174,10 +181,16 @@ impl PartsLedger {
             return ceiling;
         }
         let by_records = (self.records.load(Relaxed).saturating_mul(20) as f64).sqrt() as u64;
-        self.high_water
+        let configured = self
+            .high_water
             .max(self.baseline.load(Relaxed).saturating_mul(2))
             .max(by_records)
-            .min(ceiling)
+            .min(ceiling.min(MAX_DEPENDENCY_PARTS / 2));
+        let minimum = self
+            .baseline
+            .load(Relaxed)
+            .saturating_add(MIN_GROWTH.min(self.high_water / 2));
+        self.progress.start_before_exhaustion(configured, minimum)
     }
 
     /// True when the count leaves too little room for another write.
@@ -185,22 +198,24 @@ impl PartsLedger {
         self.current.load(Relaxed) >= MAX_DEPENDENCY_PARTS * SOFT_LIMIT_PERCENT / 100
     }
 
-    /// A run that cannot bring the count below the trigger must not start again
-    /// for every publication, so a new run also needs `MIN_GROWTH` parts of growth.
+    /// Normal repeats need growth. A refused home cannot grow, so soft-limit
+    /// recovery bypasses that suppression and the worker bounds its retry rate.
     fn wants_maintenance(&self) -> bool {
         let current = self.current.load(Relaxed);
         self.auto
-            && current >= self.trigger()
-            && current
-                >= self
-                    .baseline
-                    .load(Relaxed)
-                    .saturating_add(MIN_GROWTH.min(self.high_water / 2))
+            && (self.over_soft_limit()
+                || (current >= self.trigger()
+                    && current
+                        >= self
+                            .baseline
+                            .load(Relaxed)
+                            .saturating_add(MIN_GROWTH.min(self.high_water / 2))))
     }
 
     /// Record the count of a new publication and wake the worker at the mark.
     pub(super) fn observe(&self, parts: u64, root: &Current) {
-        self.current.store(parts, Relaxed);
+        let previous = self.current.swap(parts, Relaxed);
+        self.progress.observe_growth(parts.saturating_sub(previous));
         self.generation.store(root.generation, Relaxed);
         self.frontier.store(root.frontier, Relaxed);
         self.peak.fetch_max(parts, Relaxed);
@@ -245,7 +260,7 @@ impl PartsLedger {
     }
 
     /// The worker task panicked. The supervisor restarts it, and a writer above the
-    /// soft limit stops waiting for it until a run succeeds.
+    /// soft limit remains refused until a run restores room.
     pub(super) fn record_worker_panic(&self, detail: &str) {
         self.worker_restarts.fetch_add(1, Relaxed);
         self.failures.fetch_add(1, Relaxed);
@@ -273,6 +288,7 @@ impl PartsLedger {
 
     pub(super) fn status(&self) -> NativePartsStatus {
         NativePartsStatus {
+            compaction: self.progress.status(),
             dependency_parts: self.current.load(Relaxed),
             dependency_parts_limit: MAX_DEPENDENCY_PARTS,
             dependency_high_water: self.high_water,

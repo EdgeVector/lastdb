@@ -319,7 +319,7 @@ impl MutationConvergence {
 pub enum MutationDurability {
     /// Persist local mutation state before the node returns a durable receipt.
     Durable,
-    /// Accept the normal queued receipt without a persistence barrier.
+    /// Compatibility minimum; native commits still wait for a durable snapshot.
     #[default]
     Queued,
 }
@@ -365,9 +365,9 @@ pub enum Operation {
         /// background work drained before the response.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         convergence: Option<MutationConvergence>,
-        /// Optional local persistence policy. Defaults to `queued`. Pass
-        /// `durable` to require a local-storage receipt before the
-        /// response. This policy does not change convergence behavior.
+        /// Optional requested local policy; the wire default is `queued`.
+        /// Native requests always wait for disk durability with either value.
+        /// This policy does not change convergence behavior.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         durability: Option<MutationDurability>,
         /// Optional exact off-box publication wait. The owner mutation route

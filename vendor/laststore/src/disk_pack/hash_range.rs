@@ -185,7 +185,7 @@ impl HashRangeCursor<'_> {
     /// Continue only with the original held call. Budget failure poisons this cursor.
     /// An error never returns a short successful page or an exhausted result.
     pub fn next_page(&mut self, limit: usize) -> Result<RangePage> {
-        self.next(limit, None)
+        self.next(limit, None, None)
     }
 
     /// Like [`Self::next_page`], but a key budget that runs out before the page
@@ -205,10 +205,31 @@ impl HashRangeCursor<'_> {
         held_rows: usize,
         keys_per_row: usize,
     ) -> Result<RangePage> {
-        self.next(limit, Some((held_rows, keys_per_row)))
+        self.next(limit, Some((held_rows, keys_per_row)), None)
     }
 
-    fn next(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RangePage> {
+    /// Yield a bounded page, refusing any selected body before its payload is
+    /// planned or allocated. Existing key-budget continuation rules still apply.
+    pub fn next_page_yielding_bounded(
+        &mut self,
+        limit: usize,
+        held_rows: usize,
+        keys_per_row: usize,
+        maximum_body_bytes: u64,
+    ) -> Result<RangePage> {
+        self.next(
+            limit,
+            Some((held_rows, keys_per_row)),
+            Some(maximum_body_bytes),
+        )
+    }
+
+    fn next(
+        &mut self,
+        limit: usize,
+        yielding: Option<(usize, usize)>,
+        body_max: Option<u64>,
+    ) -> Result<RangePage> {
         if self.failed {
             return Err(corrupt("range cursor requires a fresh call after an error"));
         }
@@ -218,12 +239,17 @@ impl HashRangeCursor<'_> {
             ));
         }
         self.failed = true;
-        let result = self.page(limit, yielding)?;
+        let result = self.page(limit, yielding, body_max)?;
         self.failed = false;
         Ok(result)
     }
 
-    fn page(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RangePage> {
+    fn page(
+        &mut self,
+        limit: usize,
+        yielding: Option<(usize, usize)>,
+        body_max: Option<u64>,
+    ) -> Result<RangePage> {
         self.call.charge(
             (limit
                 * (std::mem::size_of::<RangeRecord>() + std::mem::size_of::<(String, Location)>()))
@@ -290,6 +316,11 @@ impl HashRangeCursor<'_> {
                 String::from_utf8(key).map_err(|_| corrupt("range storage key is not UTF-8"))?;
             last_dead = None;
             selected_records.push((key, location));
+        }
+        if let Some(maximum) = body_max {
+            for (key, location) in &selected_records {
+                ReadCall::check_body_bound(location, key, maximum)?;
+            }
         }
         let bodies = self
             .call

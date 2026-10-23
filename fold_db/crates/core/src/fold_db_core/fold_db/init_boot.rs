@@ -37,6 +37,10 @@ impl FoldDB {
     pub(super) fn start_background_flush(
         db_ops: &Arc<DbOperations>,
     ) -> super::super::mutation_flush::BackgroundFlushTask {
+        if db_ops.namespaced_store().disk_pack_runtime().is_some() {
+            info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
+            return super::super::mutation_flush::BackgroundFlushTask::disabled();
+        }
         let flush_policy = super::super::mutation_flush::MutationFlushPolicy::from_env();
         let background_ms = flush_policy
             .background_interval

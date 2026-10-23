@@ -1,0 +1,13 @@
+{
+  "measured_runs": 16,
+  "timed_requests": 6144,
+  "graceful_stops_including_fixtures": 34,
+  "driver_sha256": "7e2e5f02f6a8b10b7dd31da05164d41c3c0863d2beb8cde0019159ea2aa46640",
+  "shared_driver_sha256": "69de92d7fad42b0099ca71d0612787366529f3fa23c1af01d7291e1089a58f2d",
+  "binary_and_source_provenance": "provenance.json",
+  "same_fixtures_and_cpu_affinity": true,
+  "changed_workload": "Warm affected keys; 512 Hash durable single writes plain, 128 HashRange durable batch32 preload; 64 forensic status requests each run",
+  "order": "Four adjacent pairs/configuration; reversed initial order from primary, alternating BA/AB; interleave configurations",
+  "all_integrity_checks_passed": true,
+  "all_owned_homes_cleaned": true
+}

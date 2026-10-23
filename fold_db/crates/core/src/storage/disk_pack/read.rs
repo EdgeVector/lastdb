@@ -18,6 +18,7 @@ pub(super) struct ReadContext {
     pub(super) core_model: crate::resident::CoreModelSnapshot,
     // Only private write preparation can inspect the existing flush log.
     pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
+    pub(super) hidden_prefix: bool,
     snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) revision: u64,
     current: Current,
@@ -66,6 +67,11 @@ impl ReadContext {
                 "native disk or cache publication failed; complete recovery is required".into(),
             ));
         }
+        let (preparation, hidden_prefix) = if write_owner.is_some() {
+            runtime.preparation_prefix()
+        } else {
+            (Arc::new(Vec::new()), false)
+        };
         // Keep the root selector locked until its file lifetime hold exists.
         // Runtime maintenance must replace this selector before reclaim.
         let view = runtime.view.read().expect("native complete read view");
@@ -79,11 +85,7 @@ impl ReadContext {
                 .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
         }
         .map_err(map)?;
-        let accepted = if write_owner.is_some() {
-            view.accepted.clone()
-        } else {
-            Arc::new(Vec::new())
-        };
+        let accepted = preparation;
         let core_model = runtime
             .core
             .lock()
@@ -95,6 +97,7 @@ impl ReadContext {
         Ok(Arc::new(Self {
             call: Arc::new(Mutex::new(call)),
             accepted,
+            hidden_prefix,
             core_model,
             revision,
             current,
@@ -122,6 +125,7 @@ impl ReadContext {
                     failure,
                     core_holds: Arc::clone(&context.core_holds),
                     accepted: context.accepted.clone(),
+                    hidden_prefix: context.hidden_prefix,
                     core_model: context.core_model.clone(),
                     snapshots: Arc::clone(&context.snapshots),
                     revision: context.revision,

@@ -8,6 +8,7 @@ type Bound = Option<Arc<Vec<u8>>>;
 struct Path {
     number: u64,
     level: u8,
+    parent_generation: u64,
     lower: Bound,
     upper: Bound,
 }
@@ -28,13 +29,23 @@ pub(super) struct TreeCursor {
     lower: Bound,
     upper: Bound,
     previous: Option<Vec<u8>>,
+    after_generation: u64,
 }
 
 impl TreeCursor {
     pub(super) fn seek(call: &mut ReadCall, tree: TreeRoot, key: &[u8]) -> Result<Self> {
+        Self::seek_inner(call, tree, key, 0)
+    }
+
+    pub(super) fn recent(call: &mut ReadCall, tree: TreeRoot, after: u64) -> Result<Self> {
+        Self::seek_inner(call, tree, b"", after)
+    }
+
+    fn seek_inner(call: &mut ReadCall, tree: TreeRoot, key: &[u8], after: u64) -> Result<Self> {
         tree.validate()?;
         let path = Path {
             number: tree.page,
+            parent_generation: call.current.generation,
             level: tree.height - 1,
             lower: None,
             upper: None,
@@ -47,14 +58,24 @@ impl TreeCursor {
             lower: None,
             upper: None,
             previous: None,
+            after_generation: after,
         };
         cursor.descend(call, path, Some(key))?;
+        if cursor.leaf.is_none() {
+            cursor.advance_leaf(call)?;
+        }
         Ok(cursor)
     }
 
     fn descend(&mut self, call: &mut ReadCall, mut path: Path, seek: Option<&[u8]>) -> Result<()> {
         loop {
             let page = call.tree_page(&self.tree, path.number)?;
+            if page.generation() > path.parent_generation {
+                return Err(corrupt("tree child is newer than its parent"));
+            }
+            if page.generation() <= self.after_generation {
+                return Ok(());
+            }
             let is_root = self.branches.is_empty();
             if page.level() != path.level
                 || (!is_root && page.level() > 0 && page.count() < 7)
@@ -113,6 +134,7 @@ impl TreeCursor {
             return Err(corrupt("cursor child position"));
         }
         Ok(Path {
+            parent_generation: page.generation(),
             number: if child == 0 {
                 page.left()
             } else {
@@ -146,7 +168,9 @@ impl TreeCursor {
                 )?;
                 self.branches.push(branch);
                 self.descend(call, path, None)?;
-                return Ok(true);
+                if self.leaf.is_some() {
+                    return Ok(true);
+                }
             }
         }
         Ok(false)

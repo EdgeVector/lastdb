@@ -1,0 +1,12 @@
+{
+  "output": "/Users/tomtang/.fkanban/worktrees/lastdb-kanban-write-under-10ms-20261021/docs/proofs/durable-write-integrated-20261022/reviewed-concurrent",
+  "count": 256,
+  "schemas": 64,
+  "clients": 4,
+  "batch_size": 8,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/wi.CYgYZH/h3",
+  "binary_sha256": "18b61d57b703ecb0b676fcfd52aa1e2604bf87bba6b273e3e9e9587abdc70871",
+  "generated_data_only": true,
+  "auto_maintenance": true,
+  "explicit_compaction": true
+}

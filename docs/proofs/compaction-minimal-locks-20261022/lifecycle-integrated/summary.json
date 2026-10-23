@@ -1,0 +1,9 @@
+{
+  "all_owned_processes_stopped": true,
+  "complete": true,
+  "data_retained_for_review": true,
+  "error": null,
+  "expected_live_records": 4090,
+  "home": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml3.f9EivA/home",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/ml3.f9EivA"
+}

@@ -1,0 +1,12 @@
+{
+  "outcome": "old serial cleanup removed the empty active journal stream directory",
+  "binary_source": "e6a68235d",
+  "completed_native_foreground_scopes": 836,
+  "seed_saved_unix_us": 1792638974210222,
+  "active_stream_directory_exists": false,
+  "current_receipt_exists": true,
+  "current_dependency_files_checked": 8,
+  "current_dependency_files_missing": 0,
+  "graceful_shutdown_proved": false,
+  "restart_refused_missing_directory": true
+}

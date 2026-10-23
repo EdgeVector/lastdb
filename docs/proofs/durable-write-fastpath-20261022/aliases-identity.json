@@ -1,0 +1,15 @@
+{
+  "source": "abab443a97f6c4aedbe1eb469c21dbc16f519427",
+  "binary_sha256": "18b61d57b703ecb0b676fcfd52aa1e2604bf87bba6b273e3e9e9587abdc70871",
+  "baseline_sha256": "b9506269d266b4b51c688a817c0dca293c83c696cf4e6b180cd2e38e7937408c",
+  "scratch": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/fw.lR8wYg",
+  "uid": 501,
+  "load_before": [
+    4.2919921875,
+    4.7646484375,
+    4.697265625
+  ],
+  "product_source_diff": "",
+  "compiler_exclusion": true,
+  "other_host_work_controlled": false
+}

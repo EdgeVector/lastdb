@@ -78,7 +78,7 @@ fn map_coordinate(object: uuid::Uuid, page: u64) -> Result<Coordinate> {
     Ok(Coordinate {
         kind: 3,
         object,
-        part: u32::try_from(page / 512)
+        part: u32::try_from(page / crate::disk_pack::PAGES_PER_PART)
             .map_err(|_| corrupt("live payload map part exceeds format"))?,
     })
 }

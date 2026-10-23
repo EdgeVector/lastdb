@@ -47,7 +47,7 @@ impl HashKeyEncoding {
 /// (design-lastdb-rangekey-ope-v1). Per-byte OPE **is** byte-prefix preserving
 /// (`ope(prefix)` is a string prefix of `ope(prefix||suffix)`), so RangePrefix
 /// / HashRangePrefix work when scan *and* in-memory apply use storage-form
-/// bounds (see `expand_filter_range_bounds_for_apply`).
+/// bounds (see `filter_range_bounds_for_apply`).
 ///
 /// Explicit `plain` remains a supported unencoded placement choice.
 ///

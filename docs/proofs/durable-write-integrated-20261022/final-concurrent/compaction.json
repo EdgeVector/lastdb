@@ -1,0 +1,6 @@
+{
+  "start_unix_us": 1792729892645303,
+  "end_unix_us": 1792729894206935,
+  "status": 503,
+  "error": "{\"error\":\"compaction_behind\",\"message\":\"compaction_behind: publication changed or the write queue stayed busy across 8 attempts; retry maintenance\",\"retry_after_secs\":2,\"retryable\":true}"
+}

@@ -1,0 +1,14 @@
+{
+  "generated_data_only": true,
+  "owner": "tomtang",
+  "scratch_realpath": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/improved.9bAvXS",
+  "successful_homes": ["a", "b", "c", "d"],
+  "startup_rejected_home": "traced",
+  "final_daemon_pids": [9944, 10202, 19993, 31731],
+  "all_successful_final_exit_codes": 0,
+  "all_successful_final_flush_ok": true,
+  "owned_daemons_absent_before_removal": true,
+  "scratch_removal_exit_code": 0,
+  "primary_or_archive_access": false,
+  "receipts_preserved": true
+}

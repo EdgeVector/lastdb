@@ -50,18 +50,19 @@ impl ReferenceCache {
 /// A pending extent has at most u32::MAX blocks; an overflow chain has at most
 /// five pages. This ceiling exceeds every valid pending ledger plus every page
 /// of 65536 private parts. It therefore adds no post-ack resource restriction.
-const MAX_PUBLICATION_WORK: u64 =
-    MAX_REFERENCE_CHANGES as u64 * (u32::MAX as u64 + 5) + MAX_DEPENDENCIES as u64 * 512;
-/// An old uncounted root is collected during writer open, before memory ack.
-const MAX_BOOTSTRAP_WORK: u64 = 67_108_864;
-/// A complete constructed snapshot has at most 65536 parts of 512 pages each.
+const MAX_PUBLICATION_WORK: u64 = MAX_REFERENCE_CHANGES as u64 * (u32::MAX as u64 + 5)
+    + MAX_DEPENDENCIES as u64 * super::PAGES_PER_PART;
+/// A complete snapshot has at most 65536 parts of 512 pages each.
 /// Even ignoring packed-page offsets, a locator leaf fits at most 97 values
 /// (40 descriptor bytes plus 128 value bytes); any page fits at most 409 keys.
 /// Charge a maximal u32 block extent per value, five overflow pages per key,
 /// each key visit, and the page itself. This loose bound remains below u64::MAX
-/// and does not add the legacy-open quota to a full build or compaction.
+/// for graphs created by valid writers: nonempty tree pages have one selected
+/// path, while directory entries may share only the empty allocator template.
+/// It imposes no separate legacy-open, directory, or record quota; bounded
+/// caches and page-local ledgers limit retained memory.
 const MAX_SEED_WORK: u64 = MAX_DEPENDENCIES as u64
-    * 512
+    * super::PAGES_PER_PART
     * ((super::PAGE_BYTES / (40 + 128)) as u64 * u32::MAX as u64
         + (super::PAGE_BYTES / 40) as u64 * 6
         + 2);
@@ -203,13 +204,6 @@ impl Work {
         Self {
             steps: 0,
             limit: MAX_PUBLICATION_WORK,
-        }
-    }
-
-    fn bootstrap() -> Self {
-        Self {
-            steps: 0,
-            limit: MAX_BOOTSTRAP_WORK,
         }
     }
 

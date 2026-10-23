@@ -95,7 +95,7 @@ impl MutationManager {
             .await
     }
 
-    /// Name each accepted tip spelling and the current atom placement candidate.
+    /// Name the exact tip key and the current atom placement.
     fn path_sources(
         &self,
         tip: &ChangedTip,
@@ -104,14 +104,13 @@ impl MutationManager {
     ) -> Result<Vec<String>, SchemaError> {
         let atoms = self.db_ops.atoms();
         let codec = atoms.key_codec_for_molecule(&tip.molecule)?;
-        let mut sources: Vec<_> = codec
-            .api_hash_range_record_keys_for_read(&tip.molecule, &tip.hash, &tip.range)
-            .map_err(|error| SchemaError::InvalidData(error.to_string()))?
-            .into_iter()
-            .map(|key| crate::schema::types::field::build_storage_key(scope, &key))
-            .collect();
-        sources.push(atom_key.to_owned());
-        Ok(sources)
+        let key = codec
+            .api_hash_range_record_key(&tip.molecule, &tip.hash, &tip.range)
+            .map_err(|error| SchemaError::InvalidData(error.to_string()))?;
+        Ok(vec![
+            crate::schema::types::field::build_storage_key(scope, &key),
+            atom_key.to_owned(),
+        ])
     }
 
     /// Fetch preferred targets, retaining each body's certified actual copy.
