@@ -127,4 +127,3 @@ counts do not depend on the load.
 Write latency with the worker on or off differs by less than the round-to-round spread of about 10 percent
 (`durable`, 1 operation, 2 clients: median 2,436 ms before, 2,510 ms after; default acknowledgement, 10 operations,
 4 clients: 5,418 ms before, 5,394 ms after).
-

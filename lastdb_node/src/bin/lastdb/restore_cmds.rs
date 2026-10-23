@@ -119,23 +119,13 @@ pub(super) fn restore_command_inner_with_cache(
     let homes = phases::resolve_homes(data_dir, into, &flavor)?;
     let mut source = phases::resolve_source(&homes, &flavor)?;
     let identity = phases::load_identity(&homes, &source, api_url, env)?;
-    if phases::try_restore_cloud_generation(
-        &homes,
-        &mut source,
-        &identity,
-        &flavor,
-        json_only,
-        progress,
-    )? {
-        return Ok(());
-    }
-    let remote_descriptor = phases::discover_remote_descriptor(&flavor, &identity, &source)?;
+    phases::require_legacy_cloud_generation(&identity, &flavor)?;
+    let remote_descriptor = phases::discover_remote_descriptor(&flavor, &identity)?;
     let source_db_hash = phases::source_db_hash(&source, remote_descriptor.as_ref());
+    let options = phases::destination_options(&homes, &identity, remote_descriptor.as_ref())?;
     let data_path = phases::prepare_destination(&homes, &source, &identity)?;
-    let store =
-        phases::open_destination_store(&homes, &identity, remote_descriptor.as_ref(), &data_path)?;
-    let mut clients = phases::build_cloud_clients(&identity, &source_db_hash)?;
-    clients.auth = phases::bind_generation_reader(&clients.auth, &source)?;
+    let store = phases::open_destination_store(&homes, options, &data_path)?;
+    let clients = phases::build_cloud_clients(&identity, &source_db_hash)?;
     let engine = phases::build_engine(&identity, &clients, &store)?;
     let resume_report = source.resume_report.take();
     let applied = phases::Apply {
@@ -152,7 +142,6 @@ pub(super) fn restore_command_inner_with_cache(
         progress,
     }
     .run(resume_report)?;
-    let continuation = phases::verify_legacy_continuation(&clients, &source)?;
     let remote_ready = phases::finalize_destination(
         &homes,
         &flavor,
@@ -160,20 +149,7 @@ pub(super) fn restore_command_inner_with_cache(
         remote_descriptor.as_ref(),
         &source_db_hash,
     )?;
-    let remote_ready = merge_restore_continuation(remote_ready, continuation);
     phases::render_report(&homes, &flavor, &applied, remote_ready, json_only)
-}
-
-fn merge_restore_continuation(
-    ready: Option<serde_json::Value>,
-    continuation: Option<serde_json::Value>,
-) -> Option<serde_json::Value> {
-    ready.map(|mut ready| {
-        if let Some(continuation) = continuation {
-            ready["cloud_continuation"] = continuation;
-        }
-        ready
-    })
 }
 
 #[path = "restore_guards.rs"]

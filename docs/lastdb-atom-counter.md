@@ -36,7 +36,7 @@ and of a file blob.
 | Record | Key | Collection | Holds |
 |---|---|---|---|
 | Atom body | `atom:{uuid}\0b` | `atoms` | the value |
-| Atom counter | `atom:{uuid}\0c` | `atoms` | `{"v":1,"refs":N,"blobs":[...],"sz":[a,b],"suspect":true}`; `blobs`, `sz` and `suspect` appear only when set |
+| Atom counter | `atom:{uuid}\0c` | `atoms` | `{"v":1,"refs":N,"blobs":[...],"sz":[a,b],"src":"source-schema","suspect":true}`; optional values appear only when set |
 | Molecule header | `mh:{M}` | `tips` | `slots` and `records` counters |
 | Binding counter | `mref:v1:n:{target}` | `molecule_ref_edges` | `bindings` |
 | Binding record | `mref:v1:e:{target}\0{source}` | `molecule_ref_edges` | one per schema field, protein member, or catalog entry |
@@ -52,6 +52,8 @@ and of a file blob.
 its prefix before the key. The first NUL ends the hash, so the body and the
 counter of one atom share one hash group, and a purge touches one group for
 each atom. A counter holds `suspect` only after a planner found a fault.
+The optional `src` value retains the atom's source schema for a usage debit after a protein peer removes its last reference.
+An older counter without `src` makes schema usage state incomplete; the code does not guess its owner.
 
 Details per family: `docs/lastdb-molecule-counters.md`,
 `docs/lastdb-blob-counter.md`, `docs/lastdb-time-queue.md`.

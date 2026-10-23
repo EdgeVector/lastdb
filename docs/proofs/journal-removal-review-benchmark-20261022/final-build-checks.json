@@ -1,0 +1,60 @@
+{
+  "build_command": "cargo build --locked --release -p lastdb_node --bin lastdbd --bin lastdb",
+  "build_environment": {
+    "CARGO_TARGET_DIR": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target",
+    "package_features": "lastdb_node defaults: sentry-telemetry,purging-allocator",
+    "profile": "release"
+  },
+  "build_scratch_owner": {
+    "device": 16777231,
+    "inode": 1501069229,
+    "owner_uid": 501,
+    "primary_data": false,
+    "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK",
+    "run_id": "057eb65885504f358df8a53d7fbea071",
+    "version": 1
+  },
+  "build_steps": [
+    {
+      "argv": [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--lib",
+        "--bins",
+        "--locked",
+        "--exclude",
+        "generate_validated_schema_org_seeds",
+        "--exclude",
+        "schema_service_worker",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "end_unix_ns": 1792700104844464000,
+      "start_unix_ns": 1792700069432544000
+    },
+    {
+      "argv": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "lastdb_node",
+        "--bin",
+        "lastdbd",
+        "--bin",
+        "lastdb"
+      ],
+      "end_unix_ns": 1792700503710498000,
+      "start_unix_ns": 1792700104868554000
+    }
+  ],
+  "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+  "complete": true,
+  "driver_sha256": "cb1037e2fe835168b90fbd9a2571b841343fb8580d081955434c5163a56e34b4",
+  "product_source_clean": true,
+  "revision": "5919abbfbf2263993ea99700b73bd9c8d43d689b",
+  "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)"
+}

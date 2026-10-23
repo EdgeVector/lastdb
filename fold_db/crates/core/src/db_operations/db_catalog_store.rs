@@ -10,7 +10,7 @@ use crate::storage::{StorageError, TypedKvStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-mod cloud_purge_membership;
+mod membership;
 mod memory;
 
 /// Sentinel local storage prefix for the legacy unprefixed personal instance.

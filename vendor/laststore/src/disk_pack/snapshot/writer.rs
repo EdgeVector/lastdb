@@ -1,7 +1,5 @@
 use super::admission::AdmissionLedger;
-use super::{
-    PreparedMutation, SnapshotMutation, SnapshotPressure, SnapshotQuote, SnapshotReservation,
-};
+use super::{PreparedMutation, SnapshotMutation, SnapshotQuote, SnapshotReservation};
 use crate::disk_pack::pack_write::PackWriter;
 use crate::disk_pack::write_lock::WriteLock;
 use crate::disk_pack::{
@@ -94,11 +92,6 @@ impl SnapshotWriter {
         previous.validate(&self.admission, previous.quote())?;
         self.admission
             .reserve(quote, previous.created(), Some(previous))
-    }
-
-    /// Pending owned work only, never an on-disk replay suffix.
-    pub fn pressure(&self) -> Result<SnapshotPressure> {
-        self.admission.pressure()
     }
 
     /// Commit one complete batch with one receipt and root, then finish durability.

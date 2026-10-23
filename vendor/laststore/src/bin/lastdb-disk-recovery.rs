@@ -12,11 +12,14 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn main() -> ExitCode {
     if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
         println!("usage: lastdb-disk-recovery <backup|restore> --home PATH --backup PATH");
-        println!("       lastdb-disk-recovery <convert|reverse|finish-conversion> --home PATH --target PATH");
+        println!("       lastdb-disk-recovery finish-conversion --home PATH --target PATH");
         println!("backup: explicit native root; export its complete snapshot to a new bundle");
         println!("restore: verify the bundle and create a new native root; no source required");
         println!("backup/restore include data only; retain the original node identity and encryption keys separately");
-        println!("convert/reverse: stopped source only; create a new destination and seal the old source");
+        println!(
+            "finish-conversion: complete an existing forward fence; no source store is opened"
+        );
+        println!("generic convert and legacy reverse conversion are retired");
         return ExitCode::SUCCESS;
     }
     match run() {
@@ -32,15 +35,7 @@ fn options() -> Result<(String, PathBuf, PathBuf)> {
     let invalid = |message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
     let mut args = std::env::args().skip(1);
     let command = args.next().ok_or_else(|| invalid("command required"))?;
-    if ![
-        "backup",
-        "restore",
-        "convert",
-        "reverse",
-        "finish-conversion",
-    ]
-    .contains(&command.as_str())
-    {
+    if !["backup", "restore", "finish-conversion"].contains(&command.as_str()) {
         return Err(invalid("unknown command").into());
     }
     let (mut home, mut backup) = (None, None);
@@ -68,28 +63,6 @@ fn run() -> Result<()> {
         println!("{}", json!({"command":command,"complete":true}));
         return Ok(());
     }
-    if command == "convert" || command == "reverse" {
-        stopped(&home)?;
-        let output = if command == "convert" {
-            let source = laststore::LastStore::open(&home)?;
-            let receipt = source.prepare_native_conversion(&backup)?.commit()?;
-            json!({"copied_records":receipt.copied_records,"catchup_keys":receipt.catchup_keys,
-                "source_csn":receipt.source_csn,"generation":receipt.generation,"frontier":receipt.frontier})
-        } else {
-            let receipt = laststore::disk_pack::conversion::reverse_to_legacy(
-                &DiskHome::open(&home)?,
-                &backup,
-            )?;
-            json!({"records":receipt.records,"stored_bytes":receipt.stored_bytes,
-                "generation":receipt.generation,"frontier":receipt.frontier})
-        };
-        println!(
-            "{}",
-            json!({"command":command,"complete":true,"source_sealed":true,
-            "receipt":output,"elapsed_nanos":started.elapsed().as_nanos()})
-        );
-        return Ok(());
-    }
     let receipt = if command == "backup" {
         create_backup(&DiskHome::open(&home)?, &backup)?
     } else {
@@ -101,35 +74,5 @@ fn run() -> Result<()> {
         "frontier":receipt.frontier,"files":receipt.files,"bytes":receipt.bytes,
         "elapsed_nanos":started.elapsed().as_nanos(),"complete":true,"includes_identity":false})
     );
-    Ok(())
-}
-
-fn stopped(home: &std::path::Path) -> Result<()> {
-    let home = std::fs::canonicalize(home)?;
-    for root in [Some(home.as_path()), home.parent()].into_iter().flatten() {
-        if root.join("current-session.json").try_exists()? {
-            return Err("source has a current node session; use a clean stopped source".into());
-        }
-        if root.join("sessions.jsonl").try_exists()? {
-            let file = std::fs::File::open(root.join(".shutdown_flush_ready"))?;
-            if file.metadata()?.len() > 4096 {
-                return Err("shutdown flush receipt exceeds limit".into());
-            }
-            let value: serde_json::Value =
-                serde_json::from_reader(std::io::Read::take(file, 4097))?;
-            if value["version"] != 1
-                || value["flush_ok"] != true
-                || value["pid"].as_u64().unwrap_or(0) == 0
-                || value["start_ts"].as_u64().unwrap_or(0) == 0
-            {
-                return Err("source has no valid final shutdown flush receipt".into());
-            }
-        }
-        for name in ["folddb.sock", "folddb-full.sock"] {
-            if std::os::unix::net::UnixStream::connect(root.join(name)).is_ok() {
-                return Err("source database socket is active".into());
-            }
-        }
-    }
     Ok(())
 }

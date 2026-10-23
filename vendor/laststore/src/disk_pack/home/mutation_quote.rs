@@ -51,7 +51,7 @@ impl MutationQuote {
 }
 
 impl HomeDescriptor {
-    /// Quote the complete staged store batch before any append or publication.
+    /// Quote the complete staged store batch before its snapshot commit.
     pub fn quote_mutation(&self, operations: &[HomeMutation]) -> Result<MutationQuote> {
         self.quote_mutation_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
     }

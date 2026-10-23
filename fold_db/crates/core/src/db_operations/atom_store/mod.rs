@@ -22,7 +22,7 @@
 //! - [`molecule_ref_edges`], [`molecule_bindings`], [`molecule_counters`] — molecule
 //!   binding records and the molecule counters
 //! - [`key_format`] — the key format marker of a new empty home
-//! - [`hard_erase_journal`], [`keep_small`] — maintenance passes
+//! - [`erase_meters`], [`keep_small`] — maintenance passes
 
 mod atoms;
 pub(crate) mod blob_counter;
@@ -33,8 +33,8 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod erase_meters;
 mod filter;
-mod hard_erase_journal;
 mod helpers;
 mod keep_small;
 pub(crate) mod key_format;
@@ -104,8 +104,7 @@ use std::{
 };
 
 use super::keep_small::{
-    KeepSmallHardEraseDebit, KeepSmallHardEraseTotals, KeepSmallMeters, KeepSmallSchemaShard,
-    MeterDomainTrust, MeterTrustPayload,
+    KeepSmallMeters, KeepSmallSchemaShard, MeterDomainTrust, MeterTrustPayload,
 };
 
 async fn lock_target_stripes(
@@ -209,23 +208,6 @@ pub struct AtomStore {
     /// Serialize whole-snapshot writes so an older export cannot land after a
     /// newer export under concurrent molecule commits.
     keep_small_persist_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Small durable cumulative debits since rollout. Snapshot writes use
-    /// this value as a checkpoint under the persist lock.
-    keep_small_hard_erase_totals: Arc<std::sync::Mutex<KeepSmallHardEraseTotals>>,
-    /// Commit sequence is assigned under the snapshot persist lock.
-    keep_small_hard_erase_next_seq: Arc<AtomicU64>,
-    /// Highest committed debit applied to the live projection.
-    keep_small_hard_erase_applied_seq: Arc<AtomicU64>,
-    /// A failed or ambiguous journal commit blocks new deletes until repair.
-    keep_small_hard_erase_fenced: Arc<AtomicBool>,
-    /// A dirty boot left journal rows that a full store repair must resolve.
-    keep_small_hard_erase_replay_skipped: Arc<AtomicBool>,
-    /// Incremented when a new destructive intent becomes durable.
-    keep_small_hard_erase_mutation_epoch: Arc<AtomicU64>,
-    /// Current-process destructive intents that a repair must not cross.
-    keep_small_hard_erase_pending: Arc<AtomicU64>,
-    /// Pending intents found on boot. Only a full repair may retire them.
-    keep_small_hard_erase_orphaned: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Totals and recent faults of the atom counter planner.
     counter_events: Arc<counter::CounterEvents>,
     /// Totals, the last queue reading and recent faults of the blob counters.

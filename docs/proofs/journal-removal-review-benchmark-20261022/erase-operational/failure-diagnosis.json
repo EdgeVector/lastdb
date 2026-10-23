@@ -1,0 +1,10 @@
+{
+  "classification": "helper-assumption-failure",
+  "hash_peer_live_records_after_erase": 256,
+  "hash_peer_values_unchanged_from_seed": true,
+  "next_capture": "Batch explicit known-key deletes for both layouts; retain strict post-delete meter checks",
+  "product_failure_established": false,
+  "receipt_sha256": "2bf2ced1d6e692d721852a9c65cc0b8549b7188c674eddd1aa534bf825b58e1f",
+  "source_contract": "expand_protein_hashrange_erasures derives HashRange peers only",
+  "source_live_records_after_erase": 127
+}

@@ -73,6 +73,13 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             format!("layout file is missing: {}", layout_path.display()),
         )
     })?;
+    let descriptor = laststore::describe_home(&data_dir)?.ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "layout descriptor is missing")
+    })?;
+    if descriptor.layout_mode == laststore::LayoutMode::SegmentLog {
+        eprintln!("refusing: legacy SegmentLog maintenance is retired");
+        return Ok(ExitCode::from(2));
+    }
     if !layout.lines().any(|line| line == "packaging=plain") {
         eprintln!("refusing: packaging is not plain");
         return Ok(ExitCode::from(2));

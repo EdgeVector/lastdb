@@ -20,15 +20,15 @@ impl AuthClient {
             db_claim: Arc::new(tokio::sync::Mutex::new(None)),
             db_auto_claim: true,
             request_timeout: DEFAULT_AUTH_REQUEST_TIMEOUT,
-            cloud_purge_peer: None,
-            cloud_purge_peer_error: None,
-            cloud_adoption_read: None,
+            cloud_generation_state: Arc::new(std::sync::Mutex::new(
+                super::observed_generation::ObservedAccounts::default(),
+            )),
+            cloud_generation_error: None,
         }
     }
 
     /// Builder variant: override the per-request timeout (default
-    /// [`DEFAULT_AUTH_REQUEST_TIMEOUT`]). Primarily for tests that need a short
-    /// deadline to exercise the black-hole path without waiting 30s.
+    /// [`DEFAULT_AUTH_REQUEST_TIMEOUT`]).
     pub fn with_request_timeout(mut self, request_timeout: Duration) -> Self {
         self.request_timeout = request_timeout;
         self

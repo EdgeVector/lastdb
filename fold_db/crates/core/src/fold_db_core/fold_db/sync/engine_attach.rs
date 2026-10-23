@@ -1,5 +1,5 @@
 use super::super::FoldDB;
-use super::cloud_purge_source::prepare_photograph_cut_components;
+use super::photograph_cut::prepare_photograph_cut_components;
 use std::sync::Arc;
 
 impl FoldDB {

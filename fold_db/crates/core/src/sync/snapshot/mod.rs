@@ -9,7 +9,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-pub(crate) mod cloud_purge;
 mod current_format;
 mod reports;
 mod restore_scan;

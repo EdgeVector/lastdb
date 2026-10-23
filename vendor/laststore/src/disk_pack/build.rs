@@ -155,7 +155,7 @@ impl ArtifactBuilder {
         }
         let data = self.pack.finish()?;
         self.dependencies
-            .add_payload(data.object, 0, data.data_parts, data.map_pages)?;
+            .add_payload(data.object, data.data_parts, data.map_pages)?;
         if let Some(locators) = self.locators {
             let output = locators.finish()?;
             self.dependencies.add_tree(&output.tree, output.parts)?;

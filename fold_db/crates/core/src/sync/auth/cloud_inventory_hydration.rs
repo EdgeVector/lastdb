@@ -92,7 +92,7 @@ impl AuthClient {
             value
         };
         control["replacement_manifest"] = (*manifest).clone();
-        // Only the immutable identity survives status, job and peer journals.
+        // Retain only the immutable identity in the validated control response.
         control["replacement_manifest_ref"] = serde_json::to_value(reference)?;
         Ok(())
     }

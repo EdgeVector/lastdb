@@ -5,7 +5,6 @@ pub(super) struct PreparedCommit {
     batch_bytes: u64,
     reservation: laststore::disk_pack::home::MutationReservation,
     space: SpaceReservation,
-    accepted_ms: u64,
 }
 
 /// New operations and added space; the accepted prefix stays in the queue.
@@ -158,12 +157,6 @@ impl PackRuntime {
             ));
         }
         let writer = self.writer.lock().expect("native snapshot writer");
-        let accepted_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|error| StorageError::BackendError(error.to_string()))?
-            .as_millis()
-            .try_into()
-            .map_err(|_| StorageError::BackendError("native accepted time overflow".into()))?;
         let limit = writer.current().batch_operation_limit();
         let batch_bytes = prefix_batch_bytes(previous, &operations, limit)?;
         let reservation = match previous {
@@ -187,7 +180,6 @@ impl PackRuntime {
             batch_bytes,
             reservation,
             space,
-            accepted_ms,
         })
     }
 
@@ -211,7 +203,6 @@ impl PackRuntime {
             batch_bytes: _,
             reservation,
             space,
-            accepted_ms,
         } = prepared;
         // A direct durable publication consumes its bodies below. Keep only
         // membership coordinates; queued flushes already published them.
@@ -230,7 +221,7 @@ impl PackRuntime {
                 .collect()
         };
         let mut writer = self.writer.lock().expect("native snapshot writer");
-        let result = writer.commit_mutation(operations, accepted_ms, reservation);
+        let result = writer.commit_mutation(operations, reservation);
         let publication = match result {
             Ok(publication) => {
                 self.parts

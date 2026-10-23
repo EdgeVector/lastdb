@@ -151,11 +151,28 @@ The snapshot commit does not activate cloud upload, import, or a sync-only mutat
 Atomic capture of a snapshot and its included cloud sync boundary remains separate work.
 No claim here establishes cloud retention, import idempotence, or cloud recovery.
 
-The logical hard-erase meter progress remains ordinary KV state.
-`hard_erase_journal.rs` stores aggregate meter debit intents through the selected KV backend.
-Those records contain no application payload, atom UUID, tip key, or deleted content.
-Their restart use restores meter trust and counts.
-They are not the removed native payload journal or another authority for native snapshot selection.
+Erase accounting commits its final aggregate snapshot with the erase in one native batch.
+The live debit follows the durable root.
+No pending debit, commit sequence, replay record, or journal prune remains.
+The meter format is version 2. Older snapshots keep their values but lose their trust claim.
+Ordinary final deletion audit facts remain in the snapshot.
+An atom counter retains the source schema for a debit when a protein peer removes the last reference.
+An older counter without that source makes the schema meter state incomplete; the code does not guess its owner.
+
+Erase preparation checks an 8 MiB aggregate copy quote before each full-state copy.
+One request retains one aggregate candidate; each new chunk replaces that candidate.
+The code allows at most eight aggregate working allocations, with a conservative 64 MiB total quote.
+Post-root debit effects have a separate 8 MiB cap per request.
+The native batch retains its existing 128 MiB cap for stored bytes and preparation overhead.
+A cap refusal returns `WriteResourceLimit`; the complete private erase batch remains uncommitted.
+These caps can refuse an erase on a home with a large aggregate meter state.
+
+The journal-based cloud repair, selected-device replacement, peer adoption, and atom-rewrite commands are removed.
+Startup refuses retired repair state without a read, replay, or change of the retired records.
+Normal session diagnostics can still change files outside that state and the native snapshot.
+Cloud generations that need the removed adoption workflow receive an explicit refusal.
+The sync mutation log and authenticated retired sync source records remain.
+Those records serve sync and never select the local recovery root.
 
 ## Source map
 
@@ -169,4 +186,4 @@ They are not the removed native payload journal or another authority for native 
 | Exact local bundle and restore | `vendor/laststore/src/disk_pack/backup/` |
 | Generic conversion format fence | `vendor/laststore/src/disk_pack/home/build.rs` |
 | Native cloud activation refusal | `lastdb_node/src/host/boot.rs`, `lastdb_node/src/cloud/resume.rs` |
-| Logical meter progress | `fold_db/crates/core/src/db_operations/atom_store/hard_erase_journal.rs` |
+| Atomic erase accounting | `fold_db/crates/core/src/db_operations/atom_store/erase_meters.rs` |

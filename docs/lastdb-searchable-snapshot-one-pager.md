@@ -1,13 +1,23 @@
 # LastDB: searchable snapshot and sync-only mutation log
 
-Revised 2026-10-22. The local snapshot writer is implemented in this branch, based on main `6d8aa0d57`.
+Revised 2026-10-22. The local snapshot writer merged in PR 268 as `4118c7baa`.
+The follow-up in PR 271 removes the separate erase recovery records and journal-based cloud repair.
 The sync contract below remains a design requirement. Native cloud activation stays disabled.
 
 LastDB needs two durable data structures: a local searchable snapshot for current data, and a mutation log for sync. Each structure can use several files. The snapshot supplies local reads and crash recovery. The mutation log retains changes after the latest confirmed cloud snapshot. Devices can hold different local snapshots and still exchange those changes. Ordinary reads and local recovery never search or replay the mutation log.
 
 This branch removes the internal journal, its tail files, rotation, and replay. The snapshot writer creates ordinary payload files and changed search pages. It writes one generation receipt and publishes one root for each complete stored batch. It retains the grouped macOS disk barriers from PR 266 and the concurrent file cleanup from PR 267. The new operational receipts cover generated records, ranges, compaction, reopen, and a forced process stop. They establish no power-loss or performance result.
 
-The later matched benchmark uses three fresh-home pairs against main `6d8aa0d57`. Durable-single request p50 falls from 47.9 to 29.3 ms. Process write bytes per durable update fall from 900.9 to 716.8 KiB. Compaction completes sooner, but the concurrent write delay remains about one second in five of six probes. Automatic maintenance is off in both versions. The [benchmark report](proofs/journal-removal-benchmark-20261022/RESULTS.md) states the workload, ranges, and limits.
+The second review also removes erase recovery records and journal-based cloud repair.
+Erase accounting stores the final aggregate values with the delete in one snapshot commit.
+The live debit follows the durable root. No debit replay or pending operation remains.
+The cloud-repair commands, peer adoption records, and restart workers are removed.
+Retired repair state and cloud generations that need adoption receive an explicit refusal.
+The sync mutation log and authenticated retired sync source records remain.
+
+The repeat benchmark uses three fresh-home pairs against the original journal-backed baseline `6d8aa0d57`. Durable-single request p50 falls from 86.1 to 48.9 ms. Process write bytes per durable update fall from 912.0 to 723.3 KiB. Batch latency shows mixed results.
+
+The focused compaction write delay remains about 2.2 seconds. Automatic maintenance is off in both versions. The [repeat report](proofs/journal-removal-review-benchmark-20261022/RESULTS.md) separates these results from the [first report](proofs/journal-removal-benchmark-20261022/RESULTS.md). Neither comparison isolates the extra erase-meter removal.
 
 The snapshot contains current molecule keys, atom references, required bodies, and search pages. A read checks accepted memory first, then fetches missing logical records by key. A range supplies one hash and ordered bounds. It merges bounded snapshot pages with newer memory changes and deletes. Each request captures a fresh view; ascending keyed continuations use the last key, while other forms retain their current offset rules. Optional selected-schema key preload remains supported under its separate budget; neither read route uses the sync log.
 

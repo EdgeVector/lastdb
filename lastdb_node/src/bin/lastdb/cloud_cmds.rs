@@ -4,8 +4,6 @@ use super::*;
 mod backup_gc;
 #[path = "cloud_cmds/billing.rs"]
 mod billing;
-#[path = "cloud_cmds/cloud_purge_dispatch.rs"]
-mod cloud_purge_dispatch;
 #[path = "cloud_cmds/intent.rs"]
 mod intent;
 #[path = "cloud_cmds/inventory.rs"]
@@ -40,12 +38,6 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         | CloudCommand::RecoverDevCredentialsHome { .. } => {
             unreachable!("handled before home resolution")
         }
-        CloudCommand::PurgeResync { action } => cloud_purge_dispatch::run(&home, action),
-        CloudCommand::RewriteDeletedAtoms {
-            plan,
-            execute,
-            json,
-        } => runtime.block_on(backup_atom_rewrite::run(&home, &plan, execute, json)),
         action @ (CloudCommand::SetupPaid { .. }
         | CloudCommand::Upgrade { .. }
         | CloudCommand::FixBilling { .. }

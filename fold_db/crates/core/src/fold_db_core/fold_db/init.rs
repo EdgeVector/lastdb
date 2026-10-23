@@ -221,7 +221,7 @@ impl FoldDB {
         let mutation_manager = Arc::new(MutationManager::new(
             Arc::clone(&db_ops),
             Arc::clone(&schema_manager),
-            Arc::clone(&signer),
+            signer,
             Arc::clone(&pending_tasks),
             search_outbox_inbox,
             author_clock_state,
@@ -258,7 +258,6 @@ impl FoldDB {
             mutation_log_capture,
             preserve_retired_restore_intents: false,
             config_store: std::sync::RwLock::new(None),
-            signer,
         })
     }
 }

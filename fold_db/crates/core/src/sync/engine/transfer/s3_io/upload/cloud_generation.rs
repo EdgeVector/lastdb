@@ -13,7 +13,7 @@ impl SyncEngine {
         } else {
             let outcomes =
                 futures::stream::iter(entries.iter().cloned().map(|mut entry| async move {
-                    crate::sync::cloud_purge_peer::scope_alias::rebind_entry(
+                    crate::sync::scope_alias::rebind_entry(
                         self.store.as_ref(),
                         &target.prefix,
                         &mut entry,
@@ -25,7 +25,7 @@ impl SyncEngine {
                             .await
                             .map_err(SyncError::Storage)?;
                     }
-                    crate::sync::cloud_purge_peer::scope_alias::wire_entry(
+                    crate::sync::scope_alias::wire_entry(
                         self.store.as_ref(),
                         &target.prefix,
                         &mut entry,

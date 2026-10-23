@@ -1,0 +1,10 @@
+{
+  "disk_cli_build_revision": "8f5e6515fbc4fd0c623bec18ea9fe8f94388596e",
+  "final_node_revision": "5919abbfbf2263993ea99700b73bd9c8d43d689b",
+  "subtree": "vendor/laststore",
+  "disk_cli_source_tree": "140cbad0392d03466e9d44b793873a093b8f9978",
+  "final_node_source_tree": "140cbad0392d03466e9d44b793873a093b8f9978",
+  "source_bytes_equal": true,
+  "check": "git rev-parse 8f5e6515f:vendor/laststore 5919abbfb:vendor/laststore",
+  "scope": "The physical reader uses the exact final vendor source; its separate binary and build revision remain in disk-build.json"
+}

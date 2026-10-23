@@ -1,4 +1,3 @@
-// lint:file-size-ok verbatim move out of the 2.6k-line atom_store/mod.rs; one AtomStore theme per file, split further when next touched
 //! Keep-small projection: hydrate, debounced persist, and snapshot repair.
 
 use super::*;
@@ -23,34 +22,12 @@ pub(super) const KEEP_SMALL_DISTRUST_KEY: &str = "keep_small:hydrate_distrust";
 /// Override with `LASTDB_KEEP_SMALL_PERSIST_SECS` (0 = write inline, the
 /// pre-debounce behavior).
 ///
-/// **Never call [`AtomStore::flush_keep_small`] from a write path.** It
-/// bypasses this interval by design (it exists for shutdown and for the rare
-/// hard-erase debit), so a flush after every `persist_keep_small` turns the
-/// debounce back into an inline whole-map write. That is exactly what fold
-/// PR #2127 did on 2026-09-19: the map by then held one counter per
-/// molecule (~7 MB per snapshot on the primary), and every molecule, protein
-/// and schema write appended a fresh copy. Measured on the primary on
-/// 2026-09-21: 6,782 segments, 39 GB, in ONE `metadata` hash group in a day
-/// (~16 GB/hour at fleet write rates). `metadata` has no automatic
-/// compaction, a cold group loads whole, and the first write after boot
-/// pulled that group in, blew the 16 GiB memory guard and restarted the
-/// daemon every 7-17 minutes. `keep_small_persist_stays_debounced_under_a_
-/// molecule_write_burst` in `storage_breakdown.rs` guards the count of
-/// durable writes per burst.
+/// Ordinary writes keep this debounce. Hard erases stage final aggregate
+/// state with their native snapshot batch; shutdown writes the clean stamp.
 pub(super) const KEEP_SMALL_PERSIST_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Env override for [`KEEP_SMALL_PERSIST_INTERVAL`], in whole seconds.
 pub(super) const KEEP_SMALL_PERSIST_INTERVAL_ENV: &str = "LASTDB_KEEP_SMALL_PERSIST_SECS";
-
-#[cfg(debug_assertions)]
-pub(super) fn keep_small_startup_fault(point: &str) -> bool {
-    std::env::var("LASTDB_TEST_KEEP_SMALL_STARTUP_FAULT").as_deref() == Ok(point)
-}
-
-#[cfg(not(debug_assertions))]
-pub(super) fn keep_small_startup_fault(_point: &str) -> bool {
-    false
-}
 
 /// Resolve the debounce interval from the environment, falling back to
 /// [`KEEP_SMALL_PERSIST_INTERVAL`] when unset or unparseable.
@@ -121,52 +98,16 @@ impl AtomStore {
         // A failed read must never leave the constructor's exact default in
         // memory. The caller can still enter the explicit repair constructor.
         self.keep_small.mark_incomplete("snapshot_read_failed");
-        if keep_small_startup_fault("snapshot_get") {
-            return Err(crate::schema::SchemaError::InvalidData(
-                "hydrate keep-small: injected snapshot get failure".to_string(),
-            ));
-        }
         let snap = self.read_keep_small_snapshot(store).await?;
-        let durable_debits = store
-            .get_item::<KeepSmallHardEraseTotals>(
-                crate::db_operations::KEEP_SMALL_HARD_ERASE_TOTALS_KEY,
-            )
-            .await
-            .map_err(|e| {
-                self.keep_small
-                    .mark_incomplete("hard_erase_totals_read_failed");
-                crate::schema::SchemaError::InvalidData(format!(
-                    "hydrate hard-erase meter totals: {e}"
-                ))
-            })?
-            .unwrap_or_default();
-        let journal_checkpoint = snap.as_ref().map_or(0, |(snapshot, _)| {
-            snapshot.hard_erase_journal_checkpoint_seq
-        });
-        let journal = self
-            .read_keep_small_hard_erase_journal(journal_checkpoint)
-            .await?;
-        let latest_seq =
-            self.install_hard_erase_hydrate_state(&durable_debits, &journal, journal_checkpoint)?;
         if let Some((snap, was_legacy_whole_map)) = snap {
-            self.hydrate_from_snapshot(
-                store,
-                snap,
-                was_legacy_whole_map,
-                &durable_debits,
-                &journal,
-                latest_seq,
-            )
-            .await?;
-        } else if durable_debits.by_schema.is_empty()
-            && journal.totals.by_schema.is_empty()
-            && journal.pending_keys.is_empty()
-            && self.main_store_is_empty().await?
+            self.hydrate_from_snapshot(store, snap, was_legacy_whole_map)
+                .await?;
+        } else if self.main_store_is_empty().await?
+            && store.inner().scan_prefix_paged(b"", 1).await?.is_empty()
         {
             self.hydrate_empty_home(store).await?;
         } else {
-            self.hydrate_snapshot_missed(store, &durable_debits, &journal)
-                .await?;
+            self.hydrate_snapshot_missed(store).await?;
         }
         // Every branch above wrote and flushed a durable row whose trust is
         // at most what this process can vouch for, so an earlier failed boot
@@ -203,46 +144,16 @@ impl AtomStore {
         Ok(Some((snapshot, was_legacy_whole_map)))
     }
 
-    /// Seed the in-memory hard-erase totals, sequence counters and orphaned
-    /// intents from the durable totals and the journal. Returns the latest
-    /// journal sequence.
-    fn install_hard_erase_hydrate_state(
-        &self,
-        durable_debits: &KeepSmallHardEraseTotals,
-        journal: &super::hard_erase_journal::HardEraseJournalReplay,
-        journal_checkpoint: u64,
-    ) -> Result<u64, crate::schema::SchemaError> {
-        *self.keep_small_hard_erase_totals.lock().map_err(|_| {
-            crate::schema::SchemaError::InvalidData(
-                "keep-small hard-erase totals lock poisoned".to_string(),
-            )
-        })? = durable_debits.clone();
-        let latest_seq = journal_checkpoint.max(journal.max_seq);
-        self.keep_small_hard_erase_next_seq
-            .store(latest_seq, Ordering::Relaxed);
-        self.keep_small_hard_erase_applied_seq
-            .store(journal_checkpoint, Ordering::Relaxed);
-        *self.keep_small_hard_erase_orphaned.lock().map_err(|_| {
-            crate::schema::SchemaError::InvalidData(
-                "keep-small orphaned intent lock poisoned".to_string(),
-            )
-        })? = journal.pending_keys.iter().cloned().collect();
-        Ok(latest_seq)
-    }
-
-    /// A snapshot exists: import it, replay the hard-erase debits, judge its
+    /// A snapshot exists: import its aggregate values directly, judge its
     /// trust, and re-arm the durable row as "unclean" for this process.
     async fn hydrate_from_snapshot(
         &self,
         store: &Arc<TypedKvStore<dyn KvStore>>,
         snap: crate::db_operations::KeepSmallSnapshot,
         was_legacy_whole_map: bool,
-        durable_debits: &KeepSmallHardEraseTotals,
-        journal: &super::hard_erase_journal::HardEraseJournalReplay,
-        latest_seq: u64,
     ) -> Result<(), crate::schema::SchemaError> {
         let clean_stop = snap.clean_stop;
-        let checkpoint = snap.hard_erase_totals.clone();
+        let supported = snap.version == crate::db_operations::KEEP_SMALL_SNAPSHOT_VERSION;
         self.keep_small.import(snap).map_err(|e| {
             self.keep_small
                 .mark_incomplete(&format!("hydrate_import_failed: {e}"));
@@ -252,13 +163,11 @@ impl AtomStore {
             // Next persist splits the whole-map row into per-schema shards.
             self.keep_small.mark_all_schemas_dirty();
         }
-        self.replay_hard_erase_after_import(
-            clean_stop,
-            &checkpoint,
-            durable_debits,
-            journal,
-            latest_seq,
-        );
+        if !supported {
+            self.keep_small
+                .mark_incomplete("unsupported_meter_snapshot_version");
+            self.keep_small.mark_all_schemas_dirty();
+        }
         // `Some(true)`: written by the shutdown flush, and no boot re-armed
         // it since, so the meters cover every metered write. `None`: a
         // pre-2026-09-21 snapshot, no verdict, as before. `Some(false)`:
@@ -294,64 +203,16 @@ impl AtomStore {
         // row), before any product write can be metered. If it fails
         // the next boot may read a clean stop that this process did not
         // make, so say so.
-        if keep_small_startup_fault("rearm_put") {
-            self.keep_small.mark_incomplete("rearm_put_failed");
-            return Err(crate::schema::SchemaError::InvalidData(
-                "persist keep-small: injected re-arm put failure".to_string(),
-            ));
-        }
         self.write_keep_small_with_clean_stop(false)
             .await
             .inspect_err(|_| {
                 self.keep_small.mark_incomplete("rearm_put_failed");
             })?;
-        if keep_small_startup_fault("rearm_flush") {
-            self.keep_small.mark_incomplete("rearm_flush_failed");
-            return Err(crate::schema::SchemaError::InvalidData(
-                "flush keep-small re-arm: injected failure".to_string(),
-            ));
-        }
         store.inner().flush().await.map_err(|e| {
             self.keep_small.mark_incomplete("rearm_flush_failed");
             crate::schema::SchemaError::InvalidData(format!("flush keep-small re-arm: {e}"))
         })?;
         Ok(())
-    }
-
-    /// Replay the durable hard-erase debits, and the journal when the snapshot
-    /// is trusted, onto the freshly imported meters.
-    fn replay_hard_erase_after_import(
-        &self,
-        clean_stop: Option<bool>,
-        checkpoint: &KeepSmallHardEraseTotals,
-        durable_debits: &KeepSmallHardEraseTotals,
-        journal: &super::hard_erase_journal::HardEraseJournalReplay,
-        latest_seq: u64,
-    ) {
-        let replay_safe =
-            clean_stop == Some(true) && self.keep_small.all_counter_domains_complete();
-        self.replay_keep_small_hard_erase_totals(checkpoint, durable_debits);
-        if replay_safe {
-            self.replay_keep_small_hard_erase_totals(
-                &KeepSmallHardEraseTotals::default(),
-                &journal.totals,
-            );
-            self.keep_small_hard_erase_applied_seq
-                .store(latest_seq, Ordering::Relaxed);
-        } else if !journal.totals.by_schema.is_empty() {
-            // The dirty snapshot can omit later write credits. Its
-            // journal debits cannot be applied against that old base.
-            self.keep_small
-                .mark_incomplete("hard_erase_journal_requires_repair");
-            self.keep_small_hard_erase_replay_skipped
-                .store(true, Ordering::Relaxed);
-        }
-        if !journal.pending_keys.is_empty() {
-            self.keep_small
-                .mark_incomplete("hard_erase_intent_unresolved");
-            self.keep_small_hard_erase_replay_skipped
-                .store(true, Ordering::Relaxed);
-        }
     }
 
     /// No snapshot on a home with no main-store row: nothing could have been
@@ -389,75 +250,13 @@ impl AtomStore {
     async fn hydrate_snapshot_missed(
         &self,
         store: &Arc<TypedKvStore<dyn KvStore>>,
-        durable_debits: &KeepSmallHardEraseTotals,
-        journal: &super::hard_erase_journal::HardEraseJournalReplay,
     ) -> Result<(), crate::schema::SchemaError> {
         self.keep_small.mark_hydrate_missed();
-        if !durable_debits.by_schema.is_empty()
-            || !journal.totals.by_schema.is_empty()
-            || !journal.pending_keys.is_empty()
-        {
-            self.keep_small
-                .mark_incomplete("hard_erase_snapshot_absent");
-            self.keep_small_hard_erase_replay_skipped
-                .store(true, Ordering::Relaxed);
-        }
         self.write_keep_small_with_clean_stop(false).await?;
         store.inner().flush().await.map_err(|e| {
             crate::schema::SchemaError::InvalidData(format!("flush keep-small absent state: {e}"))
         })?;
         Ok(())
-    }
-
-    pub(super) fn replay_keep_small_hard_erase_totals(
-        &self,
-        checkpoint: &KeepSmallHardEraseTotals,
-        durable: &KeepSmallHardEraseTotals,
-    ) {
-        for (schema, before) in &checkpoint.by_schema {
-            if !durable.by_schema.contains_key(schema)
-                && *before != KeepSmallHardEraseDebit::default()
-            {
-                self.keep_small
-                    .mark_incomplete("hard_erase_totals_regressed");
-            }
-        }
-        for (schema, after) in &durable.by_schema {
-            let before = checkpoint
-                .by_schema
-                .get(schema)
-                .copied()
-                .unwrap_or_default();
-            let Some(atom_bytes) = after.atom_bytes.checked_sub(before.atom_bytes) else {
-                self.keep_small
-                    .mark_incomplete("hard_erase_totals_regressed");
-                continue;
-            };
-            let Some(atom_count) = after.atom_count.checked_sub(before.atom_count) else {
-                self.keep_small
-                    .mark_incomplete("hard_erase_totals_regressed");
-                continue;
-            };
-            let Some(tip_bytes) = after.tip_bytes.checked_sub(before.tip_bytes) else {
-                self.keep_small
-                    .mark_incomplete("hard_erase_totals_regressed");
-                continue;
-            };
-            let Some(tip_count) = after.tip_count.checked_sub(before.tip_count) else {
-                self.keep_small
-                    .mark_incomplete("hard_erase_totals_regressed");
-                continue;
-            };
-            let delta = KeepSmallHardEraseDebit {
-                atom_bytes,
-                atom_count,
-                tip_bytes,
-                tip_count,
-            };
-            if delta != KeepSmallHardEraseDebit::default() {
-                self.keep_small.replay_hard_erase_debit(schema, delta);
-            }
-        }
     }
 
     /// Boot continues after a failed keep-small hydrate (Tom, 2026-09-25:

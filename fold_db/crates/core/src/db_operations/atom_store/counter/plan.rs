@@ -29,6 +29,7 @@ pub(super) enum AtomPlan {
     Delete {
         blobs: Vec<String>,
         size: Option<AtomSize>,
+        source_schema: Option<String>,
     },
     /// The counter disagrees with the removal. The batch writes the counter
     /// with `suspect` and keeps the body.
@@ -51,6 +52,7 @@ pub(super) enum SuspectKind {
 pub(super) struct BodyOffer<'a> {
     pub blobs: &'a [String],
     pub size: Option<AtomSize>,
+    pub source_schema: &'a str,
 }
 
 /// Why a plan cannot proceed.
@@ -95,12 +97,14 @@ fn plan_new(
         let blobs = body.map_or_else(Vec::new, |body| body.blobs.to_vec());
         let mut counter = AtomCounter::new(add, blobs);
         counter.size = body.and_then(|body| body.size);
+        counter.source_schema = body.map(|body| body.source_schema.to_string());
         counter.suspect = true;
         return Ok(AtomPlan::Suspect(counter, SuspectKind::CounterAbsent));
     }
     if let Some(body) = body {
         let mut counter = AtomCounter::new(add, body.blobs.to_vec());
         counter.size = body.size;
+        counter.source_schema = Some(body.source_schema.to_string());
         return Ok(AtomPlan::Create(counter));
     }
     Err(PlanError::NoBody)
@@ -141,6 +145,7 @@ fn lower(counter: &AtomCounter, remove: u64) -> AtomPlan {
         return AtomPlan::Delete {
             blobs: counter.blobs.clone(),
             size: counter.size,
+            source_schema: counter.source_schema.clone(),
         };
     }
     AtomPlan::SetCounter(AtomCounter {

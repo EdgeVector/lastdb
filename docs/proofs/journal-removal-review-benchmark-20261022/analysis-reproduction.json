@@ -1,0 +1,7 @@
+{
+  "analysis": "analyze.py --before-revision 6d8aa0d573e91a94fd4fd308a7f0eacca022e852 --after-revision 5919abbfbf2263993ea99700b73bd9c8d43d689b",
+  "summary_before_extra_inventory_compression_sha256": "f19d8991c4bc407dca79727bd427be6033435d052af34acb48bdb1612a684a56",
+  "summary_after_extra_inventory_compression_sha256": "f19d8991c4bc407dca79727bd427be6033435d052af34acb48bdb1612a684a56",
+  "bytes_equal": true,
+  "scope": "The committed compact request evidence and compressed inventories reproduce the identical numerical summary"
+}

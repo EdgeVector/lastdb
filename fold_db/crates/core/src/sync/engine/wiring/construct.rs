@@ -86,7 +86,7 @@ impl SyncEngine {
         cloud_sync_disabled_at: Option<Arc<Mutex<Option<u64>>>>,
     ) -> Self {
         let initial_caps = Self::initial_upload_caps(&config);
-        let auth = Self::auth_with_purge_peer(auth, laststore_backup_source.as_ref(), &device_id);
+        let auth = Self::auth_without_retired_repair(auth, laststore_backup_source.as_ref());
         let backup_progress_enabled = laststore_backup_source.is_some();
         let durable_backup = Self::durable_backup_marker(laststore_backup_source.as_ref());
         let ConstructSlots {
@@ -137,7 +137,6 @@ impl SyncEngine {
             targets,
             target_restore_scopes: Arc::new(Mutex::new(HashMap::new())),
             target_config_lock: Arc::new(Mutex::new(())),
-            cloud_share_refresh_lock: Mutex::new(()),
             target_config_generation: AtomicU64::new(1),
             scoped_upload_turn: AtomicU64::new(0),
             download_cursors: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -341,24 +340,18 @@ impl SyncEngine {
         }
     }
 
-    /// Attach the durable cloud-purge peer when the backup source has a sidecar
-    /// directory; record the open error on the client otherwise.
-    fn auth_with_purge_peer(
+    /// Retired repair state must never start a cloud publisher.
+    fn auth_without_retired_repair(
         auth: AuthClient,
         laststore_backup_source: Option<&Arc<crate::storage::LastStoreNamespacedStore>>,
-        device_id: &str,
     ) -> AuthClient {
-        let Some(directory) =
-            laststore_backup_source.and_then(|source| source.durable_sidecar_dir())
+        let Some(home) = laststore_backup_source.and_then(|source| source.durable_sidecar_dir())
         else {
             return auth;
         };
-        match crate::sync::cloud_purge_peer::CloudPurgePeer::directory_for_home(&directory)
-            .and_then(|stable| {
-                crate::sync::cloud_purge_peer::CloudPurgePeer::open(stable, device_id.to_string())
-            }) {
-            Ok(peer) => auth.with_cloud_purge_peer(peer),
-            Err(error) => auth.with_cloud_purge_peer_error(error.to_string()),
+        match crate::sync::check_retired_cloud_repair(&home) {
+            Ok(()) => auth,
+            Err(error) => auth.with_cloud_generation_error(error.to_string()),
         }
     }
 

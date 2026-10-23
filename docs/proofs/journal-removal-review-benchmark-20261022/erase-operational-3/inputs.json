@@ -1,0 +1,66 @@
+{
+  "automatic_maintenance": false,
+  "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdbd",
+  "binary_sha256": "26f22beaab80308d7c0f9e4fb028df0896b3accb8bee49a5f65a63752d8b5a74",
+  "body_bytes": 1024,
+  "claim_limit": "Controlled auto-maintenance-off comparison; filesystem cache uncontrolled",
+  "cli_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdb",
+  "cli_binary_sha256": "682957002a259fde2957a804af5ef528a63cde0c5165f992dfa229b0ee26c7a5",
+  "delete_request_mutations": [
+    258,
+    254
+  ],
+  "disk_binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdb-disk-home",
+  "disk_binary_sha256": "192a687285d4f656ddf0e1ed08f82bf46c03ff9ed25d94a9f25f7de7776819b0",
+  "driver_sha256": "2d684682b40a5bb7dc2b9bde0dfecdc0a9c10a63485b5feb5c6097934a88762e",
+  "erase_chunks_per_schema": [
+    3,
+    2
+  ],
+  "erasures": [
+    129,
+    127
+  ],
+  "explicit_layouts_per_key": 2,
+  "helpers_sha256": {
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-benchmark-20261022/benchmark.py": "043b05c2cc6f2ad5c6a06d5604f9195895754959055d5cc2ed50db434481e3c9",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-benchmark-20261022/benchmark_support.py": "902af41e7e68033221ae6ee177985160695657516e48370279541e7c1c472617",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/snapshot-commits-20261022/capture.py": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/write-overhead-20261021/io_probe.py": "a15002f55d2feef5d690cfc7012535f1421ae005d731526bce3a2a64d5ece9fd",
+    "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/write-overhead-20261021/measure.py": "c59a0420bc5c7ea872a0ac5664ef19849d6b9491ce4317fd155b60d4f77753e0"
+  },
+  "label": "erase-aggregate",
+  "limits": {
+    "inventory_depth": 8,
+    "inventory_entries": 40000,
+    "inventory_seconds": 20,
+    "native_bytes": 1073741824,
+    "native_files": 20000,
+    "request_seconds": 120,
+    "run_seconds": 300
+  },
+  "records": 256,
+  "schema_fields": [
+    "bucket",
+    "id",
+    "title",
+    "body"
+  ],
+  "seed": {
+    "durability": "durable",
+    "requests": 1,
+    "width": 256
+  },
+  "settings": {
+    "LASTDB_AUTO_MAINTENANCE": "0",
+    "LASTDB_RESIDENT_PERSIST_MS": "500",
+    "LASTDB_UDS_WORKERS": "4",
+    "RUST_LOG": "warn",
+    "RUST_MIN_STACK": "16777216"
+  },
+  "shared_field_schemas": [
+    "DiskGrowthMeasure",
+    "DiskGrowthMeasureById"
+  ],
+  "source_revision": "5919abbfbf2263993ea99700b73bd9c8d43d689b"
+}

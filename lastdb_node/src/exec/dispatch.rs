@@ -160,9 +160,6 @@ pub(super) async fn dispatch_data_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    if let Some(response) = cloud_purge_routes::reject_local_write(route, host, ctx) {
-        return response;
-    }
     if let Some(response) = dispatch_core(route, req, ctx, host).await {
         return response;
     }

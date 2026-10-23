@@ -91,7 +91,7 @@ impl<'a> TierCopy<'a> {
         current.generation = stamp;
         let payload = copy.pack.finish()?;
         copy.dependencies
-            .add_payload(payload.object, 0, payload.data_parts, payload.map_pages)?;
+            .add_payload(payload.object, payload.data_parts, payload.map_pages)?;
         for ((kind, object), pages) in copy.pages {
             let tree = TreeRoot {
                 object,
@@ -148,7 +148,6 @@ impl<'a> TierCopy<'a> {
         let coordinate = Coordinate {
             kind,
             object: tree.object,
-            batch: 0,
             part: (path.number / 512) as u32,
         };
         let age = *self

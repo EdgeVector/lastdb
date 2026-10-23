@@ -1,0 +1,298 @@
+{
+  "builds": {
+    "after": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdbd",
+      "binary_sha256": "26f22beaab80308d7c0f9e4fb028df0896b3accb8bee49a5f65a63752d8b5a74",
+      "build_command": "cargo build --locked --release -p lastdb_node --bin lastdbd --bin lastdb",
+      "build_environment": {
+        "CARGO_TARGET_DIR": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target",
+        "package_features": "lastdb_node defaults: sentry-telemetry,purging-allocator",
+        "profile": "release"
+      },
+      "build_scratch_owner": {
+        "device": 16777231,
+        "inode": 1501069229,
+        "owner_uid": 501,
+        "primary_data": false,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK",
+        "run_id": "057eb65885504f358df8a53d7fbea071",
+        "version": 1
+      },
+      "build_steps": [
+        {
+          "argv": [
+            "cargo",
+            "clippy",
+            "--workspace",
+            "--lib",
+            "--bins",
+            "--locked",
+            "--exclude",
+            "generate_validated_schema_org_seeds",
+            "--exclude",
+            "schema_service_worker",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "end_unix_ns": 1792700104844464000,
+          "start_unix_ns": 1792700069432544000
+        },
+        {
+          "argv": [
+            "cargo",
+            "build",
+            "--locked",
+            "--release",
+            "-p",
+            "lastdb_node",
+            "--bin",
+            "lastdbd",
+            "--bin",
+            "lastdb"
+          ],
+          "end_unix_ns": 1792700503710498000,
+          "start_unix_ns": 1792700104868554000
+        }
+      ],
+      "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+      "product_source_clean": true,
+      "revision": "5919abbfbf2263993ea99700b73bd9c8d43d689b",
+      "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+      "version": "lastdbd 0.23.4-pre.0-267-g5919abbfb"
+    },
+    "before": {
+      "binary": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/before-lastdbd",
+      "binary_sha256": "5b874ddd32e2c58f04b6a50b99d5e1e0a3698bc2fc662f0e26db7aa2007f4870",
+      "build_command": "scripts/ci/with-fold-host-cargo-lock.sh -- cargo build --locked --release -p lastdb_node --bin lastdbd",
+      "build_elapsed": "7m52s",
+      "build_environment": {
+        "CARGO_TARGET_DIR": "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/target"
+      },
+      "build_scratch_owner": {
+        "device": 16777231,
+        "inode": 1501069229,
+        "owner_uid": 501,
+        "primary_data": false,
+        "root": "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK",
+        "run_id": "057eb65885504f358df8a53d7fbea071",
+        "version": 1
+      },
+      "cargo": "cargo 1.96.1 (356927216 2026-06-26)",
+      "product_source_clean": true,
+      "reused_exact_binary_from": "docs/proofs/journal-removal-benchmark-20261022/before-build.json",
+      "revision": "6d8aa0d573e91a94fd4fd308a7f0eacca022e852",
+      "rustc": "rustc 1.96.1 (31fca3adb 2026-06-26)",
+      "version": "lastdbd 0.23.4-pre.0-258-g6d8aa0d57"
+    }
+  },
+  "cache": "Fresh application homes; operating system caches remain uncontrolled",
+  "complete": true,
+  "end_unix_ns": 1792701550631472000,
+  "host": "macOS-26.5.2-arm64-arm-64bit",
+  "host_load_before": [
+    3.888671875,
+    3.72314453125,
+    3.8671875
+  ],
+  "lock_path": "/Users/tomtang/.cache/fold-db-perf-guard/host-cargo.lock",
+  "lock_scope": "External wrapper holds the host Cargo lock throughout this process",
+  "order": [
+    [
+      "before",
+      1
+    ],
+    [
+      "after",
+      1
+    ],
+    [
+      "after",
+      2
+    ],
+    [
+      "before",
+      2
+    ],
+    [
+      "before",
+      3
+    ],
+    [
+      "after",
+      3
+    ]
+  ],
+  "runs": [
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/benchmark.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/before-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.3ic_15m7",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/before-1",
+        "--source-revision",
+        "6d8aa0d573e91a94fd4fd308a7f0eacca022e852",
+        "--label",
+        "before-1"
+      ],
+      "end_unix_ns": 1792701252096711000,
+      "exit_code": 0,
+      "host_load_after": [
+        3.8544921875,
+        3.716796875,
+        3.85009765625
+      ],
+      "label": "before",
+      "pair": 1,
+      "run": "before-1",
+      "scratch_removed": true,
+      "start_unix_ns": 1792701189278231000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/benchmark.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.ulvrzwr9",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/after-1",
+        "--source-revision",
+        "5919abbfbf2263993ea99700b73bd9c8d43d689b",
+        "--label",
+        "after-1"
+      ],
+      "end_unix_ns": 1792701307945210000,
+      "exit_code": 0,
+      "host_load_after": [
+        3.59326171875,
+        3.64599609375,
+        3.8134765625
+      ],
+      "label": "after",
+      "pair": 1,
+      "run": "after-1",
+      "scratch_removed": true,
+      "start_unix_ns": 1792701253474146000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/benchmark.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.scvw3sfs",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/after-2",
+        "--source-revision",
+        "5919abbfbf2263993ea99700b73bd9c8d43d689b",
+        "--label",
+        "after-2"
+      ],
+      "end_unix_ns": 1792701364748348000,
+      "exit_code": 0,
+      "host_load_after": [
+        2.873046875,
+        3.40869140625,
+        3.7109375
+      ],
+      "label": "after",
+      "pair": 2,
+      "run": "after-2",
+      "scratch_removed": true,
+      "start_unix_ns": 1792701308496285000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/benchmark.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/before-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.yluswvff",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/before-2",
+        "--source-revision",
+        "6d8aa0d573e91a94fd4fd308a7f0eacca022e852",
+        "--label",
+        "before-2"
+      ],
+      "end_unix_ns": 1792701434026378000,
+      "exit_code": 0,
+      "host_load_after": [
+        3.16162109375,
+        3.3857421875,
+        3.677734375
+      ],
+      "label": "before",
+      "pair": 2,
+      "run": "before-2",
+      "scratch_removed": true,
+      "start_unix_ns": 1792701365247165000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/benchmark.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/before-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.4272ttan",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/before-3",
+        "--source-revision",
+        "6d8aa0d573e91a94fd4fd308a7f0eacca022e852",
+        "--label",
+        "before-3"
+      ],
+      "end_unix_ns": 1792701503804524000,
+      "exit_code": 0,
+      "host_load_after": [
+        2.51904296875,
+        3.150390625,
+        3.56396484375
+      ],
+      "label": "before",
+      "pair": 3,
+      "run": "before-3",
+      "scratch_removed": true,
+      "start_unix_ns": 1792701435059518000
+    },
+    {
+      "argv": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/benchmark.py",
+        "--binary",
+        "/private/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrev.2uEGJK/bin/after-lastdbd",
+        "--scratch",
+        "/var/folders/8n/hvjkb3pd0xddwxg89qp5ymgc0000gn/T/jrun.iiwigpw1",
+        "--output",
+        "/Users/tomtang/.fkanban/worktrees/lastdb-direct-disk-storage-review-20261021/docs/proofs/journal-removal-review-benchmark-20261022/after-3",
+        "--source-revision",
+        "5919abbfbf2263993ea99700b73bd9c8d43d689b",
+        "--label",
+        "after-3"
+      ],
+      "end_unix_ns": 1792701550077027000,
+      "exit_code": 0,
+      "host_load_after": [
+        3.43359375,
+        3.2578125,
+        3.57666015625
+      ],
+      "label": "after",
+      "pair": 3,
+      "run": "after-3",
+      "scratch_removed": true,
+      "start_unix_ns": 1792701505008400000
+    }
+  ],
+  "scope": "Controlled local product comparison; automatic maintenance disabled",
+  "start_unix_ns": 1792701189273557000
+}

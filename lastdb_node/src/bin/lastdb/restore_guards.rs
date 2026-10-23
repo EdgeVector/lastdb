@@ -33,7 +33,13 @@ pub(crate) fn restore_options_from_source_layout(
         })?;
 
     let mut opts = match descriptor.layout_mode {
-        laststore::LayoutMode::SegmentLog => laststore::LastStoreOptions::segment_log(),
+        laststore::LayoutMode::SegmentLog => {
+            return Err(RestoreFailure::new(
+                Stage::SourceLayout,
+                Code::LayoutMismatch,
+                "legacy SegmentLog restore is retired; the destination stays unchanged",
+            ));
+        }
         laststore::LayoutMode::HashGroup => laststore::LastStoreOptions::hash_group(),
     };
     opts.shard_bits = descriptor.shard_bits;

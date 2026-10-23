@@ -68,7 +68,6 @@ pub(super) fn publish_prepared(
     if let Some(payload) = payload {
         publisher.dependencies.add_payload(
             payload.object,
-            0,
             payload.data_parts,
             payload.map_pages,
         )?;

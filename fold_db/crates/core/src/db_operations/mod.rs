@@ -52,17 +52,17 @@ pub use db_catalog_store::{
     DbCatalogEntry, DbCatalogKeySelection, DbCatalogStore, UNPREFIXED_INSTANCE_ID,
 };
 pub use delete_ledger::{
-    key_fingerprint, AtomDeleteLedgerEntry, DeleteLedgerHandle, ATOM_DELETE_LEDGER_PREFIX,
-    LEDGER_VERB_DELETE, LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_PURGE,
+    key_fingerprint, AtomDeleteLedgerEntry, ATOM_DELETE_LEDGER_PREFIX, LEDGER_VERB_DELETE,
+    LEDGER_VERB_DELETE_CONVERGE, LEDGER_VERB_PURGE,
 };
 pub use keep_small::{
-    atom_histogram, keep_small_schema_shard_key, AtomHistogram, KeepSmallHardEraseDebit,
-    KeepSmallHardEraseTotals, KeepSmallMeters, KeepSmallSchemaShard, KeepSmallSnapshot,
-    LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload, MeterTrustState, MoleculeStorageCounter,
-    MoleculeTipCounterSource, SchemaMeter, ATOM_HISTOGRAM_16KIB, ATOM_HISTOGRAM_32KIB,
-    ATOM_HISTOGRAM_64KIB, KEEP_SMALL_HARD_ERASE_TOTALS_KEY, KEEP_SMALL_SCHEMA_SHARD_PREFIX,
-    KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY, KEEP_SMALL_TRUST_VERSION,
-    KEEP_SMALL_UNATTRIBUTED_SCHEMA, KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
+    atom_histogram, keep_small_schema_shard_key, AtomHistogram, KeepSmallMeters,
+    KeepSmallSchemaShard, KeepSmallSnapshot, LiveBudgetTotals, MeterDomainTrust, MeterTrustPayload,
+    MeterTrustState, MoleculeStorageCounter, MoleculeTipCounterSource, SchemaMeter,
+    ATOM_HISTOGRAM_16KIB, ATOM_HISTOGRAM_32KIB, ATOM_HISTOGRAM_64KIB,
+    KEEP_SMALL_SCHEMA_SHARD_PREFIX, KEEP_SMALL_SNAPSHOT_COLLECTION, KEEP_SMALL_SNAPSHOT_KEY,
+    KEEP_SMALL_SNAPSHOT_VERSION, KEEP_SMALL_TRUST_VERSION, KEEP_SMALL_UNATTRIBUTED_SCHEMA,
+    KEEP_SMALL_UNATTRIBUTED_SHARD_KEY, LIVE_BUDGET_BYTES,
 };
 // Annotate matches on this. It stays public on a default build: the host
 // crate does not enable `cloud-sync` just to read the page flag.

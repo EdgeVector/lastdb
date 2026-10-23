@@ -126,7 +126,6 @@ fn carried_dependencies(
         dependencies.add(crate::disk_pack::dependency::Coordinate {
             kind: 2,
             object,
-            batch: 0,
             part: 0,
         })?;
     }

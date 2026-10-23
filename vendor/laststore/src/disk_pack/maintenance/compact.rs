@@ -94,7 +94,7 @@ pub(super) fn copy(
     let data = pack.finish()?;
     compactor
         .dependencies
-        .add_payload(data.object, 0, data.data_parts, data.map_pages)?;
+        .add_payload(data.object, data.data_parts, data.map_pages)?;
     let output = locators.finish()?;
     compactor
         .dependencies
