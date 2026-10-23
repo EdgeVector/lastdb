@@ -100,6 +100,7 @@ impl Progress {
     pub(in crate::storage::disk_pack) fn status(&self) -> NativeCompactionStatus {
         let jobs = self.jobs.load(Relaxed);
         let phase = match (jobs, self.phase.load(Relaxed)) {
+            (0, _) => "idle",
             (2.., _) => "multiple",
             (_, 1) => "capture",
             (_, 2) => "copy",
@@ -107,7 +108,7 @@ impl Progress {
             (_, 4) => "swap",
             (_, 5) => "reclaim",
             (_, 6) => "active",
-            _ => "idle",
+            _ => "active",
         };
         NativeCompactionStatus {
             compaction_jobs: jobs,

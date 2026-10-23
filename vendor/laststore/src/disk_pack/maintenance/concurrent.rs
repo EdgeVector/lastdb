@@ -107,7 +107,20 @@ impl PreparedCompaction {
         if cut.root() != self.lock.root() {
             return Err(corrupt("compaction cut belongs to another home"));
         }
-        self.reserve_delta(cut.current())?;
+        let previous = self.caught.current();
+        let next = cut.current();
+        if next != previous
+            && (next.frontier < previous.frontier
+                || next.generation <= previous.generation
+                || next.required_features != previous.required_features)
+        {
+            return Err(corrupt(
+                "compaction catch-up root is not a newer compatible snapshot",
+            ));
+        }
+        if next.frontier != previous.frontier {
+            self.reserve_delta(next)?;
+        }
         let count = super::catch_up::run(self, cut.current(), limit)?;
         // Another compaction can replace an intermediate cut without changing
         // mutation versions. Retain the exact grafted files before its hold ends.

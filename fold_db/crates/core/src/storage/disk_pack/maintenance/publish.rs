@@ -7,7 +7,7 @@ pub(in crate::storage::disk_pack) type MaintenanceReady =
     (MaintenanceReceipt, u64, ReclaimPlan, Current);
 
 enum Attempt {
-    Ready(MaintenanceReady),
+    Ready(Box<MaintenanceReady>),
     Queue(u64),
     Changed,
     Busy,
@@ -55,7 +55,7 @@ impl PackRuntime {
                 .await?;
             output = next;
             match result? {
-                Attempt::Ready(ready) => return Ok(ready),
+                Attempt::Ready(ready) => return Ok(*ready),
                 Attempt::Queue(target) => self.wait_for_queue(target).await?,
                 Attempt::Changed => tokio::task::yield_now().await,
                 Attempt::Busy => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
@@ -128,12 +128,12 @@ impl PackRuntime {
         let mut view = self.view.write().expect("native complete read view");
         view.current = writer.current().clone();
         let plan = writer.capture_reclaim().map_err(map)?;
-        Ok(Attempt::Ready((
+        Ok(Attempt::Ready(Box::new((
             receipt,
             pack_millis,
             plan,
             view.current.clone(),
-        )))
+        ))))
     }
 
     pub(in crate::storage::disk_pack) fn capture_native_cleanup(
