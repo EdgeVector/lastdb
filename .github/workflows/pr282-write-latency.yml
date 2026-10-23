@@ -72,8 +72,8 @@ jobs:
             esac
             (
               cd "$version"
-              # Cargo fingerprints each source; registry dependencies share a build.
-              export CARGO_TARGET_DIR="$RUNNER_TEMP/matched-target"
+              # Separate targets prevent path-dependency reuse across checkouts.
+              export CARGO_TARGET_DIR="$RUNNER_TEMP/matched-target-$version"
               export FOLDDB_BUILD_VERSION_OVERRIDE="matched-$revision"
               cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
               mkdir -p "$BINARY_ROOT/$version"
