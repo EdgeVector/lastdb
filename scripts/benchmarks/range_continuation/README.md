@@ -30,6 +30,7 @@ The candidate walks the complete broad `HashRangeRange` and `HashRangePrefix` se
 Every page verifies actual fields, membership, order, and exclusive cursor advancement.
 A complete `HashKey` walk also verifies the existing single-hash path on both variants.
 The baseline may return its known nonretryable 503 `read_resource_limit` on broad range or prefix queries.
+After Delete/Purge and reopen, the baseline may return the exact lower disk read-budget message for that same broad range.
 The raw error remains visible. It never counts as a fast latency result.
 Any other baseline error fails the operation.
 

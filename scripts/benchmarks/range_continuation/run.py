@@ -96,6 +96,7 @@ def main():
                 manifest["runs"].append({"directory": name, "mode": mode, "pair": pair,
                     "role": role, "complete": result["complete"], "error": result["error"]})
                 save(manifest_path, manifest)
+                print(json.dumps(manifest["runs"][-1]), flush=True)
                 if not result["complete"]:
                     return 1
                 values[role] = result

@@ -56,7 +56,7 @@ def validate(result, expected, coordinates):
         raise RuntimeError("A generated query page reports an unresolved record")
 
 
-def walk(node, expected, request, label, baseline=False):
+def walk(node, expected, request, label, baseline=False, *, reopened=False):
     wanted = selected(expected, request)
     offset = request.get("offset", 0)
     cursor = request.get("cursor")
@@ -69,10 +69,13 @@ def walk(node, expected, request, label, baseline=False):
     for _ in range(maximum_pages):
         result, receipt = node.call("/api/query", request, expected=(200, 503) if baseline else (200,))
         if receipt["http_status"] == 503:
+            message = result.get("message", "")
+            known_limit = "bounded continuation" in message or (reopened and message ==
+                "read resource limit exceeded: disk-pack v1: read resource limit exceeded")
             if (samples or result.get("error") != "read_resource_limit"
                     or result.get("retryable") is not False
-                    or "bounded continuation" not in result.get("message", "")):
-                raise RuntimeError("The baseline broad query returns an unexpected failure")
+                    or not known_limit):
+                raise RuntimeError("The baseline broad query returns an unexpected failure: " + label)
             return {"label": label, "outcome": "expected_baseline_limitation", "http_status": 503,
                     "request_id": receipt["request_id"], "error": result,
                     "failure_elapsed_ms": receipt["elapsed_ms"], "latency_sample": False}

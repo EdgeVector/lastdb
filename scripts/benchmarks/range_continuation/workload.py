@@ -111,7 +111,7 @@ class Workload:
         self.node.start()
         known.append(self.keyed("delete-purge-and-reopened"))
         reopened = walk(self.node, self.expected, query(HASH, key(0), key(COUNT)),
-                        "reopened-broad-range", self.baseline)
+                        "reopened-broad-range", self.baseline, reopened=True)
         preload = None
         if not self.baseline:
             self.node.stop()
