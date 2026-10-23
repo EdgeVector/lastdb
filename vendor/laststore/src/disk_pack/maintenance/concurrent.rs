@@ -58,7 +58,7 @@ impl CompactionPlan {
     pub fn copy(self, policy: &SpacePolicy) -> Result<PreparedCompaction> {
         let root = self.lock.root().to_path_buf();
         let mut output =
-            crate::durability::complete_native_commit(&root, || self.copy_inner(policy))?;
+            crate::durability::prepare_native_files(&root, || self.copy_inner(policy))?;
         output.prepared();
         Ok(output)
     }
@@ -116,7 +116,7 @@ impl PreparedCompaction {
         }
         let root = self.lock.root().to_path_buf();
         self.failed = true;
-        let count = crate::durability::complete_native_commit(&root, || self.catch_up_inner(cut))?;
+        let count = crate::durability::prepare_native_files(&root, || self.catch_up_inner(cut))?;
         self.failed = false;
         self.prepared();
         Ok(count)

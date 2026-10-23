@@ -199,3 +199,20 @@ pub(crate) fn complete_native_commit<T>(
         commit()
     }
 }
+
+/// Flush private files without publishing a root or acknowledging durability.
+/// A later native publication orders these fsynced files with F_BARRIERFSYNC,
+/// then completes F_FULLFSYNC before success. Off-device files keep full barriers.
+pub(crate) fn prepare_native_files<T>(
+    root: &std::path::Path,
+    prepare: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    crate::commit_timing::count("private_file_preparations", 1);
+    #[cfg(target_os = "macos")]
+    return ordered::prepare(root, prepare);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = root;
+        prepare()
+    }
+}

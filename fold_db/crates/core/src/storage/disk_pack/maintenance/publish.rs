@@ -23,13 +23,18 @@ impl PackRuntime {
             let runtime = Arc::clone(self);
             let (next, mut staged) =
                 super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+                    let prepared_from = std::time::Instant::now();
                     let cut = runtime
                         .writer
                         .lock()
                         .expect("native snapshot writer")
                         .capture_pack_root()
                         .map_err(map)?;
+                    let frontier = cut.current().frontier;
                     let staged = output.catch_up_and_prepare(cut).map_err(map)?;
+                    tracing::debug!(target: "fold_db::compaction", retry, frontier,
+                        prepared_ms = millis_since(prepared_from),
+                        parts = staged.dependency_parts(), "private compaction prepared");
                     Ok((output, staged))
                 })
                 .await?;
@@ -40,6 +45,7 @@ impl PackRuntime {
                 super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
                     // Never hold the gate while waiting for a blocking thread.
                     let Ok(boundary) = Arc::clone(&runtime.write_gate).try_lock_owned() else {
+                        tracing::debug!(target: "fold_db::compaction", retry, "compaction publication busy");
                         drop(staged);
                         return Ok((output, Ok(Attempt::Busy)));
                     };
@@ -47,6 +53,10 @@ impl PackRuntime {
                     let mut result =
                         runtime.attempt_native_pack(&mut output, &mut staged, started, retry);
                     drop(boundary);
+                    tracing::debug!(target: "fold_db::compaction", retry,
+                        changed = matches!(&result, Ok(Attempt::Changed)),
+                        ready = matches!(&result, Ok(Attempt::Ready(_))),
+                        held_ms = millis_since(started), "compaction publication attempted");
                     if let Ok(Attempt::Ready(ready)) = &mut result {
                         let held = millis_since(started);
                         ready.1 = ready.0.copy_millis.saturating_add(held);

@@ -30,15 +30,14 @@ impl PreparedCompaction {
         self.ensure_usable()?;
         let root = self.lock.root().to_path_buf();
         self.failed = true;
-        let staged =
-            durability::complete_native_commit(&root, || self.prepare_publication_inner())?;
+        let staged = durability::prepare_native_files(&root, || self.prepare_publication_inner())?;
         self.failed = false;
         self.prepared();
         Ok(staged)
     }
 
     /// One off-gate durability scope covers catch-up and its prepared receipt.
-    /// Every file is synced before one complete device drain on Apple.
+    /// Files reach fsync here; the final publication still orders and drains the device.
     pub fn catch_up_and_prepare(
         &mut self,
         cut: crate::disk_pack::lifetime::GenerationHold,
@@ -46,7 +45,7 @@ impl PreparedCompaction {
         self.ensure_usable()?;
         let root = self.lock.root().to_path_buf();
         self.failed = true;
-        let staged = durability::complete_native_commit(&root, || {
+        let staged = durability::prepare_native_files(&root, || {
             self.catch_up_inner(cut)?;
             self.prepare_publication_inner()
         })?;

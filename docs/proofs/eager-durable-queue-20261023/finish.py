@@ -40,7 +40,7 @@ def baseline(source, scratch):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('final', 'metadata', 'groups', 'counts'), default='final')
+    parser.add_argument('--mode', choices=('final', 'metadata', 'groups', 'counts', 'barrier'), default='final')
     parser.add_argument('--baseline-source')
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
@@ -55,7 +55,7 @@ def main():
         raise RuntimeError('commit product source before the final build')
     baseline_source = identity['baseline_source']
     baseline_digest = identity['baseline_binary_sha256']
-    if args.mode == 'counts':
+    if args.mode in ('counts', 'barrier'):
         previous = json.loads((PROOF / 'groups-identity.json').read_text())
         baseline_source = previous['baseline_source']
         baseline_digest = previous['baseline_binary_sha256']
@@ -69,16 +69,18 @@ def main():
     markers = {label: label.encode() in raw for label in (
         'failed compaction must be discarded',
         'immutable dependency facts changed during compaction')}
-    if args.mode in ('groups', 'counts'):
+    if args.mode in ('groups', 'counts', 'barrier'):
         markers['compaction_unchanged_groups'] = b'compaction_unchanged_groups' in raw
-    if args.mode == 'counts':
+    if args.mode in ('counts', 'barrier'):
         markers['compaction_reference_deltas'] = b'compaction_reference_deltas' in raw
+    if args.mode == 'barrier':
+        markers['private_file_preparations'] = b'private_file_preparations' in raw
     del raw
     if not all(markers.values()):
         raise RuntimeError('compiled storage implementation markers differ')
     if latest == hashlib.sha256((scratch / 'candidate').read_bytes()).hexdigest():
         raise RuntimeError('final program is unchanged from the first candidate')
-    shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else ('frontier' if args.mode == 'metadata' else ('groups' if args.mode == 'counts' else 'metadata'))))
+    shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else ('frontier' if args.mode == 'metadata' else ('groups' if args.mode == 'counts' else ('counts' if args.mode == 'barrier' else 'metadata')))))
     shutil.copyfile(binary, scratch / 'candidate')
     (scratch / 'candidate').chmod(0o755)
     (PROOF / (args.mode + '-identity.json')).write_text(json.dumps({

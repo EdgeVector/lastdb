@@ -1,0 +1,11 @@
+{
+  "durable": true,
+  "native_flush": {
+    "completed_sequence": 8,
+    "frontier": 21,
+    "generation": 22,
+    "target_sequence": 8
+  },
+  "ok": true,
+  "user_hash": "cf3fc1a1936626c956cb4ca24588ce65"
+}
