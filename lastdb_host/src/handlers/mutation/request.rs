@@ -8,14 +8,16 @@ use serde_json::Value;
 use crate::host_node::HostNode;
 use crate::HostError;
 
-use super::batch::wait_for_requested_convergence;
 use super::cloud::resolve_delete_prefix_keys;
 use super::fields::{
     fields_payload_bytes, resolve_aggregate_set_schema_names, resolve_required_schema_name,
     source_mutation_id, validate_mutation_fields,
 };
 use super::plan::MutationPlan;
-use super::{commit_mutation, empty_delete_response, mutation_response, MutationComponents};
+use super::{
+    commit_mutation, empty_delete_response, mutation_response, wait_for_requested_convergence,
+    MutationComponents,
+};
 
 /// Execute `POST /api/mutation` under the caller's access context. Schema
 /// resolution precedes pure request rules, field validation, and the write.

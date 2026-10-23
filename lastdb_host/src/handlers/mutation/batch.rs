@@ -7,33 +7,6 @@ mod rules;
 
 use self::rules::{batch_convergence, validate_batch_options};
 
-/// Per-class operation counts as the route renders them.
-pub(in super::super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
-    serde_json::json!({
-        "created": operations.created,
-        "updated": operations.updated,
-        "deleted": operations.deleted,
-        "no_op": operations.no_op,
-        "total": operations.total(),
-    })
-}
-
-/// Resident-commit stage clocks, in microseconds.
-///
-/// These ride the response rather than `status.request_ops` phases: the phase
-/// set is a partition of the request's wall clock and these spans overlap
-/// buckets that already exist, so publishing them there would corrupt every
-/// request's `unattributed` remainder. See
-/// `fold_db::fold_db_core::mutation_manager::receipt`.
-pub(in super::super) fn stages_json(stages: &ResidentCommitStages) -> Value {
-    serde_json::json!({
-        "prepare": stages.prepare_us,
-        "gate_wait": stages.gate_wait_us,
-        "publish": stages.publish_us,
-        "ack": stages.ack_us,
-    })
-}
-
 /// Execute `POST /api/mutations/batch`: resolve each schema, build all
 /// mutations with the node's public key, and write them in one access-checked
 /// batch.
@@ -79,7 +52,20 @@ pub async fn execute_mutations_batch<H: HostNode>(
             is_durable_delete(components.mutation_type, components.durability);
         payload_bytes =
             payload_bytes.saturating_add(fields_payload_bytes(&components.fields_and_values));
-        mutations.push(build_batch_mutation(host, components, canonical));
+        mutations.push(configure_mutation(
+            Mutation::new(
+                canonical,
+                components.fields_and_values,
+                components.key_value,
+                host.public_key(),
+                components.mutation_type,
+            ),
+            components.source_file_name,
+            components.durability,
+            components.expected,
+            components.must_exist,
+            components.aggregate_set,
+        ));
     }
 
     let count = mutations.len();
@@ -124,49 +110,6 @@ fn batch_response(
         attach_batch_cloud_capture(&mut response, &receipt.mutation_ids, receipt.cloud.as_ref());
     }
     response
-}
-
-pub(in super::super) async fn wait_for_requested_convergence<H: HostNode>(
-    host: &H,
-    convergence: MutationConvergence,
-) -> bool {
-    if !convergence.waits() {
-        return false;
-    }
-
-    let index_wait_started = std::time::Instant::now();
-    let background_tasks_drained = host
-        .wait_for_background_tasks(MUTATION_BACKGROUND_TASK_TIMEOUT)
-        .await;
-    request_phases::add_phase(RequestPhase::IndexWait, index_wait_started.elapsed());
-    background_tasks_drained
-}
-
-/// Build one validated mutation with the host's identity and the caller's options.
-fn build_batch_mutation<H: HostNode>(
-    host: &H,
-    components: MutationComponents,
-    canonical: String,
-) -> Mutation {
-    let mut mutation = Mutation::new(
-        canonical,
-        components.fields_and_values,
-        components.key_value,
-        host.public_key(),
-        components.mutation_type,
-    );
-    mutation.source_file_name = components.source_file_name;
-    if components.durability.waits_for_persist() {
-        mutation.synchronous = Some(true);
-    }
-    let mutation = match components.expected {
-        Some(expectation) => mutation.with_expected(expectation),
-        None => mutation,
-    };
-    match components.must_exist {
-        Some(flag) => mutation.with_must_exist(flag),
-        None => mutation,
-    }
 }
 
 /// Admit the whole batch on the lane its combined payload size implies and
