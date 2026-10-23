@@ -69,7 +69,7 @@ impl PackCaches {
         call.pages = std::mem::take(&mut self.pages);
         call.blocks = std::mem::take(&mut self.blocks);
         call.parts = std::mem::take(&mut self.parts);
-        call.files = std::mem::replace(&mut self.files, CallFiles::default());
+        call.files = std::mem::take(&mut self.files);
         call
     }
 
