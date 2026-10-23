@@ -156,17 +156,69 @@ def run(binary, scratch, name, clients=1, batch=1, count=1000, profile=False, su
         old.preserve_log(scratch, name, output)
 
 
+def verify_refused(scratch):
+    output = PROOF / 'capped-recovery'
+    output.mkdir()
+    inputs = json.loads((PROOF / 'final-capped/inputs.json').read_text())
+    writes = json.loads((PROOF / 'final-capped/writes.json').read_text())
+    node = Node(scratch / 'candidate', Path(inputs['home']), scratch / 'capped-recovery.log',
+                4096, False, workers=8)
+    node.profile, node.maintenance, node.disk_cap = False, False, 1073741824
+    rows = writes['samples']
+    wanted = {identity for row in rows if row['ok'] for identity in row['receipt']['mutation_ids']}
+    if any(row['status'] != 507 for row in rows if not row['ok']):
+        raise RuntimeError('unexpected capped refusal')
+    try:
+        node.start()
+        values = schemas.check_values(node, writes['expected_sha256'])
+        events = old.notices(node)
+        found = [event['mutation_id'] for event in events]
+        failed = {row['schema'] for row in rows if not row['ok']} - writes['expected_sha256'].keys()
+        queries = [{'schema_name': name, 'fields': ['value'],
+                    'filter': {'HashRangeKeys': [[name, f'record-{n:03}'] for n in range(8)]},
+                    'limit': 8} for name in failed]
+        absent = old.independent_queries(node, queries)
+        space = inventory(node)
+        result = {'accepted_calls': sum(row['ok'] for row in rows),
+                  'refused_calls': sum(not row['ok'] for row in rows),
+                  'all_values_match': values['all_values_match'], 'wanted_notices': len(wanted),
+                  'actual_notices': len(found), 'notices_exact': len(found) == len(wanted) and set(found) == wanted,
+                  'failed_new_keys_absent': all(not r['results'] for r in absent),
+                  'inventory': space, 'cap': node.disk_cap}
+        save(output / 'result.json', result)
+        if not (result['all_values_match'] and result['notices_exact']
+                and result['failed_new_keys_absent'] and space['bytes'] <= node.disk_cap):
+            raise RuntimeError('capped refusal or acknowledged recovery differs')
+        save(output / 'shutdown.json', {'exit_code': node.stop()})
+    finally:
+        node.stop()
+        node.log.close()
+        old.preserve_log(scratch, 'capped-recovery', output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
-    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final'), required=True)
+    parser.add_argument('--mode', choices=('smoke', 'bench', 'sustain', 'final', 'metadata'), required=True)
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the compiler exclusion for the whole capture')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    if args.mode == 'final':
+    if args.mode == 'metadata':
+        run(scratch / 'candidate', scratch, 'metadata-smoke', 4, 8, 128, True)
+        run(scratch / 'candidate', scratch, 'metadata-sustained', 4, 8, 4096, True, True)
+        run(scratch / 'candidate', scratch, 'metadata-single', 1, 1, 1000, True)
+        run(scratch / 'before', scratch, 'metadata-before-single', 1, 1, 1000, True)
+        run(scratch / 'candidate', scratch, 'metadata-concurrent', 4, 8, 1000, True)
+        run(scratch / 'before', scratch, 'metadata-before-concurrent', 4, 8, 1000, True)
+        subprocess.run([sys.executable, str(PROOF / 'semantics.py'), '--scratch', str(scratch),
+                        '--name', 'metadata-semantics', '--home-name', 'hmg'], check=True)
+        old.PROOF = PROOF
+        old.boundaries(scratch / 'candidate', scratch, 'metadata-boundaries', 'hc')
+        verify_refused(scratch)
+    elif args.mode == 'final':
         run(scratch / 'candidate', scratch, 'final-smoke', 4, 8, 128, True)
         run(scratch / 'before', scratch, 'repeat-before-single')
         run(scratch / 'candidate', scratch, 'final-single')

@@ -17,6 +17,7 @@ ROOT = PROOF.parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
+    parser.add_argument('--mode', choices=('final', 'metadata'), default='final')
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the host compiler exclusion for build and captures')
@@ -34,16 +35,16 @@ def main():
     latest = hashlib.sha256(binary.read_bytes()).hexdigest()
     if latest == identity['candidate_binary_sha256']:
         raise RuntimeError('final program is unchanged from the first candidate')
-    shutil.copyfile(scratch / 'candidate', scratch / 'initial')
+    shutil.copyfile(scratch / 'candidate', scratch / ('initial' if args.mode == 'final' else 'frontier'))
     shutil.copyfile(binary, scratch / 'candidate')
     (scratch / 'candidate').chmod(0o755)
-    (PROOF / 'final-identity.json').write_text(json.dumps({
+    (PROOF / (args.mode + '-identity.json')).write_text(json.dumps({
         'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'binary_sha256': latest, 'baseline_source': identity['baseline_source'],
         'baseline_binary_sha256': identity['baseline_binary_sha256'],
         'compiler_exclusion': True, 'other_host_work_controlled': False,
         'load_before': os.getloadavg()}, indent=2) + '\n')
-    subprocess.run([sys.executable, str(PROOF / 'run.py'), '--scratch', str(scratch), '--mode', 'final'],
+    subprocess.run([sys.executable, str(PROOF / 'run.py'), '--scratch', str(scratch), '--mode', args.mode],
                    cwd=ROOT, check=True)
 
 

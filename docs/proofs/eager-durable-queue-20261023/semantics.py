@@ -102,13 +102,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--name', default='semantics')
+    parser.add_argument('--home-name')
     args = parser.parse_args()
     if os.environ.get('FOLD_HOST_CARGO_LOCK_HELD') != '1':
         raise RuntimeError('hold the host compiler exclusion')
     scratch = args.scratch.resolve(strict=True)
     if scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch owner differs')
-    output, home = driver.PROOF / args.name, scratch / ('hm' if args.name == 'semantics' else 'hmf')
+    output, home = driver.PROOF / args.name, scratch / (args.home_name or ('hm' if args.name == 'semantics' else 'hmf'))
     output.mkdir()
     home.mkdir()
     node = driver.Node(scratch / 'candidate', home, scratch / (args.name + '.log'), 4096, False, workers=8)
