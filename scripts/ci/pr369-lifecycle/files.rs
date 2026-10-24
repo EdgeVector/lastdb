@@ -14,6 +14,11 @@ pub(super) async fn seed(path: &Path) -> Result<Value> {
         .map(|key| mutation(key, blob.pointer.clone(), MutationType::Create))
         .collect();
     put(&db, writes).await?;
+    require(
+        values(&db, &["file-a".into(), "file-b".into()]).await?
+            == vec![Some(blob.pointer.clone()), Some(blob.pointer.clone())],
+        "shared file read differs from its pointer before deletion",
+    )?;
     let atom = AtomStore::create_atom(SCHEMA, blob.pointer.clone(), None, None)?;
     let counters = db
         .db_ops()
@@ -47,6 +52,11 @@ pub(super) async fn seed(path: &Path) -> Result<Value> {
         blobs[0].refs == Some(1) && blobs[0].row_present,
         "referenced blob disappeared",
     )?;
+    require(
+        values(&db, &["file-a".into(), "file-b".into()]).await?
+            == vec![None, Some(blob.pointer.clone())],
+        "shared file read differs from its pointer before restart",
+    )?;
     std::fs::write(
         path.join("expected.json"),
         serde_json::to_vec(&json!({
@@ -63,11 +73,20 @@ pub(super) async fn finish(path: &Path) -> Result<Value> {
     let atom = expected["atom"].as_str().ok_or("atom absent")?.to_string();
     let blob = expected["blob"].as_str().ok_or("blob absent")?.to_string();
     let db = open(path, false, false).await?;
-    require(
-        values(&db, &["file-a".into(), "file-b".into()]).await?
-            == vec![None, Some(expected["pointer"].clone())],
-        "shared file changed at restart",
-    )?;
+    let actual = values(&db, &["file-a".into(), "file-b".into()]).await?;
+    if actual != vec![None, Some(expected["pointer"].clone())] {
+        let counters = db
+            .db_ops()
+            .atoms()
+            .atom_counter_views(&[atom.clone()], None)
+            .await?;
+        return Err(format!(
+            "shared file changed at restart: deleted_present={}, survivor_present={}, survivor_matches={}, refs={:?}, body={}",
+            actual[0].is_some(), actual[1].is_some(),
+            actual[1].as_ref() == Some(&expected["pointer"]),
+            counters[0].refs, counters[0].body_present,
+        ).into());
+    }
     let packed = compact(&db).await?;
     let counters = db
         .db_ops()
