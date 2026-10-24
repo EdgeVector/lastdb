@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -181,8 +182,11 @@ def main():
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--source-transfer", type=Path, required=True)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="native-transfer-", dir=os.environ.get("RUNNER_TEMP")) as temp:
-        print(json.dumps(exercise(args, Path(temp)), sort_keys=True))
+    root = Path(tempfile.mkdtemp(prefix="native-transfer-", dir=os.environ.get("RUNNER_TEMP")))
+    result = exercise(args, root)
+    print(json.dumps(result, sort_keys=True))
+    # A failure retains only generated diagnostics in the runner's temp area.
+    shutil.rmtree(root)
 
 
 if __name__ == "__main__":

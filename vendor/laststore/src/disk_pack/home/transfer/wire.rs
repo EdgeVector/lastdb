@@ -13,7 +13,7 @@ const METADATA_MAX: usize = 300_000;
 #[serde(deny_unknown_fields)]
 pub(super) struct Header {
     protocol: String,
-    source_home: uuid::Uuid,
+    source_home: [u8; 16],
     source_generation: u64,
     pub(super) required_features: u64,
     pub(super) hash_fanout: u16,
@@ -27,7 +27,7 @@ impl Header {
     pub(super) fn new(home: &DiskHome, current: &Current) -> Self {
         Self {
             protocol: "lastdb.native-record-transfer.v1".into(),
-            source_home: home.descriptor().identity,
+            source_home: *home.descriptor().identity.as_bytes(),
             source_generation: current.generation,
             required_features: current.required_features,
             hash_fanout: home.descriptor().hash_fanout,
@@ -40,7 +40,7 @@ impl Header {
 
     pub(super) fn validate(&self) -> Result<()> {
         if self.protocol != "lastdb.native-record-transfer.v1"
-            || self.source_home.is_nil()
+            || self.source_home == [0; 16]
             || self.source_generation == 0
             || self.placement_codec != super::super::PLACEMENT_CODEC
             || self.key_codec != super::super::KEY_CODEC

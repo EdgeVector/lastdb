@@ -115,3 +115,11 @@ jobs:
           path: ${{ runner.temp }}/native-migration-artifact/*
           if-no-files-found: error
           retention-days: 14
+      - name: Preserve generated diagnostic logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-transfer-diagnostics-${{ matrix.os }}
+          path: ${{ runner.temp }}/native-transfer-*/*.log
+          if-no-files-found: ignore
+          retention-days: 7
