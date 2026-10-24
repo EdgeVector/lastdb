@@ -31,8 +31,8 @@ def producer_pending(revision):
             for step in job["steps"]:
                 if step["name"] == "Save the accepted candidate for future baselines":
                     return step["status"] != "completed"
-        # The plan or measurement job can still be queued.
-        return any(job["status"] != "completed" for job in jobs["jobs"])
+        # The run can be queued without jobs, or between plan and measurement.
+        return True
     return False
 
 
