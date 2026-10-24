@@ -4,9 +4,11 @@ mod cancel;
 mod capture;
 mod certify;
 mod codec;
+mod context;
 mod model;
 mod planner;
 mod reader;
+mod standalone;
 mod store;
 mod terminal;
 
@@ -19,6 +21,7 @@ use cloud_backup_protocol::{Digest, ProtocolError};
 pub use codec::*;
 use laststore::disk_pack::backup::export::SnapshotExport;
 pub use reader::ByteBackupReader;
+pub use standalone::{read_stopped_native_root, StandaloneByteBackupSource};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -43,7 +46,7 @@ pub struct ByteBackupCapture {
     inner: Arc<Inner>,
 }
 struct Inner {
-    runtime: Arc<PackRuntime>,
+    home: context::CaptureHome,
     store: store::Store,
     state: Mutex<model::State>,
     source: Option<SnapshotExport>,
@@ -53,6 +56,10 @@ struct Inner {
 impl ByteBackupCapture {
     pub fn begin(&self) -> StorageResult<Begin> {
         Ok(self.lock()?.begin.clone())
+    }
+    /// Exact captured identity remains available after terminal source cleanup.
+    pub fn native_root(&self) -> StorageResult<cloud_backup_protocol::NativeRoot> {
+        Ok(self.lock()?.native_root.clone())
     }
     pub fn object_count(&self) -> StorageResult<u64> {
         Ok(self.lock()?.objects)
