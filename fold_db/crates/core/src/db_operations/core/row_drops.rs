@@ -1,8 +1,8 @@
 /// What one query dropped between "the index says this row exists" and "the
 /// caller was handed this row".
 ///
-/// Both members are page slots the caller paid for and did not receive, so both
-/// have to be added back before `has_more` is decided — see `page_payload` /
+/// The integrity counters include internal candidate work. Only drops that
+/// remain unfilled consume output page slots — see `page_payload` /
 /// `cursor_payload` in `lastdb_host`.
 ///
 /// `tombstoned` exists because the key index and the row materializer disagree
@@ -19,6 +19,9 @@ pub struct QueryRowDrops {
     pub unresolved: u64,
     /// Rows whose atom body is a content tombstone.
     pub tombstoned: u64,
+    /// Internal candidate drops already covered by a resolver's refill loop.
+    /// These remain in the integrity counters but consume no output page slot.
+    pub refilled: u64,
     /// Page keys this query emitted in **verified API form** — a caller can
     /// point-read them back. NOT a drop: see the key-form note below.
     pub keys_api_form: u64,
@@ -31,13 +34,14 @@ pub struct QueryRowDrops {
 impl QueryRowDrops {
     /// Page slots consumed but not delivered.
     ///
-    /// Deliberately only the two DROP members. The key-form counters ride the
-    /// same tally (one task-local, see below) but they count rows the caller
-    /// *did* receive, so adding them here would inflate `has_more` and re-serve
-    /// every page — the exact non-terminating drain `cursor_payload` documents.
+    /// Internal refills already account for their rejected candidates. Adding
+    /// those drops again would make an exhausted range claim another page.
+    /// Key-form counters classify delivered rows and never consume a slot.
     #[must_use]
     pub fn total(self) -> u64 {
-        self.unresolved.saturating_add(self.tombstoned)
+        self.unresolved
+            .saturating_add(self.tombstoned)
+            .saturating_sub(self.refilled)
     }
 
     /// How to read the `key.hash` values this query emitted.
@@ -141,6 +145,26 @@ pub fn note_page_key_forms(api_form: u64, opaque_form: u64) {
         drops.keys_api_form = drops.keys_api_form.saturating_add(api_form);
         drops.keys_opaque_form = drops.keys_opaque_form.saturating_add(opaque_form);
     });
+}
+
+/// Keep integrity counters for candidate resolution without charging output
+/// slots that its caller refills before returning a page. Wrap only candidate
+/// work; later projected field reads retain their ordinary drop accounting.
+/// Nested wrappers subtract only drops not already covered by an inner refill.
+pub async fn with_refilled_query_row_drops<F>(fut: F) -> F::Output
+where
+    F: std::future::Future,
+{
+    let before = QUERY_ROW_DROPS
+        .try_with(|tally| tally.get().total())
+        .unwrap_or(0);
+    let result = fut.await;
+    note_row_drop(|drops| {
+        drops.refilled = drops
+            .refilled
+            .saturating_add(drops.total().saturating_sub(before));
+    });
+    result
 }
 
 /// Run `fut` with a fresh per-query row-drop tally.

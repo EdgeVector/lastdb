@@ -58,6 +58,9 @@ impl HashRangeQueryProcessor {
         field: &mut FieldVariant,
         request: &PrimaryRequest<'_>,
     ) -> Result<PrimarySelection, SchemaError> {
+        if Self::can_page_received(field, request) {
+            return self.resolve_received_window(schema, field, request).await;
+        }
         if request.named_layout && request.received.is_empty() {
             if let (Some(filter), Some(window)) = (request.filter.as_ref(), request.window.clone())
             {
@@ -93,7 +96,17 @@ impl HashRangeQueryProcessor {
                 return Ok(selected);
             }
         }
-        // Shared scopes need one merged set before membership and the window.
+        self.resolve_primary_complete(schema, field, request).await
+    }
+
+    /// Exact candidate batches use the same winner and membership rules as
+    /// complete reads, without recursively entering the received-page plan.
+    pub(super) async fn resolve_primary_complete(
+        &self,
+        schema: &Schema,
+        field: &mut FieldVariant,
+        request: &PrimaryRequest<'_>,
+    ) -> Result<PrimarySelection, SchemaError> {
         let own_window = request
             .window
             .clone()

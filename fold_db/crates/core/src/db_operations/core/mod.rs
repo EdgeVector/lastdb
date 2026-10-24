@@ -16,7 +16,8 @@ mod row_drops;
 mod unresolved;
 
 pub use row_drops::{
-    note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally, KeyForm, QueryRowDrops,
+    note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
+    with_refilled_query_row_drops, KeyForm, QueryRowDrops,
 };
 pub use unresolved::{UnresolvedAtomIdentity, UnresolvedAtomIdentityReport, UnresolvedDamage};
 
