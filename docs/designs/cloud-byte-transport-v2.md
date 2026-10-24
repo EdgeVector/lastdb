@@ -153,3 +153,18 @@ The future V2 route namespace is separate from V1.
 The client completes V1 terminal cleanup before it creates a fresh V2 stream.
 V1 restore remains available. No conversion invents V2 authority from V1 hashes.
 Service and client adapters, activation checks, and real DEV recovery remain separate implementation work.
+
+## Client adoption
+
+The unused typed HTTP client is `sync::auth::byte_backup::ByteBackupClient`.
+It uses only V2 requests, response checks, and control limits.
+The private byte transport facade shares the existing credentials, URL checks, deadlines, and bounded streams.
+The V1 wrappers retain their exact validators, limits, routes, and public methods.
+The V2 upload requires an exact resume response. Commit requires the concrete inventory proof.
+Read grants require the frozen accepted record. The client does not choose a newer head during restore.
+
+Next, add the client-owned V2 root codec and manifest adapter.
+That adapter uploads the root before the final inventory and checks the full used set during restore.
+Reuse the native validator and installer only after the V2 closure checks pass.
+Then bind a fresh V2 stream after V1 cleanup and prove normal DEV backup and restore.
+No current worker, CLI, automatic-backup controller, or configuration selects this unused HTTP client.

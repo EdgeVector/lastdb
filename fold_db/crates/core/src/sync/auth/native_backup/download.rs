@@ -1,3 +1,4 @@
+use super::super::backup_transport::{StoredObject, TemporaryGrant};
 use super::*;
 use cloud_backup_protocol::access::ReadGrant;
 use futures::StreamExt;
@@ -13,8 +14,26 @@ pub type NativeObjectStream = Pin<Box<dyn AsyncRead + Send>>;
 impl NativeBackupClient {
     pub async fn open(&self, grant: &ReadGrant) -> Result<NativeObjectStream> {
         grant.validate()?;
-        let url = urls::signed(grant.url.as_str(), false)?;
-        let budget = self.transfer_timeout(grant.bytes.get(), grant.expires_ms.get())?;
+        self.open_bytes(
+            StoredObject {
+                sha256: &grant.sha256,
+                bytes: grant.bytes.get(),
+            },
+            TemporaryGrant {
+                url: grant.url.as_str(),
+                expires_ms: grant.expires_ms.get(),
+            },
+        )
+        .await
+    }
+
+    pub(in crate::sync::auth) async fn open_bytes(
+        &self,
+        object: StoredObject<'_>,
+        grant: TemporaryGrant<'_>,
+    ) -> Result<NativeObjectStream> {
+        let url = urls::signed(grant.url, false)?;
+        let budget = self.transfer_timeout(object.bytes, grant.expires_ms)?;
         let deadline = tokio::time::Instant::now() + budget;
         let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
             .await
@@ -29,7 +48,7 @@ impl NativeBackupClient {
         }
         if response
             .content_length()
-            .is_some_and(|bytes| bytes != grant.bytes.get())
+            .is_some_and(|bytes| bytes != object.bytes)
         {
             return Err(NativeBackupError::Integrity("download length"));
         }
@@ -40,9 +59,9 @@ impl NativeBackupClient {
         Ok(Box::pin(Bounded {
             input: Box::pin(input),
             deadline: Box::pin(tokio::time::sleep_until(deadline)),
-            left: grant.bytes.get(),
+            left: object.bytes,
             hash: Sha256::new(),
-            expected: grant.sha256.clone(),
+            expected: object.sha256.clone(),
             finished: false,
             _permit: permit,
         }))
