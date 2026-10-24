@@ -320,6 +320,7 @@ impl<'a> Publisher<'a> {
         )
     }
     fn directory_entry(&self, call: &mut super::ReadCall, key: &[u8]) -> Result<Option<[u8; 128]>> {
+        let _timing = crate::commit_timing::stage("locator_directory_lookup_us");
         // Reuse only immutable committed directory pages. Locator pages, checks,
         // and budgets remain group-local; their descriptors live for this batch.
         match call.find(self.directory.root(), key) {

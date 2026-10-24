@@ -71,6 +71,10 @@ Each hash group retains its own page buffers, validation records, and read budge
 Each file handle reuse checks the current file length, including private files that grow during the batch.
 The handles close before the final directory edit or on an error. No handle survives the batch.
 
+The isolated native diagnostic mode separates tree page reads and validation, retired references, leaf merge, leaf output, and parent output.
+Changed-value references overlap the leaf merge phase. Directory lookup remains separate.
+These phases remain off during ordinary benchmark measurements and normal use.
+
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.
 It drops before final count changes and receipt output; no cache survives the commit or an error.

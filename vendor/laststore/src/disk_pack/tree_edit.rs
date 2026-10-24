@@ -130,9 +130,13 @@ impl<P: TreePages> TreeEdit<P> {
         path: PathStep,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
-        let page = call.tree_page(&self.root, path.number)?;
-        validate_page(call, &self.root, &page, &path)?;
+        let page = crate::commit_timing::during("tree_edit_read_validate_us", || {
+            let page = call.tree_page(&self.root, path.number)?;
+            validate_page(call, &self.root, &page, &path)?;
+            Ok::<_, crate::Error>(page)
+        })?;
         if self.track_changes {
+            let _timing = crate::commit_timing::stage("tree_edit_retire_refs_us");
             self.changes.observe_page(
                 self.root.kind,
                 self.root.object,
@@ -199,6 +203,7 @@ impl<P: TreePages> TreeEdit<P> {
     }
 
     fn parents(&mut self, level: u8, children: &[Child]) -> Result<Vec<Child>> {
+        let _timing = crate::commit_timing::stage("tree_edit_parent_output_us");
         super::tree_partition::parents(self.root.kind, children)?
             .into_iter()
             .map(|range| {
@@ -219,6 +224,7 @@ impl<P: TreePages> TreeEdit<P> {
         page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
+        let merge_timing = crate::commit_timing::stage("tree_edit_leaf_merge_us");
         let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
         let mut updates = changes.iter().peekable();
         for index in 0..page.count() {
@@ -255,6 +261,8 @@ impl<P: TreePages> TreeEdit<P> {
                 *value,
             ));
         }
+        drop(merge_timing);
+        let _timing = crate::commit_timing::stage("tree_edit_leaf_output_us");
         super::tree_partition::leaves(self.root.kind, &entries)?
             .into_iter()
             .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))
@@ -269,6 +277,7 @@ impl<P: TreePages> TreeEdit<P> {
         new: &[u8; 128],
     ) -> Result<()> {
         if self.track_changes && self.root.kind == super::TreeKind::Locator {
+            let _timing = crate::commit_timing::stage("tree_edit_value_refs_us");
             if let Some(old) = old {
                 self.changes.observe_location(old, &call.current, -1)?;
             }
