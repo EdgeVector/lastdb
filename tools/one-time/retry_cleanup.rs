@@ -137,7 +137,7 @@ async fn operation(host: &Host, seed: bool) -> Result<serde_json::Value, Failure
     )
 }
 
-async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
+fn authored_mutation(host: &Host) -> Result<Mutation, Failure> {
     let schema = lastdb_host::handlers::resolve_schema_name(host, "GitHubBenchmark")
         .map_err(|_| "the generated schema lookup failed")?
         .ok_or("the generated schema is absent")?;
@@ -162,6 +162,11 @@ async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
     mutation.author_clock_signature_version =
         fold_db::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
     mutation.author_clock_signature = sign_mutation_author_clock(&mutation, &host.keypair);
+    Ok(mutation)
+}
+
+async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
+    let mutation = authored_mutation(host)?;
     let mut repeated = mutation.clone();
     repeated.uuid = uuid::Uuid::new_v4().to_string();
     repeated.author_clock_signature = sign_mutation_author_clock(&repeated, &host.keypair);
@@ -219,7 +224,9 @@ async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
     Ok(
         serde_json::json!({"cached_receipt_unchanged":true, "different_offered_uuid":true,
         "same_signed_clock_and_content":true, "public_receipt_is_input_identity":true,
-        "duplicate_operations":second.operations}),
+        "duplicate_operations": {"no_op":second.operations.no_op,
+            "created":second.operations.created, "updated":second.operations.updated,
+            "deleted":second.operations.deleted}}),
     )
 }
 

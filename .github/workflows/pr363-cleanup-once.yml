@@ -43,13 +43,16 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: false
-      - name: Build the exact old and new daemons
+      - name: Build the exact baseline daemon
         run: |
           set -euo pipefail
           cd baseline
           CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-baseline" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$BASELINE" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
           cp "$RUNNER_TEMP/cleanup-baseline/dev-release/lastdbd" "$RUNNER_TEMP/baseline-lastdbd"
-          cd ../source
+      - name: Build the exact candidate daemon
+        run: |
+          set -euo pipefail
+          cd source
           CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-candidate" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
           cp "$RUNNER_TEMP/cleanup-candidate/dev-release/lastdbd" "$RUNNER_TEMP/candidate-lastdbd"
       - name: Build the temporary offline metadata helper
