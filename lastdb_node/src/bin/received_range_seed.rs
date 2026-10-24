@@ -3,6 +3,8 @@
 //! This executable uses ordinary mutation/storage APIs. It neither contacts a
 //! sender nor measures sync, and cannot run outside a fresh owned CI home.
 
+#![recursion_limit = "256"]
+
 use fold_db::schema::types::Mutation;
 use fold_db::sharing::types::ShareSubscription;
 use lastdb_node::Host;
