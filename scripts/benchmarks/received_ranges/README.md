@@ -102,6 +102,14 @@ Each timed cell requires complete request ID coverage from the current request r
 The exact same-home metadata reference uses the existing secondary reader.
 Both full CI summaries print to the job logs. The original four-field range timing selectors stay unchanged.
 
+## Narrow-request tail diagnostics
+
+The shared [narrow diagnostics](../range_continuation/README.md#narrow-request-tail-diagnostics) retain all 64 server records by exact request ID.
+Each HTTP request has bounded process-counter observations outside its timer and inside the narrow memory window.
+The summary shows each run and its five slowest calls, with complete phases, receipt work, counter availability, and timestamps.
+Both product revisions use the same revised driver. The observations change gaps between requests, so old-driver absolute times are a separate experiment.
+Shared host pressure indicates correlation; it does not establish a request's cause. Missing counters and phases stay unreported.
+
 ## Output and bounds
 
 The raw generated inputs, requests, responses, native read receipts, logs, and samples stay outside Git.

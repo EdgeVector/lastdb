@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import time
 
+from process_counters import read_counters
+
 
 def save(path, value):
     path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
@@ -49,6 +51,7 @@ class Node:
         save(self.root / "owner.json", self.owner)
         save(output / "ownership.json", self.owner)
         self.process, self.log, self.sequence = None, None, 0
+        self.capture_process = False
         self.deadline = time.monotonic() + 1200
         self.raw_bytes = 0
         self.raw = gzip.open(output / "requests.jsonl.gz", "xb")
@@ -75,12 +78,14 @@ class Node:
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "range-continuation-ci",
                    "X-LastDB-Request-Id": request_id, "x-lastdb-read-receipt": "true"}
         connection = Connection(self.socket, min(60, remaining))
+        process_before = read_counters(self.process.pid) if self.capture_process and path == "/api/query" else None
         started = time.perf_counter_ns()
         try:
             connection.request("GET" if request is None else "POST", path, body, headers)
             response = connection.getresponse()
             raw = response.read(4 * 1024 ** 2 + 1)
             ended = time.perf_counter_ns()
+            process_after = read_counters(self.process.pid) if process_before is not None else None
             if len(raw) > 4 * 1024 ** 2:
                 raise RuntimeError("A generated response exceeds fourMiB")
             result = json.loads(raw)
@@ -92,6 +97,8 @@ class Node:
                 "response_sha256": hashlib.sha256(raw).hexdigest(), "response_bytes": len(raw),
                 "storage_read_receipt": json.loads(receipt) if receipt else None,
                 "storage_read_receipt_raw": receipt}
+            if process_before is not None:
+                row["process_counters"] = {"before": process_before, "after": process_after}
             self.remember(row)
             if response.status not in expected:
                 raise RuntimeError(path + " returned HTTP" + str(response.status) + "; inspect its raw receipt")

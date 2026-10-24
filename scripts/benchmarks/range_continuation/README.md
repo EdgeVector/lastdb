@@ -113,6 +113,18 @@ The request counter does not measure the native guard's examined-key count.
 Transient byte receipts omit captured field maps. Process snapshots do not measure an in-flight peak or a total-memory cap.
 The public writer does not create legacy body tombstones. Empty-spine and legacy body-tombstone behavior remain source-review scope.
 
+## Narrow-request tail diagnostics
+
+All 64 narrow requests retain complete server phase records matched by request ID and client name.
+The ring read follows the narrow memory-after observation and stays outside the latency and memory windows.
+Each request also has bounded Linux process-counter observations before and after its HTTP timer.
+These observations occur inside the narrow memory window and change the gaps between requests.
+Compare the two product revisions with the same revised driver; old-driver absolute timings do not provide that control.
+The summary prints each run separately, plus its five slowest requests with their own phases, read receipts, and counter deltas.
+Missing counters and phases remain unreported. Host CPU and pressure values describe shared load and do not identify a cause alone.
+Process counter precision, identity checks, scheduler-stat availability, and observation duration stay explicit.
+No percentile is subtracted from another percentile. The current 256-entry ring must cover all 64 requests.
+
 ## Artifacts and limits
 
 Full requests, responses, storage receipts, samples, and logs stay under `RUNNER_TEMP`, outside Git.
