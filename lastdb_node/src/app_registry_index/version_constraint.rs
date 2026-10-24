@@ -123,8 +123,9 @@ pub struct Constraint {
 /// compatibility (api_version and outbox_format_version) when present in the manifest.
 ///
 /// Looks for common manifest files: `lastdb-app.json`, `folddb.toml`, `*.app.json`.
-/// If no manifest is found or no constraint is declared, this is a no-op (apps
-/// without constraints install unconditionally).
+/// Checks every manifest that has a constraint or version field. If no manifest is
+/// found or no constraint is declared, this is a no-op (apps without constraints
+/// install unconditionally).
 ///
 /// # Errors
 /// Returns an error if a constraint is found but not satisfied, or if contract versions
@@ -156,12 +157,18 @@ pub fn check_manifest_constraint(
 
         // Try parsing as JSON first
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            let mut has_constraint_or_version = false;
+
             if let Some(constraint_str) = json.get("lastdb").and_then(|v| v.as_str()) {
+                has_constraint_or_version = true;
                 check_constraint(app_id, constraint_str, lastdb_version)?;
             }
 
-            if let Some(api_version) = json.get("api_version").and_then(|v| v.as_u64()) {
-                let api_version = api_version as u32;
+            if let Some(api_version_u64) = json.get("api_version").and_then(|v| v.as_u64()) {
+                has_constraint_or_version = true;
+                let api_version = u32::try_from(api_version_u64).map_err(|_| {
+                    format!("app '{app_id}' api_version {api_version_u64} is not a valid u32")
+                })?;
                 if api_version < version::MIN_SUPPORTED_API_VERSION
                     || api_version > version::CURRENT_API_VERSION
                 {
@@ -174,9 +181,15 @@ pub fn check_manifest_constraint(
                 }
             }
 
-            if let Some(outbox_version) = json.get("outbox_format_version").and_then(|v| v.as_u64())
+            if let Some(outbox_version_u64) =
+                json.get("outbox_format_version").and_then(|v| v.as_u64())
             {
-                let outbox_version = outbox_version as u32;
+                has_constraint_or_version = true;
+                let outbox_version = u32::try_from(outbox_version_u64).map_err(|_| {
+                    format!(
+                        "app '{app_id}' outbox_format_version {outbox_version_u64} is not a valid u32"
+                    )
+                })?;
                 if outbox_version < version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION
                     || outbox_version > version::CURRENT_OUTBOX_FORMAT_VERSION
                 {
@@ -189,7 +202,9 @@ pub fn check_manifest_constraint(
                 }
             }
 
-            return Ok(());
+            if has_constraint_or_version {
+                continue;
+            }
         }
 
         // Try parsing as TOML (for folddb.toml)

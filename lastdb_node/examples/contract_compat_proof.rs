@@ -1,11 +1,14 @@
 // Proof program for PR 2: contract version compatibility in pick_row()
 // Run with: cargo run --example contract_compat_proof
 
-use lastdb_node::app_registry_index::{pick_row, CompatRow, IndexApp, RegistryIndex};
+use lastdb_node::app_registry_index::{
+    check_manifest_constraint, pick_row, CompatRow, IndexApp, RegistryIndex,
+};
 use lastdb_node::version::{
     CURRENT_API_VERSION, CURRENT_OUTBOX_FORMAT_VERSION, MIN_SUPPORTED_API_VERSION,
     MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
 };
+use std::fs;
 
 fn main() {
     println!("=== Contract Version Compatibility Proof ===");
@@ -25,6 +28,11 @@ fn main() {
     test_incompatible_api_version();
     test_old_index_exact_match();
     test_prefer_exact_version();
+    test_manifest_multi_file_check();
+}
+
+fn get_running_version() -> &'static str {
+    "0.24.0"
 }
 
 fn test_compatible_api_version() {
@@ -74,10 +82,7 @@ fn test_compatible_api_version() {
             println!("  app_version: {}", row.app_version);
             println!("  sha: {}", row.sha);
             println!("  proved with lastdb: {}", row.lastdb_version);
-            println!(
-                "  api_version: {}",
-                row.lastdb_api_version.unwrap_or(0)
-            );
+            println!("  api_version: {}", row.lastdb_api_version.unwrap_or(0));
         }
         Err(e) => {
             println!("✗ UNEXPECTED ERROR: {}", e);
@@ -294,6 +299,83 @@ fn test_prefer_exact_version() {
             println!("✗ UNEXPECTED ERROR: {}", e);
         }
     }
+    println!();
+    println!("---");
+    println!();
+}
+
+fn test_manifest_multi_file_check() {
+    println!("## Test 5: Multi-file manifest check (lastdb-app.json + folddb.toml)");
+    println!();
+
+    let temp_dir =
+        std::env::temp_dir().join(format!("lastdb-manifest-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+    println!("Testing incompatible constraint in folddb.toml (plain lastdb-app.json doesn't stop the check):");
+    println!();
+
+    // Create a plain lastdb-app.json with no version constraint
+    let plain_manifest = r#"{
+  "app_id": "testapp",
+  "metadata": {
+    "display_name": "Test App",
+    "description": "Test",
+    "homepage_url": "https://example.com"
+  },
+  "version": "1.0.0",
+  "schemas": [{"name": "test/Record", "schema_type": "Hash", "fields": ["id"]}]
+}"#;
+    fs::write(temp_dir.join("lastdb-app.json"), plain_manifest).expect("write manifest");
+
+    // Create folddb.toml with an incompatible constraint
+    let incompatible_toml = r#"
+[app]
+name = "testapp"
+
+lastdb = ">=0.30.0"
+"#;
+    fs::write(temp_dir.join("folddb.toml"), incompatible_toml).expect("write toml");
+
+    match check_manifest_constraint(&temp_dir, "testapp", get_running_version()) {
+        Ok(()) => {
+            println!(
+                "✗ UNEXPECTED SUCCESS: should have rejected incompatible folddb.toml constraint"
+            );
+        }
+        Err(e) => {
+            println!("✓ Rejected as expected:");
+            println!("  Error: {}", e);
+        }
+    }
+    println!();
+
+    println!("---");
+    println!();
+
+    println!("Testing compatible constraint in folddb.toml:");
+    println!();
+
+    // Update folddb.toml with a compatible constraint
+    let compatible_toml = r#"
+[app]
+name = "testapp"
+
+lastdb = ">=0.23.0, <0.30.0"
+"#;
+    fs::write(temp_dir.join("folddb.toml"), compatible_toml).expect("write toml");
+
+    match check_manifest_constraint(&temp_dir, "testapp", get_running_version()) {
+        Ok(()) => {
+            println!("✓ Accepted compatible constraint");
+        }
+        Err(e) => {
+            println!("✗ UNEXPECTED ERROR: {}", e);
+        }
+    }
+
+    fs::remove_dir_all(&temp_dir).expect("cleanup temp dir");
     println!();
     println!("---");
     println!();
