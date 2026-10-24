@@ -119,19 +119,23 @@ pub struct Constraint {
 }
 
 /// Check if an installed app's manifest declares a lastdb version constraint,
-/// and verify the running LastDB build satisfies it.
+/// and verify the running LastDB build satisfies it. Also checks contract version
+/// compatibility (api_version and outbox_format_version) when present in the manifest.
 ///
 /// Looks for common manifest files: `lastdb-app.json`, `folddb.toml`, `*.app.json`.
 /// If no manifest is found or no constraint is declared, this is a no-op (apps
 /// without constraints install unconditionally).
 ///
 /// # Errors
-/// Returns an error if a constraint is found but not satisfied.
+/// Returns an error if a constraint is found but not satisfied, or if contract versions
+/// are incompatible with the running node.
 pub fn check_manifest_constraint(
     checkout_path: &std::path::Path,
     app_id: &str,
     lastdb_version: &str,
 ) -> Result<(), String> {
+    use crate::version;
+
     // Try common manifest paths
     let manifest_candidates = [
         checkout_path.join("lastdb-app.json"),
@@ -153,8 +157,39 @@ pub fn check_manifest_constraint(
         // Try parsing as JSON first
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
             if let Some(constraint_str) = json.get("lastdb").and_then(|v| v.as_str()) {
-                return check_constraint(app_id, constraint_str, lastdb_version);
+                check_constraint(app_id, constraint_str, lastdb_version)?;
             }
+
+            if let Some(api_version) = json.get("api_version").and_then(|v| v.as_u64()) {
+                let api_version = api_version as u32;
+                if api_version < version::MIN_SUPPORTED_API_VERSION
+                    || api_version > version::CURRENT_API_VERSION
+                {
+                    return Err(format!(
+                        "app '{app_id}' requires api_version {api_version}, but this node supports {}-{} (current: {})",
+                        version::MIN_SUPPORTED_API_VERSION,
+                        version::CURRENT_API_VERSION,
+                        version::CURRENT_API_VERSION
+                    ));
+                }
+            }
+
+            if let Some(outbox_version) = json.get("outbox_format_version").and_then(|v| v.as_u64())
+            {
+                let outbox_version = outbox_version as u32;
+                if outbox_version < version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION
+                    || outbox_version > version::CURRENT_OUTBOX_FORMAT_VERSION
+                {
+                    return Err(format!(
+                        "app '{app_id}' requires outbox_format_version {outbox_version}, but this node supports {}-{} (current: {})",
+                        version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+                        version::CURRENT_OUTBOX_FORMAT_VERSION,
+                        version::CURRENT_OUTBOX_FORMAT_VERSION
+                    ));
+                }
+            }
+
+            return Ok(());
         }
 
         // Try parsing as TOML (for folddb.toml)

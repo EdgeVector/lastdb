@@ -215,6 +215,7 @@ pub(crate) fn resolve_by_proof(
     lastdb_version: Option<&str>,
 ) -> Result<lastdb_node::app_registry_index::Resolution, String> {
     use lastdb_node::app_registry_index as registry_index;
+    use lastdb_node::version;
     let channel = channel.unwrap_or(registry_index::DEFAULT_CHANNEL);
     let location = registry_index::IndexLocation::resolve(index);
     let (trust, trust_source) = registry_index::resolve_trust_key(trust_key)?;
@@ -228,6 +229,10 @@ pub(crate) fn resolve_by_proof(
         app_id,
         &node,
         node_source,
+        version::CURRENT_API_VERSION,
+        version::MIN_SUPPORTED_API_VERSION,
+        version::CURRENT_OUTBOX_FORMAT_VERSION,
+        version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
     ))
 }
 
