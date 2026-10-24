@@ -7,7 +7,7 @@ mod native_backup;
 pub(crate) use native_backup::{NativeBackupAutoCommand, NativeBackupCommand};
 #[path = "cloud/byte_backup.rs"]
 mod byte_backup;
-pub(crate) use byte_backup::ByteBackupCommand;
+pub(crate) use byte_backup::{ByteBackupCommand, ByteStandaloneCommand};
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
@@ -20,6 +20,22 @@ pub(crate) enum CloudCommand {
     Backup {
         #[command(subcommand)]
         action: NativeBackupCommand,
+    },
+    /// Register a credentials-only device from stdin; never open a source home.
+    RecoverCredentialsHome {
+        #[arg(long)]
+        into: PathBuf,
+        #[arg(long, value_parser = ["dev", "prod"])]
+        env: String,
+        #[arg(long)]
+        expected_user_hash: String,
+        #[arg(long, required = true)]
+        identity_seed_stdin: bool,
+        /// Optional invite in a private owner file; stdin is reserved for the seed.
+        #[arg(long)]
+        invite_code_file: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
     },
     /// Recover credentials for an existing DEV account from a protected seed on stdin.
     /// Registers one fresh device; creates no store and keeps Cloud Sync Off.
