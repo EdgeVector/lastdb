@@ -3,7 +3,7 @@
 mod apply;
 mod tally;
 
-use super::{Pass, RecountReport};
+use super::{Pass, RecountOptions, RecountReport};
 use crate::db_operations::atom_store::AtomStore;
 use crate::schema::SchemaError;
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,25 @@ struct Count {
 type Counts = BTreeMap<String, Count>;
 
 impl AtomStore {
+    /// Validate all requested scopes before any recount writes. The actual
+    /// repair tallies again in bounded passes; no cross-scope count stays live.
+    pub(super) async fn validate_molecule_recount(
+        &self,
+        options: &RecountOptions,
+    ) -> Result<(), SchemaError> {
+        for scope in &options.scopes {
+            for index in 0..options.shards.max(1) {
+                let pass = Pass {
+                    scope: scope.as_deref(),
+                    index,
+                    count: options.shards.max(1),
+                };
+                self.tally_molecule_recount(&pass).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) async fn recount_molecules(
         &self,
         pass: &Pass<'_>,

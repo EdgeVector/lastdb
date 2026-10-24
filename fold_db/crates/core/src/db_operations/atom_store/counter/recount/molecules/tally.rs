@@ -70,7 +70,7 @@ impl AtomStore {
                 }
                 match family {
                     Family::Tips | Family::Records => {
-                        tally_references(&mut counts, &page.rows, family, pass)?
+                        tally_references(&mut counts, &page.rows, family, pass)?;
                     }
                     Family::Headers => {
                         for (key, value) in page.rows {

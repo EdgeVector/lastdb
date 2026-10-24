@@ -85,6 +85,9 @@ impl AtomStore {
             ..RecountReport::default()
         };
         let before = self.range_walks().snapshot();
+        if options.molecules {
+            self.validate_molecule_recount(options).await?;
+        }
         for scope in &options.scopes {
             for index in 0..shards {
                 let pass = Pass {
