@@ -1,17 +1,17 @@
 # App-LastDB contract and local install sources
 
-**Written 2026-10-24 · Status: proposal, second pass**
+**Written 2026-10-24 · Status: proposal, third pass (approved)**
 
 ## 0. The goal: a firm contract between apps and LastDB
 
 The app registry must be something Tom can rely on. This proposal establishes an **explicit CONTRACT between how apps access the database and the database itself**, so we can pin versions, upgrade LastDB, and know ahead of time which apps stay backward compatible.
 
 The contract is:
-- An SDK (@lastdb/app-sdk) or HTTP API surface that apps depend on
+- An SDK (@lastdb/app-sdk for TypeScript, lastdb_app_client for Rust) or HTTP API surface that apps depend on
 - A versioned contract identifier (`lastdb_api_version`) that governs compatibility
 - Rules for what counts as a breaking versus an additive change
-- A pre-upgrade check that warns or blocks if installed apps would break
-- CI proof that the contract holds, with evidence in job summaries
+- A pre-upgrade check that blocks (with override) if installed apps would break
+- CI proof that the contract holds, with generated snapshots and evidence in job summaries
 
 **Secondary goal**: A first-class local/dev install source (`--from <path> --rev <sha> --dev`) that goes through the same install code as the registry path, so proofs and dogfooding run the real code.
 
@@ -28,28 +28,48 @@ The contract is:
 - **Runtime**: Bun + TypeScript, uses a vendored subset of `@lastdb/app-sdk` primitives (see `lastdb_app_sdk/CONTRACT.md` convergence gap)
 - **Routes**: `POST /api/mutation`, `POST /api/query`, `POST /api/app/search`, `GET /api/schemas`, `GET /api/system/auto-identity`
 
-**Evidence**: `.github/workflows/app-install-smoke.yml` lines 134-193 show Brain's full integration: `bun install`, `brain init`, `brain put/get`, schema list.
+**Evidence**: `.github/workflows/app-install-smoke.yml:134-193` show Brain's full integration: `bun install`, `brain init`, `brain put/get`, schema list.
 
-### 1.2 Lastseek (`EdgeVector/lastseek`, Rust, private)
+### 1.2 LastSecrets (`EdgeVector/lastsecrets`, TypeScript)
 
-**Location**: Private repo, separate from lastdb.
-
-**Access surface**:
-- **Rust client**: Uses `lastdb_host::FoldDbHttpClient` (the Rust HTTP client over UDS, same as the CLI uses)
-- **Schemas**: Declarative search index schemas (Hash or HashRange)
-- **Manifest**: Named `lastseek.app.json` (convention differs from Brain's `lastdb-app.json`)
-- **Routes**: Same HTTP API surface as Brain (`/api/query`, `/api/mutation`, `/api/app/search`)
-
-### 1.3 LastSecrets (referenced, not yet in smoke CI)
+**Location**: `https://github.com/EdgeVector/lastsecrets` (public repo)
 
 **Access surface**:
-- **HTTP API**: TCP or UDS
-- **Schemas**: Secret storage schemas (Hash layout)
-- **Routes**: Same `/api/query` and `/api/mutation` surface
+- **HTTP API over UDS**: Uses `@lastdb/app-sdk` (`src/lastdb.ts:11-13`)
+- **Schemas**: Hash schema for secrets (`src/schema.ts:28-80`), plus search index schema
+- **Manifest**: `lastsecrets.app.json` (root)
+- **CLI**: `lastsecrets init`, `lastsecrets put <slug>`, `lastsecrets get <slug>`, `lastsecrets list`, `lastsecrets search`
+- **Runtime**: Bun + TypeScript
+- **Routes**: Same HTTP API as Brain, plus schema distribution registration (`POST /api/apps/register-for-distribution`, `POST /api/apps/verify-distribution-ready`)
 
-### 1.4 Common contract surface
+**Evidence**:
+- `lastsecrets/src/lastdb.ts` imports `@lastdb/app-sdk` (line 11)
+- `lastsecrets/src/schema.ts` defines `lastSecretSchema` and `lastSecretIndexSchema` (Hash layout)
+- `lastsecrets/src/cli.ts:72-78` calls `client.declareAppSchema()`
 
-All three apps depend on:
+**Schemas**:
+- `lastsecrets/LastSecret` (Hash, fields: `slug`, `label`, `provider`, `purpose`, `environment`, `secret_value`, timestamps)
+- `lastsecrets/LastSecretIndex` (HashRange, for search without exposing raw secret values)
+
+### 1.3 Search (`EdgeVector/search`, TypeScript)
+
+**Location**: `https://github.com/EdgeVector/search` (public repo)
+
+**Access surface**:
+- **Vector plane, NOT LastDB API**: Search is a semantic MiniLM vector index app that processes `IndexChangeBatch` files from `{LASTDB_HOME}/apps/search/inbox/` (see `search/README.md:6-17`)
+- **No direct LastDB client**: Does NOT use `@lastdb/app-sdk` or HTTP API routes
+- **Runtime**: Bun + TypeScript + `@xenova/transformers`
+- **CLI**: `search init`, `search query`, `search drain`, `search online-backfill`
+
+**Evidence**:
+- `search/README.md:1-25`: "Search owns a local regenerable MiniLM vector index for Brain, F-Kanban, and other EdgeVector apps. The LastDB kernel keeps thin contracts for durable records and index-change outbox; it does not ship embeddings in default `lastdbd`."
+- `search/src/semantic.ts:1-80`: No `@lastdb/app-sdk` import; processes `IndexChangeBatch` types from inbox
+
+**Status**: Search is NOT part of the app-LastDB contract. It's a vector plane companion to LastDB, not a client of the HTTP API. It will NOT be in the smoke canary matrix.
+
+### 1.4 Common contract surface (Brain and LastSecrets)
+
+Both Brain and LastSecrets depend on:
 
 1. **HTTP API routes** (served by `lastdb_node`, implemented in `lastdb_host/src/route.rs`):
    - `POST /api/mutation` (write one row)
@@ -73,6 +93,10 @@ All three apps depend on:
    - Version handshake: `requireApiVersion` parameter, throws `NodeTooOldError` when node is older
 
 **The contract is already partially codified** in `lastdb_app_sdk/CONTRACT.md` (lines 1-220): the app-facing primitives, machine-actionable error taxonomy, and why route changes break in one place.
+
+### 1.5 Future Rust apps
+
+**Note**: Lastseek was mentioned in earlier drafts but does not exist as `EdgeVector/lastseek`. Future Rust apps (if any) will use a Rust client crate (`lastdb_app_client`, see §3.4).
 
 ## 2. The contract identifier: `lastdb_api_version`
 
@@ -147,11 +171,11 @@ Should apps:
 **Use the SDK as the contract carrier.**
 
 **Reasons**:
-1. **The SDK already does this.** `@lastdb/app-sdk` has `requireApiVersion` and `LASTDB_SDK_API_VERSION` (pinned to the node's Rust constant by a test, per `CONTRACT.md:107`). Brain and Lastseek already depend on it (or should).
+1. **The SDK already does this.** `@lastdb/app-sdk` has `requireApiVersion` and `LASTDB_SDK_API_VERSION` (pinned to the node's Rust constant by a test, per `CONTRACT.md:107`). Brain and LastSecrets already depend on it (or should).
 2. **Type safety.** TypeScript apps get compile-time errors when they use a removed API. Manifest-only apps discover breakage at runtime.
 3. **Error handling.** The SDK maps every HTTP failure to a typed error (`NodeTooOldError`, `CapabilityDeniedError`, `CasConflictError`). Apps branch on discriminators, not status codes or free text.
 4. **One update.** When the contract changes, apps `npm install @lastdb/app-sdk@3.0.0` and fix compilation errors. No separate manifest edit.
-5. **Rust apps.** Lastseek should depend on a Rust SDK crate (`lastdb_app_client` or similar, wrapping `lastdb_host::FoldDbHttpClient` with the same contract).
+5. **Rust apps.** Future Rust apps depend on a Rust SDK crate (see §3.4).
 
 **What the manifest carries**:
 - `"app_id"`, `"version"`, `"schemas"`, `"run"`, `"uses"` (existing fields)
@@ -169,6 +193,24 @@ Should apps:
 - `@lastdb/app-sdk@2.x.x` → `api_version: 2`
 
 **Minor/patch versions** are additive fixes or new helpers (no contract change).
+
+### 3.4 Rust client crate (part of the plan, not future work)
+
+**Rust apps** (if any emerge) will depend on `lastdb_app_client`, a thin Rust crate that:
+- Wraps `lastdb_host::FoldDbHttpClient` (the existing Rust HTTP client over UDS)
+- Pins `api_version` (const `CURRENT_API_VERSION: u32`)
+- Provides typed errors (`NodeTooOldError`, `PermissionDeniedError`, etc.)
+- Follows the same major-version-tracks-api-version convention (`lastdb_app_client 2.x.x` → `api_version: 2`)
+
+**Implementation**:
+- Create `lastdb_app_client/` crate in `lastdb` monorepo
+- Re-export `lastdb_host::FoldDbHttpClient` with contract version guards
+- Add version handshake wrapper (`check_api_version()` calls `GET /api/version` and returns `Result<(), NodeTooOldError>`)
+- Document in `lastdb_app_client/CONTRACT.md` (Rust equivalent of `lastdb_app_sdk/CONTRACT.md`)
+
+**Migration PR**: See §7.2, PR 9.
+
+**Note**: Lastseek does not exist as `EdgeVector/lastseek`. If a Rust app emerges, it will use `lastdb_app_client`.
 
 ## 4. Compatibility at install and upgrade time
 
@@ -236,38 +278,149 @@ pub fn pick_row<'a>(
 
 The post-clone check is PR #357's version constraint guard, extended to `api_version`.
 
-### 4.3 Pre-upgrade check for installed apps
+### 4.3 Pre-upgrade check for installed apps (BLOCKS by default)
 
 **Problem**: When LastDB upgrades (e.g., `brew upgrade lastdb`), installed apps might break if the new node's `MIN_SUPPORTED_API_VERSION` is higher than what they need.
 
-**Solution**: A pre-upgrade check warns the user before the new `lastdbd` starts.
+**Solution**: A pre-upgrade check that **BLOCKS by default** with an explicit `--force` override.
 
-**Implementation**: Add `lastdb app check-compat` (or extend `lastdb app list`):
+**Implementation**: Add `lastdb app check-compat --preview-version <version>`:
 
 ```bash
 # Before brew upgrade lastdb
 lastdb app check-compat --preview-version 0.25.0
 
-# Output:
+# Output when incompatible apps exist (exit code 1):
 # Checking installed apps against lastdb 0.25.0 (api_version 2, supports 2-2)...
 # ✓ brain (api_version 2) - compatible
-# ✗ old-app (api_version 1) - INCOMPATIBLE (requires api_version >= 2)
+# ✗ old-app (api_version 1) - INCOMPATIBLE (requires api_version >= 2, but old-app needs 1)
 # 
-# Run: lastdb app upgrade old-app
-# Or remove it: lastdb app uninstall old-app
+# ERROR: 1 installed app(s) would break with lastdb 0.25.0.
+# 
+# Options:
+# 1. Upgrade incompatible apps: lastdb app upgrade old-app
+# 2. Remove them: lastdb app uninstall old-app
+# 3. Force the upgrade (apps will break): lastdb app check-compat --preview-version 0.25.0 --force
+
+# With --force (exit code 0, warning only):
+# WARNING: 1 installed app(s) would break with lastdb 0.25.0, but --force was passed.
 ```
 
-**Homebrew integration**: The `lastdb` brew formula can run this check in a pre-install hook and warn (but not block) the upgrade.
+**Homebrew integration**:
 
-**Detail**: The check reads `~/.lastdb/apps/*/lastdb-app-install.json` (the install receipts) and resolves each app's `api_version` (from the compat row's `lastdb_api_version`, or by reading the installed SDK version). It compares against the preview version's `MIN_SUPPORTED_API_VERSION`.
+The `lastdb` brew formula runs the check in a **pre-install hook**:
+
+```ruby
+# homebrew-lastdb/Formula/lastdb.rb
+class Lastdb < Formula
+  # ...
+
+  def install
+    # Build binaries
+    system "cargo", "build", "--locked", "--release", "-p", "lastdb_node"
+    bin.install "target/release/lastdb"
+    bin.install "target/release/lastdbd"
+  end
+
+  def pre_install
+    # Only run if upgrading (not fresh install)
+    return unless File.exist?("#{ENV['HOME']}/.lastdb/apps")
+    
+    # Get the version we're about to install
+    new_version = version.to_s
+    
+    # Run the check with the old lastdb binary (still in PATH)
+    system "#{HOMEBREW_PREFIX}/bin/lastdb", "app", "check-compat", "--preview-version", new_version
+    
+    if $?.exitstatus != 0
+      odie <<~EOS
+        One or more installed LastDB apps are incompatible with lastdb #{new_version}.
+        
+        Options:
+        1. Upgrade incompatible apps first: lastdb app upgrade <app_id>
+        2. Remove them: lastdb app uninstall <app_id>
+        3. Force the upgrade (apps will break): brew install --force lastdb
+      EOS
+    end
+  end
+end
+```
+
+**When the check runs**:
+1. User runs `brew upgrade lastdb`
+2. Homebrew downloads the new formula
+3. `pre_install` runs **before** the new binaries are installed
+4. The check uses the **old** `lastdb` binary (still in PATH) to query installed apps
+5. If incompatible apps exist, the check **exits 1** and Homebrew aborts with the error message
+6. User upgrades or removes incompatible apps, then retries `brew upgrade lastdb`
+7. User can override with `brew install --force lastdb` (Homebrew's `--force` bypasses the check)
+
+**Detail**: The check reads `~/.lastdb/apps/*/lastdb-app-install.json` (the install receipts) and resolves each app's `api_version` (from the compat row's `lastdb_api_version`, or by reading the installed SDK version from `node_modules/@lastdb/app-sdk/package.json` if present). It compares against the preview version's `MIN_SUPPORTED_API_VERSION`.
 
 ## 5. How CI enforces the contract
 
 All enforcement is **canary or proof-based**, with evidence in job summaries or artifacts. **No unit test suites** (AGENTS.md policy, 2026-10-09).
 
-### 5.1 Contract-diff check in `lastdb` (breaking change gate)
+### 5.1 Contract-diff check (FAILS CI on breaking changes without version bump or explicit additive marker)
 
 Add `.github/workflows/contract-diff.yml` (runs on every PR):
+
+**Purpose**: Detects breaking changes to the HTTP/API contract surface and **FAILS CI** unless:
+1. `CURRENT_API_VERSION` was bumped, OR
+2. The change is explicitly marked additive (via PR label `contract:additive` or contract changelog entry)
+
+**How the contract surface is captured**:
+
+Generate a **snapshot** of the contract surface from the codebase:
+- Parse `lastdb_host/src/route.rs` for route definitions (`POST /api/mutation`, `GET /api/query`, etc.)
+- Parse `lastdb_host/src/error.rs` and `lastdb_host/src/reject.rs` for error discriminators
+- Parse `lastdb_app_sdk/src/client.ts` and `lastdb_app_sdk/src/errors.ts` for SDK types and error classes
+- Generate a JSON snapshot with route signatures, error kinds, and key SDK types
+
+**Snapshot format** (example):
+
+```json
+{
+  "api_version": 1,
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/mutation",
+      "required_keys": ["schema_name", "mutation_type", "fields", "key"],
+      "optional_keys": ["expected"]
+    },
+    {
+      "method": "POST",
+      "path": "/api/query",
+      "required_keys": ["schema_name", "fields"],
+      "optional_keys": ["filter", "limit", "offset"]
+    }
+  ],
+  "error_kinds": [
+    "missing_required_key",
+    "unknown_key",
+    "cas_conflict",
+    "permission_denied",
+    "capability_denied"
+  ],
+  "sdk_exports": [
+    "connect",
+    "ownerClient",
+    "NodeTooOldError",
+    "CasConflictError"
+  ]
+}
+```
+
+**Snapshot storage**: The snapshot is a **CI artifact**, NOT committed to the repo (per AGENTS.md generated-evidence rule). The base snapshot is generated from `origin/main` at PR time and compared against the head snapshot.
+
+**Breaking vs additive decision**:
+
+The diff script compares base and head snapshots:
+- **Breaking**: Removed route, removed required key, removed error kind, removed SDK export, changed key type
+- **Additive**: Added route, added optional key, added error kind, added SDK export, added response field
+
+**CI workflow**:
 
 ```yaml
 name: contract-diff
@@ -282,76 +435,193 @@ jobs:
         with:
           fetch-depth: 0  # Need base for diff
       
-      - name: Detect HTTP API changes
+      - name: Install dependencies
         run: |
-          # Check if any files in lastdb_host/src/route.rs, lastdb_host/src/error.rs,
-          # or lastdb_app_sdk/src/*.ts changed
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install tree-sitter tree-sitter-rust tree-sitter-typescript
+      
+      - name: Generate base contract snapshot
+        run: |
+          git checkout origin/main
+          python3 scripts/lints/generate-contract-snapshot.py > /tmp/contract-base.json
+          cat /tmp/contract-base.json
+      
+      - name: Generate head contract snapshot
+        run: |
+          git checkout ${{ github.event.pull_request.head.sha }}
+          python3 scripts/lints/generate-contract-snapshot.py > /tmp/contract-head.json
+          cat /tmp/contract-head.json
+      
+      - name: Diff contract snapshots
+        id: diff
+        run: |
+          python3 scripts/lints/diff-contract-snapshots.py \
+            /tmp/contract-base.json \
+            /tmp/contract-head.json \
+            > /tmp/contract-diff.txt
           
-          CHANGED=$(git diff --name-only origin/main...HEAD | grep -E \
-            'lastdb_host/src/(route|error|reject)\.rs|lastdb_app_sdk/src/(client|errors)\.ts|lastdb_node/src/version\.rs' \
-            || true)
+          cat /tmp/contract-diff.txt
           
-          if [ -z "$CHANGED" ]; then
-            echo "No HTTP API surface changes detected"
+          # Read api_version from base and head
+          BASE_VERSION=$(jq -r '.api_version' /tmp/contract-base.json)
+          HEAD_VERSION=$(jq -r '.api_version' /tmp/contract-head.json)
+          
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "head_version=$HEAD_VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if there are breaking changes
+          if grep -q "BREAKING:" /tmp/contract-diff.txt; then
+            echo "has_breaking=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_breaking=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Check version bump or additive marker
+        if: steps.diff.outputs.has_breaking == 'true'
+        run: |
+          BASE_VERSION=${{ steps.diff.outputs.base_version }}
+          HEAD_VERSION=${{ steps.diff.outputs.head_version }}
+          
+          # Check if CURRENT_API_VERSION was bumped
+          if [ "$HEAD_VERSION" -gt "$BASE_VERSION" ]; then
+            echo "✓ CURRENT_API_VERSION bumped: $BASE_VERSION → $HEAD_VERSION"
             exit 0
           fi
           
-          echo "HTTP API surface files changed:"
-          echo "$CHANGED"
-          echo ""
+          # Check for contract:additive label
+          HAS_LABEL=$(gh pr view ${{ github.event.pull_request.number }} \
+            --json labels --jq '.labels[].name' | grep -c "^contract:additive$" || true)
           
-          # Read CURRENT_API_VERSION from base and head
-          BASE_VERSION=$(git show origin/main:lastdb_node/src/version.rs | grep CURRENT_API_VERSION | grep -oE '[0-9]+')
-          HEAD_VERSION=$(git show HEAD:lastdb_node/src/version.rs | grep CURRENT_API_VERSION | grep -oE '[0-9]+')
-          
-          echo "Base api_version: $BASE_VERSION"
-          echo "Head api_version: $HEAD_VERSION"
-          
-          if [ "$HEAD_VERSION" -eq "$BASE_VERSION" ]; then
-            echo ""
-            echo "⚠️  HTTP API surface changed but CURRENT_API_VERSION did not bump."
-            echo "Review the diff. If this is a breaking change, bump CURRENT_API_VERSION in lastdb_node/src/version.rs"
-            echo "Breaking changes: remove route/key, change types, change error discriminators"
-            echo "Additive changes: add optional key, add route, add response field"
-            echo ""
-            echo "This is a WARNING, not a failure. Reviewer must confirm."
-          else
-            echo ""
-            echo "✓ CURRENT_API_VERSION bumped: $BASE_VERSION → $HEAD_VERSION"
+          if [ "$HAS_LABEL" -gt 0 ]; then
+            echo "✓ PR labeled as contract:additive"
+            exit 0
           fi
-
+          
+          # Check for contract changelog entry (optional alternative to label)
+          if grep -q "^### Contract: additive$" CHANGELOG.md 2>/dev/null; then
+            echo "✓ Contract changelog entry found (additive)"
+            exit 0
+          fi
+          
+          # FAIL: Breaking changes without version bump or additive marker
+          echo "❌ BREAKING contract changes detected without version bump or additive marker"
+          echo ""
+          cat /tmp/contract-diff.txt
+          echo ""
+          echo "Options:"
+          echo "1. If this is a breaking change: bump CURRENT_API_VERSION in lastdb_node/src/version.rs"
+          echo "2. If this is additive: add the 'contract:additive' label to this PR"
+          echo "3. If the diff is wrong: fix scripts/lints/generate-contract-snapshot.py"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+      
+      - name: Upload contract snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-snapshots
+          path: |
+            /tmp/contract-base.json
+            /tmp/contract-head.json
+            /tmp/contract-diff.txt
+      
       - name: Add summary
         if: always()
         run: |
           echo "## Contract Diff Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Reviewed HTTP API surface for breaking changes." >> $GITHUB_STEP_SUMMARY
-          echo "See job output for details." >> $GITHUB_STEP_SUMMARY
+          echo "**Base api_version**: ${{ steps.diff.outputs.base_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Head api_version**: ${{ steps.diff.outputs.head_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/contract-diff.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No changes" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 ```
 
-**Purpose**: Warns when the HTTP API surface changes without a version bump. The reviewer confirms whether it's breaking or additive.
+**New scripts**:
+- `scripts/lints/generate-contract-snapshot.py`: Parses Rust and TypeScript to generate JSON snapshot
+- `scripts/lints/diff-contract-snapshots.py`: Compares two snapshots and outputs `BREAKING:` or `ADDITIVE:` lines
+
+**Result**: Breaking changes without a version bump **FAIL CI**. The reviewer must either bump the version or apply the `contract:additive` label.
 
 ### 5.2 App install smoke test (extend existing `.github/workflows/app-install-smoke.yml`)
 
 **Current state**: PR #352 added `.github/workflows/app-install-smoke.yml`. It installs Brain from the registry and runs `brain put/get` as proof.
 
-**Extension**: Add per-app `api_version` evidence and test multiple `lastdb` versions.
+**Extension**: Add LastSecrets to the matrix and test multiple `lastdb` versions.
 
 **Changes to `app-install-smoke.yml`**:
 
-1. Add a matrix dimension for `lastdb_version`:
+1. Add LastSecrets to the app matrix:
 
 ```yaml
 strategy:
   fail-fast: false
   matrix:
-    app: [brain]
+    app: [brain, lastsecrets]  # Add lastsecrets
     lastdb_version: [current, v0.23.0]  # Test current main + stable release
 ```
 
 2. For `lastdb_version: v0.23.0`, check out and build that tag instead of `HEAD`.
 
-3. After install, record the app's `api_version`:
+3. Add LastSecrets-specific setup steps (analogous to Brain's Bun install):
+
+```yaml
+- name: Set up ${{ matrix.app }} dependencies (LastSecrets)
+  if: matrix.app == 'lastsecrets'
+  run: |
+    cd "$LASTDB_HOME/apps/${{ matrix.app }}/source"
+    bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-deps-install.log"
+    bun link 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-link.log"
+
+- name: Initialize ${{ matrix.app }} schemas (LastSecrets)
+  if: matrix.app == 'lastsecrets'
+  run: |
+    cd "$LASTDB_HOME/apps/${{ matrix.app }}/source"
+    lastsecrets init 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-init.log"
+    
+    # Check schema registration
+    lastdb --data-dir "$LASTDB_HOME" schemas list | grep -E "lastsecrets" | tee "$PROOF_DIR/${{ matrix.app }}-schemas.txt" || echo "No lastsecrets schemas found"
+
+- name: Run ${{ matrix.app }} health checks (LastSecrets)
+  if: matrix.app == 'lastsecrets'
+  run: |
+    lastsecrets --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-version.txt"
+    
+    # Try storing and retrieving a test secret
+    TEST_SLUG="test-secret-ci-$$"
+    echo "Testing ${{ matrix.app }} with slug: $TEST_SLUG"
+    
+    lastsecrets put "$TEST_SLUG" \
+      --label "Test Secret" \
+      --provider "CI" \
+      --purpose "Smoke test" \
+      --environment "test" \
+      --value "test-value-${{ github.run_number }}" \
+      2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
+      echo "LastSecrets put failed"
+      exit 1
+    }
+    
+    # Retrieve it
+    lastsecrets get "$TEST_SLUG" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-get-test.txt" || {
+      echo "LastSecrets get failed"
+      exit 1
+    }
+    
+    # Verify we can list it
+    lastsecrets list 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-list-test.txt"
+    if grep -q "$TEST_SLUG" "$PROOF_DIR/${{ matrix.app }}-list-test.txt"; then
+      echo "✓ LastSecrets read/write test passed"
+    else
+      echo "✗ LastSecrets read/write test failed"
+      exit 1
+    fi
+```
+
+4. After install, record the app's `api_version`:
 
 ```yaml
 - name: Record app api_version
@@ -360,14 +630,23 @@ strategy:
     
     # Extract api_version from compat row or SDK version
     API_VERSION=$(cat ${{ matrix.app }}-resolve.json | grep -o '"lastdb_api_version":[0-9]*' | grep -oE '[0-9]+' || echo "unknown")
+    
+    # If not in compat row, try reading from installed SDK
+    if [ "$API_VERSION" = "unknown" ]; then
+      SDK_VERSION=$(cat "$LASTDB_HOME/apps/${{ matrix.app }}/source/node_modules/@lastdb/app-sdk/package.json" 2>/dev/null | jq -r '.version' || echo "unknown")
+      if [[ "$SDK_VERSION" =~ ^([0-9]+)\. ]]; then
+        API_VERSION="${BASH_REMATCH[1]}"
+      fi
+    fi
+    
     echo "App ${{ matrix.app }} requires api_version: $API_VERSION" | tee app-api-version.txt
     
     # Node's api_version
-    NODE_API_VERSION=$(lastdb --data-dir "$LASTDB_HOME" --version | grep -o 'api_version [0-9]*' | grep -oE '[0-9]+' || echo "unknown")
+    NODE_API_VERSION=$(lastdb --data-dir "$LASTDB_HOME" version --json 2>/dev/null | jq -r '.api_version' || echo "unknown")
     echo "Node provides api_version: $NODE_API_VERSION" | tee node-api-version.txt
 ```
 
-4. Update the summary to show compatibility:
+5. Update the summary to show compatibility:
 
 ```yaml
 - name: Add summary to job output
@@ -383,11 +662,13 @@ strategy:
     echo '```' >> $GITHUB_STEP_SUMMARY
 ```
 
-**Purpose**: Proves that the current `lastdb` build can install and run each registry app, and that older `lastdb` releases still work with the latest apps (within the deprecation window).
+**Purpose**: Proves that the current `lastdb` build can install and run each registry app (Brain and LastSecrets), and that older `lastdb` releases still work with the latest apps (within the deprecation window).
+
+**Note**: Search is NOT included in the smoke test matrix because it does not use the LastDB HTTP API contract (it's a vector plane).
 
 ### 5.3 Per-app compat matrix (app repos test against multiple `lastdb` versions)
 
-Each app repo (e.g., `last-stack` for Brain) can add a CI job that tests against multiple `lastdb` versions using **local install** (`--from` / `--dev`, see §6).
+Each app repo (e.g., `last-stack` for Brain, `lastsecrets` for LastSecrets) can add a CI job that tests against multiple `lastdb` versions using **local install** (`--from` / `--dev`, see §6).
 
 **Example** (Brain in `last-stack`):
 
@@ -426,7 +707,7 @@ steps:
   - name: Install brain locally
     run: |
       ../lastdb-build/target/debug/lastdb app install brain \
-        --from $(pwd) \
+        --from $(pwd)/brain \
         --rev ${{ github.sha }} \
         --dev
   
@@ -464,35 +745,34 @@ lastdb app install brain --from file:///opt/repos/last-stack --rev abc123def --d
 
 **The `--dev` flag** is required for local sources. It gates the feature behind an explicit opt-in, and prevents production defaults from silently accepting unsigned sources. The flag records `"source": "dev"`, `"channel": "dev"`, `"trust": "dev"` in the install receipt.
 
-**Always require `--rev`**. Remove the unpinned dev example from the earlier draft. Every install must name a commit, so the receipt and the proof are reproducible.
+**Always require `--rev`**. Every install must name a commit, so the receipt and the proof are reproducible.
 
 ### 6.2 Manifest location convention
 
 Apps have different manifest naming:
 - Brain: `brain/lastdb-app.json` (inside `last-stack` monorepo)
-- Lastseek: `lastseek.app.json` (repo root)
+- LastSecrets: `lastsecrets.app.json` (repo root)
 
-**Convention**: The manifest is `<source-root>/<app-id>/lastdb-app.json` or `<source-root>/lastdb-app.json` (fallback). The installer tries both:
+**Convention**: The manifest is `<source-root>/<app-id>/lastdb-app.json` or `<source-root>/lastdb-app.json` (fallback) or `<source-root>/<app-id>.app.json` (LastSecrets convention). The installer tries all three:
 
 ```rust
 fn find_manifest(source: &Path, app_id: &str) -> Result<PathBuf, String> {
-    let app_dir_manifest = source.join(app_id).join("lastdb-app.json");
-    if app_dir_manifest.exists() {
-        return Ok(app_dir_manifest);
+    let candidates = [
+        source.join(app_id).join("lastdb-app.json"),       // brain/lastdb-app.json
+        source.join("lastdb-app.json"),                    // lastdb-app.json
+        source.join(format!("{}.app.json", app_id)),       // lastsecrets.app.json
+    ];
+    
+    for path in &candidates {
+        if path.exists() {
+            return Ok(path.clone());
+        }
     }
-    let root_manifest = source.join("lastdb-app.json");
-    if root_manifest.exists() {
-        return Ok(root_manifest);
-    }
-    // Also try <app-id>.app.json (Lastseek convention)
-    let alt_manifest = source.join(format!("{}.app.json", app_id));
-    if alt_manifest.exists() {
-        return Ok(alt_manifest);
-    }
+    
     Err(format!(
         "manifest not found: tried {}/lastdb-app.json, {}, and {}.app.json",
         app_id,
-        root_manifest.display(),
+        source.join("lastdb-app.json").display(),
         app_id
     ))
 }
@@ -627,7 +907,7 @@ fn resolve_local(
 }
 ```
 
-**Key fix from earlier draft**: `resolve_local()` must read the manifest at `--rev` using `git show <rev>:<path>`, not from the working tree. This ensures the check uses the manifest that was committed at `--rev`, not a possibly-modified working copy.
+**Key requirement**: `resolve_local()` reads the manifest at `--rev` using `git show <rev>:<path>`, not from the working tree. This ensures the check uses the manifest that was committed at `--rev`, not a possibly-modified working copy.
 
 **Install with `Local`**: The existing `install.rs::install_pinned()` already clones and checks out a commit. It needs no changes for local sources: `resolution.source` is a `file://` URL, which git accepts.
 
@@ -695,24 +975,46 @@ Implement in this order:
 
 **Title**: "Add local install source (--from/--rev/--dev) for dev and CI proofs"
 
-#### PR 4: `EdgeVector/lastdb` — CI: contract-diff check and extended smoke test
+#### PR 4: `EdgeVector/lastdb` — CI: contract-diff check
 
-- Add `.github/workflows/contract-diff.yml` (warns on HTTP API changes without version bump)
-- Extend `.github/workflows/app-install-smoke.yml` to test multiple `lastdb` versions (current + v0.23.0)
-- Add `api_version` evidence to smoke test artifacts and summary
+- Add `.github/workflows/contract-diff.yml` (FAILS on breaking changes without version bump or `contract:additive` label)
+- Add `scripts/lints/generate-contract-snapshot.py` (parses Rust + TypeScript to generate JSON snapshot)
+- Add `scripts/lints/diff-contract-snapshots.py` (compares snapshots, outputs `BREAKING:` or `ADDITIVE:` lines)
+- Snapshot is CI artifact, not committed
 - Open the PR, reference this design, merge
 
-**Title**: "CI: contract-diff check and multi-version app install smoke test"
+**Title**: "CI: contract-diff check (fails on breaking changes without version bump)"
 
-#### PR 5: `EdgeVector/lastdb` — Pre-upgrade compatibility check
+#### PR 5: `EdgeVector/lastdb` — CI: extend app-install-smoke test
+
+- Extend `.github/workflows/app-install-smoke.yml` to test multiple `lastdb` versions (current + v0.23.0)
+- Add LastSecrets to the app matrix (alongside Brain)
+- Add `api_version` evidence to smoke test artifacts and summary
+- Add LastSecrets-specific setup and health checks
+- Open the PR, reference this design, merge
+
+**Title**: "CI: extend app-install-smoke with LastSecrets and multi-version testing"
+
+#### PR 6: `EdgeVector/lastdb` — Pre-upgrade compatibility check
 
 - Add `lastdb app check-compat --preview-version <version>` command
 - Reads install receipts, resolves each app's `api_version`, checks against preview version's `MIN_SUPPORTED`
+- **BLOCKS by default (exit 1)** when incompatible apps exist
+- `--force` flag to bypass (exit 0, warning only)
 - Open the PR, reference this design, merge
 
-**Title**: "Add pre-upgrade app compatibility check"
+**Title**: "Add pre-upgrade app compatibility check (blocks by default)"
 
-#### PR 6: `EdgeVector/last-stack` — Publisher plumbs `api_version` to compat rows
+#### PR 7: `EdgeVector/homebrew-lastdb` — Homebrew pre-install hook
+
+- Add `pre_install` hook to `Formula/lastdb.rb` that runs `lastdb app check-compat --preview-version <new_version>`
+- Hook aborts upgrade if check exits 1 (incompatible apps)
+- User can override with `brew install --force lastdb`
+- Open the PR, reference this design, merge
+
+**Title**: "Add pre-install compatibility check to Homebrew formula"
+
+#### PR 8: `EdgeVector/last-stack` — Publisher plumbs `api_version` to compat rows
 
 - Update the registry publisher (in `last-stack`) to:
   - Read `@lastdb/app-sdk` version from `package-lock.json`
@@ -723,18 +1025,37 @@ Implement in this order:
 
 **Title**: "Registry publisher: plumb api_version from SDK version to compat rows"
 
-#### PR 7: `EdgeVector/homebrew-lastdb` — Registry update (automatic, from publisher)
+#### PR 9: `EdgeVector/lastdb` — Rust client crate (`lastdb_app_client`)
 
-- The publisher (PR 6) writes the next index with `lastdb_api_version` ranges
+- Create `lastdb_app_client/` crate (wraps `lastdb_host::FoldDbHttpClient`)
+- Add `pub const CURRENT_API_VERSION: u32` (tracks contract version)
+- Add version handshake wrapper (`check_api_version()` calls `GET /api/version`, returns `Result<(), NodeTooOldError>`)
+- Add typed errors (`NodeTooOldError`, `PermissionDeniedError`, etc.)
+- Document in `lastdb_app_client/CONTRACT.md` (Rust equivalent of `@lastdb/app-sdk/CONTRACT.md`)
+- Major version tracks `api_version` (`lastdb_app_client 2.x.x` → `api_version: 2`)
+- Open the PR, reference this design, merge
+
+**Title**: "Add Rust client crate (lastdb_app_client) with contract version pinning"
+
+#### PR 10: `EdgeVector/homebrew-lastdb` — Registry update (automatic, from publisher)
+
+- The publisher (PR 8) writes the next index with `lastdb_api_version` ranges
 - Commit and push the new `registry/stable.json` and `registry/stable.json.sig`
 - At this point, all new installs check `api_version` compatibility before download
 
-#### PR 8: `EdgeVector/last-stack` — Use local install in Brain CI (optional)
+#### PR 11: `EdgeVector/last-stack` — Use local install in Brain CI (optional)
 
 - Add `.github/workflows/brain-lastdb-compat.yml` (tests Brain against multiple `lastdb` versions using `--from` / `--dev`)
 - Open the PR, reference this design, merge
 
 **Title**: "CI: Brain compatibility matrix using local install"
+
+#### PR 12: `EdgeVector/lastsecrets` — Use local install in LastSecrets CI (optional)
+
+- Add `.github/workflows/lastsecrets-lastdb-compat.yml` (tests LastSecrets against multiple `lastdb` versions using `--from` / `--dev`)
+- Open the PR, reference this design, merge
+
+**Title**: "CI: LastSecrets compatibility matrix using local install"
 
 ### 7.3 Rollout
 
@@ -746,49 +1067,29 @@ Implement in this order:
 
 **No migration for existing installs.** Installed apps keep working. The next `lastdb app upgrade` uses the new resolve logic if the registry has `api_version` ranges.
 
-## 8. Open questions (resolved)
+## 8. What could not be verified
 
-### 8.1 Manifest location (resolved)
+**Lastseek / EdgeVector/lastseek**: This repo does not exist. Earlier drafts referenced "Lastseek" as a Rust app. There is no such repo in the EdgeVector org. If a Rust app emerges in the future, it will use the `lastdb_app_client` crate (PR 9).
 
-**Decision**: Try `<app-id>/lastdb-app.json`, `lastdb-app.json`, `<app-id>.app.json` in order. Or add `--manifest <path>` flag for explicit override.
+**Search app contract status**: The `EdgeVector/search` app is a vector plane companion to LastDB, not a client of the HTTP API contract. It processes `IndexChangeBatch` files from an inbox and does NOT use `@lastdb/app-sdk` or any HTTP routes. It is NOT part of the app-LastDB contract and will NOT be in the smoke test matrix.
 
-### 8.2 Should `resolve_local()` read the manifest at `--rev` or working tree? (resolved)
-
-**Decision**: Read at `--rev` using `git show <rev>:<path>`. The post-clone check in `install_pinned()` is defense-in-depth for manifest changes between commits.
-
-### 8.3 Always require `--rev`? (resolved)
-
-**Decision**: Yes. Remove the unpinned dev example. Every install must name a commit.
-
-### 8.4 Bump `INDEX_VERSION`? (resolved)
-
-**Decision**: No. Adding an optional field (`CompatRow.lastdb_api_version`) does not break parsers. Old clients ignore it. New clients accept rows with or without it.
-
-## 9. Alternatives considered
-
-### 9.1 Manifest `"api_version"` as the only source (no SDK)
-
-**Rejected.** The SDK already does this (`requireApiVersion` + `LASTDB_SDK_API_VERSION`). Manifest-only apps discover breakage at runtime, not compile time. The SDK provides type safety and error handling.
-
-### 9.2 Parallel version system (not `lastdb_api_version`)
-
-**Rejected.** `CompatRow` already has `lastdb_api_version`. The node already serves `GET /api/version → {api_version}`. `@lastdb/app-sdk` already uses `requireApiVersion`. Building on the existing system is simpler than inventing a new one.
-
-### 9.3 No pre-upgrade check
-
-**Rejected.** Users want to know before upgrading LastDB that their installed apps will break. The pre-upgrade check (`lastdb app check-compat --preview-version`) gives them a chance to upgrade apps first.
-
-## 10. Summary
+## 9. Summary
 
 This proposal establishes a **firm contract between apps and LastDB**:
 
 1. **Contract identifier**: `lastdb_api_version` (unsigned integer), already present in `CompatRow` and `GET /api/version`.
 2. **Apps depend on the SDK** (`@lastdb/app-sdk` for TypeScript, `lastdb_app_client` for Rust), which pins the contract version. The registry publisher reads the SDK version and writes `api_version` to compat rows.
-3. **Breaking vs additive**: Defined (§2.2). CI warns when the HTTP API changes without a version bump (contract-diff check).
+3. **Breaking vs additive**: Defined (§2.2). **CI FAILS** when the HTTP API changes without a version bump or explicit `contract:additive` label. Contract surface is captured as a generated JSON snapshot (CI artifact, not committed).
 4. **Install/upgrade checks `api_version`** in `pick_row()` BEFORE download. A node on `0.23.2` can install an app proved on `0.23.0` if `api_version` is compatible. Remove exact `lastdb_version` string match.
-5. **Pre-upgrade check** (`lastdb app check-compat --preview-version`) warns if installed apps would break after upgrading LastDB.
+5. **Pre-upgrade check** (`lastdb app check-compat --preview-version`) **BLOCKS by default** (exit 1) if installed apps would break after upgrading LastDB. Homebrew `pre_install` hook runs the check and aborts upgrade unless `--force` is passed.
 6. **Local install source** (`--from <path> --rev <sha> --dev`) for dev, CI, and proofs. Always require `--rev`. Read manifest at `--rev` using `git show`. Production defaults stay signed-only.
-7. **CI enforcement**: contract-diff check (warns on HTTP API changes), extended app-install-smoke test (tests multiple `lastdb` versions), per-app compat matrix (app repos test against supported `lastdb` versions using local install). All proof-based, no unit test suites.
-8. **Migration**: Merge PR #357 as-is (defense-in-depth). Implement this in 8 PRs across `lastdb`, `last-stack`, and `homebrew-lastdb`.
+7. **CI enforcement**: contract-diff check (FAILS on breaking changes), extended app-install-smoke test (Brain + LastSecrets, multiple `lastdb` versions, `api_version` evidence), per-app compat matrix (app repos test against supported `lastdb` versions using local install). All proof-based, no unit test suites.
+8. **Rust client crate** (`lastdb_app_client`) wraps `lastdb_host::FoldDbHttpClient`, pins `api_version`, provides typed errors. Part of the plan (PR 9), not future work.
+9. **Migration**: Merge PR #357 as-is (defense-in-depth). Implement this in 12 PRs across `lastdb`, `last-stack`, `homebrew-lastdb`, and `lastsecrets`.
 
-**Result**: Tom can rely on the app registry. Apps declare the contract version they need (via SDK), the node checks it before download, and CI proves the contract holds.
+**Inventory**:
+- **Brain** (TypeScript, `@lastdb/app-sdk` vendored subset, `brain/lastdb-app.json`)
+- **LastSecrets** (TypeScript, `@lastdb/app-sdk`, `lastsecrets.app.json`)
+- **Search** (TypeScript, vector plane, NOT part of the contract)
+
+**Result**: Tom can rely on the app registry. Apps declare the contract version they need (via SDK), the node checks it before download, pre-upgrade check blocks incompatible upgrades, and CI proves the contract holds.
