@@ -12,10 +12,14 @@
 //! and which key it refused on, using only compile-time constants. See
 //! [`crate::reject`] for why naming the rule keeps I4 intact.
 
+use fold_db::schema::types::operations::{MutationConvergence, Operation};
 use fold_db::schema::types::{KeyValue, Query};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+use serde::Deserialize;
 use serde_json::Value;
 
+use crate::envelope::content_free;
+use crate::handlers::MutationComponents;
 use crate::reject::{Reject, WireKey};
 
 /// Parse the request body as a JSON object. A non-object top-level JSON value
@@ -66,6 +70,52 @@ pub fn parse_query_body(
         offset,
         cursor,
     })
+}
+
+#[derive(Deserialize)]
+struct BatchMutationsRequest {
+    mutations: Vec<Operation>,
+    #[serde(default)]
+    convergence: Option<MutationConvergence>,
+}
+
+/// Decode either batch mutation body shape without host or task access.
+/// Array items use operation defaults; object items can inherit convergence.
+/// Operation convergence still overrides the batch default.
+///
+/// # Errors
+/// Malformed JSON retains the bare `400 Bad Request`. Typed grammar failures
+/// retain their content-free rejection kind and key, without caller values.
+pub fn parse_batch_mutation_body(body: &[u8]) -> Result<Vec<MutationComponents>, UdsResponse> {
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return Err(content_free(400, "Bad Request"));
+    };
+
+    // A strict `Operation` refusing a key it does not declare is the
+    // client↔node version-skew signal (`unknown_key`), not a malformed body:
+    // brain 0.8.0 sent per-mutation `durability` to a primary that predated
+    // the key and got the same bare `Bad Request` as a typo (2026-09-03).
+    let (operations, default_convergence) = match value {
+        Value::Array(items) => {
+            let mut operations = Vec::with_capacity(items.len());
+            for item in items {
+                match serde_json::from_value::<Operation>(item) {
+                    Ok(operation) => operations.push(operation),
+                    Err(err) => return Err(Reject::from_serde_error(&err, None).response()),
+                }
+            }
+            (operations, None)
+        }
+        other => match serde_json::from_value::<BatchMutationsRequest>(other) {
+            Ok(request) => (request.mutations, request.convergence),
+            Err(err) => return Err(Reject::from_serde_error(&err, None).response()),
+        },
+    };
+
+    Ok(operations
+        .into_iter()
+        .map(|operation| MutationComponents::from_operation(operation, default_convergence, None))
+        .collect())
 }
 
 /// Pull an optional non-negative pagination field out of a JSON object, removing

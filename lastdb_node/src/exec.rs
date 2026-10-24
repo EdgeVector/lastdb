@@ -29,7 +29,7 @@ use fold_db::access::{parse_db_locator, storage_prefix_for, AccessContext, DbLoc
 use fold_db::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use fold_db::schema::schema_types::SchemaWithState;
 use fold_db::schema::types::declarative_schemas::{FieldMapper, SchemaSource};
-use fold_db::schema::types::operations::{MutationConvergence, MutationType, Operation};
+use fold_db::schema::types::operations::{MutationType, Operation};
 use fold_db::schema::types::{
     DeclarativeSchemaDefinition, KeyConfig, KeyValue, Schema, SchemaType,
 };
@@ -49,8 +49,9 @@ use lastdb_host::handlers::{
 };
 use lastdb_host::reject::{Reject, RejectKind, WireKey};
 use lastdb_host::wire::{
-    body_object, first_missing_key, parse_min_score, parse_query_body, path_tail, percent_decode,
-    query_flag, query_value, schema_name_from_target, QueryRequest, MUTATION_REQUIRED_KEYS,
+    body_object, first_missing_key, parse_batch_mutation_body, parse_min_score, parse_query_body,
+    path_tail, percent_decode, query_flag, query_value, schema_name_from_target, QueryRequest,
+    MUTATION_REQUIRED_KEYS,
 };
 use lastdb_host::HostError;
 
