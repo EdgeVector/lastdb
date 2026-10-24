@@ -156,6 +156,13 @@ impl MetadataStore {
 
     // ===== Idempotency store =====
 
+    /// Read bounded cache limits and old-cache cleanup counters, without keys or values.
+    pub async fn retry_cache_status(&self) -> Result<serde_json::Value, SchemaError> {
+        idempotency::status(&self.idempotency_store)
+            .await
+            .map_err(Into::into)
+    }
+
     /// Batch-read the bounded retry cache, preserving input order and scope.
     pub async fn get_idempotency_ids(
         &self,

@@ -48,3 +48,21 @@ claim that old deletion markers disappear from the current format.
 
 No primary upgrade or live cleanup accompanies this source change. Use the
 normal reviewed upgrade path when an operator selects the new program.
+
+## Operational status and upgrade measurements
+
+The owner-only `GET /api/db/native-status` response includes `retry_cache`.
+It reports the caps, cleanup completion, the presence of a saved continuation,
+and the count of old receipts removed. It returns no receipt, key, or value.
+The examined count covers returned live metadata records, not physical tombstones.
+
+The PR benchmark can use `--seed-with-baseline --minimum-retired 10000`.
+The actual baseline daemon creates 10,000 records through normal mutation
+requests. After its durable shutdown, the candidate reopens that same generated
+home. The normal request workload measures reads and writes through the socket.
+It requires cleanup completion and the removal of at least 10,000 old receipts,
+then reads all known product keys and checks a repeated write's receipt.
+The original untouched values must remain equal to their generated values.
+There are no direct metadata inserts or constructed unknown key families.
+This operation measures a real version upgrade; it supplies no direct evidence
+for the separate hypothetical unknown-family case.

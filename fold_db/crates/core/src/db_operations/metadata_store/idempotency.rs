@@ -1,6 +1,7 @@
 //! A bounded retry cache. A hit still requires matching current record values.
 use crate::storage::error::StorageResult;
 use crate::storage::{KvStore, StorageError, TypedKvStore};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -14,6 +15,38 @@ const BUCKET_BYTES: usize = 8 * 1024;
 const ID_BYTES: usize = 128;
 const LEGACY_PAGE: usize = BUCKETS * 2;
 type Bucket = Vec<(String, String)>;
+
+#[derive(Default, Deserialize, Serialize)]
+struct Progress {
+    after: Vec<u8>,
+    retired: u64,
+    examined: u64,
+}
+
+pub(super) async fn status(store: &TypedKvStore<dyn KvStore>) -> StorageResult<serde_json::Value> {
+    let rows = store
+        .inner()
+        .get_many(vec![DRAINED.to_vec(), CURSOR.to_vec()])
+        .await?;
+    if rows.len() != 2 {
+        return Err(StorageError::BackendError(
+            "retry-cache status is incomplete".into(),
+        ));
+    }
+    let progress = rows[0]
+        .as_ref()
+        .or(rows[1].as_ref())
+        .and_then(|bytes| serde_json::from_slice::<Progress>(bytes).ok());
+    Ok(serde_json::json!({
+        "receipt_cap": BUCKETS * ENTRIES,
+        "bucket_cap": BUCKETS,
+        "bucket_byte_cap": BUCKET_BYTES,
+        "legacy_complete": rows[0].is_some(),
+        "legacy_pending": rows[1].is_some(),
+        "legacy_retired": progress.as_ref().map(|progress| progress.retired),
+        "legacy_examined": progress.as_ref().map(|progress| progress.examined),
+    }))
+}
 
 fn coordinate(key: &str) -> (String, String) {
     let digest = Sha256::digest(key.as_bytes());
@@ -123,17 +156,29 @@ async fn retire_legacy(store: &TypedKvStore<dyn KvStore>) -> StorageResult<()> {
     if store.inner().get(DRAINED).await?.is_some() {
         return Ok(());
     }
-    let start = store.inner().get(CURSOR).await?.unwrap_or_default();
+    let mut progress = match store.inner().get(CURSOR).await? {
+        // Earlier PR revisions saved only the next inclusive key, ending in NUL.
+        // Preserve that position if an operator upgrades an unfinished cleanup.
+        Some(bytes) if bytes.last() == Some(&0) => Progress {
+            after: bytes,
+            ..Progress::default()
+        },
+        Some(bytes) => serde_json::from_slice::<Progress>(&bytes)
+            .map_err(|error| StorageError::SerializationError(error.to_string()))?,
+        None => Progress::default(),
+    };
     let page = store
         .inner()
-        .scan_range_yielding(&start, LEGACY_END, LEGACY_PAGE, 0)
+        .scan_range_yielding(&progress.after, LEGACY_END, LEGACY_PAGE, 0)
         .await?;
+    progress.examined = progress.examined.saturating_add(page.rows.len() as u64);
     let old = page
         .rows
         .into_iter()
         .filter_map(|(key, _)| is_legacy(&key).then_some(key))
         .collect::<Vec<_>>();
     if !old.is_empty() {
+        progress.retired = progress.retired.saturating_add(old.len() as u64);
         store.inner().batch_delete(old).await?;
     }
     if let Some(mut last) = page.resume {
@@ -141,12 +186,25 @@ async fn retire_legacy(store: &TypedKvStore<dyn KvStore>) -> StorageResult<()> {
         // last examined key, including a deleted key named by a budget stop.
         // Unknown families advance the cursor even though we preserve them.
         last.push(0);
-        store.inner().put(CURSOR, last).await?;
+        progress.after = last;
+        store
+            .inner()
+            .put(CURSOR, progress_bytes(&progress)?)
+            .await?;
     } else {
-        store.inner().put(DRAINED, b"true".to_vec()).await?;
+        progress.after.clear();
+        store
+            .inner()
+            .put(DRAINED, progress_bytes(&progress)?)
+            .await?;
         store.inner().delete(CURSOR).await?;
     }
     Ok(())
+}
+
+fn progress_bytes(progress: &Progress) -> StorageResult<Vec<u8>> {
+    serde_json::to_vec(progress)
+        .map_err(|error| StorageError::SerializationError(error.to_string()))
 }
 
 fn is_legacy(key: &[u8]) -> bool {

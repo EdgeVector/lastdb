@@ -16,8 +16,15 @@ pub(in crate::exec) async fn execute(
             ctx,
         );
     };
+    let retry_cache = host
+        .db
+        .db_ops()
+        .metadata()
+        .retry_cache_status()
+        .await
+        .unwrap_or_else(|error| serde_json::json!({"error": error.to_string()}));
     json_ok(&envelope(
-        &serde_json::json!({"native_disk":runtime.status_native()}),
+        &serde_json::json!({"native_disk":runtime.status_native(), "retry_cache": retry_cache}),
         ctx.user_id.as_str(),
     ))
 }
