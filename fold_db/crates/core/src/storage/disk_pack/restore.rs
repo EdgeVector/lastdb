@@ -130,7 +130,7 @@ fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
     ))
 }
 
-fn existing_bytes(path: &Path, maximum: u64) -> StorageResult<Vec<u8>> {
+pub(super) fn existing_bytes(path: &Path, maximum: u64) -> StorageResult<Vec<u8>> {
     let file = open_existing(path, false)?;
     if file.metadata()?.len() > maximum {
         return Err(refusal("restored validation file exceeds its bound"));
@@ -166,7 +166,13 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
         let entry = entry?;
         if !matches!(
             entry.file_name().to_str(),
-            Some("disk-pack" | NODE_MARKER | "laststore-layout-v1" | "native-file-recovery-v1")
+            Some(
+                "disk-pack"
+                    | NODE_MARKER
+                    | "laststore-layout-v1"
+                    | "native-file-recovery-v1"
+                    | super::restore_safety::PENDING_FILE
+            )
         ) {
             return Err(refusal("unexpected restore wrapper member"));
         }
@@ -198,6 +204,8 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
     }
     drop(reader);
     prepare_snapshot_directories(&physical, &validated.current).map_err(map)?;
+    // The first logical open must check all counters before cleanup can run.
+    super::restore_safety::mark_native(root)?;
     let marker = root.join(NODE_MARKER);
     regular_or_absent(&marker)?;
     let mut lock = OpenOptions::new()
@@ -231,7 +239,7 @@ fn regular_or_absent(path: &Path) -> StorageResult<()> {
     }
 }
 
-fn finish_file(file: &mut File, expected: &[u8]) -> StorageResult<()> {
+pub(super) fn finish_file(file: &mut File, expected: &[u8]) -> StorageResult<()> {
     let length = file.metadata()?.len();
     if length > expected.len() as u64 {
         return Err(refusal("restore marker differs"));

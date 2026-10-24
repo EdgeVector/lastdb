@@ -138,8 +138,9 @@ Faults of these phases:
 - A protein member binding goes only when a schema drop (or a changed schema) leaves a
   molecule that only a protein names (`protein_release_members`). A protein member of a
   molecule that a schema or a catalog still names stays.
-- Cloud replay and restore write headers and binding records that bypass the planner.
-  Cloud sync is off in this build.
+- Complete mutation replay uses the normal counter writer. Raw lifecycle replay is refused before any effects.
+  Restore excludes cleanup until all restored scopes pass exact counter validation.
+  See `docs/counter-safe-replay-restore.md`. Cloud activation stays disabled.
 - A crash between the share route's domain grant and its batch leaves a domain grant
   with no binding. The grant is not a reference.
 - Nothing finds a dead molecule except the candidate rows of the molecule drain

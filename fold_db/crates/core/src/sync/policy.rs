@@ -84,6 +84,11 @@ pub(crate) fn capture_should_skip_namespace(name: &str) -> bool {
 }
 
 pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
+    if namespace == "main"
+        && key == crate::storage::disk_pack::restore_safety::PENDING_KEY.as_bytes()
+    {
+        return true;
+    }
     let Ok(key) = std::str::from_utf8(key) else {
         return false;
     };
@@ -92,8 +97,8 @@ pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
         return true;
     }
     // An atom counter (`atom:{uuid}\0c`) is node-local state. A peer must never
-    // import another node's count. Replay applies tips and bodies raw, so a
-    // replayed atom has no counter until steps S3 and S6 add the recount.
+    // import another node's count. Complete mutation replay uses the local
+    // counter writer; physical lifecycle replay is refused.
     if crate::atom::atom_key_codec::is_counter_key(key) {
         return namespace == "main" || namespace == "atoms";
     }

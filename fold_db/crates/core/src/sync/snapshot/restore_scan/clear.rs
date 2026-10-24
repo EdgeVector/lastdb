@@ -5,6 +5,9 @@ use crate::storage::KvStore;
 use std::sync::Arc;
 
 fn selected(key: &[u8], mode: RestoreMode<'_>, is_main: bool) -> bool {
+    if is_main && key == crate::storage::disk_pack::restore_safety::PENDING_KEY.as_bytes() {
+        return false;
+    }
     match mode {
         RestoreMode::Personal => !is_org_scoped_key_bytes(key),
         RestoreMode::Scoped(prefixes) => {
