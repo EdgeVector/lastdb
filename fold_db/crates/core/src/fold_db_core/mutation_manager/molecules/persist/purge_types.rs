@@ -1,4 +1,4 @@
-//! Purge envelope and the persist-lane job enum.
+//! Purge envelope and its owned persist-lane job.
 
 use super::*;
 
@@ -58,10 +58,10 @@ pub(crate) struct PurgeEnvelope {
     pub(in crate::fold_db_core::mutation_manager) pending_completion: Option<PurgeCompletion>,
 }
 
-/// One ordered durable action on a schema persist lane.
-pub(crate) enum LanePersistJob {
-    Purge {
-        job: Box<PurgeEnvelope>,
-        _pending_task: crate::fold_db_core::pending_task_tracker::PendingTask,
-    },
+/// A purge held on its schema lane until completion or quarantine.
+/// The pending-task guard stays owned through envelope release.
+pub(crate) struct PurgeLaneJob {
+    pub(in crate::fold_db_core::mutation_manager) purge: Box<PurgeEnvelope>,
+    pub(in crate::fold_db_core::mutation_manager) _pending_task:
+        crate::fold_db_core::pending_task_tracker::PendingTask,
 }

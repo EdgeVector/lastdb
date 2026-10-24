@@ -167,7 +167,7 @@ pub struct MutationManager {
         std::sync::RwLock<Option<std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>>>,
     >,
     /// Per-schema FIFO lanes for durable purge work.
-    persist_lanes: std::sync::Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>>,
+    persist_lanes: std::sync::Arc<crate::resident::PersistLaneSet<molecules::PurgeLaneJob>>,
 }
 
 impl MutationManager {
@@ -186,7 +186,7 @@ impl MutationManager {
         ));
         let purge_stats = Arc::new(PurgeLedger::default());
         let capture_router = Arc::new(std::sync::RwLock::new(None));
-        let writer = Arc::new(molecules::DeferredLaneWriter {
+        let writer = Arc::new(molecules::PurgeLaneWriter {
             mm: Self::persist_surface(
                 Arc::clone(&db_ops),
                 Arc::clone(&schema_manager),
@@ -276,7 +276,7 @@ impl MutationManager {
 
     pub(crate) fn persist_lanes(
         &self,
-    ) -> &Arc<crate::resident::PersistLaneSet<molecules::LanePersistJob>> {
+    ) -> &Arc<crate::resident::PersistLaneSet<molecules::PurgeLaneJob>> {
         &self.persist_lanes
     }
 

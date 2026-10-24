@@ -101,8 +101,8 @@ impl MutationManager {
         job.author_clock_barrier = author_clock_barrier;
         job.completion = Some(completion);
         let envelope = crate::resident::PersistEnvelope::new(
-            super::super::molecules::LanePersistJob::Purge {
-                job: Box::new(job),
+            super::super::molecules::PurgeLaneJob {
+                purge: Box::new(job),
                 _pending_task: pending_task,
             },
             purge_bytes,
