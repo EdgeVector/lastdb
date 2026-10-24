@@ -86,6 +86,18 @@ No total-memory cap, power-loss recovery, cloud transport, or concurrent mutatio
 The public mutation path rejects reserved body tombstone values.
 The recipe does not manufacture legacy tombstone bytes. Body-drop accounting remains source review only.
 
+## Keyed field conditions
+
+The recipe also seeds at most 128 keys under the named hash `condition-reuse` in each received source.
+Local values replace every sixteenth key. Source-specific field values and file metadata identify the selected source.
+A source-zero Delete exposes source one at key 2. A local Delete exposes source zero at key 0.
+A source-one Purge leaves the source-zero value at key 3.
+The condition comparison runs after those changes and a graceful reopen, before candidate-only preload.
+It uses the [shared condition method](../range_continuation/README.md#keyed-field-condition-comparison):
+eight cases, 32 warm requests per case, and one fresh-process request per case after separate restarts.
+The exact same-home metadata reference uses the existing secondary reader.
+Both full CI summaries print to the job logs. The original four-field range timing selectors stay unchanged.
+
 ## Output and bounds
 
 The raw generated inputs, requests, responses, native read receipts, logs, and samples stay outside Git.

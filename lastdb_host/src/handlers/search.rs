@@ -1,4 +1,4 @@
-//! Native-index search handlers and the retired app-vector routes.
+//! Compatibility handlers for retired native-search and app-vector routes.
 // lint:file-size-ok moved verbatim from handlers.rs; one handler family per file
 
 use super::*;
@@ -130,7 +130,7 @@ pub fn search_app_query<H: HostNode>(
     )
 }
 
-/// Execute text search for apps (`POST /api/app/search`).
+/// Preserve app-search validation and retired-backend responses.
 ///
 /// **Principals**
 /// - **Owner** (owner UDS / NodeOwner): allowed. Scope is the whole node
@@ -144,7 +144,7 @@ pub fn search_app_query<H: HostNode>(
 /// Search-as-app (first-party Search app) still ships as a verified app
 /// principal; this owner allow keeps Mini CLI/agent (`fbrain`/`brain`)
 /// working on the owner socket while that migration is in flight.
-pub async fn app_search<H: HostNode>(
+pub fn app_search<H: HostNode>(
     host: &H,
     params: AppSearchParams,
     ctx: &AccessContext,
@@ -172,7 +172,7 @@ pub async fn app_search<H: HostNode>(
         return Ok(empty_search_payload(host));
     }
 
-    let native = native_index_search(
+    native_index_search(
         host,
         NativeSearchParams {
             term: params.term,
@@ -182,24 +182,7 @@ pub async fn app_search<H: HostNode>(
             schemas: Some(schemas),
         },
         ctx,
-    )?;
-
-    let raw_hits = native
-        .get("results")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let limit = params.limit.unwrap_or(raw_hits.len());
-    let mut hits = Vec::with_capacity(raw_hits.len().min(limit));
-    for raw_hit in raw_hits.into_iter().take(limit) {
-        hits.push(app_search_hit_row(host, raw_hit, ctx).await?);
-    }
-
-    let mut payload = native;
-    if let Value::Object(ref mut map) = payload {
-        map.insert("results".to_string(), Value::Array(hits));
-    }
-    Ok(payload)
+    )
 }
 
 pub(super) fn empty_search_payload<H: HostNode>(host: &H) -> Value {
@@ -265,81 +248,6 @@ pub(super) fn app_owned_search_scope<H: HostNode>(
         .filter(|entry| entry.schema.owner_app_id.as_deref() == Some(app_id))
         .map(|entry| entry.schema.name.clone())
         .collect())
-}
-
-pub(super) async fn app_search_hit_row<H: HostNode>(
-    host: &H,
-    hit: Value,
-    ctx: &AccessContext,
-) -> Result<Value, HostError> {
-    let schema = hit
-        .get("schema_name")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let key = hit
-        .get("key_value")
-        .and_then(|key| serde_json::from_value::<KeyValue>(key.clone()).ok());
-
-    let mut row = match (schema.is_empty(), key) {
-        (false, Some(key)) => {
-            let query = Query::new_with_filter(schema.clone(), Vec::new(), filter_for_key(&key));
-            execute_query_rows(host, query, ctx)
-                .await?
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| fallback_search_row(&hit))
-        }
-        _ => fallback_search_row(&hit),
-    };
-
-    let Some(map) = row.as_object_mut() else {
-        return Ok(row);
-    };
-    copy_hit_field(map, &hit, "schema_name");
-    copy_hit_field(map, &hit, "schema_display_name");
-    if let Some(score) = hit
-        .get("metadata")
-        .and_then(|metadata| metadata.get("score"))
-        .cloned()
-    {
-        map.insert("score".to_string(), score);
-    }
-    Ok(row)
-}
-
-pub(super) fn filter_for_key(key: &KeyValue) -> Option<HashRangeFilter> {
-    match (&key.hash, &key.range) {
-        (Some(hash), Some(range)) => Some(HashRangeFilter::HashRangeKey {
-            hash: hash.clone(),
-            range: range.clone(),
-        }),
-        (Some(hash), None) => Some(HashRangeFilter::HashKey(hash.clone())),
-        (None, Some(range)) => Some(HashRangeFilter::RangeKey(range.clone())),
-        (None, None) => None,
-    }
-}
-
-pub(super) fn fallback_search_row(hit: &Value) -> Value {
-    let mut fields = Map::new();
-    let field = hit
-        .get("field")
-        .and_then(Value::as_str)
-        .unwrap_or("value")
-        .to_string();
-    fields.insert(field, hit.get("value").cloned().unwrap_or(Value::Null));
-    serde_json::json!({
-        "key": hit.get("key_value").cloned().unwrap_or(Value::Null),
-        "fields": fields,
-        "metadata": hit.get("metadata").cloned().unwrap_or(Value::Null),
-        "author_pub_key": Value::Null,
-    })
-}
-
-pub(super) fn copy_hit_field(row: &mut Map<String, Value>, hit: &Value, field: &str) {
-    if let Some(value) = hit.get(field) {
-        row.insert(field.to_string(), value.clone());
-    }
 }
 
 // ---------------------------------------------------------------------------

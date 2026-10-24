@@ -68,6 +68,34 @@ This recipe does not measure received namespaces. The `received_ranges` recipe m
 Offsets still walk and charge preceding selected keys. Cursors seek directly.
 The complete-read key limit stays unchanged.
 
+## Keyed field-condition comparison
+
+Both existing range recipes also use at most 128 keys under the named hash `condition-reuse`.
+The schema declares `score`, `optional`, and `never` in addition to the four original fields.
+Only this hash receives the extra field values. The original timed range projections stay four fields.
+Scores have repeated numeric values. The optional field has missing, null, numeric, and string values.
+The `never` field is always missing. Condition reads verify every live key under this hash.
+Local Delete/Purge and an update precede these reads. The received recipe also removes values from selected sources.
+
+Eight cases use the ordinary keyed query API. They cover a predicate with and without a projected condition field,
+a primary-field condition, a captured empty field map, nullable absence, a numeric filter, and value order with a limit.
+A separate value-order case omits its sort field from the projection.
+An additional request verifies the API offset and limit after the condition stage.
+No condition request uses a cursor or an unkeyed selector.
+Missing numeric values pass the numeric filter. Concrete null and string values fail it.
+Equal numeric scores use ascending range keys as their tie order.
+
+Each case has 32 warm requests per run after a complete condition reference read.
+Each case also has one request after its own process restart, with schema preload off.
+The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
+Every returned value and each field's atom, molecule, writer, and source metadata must match the same-home reference.
+The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
+The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
+The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
+The request counter does not measure the native guard's examined-key count.
+Transient byte receipts omit captured field maps. Process snapshots do not measure an in-flight peak or a total-memory cap.
+The public writer does not create legacy body tombstones. Empty-spine and legacy body-tombstone behavior remain source-review scope.
+
 ## Artifacts and limits
 
 Full requests, responses, storage receipts, samples, and logs stay under `RUNNER_TEMP`, outside Git.

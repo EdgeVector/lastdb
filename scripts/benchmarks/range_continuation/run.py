@@ -13,6 +13,7 @@ import time
 
 from node import Node, file_hash, save
 from workload import Workload
+from conditions import paired_conditions_match
 
 
 def interrupted(_signum, _frame):
@@ -79,6 +80,10 @@ def main():
         "recipe": {"records": 16384, "fields": 4, "body_bytes": 1024, "seed_batch": 128,
             "keyed_batch": 256, "broad_page": 256, "narrow_selector_records": 128,
             "narrow_page": 64, "narrow_requests": 64, "pairs_per_mode": 2,
+            "conditions": {"hash": "condition-reuse", "maximum_keys": 128,
+                "declared_extra_fields": ["score", "optional", "never"], "cases": 8,
+                "warm_requests_per_case": 32, "fresh_process_requests_per_case": 1,
+                "fresh_restarts_per_run": 8, "memory": "Per-cell process before/after; byte-buffer receipts exclude captured field maps"},
             "modes": ["plain", "encrypted"], "automatic_maintenance": False,
             "warm_budget": "Product default; identical complete keyed prefill before timing",
             "limits": "Each owned run1200s,10000request rows,1GiB raw/512MiB gzip,4MiB response,50000home entries/4GiB",
@@ -105,7 +110,8 @@ def main():
                     or first["final_values_sha256"] != last["final_values_sha256"]
                     or len(first["narrow_samples"]) != 64 or len(last["narrow_samples"]) != 64
                     or [row["request_sha256"] for row in first["narrow_samples"]]
-                    != [row["request_sha256"] for row in last["narrow_samples"]]):
+                    != [row["request_sha256"] for row in last["narrow_samples"]]
+                    or not paired_conditions_match(first, last)):
                 raise RuntimeError("The paired mutation inputs, final values, or narrow requests differ")
     manifest["complete"] = True
     save(manifest_path, manifest)
