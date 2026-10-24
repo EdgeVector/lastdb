@@ -46,7 +46,9 @@ These checks reject invalid measurements. They do not form a test suite.
 
 ## Base and candidate
 
-A PR run compares its exact event base with the event's merge revision.
+A PR run compares its exact merge revision with that merge's first parent.
+The event's base value can lag the base used for the candidate merge tree.
+The plan records that value and uses the actual merge parent for the comparison.
 The candidate includes current base changes, so the comparison measures the proposed merge result.
 An older branch cannot turn unrelated changes on main into a claimed PR speed change.
 A main push uses its new tip and the previous tip from the push event.
