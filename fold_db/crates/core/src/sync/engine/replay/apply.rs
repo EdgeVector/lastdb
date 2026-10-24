@@ -16,10 +16,8 @@ pub(super) fn is_raw_delete_barrier_key(namespace: &str, key: &[u8]) -> bool {
 }
 
 impl SyncEngine {
-    /// Replay a single put with convergent molecule handling.
-    ///
-    /// Current per-key records use the accepted tip identity. Headers merge
-    /// their counters. Older key layouts receive an error before any write.
+    /// Replay an opaque put. Lifecycle records require a complete mutation and
+    /// receive an error before any write.
     pub(super) async fn replay_put(
         &self,
         namespace: &str,
@@ -50,7 +48,7 @@ impl SyncEngine {
             ));
         }
 
-        // 4. Everything else — unconditional.
+        // Opaque metadata retains its existing replacement policy.
         let kv = self.store.open_namespace(namespace).await?;
         let stored = self
             .stored_replay_value(namespace, &key_bytes, crypto, &value_bytes)
