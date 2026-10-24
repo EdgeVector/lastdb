@@ -12,17 +12,17 @@ pub async fn request(
     host: &crate::host::Host,
     action: ByteBackupRequest,
 ) -> Result<ByteBackupStatus> {
-    std::future::ready(request_now(host, action)).await
+    std::future::ready(request_now(host, &action)).await
 }
 
-fn request_now(host: &crate::host::Host, action: ByteBackupRequest) -> Result<ByteBackupStatus> {
+fn request_now(host: &crate::host::Host, action: &ByteBackupRequest) -> Result<ByteBackupStatus> {
     if matches!(action, ByteBackupRequest::Status) {
         return status(host);
     }
     let runtime = &host.byte_backup;
     let _transition = runtime.transition()?;
     runtime.check_admission()?;
-    let id = match &action {
+    let id = match action {
         ByteBackupRequest::Start { request_id } => request_id.clone(),
         ByteBackupRequest::Resume | ByteBackupRequest::Close => {
             Store::active(&host.home)?.ok_or(BackupError::Missing)?
@@ -30,7 +30,7 @@ fn request_now(host: &crate::host::Host, action: ByteBackupRequest) -> Result<By
         ByteBackupRequest::Status => return status(host),
     };
     let previous = store::state(&host.home, &id)?;
-    if previous.as_ref().is_some_and(|saved| saved.terminal()) {
+    if previous.as_ref().is_some_and(Saved::terminal) {
         return status_for(host, Some(id));
     }
     let known_terminal = store::read::<cloud_backup_protocol::v2::jobs::JobResult>(

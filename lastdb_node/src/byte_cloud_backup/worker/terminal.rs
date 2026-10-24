@@ -48,7 +48,7 @@ pub(super) async fn reconcile(source: &Source, store: &Store, saved: &mut Saved)
     }
     // finish checks the exact client root before any accepted ledger write.
     // A locally cancelled, never-submitted job cannot supply a cloud terminal.
-    super::finish(&capture, store, saved, result)
+    super::finish(&capture, store, saved, &result)
 }
 
 /// The Store file lock and captured source stay owned until this returns.

@@ -45,7 +45,7 @@ pub(super) async fn run(
             &capture,
             store,
             saved,
-            JobResult {
+            &JobResult {
                 version: Version::V2,
                 job: begin.job.clone(),
                 begin_sha256: begin.input_sha256()?,
@@ -230,7 +230,7 @@ fn finish(
     capture: &ByteBackupCapture,
     store: &Store,
     saved: &mut Saved,
-    result: JobResult,
+    result: &JobResult,
 ) -> Result<()> {
     result.validate_for_begin(saved.begin.as_ref().ok_or(BackupError::Invalid)?)?;
     if let JobStatus::Published { backup } = &result.status {
@@ -241,11 +241,11 @@ fn finish(
         }
         saved.accepted = Some((**backup).clone());
     }
-    store.write("terminal.json", &result)?;
+    store.write("terminal.json", result)?;
     if let JobStatus::Published { backup } = &result.status {
         store.write_base("accepted.json", backup)?;
     }
-    capture.terminal(&result)?;
+    capture.terminal(result)?;
     saved.phase = match result.status {
         JobStatus::Published { .. } => Phase::Published,
         JobStatus::Closed { .. } => Phase::Closed,
@@ -302,5 +302,5 @@ async fn close_capture(
             reason: CloseReason::UserRequested,
         })
         .await?;
-    finish(capture, store, saved, result)
+    finish(capture, store, saved, &result)
 }
