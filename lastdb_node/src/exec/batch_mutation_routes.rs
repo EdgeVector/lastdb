@@ -7,40 +7,6 @@ pub(super) struct BatchMutationsRequest {
     pub(super) convergence: Option<MutationConvergence>,
 }
 
-pub(super) fn mutation_components_from_operation(
-    operation: Operation,
-    default_convergence: Option<MutationConvergence>,
-) -> MutationComponents {
-    let Operation::Mutation {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence,
-        durability,
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
-    } = operation;
-
-    MutationComponents {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence: convergence.or(default_convergence).unwrap_or_default(),
-        durability: durability.unwrap_or_default(),
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
-        aggregate_set: None,
-    }
-}
-
 pub(super) fn parse_batch_mutation_components(
     req: &UdsRequest,
 ) -> Result<Vec<MutationComponents>, UdsResponse> {
@@ -69,7 +35,7 @@ pub(super) fn parse_batch_mutation_components(
                     .mutations
                     .into_iter()
                     .map(|operation| {
-                        mutation_components_from_operation(operation, request.convergence)
+                        MutationComponents::from_operation(operation, request.convergence, None)
                     })
                     .collect());
             }
@@ -79,7 +45,7 @@ pub(super) fn parse_batch_mutation_components(
 
     Ok(operations
         .into_iter()
-        .map(|operation| mutation_components_from_operation(operation, None))
+        .map(|operation| MutationComponents::from_operation(operation, None, None))
         .collect())
 }
 
