@@ -30,7 +30,7 @@ It keeps the standard 10,000 records and the same cold and hot read preparation.
 It measures 256 insert requests at each batch size, with three alternating pairs.
 Each version supplies 768 requests per batch size. Updates and concurrency are excluded.
 The raw write samples retain `resident_stages_us` from each response.
-The standard and nightly recipes, time limits, upload checks, and completion gate stay unchanged.
+The ordinary standard and nightly speed recipes stay unchanged.
 
 Each case uses actual product requests through the daemon's Unix socket:
 
@@ -106,6 +106,61 @@ Old benchmark numbers and generated database homes never supply a new measuremen
 Both versions run on the current GitHub machine, even when the baseline program comes from the cache.
 The daemon uses its default storage, memory limits, and automatic maintenance settings.
 Cloud stays off because the generated home has no cloud configuration.
+
+## Disk and memory growth
+
+Each measured PR update, merge group, and main push also uses the short resource recipe.
+Nightly runs use the larger resource recipe. Documentation-only PRs still skip measurements.
+The resource run uses the same verified programs and new generated homes after the speed run.
+It adds no build. It requires a GitHub-hosted runner and cannot run on Tom's machine.
+
+| Resource recipe | Standard | Nightly |
+|---|---:|---:|
+| Seed records | 512 | 2,048 |
+| Rounds per case | 3 | 8 |
+| Complete base/candidate pairs | 2 | 3 |
+| Idle seconds per checkpoint | 1 | 3 |
+| Final records after inserts | 2,048 | 18,432 |
+
+Each run uses four fields and a 1,024-byte body per record.
+The cases run in this order on each fresh generated home:
+
+- `fixed-read` reads the same seeded keys each round. The record count stays fixed.
+- `fixed-update` replaces the title and body at every seeded key each round. The record count stays fixed.
+- `insert` adds one seed-sized set of new keys each round.
+
+Writes use durable batches of at most 128 records. Reads use at most 64 exact keys per call.
+Each write requires its complete durable ack and a keyed read of the new values.
+Each case records an initial checkpoint and one checkpoint after each round.
+A checkpoint requires a durable flush and an explicit full LastDB compaction with zero reclaim grace.
+The compaction receipt must confirm complete reclaim. These settings affect only the generated home.
+After compaction, keyed reads verify all known records and their latest values before the idle period.
+The normal daemon memory limits and automatic maintenance stay enabled.
+This recipe measures retained space after explicit compaction. It does not measure the default retention policy.
+
+The artifact retains disk bytes before and after compaction, bytes per live record, and every compaction receipt.
+It also retains daemon memory samples at 200 ms and memory samples through each idle period.
+Idle memory uses the median after compaction. The peak includes the case, compaction, and idle period.
+Seed and startup stay outside the peak. The seeded warm records remain part of daemon memory.
+The summary reports growth from the initial checkpoint and the slope through all checkpoints.
+Baseline and candidate results use medians across alternating pairs. Per-pair changes remain in the artifact.
+
+Resource regressions stay advisory. A notice requires both a 20% increase and an absolute excess:
+
+- Peak memory, final idle memory, or memory growth: at least 16 MiB more than the baseline.
+- Final compacted disk size or disk growth: at least 1 MiB more than the baseline.
+
+Zero or negative baseline growth uses zero for the percentage reference. The absolute excess still applies.
+Every change appears in the summary, even below the notice threshold.
+Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
+The resource step has a 40-minute limit. The complete job has a 150-minute limit for larger nightly work.
+Raw results stay under `resource-growth/` in the existing CI artifact and expire after 14 days.
+The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
+Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
+
+CAUTION: A positive slope alone does not establish a memory leak or unwanted disk growth.
+Inserts increase the record count. Memory allocators can retain space, and automatic maintenance can change disk use.
+Disk size counts file lengths, excludes short-lived disk peaks, and does not measure allocated blocks.
 
 ## Request phases
 

@@ -18,6 +18,9 @@ on:
       investigation:
         type: boolean
         default: false
+      resource_only:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,7 +30,7 @@ jobs:
   measure:
     name: Reads, durable writes, and concurrency (advisory)
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
       CARGO_BUILD_JOBS: "4"
       CARGO_TERM_COLOR: always
@@ -197,6 +200,7 @@ jobs:
         run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure --require
 
       - name: Measure alternating baseline and candidate pairs
+        if: ${{ !inputs.resource_only }}
         id: measurement
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
@@ -213,6 +217,22 @@ jobs:
               --candidate-revision "$CANDIDATE_SHA" \
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT" "${args[@]}"
+
+      - name: Measure disk and memory growth in fresh generated homes
+        id: growth
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          DRIVER_SHA: ${{ inputs.driver }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/run.py \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --driver-revision "$DRIVER_SHA" \
+              --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
 
       - name: Capture native phases in separate generated homes
         if: inputs.investigation
@@ -235,7 +255,7 @@ jobs:
         run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase finish
 
       - name: Publish benchmark summary
-        if: always()
+        if: ${{ always() && !inputs.resource_only }}
         env:
           MEASUREMENT_OUTCOME: ${{ steps.measurement.outcome }}
         run: python3 driver/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
@@ -243,6 +263,14 @@ jobs:
       - name: Publish separate native diagnostic summary
         if: always() && inputs.investigation
         run: python3 driver/scripts/benchmarks/native_report.py --output "$BENCH_OUTPUT/native-diagnostics"
+
+      - name: Publish advisory disk and memory growth summary
+        if: always()
+        env:
+          GROWTH_OUTCOME: ${{ steps.growth.outcome }}
+        run: |
+          python3 driver/scripts/benchmarks/growth_report.py \
+            --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME"
 
       - name: Upload measurements and build receipts
         id: upload
