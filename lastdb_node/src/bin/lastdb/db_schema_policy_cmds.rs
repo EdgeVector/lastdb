@@ -105,7 +105,7 @@ pub(crate) fn schema_name_claim_command(
     if json_only {
         println!(
             "{}",
-            serde_json::to_string_pretty(response)
+            serde_json::to_string_pretty(&response)
                 .map_err(|error| format!("serialize name claim response: {error}"))?
         );
         return Ok(());
@@ -185,7 +185,7 @@ fn print_retention_policy(response: &serde_json::Value, json_only: bool) -> Resu
     if json_only {
         println!(
             "{}",
-            serde_json::to_string_pretty(&response)
+            serde_json::to_string_pretty(response)
                 .map_err(|error| format!("serialize schema retention response: {error}"))?
         );
         return Ok(());
