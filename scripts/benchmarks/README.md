@@ -61,6 +61,8 @@ An older PR head need not contain any benchmark scripts. The summary records the
 The separate `LastDB historical benchmark comparison` manual workflow accepts exact baseline
 and candidate SHAs. An empty candidate uses the selected workflow revision.
 An empty baseline uses the candidate's first parent. Either recipe is available.
+The two revisions must differ. The plan rejects identical revisions before builds or cache restores.
+This prevents a baseline cache restore from replacing the fresh candidate at the same source path.
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 

@@ -39,6 +39,8 @@ def main():
     if not base or set(base) == {"0"}:
         base = git("rev-parse", candidate + "^").decode().strip()
     baseline = revision(base)
+    if baseline == candidate:
+        raise ValueError("Baseline and candidate revisions must differ; preserve the fresh candidate program")
     merge_base = git("merge-base", baseline, candidate).decode().strip()
     paths = git("diff", "--no-renames", "--name-only", "-z", merge_base, candidate)
     paths = [os.fsdecode(path) for path in paths.split(b"\0") if path]
