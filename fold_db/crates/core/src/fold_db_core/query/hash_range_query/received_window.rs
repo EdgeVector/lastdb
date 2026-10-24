@@ -73,6 +73,11 @@ impl ReceivedWindow {
                 if let Some(source) = batch.sources.remove(&key) {
                     self.selected.sources.insert(key.clone(), source);
                 }
+                if let Some(layout_value) = batch.layout_values.remove(&key) {
+                    self.selected
+                        .layout_values
+                        .insert(key.clone(), layout_value);
+                }
                 self.selected.values.insert(key, value);
             }
         }
