@@ -4,6 +4,8 @@ use super::*;
 mod backup_gc;
 #[path = "cloud_cmds/billing.rs"]
 mod billing;
+#[path = "cloud_cmds/byte_backup.rs"]
+mod byte_backup;
 #[path = "cloud_cmds/intent.rs"]
 mod intent;
 #[path = "cloud_cmds/inventory.rs"]
@@ -20,6 +22,11 @@ pub(super) use intent::*;
 pub(super) use inventory::*;
 
 pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> Result<(), String> {
+    if matches!(action, CloudCommand::BackupV2 { .. })
+        && !data_dir.as_ref().is_some_and(|home| home.is_absolute())
+    {
+        return Err("V2 backup requires an explicit absolute --data-dir home".into());
+    }
     if matches!(
         action,
         CloudCommand::Backup {
@@ -45,6 +52,10 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
     match action {
+        CloudCommand::BackupV2 { action } => {
+            drop(runtime);
+            byte_backup::run(&home, action)
+        }
         CloudCommand::Backup { action } => {
             drop(runtime);
             native_backup::run(&home, action)

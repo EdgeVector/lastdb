@@ -3,15 +3,12 @@
 use super::super::helpers::*;
 use super::super::types::*;
 use super::super::SyncEngine;
-use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
 use crate::crypto::CryptoProvider;
-use crate::storage::traits::KvStore;
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::{LogEntry, LogOp};
 use crate::sync::org_sync::{storage_prefix_for_key, SyncTarget};
 use crate::sync::{ReplayCause, ReplayOperation};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 mod cloud_generation;
 mod cutoff;
@@ -23,6 +20,7 @@ impl SyncEngine {
         entry: &LogEntry,
         target: Option<&SyncTarget>,
     ) -> SyncResult<()> {
+        Self::require_counter_writer(entry, target)?;
         self.require_physical_replay_cutoff(entry).await?;
         let local_entry = self.local_generation_entry(entry, target).await?;
         let entry = local_entry.as_ref().unwrap_or(entry);
@@ -83,47 +81,6 @@ impl SyncEngine {
             }
         }
         Ok(())
-    }
-
-    /// Read the current durable barrier and the pending local Delete.
-    pub(super) async fn read_replay_delete_barrier(
-        &self,
-        kv: &Arc<dyn KvStore>,
-        namespace: &str,
-        key: &[u8],
-        crypto: &dyn CryptoProvider,
-    ) -> SyncResult<Option<DeleteBarrier>> {
-        let v2_key = delete_barrier_key(key);
-        let v2: Option<DeleteBarrier> = Self::decode_local(
-            namespace,
-            crypto,
-            self.enc_key.as_ref(),
-            kv.get(v2_key.as_bytes()).await?,
-        )
-        .await?;
-        if v2.as_ref().is_some_and(|barrier| !barrier.matches_key(key)) {
-            return Err(SyncError::replay_refused(
-                namespace,
-                0,
-                ReplayOperation::Unknown,
-                ReplayCause::DeleteBarrierIdentityMismatch,
-            ));
-        }
-        let pending = self.atom_store.lock().await.as_ref().and_then(|atoms| {
-            std::str::from_utf8(key)
-                .ok()
-                .and_then(|key| atoms.pending_delete_barrier(key))
-        });
-        let mut winner = v2;
-        if let Some(candidate) = pending {
-            if winner
-                .as_ref()
-                .is_none_or(|current| candidate.is_newer_than(current))
-            {
-                winner = Some(candidate);
-            }
-        }
-        Ok(winner)
     }
 
     /// Whether `key` is an org-scoped storage key that must be dropped on

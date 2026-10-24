@@ -128,7 +128,10 @@ class Workload:
     def prepare(self, mode, batch, samples, clients):
         jobs = [[] for _ in range(clients)]
         for index in range(samples):
-            kind = "read" if mode in ("cold", "hot", "read") or (mode == "mixed" and index % 2 == 0) else "write"
+            client, turn = index % clients, index // clients
+            # Every client alternates; adjacent clients start with opposite kinds.
+            mixed_read = mode == "mixed" and (client + turn) % 2 == 0
+            kind = "read" if mode in ("cold", "hot", "read") or mixed_read else "write"
             if mode == "cold":
                 numbers = list(range(self.cold_next, self.cold_next + batch))
                 self.cold_next += batch
@@ -142,16 +145,16 @@ class Workload:
             body = (read_request(numbers) if kind == "read" else
                     write_request(numbers, f"{self.case}-{index}", mode == "insert"))
             request_id = f"bench-{len(self.metrics)}-{index:06d}"
-            jobs[index % clients].append((kind, numbers, body, request_id))
+            jobs[client].append((kind, numbers, body, request_id))
         return jobs
 
-    def worker(self, jobs, barrier, stopped, mode):
+    def worker(self, jobs, barrier, stopped, mode, client):
         samples = []
         barrier.wait(timeout=30)
-        for kind, numbers, body, request_id in jobs:
+        for turn, (kind, numbers, body, request_id) in enumerate(jobs):
             if stopped.is_set():
                 break
-            sample = {"kind": kind, "records": len(numbers),
+            sample = {"kind": kind, "records": len(numbers), "client": client, "client_request": turn,
                       "request_id": request_id,
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
@@ -208,7 +211,8 @@ class Workload:
         monitor_thread.start()
         try:
             with ThreadPoolExecutor(max_workers=clients) as pool:
-                futures = [pool.submit(self.worker, items, barrier, stopped, mode) for items in jobs]
+                futures = [pool.submit(self.worker, items, barrier, stopped, mode, client)
+                           for client, items in enumerate(jobs)]
                 case_started_us = time.time_ns() // 1000
                 started = time.perf_counter()
                 barrier.wait(timeout=30)

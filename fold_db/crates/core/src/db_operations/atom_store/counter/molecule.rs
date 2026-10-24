@@ -49,11 +49,11 @@ pub fn counts_of_header(header: &Value) -> Option<MoleculeCounts> {
     let slots = header.get(SLOTS)?.as_u64()?;
     Some(MoleculeCounts {
         slots,
-        records: header.get(RECORDS).and_then(Value::as_u64).unwrap_or(0),
-        suspect: header
-            .get(SUSPECT)
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        records: header.get(RECORDS)?.as_u64()?,
+        suspect: match header.get(SUSPECT) {
+            None => false,
+            Some(value) => value.as_bool()?,
+        },
     })
 }
 

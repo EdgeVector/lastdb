@@ -1,6 +1,7 @@
 //! Namespace restore, namespace scan and key-ownership helpers for snapshots.
 
 use super::*;
+use std::time::Instant;
 mod clear;
 mod files;
 pub(super) use files::validate_scoped_files;

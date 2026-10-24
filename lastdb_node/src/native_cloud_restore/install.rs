@@ -1,14 +1,12 @@
 use super::{
-    closure::Inventory, download, session, RecoveryKeys, RestoreError, RestoreReport,
-    RestoreSession, Result,
+    closure::Inventory, download, session, NativeFileProof, NativeInventory, RecoveryKeys,
+    RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext,
 };
 use cloud_backup_protocol::{bytes_sha256, NativeFileEntry};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
-
-const RECEIPT: &str = "native-cloud-restore-receipt.json";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,17 +17,23 @@ struct Receipt {
 }
 
 pub(super) fn published(session: &RestoreSession) -> Result<Option<RestoreReport>> {
-    let destination = &session.selection.destination;
+    published_context(&session.verified_context())
+}
+
+pub(super) fn published_context(
+    session: &VerifiedNativeContext<'_>,
+) -> Result<Option<RestoreReport>> {
+    let destination = session.destination;
     match fs::symlink_metadata(destination) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
         Ok(meta) if !meta.is_dir() => return Err(RestoreError::Invalid("published destination")),
         Ok(_) => {}
     }
-    let receipt: Receipt = session::read_json(&destination.join(RECEIPT), 64 * 1024)?;
-    if receipt.version != 1
-        || receipt.session_id != session.selection.session_id
-        || receipt.report.commit_sha256 != session.accepted().commit_sha256.as_str()
+    let receipt: Receipt = session::read_json(&destination.join(session.receipt_name), 64 * 1024)?;
+    if receipt.version != session.receipt_version
+        || receipt.session_id != session.session_id
+        || receipt.report.commit_sha256 != session.commit_sha256.as_str()
         || receipt.report.destination != *destination
         || !receipt.report.file_dependencies_verified
     {
@@ -37,7 +41,7 @@ pub(super) fn published(session: &RestoreSession) -> Result<Option<RestoreReport
     }
     // A prior call can lose either post-rename directory barrier. The receipt
     // proves the selected data, but success also requires both barriers again.
-    File::open(&session.root)?.sync_all()?;
+    File::open(session.root)?.sync_all()?;
     File::open(
         destination
             .parent()
@@ -54,10 +58,40 @@ pub(super) fn finish(
     inventory: Inventory,
     atoms: u64,
 ) -> Result<RestoreReport> {
+    finish_context(
+        &session.verified_context(),
+        keys,
+        NativeInventory {
+            files: inventory.files,
+            bytes: inventory.bytes,
+            dependencies: inventory.dependencies,
+        },
+        atoms,
+        |path| {
+            let entry: NativeFileEntry = session::read_json(
+                &session.root.join("entries").join(download::path_key(path)),
+                256 * 1024,
+            )?;
+            Ok(NativeFileProof {
+                path: entry.path.as_str().into(),
+                sha256: entry.native_sha256,
+                bytes: entry.native_bytes.get(),
+            })
+        },
+    )
+}
+
+pub(super) fn finish_context(
+    session: &VerifiedNativeContext<'_>,
+    keys: &RecoveryKeys,
+    inventory: NativeInventory,
+    atoms: u64,
+    entry_for: impl Fn(&str) -> Result<NativeFileProof>,
+) -> Result<RestoreReport> {
     let physical = session.physical();
     let native = laststore::disk_pack::backup::validate_snapshot(&physical)
         .map_err(|_| RestoreError::Invalid("native snapshot validation"))?;
-    let expected = &session.accepted().native_root;
+    let expected = session.native_root;
     let current = download::bytes(&physical.join("CURRENT"), 4096)?;
     if native.home_id.to_string() != expected.home_id.as_str()
         || bytes_sha256(&current) != expected.current_sha256
@@ -74,14 +108,11 @@ pub(super) fn finish(
             .path
             .to_str()
             .ok_or(RestoreError::Invalid("native inventory path"))?;
-        let entry: NativeFileEntry = session::read_json(
-            &session.root.join("entries").join(download::path_key(path)),
-            256 * 1024,
-        )?;
-        if entry.path.as_str() != path || entry.native_bytes.get() != file.bytes {
+        let entry = entry_for(path)?;
+        if entry.path != path || entry.bytes != file.bytes {
             return Err(RestoreError::Invalid("exact native inventory"));
         }
-        download::verify_file(&physical.join(&file.path), &entry.native_sha256, file.bytes)?;
+        download::verify_file(&physical.join(&file.path), &entry.sha256, file.bytes)?;
     }
     let home = session.root.join("home");
     let _native_lock =
@@ -93,19 +124,19 @@ pub(super) fn finish(
         return Err(RestoreError::Invalid("restore cloud configuration"));
     }
     let report = RestoreReport {
-        commit_sha256: session.accepted().commit_sha256.as_str().into(),
+        commit_sha256: session.commit_sha256.as_str().into(),
         native_files: inventory.files,
         native_bytes: inventory.bytes,
         verified_atoms: atoms,
         file_dependencies_verified: true,
         verified_external_files: inventory.dependencies,
-        destination: session.selection.destination.clone(),
+        destination: session.destination.to_path_buf(),
     };
     session::atomic_json(
-        &home.join(RECEIPT),
+        &home.join(session.receipt_name),
         &Receipt {
-            version: 1,
-            session_id: session.selection.session_id,
+            version: session.receipt_version,
+            session_id: session.session_id,
             report: report.clone(),
         },
     )?;
@@ -114,11 +145,11 @@ pub(super) fn finish(
         rustix::fs::CWD,
         &home,
         rustix::fs::CWD,
-        &session.selection.destination,
+        session.destination,
         rustix::fs::RenameFlags::NOREPLACE,
     )
     .map_err(std::io::Error::from)?;
-    File::open(&session.root)?.sync_all()?;
+    File::open(session.root)?.sync_all()?;
     File::open(
         session
             .root

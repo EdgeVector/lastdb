@@ -111,6 +111,7 @@ impl ReadContext {
     }
 
     pub(super) async fn current(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
+        runtime.require_restore_validated()?;
         if let Ok(context) = READ.try_with(Arc::clone) {
             if context.identity == runtime.home.descriptor().identity {
                 context.validate_owner(transaction::PendingBatch::current(runtime).as_ref())?;
@@ -214,9 +215,13 @@ impl PackReadScope {
         let Some(runtime) = store.disk_pack_runtime() else {
             return Ok(None);
         };
-        Ok(Some(Self {
-            context: ReadContext::current(&runtime).await?,
-        }))
+        Self::for_runtime(&runtime).await.map(Some)
+    }
+
+    pub(crate) async fn for_runtime(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {
+        Ok(Self {
+            context: ReadContext::current(runtime).await?,
+        })
     }
 
     /// Attach this same root and budget to an asynchronous child task.

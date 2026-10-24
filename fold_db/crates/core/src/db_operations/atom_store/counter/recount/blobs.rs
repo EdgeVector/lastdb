@@ -20,7 +20,7 @@ const PAGE_ROWS: usize = 1_000;
 impl AtomStore {
     /// Count the blob references of the listed scopes and recount the blob
     /// counters against them.
-    pub(super) async fn recount_blobs(
+    pub(in crate::db_operations::atom_store) async fn recount_blobs(
         &self,
         options: &RecountOptions,
         report: &mut RecountReport,

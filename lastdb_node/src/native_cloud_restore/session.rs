@@ -125,6 +125,18 @@ impl RestoreSession {
         &self.selection.accepted
     }
 
+    pub(super) fn verified_context(&self) -> super::VerifiedNativeContext<'_> {
+        super::VerifiedNativeContext {
+            root: &self.root,
+            destination: &self.selection.destination,
+            session_id: self.selection.session_id,
+            commit_sha256: &self.accepted().commit_sha256,
+            native_root: &self.accepted().native_root,
+            receipt_name: "native-cloud-restore-receipt.json",
+            receipt_version: 1,
+        }
+    }
+
     /// Import one frozen accepted backup. No head discovery occurs on resume.
     pub async fn restore(
         &mut self,

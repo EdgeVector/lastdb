@@ -213,17 +213,6 @@ impl AtomStore {
             .retain(|_, barrier| !mutation_uuids.contains(&barrier.mutation_uuid.as_str()));
     }
 
-    pub(crate) fn pending_delete_barrier(
-        &self,
-        mk_key: &str,
-    ) -> Option<crate::atom::delete_barrier::DeleteBarrier> {
-        self.pending_delete_barriers
-            .lock()
-            .expect("pending_delete_barriers poisoned")
-            .get(mk_key)
-            .cloned()
-    }
-
     pub(crate) async fn winning_delete_barrier(
         &self,
         mk_key: &str,

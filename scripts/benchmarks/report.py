@@ -2,6 +2,7 @@
 """Publish advisory performance changes. Never disguise an incomplete run."""
 
 import argparse
+import gzip
 import json
 import os
 from pathlib import Path
@@ -60,6 +61,48 @@ def resource_lines(output, manifest):
     return lines
 
 
+def mixed_lines(output, manifest):
+    if "mixed" not in manifest["recipe"] or manifest["recipe"].get("insert_only"):
+        return []
+    lines = ["", "## Mixed requests across each case", "",
+             "| Run / clients | Clients with both kinds | Phase coverage | First / last read ms | First / last write ms |",
+             "|---|---:|---:|---:|---:|"]
+    for run in manifest["runs"]:
+        folder = output / run["directory"]
+        metrics = json.loads((folder / "metrics.json").read_text())
+        with gzip.open(folder / "samples.jsonl.gz", "rt") as source:
+            rows = [row for line in source if (row := json.loads(line))["case"].startswith("concurrent-mixed/")]
+        for case, metric in metrics.items():
+            if not case.startswith("concurrent-mixed/") or "clients" not in metric:
+                continue
+            samples = [row for row in rows if row["case"] == case]
+            clients = metric["clients"]
+            for client in range(clients):
+                calls = sorted((row for row in samples if row["client"] == client),
+                               key=lambda row: row["client_request"])
+                kinds = [row["kind"] for row in calls]
+                if (len(calls) * clients != metric["requests"]
+                        or [row["client_request"] for row in calls] != list(range(len(calls)))
+                        or kinds.count("read") != kinds.count("write")
+                        or any(first == last for first, last in zip(kinds, kinds[1:]))):
+                    raise ValueError(f"{case}: a live client did not alternate equal read/write calls")
+            matched = [row for row in samples if "ts_ms" in row.get("server_request_ops", {})]
+
+            def window(kind):
+                if len(matched) != len(samples):
+                    return "unavailable"
+                times = [row["server_request_ops"]["ts_ms"] - metric["case_started_unix_us"] / 1000
+                         for row in matched if row["kind"] == kind]
+                return f"{min(times):.3f} / {max(times):.3f}"
+
+            lines.append(f"| {run['directory']} / {clients} | {clients}/{clients} | "
+                         f"{len(matched)}/{len(samples)} | {window('read')} | {window('write')} |")
+    lines.extend(["", "Each client alternates equal read and write calls. Adjacent clients start with opposite kinds.",
+                  "Windows use server completion times from the case start. They are separate from request latency.",
+                  "Phase capture follows the timed case. Incomplete coverage leaves both windows unavailable."])
+    return lines
+
+
 def render(output, manifest, comparison):
     lines = ["# LastDB benchmarks — advisory", "",
              f"Profile: **{manifest['profile']}**. Pairs: **{manifest['recipe']['pairs']}**.", "",
@@ -79,6 +122,7 @@ def render(output, manifest, comparison):
             print(f"::warning title=Advisory performance change::{case}: p95 {change['p95_ms']:+.1f}%, "
                   f"request rate {change['requests_per_second']:+.1f}%. This does not block merge.")
     lines.extend(resource_lines(output, manifest))
+    lines.extend(mixed_lines(output, manifest))
     lines.extend(phase_lines(output, manifest))
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",

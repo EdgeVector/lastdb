@@ -37,6 +37,15 @@ pub const BACKUP_RESOURCES: BackupResources = BackupResources {
 /// Existing total-backup policy; this is not a per-file memory allowance.
 pub const BACKUP_TOTAL_STORED_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 
+/// Opaque cloud object planning, separate from native physical format identity.
+/// Chunk length bounds each transfer; it never caps a complete source file.
+pub mod backup_transport {
+    pub const OBJECT_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
+    pub const METADATA_PACK_BYTES: u64 = 8 * 1024 * 1024;
+    pub const SMALL_NATIVE_FILE_BYTES: u64 = 64 * 1024;
+    pub const MAX_PACK_MEMBERS: usize = 512;
+}
+
 /// Native read resources. Streams use a separate exact-record work allowance.
 pub mod native_read {
     pub const STREAM_RUN_BLOCKS: u32 = 16;

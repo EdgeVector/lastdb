@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::resolve::Resolution;
+use super::version_constraint;
 
 /// The receipt `lastdb app install` leaves in the install directory.
 pub const RECEIPT_FILE: &str = "lastdb-app-install.json";
@@ -73,49 +74,21 @@ pub fn install_pinned(
         why
     };
 
-    let clone = ProcessCommand::new("git")
-        .arg("clone")
-        .arg("--quiet")
-        .arg("--no-checkout")
-        .arg(&resolution.source)
-        .arg(&checkout_path)
-        .status()
-        .map_err(|e| cleanup(format!("failed to run git clone: {e}")))?;
-    if !clone.success() {
-        return Err(cleanup(format!(
-            "git clone failed for app '{}' from {}",
-            resolution.app_id, resolution.source
-        )));
-    }
-    let checkout = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(&checkout_path)
-        .arg("checkout")
-        .arg("--quiet")
-        .arg("--detach")
-        .arg(&resolution.sha)
-        .status()
-        .map_err(|e| cleanup(format!("failed to run git checkout: {e}")))?;
-    if !checkout.success() {
-        return Err(cleanup(format!(
-            "git checkout {} failed for app '{}': the proved commit is not in {}",
-            resolution.sha, resolution.app_id, resolution.source
-        )));
-    }
-    let head = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(&checkout_path)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .output()
-        .map_err(|e| cleanup(format!("failed to run git rev-parse: {e}")))?;
-    let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
-    if !head.starts_with(&resolution.sha) && !resolution.sha.starts_with(&head) {
-        return Err(cleanup(format!(
-            "checkout HEAD is {head} but the proved commit is {}",
-            resolution.sha
-        )));
-    }
+    let head = clone_and_checkout(
+        &checkout_path,
+        &resolution.source,
+        &resolution.sha,
+        &resolution.app_id,
+        &cleanup,
+    )?;
+
+    // Check version constraints in manifest (if present)
+    check_version_constraint_or_cleanup(
+        &checkout_path,
+        &resolution.app_id,
+        &resolution.lastdb_version,
+        cleanup,
+    )?;
 
     let receipt = json!({
         "app_id": resolution.app_id,
@@ -149,6 +122,74 @@ pub fn install_pinned(
     })
 }
 
+/// Clone and checkout a proved commit. Helper for install_pinned.
+fn clone_and_checkout<F>(
+    checkout_path: &Path,
+    source: &str,
+    sha: &str,
+    app_id: &str,
+    cleanup: &F,
+) -> Result<String, String>
+where
+    F: Fn(String) -> String,
+{
+    let clone = ProcessCommand::new("git")
+        .arg("clone")
+        .arg("--quiet")
+        .arg("--no-checkout")
+        .arg(source)
+        .arg(checkout_path)
+        .status()
+        .map_err(|e| cleanup(format!("failed to run git clone: {e}")))?;
+    if !clone.success() {
+        return Err(cleanup(format!(
+            "git clone failed for app '{app_id}' from {source}"
+        )));
+    }
+    let checkout = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(checkout_path)
+        .arg("checkout")
+        .arg("--quiet")
+        .arg("--detach")
+        .arg(sha)
+        .status()
+        .map_err(|e| cleanup(format!("failed to run git checkout: {e}")))?;
+    if !checkout.success() {
+        return Err(cleanup(format!(
+            "git checkout {sha} failed for app '{app_id}': the proved commit is not in {source}"
+        )));
+    }
+    let head = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(checkout_path)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .map_err(|e| cleanup(format!("failed to run git rev-parse: {e}")))?;
+    let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
+    if !head.starts_with(sha) && !sha.starts_with(&head) {
+        return Err(cleanup(format!(
+            "checkout HEAD is {head} but the proved commit is {sha}"
+        )));
+    }
+    Ok(head)
+}
+
+/// Check version constraint and call cleanup on error. Helper for install_pinned.
+fn check_version_constraint_or_cleanup<F>(
+    checkout_path: &Path,
+    app_id: &str,
+    lastdb_version: &str,
+    cleanup: F,
+) -> Result<(), String>
+where
+    F: FnOnce(String) -> String,
+{
+    version_constraint::check_manifest_constraint(checkout_path, app_id, lastdb_version)
+        .map_err(cleanup)
+}
+
 /// Remove (with `force`) or reject an existing install directory, then create it.
 fn prepare_install_dir(install_dir: &Path, force: bool) -> Result<(), String> {
     if install_dir.exists() {
@@ -172,6 +213,42 @@ fn prepare_install_dir(install_dir: &Path, force: bool) -> Result<(), String> {
         )
     })?;
 
+    Ok(())
+}
+
+/// Swap staged install into place atomically: backup old → move staged → delete backup.
+/// On failure, rolls back and leaves the old install intact.
+fn swap_install_atomic(
+    install_dir: &Path,
+    staged_dir: &Path,
+    cleanup_staged: impl FnOnce(),
+) -> Result<(), String> {
+    let backup_dir = install_dir.with_file_name(format!(
+        "{}.upgrade-backup",
+        install_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("app")
+    ));
+    std::fs::rename(install_dir, &backup_dir).map_err(|e| {
+        cleanup_staged();
+        format!(
+            "failed to backup old install {} to {}: {e}",
+            install_dir.display(),
+            backup_dir.display()
+        )
+    })?;
+
+    if let Err(e) = std::fs::rename(staged_dir, install_dir) {
+        let _ = std::fs::rename(&backup_dir, install_dir);
+        return Err(format!(
+            "failed to move staged install from {} to {}: {e}",
+            staged_dir.display(),
+            install_dir.display()
+        ));
+    }
+
+    let _ = std::fs::remove_dir_all(&backup_dir);
     Ok(())
 }
 
@@ -213,14 +290,49 @@ pub fn upgrade_pinned(
             install: None,
         });
     }
-    let install = install_pinned(resolution, install_dir, true)?;
+
+    // Stage and check the new commit in a temporary directory first, so a rejected
+    // upgrade (version constraint failure) leaves the working install untouched.
+    let temp_dir = install_dir.with_file_name(format!(
+        "{}.upgrade-stage",
+        install_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("app")
+    ));
+
+    let cleanup_temp = || {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    };
+
+    // Stage the new version in temp_dir
+    let staged = install_pinned(resolution, &temp_dir, true);
+    if let Err(e) = staged {
+        cleanup_temp();
+        return Err(e);
+    }
+
+    // Version constraint check passed; atomically swap the staged install into place
+    swap_install_atomic(install_dir, &temp_dir, cleanup_temp)?;
+
+    // Build outcome with final paths, not staging paths
     Ok(PinnedUpgradeOutcome {
         app_id: resolution.app_id.clone(),
         installed_sha: receipt.sha,
-        resolved_sha: install.sha.clone(),
+        resolved_sha: resolution.sha.clone(),
         installed_version: receipt.version,
         resolved_version: resolution.app_version.clone(),
         upgraded: true,
-        install: Some(install),
+        install: Some(PinnedInstallOutcome {
+            app_id: resolution.app_id.clone(),
+            app_version: resolution.app_version.clone(),
+            sha: resolution.sha.clone(),
+            lastdb_version: resolution.lastdb_version.clone(),
+            channel: resolution.channel.clone(),
+            source: resolution.source.clone(),
+            install_dir: install_dir.display().to_string(),
+            checkout_path: install_dir.join("source").display().to_string(),
+            proof_run: resolution.proof_run.clone(),
+        }),
     })
 }

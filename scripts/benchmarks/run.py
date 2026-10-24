@@ -63,6 +63,7 @@ def recipe_for(args):
               "clients": [1] if PROFILES[args.profile].get("insert_only") else [1, 4, 16, 32],
               "writes": "durable acknowledgements; product default storage and maintenance",
               "reads": "known exact hash/range keys; storage receipts on every measured read",
+              "mixed": "each client alternates read/write; adjacent clients start with opposite kinds",
               "cold": "purged warm records after reopen; disjoint first keys; positive disk payload receipts; OS pages uncontrolled",
               "timing": "RPC through response bytes; payload construction and response validation excluded",
               "throughput": "closed-loop; includes Python client, validation, and scheduler overhead",
