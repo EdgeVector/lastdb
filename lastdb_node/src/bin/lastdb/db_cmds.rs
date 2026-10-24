@@ -94,6 +94,12 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
+        DbOfflineCommand::PrepareNativeTransfer {
+            source_home,
+            i_know_this_is_primary,
+        } => {
+            lastdb_node::native_transfer_target::prepare(&source_home, home, i_know_this_is_primary)
+        }
         DbOfflineCommand::Recount {
             execute,
             scopes,
