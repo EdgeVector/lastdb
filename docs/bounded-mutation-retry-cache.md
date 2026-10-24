@@ -61,8 +61,11 @@ The actual baseline daemon creates 10,000 records through normal mutation
 requests. After its durable shutdown, the candidate reopens that same generated
 home. The normal request workload measures reads and writes through the socket.
 It requires cleanup completion and the removal of at least 10,000 old receipts,
-then reads all known product keys and checks a repeated write's receipt.
+then reads all known product keys and checks a repeated HTTP write's value.
 The original untouched values must remain equal to their generated values.
+Each ordinary HTTP request receives a new signed author clock. Its receipt can
+differ even when its fields match. An identical authored retry retains its
+original clock; that is the identity that the bounded receipt cache compares.
 There are no direct metadata inserts or constructed unknown key families.
 This operation measures a real version upgrade; it supplies no direct evidence
 for the separate hypothetical unknown-family case.
