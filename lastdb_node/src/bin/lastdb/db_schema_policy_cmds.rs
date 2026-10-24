@@ -178,6 +178,10 @@ pub(crate) fn schema_retention_command(
             "confirm_expire_existing": confirm,
         }),
     )?;
+    print_retention_policy(&response, json_only)
+}
+
+fn print_retention_policy(response: &serde_json::Value, json_only: bool) -> Result<(), String> {
     if json_only {
         println!(
             "{}",

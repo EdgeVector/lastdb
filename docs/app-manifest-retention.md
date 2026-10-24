@@ -50,11 +50,11 @@ A range key that does not begin with 20 digits is never expired.
 
 ### Backfill existing personal records
 
+CAUTION: Existing records can expire at the next sweep.
 After a policy starts, run `lastdb schema-retention backfill --schema <name> --confirm-expire-existing`.
 The command covers current Hash and HashRange schemas in the personal scope.
 It registers old hashes and adds old Hash keys with their original tip write times.
 It does not restart their ages at the time of the command.
-CAUTION: Existing records can expire at the next sweep.
 
 Each call handles at most 64 keys, with a smaller bound for a wide schema.
 The native write scope covers the current tip-clock reads and the age writes.
