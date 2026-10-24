@@ -36,7 +36,11 @@ impl FoldDB {
     /// periodic flusher + shutdown cover durability (sled-like cadence).
     pub(super) fn start_background_flush(
         db_ops: &Arc<DbOperations>,
+        offline_maintenance: bool,
     ) -> super::super::mutation_flush::BackgroundFlushTask {
+        if offline_maintenance {
+            return super::super::mutation_flush::BackgroundFlushTask::disabled();
+        }
         if db_ops.namespaced_store().disk_pack_runtime().is_some() {
             info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
             return super::super::mutation_flush::BackgroundFlushTask::disabled();
@@ -80,7 +84,11 @@ impl FoldDB {
     /// future leaks unreaped.
     pub(super) fn start_protein_reaper(
         db_ops: &Arc<DbOperations>,
+        offline_maintenance: bool,
     ) -> super::super::protein_reaper::BackgroundProteinReaperTask {
+        if offline_maintenance {
+            return super::super::protein_reaper::BackgroundProteinReaperTask::disabled();
+        }
         let protein_reaper_policy = super::super::protein_reaper::ProteinReaperPolicy::from_env();
         info!(
             target: "fold_node::database",
@@ -100,7 +108,11 @@ impl FoldDB {
     /// retention window. See `super::super::conflict_janitor`.
     pub(super) fn start_conflict_janitor(
         db_ops: &Arc<DbOperations>,
+        offline_maintenance: bool,
     ) -> super::super::conflict_janitor::BackgroundConflictJanitorTask {
+        if offline_maintenance {
+            return super::super::conflict_janitor::BackgroundConflictJanitorTask::disabled();
+        }
         let policy = super::super::conflict_janitor_policy::ConflictJanitorPolicy::from_env();
         info!(
             target: "fold_node::database",
@@ -123,7 +135,11 @@ impl FoldDB {
     /// The task that drains dead molecules. See `super::super::molecule_drain`.
     pub(super) fn start_molecule_drain(
         db_ops: &Arc<DbOperations>,
+        offline_maintenance: bool,
     ) -> super::super::molecule_drain::BackgroundMoleculeDrainTask {
+        if offline_maintenance {
+            return super::super::molecule_drain::BackgroundMoleculeDrainTask::disabled();
+        }
         let policy = super::super::molecule_drain::MoleculeDrainPolicy::from_env();
         info!(
             target: "fold_node::database",
@@ -143,7 +159,10 @@ impl FoldDB {
         }
     }
 
-    pub(super) fn start_sync_coordinator(db_ops: &Arc<DbOperations>) -> SyncCoordinator {
+    pub(super) fn start_sync_coordinator(
+        db_ops: &Arc<DbOperations>,
+        offline_maintenance: bool,
+    ) -> SyncCoordinator {
         let coordinator = SyncCoordinator::new();
         // Plane self-compaction is not a cloud feature. Start it here,
         // so a node booted without `cloud_sync.json`
@@ -151,7 +170,9 @@ impl FoldDB {
         // expected trigger a cloud-synced node does. When an engine is set
         // later the cadence steps that engine's compactor instead, on the
         // same packing lock.
-        coordinator.start_automatic_plane_compaction(db_ops);
+        if !offline_maintenance {
+            coordinator.start_automatic_plane_compaction(db_ops);
+        }
         coordinator
     }
 }
