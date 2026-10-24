@@ -10,6 +10,7 @@ on:
       - 'lastdb_node/src/native_transfer_target.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs/db_offline.rs'
       - 'scripts/release/native-transfer-check.py'
+      - 'scripts/release/native-baseline-artifact.py'
       - '.github/workflows/native-record-transfer.yml'
   workflow_dispatch:
     inputs:
@@ -20,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: native-record-transfer-${{ github.event_name }}-${{ github.ref }}
@@ -70,6 +72,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: native-record-transfer-${{ matrix.os }}
+          workspaces: |
+            . -> target
+            ${{ runner.temp }}/native-source -> ${{ runner.temp }}/native-source-target
       - name: Build both programs and their exact transport workers
         shell: bash
         run: |
@@ -80,22 +85,39 @@ jobs:
           for binary in lastdb lastdbd lastdb-native-transfer; do
             cp "target/release/$binary" "$RUNNER_TEMP/native-candidate-bin/$binary"
           done
-          # Share dependency output; preserve candidate executables before the
-          # old workspace emits its own programs at these same output paths.
+          # Each source owns separate Cargo output. Cross-workspace output can
+          # reuse an incompatible policy crate from the other revision.
           cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
-            --target-dir "$GITHUB_WORKSPACE/target" \
-            -p lastdb_node --bin lastdb --bin lastdbd
-          cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
-            --target-dir "$GITHUB_WORKSPACE/target" \
+            --target-dir "$RUNNER_TEMP/native-source-target" \
             -p laststore --bin lastdb-native-transfer
+      - name: Obtain the original baseline program pair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = macOS ] && [ "$BASELINE_OID" = f7e77989a050aa490d64231474c6d7df847c24af ]; then
+            artifact=12541342286
+            expected=$(gh api "repos/EdgeVector/lastdb/actions/artifacts/$artifact" --jq '.digest | sub("sha256:"; "")')
+            gh api "repos/EdgeVector/lastdb/actions/artifacts/$artifact/zip" > "$RUNNER_TEMP/native-baseline.zip"
+            python3 scripts/release/native-baseline-artifact.py \
+              --archive "$RUNNER_TEMP/native-baseline.zip" --sha256 "$expected" \
+              --source "$BASELINE_OID" --output "$RUNNER_TEMP/native-baseline-bin"
+            echo "BASELINE_BIN_DIR=$RUNNER_TEMP/native-baseline-bin" >> "$GITHUB_ENV"
+          else
+            cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
+              --target-dir "$RUNNER_TEMP/native-source-target" \
+              -p lastdb_node --bin lastdb --bin lastdbd
+            echo "BASELINE_BIN_DIR=$RUNNER_TEMP/native-source-target/release" >> "$GITHUB_ENV"
+          fi
       - name: Run the complete two-home operational path
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/release/native-transfer-check.py \
-            --baseline "$GITHUB_WORKSPACE/target/release" \
+            --baseline "$BASELINE_BIN_DIR" \
             --candidate "$RUNNER_TEMP/native-candidate-bin" \
-            --source-transfer "$GITHUB_WORKSPACE/target/release/lastdb-native-transfer" \
+            --source-transfer "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" \
             > "$RUNNER_TEMP/native-transfer-result.json"
           {
             echo '## Native record transfer'
@@ -117,7 +139,7 @@ jobs:
             codesign --force --sign - "$output/$binary"
             codesign --verify --strict "$output/$binary"
           done
-          cp "$GITHUB_WORKSPACE/target/release/lastdb-native-transfer" "$output/source-native-transfer"
+          cp "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" "$output/source-native-transfer"
           strip "$output/source-native-transfer"
           codesign --force --sign - "$output/source-native-transfer"
           codesign --verify --strict "$output/source-native-transfer"
