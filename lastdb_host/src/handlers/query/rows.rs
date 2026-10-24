@@ -185,12 +185,17 @@ pub(in crate::handlers) fn format_rows(
                 .values()
                 .find_map(|m| m.writer_pubkey.as_deref())
                 .filter(|s| !s.is_empty());
-            serde_json::json!({
-                "key": key,
-                "fields": record.fields,
-                "metadata": record.metadata,
-                "author_pub_key": author_pub_key,
-            })
+            let mut row = serde_json::Map::new();
+            row.insert("key".into(), serde_json::json!(key));
+            // These values already own their JSON. Serializing them through
+            // json! would recursively copy them before discarding the originals.
+            row.insert(
+                "fields".into(),
+                Value::Object(record.fields.into_iter().collect()),
+            );
+            row.insert("metadata".into(), serde_json::json!(record.metadata));
+            row.insert("author_pub_key".into(), serde_json::json!(author_pub_key));
+            Value::Object(row)
         })
         .collect();
 
