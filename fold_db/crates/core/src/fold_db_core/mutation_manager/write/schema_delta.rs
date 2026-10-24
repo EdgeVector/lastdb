@@ -4,8 +4,7 @@ use super::*;
 
 struct PreparedAtomPhase {
     mutation_key_values: Vec<crate::schema::types::KeyValue>,
-    atom_results: Vec<(usize, String, crate::atom::Atom)>,
-    deferred_atoms: Option<Vec<(crate::atom::Atom, Option<String>)>>,
+    atom_results: Vec<super::super::molecules::PreparedFieldAtom>,
     changed_keys: HashMap<String, HashSet<crate::db_operations::ChangedKey>>,
 }
 
@@ -29,12 +28,11 @@ impl MutationManager {
         schema_name: &str,
         schema: &mut crate::schema::types::Schema,
         schema_mutations: &mut [Mutation],
-        storage_prefix: Option<&str>,
         timing_breakdown: &mut HashMap<&str, std::time::Duration>,
     ) -> Result<PreparedAtomPhase, SchemaError> {
         let phase1_start = std::time::Instant::now();
-        let (mutation_key_values, atom_results, deferred_atoms) = self
-            .prepare_atoms_and_key_values(schema_name, schema, schema_mutations, storage_prefix)?;
+        let (mutation_key_values, atom_results) =
+            self.prepare_atoms_and_key_values(schema_name, schema, schema_mutations)?;
         Self::add_timing(
             timing_breakdown,
             "  - create_atoms_batch",
@@ -55,7 +53,6 @@ impl MutationManager {
         Ok(PreparedAtomPhase {
             mutation_key_values,
             atom_results,
-            deferred_atoms,
             changed_keys,
         })
     }
@@ -88,14 +85,12 @@ impl MutationManager {
         let PreparedAtomPhase {
             mutation_key_values,
             atom_results,
-            deferred_atoms,
             changed_keys,
         } = self
             .prepare_atom_phase(
                 &schema_name,
                 &mut schema,
                 &mut schema_mutations,
-                storage_prefix,
                 timing_breakdown,
             )
             .await?;
@@ -113,7 +108,6 @@ impl MutationManager {
             schema_mutations,
             mutation_key_values,
             atom_results,
-            deferred_atoms,
             search_batch,
             share_prefixes,
             sibling_updates: Vec::new(),

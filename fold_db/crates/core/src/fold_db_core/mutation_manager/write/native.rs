@@ -208,7 +208,11 @@ fn into_native_job(
         )
     });
     DeferredPersistJob {
-        deferred_atoms: delta.deferred_atoms,
+        atoms: delta
+            .atom_results
+            .into_iter()
+            .map(super::super::molecules::PreparedFieldAtom::into_located)
+            .collect(),
         storage_prefix,
         search_batch: delta.search_batch,
         share_prefixes: delta.share_prefixes,

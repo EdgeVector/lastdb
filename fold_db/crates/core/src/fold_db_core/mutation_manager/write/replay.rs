@@ -183,14 +183,11 @@ impl MutationManager {
             })?;
         apply_storage_prefix_to_schema(&mut schema, storage_prefix);
         let mut source_mutations = vec![mutation.clone()];
-        let (keys, atoms, located) = self.prepare_atoms_and_key_values(
+        let (keys, atoms) = self.prepare_atoms_and_key_values(
             &mutation.schema_name,
             &schema,
             &mut source_mutations,
-            storage_prefix,
         )?;
-        let located = located
-            .ok_or_else(|| SchemaError::InvalidData("suppressed Put has no source atoms".into()))?;
         if atoms.is_empty() {
             // An ack lets replay advance its cursor. Keep a source Put with no
             // atom on the log until it can be recorded or rejected upstream.
@@ -204,9 +201,14 @@ impl MutationManager {
             winning_delete,
             &schema,
             &keys,
-            atoms,
+            &atoms,
             storage_prefix,
         )?;
+
+        let located: Vec<_> = atoms
+            .into_iter()
+            .map(super::super::molecules::PreparedFieldAtom::into_located)
+            .collect();
 
         // The source log carries full field bodies. The history rows hold
         // references to the atoms they name, and the bodies join the batch of
@@ -229,7 +231,7 @@ impl MutationManager {
         winning_delete: &crate::atom::delete_barrier::DeleteBarrier,
         schema: &crate::schema::Schema,
         keys: &[crate::schema::types::KeyValue],
-        atoms: Vec<(usize, String, crate::atom::Atom)>,
+        atoms: &[super::super::molecules::PreparedFieldAtom],
         storage_prefix: Option<&str>,
     ) -> Result<Vec<(String, crate::atom::MutationEvent)>, SchemaError> {
         use crate::atom::{
@@ -253,8 +255,10 @@ impl MutationManager {
             .unwrap_or(mutation.uuid.as_str());
         let field_key = FieldKey::from(keys[0].clone());
         let mut events = Vec::with_capacity(atoms.len());
-        for (_, field_name, atom) in atoms {
-            let field = schema.runtime_fields.get(&field_name).ok_or_else(|| {
+        for prepared in atoms {
+            let field_name = &prepared.field_name;
+            let atom = &prepared.atom;
+            let field = schema.runtime_fields.get(field_name).ok_or_else(|| {
                 SchemaError::InvalidData(format!(
                     "suppressed Put field '{}' is absent from schema '{}'",
                     field_name, mutation.schema_name

@@ -17,3 +17,5 @@ pub(in crate::fold_db_core::mutation_manager) use persist::{
     DeferredLaneWriter, DeferredPersistJob, LanePersistJob, PurgeCompletion, PurgeEnvelope,
 };
 pub(in crate::fold_db_core::mutation_manager) use prepared::{PreparedSiblingUpdates, SiblingMove};
+
+pub(in crate::fold_db_core::mutation_manager) use prepare::PreparedFieldAtom;

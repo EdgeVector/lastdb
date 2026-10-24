@@ -12,11 +12,22 @@ use tracing::warn;
 
 mod key_fields;
 
-type PreparedAtomsAndKeys = (
-    Vec<KeyValue>,
-    Vec<(usize, String, Atom)>,
-    Option<Vec<(Atom, Option<String>)>>,
-);
+/// One owned field atom from preparation through physical staging.
+/// Keep the original sealing identity even if the runtime schema is rebased.
+pub(in crate::fold_db_core::mutation_manager) struct PreparedFieldAtom {
+    pub mutation_index: usize,
+    pub field_name: String,
+    pub atom: Atom,
+    pub seal_molecule: String,
+}
+
+impl PreparedFieldAtom {
+    pub(in crate::fold_db_core::mutation_manager) fn into_located(self) -> (Atom, Option<String>) {
+        (self.atom, Some(self.seal_molecule))
+    }
+}
+
+type PreparedAtomsAndKeys = (Vec<KeyValue>, Vec<PreparedFieldAtom>);
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) fn resolve_mutation_key_value(
@@ -74,7 +85,7 @@ impl MutationManager {
     }
 
     /// Creates atoms and computes key values for all mutations in a schema group.
-    /// Returns key values, atom results, and located atom bodies.
+    /// Returns key values and one owned record per field atom.
     ///
     /// This phase performs no atom write and no resident apply. The caller
     /// applies personal resident atoms under the slot gates and gives every
@@ -84,10 +95,8 @@ impl MutationManager {
         schema_name: &str,
         schema: &Schema,
         schema_mutations: &mut [Mutation],
-        storage_prefix: Option<&str>,
     ) -> Result<PreparedAtomsAndKeys, SchemaError> {
-        let mut atoms_to_store: Vec<Atom> = Vec::new();
-        let mut atom_results: Vec<(usize, String, Atom)> = Vec::new();
+        let mut atom_results: Vec<PreparedFieldAtom> = Vec::new();
         let mut mutation_key_values = Vec::with_capacity(schema_mutations.len());
 
         for (idx, mutation) in schema_mutations.iter_mut().enumerate() {
@@ -109,27 +118,16 @@ impl MutationManager {
                 else {
                     continue;
                 };
-                atoms_to_store.push(atom.clone());
-                atom_results.push((idx, field_name.clone(), atom));
+                atom_results.push(PreparedFieldAtom {
+                    mutation_index: idx,
+                    field_name: field_name.clone(),
+                    atom,
+                    seal_molecule: seal_molecule_for_atom(schema_name, field_name, schema),
+                });
             }
         }
 
-        // Batch store all atoms at once. Each atom names the molecule of the
-        // field that it came from. An org scope seals the body with the key
-        // bundle of that molecule.
-        let sealed: Vec<(Atom, Option<String>)> = atom_results
-            .iter()
-            .zip(atoms_to_store)
-            .map(|((_, field_name, _), atom)| {
-                (
-                    atom,
-                    Some(seal_molecule_for_atom(schema_name, field_name, schema)),
-                )
-            })
-            .collect();
-
-        let _ = storage_prefix;
-        Ok((mutation_key_values, atom_results, Some(sealed)))
+        Ok((mutation_key_values, atom_results))
     }
 
     /// Build, per field this batch writes, the set of keys it will touch — the

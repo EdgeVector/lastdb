@@ -27,7 +27,7 @@ impl MutationManager {
         job: &mut DeferredPersistJob,
     ) -> Result<(), SchemaError> {
         self.persist_sibling_key_moves(job).boxed().await?;
-        let bodies = job.deferred_atoms.as_deref().unwrap_or_default();
+        let bodies = &job.atoms;
         self.persist_modified_molecules(
             &mut job.schema,
             &job.modified_fields,
