@@ -7,9 +7,10 @@ use crate::schema::types::operations::MutationType;
 use crate::schema::types::{KeyValue, Mutation};
 use crate::security::Ed25519KeyPair;
 use crate::storage::config::DatabaseConfig;
-use crate::storage::disk_pack::{PackNamespacedStore, PackRuntime};
+use crate::storage::disk_pack::{PackNamespacedStore, PackReadScope, PackRuntime};
 use crate::storage::{EncryptingNamespacedStore, NamespacedStore};
 use crate::sync::snapshot::Snapshot;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -160,7 +161,47 @@ pub(super) async fn compare(expected: &Snapshot, store: &dyn NamespacedStore) ->
 
 pub(super) async fn reopen(root: &Path, name: &str) -> Result<Value> {
     let db = create_fold_db(&DatabaseConfig::local(root.join(name)), &keys(), signer()?).await?;
-    compare(&snapshot(root)?, db.db_ops().namespaced_store().as_ref()).await?;
+    let store = db.db_ops().namespaced_store();
+    let scope = PackReadScope::for_store(&store)
+        .await?
+        .ok_or("missing native read scope")?;
+    scope
+        .run_result(compare_known(&snapshot(root)?, store.as_ref()))
+        .await?;
     db.shutdown_local_only().await?;
     Ok(json!({"case":format!("reopen-{name}"), "passed":true, "normal_serving_open":true}))
+}
+
+async fn compare_known(expected: &Snapshot, store: &dyn NamespacedStore) -> Result<()> {
+    let main = expected
+        .namespaces
+        .iter()
+        .find(|namespace| namespace.name == "main")
+        .ok_or("missing main")?;
+    let kv = store.open_namespace("main").await?;
+    let mut entries = Vec::new();
+    for entry in &main.entries {
+        let key = BASE64.decode(&entry.key)?;
+        if crate::storage::current_keys::counter_owned("main", &key)? {
+            entries.push((key, BASE64.decode(&entry.value)?));
+        }
+    }
+    require(
+        entries.len() > 128,
+        "reopen did not check the restored lifecycle records",
+    )?;
+    for chunk in entries.chunks(128) {
+        let found = kv
+            .get_many(chunk.iter().map(|(key, _)| key.clone()).collect())
+            .await?;
+        require(found.len() == chunk.len(), "incomplete reopen batch")?;
+        require(
+            found
+                .iter()
+                .zip(chunk)
+                .all(|(actual, (_, expected))| actual.as_ref() == Some(expected)),
+            "a restored lifecycle record changed before its normal serving read",
+        )?;
+    }
+    Ok(())
 }
