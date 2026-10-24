@@ -1,4 +1,5 @@
 //! Bounded file ownership for one immutable read generation.
+//! Ordinary reads own their pool; internal writers may transfer it within one batch.
 
 use super::call::Buffer;
 use super::{corrupt, ReadCall, PART_BYTES};
