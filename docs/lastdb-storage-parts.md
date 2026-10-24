@@ -1,5 +1,8 @@
 # Storage parts and automatic maintenance
 
+The [native route summary](lastdb-disk-native-node.md) describes writes, reads, and their memory boundary.
+The [snapshot protocol](lastdb-snapshot-commits.md) describes durable root publication.
+
 A generation receipt names at most 65,536 parts. A write that exceeds that limit is refused.
 The node copies recent parts before that limit and keeps a separate reclaim queue.
 The [concurrent compaction protocol](lastdb-concurrent-compaction.md) describes the copy and handoff.

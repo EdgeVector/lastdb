@@ -1,10 +1,17 @@
 # LastDB: searchable snapshot and mutation log for sync
 
-Revised 2026-10-23. The local journal removal merged in PR 268. PR 271 removes erase recovery records and journal-based cloud repair. PR 273 contains receipt pruning and the bounded reference cache. Tom approved the two code merges; a primary upgrade remains separate. Native cloud backup remains disabled by default.
+Current source: main `8a0a40b4f`, reviewed 2026-10-24.
+The local journal removal merged in PR 268. PR 271 removes erase recovery records and journal-based cloud repair.
+PR 273 contains receipt pruning and the bounded reference cache. A primary upgrade remains separate.
+Native backup has a separate source gate that defaults off. Legacy Cloud Sync activation stays disabled.
 
 LastDB uses a local searchable snapshot for current data and crash recovery. The mutation log serves multi-device sync. Devices can hold different local snapshots and exchange changes after a confirmed cloud snapshot. Ordinary reads and local recovery do not search or replay that log. The retained sync code does not yet establish the required common commit boundary.
 
-The snapshot contains molecule keys, atom references, required bodies, and search pages. A read checks accepted memory first, then fetches missing logical records by key. A range names one hash and ordered bounds. It combines bounded snapshot pages with newer memory changes and deletes. Each request captures a fresh view; supported ascending keyed continuations resume after the last key. Other continuation forms retain their current rules.
+The snapshot contains molecule keys, atom references, required bodies, and search pages.
+A read checks the committed logical warm set, then fetches missing records by key from the matching captured snapshot.
+A range names one hash and ordered bounds. A ready selected schema supplies complete keys from memory; other schemas use bounded snapshot pages.
+Ordinary reads cannot use the private write queue. Its uncommitted changes remain private until complete publication.
+Each request captures one consistent view. Supported ascending keyed continuations resume after the last key.
 
 A write reserves its complete memory and disk work before acceptance. Current main commits native values and their app notices in one snapshot before the write ack. No collection timer delays ordinary native requests. A commit writes new payload files, changed search pages, and a complete generation receipt. Ordered barriers and one atomic root update select the new snapshot. The ack follows the required barriers and clean core memory publication, including the final macOS device flush.
 
@@ -20,12 +27,25 @@ The [cache follow-up](proofs/receipt-cache-followup-20261022/RESULTS.md) compare
 
 The merge preserves main's concurrent compaction, exact file holds, and byte-based capacity rules. Full and tier compaction collect exact counts before publication. The integration removes the earlier directory-count and arbitrary old-root work quotas. A larger generated home still needs to establish the intended upgrade support envelope. Existing durable batches remain useful when independent updates are ready; main already combines native app notices with their data commit.
 
-The warm set defaults to a 256 MiB byte budget; the former 10,000-record cap is retired. The purge removes least recently used clean records. Held and unflushed records stay protected, and their bytes remain charged during temporary excess. The approved dirty-write share is 25%, but enforcement remains unfinished. Definitions, selected keys, queues, and temporary work have separate reservations. The warm budget does not cap total process memory.
+The warm set defaults to a 256 MiB byte budget; the former 10,000-record cap is retired.
+The purge removes least recently used clean records. Held records retain their memory charges until release.
+Native writes publish clean memory after disk commit. Their private preparation has separate reservations and no dirty warm-record state.
+Definitions, selected keys, queues, and temporary work have separate allowances. The warm budget does not cap total process memory.
 
 Native snapshots require feature 256; counted receipts also require feature 512 and count semantic version 1. Older programs refuse 512. The final writer refuses version-zero counted prototypes because their allocator references differ. An older supported uncounted snapshot needs a streamed count pass before writer admission, with format and workspace limits.
 
-Backup manifests accept both supported feature sets and reject unknown bits. Journal-backed homes receive an explicit refusal; this change provides no converter. The local backup bundle excludes node identity and encryption keys, which need separate recovery arrangements.
+Backup manifests accept both supported feature sets and reject unknown bits.
+Startup refuses journal-backed homes and performs no automatic conversion.
+The separate [native transfer command](../vendor/laststore/src/bin/lastdb-native-transfer.rs) moves compatible records from an explicit source reader into a fresh destination.
+It does not convert arbitrary older formats. The local backup bundle excludes node identity and encryption keys, which need separate recovery arrangements.
 
-Cloud activation requires atomic snapshot and sync-boundary capture. Outgoing entries must retain original identities and sufficient values or durable file references. Imports must commit their progress with their value changes. Each cloud base must identify the covered boundary for every source device. Log deletion requires a confirmed restorable base and completed holds. These requirements remain open, with dirty-share enforcement and lower search-page and compaction costs.
+Local native backup capture now saves an exact snapshot, source home, frontier, and durable file hold before network work.
+Resume uses the saved cut. The separate gated native backup jobs supply transfer and restore source code.
+The [native backup design](designs/native-cloud-backup-mini-v1.md) records the remaining cloud release gates.
+Those components do not establish deployed cloud recovery or enable legacy Cloud Sync.
+Multi-device sync still requires original mutation identities, atomic import progress, complete source-device boundaries, and safe log retirement.
 
-Sources: [protocol](lastdb-snapshot-commits.md), [implementation plan](lastdb-searchable-snapshot-implementation-plan.md), [code review](lastdb-searchable-snapshot-code-review.md). The primary stays unchanged.
+Sources: [current native summary](lastdb-disk-native-node.md), [protocol](lastdb-snapshot-commits.md),
+[eager queue](lastdb-eager-durable-queue.md), and [memory and disk routes](lastdb-rehydrate.md).
+The [implementation plan](lastdb-searchable-snapshot-implementation-plan.md) and [code review](lastdb-searchable-snapshot-code-review.md) retain their dated scope.
+The primary stays unchanged.

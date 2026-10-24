@@ -351,25 +351,19 @@ release the kept conflict records of the slots they remove. See
 
 ## Reads and acknowledgement
 
-- The receipt of a write says `durability: queued` when the write was acknowledged from
-  memory, and `durability: durable` when it waited for the flush. A default create or
-  update is `queued`: it returns when its batch is accepted in memory, before the flush
-  (at most 500 ms later). A delete, a purge, a replay, and a write that memory admission
-  refuses are `durable`. The batch of a write holds the tips, the counters and the bodies
-  of the request, so a crash before the flush loses the whole batch and leaves the
-  earlier consistent state.
-- A query by key shows the new value as soon as the batch is accepted.
-  `GET /api/atom/{id}` reads a body by id and does not go through a tip. After a
-  `queued` write it can return 200 with the old body of a replaced atom until the
-  flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement, median
-  0.26 s, in 20 rounds on a synthetic home). After a `durable` write (a delete or a
-  purge) it returns 404 at once.
+- Every native write returns `durability: durable` after the complete disk commit and clean core publication.
+  Create, Update, Delete, Purge, and replay share that boundary. There is no early memory ack or 500 ms collection timer.
+  Each native commit keeps the affected tips, counters, and bodies consistent.
+- A query by key sees the new committed value after the ack.
+  `GET /api/atom/{id}` reads a body by identity, without a tip.
+  It returns 404 after the commit removes that body's last counted reference.
+  A body with another reference remains present.
 - `POST /api/storage/liveness/explain` (`lastdb liveness explain atom|molecule|blob`)
   returns the counters. For an atom it returns `refs`, `suspect`, `blobs`,
   `body_present` and a state: `live`, `suspect`, `inconsistent` or `absent`. One
   call takes up to 10,000 ids. It cannot list the referrers: the counter holds a
   number, not a list.
-- A private background batch can share the bounded collection window without early publication.
+- Private background requests can share the eager FIFO commit without early publication.
   Write preparation can read that owned prefix; ordinary reads retain the committed state.
   The janitor, dwell pass, and molecule drain still return after durability.
   A batch that requires a sealed fence includes that flush wait in its measured writer cost.

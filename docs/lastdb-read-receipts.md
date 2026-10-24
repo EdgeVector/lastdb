@@ -140,9 +140,10 @@ env -u SENTRY_DSN -u FOLD_SENTRY_DSN \
 receipt_pid=$!
 ```
 
-The native engine and memory ACK are defaults. No engine or resident-mode option is required.
-An explicit durable request or insufficient memory reservation can still wait for disk.
-Cloud activation receives an explicit disabled error. A fresh local home needs no cloud configuration.
+The native engine is the default. Every native write waits for disk commit and clean core publication before the ack.
+No engine or resident-mode option is required. There is no collection timer or early memory ack.
+Legacy Cloud Sync activation receives an explicit disabled error. A fresh local home needs no cloud configuration.
+The [native route summary](lastdb-disk-native-node.md) separates local operation from the gated native backup source.
 Wait for the socket, then read the health result. Continue when `status` is `ok`.
 
 ```bash

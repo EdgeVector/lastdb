@@ -21,21 +21,15 @@ during the dwell cancels the deletion.
 
 ### The floor of the dwell
 
-The dwell must be longer than the delay between the ack of a `queued` write and the
-batch of that write. A `queued` write is acknowledged from memory (flush interval
-500 ms) and its batch, which raises the blob counters, runs after the ack. A backlog
-on one schema lane stretches that delay. A `durable` write has its batch accepted
-before the ack, so the count rises before the client sees the write.
+Every native write now raises its blob counters in the complete disk commit before the ack.
+The [eager queue](lastdb-eager-durable-queue.md) has no early memory ack or 500 ms collection timer.
+The dwell still protects the gap between a file upload and the later mutation that references that file.
+It does not permit an unlimited delay before that mutation.
 
-So the node **refuses a dwell below 120 seconds**: the floor applies, and the node
-logs the refusal once. 120 s is the handler budget of a request (90 s) plus 30 s,
-and the persist lane that runs a queued batch has a bulk queue budget of about 60 s.
-The floor is not a proof. A lane that stalls for longer than the floor can still lose
-the race, and the one hour default is the real margin. The race is real: with a dwell
-of 1 s, a queued write was acked after 3.6 s, and the pass had deleted the blob row
-first. `LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV=1` allows a shorter dwell. It is for a
-synthetic home in a short proof, with `durable` writes. Never set it on a home that
-holds user data.
+The node **refuses a dwell below 120 seconds** and logs the refusal once.
+The one-hour default stays in force. The earlier queued-write timing explanation describes the retired memory-ack route.
+`LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV=1` permits a shorter dwell for an isolated synthetic home.
+Never set it on a home that holds user data.
 
 ### The clock of the dwell
 
