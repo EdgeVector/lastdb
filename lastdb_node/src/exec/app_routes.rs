@@ -23,7 +23,7 @@ pub(super) struct AppSearchRequest {
 pub(super) const APP_CHANGES_DEFAULT_LIMIT: usize = 100;
 pub(super) const APP_CHANGES_MAX_LIMIT: usize = 500;
 
-pub(super) async fn execute_app_search_route(
+pub(super) fn execute_app_search_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -54,8 +54,7 @@ pub(super) async fn execute_app_search_route(
                 target: request.target,
             },
             ctx,
-        )
-        .await,
+        ),
         ctx,
     )
 }

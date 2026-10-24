@@ -82,7 +82,7 @@ pub(super) async fn dispatch_search_app(
         DataRoute::BootLedger => execute_boot_ledger_route(host),
         DataRoute::NativeIndexSearch => execute_native_index_search_route(req, ctx, host),
         DataRoute::SearchAppQuery => execute_search_app_query_route(req, ctx, host),
-        DataRoute::AppSearch => heap_route!(execute_app_search_route, req, ctx, host).await,
+        DataRoute::AppSearch => execute_app_search_route(req, ctx, host),
         DataRoute::NativeIndexAppVectorPut => {
             heap_route!(execute_native_index_app_vector_put_route, req, ctx, host).await
         }
