@@ -192,6 +192,7 @@ pub async fn page_searchable_records_for_rebuild(
     let mut batches = Vec::new();
     if !changes.is_empty() {
         batches.push(IndexChangeBatch {
+            format_version: 1,
             schema_name: schema_name.clone(),
             searchable_fields: searchable,
             changes,

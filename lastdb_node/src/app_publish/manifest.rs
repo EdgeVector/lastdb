@@ -69,6 +69,25 @@ pub struct AppManifest {
     pub uses: Vec<String>,
     #[serde(default)]
     pub schemas: Vec<Value>,
+    /// Contract surfaces this app depends on: "http" for HTTP API routes,
+    /// "outbox" for IndexChangeBatch format. Apps using the HTTP API (e.g.,
+    /// Brain, LastSecrets) declare `["http"]`. Apps consuming the outbox
+    /// (e.g., lastseek, Search) declare `["outbox"]`. Apps using both declare
+    /// `["http", "outbox"]`. When omitted, defaults to an empty list for
+    /// backward compatibility with old manifests.
+    #[serde(default)]
+    pub contract_surfaces: Vec<String>,
+    /// HTTP API version this app requires. For TypeScript apps using
+    /// `@lastdb/app-sdk`, this is inferred from the SDK version by the
+    /// registry publisher. For other HTTP API apps, declare it explicitly.
+    /// Only relevant when `contract_surfaces` includes "http".
+    #[serde(default)]
+    pub api_version: Option<u32>,
+    /// Outbox format version this app requires. Apps consuming
+    /// IndexChangeBatch files (lastseek, Search) declare the format version
+    /// they understand. Only relevant when `contract_surfaces` includes "outbox".
+    #[serde(default)]
+    pub outbox_format_version: Option<u32>,
 }
 
 /// Local app runner convention for source-installed apps.

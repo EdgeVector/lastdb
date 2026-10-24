@@ -253,6 +253,7 @@ impl FoldDB {
         let key_field = schema.key.as_ref().and_then(|key| key.hash_field.clone());
         let Some(key_field) = key_field else {
             return Ok(IndexChangeBatch {
+                format_version: 1,
                 schema_name: schema_name.to_string(),
                 searchable_fields: None,
                 changes: Vec::new(),
@@ -318,6 +319,7 @@ impl FoldDB {
             cursor = next_cursor;
         }
         Ok(IndexChangeBatch {
+            format_version: 1,
             schema_name: schema_name.to_string(),
             searchable_fields: None,
             changes,
