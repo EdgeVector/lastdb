@@ -3108,8 +3108,10 @@ dependencies = [
 name = "lastdb_range_crypto"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm-siv",
  "hkdf",
  "hmac 0.12.1",
+ "rand 0.8.6",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "zeroize",

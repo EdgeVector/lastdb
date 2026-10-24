@@ -19,10 +19,15 @@
 #![forbid(unsafe_code)]
 
 mod key;
+mod molecule;
+mod protected;
 mod root;
 mod term;
+mod wrapping;
 
 pub use key::{EncryptedRangeBounds, RangeOpeKey};
+pub use molecule::RangeMoleculeKey;
+pub use protected::ProtectedRange;
 pub use root::{RangeOpeRoot, RangeScope};
 pub use term::RangeTerm;
 
@@ -47,6 +52,12 @@ pub enum Error {
     /// A cryptographic primitive refused the configured key length.
     #[error("range crypto key derivation failed")]
     KeyDerivation,
+    /// The authenticated range or scoped grant does not match its context.
+    #[error("range crypto authentication failed")]
+    Authentication,
+    /// The operating system could not supply a nonce.
+    #[error("range crypto nonce source failed")]
+    Entropy,
 }
 
 /// Fallible result for the portable range codec.
