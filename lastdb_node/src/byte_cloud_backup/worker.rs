@@ -122,7 +122,11 @@ async fn setup(
             }
             response.accepted.map(|a| a.head())
         }
-        HeadReadResult::Error { error } if error.code == ErrorCode::NotFound => None,
+        HeadReadResult::Error { error }
+            if error.code == ErrorCode::NotFound && error.field.as_str() == "stream" =>
+        {
+            None
+        }
         HeadReadResult::Error { error } => return Err(transfer::cloud_error(error)),
     };
     let begin = Begin {
