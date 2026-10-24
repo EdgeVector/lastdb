@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Instant;
 
+mod blob;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The executable verifies exact generated-home ownership before this call.
@@ -23,6 +25,7 @@ pub async fn measure(db: &FoldDB, phase: &str) -> Result<Value> {
         "purge" => purge(db).await?,
         "drain" => drain(db).await?,
         "replay" => replay(db).await?,
+        "blob" => blob::measure(db).await?,
         _ => return Err("unknown finite lifecycle operation".into()),
     };
     value["phase"] = json!(phase);

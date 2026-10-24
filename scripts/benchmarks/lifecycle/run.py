@@ -48,7 +48,8 @@ def helper(node, binary, phase, window):
     node.stop()
     value = command(node, binary, [str(node.home), phase], phase,
                     LASTDB_CONFLICT_RETENTION_SECS=str(window),
-                    LASTDB_TTL_SWEEP="1" if phase == "ttl" else "0")
+                    LASTDB_TTL_SWEEP="1" if phase == "ttl" else "0",
+                    LASTDB_BLOB_DWELL_SECS="120")
     node.start()
     return value
 
@@ -143,7 +144,7 @@ def run(node, args):
                          LASTDB_MOLECULE_DRAIN_MS="0", LASTDB_CONFLICT_RETENTION_SECS="3600")
     node.start()
     (node.home / ".lifecycle-ci").write_text("generated CI home only\n")
-    for name in ("LifecycleHistory", "LifecycleReplay", "LifecycleRange"):
+    for name in ("LifecycleHistory", "LifecycleReplay", "LifecycleRange", "LifecycleBlob"):
         schema(node, name)
     schema(node, "LifecycleHash", hashed=True)
     results = {"conflicts": helper(node, args.helper, "conflicts", 3600),
@@ -191,6 +192,7 @@ def run(node, args):
     expected_replay = {replay_keys[0]: "post-cutoff"}
     if read(node, "LifecycleReplay", replay_keys) != expected_replay:
         raise RuntimeError("Replay restored old data or lost the new write")
+    results["shared_atom_and_blob"] = helper(node, args.helper, "blob", 3600)
     results["compaction"], _ = node.call("/api/db/compact", {"dry_run": False})
     node.stop()
     node.start()
@@ -199,7 +201,7 @@ def run(node, args):
         raise RuntimeError("Readback after compaction and restart differs")
     results["final_status"] = node.status("after-compaction-and-restart")
     results["scope"] = ("Generated real operations; healthy counter repair, no fabricated corruption, "
-                        "no power-loss, cloud transport, blob dwell, or physical media erasure claim")
+                        "no power-loss, cloud transport, or physical media erasure claim")
     return results
 
 

@@ -31,8 +31,8 @@ def main():
             lines.append("Raw request/reply records, owner commands and shutdown receipts are in the artifact.")
     lines.extend(["", "Scope: generated personal homes, plain and encrypted key modes, real writes, TTL,",
                   "bounded conflict drains, healthy-home molecule repair, explicit delete cleanup,",
-                  "old replay refusal, compaction and reopened known-key reads.",
-                  "No fabricated corrupt source, power-loss, cloud transport, blob dwell, or physical erase claim."])
+                  "old replay refusal, shared atoms, real minimum file-blob dwell, compaction and reopened known-key reads.",
+                  "No fabricated corrupt source, power-loss, cloud transport, or physical erase claim."])
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write("\n".join(lines) + "\n")
 
