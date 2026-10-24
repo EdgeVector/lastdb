@@ -20,7 +20,7 @@ pub(super) async fn run(
     let previous = store::state_at(&paths.coordinator, &id)?;
     let terminal = read_terminal(&paths, &id, previous.as_ref())?;
     if previous.as_ref().is_some_and(Saved::terminal) {
-        return report::read_for(&identity, &paths, options.environment, Some(id));
+        return report::read_for(&identity, &paths, options.environment, Some(&id));
     }
     if terminal.is_none() && !matches!(action, Action::Close) {
         require_enabled()?;
@@ -28,13 +28,13 @@ pub(super) async fn run(
     let paths = Paths::open(identity.home(), &paths.root, true)?;
     if matches!(action, Action::Close) {
         previous.as_ref().ok_or(BackupError::Missing)?;
-        report::read_for(&identity, &paths, options.environment, Some(id.clone()))?;
+        report::read_for(&identity, &paths, options.environment, Some(&id))?;
         store::close_at(&paths.coordinator, &id)?;
         paths.check()?;
     }
     let _permit = match Store::lock_at(&paths.coordinator) {
         Err(BackupError::Busy) if matches!(action, Action::Close) => {
-            return report::read_for(&identity, &paths, options.environment, Some(id));
+            return report::read_for(&identity, &paths, options.environment, Some(&id));
         }
         result => result?,
     };
@@ -43,7 +43,7 @@ pub(super) async fn run(
     let previous = store.state()?;
     let terminal = read_terminal(&paths, &id, previous.as_ref())?;
     if previous.as_ref().is_some_and(Saved::terminal) {
-        return report::read_for(&identity, &paths, options.environment, Some(id));
+        return report::read_for(&identity, &paths, options.environment, Some(&id));
     }
     let native = identity.home().join("data/disk-pack").canonicalize()?;
     let core = StandaloneByteBackupSource::open(
@@ -87,7 +87,7 @@ pub(super) async fn run(
     source.validate(&saved)?;
     paths.check()?;
     let identity = Identity::open(&options.source_home)?;
-    report::read_for(&identity, &paths, options.environment, Some(id))
+    report::read_for(&identity, &paths, options.environment, Some(&id))
 }
 
 fn needs_client(action: &Action, saved: Option<&Saved>) -> bool {

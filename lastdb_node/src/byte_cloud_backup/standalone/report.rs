@@ -42,18 +42,17 @@ pub(super) fn read(
     env: Environment,
 ) -> Result<StandaloneReport> {
     let id = store::Store::active_at(&paths.coordinator)?;
-    read_for(identity, paths, env, id)
+    read_for(identity, paths, env, id.as_ref())
 }
 
 pub(super) fn read_for(
     identity: &Identity,
     paths: &Paths,
     env: Environment,
-    id: Option<Id>,
+    id: Option<&Id>,
 ) -> Result<StandaloneReport> {
     paths.check()?;
     let saved = id
-        .as_ref()
         .map(|id| store::state_at(&paths.coordinator, id))
         .transpose()?
         .flatten();
@@ -65,7 +64,6 @@ pub(super) fn read_for(
         validate(identity, &source_home, saved, env)?;
     }
     let close = id
-        .as_ref()
         .map(|id| {
             store::read::<Id>(
                 &paths

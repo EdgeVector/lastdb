@@ -95,7 +95,7 @@ impl Source {
             (Backend::Standalone { identity, .. }, Some(binding))
                 if binding.source_home == self.home =>
             {
-                identity.check()?
+                identity.check()?;
             }
             _ => return Err(BackupError::Identity),
         }
