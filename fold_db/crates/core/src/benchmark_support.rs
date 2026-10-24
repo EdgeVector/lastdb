@@ -1,5 +1,7 @@
 //! Schema support for the product benchmarks.
 
+pub mod lifecycle;
+
 use serde_json::json;
 use std::collections::HashMap;
 

@@ -109,6 +109,12 @@ test = false
 name = "received_range_seed"
 path = "src/bin/received_range_seed.rs"
 
+[[bin]]
+bench = false
+test = false
+name = "lifecycle_measure"
+path = "src/bin/lifecycle_measure.rs"
+
 [lib]
 test = false
 doctest = false

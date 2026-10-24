@@ -1,0 +1,89 @@
+name: Lifecycle operations
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "scripts/benchmarks/lifecycle/**"
+      - "lastdb_node/src/bin/lifecycle_measure.rs"
+      - ".github/workflows/lifecycle-operations.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: lifecycle-operations-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lifecycle:
+    name: Real lifecycle operations on generated CI homes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: "4"
+      RUSTC_WRAPPER: ""
+      RUSTC_WORKSPACE_WRAPPER: ""
+      SCCACHE_DISABLE: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select exact source and external evidence
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          echo "CANDIDATE_SHA=$revision" >> "$GITHUB_ENV"
+          echo "BASELINE_SHA=$revision" >> "$GITHUB_ENV"
+          echo "FOLDDB_BUILD_VERSION_OVERRIDE=range-$revision" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/lifecycle-target" >> "$GITHUB_ENV"
+          result_dir="$RUNNER_TEMP/lifecycle-evidence-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -p "$result_dir"
+          echo "LIFECYCLE_OUTPUT=$result_dir" >> "$GITHUB_ENV"
+      - name: Build actual daemon and owner commands
+        run: |
+          set -euo pipefail
+          cargo build --locked --profile dev-release -p lastdb_node \
+            --bin lastdbd --bin lastdb --bin lifecycle_measure 2>&1 | tee "$LIFECYCLE_OUTPUT/build.log"
+      - name: Run finite real lifecycle operations
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=120s 15m \
+            python3 scripts/benchmarks/lifecycle/run.py \
+              --binary "$CARGO_TARGET_DIR/dev-release/lastdbd" \
+              --cli "$CARGO_TARGET_DIR/dev-release/lastdb" \
+              --helper "$CARGO_TARGET_DIR/dev-release/lifecycle_measure" \
+              --revision "$CANDIDATE_SHA" --output "$LIFECYCLE_OUTPUT" \
+              2>&1 | tee "$LIFECYCLE_OUTPUT/operations.log"
+      - name: Publish operation summary
+        if: always()
+        run: |
+          python3 scripts/benchmarks/lifecycle/report.py --output "$LIFECYCLE_OUTPUT"
+      - name: Upload raw operations and build output
+        if: always()
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifecycle-operations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.LIFECYCLE_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Verify uploaded identity, archive checksum and expiration
+        if: ${{ always() && steps.upload.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_SHA256: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/lifecycle-artifact-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/lifecycle-artifact.zip"
+          python3 scripts/benchmarks/range_continuation/artifact.py \
+            --metadata "$RUNNER_TEMP/lifecycle-artifact-metadata.json" \
+            --archive "$RUNNER_TEMP/lifecycle-artifact.zip"
+
