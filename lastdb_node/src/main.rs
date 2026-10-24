@@ -29,7 +29,7 @@ use lastdb_node::host::{self, Host};
 use lastdbd::cli::{Cli, Command};
 use lastdbd::node_run::{build_runtime, NodeRun};
 use lastdbd::serve::{Server, Surface};
-use lastdbd::{conflict_fold, footprint_proof, session, shutdown, tracing_init};
+use lastdbd::{background, footprint_proof, session, shutdown, tracing_init};
 
 #[cfg(feature = "purging-allocator")]
 #[global_allocator]
@@ -89,6 +89,7 @@ struct ShutdownInputs<'a> {
     full_accept: std::thread::JoinHandle<Result<(), String>>,
     sampler_task: tokio::task::JoinHandle<()>,
     home_fold_task: tokio::task::JoinHandle<()>,
+    native_backup_task: tokio::task::JoinHandle<()>,
 }
 
 /// The accept loop returned (a graceful SIGTERM/SIGINT shutdown): stop the
@@ -109,6 +110,7 @@ fn drain_and_prove_shutdown(
         full_accept,
         sampler_task,
         home_fold_task,
+        native_backup_task,
     } = inputs;
     let mut shutdown_errors = Vec::new();
     if let Err(error) = accept_result {
@@ -116,6 +118,7 @@ fn drain_and_prove_shutdown(
     }
 
     shutdown::record_shutdown_intent(session_ledger.is_some(), home, pid, &mut shutdown_errors);
+    host.native_backup.begin_shutdown();
     host.db.request_background_stop();
 
     match full_accept.join() {
@@ -126,7 +129,13 @@ fn drain_and_prove_shutdown(
     if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
         shutdown_errors.push(format!("request handlers did not drain: {error}"));
     }
-    if let Err(error) = shutdown::drain_background(runtime, host, sampler_task, home_fold_task) {
+    if let Err(error) = shutdown::drain_background(
+        runtime,
+        host,
+        sampler_task,
+        home_fold_task,
+        native_backup_task,
+    ) {
         shutdown_errors.push(error);
     }
 
@@ -172,24 +181,6 @@ fn init_resident_key_cap() -> Result<(), String> {
     Ok(())
 }
 
-/// Start the self-metrics sampler and the home conflict fold on the runtime.
-fn spawn_background_tasks(
-    runtime: &tokio::runtime::Runtime,
-    host: &Arc<Host>,
-    shutdown_flag: &Arc<AtomicBool>,
-) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
-    let sample_interval = lastdb_node::self_metrics::sample_interval_from_env();
-    let _runtime_guard = runtime.enter();
-    (
-        lastdb_node::self_metrics::spawn_sampler(
-            Arc::clone(host),
-            sample_interval,
-            Arc::clone(shutdown_flag),
-        ),
-        conflict_fold::spawn_home_conflict_fold(Arc::clone(host), Arc::clone(shutdown_flag)),
-    )
-}
-
 /// Serve the full-surface setup socket on its own accept thread.
 fn spawn_full_surface_accept(
     server: &Server,
@@ -231,7 +222,6 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
         let _ = host.own_boot_identity.set(ledger.own_record());
     }
     let shutdown_flag = Arc::new(AtomicBool::new(false));
-    let (sampler_task, home_fold_task) = spawn_background_tasks(&runtime, &host, &shutdown_flag);
 
     let socket = UdsSocket::bind_at(
         socket_path.unwrap_or_else(|| data_dir.join(lastdb_uds::uds::SOCKET_FILE_NAME)),
@@ -266,6 +256,9 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let full_socket =
         UdsSocket::bind_at(full_socket_path.unwrap_or_else(|| data_dir.join("folddb-full.sock")))
             .map_err(|e| note_fatal(format!("failed to bind full-surface socket: {e}")))?;
+    let (sampler_task, home_fold_task, native_backup_task) =
+        background::spawn(&runtime, &host, &shutdown_flag);
+
     let full_accept = spawn_full_surface_accept(&server, full_socket, owner_uid, &shutdown_flag);
 
     let accept_result = server.serve(Surface::Owner, &socket, owner_uid, &shutdown_flag);
@@ -282,6 +275,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             full_accept,
             sampler_task,
             home_fold_task,
+            native_backup_task,
         },
         accept_result,
     );

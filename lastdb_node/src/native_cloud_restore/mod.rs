@@ -1,4 +1,4 @@
-//! Disabled native restore importer. This module registers no route or command.
+//! Feature-gated native restore importer for the explicit offline recovery command.
 //! A source supplies authenticated protocol responses and bounded object streams.
 //! Restore proves exact native directory coverage for main, thumbnail and poster.
 //! Native CAS stays in native files; remote ciphertext uses a durable local resolver.
@@ -6,7 +6,7 @@
 //! R1 enforces per-restore allocation and spool admission. Restore holds the
 //! shared core NativeCloudWorkGuard for the complete active operation;
 //! B1 export uses that same process guard to prevent combined budget overruns.
-//! This draft registers no caller and cannot activate normal native cloud sync.
+//! Restore does not enable cloud sync or enroll the restored home.
 mod closure;
 mod dependencies;
 mod download;

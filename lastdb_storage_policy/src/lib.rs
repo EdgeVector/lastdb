@@ -37,10 +37,30 @@ pub const BACKUP_RESOURCES: BackupResources = BackupResources {
 /// Existing total-backup policy; this is not a per-file memory allowance.
 pub const BACKUP_TOTAL_STORED_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 
-/// Retained native read resources, independent of cumulative stream I/O.
+/// Native read resources. Streams use a separate exact-record work allowance.
 pub mod native_read {
     pub const STREAM_RUN_BLOCKS: u32 = 16;
     pub const MAX_READ_HANDLES: usize = 32;
+    /// Eager work includes stored frames, decoded blocks, returned records and
+    /// their plans. Cumulative work is distinct from retained memory admission.
+    pub const EAGER_WORK_BYTES: u64 = 4 * super::native_write::PENDING_MEMORY_BYTES;
+    /// One eager read can decode the complete pending-write byte allowance.
+    /// An unaligned record can span one additional existing payload block.
+    pub const EAGER_BLOCKS: u64 = super::native_write::PENDING_MEMORY_BYTES
+        .div_ceil(super::native_v1::BLOCK_BYTES as u64)
+        + 1;
+}
+
+/// Pending native writes share this memory allowance across complete requests.
+pub mod native_write {
+    pub const PENDING_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
+    /// Refuse impossible local-file inputs before any file-sized allocation.
+    pub const LOCAL_FILE_INPUT_MEMORY_BYTES: u64 =
+        if PENDING_MEMORY_BYTES < super::native_v1::RECORD_BODY_MAX_BYTES {
+            PENDING_MEMORY_BYTES
+        } else {
+            super::native_v1::RECORD_BODY_MAX_BYTES
+        };
 }
 
 /// Small control values and proof identities have their own memory bounds.
@@ -78,9 +98,6 @@ pub mod backup_memory {
         + 2 * backup_decode::JSON_PAGE_RESERVE_BYTES
         + backup_decode::FILE_COVERAGE_MEMORY_BYTES as u64;
 }
-
-/// Existing local file PUT default. The owner can override it independently.
-pub const LOCAL_FILE_PUT_DEFAULT_BYTES: usize = 16 * 1024 * 1024;
 
 // A zero-sized stream buffer can return EOF without authentication. The crypto
 // provider also requires room for its final block within its signed length ABI.

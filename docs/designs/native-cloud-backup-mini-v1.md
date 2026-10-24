@@ -70,10 +70,41 @@ An archived terminal request cannot select a new active capture.
 
 ## Product commands and status
 
-`lastdb cloud backup` supplies `start`, `resume`, `status`, `close`, `discover`, and `restore`.
+`lastdb cloud backup` supplies `init`, `connect`, `start`, `resume`, `status`, `close`, `discover`, and `restore`.
+
+`init --into HOME --recovery-phrase-out HOME/recovery-phrase.txt` creates one fresh identity without a daemon or network request.
+The home must be an absent absolute path with an existing real parent.
+The home uses mode0700. The identity and phrase files use mode0600.
+The result exposes the public account identity and the phrase file path. It does not expose the phrase or seed.
+
+`lastdb --data-dir HOME cloud backup connect --dev --invite-code-stdin` registers that same identity through the compiled DEV auth endpoint.
+The first account needs a valid invite or paid entitlement. An existing account can omit the invite input.
+Connect requires the fresh initialized home before the first daemon boot. It creates no store.
+It saves only paused credentials and a stable device identity. It does not enroll a legacy recipient or enable Cloud Sync.
+A saved credential response completes locally after a lost response. An unknown registration needs an explicit retry.
+Both commands require the native source gate. They do not enable the service or create account Ready authority.
+
+Large local file blobs remain distinct from external backup-owned extents.
+The normal local file API has no separate configured file size cap.
+Native record-format bounds and shared memory admission remain in place.
+The full pointer must become an `Any` field value through a normal mutation.
+A native-CAS proof covers that file through the native files. It does not prove the external-extent path.
 Start prints its request ID before submission. A repeat can use that exact ID.
 Status reads fixed local records. It does not open credentials, audit dependencies, or call the cloud.
 Status shows the phase, verified counts, retained bytes, blocked reason, and last accepted backup.
+Status keeps the frozen native file count and byte total after source cleanup.
+It also reports verified metadata-pack objects and verified packs with two or more original files.
+These counts come from the normal saved-plan upload pass. Status does not reopen the native inventory.
+Older saved jobs report unknown counts until the normal resume path obtains them.
+
+One batch invocation requests at most one upload URL, PUT, and verification queue admission per pending object.
+It then reads all pending transfer states through one bounded batch request per poll.
+The client waits at most 15 minutes for verification, with backoff between reads.
+That wait bounds the local coordinator lifetime. It does not declare a provider or worker failure.
+An unfinished job keeps its native source, exact transfer inputs, and service reservations.
+Normal `cloud backup resume` repairs an unknown upload or queue send through the same identities.
+The service worker uses conditional ranges and an initial allowance of 128 KiB per second plus connection and idle limits.
+These policies do not prove network progress. Durable worker progress survives a client wait limit or process exit.
 Status includes the last cloud usage observation and its timestamp, with reserved, retained, observed legacy, and quota byte totals.
 The worker refreshes that observation at start, after upload batches, and after completion.
 Status itself makes no cloud call. A missing or invalid observation stays unknown.

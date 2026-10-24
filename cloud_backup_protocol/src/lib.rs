@@ -19,6 +19,7 @@ pub mod references;
 pub mod source;
 pub mod transfer;
 pub mod usage;
+pub mod v2;
 
 pub use common::*;
 pub use digest::{bytes_sha256, canonical_bytes, input_digest};

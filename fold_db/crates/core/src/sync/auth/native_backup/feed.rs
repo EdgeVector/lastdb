@@ -24,7 +24,8 @@ impl Drop for Cancel {
 
 pub(super) fn start(
     source: Box<dyn Read + Send>,
-    input: &cloud_backup_protocol::transfer::TransferInput,
+    bytes: u64,
+    expected: cloud_backup_protocol::Digest,
     permit: OwnedSemaphorePermit,
 ) -> (reqwest::Body, tokio::task::JoinHandle<Result<()>>, Cancel) {
     let (sender, receiver) = mpsc::channel::<io::Result<Vec<u8>>>(1);
@@ -33,12 +34,11 @@ pub(super) fn start(
         changed: Notify::new(),
     });
     let stopped = Arc::clone(&cancel);
-    let expected = input.object.clone();
     let span = tracing::Span::current();
     let task = tokio::task::spawn_blocking(move || {
         span.in_scope(|| {
             let _permit = permit;
-            let result = produce(source, &expected, &sender, &stopped);
+            let result = produce(source, bytes, &expected, &sender, &stopped);
             if result.is_err() && !stopped.stopped.load(Ordering::Acquire) {
                 let _ = send(
                     &sender,
@@ -57,11 +57,12 @@ pub(super) fn start(
 
 fn produce(
     mut source: Box<dyn Read + Send>,
-    object: &cloud_backup_protocol::ObjectIdentity,
+    bytes: u64,
+    expected: &cloud_backup_protocol::Digest,
     sender: &mpsc::Sender<io::Result<Vec<u8>>>,
     cancel: &Stop,
 ) -> Result<()> {
-    let mut left = object.bytes.get();
+    let mut left = bytes;
     let mut hash = Sha256::new();
     while left > 0 {
         if cancel.stopped.load(Ordering::Acquire) {
@@ -81,7 +82,7 @@ fn produce(
         .read(&mut extra)
         .map_err(|_| NativeBackupError::Source)?
         != 0
-        || crate::hex::hex_lower(hash.finalize()) != object.sha256.as_str()
+        || crate::hex::hex_lower(hash.finalize()) != expected.as_str()
     {
         return Err(NativeBackupError::Integrity("upload source"));
     }

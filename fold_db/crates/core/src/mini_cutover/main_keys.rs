@@ -22,7 +22,8 @@ pub fn classify_main_key(key: &[u8]) -> Option<&'static str> {
         Some("proteins")
     } else if colon_prefix_matches(bare, "schemaidx:") {
         Some("indexes")
-    } else if bare.starts_with("mk:")
+    } else if bare.starts_with("fdep:v1:")
+        || bare.starts_with("mk:")
         || bare.starts_with("rdel:v2:")
         || bare.starts_with("mgp:v1:")
         || bare.starts_with("mgr:v1:")

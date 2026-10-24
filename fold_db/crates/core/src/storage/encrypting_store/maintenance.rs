@@ -120,6 +120,16 @@ impl EncryptingKvStore {
         crypto: &dyn CryptoProvider,
         report: &mut ResealAtRestReport,
     ) -> StorageResult<bool> {
+        if inner_protected::has_inner_protection(&self.namespace, key, raw) {
+            report.rows_already_target += 1;
+            return Ok(true);
+        }
+        if inner_protected::is_inner_protected_family(&self.namespace, key)
+            && !Self::is_encrypted_value(raw)
+        {
+            report.rows_unreadable += 1;
+            return Ok(false);
+        }
         let binary_deflated = if raw.starts_with(AT_REST_ENC_BINARY_PREFIX.as_bytes()) {
             if let Ok(Some((deflated, _))) = decode_binary_ciphertext(raw) {
                 Some(deflated)
@@ -255,7 +265,7 @@ impl EncryptingKvStore {
                     ..page.row_handle.clone().unwrap_or_default()
                 });
 
-                if let Some(row) = Self::classify_for_reap(key, raw, options, &mut report) {
+                if let Some(row) = self.classify_for_reap(key, raw, options, &mut report) {
                     doomed.push(row);
                 }
             }
@@ -284,12 +294,15 @@ impl EncryptingKvStore {
     /// Count one scanned row. Returns the row when it is an unsealed row that a
     /// run outside a dry run must delete.
     fn classify_for_reap(
+        &self,
         key: Vec<u8>,
         raw: Vec<u8>,
         options: &ReapUnsealedOptions,
         report: &mut ReapUnsealedReport,
     ) -> Option<(Vec<u8>, Vec<u8>)> {
-        if Self::is_encrypted_value(&raw) {
+        if Self::is_encrypted_value(&raw)
+            || inner_protected::has_inner_protection(&self.namespace, &key, &raw)
+        {
             report.rows_sealed += 1;
             return None;
         }

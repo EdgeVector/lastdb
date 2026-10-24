@@ -12,8 +12,8 @@ use crate::sync::s3::PresignedUrl;
 impl AuthClient {
     /// Request a presigned URL for uploading a referenced-file blob.
     ///
-    /// `file_hash` is the SHA-256 of the plaintext; the blob is content-
-    /// addressed at `{scope}/cas/sha256/{file_hash}` (a B2 path). The server
+    /// `file_hash` is the storage digest from `blob_ref`: ciphertext SHA-256 for
+    /// the current suite, plaintext SHA-256 for older suites. The server
     /// gates on storage quota. `estimated_size_bytes` is the encrypted blob
     /// length, used for the quota pre-check.
     pub async fn presign_file_upload(

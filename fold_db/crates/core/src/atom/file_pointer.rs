@@ -27,7 +27,8 @@ pub fn blob_ref_from_atom_value(value: &Value) -> Option<&str> {
 }
 
 /// Every blob ref an atom names — content pointer plus metadata
-/// (`file_blob_ref` verbatim; `file_hash` as `sha256:{hash}`).
+/// (`file_blob_ref` verbatim; legacy `file_hash` as `sha256:{hash}`). Only a
+/// duplicate account-v2 plaintext hash is suppressed: it is not a CAS address.
 ///
 /// This union is the reachability definition shared by purge accounting and
 /// the blob counter: the resident persist path records refs in metadata, the
@@ -58,7 +59,10 @@ pub fn blob_refs_of_atom(
                 refs.push(r.clone());
             }
         }
-        if let Some(h) = meta.get("file_hash") {
+        if let Some(h) = meta
+            .get("file_hash")
+            .filter(|hash| !is_private_pointer_hash(content, hash))
+        {
             let r = format!("sha256:{h}");
             if !refs.iter().any(|existing| existing == &r) {
                 refs.push(r);
@@ -98,6 +102,7 @@ pub fn blob_logical_bytes_of_atom(
     let metadata_ref = metadata.and_then(|meta| meta.get("file_blob_ref").map(String::as_str));
     let metadata_hash_ref = metadata
         .and_then(|meta| meta.get("file_hash"))
+        .filter(|hash| !is_private_pointer_hash(content, hash))
         .map(|hash| format!("sha256:{hash}"));
     let metadata_size = metadata.and_then(|meta| {
         meta.get("encrypted_size_bytes")
@@ -121,4 +126,13 @@ pub fn blob_logical_bytes_of_atom(
         total = total.saturating_add(size);
     }
     Some(total)
+}
+
+fn is_private_pointer_hash(content: &Value, hash: &str) -> bool {
+    let Some(pointer) = content.get(LASTDB_FILE_KEY) else {
+        return false;
+    };
+    pointer.get("cipher_suite").and_then(Value::as_str)
+        == Some(crate::sharing::delivery_wire::FILE_BLOB_CIPHER_SUITE)
+        && pointer.get("file_hash").and_then(Value::as_str) == Some(hash)
 }

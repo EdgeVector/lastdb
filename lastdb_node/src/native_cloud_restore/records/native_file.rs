@@ -10,6 +10,7 @@ use std::os::unix::fs::OpenOptionsExt;
 pub(super) fn verify(
     session: &RestoreSession,
     home: &DiskHome,
+    current: &Current,
     key: &[u8; 32],
     dependency: &directory::FileDependency,
 ) -> Result<bool> {
@@ -17,7 +18,7 @@ pub(super) fn verify(
     // A process loss can leave any decode stage. Release all owned prefixes
     // before the first new raw byte needs filesystem capacity.
     cleanup(session)?;
-    let result = verify_inner(session, home, key, dependency, &path);
+    let result = verify_inner(session, home, current, key, dependency, &path);
     cleanup(session)?;
     result
 }
@@ -43,6 +44,7 @@ fn cleanup(session: &RestoreSession) -> Result<()> {
 fn verify_inner(
     session: &RestoreSession,
     home: &DiskHome,
+    current: &Current,
     key: &[u8; 32],
     dependency: &directory::FileDependency,
     path: &std::path::Path,
@@ -60,12 +62,15 @@ fn verify_inner(
             root: &session.root,
         };
         let mut read = home
-            .read(ReadBudget {
-                pages: NATIVE_STREAM_PAGES,
-                blocks: NATIVE_STREAM_BLOCKS,
-                bytes: NATIVE_STREAM_LOOKUP_READ_BYTES,
-                keys: 1,
-            })
+            .read_committed(
+                current.clone(),
+                ReadBudget {
+                    pages: NATIVE_STREAM_PAGES,
+                    blocks: NATIVE_STREAM_BLOCKS,
+                    bytes: NATIVE_STREAM_LOOKUP_READ_BYTES,
+                    keys: 1,
+                },
+            )
             .map_err(|_| RestoreError::Limit("native file read"))?;
         directory::read_native_cas(&mut read, dependency, &mut output)
             .map_err(|_| RestoreError::Invalid("native file source"))?

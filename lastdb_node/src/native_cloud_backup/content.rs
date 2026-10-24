@@ -7,6 +7,8 @@ pub(super) async fn native(work: &mut Work<'_>, assembly: &mut ManifestAssembly<
     work.checkpoint(Phase::UploadingNative)?;
     let pages = work.capture.status()?.page_count;
     let mut ordinal = 0u64;
+    let mut metadata_packs = 0u64;
+    let mut multi_file_packs = 0u64;
     for page_index in 0..pages {
         let page = work.capture.page(page_index as u32)?;
         for (batch_index, objects) in page
@@ -40,7 +42,15 @@ pub(super) async fn native(work: &mut Work<'_>, assembly: &mut ManifestAssembly<
                 }
             }
             ordinal += objects.len() as u64;
+            for object in objects {
+                if object.input.object.kind == cloud_backup_protocol::ObjectKind::MetadataPack {
+                    metadata_packs += 1;
+                    multi_file_packs += u64::from(object.files.len() > 1);
+                }
+            }
             work.saved.native_objects_verified = ordinal;
+            work.saved.metadata_pack_objects_verified = Some(metadata_packs);
+            work.saved.multi_file_pack_objects_verified = Some(multi_file_packs);
             work.budget(assembly.spool_bytes())?;
             work.store.save(work.saved)?;
         }

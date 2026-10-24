@@ -89,7 +89,8 @@ def main():
                            "revision": revision, "version": version}
     recipe = {**PROFILES[args.profile], "body_bytes": 1024, "fields": 4,
               "native_timing": args.native_timing,
-              "read_batches": [1, 32], "write_batches": [1, 128], "clients": [1, 4, 16, 32],
+              "read_batches": [1, 32], "write_batches": [1, 128],
+              "clients": [1] if PROFILES[args.profile].get("insert_only") else [1, 4, 16, 32],
               "writes": "durable acknowledgements; product default storage and maintenance",
               "reads": "known exact hash/range keys; storage receipts on every measured read",
               "cold": "purged warm records after reopen; disjoint first keys; positive disk payload receipts; OS pages uncontrolled",

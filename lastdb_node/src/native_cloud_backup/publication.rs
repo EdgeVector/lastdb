@@ -127,8 +127,9 @@ async fn accept(work: &mut Work<'_>) -> Result<()> {
                             &work.source.account,
                         )
                         .await?;
-                    if !context.new_work_enabled {
-                        return Err(BackupError::Waiting);
+                    work.check_close()?;
+                    if !context.new_work_enabled || !context.open_for_writes {
+                        return Err(BackupError::Authority);
                     }
                 }
                 attempt = attempt.saturating_add(1);

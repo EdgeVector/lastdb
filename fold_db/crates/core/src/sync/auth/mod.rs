@@ -7,6 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+mod backup_transport;
+pub mod byte_backup;
 pub mod native_backup;
 
 /// Default bound on a single auth-Lambda request — the whole connect + send +

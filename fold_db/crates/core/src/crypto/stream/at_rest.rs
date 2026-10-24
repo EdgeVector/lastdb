@@ -76,6 +76,11 @@ fn decode<R: Read>(
     output: &mut impl Write,
     stored_sha256: [u8; 32],
 ) -> CryptoResult<VerifiedEnvelope> {
+    let mut envelope_hash = Sha256::new();
+    let input = HashReader {
+        input,
+        hash: &mut envelope_hash,
+    };
     let reader = reader::EnvelopeReader::new(input, key, length)?;
     let mut output = CountHash::new(output);
     if compressed {
@@ -84,5 +89,18 @@ fn decode<R: Read>(
         let mut reader = reader;
         copy(&mut reader, &mut output)?;
     }
-    Ok(output.proof(stored_sha256))
+    Ok(output.proof(stored_sha256, envelope_hash.finalize().into()))
+}
+
+struct HashReader<'a, R> {
+    input: R,
+    hash: &'a mut Sha256,
+}
+
+impl<R: Read> Read for HashReader<'_, R> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.input.read(output)?;
+        self.hash.update(&output[..count]);
+        Ok(count)
+    }
 }

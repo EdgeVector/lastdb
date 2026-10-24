@@ -39,12 +39,12 @@ pub use crate::atom::file_pointer::{blob_ref_from_atom_value, LASTDB_FILE_KEY};
 pub const LASTDB_FILE_THUMBNAIL_KEY: &str = "thumbnail";
 /// Legacy spike key that embedded base64 content inside the atom (deprecated).
 pub const LEGACY_FILE_KEY: &str = "$file";
-/// Portable cipher label for per-file blob DEK metadata (convergent seal).
-///
-/// DEK + AES-GCM nonce are derived from the plaintext SHA-256 so concurrent
-/// multi-device seals of the same content produce identical ciphertext at the
-/// content-addressed CAS key.
-pub const FILE_BLOB_CIPHER_SUITE: &str = "lastdb-file-blob-convergent-v1:aes-256-gcm";
+/// Account-derived file encryption addressed by SHA-256 of its binary ciphertext.
+/// The plaintext digest and derived key stay inside the encrypted atom pointer.
+pub const FILE_BLOB_CIPHER_SUITE: &str =
+    "lastdb-file-blob-account-v2:aes-256-gcm-ciphertext-sha256";
+/// Older convergent files used the plaintext digest as their storage identity.
+pub const FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1: &str = "lastdb-file-blob-convergent-v1:aes-256-gcm";
 /// Pre-migration random-DEK suite. Open paths must keep accepting this so
 /// existing pointers can decrypt objects that were never re-sealed.
 pub const FILE_BLOB_CIPHER_SUITE_LEGACY: &str = "lastdb-file-blob-dek-v1:aes-256-gcm";
@@ -52,7 +52,12 @@ pub const FILE_BLOB_CIPHER_SUITE_LEGACY: &str = "lastdb-file-blob-dek-v1:aes-256
 /// True when `suite` is a known file-blob cipher suite (current or legacy).
 #[must_use]
 pub fn file_blob_cipher_suite_supported(suite: &str) -> bool {
-    suite == FILE_BLOB_CIPHER_SUITE || suite == FILE_BLOB_CIPHER_SUITE_LEGACY
+    matches!(
+        suite,
+        FILE_BLOB_CIPHER_SUITE
+            | FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1
+            | FILE_BLOB_CIPHER_SUITE_LEGACY
+    )
 }
 /// Remote storage tier used for generated thumbnail/poster objects.
 pub const FILE_THUMBNAIL_TIER: &str = "r2-thumbs";

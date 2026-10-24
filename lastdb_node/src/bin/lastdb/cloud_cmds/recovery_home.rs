@@ -9,7 +9,7 @@ use lastdb_node::cloud::{CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE};
 use lastdb_node::host::{CLOUD_SYNC_CONFIG_FILE, IDENTITY_KEY_FILE};
 
 #[path = "recovery_home/files.rs"]
-mod files;
+pub(super) mod files;
 #[path = "recovery_home/seed_registration.rs"]
 mod seed_registration;
 use super::CloudCommand;

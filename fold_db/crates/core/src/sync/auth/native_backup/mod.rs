@@ -64,6 +64,11 @@ impl NativeBackupClient {
         })
     }
 
+    /// Canonical configured native endpoint; contains no credentials or temporary grant.
+    pub fn canonical_endpoint(&self) -> String {
+        self.endpoint("").to_string()
+    }
+
     /// Bind file reads to the frozen consumer scope. No request starts here.
     /// Existing scoped main-file copies use only the native read-only grant API.
     pub fn authorized_file_source(

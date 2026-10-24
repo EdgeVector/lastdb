@@ -147,7 +147,10 @@ impl PackRuntime {
                 protection.publish_clean()?;
             }
         }
+        let frontier = current.frontier;
         view.current = current;
+        drop(view);
+        self.publish_native_backup_boundary(frontier);
         Ok(())
     }
 

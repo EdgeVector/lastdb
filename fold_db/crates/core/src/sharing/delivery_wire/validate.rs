@@ -4,7 +4,7 @@ use super::blob::decode_blob_bytes;
 use super::pointer::{file_blob_access_from_atom_value, file_thumbnail_ref_from_atom_value};
 use super::types::{ContentAddressedBlob, FileBlobAccess, FileThumbnailRef, LastDbSlicePayload};
 use super::{
-    blob_ref_from_atom_value, file_blob_cipher_suite_supported,
+    blob_ref_from_atom_value, file_blob_cipher_suite_supported, FILE_BLOB_CIPHER_SUITE,
     FILE_THUMBNAIL_MAX_ENCRYPTED_SIZE_BYTES, FILE_THUMBNAIL_TIER, LASTDB_FILE_KEY,
     LASTDB_FILE_THUMBNAIL_KEY,
 };
@@ -60,6 +60,7 @@ pub fn validate_file_thumbnail_ref_for_pointer(
     parent_access: &FileBlobAccess,
     thumbnail: &FileThumbnailRef,
 ) -> Result<(), FoldDbError> {
+    thumbnail.file_access()?;
     if let Some(inline_key) = thumbnail_inline_bytes_key(
         pointer
             .get(LASTDB_FILE_THUMBNAIL_KEY)
@@ -158,8 +159,9 @@ pub fn validate_file_blob_access_for_ref(
             "file blob access file_hash must be 64 hex chars".to_string(),
         ));
     }
+    crate::sharing::file_blob_seal::file_blob_storage_hash(blob_ref)?;
     let expected_ref = format!("sha256:{}", access.file_hash);
-    if expected_ref != blob_ref {
+    if access.cipher_suite != FILE_BLOB_CIPHER_SUITE && expected_ref != blob_ref {
         return Err(FoldDbError::SecurityError(format!(
             "file blob access hash mismatch: expected {blob_ref}, got {expected_ref}",
         )));

@@ -16,6 +16,16 @@ pub async fn register_dev_recovery_device(
     keypair: &Ed25519KeyPair,
     device_id: &str,
 ) -> Result<Registered, String> {
+    register_dev_native_device(keypair, device_id, None).await
+}
+
+/// Register one native-backup DEV device through the existing signed auth API.
+/// This does not enroll a legacy recipient or change cloud control.
+pub async fn register_dev_native_device(
+    keypair: &Ed25519KeyPair,
+    device_id: &str,
+    invite_code: Option<&str>,
+) -> Result<Registered, String> {
     let parsed = uuid::Uuid::parse_str(device_id).map_err(|_| "invalid DEV recovery device ID")?;
     if parsed.get_version() != Some(uuid::Version::Random) {
         return Err("DEV recovery requires a random device ID".into());
@@ -23,7 +33,7 @@ pub async fn register_dev_recovery_device(
     let request = signed_register_request(
         exemem_api_url_for(Environment::Dev),
         keypair,
-        None,
+        invite_code,
         Some(device_id),
     )?;
     let client = fold_db::sync::build_shared_http_client()

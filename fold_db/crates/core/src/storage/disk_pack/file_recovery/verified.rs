@@ -81,17 +81,20 @@ pub fn verify_remote_ciphertext(access: &FileBlobAccess, file: &mut File) -> Sto
     file.rewind()?;
     let proof = crate::crypto::stream::verify_v1_stream(&key, file, bytes)
         .map_err(|_| invalid("recovered file authentication"))?;
-    let plain = crate::hex::hex_lower(proof.plaintext_sha256);
     if proof
         .plaintext_bytes
         .checked_add(cloud_backup_protocol::limits::ENCRYPTION_ENVELOPE_OVERHEAD_BYTES)
         != Some(bytes)
-        || plain != access.file_hash
-        || access.blob_ref != format!("sha256:{plain}")
         || file.metadata()?.len() != bytes
     {
         return Err(invalid("recovered file plaintext identity"));
     }
+    crate::sharing::file_blob_seal::verify_file_blob_identity(
+        access,
+        &crate::hex::hex_lower(proof.plaintext_sha256),
+        &crate::hex::hex_lower(proof.envelope_sha256),
+    )
+    .map_err(|_| invalid("recovered file identity"))?;
     file.rewind()?;
     Digest::try_from(crate::hex::hex_lower(proof.stored_sha256))
         .map_err(|_| invalid("recovered file stored identity"))

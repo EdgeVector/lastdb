@@ -15,6 +15,7 @@ mod dependency_copy;
 mod dependency_io;
 mod dependency_native;
 mod dependency_parts;
+mod dependency_read;
 mod dependency_reader;
 mod dependency_state;
 mod dependency_status;

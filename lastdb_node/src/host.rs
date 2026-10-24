@@ -105,6 +105,8 @@ pub struct Host {
     pub watch_gate: Arc<crate::watch_gate::WatchGate>,
     /// One owner resume job can run while the durable marker keeps cloud Off.
     pub(crate) primary_resume_job_running: Arc<std::sync::atomic::AtomicBool>,
+    /// This host owns backup admission, worker completion and shutdown pause.
+    pub native_backup: Arc<crate::native_cloud_backup::BackupRuntime>,
     /// This process's own boot identity (pid/build/start_ts/restart_cause),
     /// set once right after the session ledger records this session's start.
     /// `/api/system/boot-identity` must read this, never the shared per-home
@@ -492,6 +494,7 @@ impl Host {
             change_feed_queue,
             watch_gate: crate::watch_gate::WatchGate::shared_from_env(),
             primary_resume_job_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            native_backup: Arc::new(crate::native_cloud_backup::BackupRuntime::new()),
             own_boot_identity: OnceLock::new(),
             proof_replay_engine,
         })

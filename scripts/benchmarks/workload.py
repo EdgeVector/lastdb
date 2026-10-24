@@ -16,6 +16,8 @@ FIELDS = ["bucket", "id", "title", "body"]
 PROFILES = {
     "standard": {"records": 10000, "samples": 256, "write_samples": 32, "pairs": 2},
     "nightly": {"records": 100000, "samples": 2048, "write_samples": 128, "pairs": 3},
+    "batch-insert": {"records": 10000, "samples": 256, "write_samples": 256,
+                     "pairs": 3, "insert_only": True},
 }
 
 
@@ -167,6 +169,8 @@ class Workload:
                         raise RuntimeError("The hot read did not report warm hits for the requested fields")
                 else:
                     self.validate_write(result, len(numbers))
+                    if self.recipe.get("insert_only"):
+                        sample["resident_stages_us"] = result["resident_stages_us"]
             except Exception as failure:
                 sample["error"] = f"{type(failure).__name__}: {failure}"
                 stopped.set()
@@ -239,12 +243,14 @@ class Workload:
                 validate_read(result, numbers)
             self.measure("hot-read/1", "hot")
             self.measure("hot-read/32", "hot", batch=32)
-            for mode in ("insert", "update"):
+            modes = ("insert",) if self.recipe.get("insert_only") else ("insert", "update")
+            for mode in modes:
                 for batch in (1, 128):
                     self.measure(f"{mode}/{batch}", mode, batch=batch, samples=self.recipe["write_samples"])
-            for clients in (1, 4, 16, 32):
-                for mode in ("read", "write", "mixed"):
-                    self.measure(f"concurrent-{mode}/{clients}", mode, clients=clients)
+            if not self.recipe.get("insert_only"):
+                for clients in (1, 4, 16, 32):
+                    for mode in ("read", "write", "mixed"):
+                        self.measure(f"concurrent-{mode}/{clients}", mode, clients=clients)
             native, _, _ = self.node.call("/api/db/native-status")
             save(self.output / "native-status.json", native)
             if native["native_disk"].get("writer_failed") is not False:

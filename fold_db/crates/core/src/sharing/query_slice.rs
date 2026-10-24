@@ -5,8 +5,8 @@
 //! import on another node by replaying Create mutations and writing blobs into the
 //! local CAS tree.
 //!
-//! File-bearing fields are normalized to `$lastdb_file` pointers; raw file bytes
-//! live only in `payload.blobs[]` (content-addressed over raw bytes).
+//! File-bearing fields are normalized to `$lastdb_file` pointers. The encrypted
+//! delivery payload carries raw file bytes and preserves each original CAS address.
 
 use crate::access::AccessContext;
 use crate::error::FoldDbError;
@@ -210,13 +210,19 @@ async fn resolve_blob_bytes(
 ) -> Result<Option<Vec<u8>>, FoldDbError> {
     if let Some(resolver) = blob_resolver {
         if let Some(bytes) = resolver(blob_ref)? {
+            if let Some(access) = access {
+                if crate::hex::sha256_hex(&bytes) != access.file_hash {
+                    return Err(FoldDbError::SecurityError(
+                        "resolved plaintext differs from the file pointer".into(),
+                    ));
+                }
+            }
             return Ok(Some(bytes));
         }
     }
     if let Some(access) = access {
         if !access.dek.is_empty() {
-            return blob_cas::get_blob_bytes_with_dek_in_ops(db.db_ops(), blob_ref, &access.dek)
-                .await;
+            return file_recovery::resolve_local_blob_bytes(db, access).await;
         }
     }
     blob_cas::get_blob_bytes_in_ops(db.db_ops(), blob_ref).await

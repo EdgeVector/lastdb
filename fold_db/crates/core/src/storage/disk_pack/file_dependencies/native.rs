@@ -1,5 +1,7 @@
 use super::*;
-use crate::sharing::delivery_wire::{FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_LEGACY};
+use crate::sharing::delivery_wire::{
+    FILE_BLOB_CIPHER_SUITE, FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1, FILE_BLOB_CIPHER_SUITE_LEGACY,
+};
 use laststore::disk_pack::home::HomeRead;
 use laststore::disk_pack::maintenance::SpacePolicy;
 use std::io::Write;
@@ -10,7 +12,7 @@ mod json_string;
 pub(super) mod scratch;
 mod verify;
 
-/// This digest names the exact outer account-encrypted native record bytes.
+/// This digest names the exact stored native record, with or without an account wrapper.
 /// Native file inventory already protects these bytes; no BlobPart is required.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,16 +61,19 @@ pub fn verify_native_cas(
 }
 
 fn compatible_local_suite(local: &str, pointer: &str) -> bool {
-    // The existing local constructor uses the convergent label even when it
-    // receives a legacy pointer's DEK. That label names the shared at-rest
-    // codec, not proof of key derivation. The original pointer DEK must still
-    // authenticate the complete bytes and their plaintext digest/size above.
+    // Older constructors used the v1 convergent label for supplied legacy
+    // keys. Account-v2 never crosses that legacy compatibility boundary.
     (local == pointer
         && matches!(
             local,
-            FILE_BLOB_CIPHER_SUITE | FILE_BLOB_CIPHER_SUITE_LEGACY
+            FILE_BLOB_CIPHER_SUITE
+                | FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1
+                | FILE_BLOB_CIPHER_SUITE_LEGACY
         ))
-        || (local == FILE_BLOB_CIPHER_SUITE && pointer == FILE_BLOB_CIPHER_SUITE_LEGACY)
+        || (local == FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1
+            && pointer == FILE_BLOB_CIPHER_SUITE_LEGACY)
+        || (local == FILE_BLOB_CIPHER_SUITE_LEGACY
+            && pointer == FILE_BLOB_CIPHER_SUITE_CONVERGENT_V1)
 }
 
 /// The exact atom scope also owns its directory record.
@@ -95,7 +100,8 @@ pub fn read_directories(
                 &directory_key(atom_id, *kind),
             );
             (
-                "atoms".into(),
+                super::super::super::laststore::native_routing::collection_for_key(raw.as_bytes())
+                    .into(),
                 super::super::super::laststore::native_routing::encode(raw.as_bytes()),
             )
         })

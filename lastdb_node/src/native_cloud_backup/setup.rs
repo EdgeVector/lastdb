@@ -11,12 +11,14 @@ use fold_db::storage::disk_pack::backup_capture::{
     BackupCapturePhase, NativeBackupCapture, NativeBackupCaptureRequest,
 };
 use fold_db::sync::auth::native_backup::{NativeBackupClient, NativeBackupError};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(super) async fn intent(
     source: &Source,
     store: &Store,
     saved: &mut Saved,
     client: &NativeBackupClient,
+    pause: &AtomicBool,
 ) -> Result<()> {
     source.validate(saved)?;
     if saved.intent.is_some() {
@@ -25,8 +27,11 @@ pub(super) async fn intent(
     let context = client
         .context(&ContextReadRequest { version: Version }, &source.account)
         .await?;
+    if pause.load(Ordering::Acquire) {
+        return Err(BackupError::Shutdown);
+    }
     if !context.new_work_enabled || !context.open_for_writes {
-        return Err(BackupError::Waiting);
+        return Err(BackupError::Authority);
     }
     let previous: Option<BackupStream> = store.read_base("stream.json")?;
     let stream = match previous {
@@ -56,6 +61,9 @@ pub(super) async fn intent(
         Err(error) => return Err(error.into()),
         _ => return Err(BackupError::Source),
     };
+    if pause.load(Ordering::Acquire) {
+        return Err(BackupError::Shutdown);
+    }
     if response.as_ref().is_some_and(|head| {
         head.active_commit_id
             .as_ref()
@@ -116,6 +124,20 @@ fn bind(store: &Store, saved: &mut Saved, capture: &NativeBackupCapture) -> Resu
         return Err(BackupError::Invalid);
     }
     saved.begin = Some(begin);
-    saved.retained_source_bytes = capture.status()?.retained_source_bytes;
+    let status = capture.status()?;
+    if !matches!(status.phase, BackupCapturePhase::Preparing) && status.native_files > 0 {
+        if saved
+            .native_files
+            .is_some_and(|files| files != status.native_files)
+            || saved
+                .native_bytes
+                .is_some_and(|bytes| bytes != status.native_bytes)
+        {
+            return Err(BackupError::Invalid);
+        }
+        saved.native_files = Some(status.native_files);
+        saved.native_bytes = Some(status.native_bytes);
+    }
+    saved.retained_source_bytes = status.retained_source_bytes;
     store.save(saved)
 }

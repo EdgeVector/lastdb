@@ -38,6 +38,7 @@ impl HashRangeQueryProcessor {
             received: received_from_namespaces,
             own_prefix: field.common().storage_prefix().map(str::to_owned),
             named_layout,
+            discovery: None,
         };
         binding
             .run(async {
@@ -58,6 +59,9 @@ impl HashRangeQueryProcessor {
         field: &mut FieldVariant,
         request: &PrimaryRequest<'_>,
     ) -> Result<PrimarySelection, SchemaError> {
+        if Self::can_page_received(field, request) {
+            return self.resolve_received_window(schema, field, request).await;
+        }
         if request.named_layout && request.received.is_empty() {
             if let (Some(filter), Some(window)) = (request.filter.as_ref(), request.window.clone())
             {
@@ -93,19 +97,42 @@ impl HashRangeQueryProcessor {
                 return Ok(selected);
             }
         }
-        // Shared scopes need one merged set before membership and the window.
+        self.resolve_primary_complete(schema, field, request).await
+    }
+
+    /// Exact candidate batches use the same winner and membership rules as
+    /// complete reads, without recursively entering the received-page plan.
+    pub(super) async fn resolve_primary_complete(
+        &self,
+        schema: &Schema,
+        field: &mut FieldVariant,
+        request: &PrimaryRequest<'_>,
+    ) -> Result<PrimarySelection, SchemaError> {
         let own_window = request
             .window
             .clone()
             .filter(|_| request.received.is_empty());
-        let values = field
-            .resolve_value_windowed(
-                &self.db_ops,
-                request.filter.clone(),
-                own_window,
-                request.include_tombstones,
+        let values = if let Some(values) = self
+            .resolve_cached_primary_values(
+                field,
+                request,
+                request.filter.as_ref(),
+                0,
+                request.own_prefix.as_deref(),
             )
-            .await?;
+            .await?
+        {
+            values
+        } else {
+            field
+                .resolve_value_windowed(
+                    &self.db_ops,
+                    request.filter.clone(),
+                    own_window,
+                    request.include_tombstones,
+                )
+                .await?
+        };
         let mut selected = PrimarySelection::new(values, &request.own_prefix);
         self.merge_primary_namespaces(field, request, request.filter.clone(), &mut selected)
             .await?;
@@ -135,12 +162,36 @@ impl HashRangeQueryProcessor {
         &self,
         field: &FieldVariant,
         request: &PrimaryRequest<'_>,
-        filter: Option<HashRangeFilter>,
+        mut filter: Option<HashRangeFilter>,
         selected: &mut PrimarySelection,
     ) -> Result<(), SchemaError> {
-        for namespace in request.received {
-            let mut shared = self
-                .resolve_field_from_namespace(
+        for (position, namespace) in request.received.iter().enumerate() {
+            if let Some(HashRangeFilter::HashRangeKeys(keys)) = &mut filter {
+                // Only hydrated, visible winners suppress later sources.
+                // Membership runs after this merge, so a winner that fails
+                // its layout still cannot expose a lower-priority value.
+                keys.retain(|(hash, range)| {
+                    !selected
+                        .values
+                        .contains_key(&KeyValue::new(Some(hash.clone()), Some(range.clone())))
+                });
+                if keys.is_empty() {
+                    break;
+                }
+            }
+            let mut shared = if let Some(values) = self
+                .resolve_cached_primary_values(
+                    field,
+                    request,
+                    filter.as_ref(),
+                    position + 1,
+                    Some(namespace),
+                )
+                .await?
+            {
+                values
+            } else {
+                self.resolve_field_from_namespace(
                     field,
                     namespace,
                     filter.clone(),
@@ -154,7 +205,8 @@ impl HashRangeQueryProcessor {
                         "Failed to resolve primary '{}' from namespace '{namespace}': {error}",
                         request.name
                     )),
-                })?;
+                })?
+            };
             selected.had_spine |= !shared.is_empty();
             Self::stamp_shared_writer(namespace, &mut shared);
             for (key, value) in shared {

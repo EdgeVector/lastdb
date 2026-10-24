@@ -1,13 +1,12 @@
 //! Complete bounded file coverage over one retained native root.
 use super::super::file_dependencies as files;
+pub(super) use super::dependency_read::{held_current, held_read, held_read_budget};
 use super::dependency_state::*;
 use super::dependency_status::{audit, status};
 use super::dependency_store::DependencyStore;
 use super::{invalid, ExportInner, NativeBackupCapture, StorageResult};
 use cloud_backup_protocol::{BackupJob, Digest, FileDependencyKind};
 use lastdb_storage_policy::backup_decode as budget;
-use laststore::disk_pack::home::HomeRead;
-use laststore::disk_pack::ReadBudget;
 use std::sync::{atomic::Ordering, Arc};
 
 /// Uses the existing authorized file APIs. It performs no request until an
@@ -47,14 +46,14 @@ impl AuthorizedFileSource {
             FileDependencyKind::Main => {
                 self.auth
                     .presign_file_download_owner_scope(
-                        dependency.file_hash().as_str(),
+                        dependency.storage_hash()?,
                         dependency.access().owner_scope.as_deref(),
                     )
                     .await
             }
             FileDependencyKind::Thumbnail | FileDependencyKind::Poster => {
                 self.auth
-                    .presign_thumb_download(dependency.file_hash().as_str())
+                    .presign_thumb_download(dependency.storage_hash()?)
                     .await
             }
         }
@@ -150,18 +149,8 @@ impl NativeBackupCapture {
 }
 
 fn certify_metadata(inner: &ExportInner, key: &[u8; 32]) -> StorageResult<()> {
-    let current = inner
-        .source
-        .as_ref()
-        .ok_or_else(|| invalid("backup retained source is unavailable"))?
-        .current()
-        .clone();
-    files::verify_metadata_coverage(&current, key, |budget| {
-        inner
-            .runtime
-            .home
-            .read_from_writer(current.clone(), budget, &inner.runtime.read_lease)
-            .map_err(super::super::map)
+    files::verify_metadata_coverage(held_current(inner)?, key, |budget| {
+        held_read_budget(inner, budget)
     })?;
     Ok(())
 }
@@ -202,35 +191,6 @@ fn certify(
         }
     }
     Ok(())
-}
-
-pub(super) fn held_read(inner: &ExportInner, bytes: u64) -> StorageResult<HomeRead> {
-    let source = inner
-        .source
-        .as_ref()
-        .ok_or_else(|| invalid("backup retained source is unavailable"))?;
-    inner
-        .runtime
-        .home
-        .read_from_writer(
-            source.current().clone(),
-            ReadBudget {
-                pages: if bytes == files::ATOM_INVENTORY_READ_BYTES {
-                    budget::ATOM_INVENTORY_PAGES
-                } else {
-                    budget::NATIVE_STREAM_PAGES
-                },
-                blocks: budget::NATIVE_STREAM_BLOCKS,
-                bytes,
-                keys: if bytes == budget::NATIVE_STREAM_LOOKUP_READ_BYTES {
-                    1
-                } else {
-                    10000
-                },
-            },
-            &inner.runtime.read_lease,
-        )
-        .map_err(super::super::map)
 }
 
 pub(super) fn selection(inner: &ExportInner) -> StorageResult<(BackupJob, Digest)> {
@@ -349,7 +309,9 @@ fn certify_atom(
     let Some((scope, id)) = files::atom_coordinate(&record.key)? else {
         return Ok(());
     };
-    let atom = files::open_atom(key, &record.body)?;
+    let atom = files::open_atom(key, &record.body, held_current(inner)?, |budget| {
+        held_read_budget(inner, budget)
+    })?;
     if atom.uuid() != id {
         return Err(invalid("backup atom identity differs"));
     }

@@ -9,23 +9,30 @@ use cloud_backup_protocol::{ErrorCode, Version};
 use fold_db::storage::disk_pack::backup_capture::NativeBackupCapture;
 use fold_db::storage::disk_pack::backup_manifest::ManifestAssembly;
 use fold_db::sync::auth::native_backup::{NativeBackupClient, NativeBackupError};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(super) struct Work<'a> {
     pub source: &'a Source,
     pub store: &'a Store,
     pub saved: &'a mut Saved,
     pub client: &'a NativeBackupClient,
+    pub pause: &'a AtomicBool,
     pub capture: &'a NativeBackupCapture,
 }
 impl Work<'_> {
     pub fn checkpoint(&mut self, phase: Phase) -> Result<()> {
         self.saved.phase = phase;
         self.saved.blocked_reason = None;
+        self.saved.pause = None;
+        self.saved.pause_consent_revision = None;
         // Setup binds the fixed native hold size; terminal cleanup releases it.
         // Phase updates need no repeated catalogue filesystem census.
         self.store.save(self.saved)
     }
     pub fn check_close(&self) -> Result<()> {
+        if self.pause.load(Ordering::Acquire) {
+            return Err(BackupError::Shutdown);
+        }
         if let Some(intent) = self.store.read::<CloseIntent>("close.json")? {
             if intent.request_id != self.saved.request_id {
                 return Err(BackupError::Identity);
@@ -47,7 +54,13 @@ impl Work<'_> {
     }
 }
 
-pub(super) async fn run(source: &Source, store: &Store, saved: &mut Saved) -> Result<()> {
+pub(super) async fn run(
+    source: &Source,
+    store: &Store,
+    saved: &mut Saved,
+    client: Option<&NativeBackupClient>,
+    pause: &AtomicBool,
+) -> Result<()> {
     source.validate(saved)?;
     if let Some(result) = store.read::<JobResult>("terminal.json")? {
         return super::terminal::reconcile(source, store, saved, result).await;
@@ -55,23 +68,28 @@ pub(super) async fn run(source: &Source, store: &Store, saved: &mut Saved) -> Re
     if super::terminal::cancel_uncaptured(source, store, saved)? {
         return Ok(());
     }
-    let client = if store.read::<CloseIntent>("close.json")?.is_some() {
-        crate::native_backup_access::client_for_recovery(&source.home)
-            .map_err(|_| BackupError::Identity)?
-    } else {
-        source.client()?
-    };
-    let _ = super::usage::refresh(store, &client, &source.account).await;
-    super::setup::intent(source, store, saved, &client).await?;
+    if pause.load(Ordering::Acquire) {
+        return Err(BackupError::Shutdown);
+    }
+    let client = client.ok_or(BackupError::Identity)?;
+    let _ = super::usage::refresh(store, client, &source.account).await;
+    if pause.load(Ordering::Acquire) {
+        return Err(BackupError::Shutdown);
+    }
+    super::setup::intent(source, store, saved, client, pause).await?;
     if super::terminal::cancel_uncaptured(source, store, saved)? {
         return Ok(());
+    }
+    if pause.load(Ordering::Acquire) {
+        return Err(BackupError::Shutdown);
     }
     let capture = super::setup::capture(source, store, saved).await?;
     let mut work = Work {
         source,
         store,
         saved,
-        client: &client,
+        client,
+        pause,
         capture: &capture,
     };
     if let Some(result) = store.read::<JobResult>("terminal.json")? {

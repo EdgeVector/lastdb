@@ -14,9 +14,7 @@ pub async fn resolve_file_bytes(
     };
     if let Some(access) = file_blob_access_from_atom_value(field_value)? {
         if !access.dek.is_empty() {
-            let local =
-                blob_cas::get_blob_bytes_with_dek_in_ops(db.db_ops(), blob_ref, &access.dek)
-                    .await?;
+            let local = resolve_local_blob_bytes(db, &access).await?;
             if local.is_some() {
                 return Ok(local);
             }
@@ -56,25 +54,41 @@ pub async fn resolve_file_bytes_kind(
     if kind != expected {
         return Ok(None);
     }
-    let access = FileBlobAccess {
-        file_hash: thumbnail
-            .blob_ref
-            .strip_prefix("sha256:")
-            .unwrap_or_default()
-            .into(),
-        blob_ref: thumbnail.blob_ref,
-        owner_scope: None,
-        cipher_suite: thumbnail.access.cipher_suite,
-        dek: thumbnail.access.dek,
-        encrypted_size_bytes: Some(thumbnail.access.encrypted_size_bytes),
-    };
-    let local =
-        blob_cas::get_blob_bytes_with_dek_in_ops(db.db_ops(), &access.blob_ref, &access.dek)
-            .await?;
+    let access = thumbnail.file_access()?;
+    let local = resolve_local_blob_bytes(db, &access).await?;
     if local.is_some() {
         return Ok(local);
     }
     resolve_recovered_pointer(db, pointer, kind, &access).await
+}
+
+/// A CAS row authenticates its own address; the atom also binds the plaintext hash.
+pub(super) async fn resolve_local_blob_bytes(
+    db: &FoldDB,
+    access: &FileBlobAccess,
+) -> Result<Option<Vec<u8>>, FoldDbError> {
+    let Some(blob) = blob_cas::get_blob_in_ops(db.db_ops(), &access.blob_ref).await? else {
+        return Ok(None);
+    };
+    if blob.blob_ref != access.blob_ref {
+        return Err(FoldDbError::SecurityError(
+            "local CAS record differs from the file pointer".into(),
+        ));
+    }
+    let bytes = crate::sharing::delivery_wire::decode_blob_bytes_with_dek(&blob, &access.dek)?;
+    crate::sharing::file_blob_seal::verify_file_blob_identity(
+        access,
+        &crate::hex::sha256_hex(&bytes),
+        &blob.content_sha256,
+    )?;
+    if access.encrypted_size_bytes.is_some_and(|size| {
+        size != bytes.len() as u64 + crate::sharing::file_blob_seal::FILE_BLOB_ENVELOPE_OVERHEAD
+    }) {
+        return Err(FoldDbError::SecurityError(
+            "local CAS size differs from the file pointer".into(),
+        ));
+    }
+    Ok(Some(bytes))
 }
 
 async fn resolve_recovered_pointer(

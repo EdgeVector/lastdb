@@ -10,6 +10,7 @@ use crate::schema::types::SchemaError;
 use super::super::filter_utils::DEFAULT_UNFILTERED_PAGE_LIMIT;
 use super::{FieldKind, FieldValue, FieldVariant};
 
+mod candidate_page;
 mod collect;
 mod core_model;
 mod core_receipts;

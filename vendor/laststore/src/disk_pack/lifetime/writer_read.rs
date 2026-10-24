@@ -81,6 +81,37 @@ impl WriterReadLease {
             generation: current.generation,
         })
     }
+
+    pub(super) fn hold_reference(
+        &self,
+        reference: &super::DurableReference,
+    ) -> Result<WriterReadGuard> {
+        if self.lock.root() != reference.home_path() {
+            return Err(corrupt("writer read lease belongs to another root"));
+        }
+        // File protection bridges reference validation and local registration.
+        // Never hold the state mutex across this filesystem work.
+        let retained = reference.hold()?;
+        let generation = retained.current().generation;
+        let mut state = self
+            .lock
+            .read_state
+            .lock()
+            .map_err(|_| corrupt("writer read lifetime lock is poisoned"))?;
+        if state.reclaiming {
+            return Err(corrupt("writer read root is retired or reclaim is active"));
+        }
+        // Only the verified durable reference permits a root below the floor.
+        let count = state.readers.entry(generation).or_insert(0);
+        *count = count.checked_add(1).ok_or_else(super::super::resource)?;
+        let guard = WriterReadGuard {
+            lock: Arc::clone(&self.lock),
+            generation,
+        };
+        drop(state);
+        drop(retained);
+        Ok(guard)
+    }
 }
 
 impl WriteLock {

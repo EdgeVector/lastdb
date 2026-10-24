@@ -23,13 +23,23 @@ impl NativeBackupClient {
         url: Url,
         request: &Q,
     ) -> Result<R> {
+        self.post_bounded(url, request, REQUEST_JSON_MAX_BYTES)
+            .await
+    }
+
+    pub(in crate::sync::auth) async fn post_bounded<Q: Serialize, R: DeserializeOwned>(
+        &self,
+        url: Url,
+        request: &Q,
+        maximum: u64,
+    ) -> Result<R> {
         let bytes = cloud_backup_protocol::canonical_bytes(request)?;
-        if bytes.len() as u64 > REQUEST_JSON_MAX_BYTES {
+        if bytes.len() as u64 > maximum {
             return Err(NativeBackupError::Configuration("request bytes"));
         }
         let mut refreshes = 0;
         loop {
-            let result = tokio::time::timeout(self.timeout, self.once(&url, &bytes))
+            let result = tokio::time::timeout(self.timeout, self.once(&url, &bytes, maximum))
                 .await
                 .map_err(|_| NativeBackupError::Timeout)?;
             if !matches!(result, Err(NativeBackupError::Authentication))
@@ -49,7 +59,7 @@ impl NativeBackupClient {
         }
     }
 
-    async fn once<R: DeserializeOwned>(&self, url: &Url, bytes: &[u8]) -> Result<R> {
+    async fn once<R: DeserializeOwned>(&self, url: &Url, bytes: &[u8], maximum: u64) -> Result<R> {
         let request = self
             .http
             .post(url.clone())
@@ -61,7 +71,7 @@ impl NativeBackupClient {
             .await
             .map_err(|_| NativeBackupError::Transport)?;
         let status = response.status();
-        let body = bounded(response).await?;
+        let body = bounded(response, maximum).await?;
         if status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(NativeBackupError::Authentication);
         }
@@ -82,10 +92,10 @@ impl NativeBackupClient {
     }
 }
 
-async fn bounded(response: reqwest::Response) -> Result<Vec<u8>> {
+async fn bounded(response: reqwest::Response, maximum: u64) -> Result<Vec<u8>> {
     if response
         .content_length()
-        .is_some_and(|bytes| bytes > REQUEST_JSON_MAX_BYTES)
+        .is_some_and(|bytes| bytes > maximum)
     {
         return Err(NativeBackupError::InvalidResponse("response bytes"));
     }
@@ -96,7 +106,7 @@ async fn bounded(response: reqwest::Response) -> Result<Vec<u8>> {
         let next = body
             .len()
             .checked_add(chunk.len())
-            .filter(|bytes| *bytes as u64 <= REQUEST_JSON_MAX_BYTES)
+            .filter(|bytes| *bytes as u64 <= maximum)
             .ok_or(NativeBackupError::InvalidResponse("response bytes"))?;
         body.try_reserve_exact(next - body.len())
             .map_err(|_| NativeBackupError::InvalidResponse("response allocation"))?;

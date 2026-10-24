@@ -68,9 +68,10 @@ pub struct ContentAddressedAtom {
 /// sealed atom content (`FileBlobAccess.dek`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentAddressedBlob {
-    /// `sha256:<hex>` of the raw bytes.
+    /// `sha256:<hex>` of the ciphertext (v2) or plaintext (older suites).
     pub blob_ref: String,
-    /// Hex sha256 of the raw bytes (without `sha256:` prefix).
+    /// Local v2 CAS rows store the ciphertext digest here, never plaintext SHA.
+    /// Plain delivery blobs and older local rows retain their plaintext digest.
     pub content_sha256: String,
     /// Standard base64 of the raw file bytes, **or** (when
     /// `local_cipher_suite` is set) the UTF-8 `ENC:…` ciphertext under the
@@ -101,8 +102,8 @@ pub struct ContentAddressedBlob {
 
 /// Shareable metadata for opening one content-addressed encrypted file blob.
 ///
-/// `file_hash` is the sha256 hex of the plaintext bytes and must match
-/// `blob_ref = sha256:{file_hash}`. `dek` is the 32-byte per-blob key, hex
+/// `file_hash` is the sha256 hex of the plaintext bytes. New `blob_ref`s name
+/// ciphertext instead. `dek` is the 32-byte per-blob key, hex
 /// encoded. Slices carry this alongside file pointers so recipients can open
 /// the same remote CAS object without re-encrypting or re-uploading it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -129,6 +130,9 @@ pub struct FileThumbnailAccess {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileThumbnailRef {
     pub blob_ref: String,
+    /// Plaintext digest, required for ciphertext-addressed derivatives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<String>,
     pub tier: String,
     pub access: FileThumbnailAccess,
     pub media_type: String,
@@ -136,6 +140,33 @@ pub struct FileThumbnailRef {
     pub height: u32,
     pub kind: String,
     pub source_hash: String,
+}
+
+impl FileThumbnailRef {
+    /// Normalize old and new thumbnail pointers without exposing their key.
+    pub fn file_access(&self) -> Result<FileBlobAccess, crate::error::FoldDbError> {
+        let file_hash = match &self.file_hash {
+            Some(hash) => hash.clone(),
+            None if self.access.cipher_suite != super::FILE_BLOB_CIPHER_SUITE => {
+                crate::sharing::file_blob_seal::file_blob_storage_hash(&self.blob_ref)?.to_owned()
+            }
+            None => {
+                return Err(crate::error::FoldDbError::SecurityError(
+                    "ciphertext-addressed thumbnail requires its plaintext digest".into(),
+                ));
+            }
+        };
+        let access = FileBlobAccess {
+            blob_ref: self.blob_ref.clone(),
+            file_hash,
+            owner_scope: None,
+            cipher_suite: self.access.cipher_suite.clone(),
+            dek: self.access.dek.clone(),
+            encrypted_size_bytes: Some(self.access.encrypted_size_bytes),
+        };
+        super::validate_file_blob_access_for_ref(&access, &self.blob_ref)?;
+        Ok(access)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

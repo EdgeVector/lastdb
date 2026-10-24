@@ -152,8 +152,8 @@ The next worker must connect these source APIs to the shared transfer and accept
 | Native payload file handles | 32 |
 
 The [resource policy](native-backup-resource-policy-v1.md) identifies the shared source for these values.
-The normal local file API keeps its separate, owner-configurable 16 MiB default.
-That API default does not create a backup authentication limit.
+The normal local file API has no separate configured file size cap.
+Native record-format bounds and shared memory admission remain in place.
 Metadata admission includes dependency records, aliases, part receipts, atomic-write scratch, and the native catalog.
 The exact count depends on the complete encoded metadata size.
 The first byte, count, format, or disk bound controls admission.
