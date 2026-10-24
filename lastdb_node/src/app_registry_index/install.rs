@@ -186,73 +186,8 @@ fn check_version_constraint_or_cleanup<F>(
 where
     F: FnOnce(String) -> String,
 {
-    check_version_constraint(checkout_path, app_id, lastdb_version).map_err(cleanup)
-}
-
-/// Check if the installed app's manifest declares a lastdb version constraint,
-/// and verify the running LastDB build satisfies it.
-///
-/// Looks for common manifest files: `lastdb-app.json`, `folddb.toml`, `*.app.json`.
-/// If no manifest is found or no constraint is declared, this is a no-op (apps
-/// without constraints install unconditionally).
-fn check_version_constraint(
-    checkout_path: &Path,
-    app_id: &str,
-    lastdb_version: &str,
-) -> Result<(), String> {
-    // Try common manifest paths
-    let manifest_candidates = [
-        checkout_path.join("lastdb-app.json"),
-        checkout_path.join("folddb.toml"),
-    ];
-
-    // Also try <app_id>.app.json
-    let app_json = checkout_path.join(format!("{app_id}.app.json"));
-
-    for path in manifest_candidates.iter().chain(std::iter::once(&app_json)) {
-        if !path.exists() {
-            continue;
-        }
-
-        let Ok(raw) = std::fs::read_to_string(path) else {
-            continue;
-        };
-
-        // Try parsing as JSON first
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(constraint_str) = json.get("lastdb").and_then(|v| v.as_str()) {
-                return version_constraint::check_constraint(
-                    app_id,
-                    constraint_str,
-                    lastdb_version,
-                );
-            }
-        }
-
-        // Try parsing as TOML (for folddb.toml)
-        if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-            // Simple line-by-line search for lastdb = "..."
-            for line in raw.lines() {
-                let line = line.trim();
-                if let Some(rest) = line.strip_prefix("lastdb") {
-                    let rest = rest.trim();
-                    if let Some(rest) = rest.strip_prefix('=') {
-                        let rest = rest.trim().trim_matches('"').trim_matches('\'');
-                        if !rest.is_empty() {
-                            return version_constraint::check_constraint(
-                                app_id,
-                                rest,
-                                lastdb_version,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // No manifest or no constraint found - allow install
-    Ok(())
+    version_constraint::check_manifest_constraint(checkout_path, app_id, lastdb_version)
+        .map_err(cleanup)
 }
 
 /// Remove (with `force`) or reject an existing install directory, then create it.
