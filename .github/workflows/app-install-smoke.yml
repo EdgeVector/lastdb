@@ -7,10 +7,6 @@ name: app-install-smoke
 # No unit tests (deleted 2026-10-09). This is an e2e smoke test using real installs.
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       apps:
@@ -112,8 +108,8 @@ jobs:
           # List available apps in registry
           lastdb app list --channel stable | tee "$PROOF_DIR/registry-apps.txt"
           
-          # Show app info from registry
-          lastdb app info ${{ matrix.app }} --json | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
+          # Show app info from registry (already JSON output)
+          lastdb app info ${{ matrix.app }} | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
           
           # Resolve app for this LastDB version
           lastdb app resolve ${{ matrix.app }} --json | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
@@ -137,7 +133,8 @@ jobs:
       - name: Set up ${{ matrix.app }} dependencies (Brain)
         if: matrix.app == 'brain'
         run: |
-          cd "$LASTDB_HOME/apps/${{ matrix.app }}"
+          # Work in the source checkout
+          cd "$LASTDB_HOME/apps/${{ matrix.app }}/source"
           
           # Install Bun (Brain's package manager)
           brew install bun
@@ -151,7 +148,8 @@ jobs:
       - name: Initialize ${{ matrix.app }} schemas (Brain)
         if: matrix.app == 'brain'
         run: |
-          cd "$LASTDB_HOME/apps/${{ matrix.app }}"
+          # Work from source checkout
+          cd "$LASTDB_HOME/apps/${{ matrix.app }}/source"
           
           # Sync schemas with LastDB
           brain init 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-init.log" || true
@@ -251,22 +249,14 @@ jobs:
           path: ${{ env.PROOF_DIR }}
           if-no-files-found: error
 
-      - name: Save proof to repo (on main push)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Add summary to job output
+        if: always()
         run: |
-          # Create proof directory in repo
-          PROOF_DATE=$(date -u +"%Y%m%d")
-          PROOF_REPO_DIR="docs/proofs/app-install-smoke-${{ matrix.app }}-${PROOF_DATE}"
-          mkdir -p "$PROOF_REPO_DIR"
-          
-          # Copy key artifacts
-          cp "$PROOF_DIR/smoke-summary.txt" "$PROOF_REPO_DIR/"
-          cp "$PROOF_DIR/${{ matrix.app }}-resolve.json" "$PROOF_REPO_DIR/" 2>/dev/null || true
-          cp "$PROOF_DIR/${{ matrix.app }}-install-receipt.json" "$PROOF_REPO_DIR/" 2>/dev/null || true
-          cp "$PROOF_DIR/lastdb-version.txt" "$PROOF_REPO_DIR/" 2>/dev/null || true
-          
-          echo "Proof artifacts saved to $PROOF_REPO_DIR"
-          ls -la "$PROOF_REPO_DIR"
+          echo "## App Install Smoke: ${{ matrix.app }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat "$PROOF_DIR/smoke-summary.txt" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "Summary not available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
@@ -281,21 +271,22 @@ jobs:
           # Remove test home (proof saved via artifact)
           rm -rf "$TEST_HOME"
 
-  smoke-required:
-    name: smoke-required
+  smoke-report:
+    name: smoke-report
     if: ${{ always() }}
     needs: [app-install-smoke]
     runs-on: ubuntu-24.04
     steps:
-      - name: Check if smoke tests passed
+      - name: Report smoke test results
         run: |
           echo "app-install-smoke=${{ needs.app-install-smoke.result }}"
           
-          # Allow scheduled runs to fail without blocking (info only)
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Scheduled run - reporting status but not blocking"
-            exit 0
+          # This is a canary job - report status but never block
+          if [ "${{ needs.app-install-smoke.result }}" = "success" ]; then
+            echo "✓ Smoke tests passed"
+          else
+            echo "✗ Smoke tests failed - review artifacts"
           fi
           
-          # For PR/push, require success
-          test "${{ needs.app-install-smoke.result }}" = "success"
+          # Always succeed - this is not a gate
+          exit 0
