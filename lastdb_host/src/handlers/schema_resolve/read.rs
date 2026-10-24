@@ -21,28 +21,7 @@ pub(in crate::handlers) async fn resolve_schema_name_for_read<H: HostNode>(
         .await
         .map_err(|error| HostError::new(503, error.to_string()))?
         .ok_or_else(|| HostError::new(503, "captured schema directory is absent".to_string()))?;
-    if let Some((owner, local)) = name.split_once('/') {
-        if !owner.is_empty() && !local.is_empty() {
-            let matches: Vec<_> = schemas
-                .iter()
-                .filter(|entry| entry.schema.owner_app_id.as_deref() == Some(owner))
-                .filter(|entry| {
-                    entry.schema.name == local
-                        || entry.schema.descriptive_name.as_deref() == Some(local)
-                })
-                .cloned()
-                .collect();
-            if let Some(canonical) = resolve_descriptive_matches(name, &matches)? {
-                return Ok(Some(canonical));
-            }
-        }
-    }
-    let exact: Vec<_> = schemas
-        .iter()
-        .filter(|entry| entry.schema.descriptive_name.as_deref() == Some(name))
-        .cloned()
-        .collect();
-    if let Some(canonical) = resolve_descriptive_matches(name, &exact)? {
+    if let Some(canonical) = resolve_exact_alias(name, &schemas)? {
         return Ok(Some(canonical));
     }
     let trimmed = name.trim();
@@ -58,17 +37,5 @@ pub(in crate::handlers) async fn resolve_schema_name_for_read<H: HostNode>(
     {
         return Ok(Some(trimmed.to_string()));
     }
-    let folded = trimmed.to_lowercase();
-    let matches: Vec<_> = schemas
-        .iter()
-        .filter(|entry| {
-            entry
-                .schema
-                .descriptive_name
-                .as_deref()
-                .is_some_and(|value| value.to_lowercase() == folded)
-        })
-        .cloned()
-        .collect();
-    resolve_descriptive_matches(trimmed, &matches)
+    resolve_folded_alias(trimmed, &schemas)
 }
