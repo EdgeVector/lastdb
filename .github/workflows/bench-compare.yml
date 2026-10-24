@@ -13,9 +13,9 @@ on:
         type: string
         default: ""
       profile:
-        description: Benchmark size
+        description: Benchmark workload
         type: choice
-        options: [standard, nightly]
+        options: [standard, nightly, batch-insert]
         default: standard
 
 permissions:

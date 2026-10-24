@@ -25,6 +25,13 @@ Lightweight source, syntax, and format checks can run locally. Tests remain reti
 | Fields per record | 4 | 4 |
 | Body bytes per record | 1,024 | 1,024 |
 
+The manual comparison also offers `batch-insert` for a focused insert review.
+It keeps the standard 10,000 records and the same cold and hot read preparation.
+It measures 256 insert requests at each batch size, with three alternating pairs.
+Each version supplies 768 requests per batch size. Updates and concurrency are excluded.
+The raw write samples retain `resident_stages_us` from each response.
+The standard and nightly recipes, time limits, upload checks, and completion gate stay unchanged.
+
 Each case uses actual product requests through the daemon's Unix socket:
 
 - Cold reads use exact keys once after the owned daemon restarts.
@@ -60,7 +67,7 @@ An older PR head need not contain any benchmark scripts. The summary records the
 
 The separate `LastDB historical benchmark comparison` manual workflow accepts exact baseline
 and candidate SHAs. An empty candidate uses the selected workflow revision.
-An empty baseline uses the candidate's first parent. Either recipe is available.
+An empty baseline uses the candidate's first parent. All three recipes are available.
 The two revisions must differ. The plan rejects identical revisions before builds or cache restores.
 This prevents a baseline cache restore from replacing the fresh candidate at the same source path.
 Select the current main workflow to measure old product revisions with the current driver.
