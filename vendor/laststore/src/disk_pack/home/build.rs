@@ -46,6 +46,28 @@ impl HomeBuilder {
         ))
     }
 
+    /// Only a complete compatible native record transfer may retain these features.
+    pub(super) fn create_native_transfer(
+        root: &Path,
+        descriptor: HomeDescriptor,
+        frontier: u64,
+        features: u64,
+    ) -> Result<Self> {
+        let required = crate::disk_pack::FEATURE_NATIVE_HOME
+            | crate::disk_pack::FEATURE_SCHEMA_RECORD_REFS
+            | crate::disk_pack::FEATURE_ATOM_RECORDS
+            | crate::disk_pack::FEATURE_SNAPSHOT_COMMIT;
+        if features & required != required || features & !crate::disk_pack::SUPPORTED_FEATURES != 0
+        {
+            return Err(crate::Error::Config(
+                "native transfer requires a supported complete native atom-record source".into(),
+            ));
+        }
+        let mut builder = Self::create_fenced(root, descriptor, frontier)?;
+        builder.inner.required_features = features;
+        Ok(builder)
+    }
+
     /// Create only at a nonexistent destination. Never modify the source home.
     /// The caller sets the atom-record feature before it finishes.
     fn create_fenced(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {

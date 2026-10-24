@@ -52,7 +52,7 @@ zeroize = { workspace = true }
 fold_db = { workspace = true }
 env_flag = { workspace = true }
 laststore = { workspace = true }
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 observability = { workspace = true, features = ["otel"] }
 lastdb_uds = { workspace = true }
 lastdb_identity = { workspace = true }

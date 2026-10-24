@@ -25,6 +25,7 @@ pub mod native_backup_access;
 pub mod native_cloud_backup;
 pub mod native_cloud_client;
 pub mod native_cloud_restore;
+pub mod native_transfer_target;
 pub mod offline_home;
 pub mod offline_recount;
 pub mod ops;
