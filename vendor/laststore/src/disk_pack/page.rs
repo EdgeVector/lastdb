@@ -21,6 +21,14 @@ pub(super) struct Page {
     buffer: Buffer,
 }
 
+/// One checked immutable allocator template, retained only by one publication.
+pub(super) struct EmptyLocator {
+    root: std::path::PathBuf,
+    tree: super::TreeRoot,
+    page: Arc<Page>,
+    current: super::Current,
+}
+
 impl Page {
     pub(super) fn decode(
         buffer: Buffer,
@@ -219,6 +227,54 @@ impl Page {
 }
 
 impl ReadCall {
+    pub(super) fn empty_locator_template(&mut self, object: Uuid) -> Result<Option<EmptyLocator>> {
+        let tree = super::TreeRoot {
+            object,
+            page: 0,
+            height: 1,
+            kind: TreeKind::Locator,
+        };
+        let page = self.tree_page(&tree, 0)?;
+        if page.level() != 0 || page.count() != 0 {
+            return Ok(None);
+        }
+        Ok(Some(EmptyLocator {
+            root: self.root.clone(),
+            tree,
+            page,
+            current: self.current.clone(),
+        }))
+    }
+
+    /// The selected empty page belongs to every new group's own read budget.
+    /// All other pages and file handles remain local to that group's call.
+    pub(super) fn reuse_empty_locator(
+        &mut self,
+        template: &EmptyLocator,
+    ) -> Result<super::TreeRoot> {
+        if self.root != template.root || self.current != template.current {
+            return Err(corrupt(
+                "empty locator template belongs to another publication",
+            ));
+        }
+        let address = PageAddress {
+            directory: self
+                .root
+                .join("locator")
+                .join(template.tree.object.to_string()),
+            object: template.tree.object,
+            number: 0,
+        };
+        if !self.pages.contains_key(&address) {
+            if self.pages.len() as u64 >= self.budget.pages {
+                return Err(resource());
+            }
+            self.pages.insert(address, Arc::clone(&template.page));
+            crate::commit_timing::count("empty_locator_template_reuses", 1);
+        }
+        Ok(template.tree.clone())
+    }
+
     pub(super) fn tree_page(&mut self, tree: &super::TreeRoot, page: u64) -> Result<Arc<Page>> {
         let directory = self
             .root
