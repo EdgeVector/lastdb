@@ -202,9 +202,15 @@ fn configure_mutation(
     if durability.waits_for_persist() {
         mutation.synchronous = Some(true);
     }
-    mutation.expected = expected;
-    mutation.must_exist = must_exist;
-    mutation.aggregate_set = aggregate_set;
+    if let Some(expectation) = expected {
+        mutation = mutation.with_expected(expectation);
+    }
+    if let Some(flag) = must_exist {
+        mutation = mutation.with_must_exist(flag);
+    }
+    if let Some(aggregate) = aggregate_set {
+        mutation = mutation.with_aggregate_set(aggregate);
+    }
     mutation
 }
 
