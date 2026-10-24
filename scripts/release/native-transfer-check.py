@@ -31,7 +31,7 @@ def call(sock, route, body=None):
     try:
         connection.request("GET" if body is None else "POST", route,
                            None if body is None else json.dumps(body),
-                           {"Content-Type": "application/json",
+                           {"Host": "localhost", "Content-Type": "application/json",
                             "X-LastDB-Client": "native-transfer-release"})
         response = connection.getresponse()
         raw = response.read(8 * 1024 * 1024 + 1)
