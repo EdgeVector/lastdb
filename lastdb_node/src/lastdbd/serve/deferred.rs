@@ -116,7 +116,7 @@ fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surfac
         } = pending;
         let response = exec::with_socket_queue_wait(
             completion.queue_wait().saturating_add(queued_at.elapsed()),
-            exec::execute_data_route_with_timeout(route, &request, &context, &host),
+            exec::execute_deferred_mutation(route, &request, &context, &host),
         )
         .await;
         // Release frame bytes before scheduling the response. Parsers that wait

@@ -25,6 +25,28 @@ pub async fn execute_data_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    execute_observed_route(
+        route,
+        req,
+        ctx,
+        host,
+        dispatch_data_route(route, req, ctx, host),
+    )
+    .await
+}
+
+/// Keep attribution and request scopes identical for synchronous dispatch and
+/// the narrow, Send mutation executor. Unrelated routes need not become Send.
+pub(super) async fn execute_observed_route<F>(
+    route: DataRoute,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+    work: F,
+) -> UdsResponse
+where
+    F: std::future::Future<Output = UdsResponse>,
+{
     let user_hash = ctx.user_id.clone();
     // Read the peer identity BEFORE dispatch. A short-lived caller (a `curl`
     // in a poll loop) can exit while a slow route is still running, and then
@@ -45,10 +67,8 @@ pub async fn execute_data_route(
         peer_comm.as_deref(),
     );
     let body_bytes = req.body.len() as u64;
-    // Socket-queue wait, for EVERY op kind: this future is polled by
-    // `Handle::block_on` on the UDS worker thread that picked the job up, so
-    // the pool's thread-local is readable right here. `None` off a worker
-    // thread (tests, direct calls) leaves the phase unset.
+    // Async mutations inherit task-local admission time. Synchronous routes
+    // use the worker-local pickup time through the same accessor.
     let queue_wait_us = current_socket_queue_wait().map_or(0, fold_db::request_phases::duration_us);
     let started = std::time::Instant::now();
 
@@ -60,9 +80,7 @@ pub async fn execute_data_route(
     let ((resp, phase_totals, work_counts, tip_keys), read_receipt) =
         fold_db::read_receipts::observe(Box::pin(
             fold_db::request_phases::run_with_phases_and_keys(
-                fold_db::user_context::run_with_user(&user_hash, async move {
-                    dispatch_data_route(route, req, ctx, host).await
-                }),
+                fold_db::user_context::run_with_user(&user_hash, work),
             ),
         ))
         .await;
