@@ -126,7 +126,8 @@ def main():
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
                                          "native_report.py", "report.py", "artifact.py", "build.py",
-                                         "growth.py", "growth_report.py")}}
+                                         "growth.py", "growth_report.py", "tail_report.py",
+                                         "range_continuation/process_counters.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):
         order = ("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")
