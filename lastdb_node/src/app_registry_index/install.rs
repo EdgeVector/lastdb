@@ -74,57 +74,21 @@ pub fn install_pinned(
         why
     };
 
-    let clone = ProcessCommand::new("git")
-        .arg("clone")
-        .arg("--quiet")
-        .arg("--no-checkout")
-        .arg(&resolution.source)
-        .arg(&checkout_path)
-        .status()
-        .map_err(|e| cleanup(format!("failed to run git clone: {e}")))?;
-    if !clone.success() {
-        return Err(cleanup(format!(
-            "git clone failed for app '{}' from {}",
-            resolution.app_id, resolution.source
-        )));
-    }
-    let checkout = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(&checkout_path)
-        .arg("checkout")
-        .arg("--quiet")
-        .arg("--detach")
-        .arg(&resolution.sha)
-        .status()
-        .map_err(|e| cleanup(format!("failed to run git checkout: {e}")))?;
-    if !checkout.success() {
-        return Err(cleanup(format!(
-            "git checkout {} failed for app '{}': the proved commit is not in {}",
-            resolution.sha, resolution.app_id, resolution.source
-        )));
-    }
-    let head = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(&checkout_path)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .output()
-        .map_err(|e| cleanup(format!("failed to run git rev-parse: {e}")))?;
-    let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
-    if !head.starts_with(&resolution.sha) && !resolution.sha.starts_with(&head) {
-        return Err(cleanup(format!(
-            "checkout HEAD is {head} but the proved commit is {}",
-            resolution.sha
-        )));
-    }
+    let head = clone_and_checkout(
+        &checkout_path,
+        &resolution.source,
+        &resolution.sha,
+        &resolution.app_id,
+        &cleanup,
+    )?;
 
     // Check version constraints in manifest (if present)
-    check_version_constraint(
+    check_version_constraint_or_cleanup(
         &checkout_path,
         &resolution.app_id,
         &resolution.lastdb_version,
-    )
-    .map_err(cleanup)?;
+        cleanup,
+    )?;
 
     let receipt = json!({
         "app_id": resolution.app_id,
@@ -156,6 +120,73 @@ pub fn install_pinned(
         checkout_path: checkout_path.display().to_string(),
         proof_run: resolution.proof_run.clone(),
     })
+}
+
+/// Clone and checkout a proved commit. Helper for install_pinned.
+fn clone_and_checkout<F>(
+    checkout_path: &Path,
+    source: &str,
+    sha: &str,
+    app_id: &str,
+    cleanup: &F,
+) -> Result<String, String>
+where
+    F: Fn(String) -> String,
+{
+    let clone = ProcessCommand::new("git")
+        .arg("clone")
+        .arg("--quiet")
+        .arg("--no-checkout")
+        .arg(source)
+        .arg(checkout_path)
+        .status()
+        .map_err(|e| cleanup(format!("failed to run git clone: {e}")))?;
+    if !clone.success() {
+        return Err(cleanup(format!(
+            "git clone failed for app '{app_id}' from {source}"
+        )));
+    }
+    let checkout = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(checkout_path)
+        .arg("checkout")
+        .arg("--quiet")
+        .arg("--detach")
+        .arg(sha)
+        .status()
+        .map_err(|e| cleanup(format!("failed to run git checkout: {e}")))?;
+    if !checkout.success() {
+        return Err(cleanup(format!(
+            "git checkout {sha} failed for app '{app_id}': the proved commit is not in {source}"
+        )));
+    }
+    let head = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(checkout_path)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .map_err(|e| cleanup(format!("failed to run git rev-parse: {e}")))?;
+    let head = String::from_utf8_lossy(&head.stdout).trim().to_string();
+    if !head.starts_with(sha) && !sha.starts_with(&head) {
+        return Err(cleanup(format!(
+            "checkout HEAD is {head} but the proved commit is {sha}"
+        )));
+    }
+    Ok(head)
+}
+
+/// Check version constraint and call cleanup on error. Helper for install_pinned.
+fn check_version_constraint_or_cleanup<F>(
+    checkout_path: &Path,
+    app_id: &str,
+    lastdb_version: &str,
+    cleanup: F,
+) -> Result<(), String>
+where
+    F: FnOnce(String) -> String,
+{
+    check_version_constraint(checkout_path, app_id, lastdb_version).map_err(cleanup)
 }
 
 /// Check if the installed app's manifest declares a lastdb version constraint,
