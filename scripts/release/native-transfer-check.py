@@ -125,6 +125,17 @@ def read(sock, expected):
             "Migrated exact-key values differ")
 
 
+def status_layout(cli, node, online):
+    environment = {**os.environ, "HOME": str(node.home), "LASTDB_HOME": str(node.home),
+                   "FOLDDB_HOME": str(node.home), "LASTDB_SOCKET_PATH": str(node.sock)}
+    result = subprocess.run([str(cli), "status"], capture_output=True, text=True,
+                            env=environment, timeout=30)
+    require(result.returncode == (0 if online else 1), "Native status reachability differs")
+    layout = [line for line in result.stdout.splitlines() if line.startswith("Layout:")]
+    require(len(layout) == 1 and layout[0].startswith("Layout: native packed storage "),
+            "Native status did not describe the packed layout")
+
+
 def exercise(args, root):
     source, target = Node(root, "source"), Node(root, "target")
     try:
@@ -157,6 +168,7 @@ def exercise(args, root):
              "--source-home", source.home])
         expected = {"retained": {"receipt_id": "retained", "receipt_value": "source"}}
         target.start(args.candidate / "lastdbd")
+        status_layout(args.candidate / "lastdb", target, online=True)
         read(target.sock, expected)
         mutations(target.sock, [mutation("retained", "target", "update")])
         expected["retained"]["receipt_value"] = "target"
@@ -166,12 +178,14 @@ def exercise(args, root):
         target.start(args.candidate / "lastdbd")
         read(target.sock, expected)
         target.stop()
+        status_layout(args.candidate / "lastdb", target, online=False)
         # Recovery reads the original source, never the target's new format.
         source.start(args.baseline / "lastdbd")
         read(source.sock, {"retained": {"receipt_id": "retained", "receipt_value": "source"}})
         source.stop()
         return {"passed": True, "source_retained": True, "record_transfer": json.loads(source_receipt),
-                "target_compaction": True, "target_reopen": True, "source_reopen": True}
+                "target_compaction": True, "target_reopen": True, "source_reopen": True,
+                "native_status_serving": True, "native_status_stopped": True}
     finally:
         target.close()
         source.close()
