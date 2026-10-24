@@ -1,19 +1,84 @@
-use super::{BackupError, Result};
+use super::{retry, BackupError, Result};
 use cloud_backup_protocol::v2::transfer::*;
 use cloud_backup_protocol::v2::Version;
 use fold_db::sync::auth::byte_backup::{ByteBackupClient, NativeBackupError};
+use std::cell::RefCell;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+pub(super) struct PreparedBatch {
+    pub items: Vec<TransferItemResult>,
+    pub error: Option<BackupError>,
+}
 
 pub(super) async fn prepare(
     client: &ByteBackupClient,
     inputs: &[TransferInput],
-) -> Result<Vec<TransferItemResult>> {
+    pause: &AtomicBool,
+) -> Result<PreparedBatch> {
     let request = TransferPrepareRequest {
         version: Version::V2,
         items: inputs.to_vec(),
     };
-    Ok(client.prepare(&request).await?.items)
+    let observed = RefCell::new(None);
+    let result = retry::control("transfer_prepare", pause, || async {
+        let response = client.prepare(&request).await?;
+        let error = batch_error(&response.items);
+        let items = remember(&mut observed.borrow_mut(), response.items)?;
+        error.map_or(Ok(items), Err)
+    })
+    .await;
+    match result {
+        Ok(items) => Ok(PreparedBatch { items, error: None }),
+        Err(error) => match observed.into_inner() {
+            Some(items) => Ok(PreparedBatch {
+                items,
+                error: Some(error),
+            }),
+            None => Err(error),
+        },
+    }
+}
+
+fn batch_error(items: &[TransferItemResult]) -> Option<BackupError> {
+    let mut errors: Vec<_> = items
+        .iter()
+        .filter_map(|item| match item {
+            TransferItemResult::Error { error, .. } => Some(cloud_error(error.clone())),
+            TransferItemResult::Ok { transfer }
+                if matches!(transfer.state, TransferStatus::Rejected { .. }) =>
+            {
+                Some(BackupError::Source)
+            }
+            TransferItemResult::Ok { .. } => None,
+        })
+        .collect();
+    let index = errors
+        .iter()
+        .position(|error| !retry::temporary(error))
+        .unwrap_or(0);
+    (!errors.is_empty()).then(|| errors.swap_remove(index))
+}
+
+fn remember(
+    observed: &mut Option<Vec<TransferItemResult>>,
+    mut items: Vec<TransferItemResult>,
+) -> Result<Vec<TransferItemResult>> {
+    if let Some(previous) = observed.as_ref() {
+        for (old, item) in previous.iter().zip(&mut items) {
+            if matches!(old, TransferItemResult::Ok { transfer } if matches!(transfer.state, TransferStatus::Verified { .. } | TransferStatus::Rejected { .. }))
+            {
+                if matches!(item, TransferItemResult::Ok { transfer } if matches!(transfer.state, TransferStatus::Verified { .. } | TransferStatus::Rejected { .. }))
+                    && item != old
+                {
+                    return Err(BackupError::Identity);
+                }
+                *item = old.clone();
+            }
+        }
+    }
+    *observed = Some(items.clone());
+    Ok(items)
 }
 
 /// An explicit invocation makes at most one conditional PUT for this frozen input.
@@ -29,7 +94,7 @@ pub(super) async fn complete(
     if let Some(receipt) = verified(prepared)? {
         return Ok(receipt);
     }
-    let resumed = client.resume(input).await?;
+    let resumed = resume_with_retry(client, input, pause).await?;
     match resumed {
         TransferResumeResult::Grant { response } => {
             check_pause(pause)?;
@@ -48,7 +113,15 @@ pub(super) async fn complete(
         TransferResumeResult::Error { error, .. } => return Err(cloud_error(error)),
     }
     check_pause(pause)?;
-    if let Some(receipt) = verified(client.complete(input).await?)? {
+    let completed = retry::control("transfer_complete", pause, || async {
+        let item = client.complete(input).await?;
+        match item {
+            TransferItemResult::Error { error, .. } => Err(cloud_error(error)),
+            item => Ok(item),
+        }
+    })
+    .await?;
+    if let Some(receipt) = verified(completed)? {
         return Ok(receipt);
     }
     let request = TransferStatusRequest {
@@ -58,10 +131,16 @@ pub(super) async fn complete(
     };
     for attempt in 0..16 {
         check_pause(pause)?;
-        let reply = client
-            .transfer_status(&request, std::slice::from_ref(input))
-            .await?;
-        let item = reply.items.into_iter().next().ok_or(BackupError::Invalid)?;
+        let item = retry::control("transfer_status", pause, || async {
+            let reply = client
+                .transfer_status(&request, std::slice::from_ref(input))
+                .await?;
+            match reply.items.into_iter().next().ok_or(BackupError::Invalid)? {
+                TransferItemResult::Error { error, .. } => Err(cloud_error(error)),
+                item => Ok(item),
+            }
+        })
+        .await?;
         if let Some(receipt) = verified(item)? {
             return Ok(receipt);
         }
@@ -73,7 +152,23 @@ pub(super) async fn complete(
     Err(BackupError::Waiting)
 }
 
-fn verified(value: TransferItemResult) -> Result<Option<ObjectReceipt>> {
+/// Grant retries reuse the exact identity and precede the single PUT opportunity.
+async fn resume_with_retry(
+    client: &ByteBackupClient,
+    input: &TransferInput,
+    pause: &AtomicBool,
+) -> Result<TransferResumeResult> {
+    retry::control("transfer_resume", pause, || async {
+        let result = client.resume(input).await;
+        match result? {
+            TransferResumeResult::Error { error, .. } => Err(cloud_error(error)),
+            result => Ok(result),
+        }
+    })
+    .await
+}
+
+pub(super) fn verified(value: TransferItemResult) -> Result<Option<ObjectReceipt>> {
     match value {
         TransferItemResult::Ok { transfer } => match transfer.state {
             TransferStatus::Verified { receipt } => Ok(Some(receipt)),

@@ -194,6 +194,15 @@ Start, resume, status, and close use the owner-only local socket route.
 The worker has a separate controller and participates in normal node shutdown.
 The automatic V1 controller does not select V2.
 
+Each exact control request permits six attempts within one 30-second monotonic deadline.
+Only validated ProviderPending, RetryLater, and OutcomeUnknown errors permit a retry.
+Bounded random delays separate attempts. Pause checks precede attempts and follow each delay.
+A successful Pending result returns to the existing finite status polls.
+Those polls have separate control deadlines; the 30-second limit does not cover the whole worker.
+The helper never repeats PUT. It repeats exact Complete requests when queue admission remains unknown.
+A failed batch keeps verified sibling receipts. Budget exhaustion keeps the last typed temporary error and source hold.
+An explicit resume uses the same job, cut, transfer identities, and bytes.
+
 Restore freezes one accepted V2 backup and verifies every inventory page and downloaded byte.
 It reconstructs each native file from its exact extents, then checks the complete file digest and length.
 It checks the complete used receipt set before native record, key, and metadata checks.

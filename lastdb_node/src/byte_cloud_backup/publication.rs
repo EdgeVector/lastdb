@@ -1,4 +1,4 @@
-use super::{model::Saved, store::Store, transfer, BackupError, Phase, Result};
+use super::{model::Saved, retry, store::Store, transfer, BackupError, Phase, Result};
 use cloud_backup_protocol::v2::access::{
     InventoryMetadata, InventoryPutRequest, InventoryPutResult,
 };
@@ -48,17 +48,26 @@ pub(super) async fn publish(
             &page,
         )?;
         budget(capture, store)?;
-        put(client, &begin.job, InventoryMetadata::Page { page }).await?;
+        put(client, &begin.job, InventoryMetadata::Page { page }, pause).await?;
     }
     check_work(store, saved, pause)?;
     budget(capture, store)?;
     store.write("inventory-index.json", &index)?;
     budget(capture, store)?;
-    put(client, &begin.job, InventoryMetadata::Index { index }).await?;
+    put(
+        client,
+        &begin.job,
+        InventoryMetadata::Index { index },
+        pause,
+    )
+    .await?;
     saved.phase = Phase::Committing;
     store.save(saved)?;
     budget(capture, store)?;
-    let response = client.commit(&begin, &commit, &proof).await?;
+    let response = retry::control("commit_prepare", pause, || async {
+        Ok(client.commit(&begin, &commit, &proof).await?)
+    })
+    .await?;
     accepted(client, store, saved, response, pause).await
 }
 
@@ -128,16 +137,20 @@ async fn put(
     client: &ByteBackupClient,
     job: &cloud_backup_protocol::v2::Job,
     metadata: InventoryMetadata,
+    pause: &AtomicBool,
 ) -> Result<()> {
     let request = InventoryPutRequest {
         version: Version::V2,
         job: job.clone(),
         metadata,
     };
-    match client.put_inventory(&request).await? {
-        InventoryPutResult::Ok { .. } => Ok(()),
-        InventoryPutResult::Error { error } => Err(transfer::cloud_error(error)),
-    }
+    retry::control("inventory_put", pause, || async {
+        match client.put_inventory(&request).await? {
+            InventoryPutResult::Ok { .. } => Ok(()),
+            InventoryPutResult::Error { error } => Err(transfer::cloud_error(error)),
+        }
+    })
+    .await
 }
 
 async fn accepted(
@@ -149,6 +162,10 @@ async fn accepted(
 ) -> Result<AcceptedBackup> {
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
     let commit = saved.commit.as_ref().ok_or(BackupError::Invalid)?;
+    let request = CommitStatusRequest {
+        version: Version::V2,
+        job: begin.job.clone(),
+    };
     for attempt in 0..64 {
         response.validate_for(begin, commit)?;
         match response {
@@ -161,12 +178,10 @@ async fn accepted(
             250 * (attempt + 1).min(12),
         ))
         .await;
-        response = client
-            .commit_status(&CommitStatusRequest {
-                version: Version::V2,
-                job: begin.job.clone(),
-            })
-            .await?;
+        response = retry::control("commit_status", pause, || async {
+            Ok(client.commit_status(&request).await?)
+        })
+        .await?;
     }
     Err(BackupError::Waiting)
 }

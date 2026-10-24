@@ -1,6 +1,6 @@
 use super::{
     model::{Saved, StreamRecord},
-    publication,
+    publication, retry,
     source::Source,
     store::Store,
     transfer, BackupError, Phase, Result,
@@ -30,9 +30,9 @@ pub(super) async fn run(
     }
     transfer::check_pause(pause)?;
     if store.read::<Id>("close.json")?.is_some() {
-        return close(source, store, saved, client).await;
+        return close(source, store, saved, client, pause).await;
     }
-    setup(source, store, saved, client).await?;
+    setup(source, store, saved, client, pause).await?;
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?.clone();
     let capture = source
         .runtime
@@ -56,7 +56,7 @@ pub(super) async fn run(
         ),
         Err(BackupError::Closing) => {
             drop(capture);
-            close(source, store, saved, client).await
+            close(source, store, saved, client, pause).await
         }
         Err(error) => Err(error),
     }
@@ -67,6 +67,7 @@ async fn setup(
     store: &Store,
     saved: &mut Saved,
     client: &ByteBackupClient,
+    pause: &AtomicBool,
 ) -> Result<()> {
     if saved.begin.is_some() {
         return Ok(());
@@ -76,12 +77,14 @@ async fn setup(
         &source.account,
         &source.source_home,
     )?;
-    let context = client
-        .context(&ContextReadRequest {
-            version: Version::V2,
-            account_id: source.account.clone(),
-        })
-        .await?;
+    let context_request = ContextReadRequest {
+        version: Version::V2,
+        account_id: source.account.clone(),
+    };
+    let context = retry::control("context_read", pause, || async {
+        Ok(client.context(&context_request).await?)
+    })
+    .await?;
     if !context.new_work_allowed {
         return Err(BackupError::Authority);
     }
@@ -105,13 +108,22 @@ async fn setup(
             stream: stream.clone(),
         },
     )?;
-    let predecessor = match client
-        .head(&HeadReadRequest {
-            version: Version::V2,
-            stream: stream.clone(),
-        })
-        .await?
-    {
+    let head_request = HeadReadRequest {
+        version: Version::V2,
+        stream: stream.clone(),
+    };
+    let head = retry::control("head_read", pause, || async {
+        match client.head(&head_request).await? {
+            HeadReadResult::Error { error }
+                if error.code != ErrorCode::NotFound || error.field.as_str() != "stream" =>
+            {
+                Err(transfer::cloud_error(error))
+            }
+            result => Ok(result),
+        }
+    })
+    .await?;
+    let predecessor = match head {
         HeadReadResult::Ok { response } => {
             if response
                 .active_commit_id
@@ -160,7 +172,11 @@ async fn drive(
     publication::check_work(store, saved, pause)?;
     saved.begin_submitted = true;
     store.save(saved)?;
-    match client.begin(&begin).await?.status {
+    let begun = retry::control("job_begin", pause, || async {
+        Ok(client.begin(&begin).await?)
+    })
+    .await?;
+    match begun.status {
         JobStatus::Published { backup } => {
             if saved.commit.as_ref() != Some(&backup.commit_input()?) {
                 return Err(BackupError::Identity);
@@ -192,9 +208,18 @@ async fn drive(
             continue;
         }
         let inputs: Vec<_> = batch.iter().map(|(_, input)| input.clone()).collect();
-        let prepared = transfer::prepare(client, &inputs).await?;
+        let prepared = transfer::prepare(client, &inputs, pause).await?;
+        if let Some(error) = prepared.error {
+            for ((index, _), item) in batch.iter().zip(prepared.items) {
+                if let Ok(Some(receipt)) = transfer::verified(item) {
+                    capture.confirm(*index, &receipt)?;
+                }
+            }
+            refresh(capture, store, saved)?;
+            return Err(error);
+        }
         let mut work = Vec::new();
-        for ((index, input), prepared) in batch.iter().zip(prepared) {
+        for ((index, input), prepared) in batch.iter().zip(prepared.items) {
             let reader = Box::new(capture.reader(*index)?);
             work.push(transfer::complete(client, input, prepared, reader, pause));
         }
@@ -263,6 +288,7 @@ async fn close(
     store: &Store,
     saved: &mut Saved,
     client: &ByteBackupClient,
+    pause: &AtomicBool,
 ) -> Result<()> {
     if saved.begin.is_none() {
         saved.phase = Phase::Closed;
@@ -288,7 +314,7 @@ async fn close(
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
-    close_capture(&capture, store, saved, client).await
+    close_capture(&capture, store, saved, client, pause).await
 }
 
 async fn close_capture(
@@ -296,15 +322,18 @@ async fn close_capture(
     store: &Store,
     saved: &mut Saved,
     client: &ByteBackupClient,
+    pause: &AtomicBool,
 ) -> Result<()> {
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
-    let result = client
-        .close(&JobCloseRequest {
-            version: Version::V2,
-            job: begin.job.clone(),
-            begin_sha256: begin.input_sha256()?,
-            reason: CloseReason::UserRequested,
-        })
-        .await?;
+    let request = JobCloseRequest {
+        version: Version::V2,
+        job: begin.job.clone(),
+        begin_sha256: begin.input_sha256()?,
+        reason: CloseReason::UserRequested,
+    };
+    let result = retry::control("job_close", pause, || async {
+        Ok(client.close(&request).await?)
+    })
+    .await?;
     finish(capture, store, saved, &result)
 }

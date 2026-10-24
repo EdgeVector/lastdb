@@ -4,6 +4,7 @@ mod credentials;
 mod invocation;
 mod model;
 mod publication;
+mod retry;
 mod source;
 mod store;
 mod transfer;
