@@ -642,8 +642,9 @@ that does not parse gives the default.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in
   this build. `verify-refs` finds the damage and `recount` repairs it.
 - A lost body (a tip names an atom that has no body) is found and never repaired.
-- A molecule counter fault has no repair path. The drain never changes a counter, and
-  the recount repairs atom and blob counters only.
+- The drain does not repair counter faults. The offline `db recount --molecules` option
+  repairs molecule headers and binding counters from complete, readable source records.
+  A missing live header needs metadata recovery before that repair.
 - The planner cannot catch a counter that is too low by less than the removal.
 - A blob row with no counter is invisible to the verifier and the recount, and nothing
   deletes it (cloud paths only).
