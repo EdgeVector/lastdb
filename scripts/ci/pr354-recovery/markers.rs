@@ -27,25 +27,34 @@ pub(super) async fn run(root: &Path) -> Result<Value> {
     std::fs::write(&marker, b"bad bytes")?;
     refused(&home)?;
 
-    // A create/write interruption can leave any valid prefix, including empty.
-    // Both states must require validation before the normal open can proceed.
-    for bytes in [b"".as_slice(), b"version=1\n".as_slice()] {
-        std::fs::write(&marker, bytes)?;
-        let target = homes::Home::open(&home)?;
-        require(
-            target.runtime().restore_validation_pending(),
-            "valid marker prefix did not block startup",
-        )?;
-        target.initialize().await?;
-        require(
-            !target.runtime().restore_validation_pending() && !marker.try_exists()?,
-            "valid native marker did not clear after counter validation",
-        )?;
-    }
+    // Each successful open gets its own OS process. A flush worker can retain
+    // its owner after the API returns; a second in-process open races that owner.
+    validate_prefix(&home, b"").await?;
     Ok(json!({"case":"marker-entries", "passed":true,
         "dangling_link_refused":true, "regular_link_refused":true,
         "directory_refused":true, "oversized_refused":true, "wrong_bytes_refused":true,
-        "empty_and_complete_markers_validated":true}))
+        "empty_marker_validated":true}))
+}
+
+pub(super) async fn complete(root: &Path) -> Result<Value> {
+    validate_prefix(&root.join("complete"), b"version=1\n").await?;
+    Ok(json!({"case":"marker-complete", "passed":true,
+        "complete_marker_validated":true}))
+}
+
+async fn validate_prefix(home: &Path, bytes: &[u8]) -> Result<()> {
+    let marker = home.join("counter-restore-validation-v1");
+    std::fs::write(&marker, bytes)?;
+    let target = homes::Home::open(home)?;
+    require(
+        target.runtime().restore_validation_pending(),
+        "valid marker prefix did not block startup",
+    )?;
+    target.initialize().await?;
+    require(
+        !target.runtime().restore_validation_pending() && !marker.try_exists()?,
+        "valid native marker did not clear after counter validation",
+    )
 }
 
 fn refused(home: &Path) -> Result<()> {

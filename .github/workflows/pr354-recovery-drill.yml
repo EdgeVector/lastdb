@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           output="$RUNNER_TEMP/pr354-results.jsonl"
           : > "$output"
-          for mode in seed complete reopen-complete interrupt refuse-partial refuse-partial recover reopen-recovered raw-replay shared-files marker-entries; do
+          for mode in seed complete reopen-complete interrupt refuse-partial refuse-partial recover reopen-recovered raw-replay shared-files marker-entries marker-complete; do
             if ! timeout 180 target/debug/examples/pr354-counter-recovery "$mode" "$PR354_HOME" \
               >> "$output" 2>> "$RUNNER_TEMP/pr354-runtime.log"; then
               cat "$output"

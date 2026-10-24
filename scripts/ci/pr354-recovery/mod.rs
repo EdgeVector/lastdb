@@ -33,6 +33,7 @@ impl SyncEngine {
             "raw-replay" => raw_replay::run(root).await,
             "shared-files" => shared_files::run(root).await,
             "marker-entries" => markers::run(root).await,
+            "marker-complete" => markers::complete(root).await,
             "cleanup" => cleanup(root),
             _ => Err(std::io::Error::other("unknown drill mode").into()),
         }
