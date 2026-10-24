@@ -65,6 +65,10 @@ pub struct AppManifest {
     pub uses: Vec<String>,
     #[serde(default)]
     pub schemas: Vec<Value>,
+    /// LastDB version constraint (semver range, e.g. ">=0.23.0, <0.24.0").
+    /// Install refuses if the running LastDB build doesn't satisfy this.
+    #[serde(default, rename = "lastdb")]
+    pub lastdb_constraint: Option<String>,
 }
 
 /// Local app runner convention for source-installed apps.
