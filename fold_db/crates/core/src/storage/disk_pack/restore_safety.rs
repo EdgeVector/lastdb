@@ -74,11 +74,23 @@ pub(crate) async fn exclusive<T, E: From<StorageError>>(
         .into());
     }
     let _gate = runtime.enter_prepare().await;
+    if runtime.serving.load(Ordering::Acquire) {
+        return Err(
+            StorageError::InvalidOperation("restore requires an inactive target".into()).into(),
+        );
+    }
     runtime.restore_blocked.store(true, Ordering::Release);
     RESTORING.scope(runtime, future).await
 }
 
 impl PackRuntime {
+    pub(crate) async fn begin_serving(self: &Arc<Self>) -> StorageResult<()> {
+        let _gate = self.enter_prepare().await;
+        self.require_restore_validated()?;
+        self.serving.store(true, Ordering::Release);
+        Ok(())
+    }
+
     pub(crate) fn restore_validation_pending(&self) -> bool {
         self.restore_blocked.load(Ordering::Acquire)
     }

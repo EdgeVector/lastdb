@@ -15,6 +15,7 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
     let main = store.open_namespace("main").await?;
     let scopes = restored_scopes(raw.as_ref(), main.as_ref()).await?;
     let atoms = AtomStore::new(Arc::new(crate::storage::TypedKvStore::new(main)));
+    atoms.minimum_replay_time().await?;
     for scope in scopes {
         let mut request = VerifyRequest {
             scope,

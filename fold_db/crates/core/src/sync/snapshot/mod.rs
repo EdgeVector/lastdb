@@ -193,6 +193,7 @@ impl Snapshot {
     fn validate_unique_restore_keys(&self) -> SyncResult<()> {
         let mut namespaces = HashSet::with_capacity(self.namespaces.len());
         for namespace in &self.namespaces {
+            refuse_counter_namespace(&namespace.name)?;
             if !namespaces.insert(namespace.name.as_str()) {
                 return Err(SyncError::Serialization(format!(
                     "snapshot contains duplicate namespace '{}'",

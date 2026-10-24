@@ -76,6 +76,7 @@ pub struct PackRuntime {
     failed: AtomicBool,
     initializing: AtomicBool,
     restore_blocked: AtomicBool,
+    serving: AtomicBool,
     node_home: Option<initialization::NodeHome>,
     // Failed snapshot publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
@@ -177,6 +178,7 @@ impl PackNamespacedStore {
                 schema_keys: schema_keys::SchemaKeys::new(),
                 failed: AtomicBool::new(false),
                 restore_blocked: AtomicBool::new(restore_blocked),
+                serving: AtomicBool::new(false),
                 initializing: AtomicBool::new(
                     node_home.as_ref().is_some_and(|home| home.initializing),
                 ),

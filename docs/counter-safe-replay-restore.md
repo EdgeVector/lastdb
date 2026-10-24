@@ -14,13 +14,17 @@ The refusal covers single operations, batches, and mixed physical changes.
 It leaves the replay cursor before the refused entry.
 A current snapshot supplies the recovery route.
 
+Physical namespace aliases cannot bypass this rule.
 Opaque metadata keeps its existing replay path.
 The legacy raw tip, header, and conflict writers are removed.
 Cloud activation stays disabled.
 
 ## Restore
 
-A native restore owns the existing preparation gate for its complete operation.
+A snapshot restore requires an inactive native target.
+A serving process refuses it before any data change.
+This preserves the immutable replay floor and the logical memory state.
+The restore owns the existing preparation gate for its complete operation.
 Normal writes and cleanup wait while that owner works.
 Reads refuse an unverified root.
 The restore keeps its existing bounded durable batches.

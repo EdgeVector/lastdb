@@ -7,7 +7,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
     if namespace != "main" {
         return Ok(matches!(
             namespace,
-            "atoms" | "cas_blobs" | "tips" | "field_tips"
+            "atoms" | "cas_blobs" | "tips" | "field_tips" | "molecule_ref_edges" | "blob_ref_edges"
         ));
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
@@ -33,6 +33,7 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
             | "mgr"
             | "mgd"
             | "fdep"
+            | "cas_blob"
     ))
 }
 

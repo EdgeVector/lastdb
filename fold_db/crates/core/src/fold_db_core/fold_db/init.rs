@@ -196,6 +196,9 @@ impl FoldDB {
             mutation_log_capture,
             offline_maintenance,
         } = init;
+        if !offline_maintenance {
+            db_ops.atoms().freeze_replay_cutoff().await?;
+        }
         // Initialize pending task tracker
         let pending_tasks = Arc::new(super::super::pending_task_tracker::PendingTaskTracker::new());
 
@@ -219,9 +222,6 @@ impl FoldDB {
             );
         }
 
-        if !offline_maintenance {
-            db_ops.atoms().freeze_replay_cutoff().await?;
-        }
         let author_clock_state = Self::load_author_clock_state(&db_ops, &signer).await?;
 
         // Create MutationManager for handling all mutation operations.
