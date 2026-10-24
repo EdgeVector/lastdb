@@ -135,6 +135,13 @@ impl CompactionPublication {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(error.into()),
         }
+        // Re-check current state after the atomic claim to prevent TOCTOU race.
+        if artifact::current(&self.root)? != self.expected {
+            let _ = fs::remove_dir(&canonical);
+            return Err(corrupt(
+                "prepared compaction disk root changed between check and installation",
+            ));
+        }
         lock.files.invalidate()?;
         // The format's 65,536 dependency limit fits its receipt in one part.
         fs::rename(
