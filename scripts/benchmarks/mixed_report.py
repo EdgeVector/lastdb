@@ -17,6 +17,7 @@ def distribution(values):
 def cohort(samples):
     receipts = [row["read_receipt"] for row in samples if row.get("read_receipt")]
     payloads = [row["payload_bytes"] for row in receipts if row.get("payload_bytes") is not None]
+    versions = [row for row in samples if row.get("read_current_case_records") is not None]
     return {
         "requests": len(samples),
         "rpc": distribution([row["elapsed_ms"] for row in samples]),
@@ -26,6 +27,8 @@ def cohort(samples):
                                  if row.get("query_storage_elapsed_nanos") is not None]),
         "payload_reported": len(payloads),
         "payload_fetches": sum(value > 0 for value in payloads),
+        "current_case_records": sum(row["read_current_case_records"] for row in versions),
+        "version_reported_records": sum(row["records"] for row in versions),
     }
 
 
@@ -42,11 +45,12 @@ def mixed_read_lines(output, manifest):
              "Groups use each client's request order, not elapsed time or a warm-up cutoff.",
              "Read-first means turn 0; write-first means the first read at turn 1; later means turn 2 or higher.",
              "A group name does not prove a cache hit or miss. Payload receipts show actual fetches.",
+             "Current-case values have titles written during this case; older values can be valid captured snapshots.",
              "Queue and storage columns show their own p95 and reported count; missing means unreported.",
              "Their percentiles cannot be added or subtracted to explain an RPC percentile.",
              "Small initial groups can make p95 equal the maximum; these groups are descriptive, not regression gates.", "",
-             "| Run / clients | Read group | Calls | RPC p50 / p95 ms | Socket queue p95 ms (reported) | Storage p95 ms (reported) | Payload fetches / reported |",
-             "|---|---|---:|---:|---:|---:|---:|"]
+             "| Run / clients | Read group | Calls | RPC p50 / p95 ms | Socket queue p95 ms (reported) | Storage p95 ms (reported) | Payload fetches / reported | Current-case values / reported records |",
+             "|---|---|---:|---:|---:|---:|---:|---:|"]
     results = []
     for run in manifest["runs"]:
         folder = output / run["directory"]
@@ -66,7 +70,8 @@ def mixed_read_lines(output, manifest):
                        if rows else "unreported")
                 lines.append(f"| {run['directory']} / {case.rsplit('/', 1)[-1]} | {name} | {len(rows)} | "
                              f"{rpc} | {timing(value['socket_queue'])} | {timing(value['storage'])} | "
-                             f"{value['payload_fetches']}/{value['payload_reported']} |")
+                             f"{value['payload_fetches']}/{value['payload_reported']} | "
+                             f"{value['current_case_records']}/{value['version_reported_records']} |")
     save(output / "mixed-read-cohorts.json", {"groups": results,
          "scope": "Diagnostic partitions only; all samples remain in aggregate metrics"})
     return lines

@@ -62,6 +62,10 @@ write-first clients' turn 1, and later reads. Every sample stays in the original
 and advisories. Per-group RPC, socket queue, storage percentiles and payload-fetch counts remain
 diagnostics; their percentiles cannot be subtracted or added. Missing receipt fields stay unreported.
 The artifact retains these partitions in `mixed-read-cohorts.json`. Group names do not prove cache state.
+Mixed reads also record how many validated values were written during the current case.
+The initial read/write neighbors address the same key, so snapshot selection depends on their actual order.
+Older values can be valid captured snapshots; this count is diagnostic and does not reject them.
+Missing observations from earlier artifacts remain unreported.
 The corrected mixed assignment changes the recipe. Compare product revisions with the same corrected driver; do not pool earlier mixed results.
 The cold boundary purges clean logical records after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.

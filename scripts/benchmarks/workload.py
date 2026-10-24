@@ -77,6 +77,7 @@ def validate_read(result, numbers):
         found[coordinate["range"]] = title
     if set(found) != set(expected):
         raise RuntimeError("A keyed read returned different keys")
+    return found
 
 
 def describe(samples, elapsed):
@@ -170,7 +171,11 @@ class Workload:
                                   process_delta=counter_delta(before, after))
                 sample.update(elapsed_ms=elapsed, read_receipt=receipt)
                 if kind == "read":
-                    validate_read(result, numbers)
+                    titles = validate_read(result, numbers)
+                    if mode == "mixed":
+                        sample["read_current_case_records"] = sum(
+                            titles[key(number)].startswith(f"record-{number}-{self.case}-")
+                            for number in numbers)
                     if not receipt:
                         raise RuntimeError("The read lacks its storage receipt")
                     # Native unknown-path fallbacks do not increment the old
