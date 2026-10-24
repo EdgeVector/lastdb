@@ -7,7 +7,7 @@ use crate::storage::error::StorageResult;
 use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
 
-const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
+pub(crate) const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
 pub(crate) const FENCED_KEY_FORMAT: &[u8] = b"5;delete-replay-cutoff=v1";
 
 #[derive(Serialize, Deserialize)]
@@ -35,6 +35,25 @@ impl AtomStore {
     /// The floor is global to this home and changes only through stopped-home
     /// maintenance. Its format marker fences programs that do not enforce it.
     pub(crate) async fn minimum_replay_time(&self) -> StorageResult<u64> {
+        if let Some(cutoff) = self.serving_replay_cutoff.get() {
+            return Ok(*cutoff);
+        }
+        self.read_minimum_replay_time().await
+    }
+
+    /// The serving process cannot advance this boundary. Offline recount uses
+    /// a separate instance without this cache and always reads its disk state.
+    pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
+        let cutoff = self.read_minimum_replay_time().await?;
+        if let Err(cutoff) = self.serving_replay_cutoff.set(cutoff) {
+            if self.serving_replay_cutoff.get() != Some(&cutoff) {
+                return Err(invalid("serving replay floor changed after startup"));
+            }
+        }
+        Ok(())
+    }
+
+    async fn read_minimum_replay_time(&self) -> StorageResult<u64> {
         let values = self
             .main_store
             .inner()
@@ -70,6 +89,11 @@ impl AtomStore {
         cutoff: u64,
         execute: bool,
     ) -> StorageResult<DeletePruneReport> {
+        if self.serving_replay_cutoff.get().is_some() {
+            return Err(invalid(
+                "cleanup requires a stopped-home maintenance instance",
+            ));
+        }
         let previous = self.minimum_replay_time().await?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

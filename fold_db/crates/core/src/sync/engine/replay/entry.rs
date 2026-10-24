@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 mod cloud_generation;
+mod cutoff;
 mod ops;
 
 impl SyncEngine {
@@ -80,39 +81,6 @@ impl SyncEngine {
                 self.replay_mutation_intent_op(mutations, entry, target)
                     .await?;
             }
-        }
-        Ok(())
-    }
-
-    /// Unclocked physical replay cannot cross a delete-retirement boundary.
-    async fn require_physical_replay_cutoff(&self, entry: &LogEntry) -> SyncResult<()> {
-        if matches!(
-            &entry.op,
-            LogOp::MutationIntent { .. } | LogOp::PhysicalDigest { .. }
-        ) {
-            return Ok(());
-        }
-        let atoms = self.atom_store.lock().await.clone();
-        let cutoff = match atoms {
-            Some(atoms) => atoms.minimum_replay_time().await?,
-            None => {
-                return Err(SyncError::replay_refused(
-                    "delete_replay_cutoff",
-                    entry.seq,
-                    ReplayOperation::from(&entry.op),
-                    ReplayCause::MissingMutationApplier,
-                ))
-            }
-        };
-        if cutoff > 0 {
-            // Raw physical rows carry no complete original author clock. They
-            // cannot prove that they are newer than a retired Delete barrier.
-            return Err(SyncError::replay_refused(
-                "delete_replay_cutoff",
-                entry.seq,
-                ReplayOperation::from(&entry.op),
-                ReplayCause::DeleteReplayCutoff,
-            ));
         }
         Ok(())
     }
