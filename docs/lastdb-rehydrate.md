@@ -9,7 +9,7 @@ It does not contain another copy of the values.
 
 A normal logical record follows one schema, field, molecule, and key to one atom.
 The warm set uses the byte limit defined in the [warm set design](lastdb-warm-set-byte-limit-design.md).
-A call holds its selected records. The purge skips those records and writes that still await flush.
+A call holds its selected records. The purge skips those records and paths reserved by private write preparation.
 When the call releases its records, the purge restores the byte limit if clean records permit it.
 The call first releases its saved values, so dead allocations do not cause extra record removal.
 File contents stay outside this model. An atom can return a file reference and its access metadata.
@@ -249,11 +249,12 @@ Their limits do not define one whole-process memory cap.
 The node's memory relief uses the current native core model.
 An explicit request first waits for accepted writes at the disk barrier.
 It then removes clean logical records in least-recently-used order.
-Held records and unflushed records stay protected.
+Held records and privately reserved write paths stay protected.
 The report gives the remaining bytes and says whether the requested target was met.
 Definitions, complete keys, and write metadata keep their separate allowances.
 Host pressure uses the same native measurements and clean-record purge.
-These controls do not enforce the planned warm byte admission limit.
+The warm set enforces its byte limit when clean, unheld records permit removal.
+Held allocations can prevent a relief request from reaching its target.
 
 Each queued disk extension reserves only its additional snapshot output bytes.
 The earlier request keeps its reservations until the extension succeeds.
@@ -290,8 +291,9 @@ Normal page readers contain no plaintext-to-blinded legacy duplicate cleanup.
 The configuration reader also refuses obsolete type tags and invalid path values.
 It does not convert an older configuration or discard its cloud or engine settings.
 
-Cloud sync stays disabled for this optimization round. Startup and runtime activation must refuse it before side effects.
-The local capture router remains. No cloud engine attaches to it during this cutover.
+Legacy Cloud Sync stays disabled. Startup and runtime activation refuse it before side effects.
+Native backup uses a separate source gate that defaults off.
+Local capture saves an exact snapshot and durable file hold. The [native summary](lastdb-disk-native-node.md#backup-boundary) separates this source from cloud readiness.
 Raw physical format tools and vendor code do not provide an alternate logical engine.
 Logical writes do not generate tip history. Startup does not schedule a history drain.
 Explicit physical history maintenance remains separate from the normal logical routes.
