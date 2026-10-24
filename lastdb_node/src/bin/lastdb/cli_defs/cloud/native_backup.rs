@@ -84,7 +84,7 @@ pub(crate) enum NativeBackupCommand {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone, Copy)]
 pub(crate) enum NativeBackupAutoCommand {
     /// Permit automatic backup for the current account and native home.
     On {
