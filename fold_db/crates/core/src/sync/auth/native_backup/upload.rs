@@ -61,13 +61,12 @@ impl NativeBackupClient {
                 Err(NativeBackupError::Http(status.as_u16()))
             };
         }
-        match tokio::time::timeout_at(deadline, &mut feeder).await {
-            Ok(result) => result.map_err(|_| NativeBackupError::Task)??,
-            Err(_) => {
-                cancel.stop();
-                let _ = feeder.await;
-                return Err(NativeBackupError::Timeout);
-            }
+        if let Ok(result) = tokio::time::timeout_at(deadline, &mut feeder).await {
+            result.map_err(|_| NativeBackupError::Task)??;
+        } else {
+            cancel.stop();
+            let _ = feeder.await;
+            return Err(NativeBackupError::Timeout);
         }
         Ok(UploadObservation::HttpSuccess)
     }
