@@ -48,10 +48,12 @@ class Node:
         save(output / "ownership.json", self.owner)
         self.process, self.log = None, None
 
-    def call(self, path, body=None, receipt=False):
+    def call(self, path, body=None, receipt=False, request_id=None):
         if body is not None and not isinstance(body, bytes):
             body = json.dumps(body, separators=(",", ":")).encode()
         headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark"}
+        if request_id is not None:
+            headers["X-LastDB-Request-Id"] = request_id
         if receipt:
             headers["x-lastdb-read-receipt"] = "true"
         connection = UnixConnection(self.socket)

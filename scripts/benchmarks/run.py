@@ -84,12 +84,13 @@ def main():
               "timing": "RPC through response bytes; payload construction and response validation excluded",
               "throughput": "closed-loop; includes Python client, validation, and scheduler overhead",
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",
+              "phases": "Current request ring after each write case; exact request IDs; outside timed cases; coverage explicit",
               "disk": "sum of file lengths in the generated home; allocated blocks not measured"}
     manifest = {"format_version": 1, "profile": args.profile, "recipe": recipe,
                 "driver_revision": args.driver_revision,
                 "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
-                            for name in ("run.py", "node.py", "workload.py", "report.py", "artifact.py", "build.py")}}
+                            for name in ("run.py", "node.py", "workload.py", "phases.py", "report.py", "artifact.py", "build.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):
         order = ("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")

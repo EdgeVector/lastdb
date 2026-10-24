@@ -9,6 +9,7 @@ import threading
 import time
 
 from node import save
+from phases import capture_phases
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
 FIELDS = ["bucket", "id", "title", "body"]
@@ -135,20 +136,23 @@ class Workload:
                 numbers = list(range(first, first + batch))
             body = (read_request(numbers) if kind == "read" else
                     write_request(numbers, f"{self.case}-{index}", mode == "insert"))
-            jobs[index % clients].append((kind, numbers, body))
+            request_id = f"bench-{len(self.metrics)}-{index:06d}"
+            jobs[index % clients].append((kind, numbers, body, request_id))
         return jobs
 
     def worker(self, jobs, barrier, stopped, mode):
         samples = []
         barrier.wait(timeout=30)
-        for kind, numbers, body in jobs:
+        for kind, numbers, body, request_id in jobs:
             if stopped.is_set():
                 break
             sample = {"kind": kind, "records": len(numbers),
+                      "request_id": request_id,
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
                 path = "/api/query" if kind == "read" else "/api/mutations/batch"
-                result, elapsed, receipt = self.node.call(path, body, receipt=kind == "read")
+                result, elapsed, receipt = self.node.call(
+                    path, body, receipt=kind == "read", request_id=request_id)
                 sample.update(elapsed_ms=elapsed, read_receipt=receipt)
                 if kind == "read":
                     validate_read(result, numbers)
@@ -198,6 +202,10 @@ class Workload:
             monitor_stop.set()
             monitor_thread.join(timeout=5)
         metric = describe(rows, elapsed)
+        # Capture only after the complete timed case and its memory monitor end.
+        # Status requests never enter the measured latency or request counts.
+        if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:
+            metric["phase_coverage"] = capture_phases(self.node, self.output, name, sequence, rows)
         metric.update(sequence=sequence, clients=clients, batch_records=batch,
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())

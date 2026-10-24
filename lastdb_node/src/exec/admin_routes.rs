@@ -25,7 +25,11 @@ pub(super) async fn execute_status_route(
         snapshot.storage_parts = Some(runtime.parts_status());
     }
     let wants_forensics = query_flag(&req.target, "recent") || query_flag(&req.target, "forensics");
-    if !wants_forensics {
+    if wants_forensics {
+        // Diagnostic callers need the current ring, not the minute-old sampler
+        // copy. This bounded in-memory snapshot does not fetch logical records.
+        snapshot.request_ops = host.request_telemetry.snapshot();
+    } else {
         snapshot.request_ops = snapshot.request_ops.for_cheap_health();
     }
     // Additive PR-5 contract block: unit + window + availability for every

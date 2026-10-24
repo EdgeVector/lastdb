@@ -8,6 +8,7 @@ from pathlib import Path
 import statistics
 
 from node import save
+from phases import phase_lines
 
 MEASURES = ("p50_ms", "p95_ms", "p99_ms", "requests_per_second", "records_per_second")
 
@@ -78,6 +79,7 @@ def render(output, manifest, comparison):
             print(f"::warning title=Advisory performance change::{case}: p95 {change['p95_ms']:+.1f}%, "
                   f"request rate {change['requests_per_second']:+.1f}%. This does not block merge.")
     lines.extend(resource_lines(output, manifest))
+    lines.extend(phase_lines(output, manifest))
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",
                   "The throughput includes the client cost. The memory measure excludes seed and startup.",
