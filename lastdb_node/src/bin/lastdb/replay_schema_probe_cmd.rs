@@ -165,15 +165,7 @@ pub(super) fn run(
     );
     let crypto: Arc<dyn CryptoProvider> =
         Arc::new(LocalCryptoProvider::from_key(keys.encryption_key()));
-    let wrapped: Arc<dyn NamespacedStore> =
-        Arc::new(EncryptingNamespacedStore::with_plaintext_namespaces(
-            raw,
-            crypto,
-            fold_db::storage::LASTSTORE_PLAINTEXT_NAMESPACES
-                .iter()
-                .map(|s| (*s).into())
-                .collect(),
-        ));
+    let wrapped: Arc<dyn NamespacedStore> = Arc::new(EncryptingNamespacedStore::new(raw, crypto));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -20,7 +20,7 @@
 //!   open under this node's key is *ours and unopenable* (an org row, a rotated
 //!   key), not *not ours*. The pass classifies on the envelope prefix alone and
 //!   never decrypts, so it cannot confuse the two.
-//! - A plaintext-by-policy namespace (`LASTSTORE_PLAINTEXT_NAMESPACES`) or the
+//! - A plaintext-by-policy namespace (every namespace other than `cas_blobs`) or the
 //!   reserved marker namespace. Every row there is legitimately un-enveloped;
 //!   removing them destroys the schema catalog. The pass refuses those by name
 //!   before it opens anything, on top of the structural guarantee that the

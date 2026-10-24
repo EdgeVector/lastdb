@@ -82,7 +82,6 @@ pub fn read_directories(
     scope: Option<&str>,
     atom_id: &str,
     dependencies: &[FileDependency],
-    account_key: &[u8; 32],
 ) -> StorageResult<Vec<FileDependencyRecord>> {
     if dependencies.len() > 3 {
         return Err(invalid("file dependency selector count"));
@@ -128,16 +127,7 @@ pub fn read_directories(
                     )))
                 }
             };
-            Some((|| {
-                let plain = crate::crypto::at_rest::open_at_rest_bounded_owned(
-                    account_key,
-                    row,
-                    DIRECTORY_MAX_BYTES * 2,
-                    DIRECTORY_MAX_BYTES,
-                )
-                .map_err(|_| invalid("native file dependency directory envelope"))?;
-                decode_directory(&plain, dependency)
-            })())
+            Some(decode_directory(&row, dependency))
         })
         .collect()
 }

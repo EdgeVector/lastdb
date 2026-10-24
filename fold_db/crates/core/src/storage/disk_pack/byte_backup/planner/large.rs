@@ -18,9 +18,7 @@ pub(super) fn plan(
             .to_owned(),
     )
     .map_err(protocol)?;
-    let mut reader = source
-        .reader(&file.path, &inner.runtime.read_lease)
-        .map_err(super::super::super::map)?;
+    let mut reader = inner.home.reader(source, &file.path)?;
     let mut file_hash = Sha256::new();
     let mut offset = 0u64;
     let mut extents = Vec::new();

@@ -1,6 +1,7 @@
 //! Local-only release requires the owner's durable proof of no remote submission.
 use super::{
-    invalid, model::State, store::Store, ByteBackupCapture, Inner, PackRuntime, StorageResult,
+    context::CaptureHome, invalid, model::State, store::Store, ByteBackupCapture, Inner,
+    PackRuntime, StorageResult,
 };
 use cloud_backup_protocol::{bytes_sha256, v2::Begin};
 use std::sync::{atomic::AtomicUsize, Arc, Mutex};
@@ -27,6 +28,7 @@ impl PackRuntime {
             {
                 return Ok(());
             }
+            let home = CaptureHome::Writer(Arc::clone(&runtime));
             let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
             if !store.exists("job.json")? {
                 return Ok(());
@@ -41,12 +43,12 @@ impl PackRuntime {
                     "byte local cancel selects different admitted source",
                 ));
             }
-            super::capture::validate_cut(&runtime, &state)?;
+            super::capture::validate_cut(&home, &state)?;
             state.local_cancelled = true;
             store.write("job.json", &state)?;
             let capture = ByteBackupCapture {
                 inner: Arc::new(Inner {
-                    runtime,
+                    home,
                     store,
                     state: Mutex::new(state),
                     source: None,

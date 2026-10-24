@@ -271,10 +271,18 @@ impl FreshHome {
     }
 
     pub(crate) fn commit(&mut self) -> Result<(), String> {
+        self.commit_count(3)
+    }
+
+    pub(super) fn commit_registered(&mut self) -> Result<(), String> {
+        self.commit_count(4)
+    }
+
+    fn commit_count(&mut self, expected_count: usize) -> Result<(), String> {
         if !self.owns_destination() {
             return Err("recovery home changed during preparation".into());
         }
-        self.verify_final_files()?;
+        self.verify_final_files(expected_count)?;
         self.directory()
             .sync_all()
             .map_err(|_| "cannot sync recovery home")?;
@@ -285,7 +293,7 @@ impl FreshHome {
         Ok(())
     }
 
-    fn verify_final_files(&self) -> Result<(), String> {
+    fn verify_final_files(&self, expected_count: usize) -> Result<(), String> {
         require_owned_directory(self.directory())?;
         let mode = self
             .directory()
@@ -293,8 +301,8 @@ impl FreshHome {
             .map_err(|_| "cannot inspect recovery home")?
             .permissions()
             .mode();
-        if mode & 0o777 != 0o700 || self.created_files.len() != 3 {
-            return Err("recovery home must contain three protected credential files".into());
+        if mode & 0o777 != 0o700 || self.created_files.len() != expected_count {
+            return Err("recovery home requires the exact protected credential files".into());
         }
         let entries = fs::Dir::read_from(self.directory())
             .map_err(|_| "cannot inspect final recovery-home entries")?;
@@ -314,8 +322,8 @@ impl FreshHome {
             }
             count += 1;
         }
-        if count != 3 {
-            return Err("recovery home does not contain exactly three credential files".into());
+        if count != expected_count {
+            return Err("recovery home protected credential count differs".into());
         }
         for file in &self.created_files {
             let bytes = read_private_file_bound(

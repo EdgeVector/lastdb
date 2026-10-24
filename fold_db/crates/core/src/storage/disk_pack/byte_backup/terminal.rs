@@ -50,6 +50,7 @@ impl ByteBackupCapture {
         }
         self.inner.require_idle()?;
         if !state.released {
+            self.inner.home.validate()?;
             let mut digest = [0u8; 32];
             for (index, out) in digest.iter_mut().enumerate() {
                 *out = u8::from_str_radix(
@@ -59,7 +60,7 @@ impl ByteBackupCapture {
                 .map_err(|_| invalid("byte source CURRENT digest"))?;
             }
             release_owned_reference(
-                self.inner.runtime.home.path(),
+                self.inner.home.home().path(),
                 state.reference_id,
                 ReferencePurpose::CloudRecovery,
                 &digest,

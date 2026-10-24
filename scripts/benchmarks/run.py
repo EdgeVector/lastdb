@@ -17,11 +17,11 @@ from workload import PROFILES, Workload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
 
 
-def measure(binary, revision, recipe, output):
+def measure(binary, revision, recipe, output, workers):
     node, error = None, None
     started = time.monotonic()
     try:
-        node = Node(binary, revision, output, native_timing=recipe["native_timing"])
+        node = Node(binary, revision, output, native_timing=recipe["native_timing"], workers=workers)
         node.start()
         workload = GrowthWorkload if recipe.get("growth") else Workload
         workload(node, recipe, output).run()
@@ -80,6 +80,7 @@ def recipe_for(args):
                   "disk": "file lengths before and after full compaction with zero reclaim grace"}
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
+    recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
     return recipe
 
 
@@ -88,6 +89,7 @@ def main():
     for label in ("baseline", "candidate"):
         parser.add_argument(f"--{label}", type=Path, required=True)
         parser.add_argument(f"--{label}-revision", required=True)
+        parser.add_argument(f"--{label}-workers", type=int, choices=(0, 4, 8, 16, 32), default=0)
     parser.add_argument("--profile", choices=PROFILES, default="standard")
     parser.add_argument("--pairs", type=int, choices=range(1, 7))
     parser.add_argument("--native-timing", action="store_true")
@@ -95,10 +97,10 @@ def main():
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if (args.native_timing or args.growth_only) and (
+    if (args.native_timing or args.growth_only or args.baseline_workers or args.candidate_workers) and (
             os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
-        parser.error("Native diagnostics and resource growth require a GitHub-hosted Actions runner")
+        parser.error("Native diagnostics, resource growth, and worker overrides require a GitHub-hosted Actions runner")
     if args.native_timing and args.growth_only:
         parser.error("Resource growth uses ordinary daemon memory settings without native diagnostics")
     if not re.fullmatch(r"[0-9a-f]{40}", args.driver_revision):
@@ -137,7 +139,9 @@ def main():
             output.mkdir()
             print(json.dumps({"pair": pair, "version": label, "profile": args.profile}), flush=True)
             entry = {"pair": pair, "label": label, "directory": output.name,
-                     **measure(Path(binaries[label]["path"]), binaries[label]["revision"], recipe, output)}
+                     "uds_workers": recipe["uds_workers"][label],
+                     **measure(Path(binaries[label]["path"]), binaries[label]["revision"], recipe, output,
+                               recipe["uds_workers"][label])}
             manifest["runs"].append(entry)
             save(manifest_path, manifest)
             if not entry["complete"]:

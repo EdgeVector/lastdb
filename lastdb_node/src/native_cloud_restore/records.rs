@@ -84,7 +84,7 @@ pub(super) fn verify_context(
                 let mut read = home
                     .read_committed(current.clone(), budget(DIRECTORY_READ_BYTES, 3))
                     .map_err(|_| RestoreError::Limit("native file directory"))?;
-                directory::read_directories(&mut read, scope.as_deref(), &id, &expected, key)
+                directory::read_directories(&mut read, scope.as_deref(), &id, &expected)
                     .map_err(|_| RestoreError::Invalid("native file directory coverage"))?;
                 drop(read);
                 for dependency in expected {
