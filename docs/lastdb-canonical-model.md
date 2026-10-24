@@ -126,7 +126,7 @@ counter frees each body whose last reference goes, in the same batch.
   share one atom keep it until the last one goes.
 - A delete frees the record, not the disk bytes. Compaction returns the bytes.
 - A TTL is a schema retention policy. The sweep erases the expired keys of every schema
-  that has a policy. A Range or HashRange schema needs a range key that starts with 20
+  that has a policy. A HashRange schema needs a range key that starts with 20
   digits of unix seconds. Set the policy before the first write, or
   [explicitly backfill existing personal Hash/HashRange records](lastdb-ttl-sweep.md#schema-shape-that-a-ttl-needs)
   with the owner's `--confirm-expire-existing` confirmation. See
