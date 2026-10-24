@@ -197,6 +197,7 @@ impl PackRuntime {
                     let blocked = gate_from.elapsed();
                     for request in &requests {
                         request.note_flush_blocked(blocked);
+                        request.release_resources();
                     }
                     queue.requests.clear();
                     queue.sealed = false;

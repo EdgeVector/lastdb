@@ -55,7 +55,7 @@ fn receipt_json(r: fold_db::read_receipts::DiskReadReceipt, elapsed: Duration) -
         "decrypt_nanos": r.decrypt_nanos,
         "lock_wait_nanos": r.lock_wait_nanos,
         "blocking_queue_wait_nanos": r.queue_wait_nanos,
-        "socket_queue_wait_nanos": lastdb_uds::worker_pool::current_queue_wait()
+        "socket_queue_wait_nanos": super::current_socket_queue_wait()
             .map_or(0, |elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX)),
         "query_storage_elapsed_nanos": u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX),
         "filesystem_pages": "unknown",

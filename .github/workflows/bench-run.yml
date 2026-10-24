@@ -80,17 +80,9 @@ jobs:
           toolchain="$(rustup show active-toolchain | cut -d ' ' -f 1)"
           echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
 
-      - name: Identify compiler, runner image, and exact build recipe
+      - name: Identify compatible native toolchain and exact build recipe
         id: build-context
         run: python3 driver/scripts/benchmarks/build.py context --output "$BENCH_OUTPUT/build-context.json"
-
-      - name: Restore the exact baseline program
-        id: baseline-build
-        continue-on-error: true
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
-          key: lastdb-benchmark-program-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
 
       - name: Cache dependency downloads only
         uses: actions/cache@v4
@@ -103,41 +95,75 @@ jobs:
           key: benchmark-downloads-${{ runner.os }}-${{ hashFiles('candidate/Cargo.lock', 'baseline/Cargo.lock') }}
           restore-keys: benchmark-downloads-${{ runner.os }}-
 
-      - name: Prepare verified baseline and freshly built candidate
+      # Build the candidate first. Main publishes it before any baseline work;
+      # PR candidate compilation overlaps that trusted cache producer.
+      - name: Build the exact candidate from fresh source
         env:
           CANDIDATE_SHA: ${{ inputs.candidate }}
-          BASELINE_SHA: ${{ inputs.baseline }}
-          BASELINE_CACHE_HIT: ${{ steps.baseline-build.outputs.cache-hit }}
         run: |
           set -euo pipefail
           rustc --version --verbose > "$BENCH_OUTPUT/toolchain.txt"
-          for version in baseline candidate; do
-            if [ "$version" = baseline ]; then revision="$BASELINE_SHA"; else revision="$CANDIDATE_SHA"; fi
-            args=()
-            if [ "$version" = baseline ] && [ "$BASELINE_CACHE_HIT" = true ]; then args+=(--reuse); fi
-            python3 driver/scripts/benchmarks/build.py build "${args[@]}" \
-              --source "$version" --revision "$revision" --label "$version" \
-              --context "$BENCH_OUTPUT/build-context.json" \
-              --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
-          done
+          python3 driver/scripts/benchmarks/build.py build \
+            --source candidate --revision "$CANDIDATE_SHA" --label candidate \
+            --context "$BENCH_OUTPUT/build-context.json" \
+            --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
 
       # Only trusted main pushes publish programs that other PRs can reuse.
       # Cache availability never substitutes for measurements or verified uploads.
-      - name: Save the exact baseline program on main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
-          key: lastdb-benchmark-program-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
-
       - name: Save the accepted candidate for future baselines
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.candidate }}
-          key: lastdb-benchmark-program-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.candidate }}
+
+      - name: Restore the exact baseline program
+        id: baseline-build
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
+      - name: Await an active trusted main cache producer
+        id: baseline-ready
+        if: steps.baseline-build.outputs.cache-hit != 'true' && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          BASELINE_KEY: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+        run: python3 driver/scripts/benchmarks/cache.py --revision "$BASELINE_SHA" --key "$BASELINE_KEY"
+
+      - name: Restore the baseline after the main cache upload
+        id: baseline-retry
+        if: steps.baseline-ready.outputs.ready == 'true'
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
+
+      - name: Prepare the verified baseline
+        env:
+          BASELINE_SHA: ${{ inputs.baseline }}
+          BASELINE_CACHE_HIT: ${{ steps.baseline-build.outputs.cache-hit == 'true' || steps.baseline-retry.outputs.cache-hit == 'true' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$BASELINE_CACHE_HIT" = true ]; then args+=(--reuse); fi
+          python3 driver/scripts/benchmarks/build.py build "${args[@]}" \
+            --source baseline --revision "$BASELINE_SHA" --label baseline \
+            --context "$BENCH_OUTPUT/build-context.json" \
+            --cache "$BENCH_BINARY_ROOT" --output "$BENCH_OUTPUT"
+
+      - name: Save the exact baseline program on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.baseline-build.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
+          key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
 
       - name: Measure alternating baseline and candidate pairs
         env:

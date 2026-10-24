@@ -107,6 +107,26 @@ impl<J> Dispatch<J> {
         }
     }
 
+    /// Requeue the response of an already admitted request. Global admission
+    /// counts this same request throughout, so responses plus new jobs remain
+    /// bounded by workers + queue capacity. Responses release those admissions.
+    pub(super) fn resume(&self, job: J) -> Result<(), J> {
+        let slot = {
+            let mut state = lock(&self.state);
+            if state.closed {
+                return Err(job);
+            }
+            if let Some(slot) = state.idle.pop() {
+                slot
+            } else {
+                state.queue.push_front(job);
+                return Ok(());
+            }
+        };
+        slot.give(Hand::Job(job));
+        Ok(())
+    }
+
     /// The next job for the worker that owns `slot`, or `None` once the pool
     /// is closed and its queue is empty.
     pub(super) fn next(&self, slot: &Arc<Slot<J>>) -> Option<J> {

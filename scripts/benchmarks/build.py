@@ -6,9 +6,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shutil
 import subprocess
+import time
 
 from node import file_hash, save
 
@@ -17,17 +19,29 @@ COMMAND = ["cargo", "build", "--locked", "--profile", "dev-release",
            "-p", "lastdb_node", "--bin", "lastdbd"]
 
 
+def native_context():
+    release = platform.freedesktop_os_release()
+    commands = {name: subprocess.check_output([name, "--version"], text=True).splitlines()[0]
+                for name in ("cc", "c++", "ld", "ar", "cmake", "pkg-config", "ldd")}
+    packages = subprocess.check_output(
+        ["dpkg-query", "--show", "--showformat=${Package}=${Version}\n",
+         "libc6", "libc6-dev", "libgcc-s1", "libstdc++6", "libssl-dev", "zlib1g-dev"], text=True)
+    return {"os": {key: release[key] for key in ("ID", "VERSION_ID")},
+            "tools": commands, "packages": sorted(packages.splitlines())}
+
+
 def context(output):
     driver = Path(__file__).resolve().parents[2]
     settings = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET",
                 "CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS")
     inputs = {
-        "format_version": 1,
+        "format_version": 2,
         "command": COMMAND,
         "rustc": subprocess.check_output(["rustc", "--version", "--verbose"], text=True).strip(),
         "cargo": subprocess.check_output(["cargo", "--version"], text=True).strip(),
-        "image": os.environ["ImageVersion"],
-        "image_os": os.environ["ImageOS"],
+        # Hosted image labels change for unrelated preinstalled software.
+        # Reuse requires the actual native build environment instead.
+        "native": native_context(),
         "architecture": os.uname().machine,
         "flags": {name: os.environ.get(name, "") for name in settings},
         "profiles": {name: value for name, value in os.environ.items()
@@ -36,7 +50,8 @@ def context(output):
                          for name in ("scripts/benchmarks/build.py", ".github/workflows/bench-run.yml")},
     }
     fingerprint = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    save(output, {"fingerprint": fingerprint, "inputs": inputs})
+    save(output, {"fingerprint": fingerprint, "inputs": inputs,
+                  "runner_image": {"version": os.environ["ImageVersion"], "os": os.environ["ImageOS"]}})
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as stream:
         stream.write(f"fingerprint={fingerprint}\n")
 
@@ -79,6 +94,7 @@ def compile_binary(args, directory, fingerprint):
     version = subprocess.check_output([str(binary), "--version"], text=True, timeout=10).strip()
     metadata = {"revision": args.revision, "context": fingerprint,
                 "sha256": file_hash(binary), "version": version,
+                "runner_image": json.loads(args.context.read_text())["runner_image"],
                 "producer": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
                             f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"}
     save(directory / "build.json", metadata)
@@ -86,6 +102,7 @@ def compile_binary(args, directory, fingerprint):
 
 
 def build(args):
+    started = time.monotonic()
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         raise ValueError("The source revision must be a complete commit SHA")
     actual = subprocess.check_output(["git", "-C", str(args.source), "rev-parse", "HEAD"], text=True).strip()
@@ -108,13 +125,15 @@ def build(args):
     if metadata is None:
         metadata = compile_binary(args, directory, fingerprint)
     mode = "reused" if reused else "built from source"
-    details = {"mode": mode, **metadata}
+    details = {"mode": mode, "prepare_seconds": round(time.monotonic() - started, 3), **metadata}
     if reused:
         (args.output / "build-baseline.log").write_text(json.dumps(details, indent=2) + "\n")
+    save(args.output / f"build-{args.label}.json", details)
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
         summary.write(f"\n{args.label.capitalize()} program: **{mode}**  \n"
                       f"Source: {args.revision}  \nSHA-256: {metadata['sha256']}  \n"
-                      f"Build: {metadata['producer']}\n")
+                      f"Build: {metadata['producer']}  \n"
+                      f"Prepare seconds: {details['prepare_seconds']}\n")
     print(json.dumps(details), flush=True)
 
 

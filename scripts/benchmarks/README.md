@@ -61,20 +61,27 @@ An older PR head need not contain any benchmark scripts. The summary records the
 The separate `LastDB historical benchmark comparison` manual workflow accepts exact baseline
 and candidate SHAs. An empty candidate uses the selected workflow revision.
 An empty baseline uses the candidate's first parent. Either recipe is available.
+The two revisions must differ. The plan rejects identical revisions before builds or cache restores.
+This prevents a baseline cache restore from replacing the fresh candidate at the same source path.
 Select the current main workflow to measure old product revisions with the current driver.
 Manual comparisons do not emit `benchmark-complete` and cannot supply the PR completion gate.
 
 Both builds use one Rust toolchain and the optimized `dev-release` profile.
 The workflow caches dependency downloads and exact compiled baseline programs.
-Main pushes save the accepted candidate program for later baseline use.
+Main pushes build and save the accepted candidate before baseline work or measurements.
 Only trusted main pushes publish reusable programs.
-The cache key includes the full source SHA, compiler, runner image, architecture, build flags, and build recipe.
+The cache key includes the full source SHA, Rust compiler, architecture, build flags, and build recipe.
+It also includes the Ubuntu release, native compiler/linker versions, and native library package versions.
+The hosted runner image label stays in the build record, outside the compatibility key.
+Unrelated image software updates therefore do not discard a compatible program.
 An exact cache hit must also pass metadata, executable SHA-256, and executable revision checks.
-A missing or rejected cache triggers a fresh baseline build.
 The candidate always builds from source. Each actual build uses a fresh target directory.
+PR candidate compilation overlaps the main cache producer before the baseline restore.
+On a miss, a PR waits up to ten minutes only while the exact baseline's main run can publish its cache.
+A missing producer, incompatible environment, failed lookup, expired wait, or rejected cache uses a fresh baseline build.
 No compiled target directory enters the cache.
-The summary states whether each program came from a fresh build or an exact cache hit.
-The first main run fills the cache. Image, compiler, source, or recipe changes require another build.
+The summary states the build mode, preparation time, producer run, source, and executable hash.
+The first main run fills the new cache. Native toolchain, compiler, source, or recipe changes require another build.
 Cache expiry or upload failure affects speed only; the source build remains available.
 Builds finish before measurements start. The two daemons never run together.
 Each pair reverses the prior pair's base/candidate order.
