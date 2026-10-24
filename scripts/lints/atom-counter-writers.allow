@@ -95,16 +95,13 @@ fold_db/crates/core/src/sync/engine/outbox/storage.rs|drop_oldest_outbox_entries
 
 fold_db/crates/core/src/sync/engine/pin_log/offline_s0_marker.rs|prepare_offline_s0_restore_marker|-|pin log rows
 
-fold_db/crates/core/src/sync/engine/replay/apply.rs|replay_put|T C B N|cloud replay of a captured put; counters are never captured (capture_should_skip_key); cloud sync is off
+fold_db/crates/core/src/sync/engine/replay/apply.rs|replay_put|-|opaque metadata only; complete-entry and local guards refuse counter-owned lifecycle records
 
 fold_db/crates/core/src/sync/engine/replay/entry/ops.rs|replay_batch_delete_op|C B N|cloud replay of a captured delete; a tip delete is refused
 fold_db/crates/core/src/sync/engine/replay/entry/ops.rs|replay_delete_op|C B N|cloud replay of a captured delete; a tip delete is refused
 
-fold_db/crates/core/src/sync/engine/replay/merge.rs|store_merge_conflicts|C|replay conflict rows when the engine has no atom store (never the serving store)
 
 
-fold_db/crates/core/src/sync/engine/replay/records.rs|merge_per_key_lww|T|cloud replay of a peer tip under last-writer-wins; the conflict goes through the planner
-fold_db/crates/core/src/sync/engine/replay/records.rs|replay_header_record|M|cloud replay of a peer header: it writes the version and the time and no counters, so the molecule counters read as unset and the next planner change marks the molecule suspect; cloud sync is off in this build
 
 fold_db/crates/core/src/sync/engine/thumb_pack.rs|cache_thumb_ciphertext|-|thumbnail cache rows
 fold_db/crates/core/src/sync/engine/thumb_pack.rs|cache_thumb_pack|-|thumbnail cache rows
@@ -133,3 +130,5 @@ fold_db/crates/core/src/sync/snapshot/restore_scan/files.rs|merge_missing|-|phot
 
 fold_db/crates/core/src/db_operations/atom_store/erase_meters.rs|record_atom_delete_audit|-|final dellog audit facts only, optionally database-prefixed; staged in the same native batch as the erase, with no atom, tip, or counter keys
 fold_db/crates/core/src/sync/engine/foreign_share.rs|download_foreign_share|-|keyed per-target incorporated sync frontier only; replay owns the value changes and this cursor follows their durability barrier
+fold_db/crates/core/src/db_operations/atom_store/counter/restore_validation.rs|finish|-|exclusive restore completion deletes only its durable pending marker after exact read-only counter verification
+fold_db/crates/core/src/sync/snapshot/restore_guard.rs|run|-|exclusive snapshot restore writes only its durable pending marker; restoration batches stay blocked until exact validation

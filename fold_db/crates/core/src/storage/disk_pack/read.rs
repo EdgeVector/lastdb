@@ -111,6 +111,7 @@ impl ReadContext {
     }
 
     pub(super) async fn current(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
+        runtime.require_restore_validated()?;
         if let Ok(context) = READ.try_with(Arc::clone) {
             if context.identity == runtime.home.descriptor().identity {
                 context.validate_owner(transaction::PendingBatch::current(runtime).as_ref())?;

@@ -28,6 +28,7 @@ mod parts;
 mod queue;
 mod read;
 mod restore;
+pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;
 pub(crate) mod schema_keys;
@@ -74,6 +75,7 @@ pub struct PackRuntime {
     schema_keys: schema_keys::SchemaKeys,
     failed: AtomicBool,
     initializing: AtomicBool,
+    restore_blocked: AtomicBool,
     node_home: Option<initialization::NodeHome>,
     // Failed snapshot publication retains its space charge until this runtime drops.
     failed_write: Mutex<Option<SpaceReservation>>,
@@ -143,6 +145,7 @@ impl PackNamespacedStore {
         let space_policy = space::policy_from_env()?;
         let home = Arc::new(DiskHome::open(path).map_err(map)?);
         let writer = home.snapshot().map_err(map)?;
+        let restore_blocked = restore_safety::pending(&home, path)?;
         let read_lease = writer.read_lease();
         let capture_cleanup = writer.capture_cleanup();
         let current = writer.current().clone();
@@ -173,6 +176,7 @@ impl PackNamespacedStore {
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),
                 failed: AtomicBool::new(false),
+                restore_blocked: AtomicBool::new(restore_blocked),
                 initializing: AtomicBool::new(
                     node_home.as_ref().is_some_and(|home| home.initializing),
                 ),

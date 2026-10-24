@@ -2,6 +2,40 @@
 
 use super::error::{StorageError, StorageResult};
 
+/// Raw replay must never write one part of the counter lifecycle by itself.
+pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> {
+    if namespace != "main" {
+        return Ok(matches!(
+            namespace,
+            "atoms" | "cas_blobs" | "tips" | "field_tips"
+        ));
+    }
+    let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
+    let bare = source_key(key)?;
+    if bare == super::disk_pack::restore_safety::PENDING_KEY {
+        return Ok(true);
+    }
+    let family = bare.split([':', '\0']).next().unwrap_or_default();
+    Ok(matches!(
+        family,
+        "mk" | "mh"
+            | "atom"
+            | "history"
+            | "conflict"
+            | "mcc"
+            | "mref"
+            | "bref"
+            | "crq"
+            | "crb"
+            | "crs"
+            | "rdel"
+            | "mgp"
+            | "mgr"
+            | "mgd"
+            | "fdep"
+    ))
+}
+
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {
     if namespace != "main" {
         return Ok(());

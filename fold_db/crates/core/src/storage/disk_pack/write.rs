@@ -117,8 +117,19 @@ impl PackRuntime {
         if let Some(pending) = transaction::PendingBatch::current(self) {
             return pending.stage(operations);
         }
+        if restore_safety::active(self) {
+            return transaction::request_scope(Some(Arc::clone(self)), async {
+                transaction::PendingBatch::current(self)
+                    .ok_or_else(|| {
+                        StorageError::InvalidOperation("restore write has no batch".into())
+                    })?
+                    .stage(operations)
+            })
+            .await;
+        }
         self.check_part_room()?;
         let gate = self.enter_write().await;
+        self.require_restore_validated()?;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let result = runtime.commit(operations);

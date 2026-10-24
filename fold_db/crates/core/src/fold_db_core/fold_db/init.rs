@@ -146,6 +146,11 @@ impl FoldDB {
         );
         // Keyed atom reads require content encrypted with this account's E2E
         // key. Pass the same content key as the normal native constructor.
+        crate::db_operations::atom_store::counter::restore_validation::validate_pending(
+            store.as_ref(),
+        )
+        .await
+        .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
         let db_ops = Arc::new(
             DbOperations::from_namespaced_store_with_atom_and_molecule_keys(
                 store,
@@ -168,7 +173,7 @@ impl FoldDB {
             signer,
             search_outbox_inbox: Some(restore_inbox),
             mutation_log_capture: None,
-            offline_maintenance: false,
+            offline_maintenance: true,
         })
         .await?;
         db.preserve_retired_restore_intents = true;

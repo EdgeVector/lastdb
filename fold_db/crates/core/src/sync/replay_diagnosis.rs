@@ -59,6 +59,7 @@ pub enum ReplayCause {
     CaptureQueueFull,
     MaterializationFailed,
     MissingMutationApplier,
+    CounterWriterRequired,
     LegacyMoleculeDelete,
     RawDeleteBarrierPut,
     DeleteBarrierIdentityMismatch,
@@ -155,6 +156,9 @@ impl SyncError {
         cause: ReplayCause,
     ) -> Self {
         let reason = match cause {
+            ReplayCause::CounterWriterRequired => {
+                "raw lifecycle records require complete mutations through the counter writer; restore a current snapshot"
+            }
             ReplayCause::LegacyMoleculeDelete => {
                 "legacy physical molecule Delete needs a safe recovery path"
             }
