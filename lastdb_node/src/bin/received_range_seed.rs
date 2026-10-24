@@ -108,6 +108,16 @@ async fn populate(host: &Host, input: &Path) -> Result<usize, Box<dyn std::error
             return Err("the generated mutation batch has an incomplete acknowledgement".into());
         }
     }
+    activate_generated_receivers(host).await?;
+    host.db
+        .db_ops()
+        .namespaced_store()
+        .restore_durability_barrier()
+        .await?;
+    Ok(count)
+}
+
+async fn activate_generated_receivers(host: &Host) -> Result<(), Box<dyn std::error::Error>> {
     let subscriptions = host
         .db
         .db_ops()
@@ -126,12 +136,7 @@ async fn populate(host: &Host, input: &Path) -> Result<usize, Box<dyn std::error
             .put(sender.as_bytes(), serde_json::to_vec(&subscription)?)
             .await?;
     }
-    host.db
-        .db_ops()
-        .namespaced_store()
-        .restore_durability_barrier()
-        .await?;
-    Ok(count)
+    Ok(())
 }
 
 #[tokio::main]
