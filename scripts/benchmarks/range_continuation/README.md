@@ -56,7 +56,7 @@ Otherwise the result states that preload coverage remains unproved.
 Linux process memory and native status remain separate observations.
 Process `VmHWM` can include startup and seed work. No total-memory cap is claimed.
 The recipe makes no power-loss, complete-merge, cross-device sync, cloud, or concurrent-mutation result.
-Received namespaces retain their complete merge and current resource limit.
+This recipe does not measure received namespaces. The `received_ranges` recipe measures their bounded merge and current resource limits.
 Offsets still walk and charge preceding selected keys. Cursors seek directly.
 The complete-read key limit stays unchanged.
 

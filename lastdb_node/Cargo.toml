@@ -103,6 +103,12 @@ test = false
 name = "csync_e2e_write"
 path = "src/bin/csync_e2e_write.rs"
 
+[[bin]]
+bench = false
+test = false
+name = "received_range_seed"
+path = "src/bin/received_range_seed.rs"
+
 [lib]
 test = false
 doctest = false

@@ -20,18 +20,17 @@ pub async fn execute_query_rows<H: HostNode>(
         .map(|(rows, _)| rows)
 }
 
-/// Page slots this request consumed but did not deliver, in the units
-/// `has_more` needs.
-///
-/// Both members were counted by `total_count` and both cost the window a slot,
-/// so both have to be added back before a page is called the last one — see
-/// [`page_payload`].
+/// Integrity counters and unfilled output slots for one request.
+/// Internal candidate refills retain their integrity counters without making
+/// an exhausted range claim another page — see [`page_payload`].
 #[derive(Debug, Clone, Copy)]
 pub(in crate::handlers) struct RowDrops {
     /// Rows whose tip pointed at an atom body that could not be resolved.
     pub(in crate::handlers) unresolved: usize,
     /// Rows whose atom body is a content tombstone.
     pub(in crate::handlers) tombstoned: usize,
+    /// Drops that still consume a slot after any internal candidate refill.
+    unfilled_slots: usize,
     /// How to read this page's `key.hash` values, or `None` when the query
     /// emitted no classifiable page key. Deliberately NOT part of
     /// [`RowDrops::total`]: these rows WERE delivered.
@@ -47,6 +46,7 @@ impl Default for RowDrops {
         Self {
             unresolved: 0,
             tombstoned: 0,
+            unfilled_slots: 0,
             key_form: None,
             conflict_flags: "unknown",
         }
@@ -55,7 +55,7 @@ impl Default for RowDrops {
 
 impl RowDrops {
     pub(in crate::handlers) fn total(self) -> usize {
-        self.unresolved.saturating_add(self.tombstoned)
+        self.unfilled_slots
     }
 }
 
@@ -64,6 +64,7 @@ impl From<fold_db::db_operations::QueryRowDrops> for RowDrops {
         Self {
             unresolved: drops.unresolved.try_into().unwrap_or(usize::MAX),
             tombstoned: drops.tombstoned.try_into().unwrap_or(usize::MAX),
+            unfilled_slots: drops.total().try_into().unwrap_or(usize::MAX),
             key_form: drops.key_form(),
             conflict_flags: "unknown",
         }
