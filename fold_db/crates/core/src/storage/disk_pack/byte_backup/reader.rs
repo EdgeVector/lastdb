@@ -21,6 +21,7 @@ impl ByteBackupCapture {
         {
             return Err(invalid("byte source reader phase"));
         }
+        self.require_export(&state)?;
         if self.inner.readers.load(Ordering::Acquire)
             >= lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams
         {

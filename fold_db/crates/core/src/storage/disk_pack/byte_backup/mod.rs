@@ -5,6 +5,7 @@ mod capture;
 mod certify;
 mod codec;
 mod context;
+mod counters;
 mod model;
 mod planner;
 mod reader;
@@ -62,12 +63,18 @@ impl ByteBackupCapture {
         Ok(self.lock()?.native_root.clone())
     }
     pub fn object_count(&self) -> StorageResult<u64> {
-        Ok(self.lock()?.objects)
+        let state = self.lock()?;
+        self.require_export(&state)?;
+        Ok(state.objects)
     }
     pub fn status(&self) -> StorageResult<ByteBackupCaptureStatus> {
         let state = self.lock()?;
+        self.require_export(&state)?;
         Ok(ByteBackupCaptureStatus {
-            ready: state.ready && !state.released && !state.local_cancelled,
+            ready: state.ready
+                && !state.released
+                && !state.local_cancelled
+                && state.terminal.is_none(),
             source_available: self.inner.source.is_some() && !state.released,
             native_files: state.native_files,
             native_bytes: state.native_bytes,
@@ -85,6 +92,7 @@ impl ByteBackupCapture {
     }
     pub fn object(&self, index: u64) -> StorageResult<ByteBackupObject> {
         let state = self.lock()?;
+        self.require_export(&state)?;
         let object = self.inner.object(&state, index)?;
         Ok(ByteBackupObject {
             input: object.input,
@@ -135,6 +143,12 @@ impl ByteBackupCapture {
             .state
             .lock()
             .map_err(|_| invalid("byte source state lock"))
+    }
+    fn require_export(&self, state: &model::State) -> StorageResult<()> {
+        if !state.released && !state.local_cancelled && state.terminal.is_none() {
+            counters::require_validated(&self.inner)?;
+        }
+        Ok(())
     }
 }
 impl Inner {

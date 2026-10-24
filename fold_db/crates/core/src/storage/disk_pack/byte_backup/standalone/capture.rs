@@ -37,7 +37,7 @@ pub(super) async fn prepare(
                             .map_err(super::super::super::map)?,
                     )
                 };
-                return common::finish(inner(home, store, old, source, admission), &key);
+                return common::finish(inner(home, store, old, source, admission), &key, true);
             }
             if !old.released || old.begin.job == begin.job {
                 return Err(invalid("byte saved source needs exact recovery"));
@@ -53,7 +53,11 @@ pub(super) async fn prepare(
         let reference = common::retain(&home, &state)?;
         drop(hold);
         let source = SnapshotExport::open(reference).map_err(super::super::super::map)?;
-        common::finish(inner(home, store, state, Some(source), admission), &key)
+        common::finish(
+            inner(home, store, state, Some(source), admission),
+            &key,
+            true,
+        )
     })
     .await
 }
@@ -77,7 +81,7 @@ pub(super) async fn resume(
                 })
                 .ok()
         };
-        common::finish(inner(home, store, state, source, admission), &key)
+        common::finish(inner(home, store, state, source, admission), &key, false)
     })
     .await
 }

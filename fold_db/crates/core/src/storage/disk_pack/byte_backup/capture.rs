@@ -63,6 +63,7 @@ impl PackRuntime {
                             _admission: admission,
                         },
                         &key,
+                        true,
                     );
                 }
                 if !old.released || old.begin.job == begin.job {
@@ -89,7 +90,7 @@ impl PackRuntime {
                 readers: AtomicUsize::new(0),
                 _admission: admission,
             };
-            finish(inner, &key)
+            finish(inner, &key, true)
         })
         .await
     }
@@ -127,12 +128,16 @@ impl PackRuntime {
                 readers: AtomicUsize::new(0),
                 _admission: admission,
             };
-            finish(inner, &key)
+            finish(inner, &key, false)
         })
         .await
     }
 }
-pub(super) fn finish(inner: Inner, key: &[u8; 32]) -> StorageResult<ByteBackupCapture> {
+pub(super) fn finish(
+    inner: Inner,
+    key: &[u8; 32],
+    admit_export: bool,
+) -> StorageResult<ByteBackupCapture> {
     let mut state = inner
         .state
         .lock()
@@ -148,8 +153,21 @@ pub(super) fn finish(inner: Inner, key: &[u8; 32]) -> StorageResult<ByteBackupCa
         state.native_bytes = source.bytes();
         inner.store.write("job.json", &*state)?;
     }
-    if !state.ready && state.terminal.is_none() && !state.local_cancelled && inner.source.is_some()
-    {
+    let active = state.terminal.is_none() && !state.local_cancelled && !state.released;
+    let eligible = if active {
+        let validation = super::counters::require_validated(&inner);
+        if admit_export {
+            validation?;
+            true
+        } else {
+            validation.is_ok()
+        }
+    } else {
+        true
+    };
+    // Recovery must still obtain a handle for exact terminal/local cancellation.
+    // Content APIs recheck eligibility before they expose the retained cut.
+    if !state.ready && active && eligible && inner.source.is_some() {
         super::certify::certify(&inner, key)?;
         super::planner::build(&inner, &mut state, key)?;
     }
