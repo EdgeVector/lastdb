@@ -69,6 +69,7 @@ impl PreparedHome {
                 home: home.to_path_buf(),
                 account,
             }),
+            existing: None,
         };
         prepared.verify_entries()?;
         if !recovery_files::entry_present(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE)? {
@@ -117,7 +118,7 @@ impl Validation {
     }
 }
 
-fn enrollment_lock(directory: &File) -> Result<File, String> {
+pub(super) fn enrollment_lock(directory: &File) -> Result<File, String> {
     let file = File::from(
         fs::openat(
             directory,
@@ -133,7 +134,7 @@ fn enrollment_lock(directory: &File) -> Result<File, String> {
     Ok(file)
 }
 
-fn identity_seed(directory: &File) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
+pub(super) fn identity_seed(directory: &File) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
     let bytes = zeroize::Zeroizing::new(recovery_files::read_private_file(
         directory,
         IDENTITY_KEY_FILE,
@@ -171,7 +172,7 @@ fn verify_restore_receipt(directory: &File, home: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_automatic_off(home: &Path) -> Result<(), String> {
+pub(super) fn verify_automatic_off(home: &Path) -> Result<(), String> {
     let data = recovery_files::open_directory(&home.join("data"))?;
     if !recovery_files::entry_present(&data, "native-cloud-backup-v1")? {
         return Ok(());

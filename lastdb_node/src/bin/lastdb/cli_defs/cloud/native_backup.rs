@@ -18,11 +18,17 @@ pub(crate) enum NativeBackupCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Register this fresh identity for native backup; keep Cloud Sync Off.
+    /// Register the selected identity for native backup; keep Cloud Sync Off.
     Connect {
         /// Use only the compiled DEV auth endpoint.
-        #[arg(long, required = true)]
+        #[arg(long, required_unless_present = "prod", conflicts_with = "prod")]
         dev: bool,
+        /// Use only the compiled PROD endpoint with this existing home.
+        #[arg(long, requires = "existing")]
+        prod: bool,
+        /// Enroll the live existing identity without a database or daemon change.
+        #[arg(long, requires = "prod", conflicts_with = "restored")]
+        existing: bool,
         /// Read the first-account invite from bounded stdin, never from an argument.
         #[arg(long)]
         invite_code_stdin: bool,
