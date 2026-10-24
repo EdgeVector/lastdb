@@ -33,19 +33,17 @@ pub(super) fn signer() -> Result<Arc<Ed25519KeyPair>> {
 }
 
 pub(super) async fn open(path: &Path, initialize: bool, retained: bool) -> Result<Arc<FoldDB>> {
-    let db = Arc::new(
-        create_fold_db_with_options(
-            &DatabaseConfig::local(path),
-            &keys(),
-            signer()?,
-            FoldDbOptions {
-                offline_maintenance: true,
-                search_outbox_inbox: Some(path.join("inbox")),
-                ..Default::default()
-            },
-        )
-        .await?,
-    );
+    let db = create_fold_db_with_options(
+        &DatabaseConfig::local(path.to_path_buf()),
+        &keys(),
+        signer()?,
+        FoldDbOptions {
+            offline_maintenance: true,
+            search_outbox_inbox: Some(path.join("inbox")),
+            ..Default::default()
+        },
+    )
+    .await?;
     if initialize {
         db.load_schema_from_json(
             &BenchmarkSchemaBuilder::new(SCHEMA)
