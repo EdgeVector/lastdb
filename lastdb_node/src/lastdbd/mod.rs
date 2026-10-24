@@ -1,5 +1,6 @@
 //! Pieces of the `lastdbd` binary, split out of `main.rs`.
 
+pub(crate) mod background;
 pub(crate) mod cli;
 pub(crate) mod conflict_fold;
 pub(crate) mod footprint_proof;

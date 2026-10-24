@@ -33,8 +33,7 @@ pub(super) struct PreparedMutation {
     pub location: super::Location,
 }
 
-const MAX_BATCH_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_PENDING_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_PENDING_BYTES: u64 = lastdb_storage_policy::native_write::PENDING_MEMORY_BYTES;
 const MAX_PENDING_BATCHES: u64 = 4096;
 
 fn refuse(reason: &'static str) -> crate::Error {

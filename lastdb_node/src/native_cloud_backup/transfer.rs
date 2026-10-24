@@ -3,6 +3,9 @@ use super::{worker::Work, BackupError, Result};
 use cloud_backup_protocol::transfer::*;
 use cloud_backup_protocol::Version;
 use std::io::Read;
+use std::time::Duration;
+
+const VERIFICATION_WAIT: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn verified(input: &TransferInput, receipt: ObjectReceipt) -> Result<TransferView> {
     let view = TransferView {
@@ -24,91 +27,137 @@ where
     F: Fn(usize) -> Result<Box<dyn Read + Send>>,
 {
     work.check_close()?;
-    let request = TransferPrepareRequest {
-        version: Version,
-        items: inputs,
-    };
-    let response = work.client.prepare(&request).await?;
+    let deadline = tokio::time::Instant::now() + super::retry::CONTROL_WAIT;
+    let views = super::retry::prepare(work, &inputs, deadline).await?;
     let open = &open;
-    let futures = request.items.iter().zip(response.items).enumerate().map(
-        |(index, (input, result))| async move {
-            let transfer = match result {
-                TransferItemResult::Ok { transfer } => transfer,
-                TransferItemResult::Error { error, .. } => {
-                    return Err(super::NativeBackupError::Protocol(error).into())
-                }
-            };
-            settle(work, input, transfer, || open(index)).await
-        },
-    );
+    let futures =
+        inputs
+            .iter()
+            .zip(views)
+            .enumerate()
+            .map(|(index, (input, transfer))| async move {
+                submit(work, input, transfer, deadline, || open(index)).await
+            });
     // Settle every sibling before returning any error. A positive response is
     // still authoritative on retry, and normal failures release source readers.
     let results = futures::future::join_all(futures).await;
-    let _ = super::usage::refresh(work.store, work.client, &work.source.account).await;
-    results.into_iter().collect()
+    let result = match results.into_iter().collect::<Result<Vec<_>>>() {
+        Ok(views) => wait(work, &inputs, views).await,
+        Err(error) => Err(error),
+    };
+    if work.check_close().is_ok() {
+        let _ = super::usage::refresh(work.store, work.client, &work.source.account).await;
+    }
+    result
 }
 
-async fn settle<F>(
+async fn submit<F>(
     work: &Work<'_>,
     input: &TransferInput,
-    mut view: TransferView,
+    view: TransferView,
+    deadline: tokio::time::Instant,
     open: F,
 ) -> Result<TransferView>
 where
     F: Fn() -> Result<Box<dyn Read + Send>>,
 {
-    for attempt in 0..8u32 {
-        work.check_close()?;
-        view.validate_for(input)?;
-        match view.state {
-            TransferStatus::Verified { .. } => return Ok(view),
-            TransferStatus::Rejected { .. } => return Err(BackupError::Source),
-            TransferStatus::Pending { .. } => {}
+    work.check_close()?;
+    view.validate_for(input)?;
+    match view.state {
+        TransferStatus::Verified { .. } => return Ok(view),
+        TransferStatus::Rejected { .. } => return Err(BackupError::Source),
+        TransferStatus::Pending { .. } => {}
+    }
+    match super::retry::resume(work, input, deadline).await? {
+        TransferResumeResult::Grant { response } => {
+            work.check_close()?;
+            // A lost PUT response is not negative evidence. Complete still
+            // resolves any bytes that reached the exact create-once target.
+            let _observation = work.client.upload(input, &response.grant, open()?).await;
         }
-        let mut upload_error = None;
-        match work.client.resume(input).await? {
-            TransferResumeResult::Grant { response } => {
-                work.check_close()?;
-                upload_error = work
-                    .client
-                    .upload(input, &response.grant, open()?)
-                    .await
-                    .err();
-            }
-            TransferResumeResult::State { transfer } => {
-                if matches!(
-                    transfer.state,
-                    TransferStatus::Verified { .. } | TransferStatus::Rejected { .. }
-                ) {
-                    view = transfer;
-                    continue;
-                }
-            }
-            TransferResumeResult::Error { error, .. } => {
-                return Err(super::NativeBackupError::Protocol(error).into())
+        TransferResumeResult::State { transfer } => {
+            if !matches!(transfer.state, TransferStatus::Pending { .. }) {
+                return Ok(transfer);
             }
         }
-        // Resolve positive evidence even after a lost PUT response. A timeout
-        // does not discard the input, source bytes, hold or service obligation.
-        let result = work.client.complete(input).await?;
-        let transfer = match result {
-            TransferItemResult::Ok { transfer } => transfer,
-            TransferItemResult::Error { error, .. } => {
-                return Err(super::NativeBackupError::Protocol(error).into())
-            }
-        };
-        view = transfer;
-        if matches!(view.state, TransferStatus::Verified { .. }) {
-            return Ok(view);
-        }
-        if let Some(error) = upload_error {
-            return Err(error.into());
-        }
-        if attempt < 7 {
-            pause(work, attempt).await?;
+        TransferResumeResult::Error { error, .. } => {
+            return Err(super::NativeBackupError::Protocol(error).into())
         }
     }
-    Err(BackupError::Waiting)
+    work.check_close()?;
+    // Once per invocation, including an explicit owner resume after a lost
+    // queue send. Subsequent polls do not issue another URL, PUT or queue send.
+    item(work.client.complete(input).await?)
+}
+
+async fn wait(
+    work: &Work<'_>,
+    inputs: &[TransferInput],
+    mut views: Vec<TransferView>,
+) -> Result<Vec<TransferView>> {
+    let deadline = tokio::time::Instant::now() + VERIFICATION_WAIT;
+    let mut attempt = 0;
+    loop {
+        work.check_close()?;
+        let mut positions = Vec::new();
+        let mut pending = Vec::new();
+        for (position, (input, view)) in inputs.iter().zip(&views).enumerate() {
+            view.validate_for(input)?;
+            match view.state {
+                TransferStatus::Verified { .. } => {}
+                TransferStatus::Rejected { .. } => return Err(BackupError::Source),
+                TransferStatus::Pending { .. } => {
+                    positions.push(position);
+                    pending.push(input.clone());
+                }
+            }
+        }
+        if pending.is_empty() {
+            return Ok(views);
+        }
+        tokio::time::timeout_at(deadline, pause(work, attempt))
+            .await
+            .map_err(|_| BackupError::Waiting)??;
+        let request = TransferStatusRequest {
+            version: Version,
+            job: pending[0].job.clone(),
+            request_ids: pending
+                .iter()
+                .map(|input| input.request_id.clone())
+                .collect(),
+        };
+        let response =
+            tokio::time::timeout_at(deadline, work.client.transfer_status(&request, &pending))
+                .await
+                .map_err(|_| BackupError::Waiting)?;
+        match response {
+            Ok(response) => {
+                for (position, result) in positions.into_iter().zip(response.items) {
+                    match item(result) {
+                        Ok(view) => views[position] = view,
+                        Err(error) if error.retryable() => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            Err(error) => {
+                let error = BackupError::from(error);
+                if !error.retryable() {
+                    return Err(error);
+                }
+            }
+        }
+        attempt = attempt.saturating_add(1);
+    }
+}
+
+fn item(result: TransferItemResult) -> Result<TransferView> {
+    match result {
+        TransferItemResult::Ok { transfer } => Ok(transfer),
+        TransferItemResult::Error { error, .. } => {
+            Err(super::NativeBackupError::Protocol(error).into())
+        }
+    }
 }
 
 pub(super) async fn pause(work: &Work<'_>, attempt: u32) -> Result<()> {

@@ -14,32 +14,11 @@ use crate::durable_flush::{self, BatchPlacementLog};
 use crate::error::FoldDbError;
 use crate::sharing::blob_cas::{self, SealedPutOutcome};
 use crate::sharing::delivery_wire::lastdb_file_pointer_with_access_and_thumbnail;
-use crate::sharing::file_blob_seal::local_file_blob_ref;
 
 use super::FoldDB;
 
 /// The namespace that holds the rows. Must match `blob_cas`.
 const CAS_BLOBS_NAMESPACE: &str = "cas_blobs";
-
-/// Largest blob one local put accepts, unless the owner raises it.
-///
-/// One slab of the LastGit pack design. A sealed row is about 1.33 times the
-/// plaintext, and a compaction or a cold load holds a few rows of one group at
-/// once, so this keeps both near tens of MB. Larger blobs belong in slabs.
-pub const LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT: usize =
-    lastdb_storage_policy::LOCAL_FILE_PUT_DEFAULT_BYTES;
-
-/// Environment knob that overrides [`LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT`]. A
-/// value that is not a positive integer is ignored.
-pub const LOCAL_FILE_BLOB_MAX_BYTES_ENV: &str = "LASTDB_LOCAL_FILE_BLOB_MAX_BYTES";
-
-/// The largest plaintext one local put accepts on this node.
-#[must_use]
-pub fn local_file_blob_max_bytes() -> usize {
-    env_flag::var_parsed::<usize>(LOCAL_FILE_BLOB_MAX_BYTES_ENV)
-        .filter(|max| *max > 0)
-        .unwrap_or(LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT)
-}
 
 /// Result of [`FoldDB::put_local_file_blob`].
 #[derive(Debug, Clone)]
@@ -66,8 +45,8 @@ impl LocalFileBlobPut {
 impl FoldDB {
     /// Store `plaintext` in the local `cas_blobs` plane and return its pointer.
     ///
-    /// - The row is sealed under the convergent per-blob key, so identical
-    ///   bytes give an identical `blob_ref`, DEK and pointer on every node.
+    /// - Identical bytes in one account give the same file key and ciphertext
+    ///   reference. The account key stays private inside the atom store.
     /// - The pointer carries no `name` or `media_type` unless the caller passes
     ///   them. Without them, identical bytes in one schema give the same atom,
     ///   so a second record that holds the pointer adds one tip and no atom.
@@ -76,8 +55,8 @@ impl FoldDB {
     ///   crash could keep the record that names the blob and lose the blob. The
     ///   barrier syncs the one group that holds the row, not the whole store.
     /// - A repeat put of bytes that are already stored does not append a second
-    ///   copy; see [`blob_cas::put_blob_sealed_under_dek_dedup_in_ops`].
-    /// - A blob over [`local_file_blob_max_bytes`] is refused.
+    ///   copy; see [`blob_cas::put_blob_sealed_with_access_dedup_in_ops`].
+    /// - The native record format, pending memory and disk space admit the write.
     ///
     /// No record is written. The put registers the upload with the blob counter,
     /// in the same native request as the row. The blob has no reference until the
@@ -103,27 +82,29 @@ impl FoldDB {
         name: Option<&str>,
         media_type: Option<&str>,
     ) -> Result<LocalFileBlobPut, FoldDbError> {
-        let max = local_file_blob_max_bytes();
-        if plaintext.len() > max {
-            return Err(FoldDbError::Config(format!(
-                "local file blob is {} bytes, over the {max} byte limit \
-                 (store large files as slabs, or raise {LOCAL_FILE_BLOB_MAX_BYTES_ENV})",
-                plaintext.len()
-            )));
+        if plaintext.len() as u64
+            > lastdb_storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
+        {
+            return Err(FoldDbError::Schema(
+                crate::schema::SchemaError::WriteResourceLimit {
+                    detail: "local file input exceeds native pending memory allowance".into(),
+                },
+            ));
         }
-        let blob_ref = local_file_blob_ref(plaintext)?;
+        let (blob_ref, envelope) = self.db_ops().atoms().seal_local_file_blob(plaintext)?;
         let access = blob_ref.to_access();
         // Record which group the write lands in, so the barrier below syncs
         // that group and not every dirty group on the node.
         let placements = BatchPlacementLog::shared();
         let outcome = durable_flush::scope(
             Arc::clone(&placements),
-            blob_cas::put_blob_sealed_under_dek_dedup_in_ops(
+            blob_cas::put_blob_sealed_with_access_dedup_in_ops(
                 self.db_ops(),
-                plaintext,
+                plaintext.len() as u64,
                 media_type.map(str::to_string),
                 name.map(str::to_string),
-                &blob_ref.dek,
+                &access,
+                &envelope,
             ),
         )
         .await?;

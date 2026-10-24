@@ -16,6 +16,8 @@ pub struct VerifiedEnvelope {
     pub plaintext_bytes: u64,
     pub plaintext_sha256: [u8; 32],
     pub stored_sha256: [u8; 32],
+    /// SHA-256 of the binary encryption envelope, without its ENC/ENB wrapper.
+    pub envelope_sha256: [u8; 32],
 }
 
 /// Authenticate one exact original v1 file. No plaintext leaves this function.
@@ -36,7 +38,7 @@ pub fn verify_v1_stream(
     let mut reader = reader::EnvelopeReader::new(input, key, encrypted_bytes)?;
     let mut output = CountHash::new(std::io::sink());
     copy(&mut reader, &mut output)?;
-    Ok(output.proof(stored_sha256))
+    Ok(output.proof(stored_sha256, stored_sha256))
 }
 
 pub(super) struct CountHash<W> {
@@ -52,11 +54,12 @@ impl<W: Write> CountHash<W> {
             hash: Sha256::new(),
         }
     }
-    fn proof(self, stored_sha256: [u8; 32]) -> VerifiedEnvelope {
+    fn proof(self, stored_sha256: [u8; 32], envelope_sha256: [u8; 32]) -> VerifiedEnvelope {
         VerifiedEnvelope {
             plaintext_bytes: self.bytes,
             plaintext_sha256: self.hash.finalize().into(),
             stored_sha256,
+            envelope_sha256,
         }
     }
 }

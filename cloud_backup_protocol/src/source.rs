@@ -11,6 +11,8 @@ pub struct SourceReadSelector {
     pub kind: FileDependencyKind,
     pub owner_scope: Text<128>,
     pub app_id: Option<Text<128>>,
+    /// Object-path digest: ciphertext SHA-256 for account-v2 files, plaintext
+    /// SHA-256 for old suites. The wire name remains stable for old services.
     pub file_hash: Digest,
     pub expected_ciphertext_bytes: DecimalU64,
 }
@@ -63,8 +65,8 @@ impl SourceReadRequest {
     }
 }
 
-/// The logical file hash is not a ciphertext hash. Original file encryption,
-/// plaintext identity, exact length and EOF still require local proof.
+/// An object-path digest alone is not proof of a file. Original encryption,
+/// plaintext identity, exact length and EOF still require local verification.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceReadGrant {

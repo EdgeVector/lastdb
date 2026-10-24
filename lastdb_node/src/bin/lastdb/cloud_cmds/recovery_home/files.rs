@@ -12,7 +12,7 @@ fn directory_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
-pub(super) fn open_directory(path: &Path) -> Result<File, String> {
+pub(crate) fn open_directory(path: &Path) -> Result<File, String> {
     open_directory_excluding(path, None)
 }
 
@@ -67,7 +67,7 @@ pub(super) fn require_disjoint(source: &Path, destination: &Path) -> Result<(), 
     Ok(())
 }
 
-pub(super) fn require_owned_directory(directory: &File) -> Result<(), String> {
+pub(crate) fn require_owned_directory(directory: &File) -> Result<(), String> {
     let metadata = directory
         .metadata()
         .map_err(|_| "cannot inspect source home")?;
@@ -77,7 +77,7 @@ pub(super) fn require_owned_directory(directory: &File) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn entry_present(directory: &File, name: &str) -> Result<bool, String> {
+pub(crate) fn entry_present(directory: &File, name: &str) -> Result<bool, String> {
     match fs::statat(directory, name, AtFlags::SYMLINK_NOFOLLOW) {
         Ok(_) => Ok(true),
         Err(rustix::io::Errno::NOENT) => Ok(false),
@@ -85,7 +85,7 @@ pub(super) fn entry_present(directory: &File, name: &str) -> Result<bool, String
     }
 }
 
-pub(super) fn read_private_file(
+pub(crate) fn read_private_file(
     directory: &File,
     name: &str,
     limit: u64,
@@ -135,7 +135,7 @@ fn read_private_file_bound(
     Ok(bytes)
 }
 
-pub(super) struct FreshHome {
+pub(crate) struct FreshHome {
     parent: File,
     name: OsString,
     directory: Option<File>,
@@ -150,13 +150,17 @@ struct CreatedFile {
 }
 
 impl FreshHome {
+    pub(crate) fn preflight_empty(destination: &Path) -> Result<Self, String> {
+        Self::preflight_with_exclusion(destination, None)
+    }
+
     pub(super) fn preflight(destination: &Path, source: &File) -> Result<Self, String> {
         Self::preflight_with_exclusion(destination, Some(source))
     }
 
     /// The online DEV action cannot create any child below the primary home.
     /// Use a fixed temporary namespace; no HOME or TMPDIR override is accepted.
-    pub(super) fn preflight_source_free_dev(destination: &Path) -> Result<Self, String> {
+    pub(crate) fn preflight_source_free_dev(destination: &Path) -> Result<Self, String> {
         #[cfg(target_os = "macos")]
         let temporary_root = Path::new("/private/tmp");
         #[cfg(not(target_os = "macos"))]
@@ -222,7 +226,7 @@ impl FreshHome {
         })
     }
 
-    pub(super) fn create(mut self) -> Result<Self, String> {
+    pub(crate) fn create(mut self) -> Result<Self, String> {
         fs::mkdirat(&self.parent, &self.name, Mode::from_raw_mode(0o700))
             .map_err(|_| "cannot exclusively create recovery home")?;
         let directory = fs::openat(&self.parent, &self.name, directory_flags(), Mode::empty())
@@ -238,7 +242,7 @@ impl FreshHome {
         self.directory.as_ref().expect("created recovery home")
     }
 
-    pub(super) fn write(&mut self, name: &'static str, bytes: &[u8]) -> Result<(), String> {
+    pub(crate) fn write(&mut self, name: &'static str, bytes: &[u8]) -> Result<(), String> {
         let descriptor = fs::openat(
             self.directory(),
             name,
@@ -266,7 +270,7 @@ impl FreshHome {
         Ok(())
     }
 
-    pub(super) fn commit(&mut self) -> Result<(), String> {
+    pub(crate) fn commit(&mut self) -> Result<(), String> {
         if !self.owns_destination() {
             return Err("recovery home changed during preparation".into());
         }

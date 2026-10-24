@@ -1,0 +1,61 @@
+name: Native DEV client artifact
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-dev-client-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  mac-client:
+    if: github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'native-dev-artifact')
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: always
+      RUSTC_WRAPPER: ''
+      TARGET: aarch64-apple-darwin
+      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Select the repository toolchain
+        run: |
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-dev-client-aarch64-apple-darwin
+          save-if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+      - name: Build the exact client source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          cargo build --release --locked --target "$TARGET" -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Save the client and source receipt
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/native-dev-client"
+          mkdir -p "$output/content/bin"
+          cp "target/$TARGET/release/lastdb" "target/$TARGET/release/lastdbd" "$output/content/bin/"
+          printf '%s\n' "$SOURCE_COMMIT" > "$output/content/SOURCE_COMMIT"
+          printf '%s\n' "$TARGET" > "$output/content/TARGET"
+          for binary in lastdb lastdbd; do
+            "$output/content/bin/$binary" --version
+          done > "$output/content/VERSION"
+          (cd "$output/content" && shasum -a 256 bin/lastdb bin/lastdbd > SHA256SUMS)
+          tar -czf "$output/lastdb-native-dev-arm64.tar.gz" -C "$output/content" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lastdb-native-dev-arm64-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/native-dev-client/lastdb-native-dev-arm64.tar.gz
+          retention-days: 3
+          if-no-files-found: error

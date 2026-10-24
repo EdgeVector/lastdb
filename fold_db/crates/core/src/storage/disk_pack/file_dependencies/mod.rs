@@ -48,6 +48,8 @@ pub struct FileDependencyRecord {
     pub logical_pointer_sha256: Digest,
     pub kind: FileDependencyKind,
     pub blob_ref: String,
+    /// Ciphertext digest for account-v2; plaintext digest for old file suites.
+    /// This record is nonsecret and can enter the local capture spool.
     pub file_hash: Digest,
     pub owner_scope: Option<String>,
     pub encryption_suite: String,
@@ -91,6 +93,11 @@ impl FileDependency {
 
     pub fn file_hash(&self) -> &Digest {
         &self.record.file_hash
+    }
+
+    pub fn storage_hash(&self) -> StorageResult<&str> {
+        crate::sharing::file_blob_seal::file_blob_storage_hash(self.blob_ref())
+            .map_err(|_| invalid("file dependency storage digest"))
     }
 
     pub fn expected_stored_bytes(&self) -> u64 {

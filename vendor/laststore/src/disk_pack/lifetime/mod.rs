@@ -72,6 +72,18 @@ impl GenerationHold {
         })
     }
 
+    /// Validate a live durable reference before local reader registration.
+    /// This alone permits an older retained root below the writer's read floor.
+    /// The temporary filesystem deletion lock ends before the reader returns.
+    pub fn from_reference(lease: &WriterReadLease, reference: &DurableReference) -> Result<Self> {
+        let read = lease.hold_reference(reference)?;
+        Ok(Self {
+            current: reference.current().clone(),
+            root: reference.home_path().to_path_buf(),
+            _guard: HoldGuard::Writer { _read: read },
+        })
+    }
+
     pub(in crate::disk_pack) fn root(&self) -> &Path {
         &self.root
     }

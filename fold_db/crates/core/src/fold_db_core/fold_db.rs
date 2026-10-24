@@ -37,10 +37,7 @@ pub use file_blobs::{
 };
 pub use hashrange_key_repair::HashRangeKeyFieldRepairReport;
 pub use init::FoldDbInit;
-pub use local_file_blobs::{
-    local_file_blob_max_bytes, LocalFileBlobPut, LOCAL_FILE_BLOB_MAX_BYTES_DEFAULT,
-    LOCAL_FILE_BLOB_MAX_BYTES_ENV,
-};
+pub use local_file_blobs::LocalFileBlobPut;
 pub use maintenance_admission::LocalMutationAdmission;
 
 /// The main database coordinator that manages schemas, permissions, and data storage.

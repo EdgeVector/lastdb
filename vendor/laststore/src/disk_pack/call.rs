@@ -28,13 +28,15 @@ impl ReadBudget {
             || self.bytes == 0
             || self.keys == 0
             || self.pages > 4096
-            || self.blocks > 16_384
-            || self.bytes > 256 * 1024 * 1024
+            || self.blocks > lastdb_storage_policy::native_read::EAGER_BLOCKS
+            || self.bytes > lastdb_storage_policy::native_read::EAGER_WORK_BYTES
             || self.keys > 10_000
         {
-            return Err(crate::Error::Config(
-                "disk-pack v1 budget requires 1..4096 pages, 1..16384 blocks, 1..256 MiB, and 1..10000 keys".into(),
-            ));
+            return Err(crate::Error::Config(format!(
+                "disk-pack read budget requires 1..4096 pages, 1..{} blocks, 1..{} bytes, and 1..10000 keys",
+                lastdb_storage_policy::native_read::EAGER_BLOCKS,
+                lastdb_storage_policy::native_read::EAGER_WORK_BYTES,
+            )));
         }
         Ok(())
     }
@@ -122,8 +124,8 @@ impl ReadCall {
     ) -> Result<Self> {
         let budget = ReadBudget {
             pages: 4096,
-            blocks: 16_384,
-            bytes: 256 * 1024 * 1024,
+            blocks: lastdb_storage_policy::native_read::EAGER_BLOCKS,
+            bytes: lastdb_storage_policy::native_read::EAGER_WORK_BYTES,
             keys: 40_000,
         };
         Self::from_writer_budget(root, current, descriptor, budget, lease)

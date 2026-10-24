@@ -5,7 +5,9 @@
 //! `FileThumbnailRef` still carries the access metadata needed by readers.
 
 use super::*;
-use crate::sharing::delivery_wire::{file_thumbnail_ref_from_atom_value, FileThumbnailRef};
+use crate::sharing::delivery_wire::{
+    file_thumbnail_ref_from_atom_value, FileThumbnailRef, FILE_BLOB_CIPHER_SUITE,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -202,6 +204,13 @@ impl SyncEngine {
                     thumb_ref.access.encrypted_size_bytes
                 )));
             }
+            if thumb_ref.access.cipher_suite == FILE_BLOB_CIPHER_SUITE
+                && crate::hex::sha256_hex(&ciphertext) != thumb_hash.as_str()
+            {
+                return Err(SyncError::Crypto(
+                    "thumbnail ciphertext address differs".into(),
+                ));
+            }
             ciphertexts.insert(thumb_hash.clone(), ciphertext);
         }
 
@@ -226,8 +235,7 @@ impl SyncEngine {
         // upload_file_thumbnail (or another snapshot's loose objects) can appear
         // in the listing but not in this pack — deleting them races and loses
         // objects that are still the only copy of a live thumb.
-        // Route through the same policy helper tests use (listed set = packed
-        // bare hashes when we skip the dangerous full loose listing).
+        // The listed set contains exactly the packed bare hashes.
         let to_delete =
             loose_thumb_hashes_to_delete_after_pack(ciphertexts.keys(), ciphertexts.keys());
         for thumb_hash in &to_delete {

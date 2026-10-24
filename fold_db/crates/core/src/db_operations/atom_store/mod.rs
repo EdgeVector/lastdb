@@ -34,6 +34,7 @@ mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
 mod erase_meters;
+mod file_blob_seal;
 mod filter;
 mod helpers;
 mod keep_small;

@@ -74,10 +74,9 @@ pub(crate) enum DbBlobCommand {
     /// your own. A pointer inside a JSON string is not a reference: the blob is
     /// reclaimed once its row is older than 600 s. Identical bytes give an
     /// identical pointer. Reads the bytes from --file, or from stdin when stdin
-    /// is a pipe. The row is on disk before the pointer is printed. A blob is at
-    /// most 16 MiB unless the daemon's owner sets
-    /// `LASTDB_LOCAL_FILE_BLOB_MAX_BYTES`; the daemon answers 413 above it, so
-    /// store larger files as slabs. Read the bytes back with `db fetch-file-blob`.
+    /// is a pipe. The row is on disk before the pointer is printed. Native
+    /// format, pending memory and disk-space checks admit the write. Read the
+    /// bytes back with `db fetch-file-blob`.
     PutBlobLocal(PutBlobLocalArgs),
     /// Fork a shared `$lastdb_file` pointer into this node's personal blob scope.
     ///

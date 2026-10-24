@@ -35,6 +35,8 @@ pub(super) fn cancel_uncaptured(source: &Source, store: &Store, saved: &mut Save
     saved.phase = Phase::Closed;
     saved.retained_source_bytes = Some(0);
     saved.blocked_reason = None;
+    saved.pause = None;
+    saved.pause_consent_revision = None;
     store.save(saved)?;
     Ok(true)
 }
@@ -75,6 +77,8 @@ pub(super) fn finish(work: &mut Work<'_>, result: &JobResult) -> Result<()> {
         work.saved.phase = Phase::Closed;
     }
     work.saved.blocked_reason = None;
+    work.saved.pause = None;
+    work.saved.pause_consent_revision = None;
     // Authority reaches disk before source release or private metadata cleanup.
     work.store.save(work.saved)?;
     work.capture.confirm_terminal(result.clone())?;
@@ -114,6 +118,8 @@ pub(super) async fn reconcile(
     }
     saved.retained_source_bytes = Some(0);
     saved.blocked_reason = None;
+    saved.pause = None;
+    saved.pause_consent_revision = None;
     store.set_other_bytes(0);
     store.save(saved)
 }

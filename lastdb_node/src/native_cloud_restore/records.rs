@@ -7,7 +7,7 @@ use lastdb_storage_policy::backup_decode::{
     FILE_COVERAGE_MEMORY_BYTES, NATIVE_STREAM_BLOCKS,
 };
 use laststore::disk_pack::home::DiskHome;
-use laststore::disk_pack::ReadBudget;
+use laststore::disk_pack::{Current, ReadBudget};
 use std::collections::BTreeSet;
 mod native_file;
 
@@ -26,6 +26,7 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
     admit_count(external_count)?;
     let home =
         DiskHome::open(&session.physical()).map_err(|_| RestoreError::Invalid("native home"))?;
+    let current = accepted_current(session)?;
     let mut atoms = 0u64;
     let mut covered = BTreeSet::new();
     for group in 0..1024u16 {
@@ -33,7 +34,10 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
         loop {
             let page = {
                 let mut read = home
-                    .read(budget(directory::ATOM_INVENTORY_READ_BYTES, 10000))
+                    .read_committed(
+                        current.clone(),
+                        budget(directory::ATOM_INVENTORY_READ_BYTES, 10000),
+                    )
                     .map_err(|_| RestoreError::Limit("native atom read"))?;
                 let mut cursor = directory::atom_inventory(&mut read, group, &start)
                     .map_err(|_| RestoreError::Limit("native atom inventory"))?;
@@ -54,8 +58,14 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
                 else {
                     continue;
                 };
-                let atom = directory::open_atom(key, &record.body)
-                    .map_err(|_| RestoreError::Invalid("native atom envelope"))?;
+                let atom = directory::open_atom(key, &record.body, &current, |budget| {
+                    home.read_committed(current.clone(), budget).map_err(|_| {
+                        fold_db::storage::StorageError::InvalidOperation(
+                            "native molecule key read".into(),
+                        )
+                    })
+                })
+                .map_err(|_| RestoreError::Invalid("native atom envelope"))?;
                 if atom.uuid() != id {
                     return Err(RestoreError::Invalid("atom identity"));
                 }
@@ -64,13 +74,13 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
                 drop(atom);
                 drop(record);
                 let mut read = home
-                    .read(budget(DIRECTORY_READ_BYTES, 3))
+                    .read_committed(current.clone(), budget(DIRECTORY_READ_BYTES, 3))
                     .map_err(|_| RestoreError::Limit("native file directory"))?;
                 directory::read_directories(&mut read, scope.as_deref(), &id, &expected, key)
                     .map_err(|_| RestoreError::Invalid("native file directory coverage"))?;
                 drop(read);
                 for dependency in expected {
-                    verify_dependency(session, &home, key, &dependency, &mut covered)?;
+                    verify_dependency(session, &home, &current, key, &dependency, &mut covered)?;
                 }
                 atoms = atoms
                     .checked_add(1)
@@ -95,18 +105,9 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
 
 pub(super) fn verify_metadata(session: &RestoreSession, key: &[u8; 32]) -> Result<()> {
     // The coverage set from verify() is gone before this separate bounded pass.
-    let physical = session.physical();
-    let bytes = super::download::bytes(&physical.join("CURRENT"), 4096)?;
-    if cloud_backup_protocol::bytes_sha256(&bytes) != session.accepted().native_root.current_sha256
-    {
-        return Err(RestoreError::Invalid("metadata accepted native root"));
-    }
-    let fixed: [u8; 4096] = bytes
-        .try_into()
-        .map_err(|_| RestoreError::Invalid("metadata native root size"))?;
-    let current = laststore::disk_pack::Current::decode(&fixed)
-        .map_err(|_| RestoreError::Invalid("metadata native root"))?;
-    let home = DiskHome::open(&physical).map_err(|_| RestoreError::Invalid("native home"))?;
+    let current = accepted_current(session)?;
+    let home =
+        DiskHome::open(&session.physical()).map_err(|_| RestoreError::Invalid("native home"))?;
     directory::verify_metadata_coverage(&current, key, |budget| {
         home.read_committed(current.clone(), budget).map_err(|_| {
             fold_db::storage::StorageError::InvalidOperation("metadata native read".into())
@@ -119,11 +120,12 @@ pub(super) fn verify_metadata(session: &RestoreSession, key: &[u8; 32]) -> Resul
 fn verify_dependency(
     session: &RestoreSession,
     home: &DiskHome,
+    current: &Current,
     key: &[u8; 32],
     dependency: &directory::FileDependency,
     covered: &mut BTreeSet<[u8; 32]>,
 ) -> Result<()> {
-    if native_file::verify(session, home, key, dependency)? {
+    if native_file::verify(session, home, current, key, dependency)? {
         return Ok(());
     }
     let file = file_recovery::open_verified_ciphertext(
@@ -154,6 +156,19 @@ fn budget(bytes: u64, keys: u64) -> ReadBudget {
         keys,
     }
 }
+
+fn accepted_current(session: &RestoreSession) -> Result<Current> {
+    let bytes = super::download::bytes(&session.physical().join("CURRENT"), 4096)?;
+    if cloud_backup_protocol::bytes_sha256(&bytes) != session.accepted().native_root.current_sha256
+    {
+        return Err(RestoreError::Invalid("accepted native root"));
+    }
+    let fixed: [u8; 4096] = bytes
+        .try_into()
+        .map_err(|_| RestoreError::Invalid("native root size"))?;
+    Current::decode(&fixed).map_err(|_| RestoreError::Invalid("native root"))
+}
+
 fn raw_digest(digest: &Digest) -> Result<[u8; 32]> {
     hex::decode(digest.as_str())
         .map_err(|_| RestoreError::Invalid("digest"))?

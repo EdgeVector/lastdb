@@ -6,9 +6,8 @@
 //! a record of its choice, in a batch it controls. Cloud mode keeps its own
 //! route (`POST /api/db/file-blob`) and still answers 409 without an engine.
 //!
-//! A blob is bounded by `LASTDB_LOCAL_FILE_BLOB_MAX_BYTES` (16 MiB unless the
-//! owner raises it). The route answers 413 above it, before it decodes or
-//! copies the body. Store larger files as slabs.
+//! Native format, pending memory and disk-space checks admit the stored row.
+//! JSON requests retain the socket's general request-body allowance.
 
 use super::*;
 use std::borrow::Cow;
@@ -42,17 +41,6 @@ struct JsonBody<'a> {
 /// A request the route refuses: the status and the message.
 type Refusal = (u16, String);
 
-fn too_large(bytes: usize, max: usize) -> Refusal {
-    (
-        413,
-        format!(
-            "blob is {bytes} bytes, over the {max} byte limit for one local blob \
-             ({}); store large files as slabs",
-            fold_db::fold_db_core::fold_db::LOCAL_FILE_BLOB_MAX_BYTES_ENV
-        ),
-    )
-}
-
 /// Read the plaintext and the optional metadata from either request form.
 ///
 /// - `Content-Type: application/octet-stream`: the body IS the plaintext,
@@ -60,15 +48,8 @@ fn too_large(bytes: usize, max: usize) -> Refusal {
 ///   JSON in `X-LastDB-File-Blob-Metadata`.
 /// - Otherwise a JSON body `{ "bytes_b64": ..., "name"?, "media_type"? }`.
 ///
-/// `max` is the blob limit. Each form checks it before it copies or decodes.
-fn parse_put_blob_local(
-    req: &UdsRequest,
-    max: usize,
-) -> Result<(Cow<'_, [u8]>, LocalBlobMetadata), Refusal> {
+fn parse_put_blob_local(req: &UdsRequest) -> Result<(Cow<'_, [u8]>, LocalBlobMetadata), Refusal> {
     if is_media_type(req, "content-type", "application/octet-stream") {
-        if req.body.len() > max {
-            return Err(too_large(req.body.len(), max));
-        }
         let metadata = match req.header(FILE_BLOB_METADATA_HEADER) {
             Some(raw) => serde_json::from_str(raw)
                 .map_err(|e| (400, format!("invalid local blob metadata header: {e}")))?,
@@ -76,20 +57,24 @@ fn parse_put_blob_local(
         };
         return Ok((Cow::Borrowed(req.body.as_slice()), metadata));
     }
+    if req.body.len() > lastdb_uds::uds_http::MAX_BODY_LEN {
+        return Err((
+            413,
+            "JSON request exceeds the request body allowance".into(),
+        ));
+    }
     let body: JsonBody<'_> = serde_json::from_slice(&req.body)
         .map_err(|e| (400, format!("invalid /api/db/put-blob-local body: {e}")))?;
-    // Base64 text is 4 characters for each 3 bytes, so text longer than this
-    // cannot decode to a blob within the limit. Refuse it before the decode.
-    let max_text = max.div_ceil(3).saturating_mul(4);
-    if body.bytes_b64.len() > max_text {
-        return Err(too_large(body.bytes_b64.len() / 4 * 3, max));
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(body.bytes_b64.as_bytes())
+    let capacity = base64::decoded_len_estimate(body.bytes_b64.len());
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(capacity)
+        .map_err(|_| (503, "local file decode allocation refused".into()))?;
+    bytes.resize(capacity, 0);
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode_slice(body.bytes_b64.as_bytes(), &mut bytes)
         .map_err(|e| (400, format!("bytes_b64 is invalid base64: {e}")))?;
-    if bytes.len() > max {
-        return Err(too_large(bytes.len(), max));
-    }
+    bytes.truncate(decoded);
     Ok((
         Cow::Owned(bytes),
         LocalBlobMetadata {
@@ -122,16 +107,10 @@ pub(super) async fn execute_db_put_blob_local_route(
         return error_response(403, "local blob put is owner-only", ctx);
     }
     {
-        let max = fold_db::fold_db_core::fold_db::local_file_blob_max_bytes();
-        let (plaintext, metadata) = match parse_put_blob_local(req, max) {
+        let (plaintext, metadata) = match parse_put_blob_local(req) {
             Ok(parsed) => parsed,
             Err((status, message)) => return error_response(status, &message, ctx),
         };
-        // The socket already refuses a body over this cap; the check keeps the
-        // limit true for any other caller of the executor.
-        if plaintext.len() > lastdb_uds::uds_http::MAX_BODY_LEN {
-            return error_response(413, "blob is larger than the request body cap", ctx);
-        }
         let put = match crate::maintenance_write_gate::run(
             host,
             host.db.put_local_file_blob(

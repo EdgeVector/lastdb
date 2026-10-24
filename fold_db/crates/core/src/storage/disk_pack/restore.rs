@@ -43,7 +43,7 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
         .ok_or_else(|| refusal("native logical format marker is missing"))?;
     let plain = crate::crypto::at_rest::open_at_rest_bounded(account_key, &stored, 4096)
         .map_err(|_| refusal("native logical format marker cannot be opened"))?;
-    if plain != crate::db_operations::atom_store::key_format::KEY_FORMAT {
+    if !crate::db_operations::atom_store::key_format::is_supported_key_format(&plain) {
         return Err(refusal("unsupported restored logical format"));
     }
     drop(reader);

@@ -1,5 +1,8 @@
 use super::super::{file_dependencies as files, file_recovery};
-use super::dependencies::{held_read, ready, require_room, selection, ActiveWork, FileSource};
+use super::dependencies::{
+    held_current, held_read, held_read_budget, ready, require_room, selection, ActiveWork,
+    FileSource,
+};
 use super::dependency_state::*;
 use super::dependency_store::DependencyStore;
 use super::{invalid, protocol, ExportInner, NativeBackupCapture, StorageResult};
@@ -75,7 +78,9 @@ fn exact_dependency(
             .map_err(super::super::map)?
             .ok_or_else(|| invalid("backup dependency atom is absent"))?
     };
-    let atom = files::open_atom(key, &body)?;
+    let atom = files::open_atom(key, &body, held_current(inner)?, |budget| {
+        held_read_budget(inner, budget)
+    })?;
     if atom.uuid() != entry.dependency.atom_id {
         return Err(invalid("backup dependency atom identity"));
     }

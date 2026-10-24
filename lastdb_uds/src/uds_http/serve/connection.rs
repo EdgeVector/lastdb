@@ -30,9 +30,13 @@ pub(super) fn receive_with_budget(
 ) -> io::Result<Option<(UdsRequest, AccessContext)>> {
     let read_half = stream.try_clone()?;
     let deadline = std::time::Instant::now() + budget;
-    let request = match read_request(io::BufReader::new(DeadlineStream::new(
-        &read_half, deadline,
-    ))) {
+    let base = uds_access_context(owner_user_id, socket_kind, transport, verification);
+    // Only the authenticated owner may stream a large local file upload.
+    // Preserve that framing rule for both immediate and deferred handlers.
+    let request = match read_request_with_owner_blob(
+        io::BufReader::new(DeadlineStream::new(&read_half, deadline)),
+        base.is_owner,
+    ) {
         Ok(request) => request,
         Err(UdsHttpError::Empty | UdsHttpError::Io(_)) => return Ok(None),
         Err(error) => {
@@ -41,8 +45,7 @@ pub(super) fn receive_with_budget(
         }
     };
     let peer_pid = peer_pid_from_stream(stream);
-    let base = uds_access_context(owner_user_id, socket_kind, transport, verification)
-        .with_peer_pid(peer_pid);
+    let base = base.with_peer_pid(peer_pid);
     let context = match base.with_db_handle(request.header(fold_db::access::LASTDB_DB_HEADER)) {
         Ok(context) => context,
         Err(message) => {
