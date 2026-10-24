@@ -2,7 +2,8 @@
 
 The retry cache keeps at most 8,192 mutation receipts in 256 stored records.
 Each stored record keeps at most 32 receipts and 8 KiB of serialized data.
-The namespace also keeps one marker for the old cache cleanup.
+The namespace also keeps one completion marker and a temporary continuation
+key for the old cache cleanup.
 
 The cache uses the full scoped mutation-content key to calculate a SHA-256
 fingerprint. The first byte selects a bucket. The complete fingerprint must
@@ -29,12 +30,18 @@ this produces a miss and does not permit a false duplicate.
 ## Old homes
 
 The new reader does not use the old one-record-per-content-hash cache.
-Each nonempty cache write checks one bounded page of at most 512 metadata
-records until it removes the old `idem:` records. Scoped old records use the
-same check. Cleanup does not read or change product records. Unknown key
-families remain in place.
+Each nonempty cache write requests one yielding range page of at most 512
+metadata records until it removes the old `idem:` records. A saved continuation
+starts the next call after the last examined key, including keys that no longer
+have a value. Unknown families also advance the continuation and remain in
+place. A short page does not mark completion when the backend supplies a
+continuation. Scoped old records use the same check. Cleanup does not read or
+change product records.
 
-The cleanup marker and the erasures belong to the same native snapshot.
+The continuation, completion marker, and erasures belong to the same native
+snapshot. A failed write does not advance the saved position. The temporary
+continuation key leaves when the range ends. The new cache never adds old
+`idem:` keys behind that position; use one LastDB writer version at a time.
 The native format can retain deletion markers until a later format transfer.
 Compaction can remove the obsolete payload files, but this change does not
 claim that old deletion markers disappear from the current format.

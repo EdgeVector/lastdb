@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 
 const PREFIX: &str = "retry-cache:v1:";
 const DRAINED: &[u8] = b"retry-cache:v1:legacy-drained";
+const CURSOR: &[u8] = b"retry-cache:v1:legacy-cursor";
+const LEGACY_END: &[u8] = "\u{10ffff}".as_bytes();
 const BUCKETS: usize = 256;
 const ENTRIES: usize = 32;
 const BUCKET_BYTES: usize = 8 * 1024;
@@ -121,18 +123,28 @@ async fn retire_legacy(store: &TypedKvStore<dyn KvStore>) -> StorageResult<()> {
     if store.inner().get(DRAINED).await?.is_some() {
         return Ok(());
     }
-    // At most BUCKETS new rows precede old keys; the page always makes progress.
-    let page = store.inner().scan_prefix_paged(b"", LEGACY_PAGE).await?;
-    let complete = page.len() < LEGACY_PAGE;
+    let start = store.inner().get(CURSOR).await?.unwrap_or_default();
+    let page = store
+        .inner()
+        .scan_range_yielding(&start, LEGACY_END, LEGACY_PAGE, 0)
+        .await?;
     let old = page
+        .rows
         .into_iter()
         .filter_map(|(key, _)| is_legacy(&key).then_some(key))
         .collect::<Vec<_>>();
     if !old.is_empty() {
         store.inner().batch_delete(old).await?;
     }
-    if complete {
+    if let Some(mut last) = page.resume {
+        // The API includes start. Appending NUL resumes strictly after the
+        // last examined key, including a deleted key named by a budget stop.
+        // Unknown families advance the cursor even though we preserve them.
+        last.push(0);
+        store.inner().put(CURSOR, last).await?;
+    } else {
         store.inner().put(DRAINED, b"true".to_vec()).await?;
+        store.inner().delete(CURSOR).await?;
     }
     Ok(())
 }
