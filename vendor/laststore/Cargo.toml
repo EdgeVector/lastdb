@@ -75,5 +75,11 @@ test = false
 name = "lastdb-pack-maintain"
 path = "src/bin/lastdb-pack-maintain.rs"
 
+[[bin]]
+bench = false
+test = false
+name = "lastdb-native-transfer"
+path = "src/bin/lastdb-native-transfer.rs"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.30", default-features = false, features = ["fs"] }
