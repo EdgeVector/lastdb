@@ -28,6 +28,8 @@ pub use local::at_rest_provider_label;
 /// Local construction inputs. None of these options selects another engine.
 #[derive(Default)]
 pub struct FoldDbOptions {
+    /// Open without periodic writers. The offline owner retains the home lock.
+    pub offline_maintenance: bool,
     /// An embedded caller can supply an unlocked store keyring. Mini uses None
     /// so its account E2E content key protects local data.
     pub at_rest_keyring: Option<Arc<Keyring>>,
