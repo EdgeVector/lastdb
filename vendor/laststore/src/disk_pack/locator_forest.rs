@@ -135,8 +135,8 @@ pub(super) struct LocatorChanges {
     root: PathBuf,
     generation: u64,
     new: Option<LocatorForest>,
-    /// The existing object that receives new groups, chosen once per publication.
-    shared: Option<Uuid>,
+    /// One checked immutable empty template; it drops with this publication.
+    shared: Option<super::page::EmptyLocator>,
     edited: BTreeMap<Uuid, (TreeRoot, SparsePages)>,
     open_object: Option<Uuid>,
     changes: Changes,
@@ -219,38 +219,30 @@ impl LocatorChanges {
         call: &mut ReadCall,
         directory: &TreeRoot,
     ) -> Result<Option<TreeRoot>> {
-        if self.shared.is_none() {
-            // Prefer an object this publication already edits: its part is open.
-            self.shared = match self.edited.keys().next() {
-                Some(object) => Some(*object),
-                None => {
-                    let mut cursor = TreeCursor::seek(call, directory.clone(), b"")?;
-                    match cursor.next(call)? {
-                        Some((_, value)) => Some(DirectoryEntry::decode(&value)?.locator.object),
-                        None => None,
-                    }
+        if let Some(template) = &self.shared {
+            return call.reuse_empty_locator(template).map(Some);
+        }
+        // Prefer an object this publication already edits: its part is open.
+        let object = match self.edited.keys().next() {
+            Some(object) => Some(*object),
+            None => {
+                let mut cursor = TreeCursor::seek(call, directory.clone(), b"")?;
+                match cursor.next(call)? {
+                    Some((_, value)) => Some(DirectoryEntry::decode(&value)?.locator.object),
+                    None => None,
                 }
-            };
-        }
-        let Some(object) = self.shared else {
+            }
+        };
+        let Some(object) = object else {
             return Ok(None);
         };
-        let empty = TreeRoot {
-            object,
-            page: 0,
-            height: 1,
-            kind: TreeKind::Locator,
-        };
-        let page = call.tree_page(&empty, 0)?;
-        // Validate that page zero is an empty leaf. If not (e.g., an object written by an
-        // older build or a future incompatible layout), refuse to reuse it and force a new
-        // object. This prevents corruption from merging into the wrong tree.
-        if page.level() != 0 || page.count() != 0 {
-            // Reset shared choice so subsequent groups also get a new object.
-            self.shared = None;
-            return Ok(None);
-        }
-        Ok(Some(empty))
+        // Validate once, before reuse. Older nonempty page-zero layouts still
+        // select a fresh object instead of treating live records as a template.
+        self.shared = call.empty_locator_template(object)?;
+        self.shared
+            .as_ref()
+            .map(|template| call.reuse_empty_locator(template))
+            .transpose()
     }
 
     pub(super) fn edit(
