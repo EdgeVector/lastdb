@@ -7,12 +7,13 @@ use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::Mutation;
 use serde_json::Value;
 
+use crate::handlers::schema_resolve::resolve_schema_name;
 use crate::host_node::HostNode;
 use crate::qos::Lane;
 use crate::HostError;
 
 use super::cloud::{attach_batch_cloud_capture, is_durable_delete, reject_illegal_must_exist};
-use super::fields::{fields_payload_bytes, resolve_required_schema_name, validate_mutation_fields};
+use super::fields::{fields_payload_bytes, validate_mutation_fields};
 use super::{
     configure_mutation, operations_json, stages_json, wait_for_requested_convergence,
     MutationComponents,
@@ -43,9 +44,14 @@ pub async fn execute_mutations_batch<H: HostNode>(
 
         // Sum per-item phases without changing which rejection wins first.
         let resolve_started = std::time::Instant::now();
-        let resolved = resolve_required_schema_name(host, &components.schema);
+        let resolved = resolve_schema_name(host, &components.schema)?;
         request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-        let canonical = resolved?;
+        let Some(canonical) = resolved else {
+            return Err(HostError::new(
+                404,
+                format!("Schema not found: {}", components.schema),
+            ));
+        };
         reject_illegal_must_exist(components.mutation_type, components.must_exist)?;
 
         let validate_started = std::time::Instant::now();
