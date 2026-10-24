@@ -159,24 +159,28 @@ impl<P: TreePages> TreeEdit<P> {
                 number: key_layout::child(entry),
             });
         }
-        let mut boundaries = Vec::with_capacity(children.len() + 1);
-        boundaries.push(path.lower);
-        for child in &children[1..] {
-            boundaries.push(Some(
-                call.full_key(&self.root, child.minimum.as_ref().expect("separator"))?,
-            ));
-        }
-        boundaries.push(path.upper);
         let mut out = Vec::new();
         let mut first = 0;
-        for (position, child) in children.into_iter().enumerate() {
-            let end = boundaries[position + 1]
-                .as_deref()
-                .map_or(changes.len(), |upper| {
-                    first + changes[first..].partition_point(|(key, _)| key.as_slice() < upper)
-                });
+        let mut lower = path.lower;
+        let mut children = children.into_iter().peekable();
+        while let Some(child) = children.next() {
+            let upper = match children.peek() {
+                Some(next) => Some(
+                    super::mutation_key::key_bytes(
+                        call,
+                        &self.root,
+                        next.minimum.as_ref().expect("separator"),
+                    )?
+                    .into_owned(),
+                ),
+                None => path.upper.clone(),
+            };
+            let end = upper.as_deref().map_or(changes.len(), |upper| {
+                first + changes[first..].partition_point(|(key, _)| key.as_slice() < upper)
+            });
             if first == end {
                 out.push(child);
+                lower = upper;
                 continue;
             }
             out.extend(self.edit(
@@ -186,12 +190,13 @@ impl<P: TreePages> TreeEdit<P> {
                     number: child.number,
                     level: path.level - 1,
                     minimum: child.minimum,
-                    lower: boundaries[position].clone(),
-                    upper: boundaries[position + 1].clone(),
+                    lower,
+                    upper: upper.clone(),
                     is_root: false,
                 },
                 &changes[first..end],
             )?);
+            lower = upper;
             first = end;
         }
         if first != changes.len() {
@@ -225,7 +230,7 @@ impl<P: TreePages> TreeEdit<P> {
         let mut updates = changes.iter().peekable();
         for index in 0..page.count() {
             let entry = page.entry(index);
-            let key = call.key_bytes(&self.root, entry)?;
+            let key = super::mutation_key::key_bytes(call, &self.root, entry)?;
             while updates
                 .peek()
                 .is_some_and(|(next, _)| next.as_slice() < key.as_ref())
@@ -313,7 +318,7 @@ fn validate_page(call: &mut ReadCall, tree: &TreeRoot, page: &Page, path: &PathS
     }
     for number in 0..page.count() {
         let entry = page.entry(number);
-        let key = call.key_bytes(tree, entry)?;
+        let key = super::mutation_key::key_bytes(call, tree, entry)?;
         if previous.as_deref().is_some_and(|p| p >= key.as_ref())
             || path.lower.as_deref().is_some_and(|p| p > key.as_ref())
             || path.upper.as_deref().is_some_and(|p| p <= key.as_ref())

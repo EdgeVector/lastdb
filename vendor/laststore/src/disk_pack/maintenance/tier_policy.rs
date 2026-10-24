@@ -14,6 +14,12 @@ pub(in crate::disk_pack) struct CompactionPolicy {
 
 impl CompactionPolicy {
     pub(super) fn boundary(&self, root: &Path, current: &Current) -> Result<u64> {
+        // The current tier copier materializes all separator keys together.
+        // Extended homes use the streaming full copier until tiers have the
+        // same per-key bound. This is an optimization choice, not a format change.
+        if current.required_features & crate::disk_pack::FEATURE_EXTENDED_KEYS != 0 {
+            return Ok(0);
+        }
         if self.base == 0 || self.changed_records >= (self.base_records / 4).max(1) {
             return Ok(0);
         }

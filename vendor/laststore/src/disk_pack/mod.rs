@@ -29,6 +29,7 @@ mod live_parts;
 mod location;
 mod locator_forest;
 pub mod maintenance;
+mod mutation_key;
 mod object;
 mod pack_write;
 mod packed_page;

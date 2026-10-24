@@ -40,6 +40,12 @@ An extended generation permits at most 32,768 pages under the same finite work-b
 `ReadBudget::for_current` selects compatible administrative defaults from the captured generation.
 Native administrative reads and write preparation use those bounds.
 This avoids an impossible exact read of two adjacent 32 MiB keys under the old page ceiling.
+The writer validates extended overflow keys with one bounded scratch call per key.
+A populated page therefore stays writable when its complete overflow exceeds an ordinary query allowance.
+The writer retains only adjacent separator bounds instead of every separator key.
+The aggregate work remains bounded by the page occupancy, tree height, and admitted changes.
+Extended homes use the streaming full compactor.
+The current tier copier retains a complete page's keys; its optimization stays off for this feature.
 No active OPE performance claim follows from this format support.
 The full reader/writer change and active OPE measurements still precede primary approval.
 
