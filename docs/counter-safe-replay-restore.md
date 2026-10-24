@@ -39,6 +39,7 @@ Repeat the complete restore to finish it.
 Native file restore marks its inactive target for counter validation.
 The first logical open validates that target before it starts cleanup workers.
 An invalid target remains blocked.
+Startup refuses an unreadable marker, a marker link, or a marker that exceeds its byte limit.
 Keep an incomplete restore under a program that supports this validation marker.
 
 Validation discovers scopes from raw keys and reads their values through the correct encryption reader.
