@@ -56,8 +56,10 @@ A latency increase remains advisory. Incomplete measurements fail.
 The existing `benchmark-complete` gate remains unchanged.
 
 Candidate discovery retains at most four source pages within one query.
-Each retained page contains at most 256 keys.
+Each retained page contains at most 256 tips, with their keys and metadata.
 A refill reuses future keys and reads only the missing part of a short page.
+Covered candidate tips use the existing body reader without a second tip read.
+The covered interval also proves absent keys. Unknown intervals use the exact reader.
 Additional sources retain the ordinary bounded read path.
 Four concurrent source reads and the merged page add a fixed amount of temporary memory.
 The existing per-call key and byte work limits remain unchanged.

@@ -9,15 +9,24 @@ const CANDIDATE_BATCH_LIMIT: usize = 256;
 const SOURCE_READ_CONCURRENCY: usize = 4;
 const CACHED_SOURCE_PAGES: usize = 4;
 
+mod candidates;
+
+type CandidateTip = (
+    KeyValue,
+    crate::db_operations::atom_store::PerKeyRecord,
+    String,
+);
+
 #[derive(Default)]
 struct CandidatePage {
-    keys: Vec<KeyValue>,
+    tips: Vec<CandidateTip>,
     exhausted: bool,
 }
 
 #[derive(Default)]
-struct CandidatePages {
+pub(super) struct CandidatePages {
     pages: [Option<CandidatePage>; CACHED_SOURCE_PAGES],
+    after: Option<KeyValue>,
 }
 
 struct ReceivedWindow {
@@ -99,17 +108,29 @@ impl HashRangeQueryProcessor {
         })?;
         let mut state = ReceivedWindow::new(window, &request.own_prefix);
         let mut discovery = CandidatePages::default();
+        let mut round = 0usize;
         while state.selected.values.len() < state.limit {
+            round += 1;
+            let limit = state.batch_limit();
             let (keys, exhausted) = self
                 .received_candidate_keys(
                     field,
                     request,
                     filter,
                     state.after.clone(),
-                    state.batch_limit(),
+                    limit,
                     &mut discovery,
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    received_resource_error(
+                        error,
+                        "discovery",
+                        round,
+                        limit,
+                        state.selected.values.len(),
+                    )
+                })?;
             let Some(frontier) = keys.last().cloned() else {
                 return Ok(state.selected);
             };
@@ -139,11 +160,21 @@ impl HashRangeQueryProcessor {
                 received: request.received,
                 own_prefix: request.own_prefix.clone(),
                 named_layout: request.named_layout,
+                discovery: Some(&discovery),
             };
             let batch = crate::db_operations::with_refilled_query_row_drops(
                 self.resolve_primary_complete(schema, field, &exact),
             )
-            .await?;
+            .await
+            .map_err(|error| {
+                received_resource_error(
+                    error,
+                    "resolution",
+                    round,
+                    keys.len(),
+                    state.selected.values.len(),
+                )
+            })?;
             state.accept(keys, batch);
             state.after = Some(frontier);
             if exhausted {
@@ -165,6 +196,7 @@ impl HashRangeQueryProcessor {
         limit: usize,
         discovery: &mut CandidatePages,
     ) -> Result<(Vec<KeyValue>, bool), SchemaError> {
+        discovery.after.clone_from(&after);
         let mut retained = std::mem::take(&mut discovery.pages);
         let namespaces = std::iter::once(request.own_prefix.clone())
             .chain(request.received.iter().cloned().map(Some));
@@ -205,52 +237,55 @@ impl HashRangeQueryProcessor {
         Ok((keys, exhausted))
     }
 
-    /// Only four source pages survive a refill round. Other sources retain
-    /// their bounded reread behavior, so temporary memory stays independent
-    /// of the number of received namespaces.
-    async fn received_candidate_source(
+    /// The cached page must prove every requested key before it can replace
+    /// the existing exact-key resolver. Receipts and body visibility use the
+    /// normal field reader; a received scope retains its preload lifecycle.
+    pub(super) async fn resolve_cached_primary_values(
         &self,
         field: &FieldVariant,
-        filter: &HashRangeFilter,
-        after: Option<KeyValue>,
-        limit: usize,
-        cached: Option<CandidatePage>,
-    ) -> Result<(Vec<KeyValue>, bool, Option<CandidatePage>), SchemaError> {
-        let Some(mut cached) = cached else {
-            let page = field
-                .hash_range_candidate_page(&self.db_ops, filter, after, limit)
-                .await?;
-            return Ok((page.keys, page.exhausted, None));
+        request: &PrimaryRequest<'_>,
+        filter: Option<&HashRangeFilter>,
+        position: usize,
+        namespace: Option<&str>,
+    ) -> Result<Option<HashMap<KeyValue, FieldValue>>, SchemaError> {
+        let Some((discovery, HashRangeFilter::HashRangeKeys(keys))) = request.discovery.zip(filter)
+        else {
+            return Ok(None);
         };
-        if let Some(after) = &after {
-            cached.keys.retain(|key| key.cmp_page_order(after).is_gt());
-        }
-        while cached.keys.len() < limit && !cached.exhausted {
-            let cursor = cached.keys.last().cloned().or_else(|| after.clone());
-            let page = field
-                .hash_range_candidate_page(
-                    &self.db_ops,
-                    filter,
-                    cursor.clone(),
-                    limit - cached.keys.len(),
-                )
-                .await?;
-            if (page.keys.is_empty() && !page.exhausted)
-                || page.keys.last().is_some_and(|key| {
-                    cursor
-                        .as_ref()
-                        .is_some_and(|cursor| !key.cmp_page_order(cursor).is_gt())
-                })
-            {
-                return Err(SchemaError::InvalidData(
-                    "cached received candidate page did not advance".into(),
-                ));
+        let Some(tips) = discovery.selected_tips(position, keys) else {
+            return Ok(None);
+        };
+        if position != 0 {
+            if let Some(runtime) = self.db_ops.namespaced_store().disk_pack_runtime() {
+                runtime
+                    .preload_current_field(Arc::clone(&self.db_ops), field, namespace)
+                    .await?;
             }
-            cached.exhausted = page.exhausted;
-            cached.keys.extend(page.keys);
         }
-        let keys = cached.keys.iter().take(limit).cloned().collect();
-        let exhausted = cached.exhausted && cached.keys.len() <= limit;
-        Ok((keys, exhausted, Some(cached)))
+        let mut source = field.cloned_without_molecule();
+        source
+            .common_mut()
+            .set_storage_prefix(namespace.map(str::to_owned));
+        source
+            .materialize_hash_range_candidates(&self.db_ops, tips, request.include_tombstones)
+            .await
+            .map(Some)
+    }
+}
+
+fn received_resource_error(
+    error: SchemaError,
+    phase: &'static str,
+    round: usize,
+    candidates: usize,
+    accepted: usize,
+) -> SchemaError {
+    match error {
+        SchemaError::ReadResourceLimit { detail } => SchemaError::ReadResourceLimit {
+            detail: format!(
+                "{detail}; received phase={phase}, round={round}, candidates={candidates}, accepted={accepted}"
+            ),
+        },
+        error => error,
     }
 }

@@ -11,6 +11,7 @@ pub(super) struct PrimaryRequest<'a> {
     pub received: &'a [String],
     pub own_prefix: KeySource,
     pub named_layout: bool,
+    pub discovery: Option<&'a super::received_window::CandidatePages>,
 }
 
 pub(super) struct PrimarySelection {

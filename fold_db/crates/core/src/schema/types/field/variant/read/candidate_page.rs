@@ -4,7 +4,11 @@ use super::*;
 
 /// A raw tip batch does not certify that any candidate has a visible atom.
 pub(crate) struct HashRangeCandidatePage {
-    pub(crate) keys: Vec<KeyValue>,
+    pub(crate) tips: Vec<(
+        KeyValue,
+        crate::db_operations::atom_store::PerKeyRecord,
+        String,
+    )>,
     pub(crate) exhausted: bool,
 }
 
@@ -36,7 +40,7 @@ impl FieldVariant {
         };
         let Some(molecule) = self.common().molecule_uuid() else {
             return Ok(HashRangeCandidatePage {
-                keys: Vec::new(),
+                tips: Vec::new(),
                 exhausted: true,
             });
         };
@@ -60,12 +64,40 @@ impl FieldVariant {
         // A full final batch needs one empty follow-up. Deduplication must not
         // turn a full physical batch into a false exhaustion claim.
         let exhausted = rows.len() < limit;
-        let mut keys: Vec<_> = Self::api_rows_from_scan(db_ops, hash, rows)?
-            .into_iter()
-            .map(|(key, ..)| key)
-            .collect();
-        keys.sort_by(KeyValue::cmp_page_order);
-        keys.dedup();
-        Ok(HashRangeCandidatePage { keys, exhausted })
+        let mut tips = Self::api_rows_from_scan(db_ops, hash, rows)?;
+        tips.sort_by(|(left, ..), (right, ..)| left.cmp_page_order(right));
+        tips.dedup_by(|(left, ..), (right, ..)| left == right);
+        Ok(HashRangeCandidatePage { tips, exhausted })
+    }
+
+    /// Reuse tips already selected by this captured candidate walk. Absences
+    /// are certified by the caller's retained page coverage, not admitted as
+    /// a new global warm-set authority. Body and metadata visibility remain
+    /// identical to an ordinary selected-tip field read.
+    pub(crate) async fn materialize_hash_range_candidates(
+        &self,
+        db_ops: &Arc<DbOperations>,
+        tips: Vec<(
+            KeyValue,
+            crate::db_operations::atom_store::PerKeyRecord,
+            String,
+        )>,
+        include_tombstones: bool,
+    ) -> Result<HashMap<KeyValue, FieldValue>, SchemaError> {
+        let Some(molecule) = self.common().molecule_uuid() else {
+            return Ok(HashMap::new());
+        };
+        let visible = Self::page_visible_matches(tips, None, true, include_tombstones);
+        let mut values = Self::materialize_tip_matches(
+            db_ops,
+            molecule,
+            self.common().storage_prefix(),
+            include_tombstones,
+            visible,
+        )
+        .await?;
+        self.stamp_molecule_meta(&mut values);
+        self.record_resolved_tip_keys(&values);
+        Ok(values)
     }
 }
