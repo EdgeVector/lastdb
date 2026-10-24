@@ -52,6 +52,9 @@ pub struct Mutation {
     /// API input cannot forge this internal import marker.
     #[serde(skip)]
     pub(crate) replayed_source_mutation_uuid: Option<String>,
+    /// Internal replay provenance; wire input cannot skip the durable floor.
+    #[serde(skip)]
+    pub(crate) replay_cutoff_required: bool,
     /// Sync device that wrote this mutation: this node's sync device id for a
     /// local write, the log writer for a replayed one. Empty when unknown.
     /// Internal and never on the wire: API input cannot forge it, and it is
@@ -124,7 +127,8 @@ pub struct Mutation {
     /// its write time (the TTL sweep on a Hash or Single schema): a tip written
     /// at or after this time, in unix nanoseconds, is not erased. The check
     /// reads the tip's own write clock under the tip lock, so a rewrite that is
-    /// acked but not yet indexed survives. Never serialized.
+    /// acked but not yet indexed survives. Ordinary API serialization omits it;
+    /// the signed mutation-intent envelope carries it explicitly for replay.
     #[serde(skip)]
     pub(crate) erase_tips_before_nanos: Option<u64>,
 }
@@ -151,6 +155,7 @@ impl Mutation {
             provenance: None,
             imported_written_at: None,
             replayed_source_mutation_uuid: None,
+            replay_cutoff_required: false,
             origin_device: String::new(),
             logical_counter: 0,
             author_clock_writer_id: String::new(),

@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 mod cloud_generation;
+mod cutoff;
 mod ops;
 
 impl SyncEngine {
@@ -22,6 +23,7 @@ impl SyncEngine {
         entry: &LogEntry,
         target: Option<&SyncTarget>,
     ) -> SyncResult<()> {
+        self.require_physical_replay_cutoff(entry).await?;
         let local_entry = self.local_generation_entry(entry, target).await?;
         let entry = local_entry.as_ref().unwrap_or(entry);
         // The content-key provider for this entry's prefix. Record values reach

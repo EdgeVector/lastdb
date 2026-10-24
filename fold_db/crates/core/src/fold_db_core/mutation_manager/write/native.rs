@@ -58,6 +58,9 @@ impl MutationManager {
         if let Some(clock) = request.author_clock {
             clock.wait().await?;
         }
+        // Owned inputs and the startup-frozen floor need no write gate.
+        // Offline maintenance retains its exclusive no-writer contract.
+        self.require_replay_cutoff(&request.mutations).await?;
         state.force_durable = true;
         let committed = transaction::request_scope(Some(Arc::clone(&request.runtime)), async {
             let notifications =

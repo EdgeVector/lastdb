@@ -42,6 +42,7 @@ impl AtomStore {
     ) -> Self {
         Self {
             main_store,
+            serving_replay_cutoff: Arc::default(),
             namespaced_store: None,
             retired_intent_retention_gate: Arc::default(),
             protein_membership_gate: Arc::default(),

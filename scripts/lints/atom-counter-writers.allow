@@ -4,6 +4,9 @@
 # on a function that names a family the line does not list, and on a line that no function matches.
 # `*` as the function is for the planner module only.
 
+fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_barriers|-|explicit stopped-home maintenance: durably publish the replay floor and older-reader refusal before any Delete barrier can leave; never modifies a tip, atom or reference counter
+fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_scope|-|explicit stopped-home maintenance removes only identity-checked Delete barriers at or before the durable replay floor; no planner-owned record changes
+
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|apply_molecule_recount|M|explicit offline recount on a stopped, exclusively locked home; validates every source family before whole-batch molecule repair and drain rearm
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|plan_header|M|offline molecule repair preserves readable header metadata and replaces only exact slots/records counts after a complete tally
 fold_db/crates/core/src/db_operations/atom_store/counter/recount/molecules/apply.rs|plan_bindings|M|offline molecule repair reconstructs the bindings counter from validated binding records; no tip, atom or conflict writes

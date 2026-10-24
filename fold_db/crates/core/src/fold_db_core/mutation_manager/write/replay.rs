@@ -21,6 +21,7 @@ impl MutationManager {
     ) -> Result<Vec<String>, SchemaError> {
         self.validate_mutation_batch(&mutations)?;
         stamp_replay_origin_device(&mut mutations, origin_device);
+        self.require_replay_cutoff(&mutations).await?;
         let has_aggregate = mutations
             .iter()
             .any(|mutation| mutation.aggregate_set.is_some());
@@ -342,6 +343,9 @@ fn suppressed_put_event_key(
 /// the log becomes a stable token (`bounded_origin_device`), so the pair is
 /// still recorded: an unknown id would not be.
 fn stamp_replay_origin_device(mutations: &mut [Mutation], origin_device: &str) {
+    for mutation in mutations.iter_mut() {
+        mutation.replay_cutoff_required = true;
+    }
     let origin_device = crate::atom::bounded_origin_device(origin_device);
     for mutation in mutations {
         mutation.origin_device = origin_device.to_string();

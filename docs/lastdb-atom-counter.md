@@ -344,8 +344,10 @@ queue use it. Its contract is in `docs/lastdb-time-queue.md`.
 ## TTL sweep
 
 The node-local sweep erases the expired keys of every schema that has a retention
-policy. The default verb is `purge`. `delete` is opt-in and leaves barrier rows that
-nothing prunes. Both verbs go through the planner, free the bodies at once, and
+policy. The default verb is `purge`. `delete` is opt-in and leaves barrier rows.
+The owner can remove older barriers through an explicit stopped-home replay cutoff.
+No timer advances that cutoff. See [delete-barrier cleanup](delete-replay-cutoff.md).
+Both verbs go through the planner, free the bodies at once, and
 release the kept conflict records of the slots they remove. See
 `docs/lastdb-ttl-sweep.md`.
 
