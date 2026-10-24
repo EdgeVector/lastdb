@@ -52,7 +52,9 @@ def validate(result, expected, coordinates, projected_fields=None):
     for coordinate, row in zip(coordinates, records):
         wanted = expected[coordinate]
         if projected_fields is not None:
-            wanted = {name: wanted[name] for name in projected_fields}
+            # Current co-key responses also retain the declared primary hash
+            # field. Check that exact established shape on both binaries.
+            wanted = {name: wanted[name] for name in ["bucket", *projected_fields]}
         if row["fields"] != wanted:
             raise RuntimeError("A generated query page returns stale or incorrect fields")
     if result.get("unresolved_rows") != 0:

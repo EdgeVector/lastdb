@@ -94,7 +94,7 @@ def main():
             "The narrow requests compare identical selectors after a complete known-key prefill. OS cache and runner variation remain uncontrolled.",
             "Memory uses Linux VmRSS/VmHWM samples, including earlier work in each process. No total-memory cap or power-loss result is claimed.",
             "Candidate preload coverage requires actual ready-domain and memory-selection counters; otherwise the result explicitly omits that claim.",
-            "Range-field-only and omitted-range-field projections preserve exact fields, membership, and continuation.",
+            "Range-field-only and omitted-range-field projections preserve exact fields, including the existing primary hash field, membership, and continuation.",
             "No cloud, cross-device sync, or broad-baseline latency improvement is established."])
     text = "\n".join(lines) + "\n"
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:

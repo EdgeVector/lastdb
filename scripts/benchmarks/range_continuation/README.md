@@ -50,7 +50,9 @@ The client, OS cache, and shared runner affect the result.
 The recipe includes late bounds near key 16000, half-open endpoints, prefixes, offsets, and exclusive cursors.
 Cross-hash cursor ties use the public range-first/hash-second order.
 Empty and inverted intervals, an empty range key, NUL bytes, and Unicode boundaries receive explicit selectors.
-Range-field-only and omitted-range-field projections verify the exact requested fields.
+Range-field-only and omitted-range-field projections verify the exact current response fields.
+The current response also retains the declared primary hash field, `bucket`.
+Both binaries must return that field and the requested fields, with no other field.
 The selectors cover ranges, prefixes, and the single-hash path.
 Delete, Purge, and an update precede a durable flush and graceful reopen.
 Known-key reads verify every seeded coordinate, including absent deleted keys.

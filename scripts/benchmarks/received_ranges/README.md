@@ -69,7 +69,9 @@ Four concurrent source reads and the merged page add a fixed amount of temporary
 The existing per-call key and byte work limits remain unchanged.
 
 Additional selectors cover source overlap, source-only ranges, offsets after duplicate removal, and cross-hash cursor ties.
-Range-field-only and omitted-range-field projections verify the exact requested fields and source values.
+Range-field-only and omitted-range-field projections verify the exact current response fields and source values.
+The current response also retains the declared primary hash field, `bucket`.
+Both binaries must return that field and the requested fields, with no other field.
 The selectors cover ranges, prefixes, and the single-hash path.
 Empty keys, empty and inverted intervals, NUL bytes, and Unicode receive explicit selectors.
 Source-specific Delete, Purge, and local/received updates precede a graceful reopen.
