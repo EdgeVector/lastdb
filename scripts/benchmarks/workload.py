@@ -319,12 +319,14 @@ class Workload:
         self.validate_write(first, 1)
         self.validate_write(repeated, 1)
         ids = first.get("mutation_ids")
-        if not ids or repeated.get("mutation_ids") != ids:
-            raise RuntimeError("The unchanged retry did not return the cached receipt")
+        if not ids or not repeated.get("mutation_ids"):
+            raise RuntimeError("A repeated request lacks its mutation receipt")
         record, _, _ = self.node.call("/api/query", read_request([self.next_insert]))
         validate_read(record, [self.next_insert])
         if record["results"][0]["fields"] != fields(self.next_insert, "upgrade-retry"):
             raise RuntimeError("The unchanged retry changed its product record")
         save(self.output / "upgrade-complete.json", {
             "known_keys_read": self.next_insert, "unchanged_seed_keys": self.recipe["records"] - 256,
-            "same_receipt_on_retry": True, "retry_cache": cache})
+            "repeat_value_unchanged": True, "receipt_ids": [ids, repeated["mutation_ids"]],
+            "receipt_identity": "Each HTTP request receives a new signed author clock",
+            "retry_cache": cache})
