@@ -25,13 +25,10 @@ pub(crate) async fn verify_or_establish(
     key: &[u8; 32],
 ) -> Result<(), StorageError> {
     let kv = store.open_namespace(NAMESPACE).await?;
-    match kv.get(KEY).await? {
-        Some(stored) => verify(key, &stored),
-        None => {
-            let sealed = seal_at_rest_raw(key, VALUE).map_err(|error| {
-                StorageError::EncryptionError(format!("content key proof: {error}"))
-            })?;
-            kv.put(KEY, sealed).await
-        }
+    if let Some(stored) = kv.get(KEY).await? {
+        return verify(key, &stored);
     }
+    let sealed = seal_at_rest_raw(key, VALUE)
+        .map_err(|error| StorageError::EncryptionError(format!("content key proof: {error}")))?;
+    kv.put(KEY, sealed).await
 }
