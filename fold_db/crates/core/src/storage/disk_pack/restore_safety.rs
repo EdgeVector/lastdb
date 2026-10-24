@@ -73,18 +73,29 @@ pub(crate) async fn exclusive<T, E: From<StorageError>>(
         )
         .into());
     }
-    let _gate = runtime.enter_prepare().await;
+    let _owner = Arc::clone(&runtime.restore_gate).lock_owned().await;
+    let gate = runtime.enter_prepare().await;
     if runtime.serving.load(Ordering::Acquire) {
         return Err(
             StorageError::InvalidOperation("restore requires an inactive target".into()).into(),
         );
     }
     runtime.restore_blocked.store(true, Ordering::Release);
-    RESTORING.scope(runtime, future).await
+    drop(gate);
+    let owner = Arc::clone(&runtime);
+    RESTORING
+        .scope(runtime, async {
+            // Older accepted writes finish before the first restore batch.
+            // The disk owner still needs the ordinary preparation gate to flush.
+            owner.flush().await?;
+            future.await
+        })
+        .await
 }
 
 impl PackRuntime {
     pub(crate) async fn begin_serving(self: &Arc<Self>) -> StorageResult<()> {
+        let _owner = Arc::clone(&self.restore_gate).lock_owned().await;
         let _gate = self.enter_prepare().await;
         self.require_restore_validated()?;
         self.serving.store(true, Ordering::Release);
