@@ -2,6 +2,9 @@
 
 Status: First implementation package, 2026-10-24. The active disk codec does not select this format.
 
+Activation is blocked by the [suffix-leakage counterexample](../docs/designs/ope-candidate-security-review.md).
+Correct byte order does not resolve that confidentiality defect or permit native integration.
+
 This Apache-2.0 crate implements the published CLWW-derived exact OPE construction with backward carry and high-bit placement.
 The [construction note](https://cipherstash.com/research/backward-carry-ope) describes this later extension.
 The [original CLWW paper](https://saweis.net/pdfs/pore-clww.pdf) describes the underlying prefix-based construction.

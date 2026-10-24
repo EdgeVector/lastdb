@@ -2,6 +2,10 @@
 
 Status: Implementation started at Tom's request, 2026-10-24. Product activation and service changes remain separate steps.
 
+Activation is blocked by a [concrete suffix-leakage finding](ope-candidate-security-review.md).
+The first candidate no longer qualifies for native integration without a new construction or an explicit confidentiality decision.
+The scheme-selection text below records the evaluated candidate, rather than permission to activate it.
+
 Select the published CLWW-derived exact OPE construction with backward carry and high-bit placement.
 Implement it independently in LastDB under Apache-2.0 with existing RustCrypto primitives.
 The [codec contract](../../lastdb_range_crypto/README.md) fixes the private-key derivation and candidate byte representation.

@@ -2,6 +2,9 @@
 
 Status: Proposed plan, 2026-10-24. No primary change is authorized by this document.
 
+The [candidate security review](ope-candidate-security-review.md) blocks activation of the first evaluated OPE extension.
+Resolve its construction and confidentiality decision before package B can introduce an active writer.
+
 The primary needs new readers, new writers, and an explicit data-format conversion.
 A binary upgrade alone does not select the new OPE.
 The [implementation plan](ope-range-keys-implementation-plan.md) defines the scheme and the affected product code.

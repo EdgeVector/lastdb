@@ -22,10 +22,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let intervals = check_prefixes(&key, &values, &terms)?;
     check_scopes(&root, &key)?;
     check_codec(&key, &values, &terms)?;
+    check_suffix_leakage()?;
     println!(
         "range_ope_proof: passed; values={}; prefix_intervals={intervals}; scopes=5; codec=passed",
         values.len()
     );
+    Ok(())
+}
+
+// Both pairs share length, order and first-differing-bit position. Different
+// head-difference distributions therefore distinguish equal CLWW leakage.
+fn check_suffix_leakage() -> Result<(), Error> {
+    let mut distinguishing = 0;
+    for seed in 0..=u8::MAX {
+        let root = RangeOpeRoot::from_private_key_seed(&[seed; 32])?;
+        let key = root.for_scope(SCOPE)?;
+        let head = |value| -> Result<u128, Error> {
+            let term = key.encrypt(&[value], LIMIT)?;
+            Ok(term.as_ref()[..10]
+                .iter()
+                .fold(0u128, |number, byte| (number << 8) | u128::from(*byte)))
+        };
+        assert_eq!(head(0x80)? - head(0x00)?, 128);
+        let difference = head(0xc0)? - head(0x40)?;
+        assert!((127..=129).contains(&difference));
+        distinguishing += usize::from(difference != 128);
+    }
+    assert!(
+        distinguishing > 0,
+        "fixed-input suffix-leakage counterexample was absent"
+    );
+    println!("range_ope_suffix_leakage: confirmed; generated_keys=256; distinguishing_keys={distinguishing}; activation=blocked");
     Ok(())
 }
 
