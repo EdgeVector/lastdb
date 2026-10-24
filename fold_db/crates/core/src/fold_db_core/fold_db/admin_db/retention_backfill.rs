@@ -43,6 +43,12 @@ impl FoldDB {
         let page = self
             .list_schema_record_keys(name, name, limit.clamp(1, 64).min(bound), cursor, None)
             .await?;
+        if page.schema_id != schema.name {
+            return Err(SchemaError::InvalidData(
+                "retention backfill refuses a redirected schema; use its current name".into(),
+            )
+            .into());
+        }
         let keys: Vec<_> = page
             .keys
             .iter()
@@ -63,7 +69,7 @@ impl FoldDB {
                     crate::fold_db_core::purge::retention_tip_clocks(
                         self.db_ops(),
                         &self.schema_manager(),
-                        name,
+                        &schema.name,
                         &keys,
                     )
                     .await?

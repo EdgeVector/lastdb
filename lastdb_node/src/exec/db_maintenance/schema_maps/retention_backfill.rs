@@ -47,10 +47,8 @@ pub(super) async fn execute(
     if let Err(error) = crate::retention_audit::append(&host.home, &closed) {
         return error_response(
             503,
-            &format!(
-                "backfill audit close failed: {error}; this page can be retried",
-                ctx
-            ),
+            &format!("backfill audit close failed: {error}; this page can be retried"),
+            ctx,
         );
     }
     match result {
