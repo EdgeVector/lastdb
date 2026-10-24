@@ -55,11 +55,12 @@ pub(crate) fn drain_background(
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
         let drain = async {
-            let (sampler, fold, controller, backup) = tokio::join!(
+            let (sampler, fold, controller, backup, byte_backup) = tokio::join!(
                 sampler_task,
                 home_fold_task,
                 native_backup_task,
                 host.native_backup.drain(deadline),
+                host.byte_backup.drain(deadline),
             );
             let mut errors = Vec::new();
             for (name, result) in [
@@ -73,6 +74,9 @@ pub(crate) fn drain_background(
             }
             if let Err(error) = backup {
                 errors.push(format!("native backup did not drain: {error}"));
+            }
+            if let Err(error) = byte_backup {
+                errors.push(format!("byte backup did not drain: {error}"));
             }
             while host.background_writes_in_flight() {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;

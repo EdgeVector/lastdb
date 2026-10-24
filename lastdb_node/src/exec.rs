@@ -103,6 +103,7 @@ fn mapped_error_response(
     render(Err(mapped), ctx)
 }
 
+mod byte_backup_routes;
 mod conflict_metadata;
 mod db_catalog;
 mod db_maintenance;

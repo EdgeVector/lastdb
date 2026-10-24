@@ -18,7 +18,9 @@ mod store;
 mod terminal;
 mod transfer;
 mod usage;
+mod v2_cleanup;
 mod worker;
+pub(crate) use v2_cleanup::require_complete as require_v1_complete;
 
 pub use automatic::{request as request_auto, spawn as spawn_automatic, AutoRequest, AutoStatus};
 pub use control::request;

@@ -1,7 +1,10 @@
 # Cloud byte transport V2
 
-Status: shared wire contract only. No V2 route, worker, client adapter, or admission is active.
-The reserved route namespace is `/api/cloud/backups/v2/`.
+Status: the wire contract and HTTP client are accepted code.
+This change adds the native client adapter, manual backup worker, and restore path.
+The separate service change remains subject to CI and DEV deployment approval.
+No V2 backup or restore operation is proven yet.
+The route namespace is `/api/cloud/backups/v2/`.
 
 ## Purpose and boundary
 
@@ -149,22 +152,57 @@ Unknown provider outcomes and legacy obligations keep their charges until indepe
 V2 creates no deletion, debit, cutover Ready, or legacy drain proof.
 
 V1 messages, routes, hashes, receipts, plans, and unfinished jobs remain unchanged.
-The future V2 route namespace is separate from V1.
+The V2 route namespace is separate from V1.
 The client completes V1 terminal cleanup before it creates a fresh V2 stream.
 V1 restore remains available. No conversion invents V2 authority from V1 hashes.
-Service and client adapters, activation checks, and real DEV recovery remain separate implementation work.
+DEV deployment and real DEV recovery remain separate operational work.
 
 ## Client adoption
 
-The unused typed HTTP client is `sync::auth::byte_backup::ByteBackupClient`.
+The typed HTTP client is `sync::auth::byte_backup::ByteBackupClient`.
 It uses only V2 requests, response checks, and control limits.
 The private byte transport facade shares the existing credentials, URL checks, deadlines, and bounded streams.
 The V1 wrappers retain their exact validators, limits, routes, and public methods.
 The V2 upload requires an exact resume response. Commit requires the concrete inventory proof.
 Read grants require the frozen accepted record. The client does not choose a newer head during restore.
 
-Next, add the client-owned V2 root codec and manifest adapter.
-That adapter uploads the root before the final inventory and checks the full used set during restore.
-Reuse the native validator and installer only after the V2 closure checks pass.
-Then bind a fresh V2 stream after V1 cleanup and prove normal DEV backup and restore.
-No current worker, CLI, automatic-backup controller, or configuration selects this unused HTTP client.
+The native client format lives in `storage::disk_pack::byte_backup`.
+Its public descriptor identifies format version 1 and the account public key.
+Its encrypted root and pages bind the exact Begin and descriptor digests.
+The root describes the native cut and pages. Pages describe paths, file digests, lengths, and object extents.
+The service does not read those values.
+
+The adapter retains one durable native cut before it hashes files or starts network work.
+A retry keeps that cut, job UUID, transfer UUIDs, and object bytes.
+Small native files share raw upload objects. Larger files use bounded upload chunks.
+The native pack format and file bytes stay unchanged.
+The existing account key protects the root and pages. Files receive no extra encryption.
+The root object precedes the complete receipt inventory.
+
+The transport policy lives in `lastdb_storage_policy::backup_transport`.
+It sets a 64 MiB upload chunk, an 8 MiB small-file pack, and a 64 KiB small-file threshold.
+It permits at most 512 files in one upload pack.
+These values control the upload plan. They impose no native file-size cap.
+The existing shared backup allowance controls memory, stream count, and temporary disk space.
+The source retains files until exact cloud terminal authority permits release.
+Local cancellation uses a separate state and requires proof that Begin was not submitted.
+
+The manual command is `lastdb --data-dir <absolute-home> cloud backup-v2`.
+The node requires `LASTDB_BYTE_BACKUP_V2_ENABLED=true` for new manual work.
+Status and exact close operations remain available without that flag.
+Start, resume, status, and close use the owner-only local socket route.
+The worker has a separate controller and participates in normal node shutdown.
+The automatic V1 controller does not select V2.
+
+Restore freezes one accepted V2 backup and verifies every inventory page and downloaded byte.
+It reconstructs each native file from its exact extents, then checks the complete file digest and length.
+It checks the complete used receipt set before native record, key, and metadata checks.
+The existing native validator and fresh-destination installer run after those V2 checks.
+The initial client profile requires all file dependencies in the native cut.
+It refuses remote-only files before backup eligibility. It does not omit them.
+
+Next, use the exact CI client and service packages for one fresh DEV account.
+Back up normal records, packed files, and a file larger than one upload chunk.
+Stop the source node. Restore into a fresh destination without source files or caches.
+Verify normal record reads and exact file bytes on the restored node.
+Defer old account recovery, historical reconciliation, PROD, and primary changes until that proof succeeds.

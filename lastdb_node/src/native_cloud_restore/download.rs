@@ -129,12 +129,18 @@ pub(super) fn verify_file(path: &Path, sha: &Digest, length: u64) -> Result<()> 
     }
     let mut digest = Sha256::new();
     let mut buffer = vec![0u8; cloud_backup_protocol::limits::STREAM_BUFFER_MAX_BYTES as usize];
-    loop {
-        let count = input.read(&mut buffer)?;
+    let mut left = length;
+    while left > 0 {
+        let maximum = left.min(buffer.len() as u64) as usize;
+        let count = input.read(&mut buffer[..maximum])?;
         if count == 0 {
-            break;
+            return Err(RestoreError::Invalid("file length"));
         }
         digest.update(&buffer[..count]);
+        left -= count as u64;
+    }
+    if input.read(&mut buffer[..1])? != 0 {
+        return Err(RestoreError::Invalid("file length"));
     }
     if hex::encode(digest.finalize()) != sha.as_str() {
         return Err(RestoreError::Invalid("file digest"));

@@ -8,6 +8,7 @@
 //! B1 export uses that same process guard to prevent combined budget overruns.
 //! Restore does not enable cloud sync or enroll the restored home.
 mod closure;
+mod context;
 mod dependencies;
 mod download;
 mod install;
@@ -16,6 +17,10 @@ mod records;
 mod session;
 mod source;
 
+pub(crate) use context::{
+    bounded_bytes, check_capacity, verify_file, NativeFileProof, NativeInventory,
+    VerifiedNativeContext,
+};
 pub use keys::RecoveryKeys;
 pub use session::{RestoreReport, RestoreSession};
 pub use source::{ObjectStream, RestoreSource};
