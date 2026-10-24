@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::resident::CoreMemorySource;
-use crate::storage::disk_pack::logical_paths::{LogicalPathAbsence, LogicalPathRecord};
+use crate::storage::disk_pack::logical_paths::LogicalPathRecord;
 use std::any::Any;
 use std::collections::HashSet;
 
@@ -12,35 +12,15 @@ pub(crate) fn stage_paths(
 ) -> StorageResult<()> {
     let pending = current(runtime)?;
     let mut paths = pending.paths.lock().expect("native private paths");
-    let mut absences = pending.absences.lock().expect("native private absences");
+    // Keep one final effect per core path, including present/absent replacements.
     let records: BTreeMap<_, _> = records
         .into_iter()
         .map(|record| (record.path.core(), record))
         .collect();
-    check_room(&paths, &absences, records.values(), std::iter::empty())?;
+    check_room(&paths, records.values())?;
     let replaced: HashSet<_> = records.keys().cloned().collect();
     paths.retain(|record| !replaced.contains(&record.path.core()));
-    absences.retain(|record| !replaced.contains(&record.path.core()));
     paths.extend(records.into_values());
-    Ok(())
-}
-
-pub(crate) fn stage_absences(
-    runtime: &PackRuntime,
-    records: Vec<LogicalPathAbsence>,
-) -> StorageResult<()> {
-    let pending = current(runtime)?;
-    let mut paths = pending.paths.lock().expect("native private paths");
-    let mut absences = pending.absences.lock().expect("native private absences");
-    let records: BTreeMap<_, _> = records
-        .into_iter()
-        .map(|record| (record.path.core(), record))
-        .collect();
-    check_room(&paths, &absences, std::iter::empty(), records.values())?;
-    let replaced: HashSet<_> = records.keys().cloned().collect();
-    paths.retain(|record| !replaced.contains(&record.path.core()));
-    absences.retain(|record| !replaced.contains(&record.path.core()));
-    absences.extend(records.into_values());
     Ok(())
 }
 
@@ -106,16 +86,6 @@ pub(super) fn forget_superseded(pending: &PendingBatch, operations: &[HomeMutati
                 .any(|(collection, key)| changed.contains(&(collection.as_str(), key.as_str())))
         });
     pending
-        .absences
-        .lock()
-        .expect("native private absences")
-        .retain(|record| {
-            !record
-                .source_coordinates()
-                .iter()
-                .any(|(collection, key)| changed.contains(&(collection.as_str(), key.as_str())))
-        });
-    pending
         .definitions
         .lock()
         .expect("native private definitions")
@@ -134,22 +104,14 @@ pub(super) fn forget_superseded(pending: &PendingBatch, operations: &[HomeMutati
 
 fn check_room<'a>(
     paths: &[LogicalPathRecord],
-    absences: &[LogicalPathAbsence],
     next_paths: impl Iterator<Item = &'a LogicalPathRecord>,
-    next_absences: impl Iterator<Item = &'a LogicalPathAbsence>,
 ) -> StorageResult<()> {
     let mut sizes = BTreeMap::new();
     for record in paths {
         sizes.insert(record.path.core(), record.retained_bytes());
     }
-    for record in absences {
-        sizes.insert(record.path.core(), record.bytes());
-    }
     for record in next_paths {
         sizes.insert(record.path.core(), record.retained_bytes());
-    }
-    for record in next_absences {
-        sizes.insert(record.path.core(), record.bytes());
     }
     let bytes = sizes
         .values()

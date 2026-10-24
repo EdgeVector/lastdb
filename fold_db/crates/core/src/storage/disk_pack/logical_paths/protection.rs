@@ -19,13 +19,11 @@ impl PathProtection {
     pub(crate) fn reserve(
         runtime: &PackRuntime,
         records: &[LogicalPathRecord],
-        absences: &[LogicalPathAbsence],
         publication: PathPublication,
     ) -> StorageResult<Arc<Self>> {
         let bytes = records
             .iter()
             .map(LogicalPathRecord::retained_bytes)
-            .chain(absences.iter().map(LogicalPathAbsence::bytes))
             .try_fold(0usize, |total, bytes| {
                 total.checked_add(bytes).ok_or_else(capacity)
             })?;
@@ -35,28 +33,18 @@ impl PathProtection {
         let mut changes = BTreeMap::new();
         // A disk-first fallback does not turn refused write memory into an
         // uncharged clean cache entry. Reads can fetch that value after commit.
-        for record in records.iter().filter(|_| publication.owner.is_some()) {
+        for record in records
+            .iter()
+            .filter(|record| record.slot.is_none() || publication.owner.is_some())
+        {
             changes.insert(
                 record.path.core(),
                 prepared(
                     record.path.core(),
-                    Some(record.slot.clone()),
+                    record.slot.clone(),
                     record.source_dependencies(),
                 )?,
             );
-        }
-        for absence in absences {
-            if changes
-                .insert(
-                    absence.path.core(),
-                    prepared(absence.path.core(), None, absence.source_dependencies())?,
-                )
-                .is_some()
-            {
-                return Err(StorageError::BackendError(
-                    "native path has conflicting final typed effects".into(),
-                ));
-            }
         }
         let keys: Vec<_> = changes.keys().cloned().collect();
         let mut core = runtime.core.lock().expect("core write reservation");
