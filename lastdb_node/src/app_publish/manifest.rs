@@ -52,6 +52,10 @@ use fold_db::schema::ManifestRetention;
 ///   one shape can resolve to one catalog schema and then share one dataset.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppManifest {
+    /// Optional LastDB version constraint (semver-style, e.g. `>=0.23.0, <0.24.0`).
+    /// Checked at install time against the running `lastdb --version`.
+    #[serde(default, rename = "lastdb")]
+    pub lastdb_constraint: Option<String>,
     pub app_id: String,
     pub metadata: AppMetadata,
     pub version: String,
