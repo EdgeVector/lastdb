@@ -247,8 +247,10 @@ The command derives each physical hash group from the home descriptor.
 
 Old native journal formats are refused before writer file creation.
 Startup does not change those homes.
-This change does not implement a converter from an old native journal home to a snapshot home.
-The refusal message describes the required future explicit conversion, not an available command.
+Startup does not convert an old native journal home to a snapshot home.
+The separate [native transfer command](../vendor/laststore/src/bin/lastdb-native-transfer.rs) supports explicit export, import, and verification of compatible stored records.
+It requires a compatible source reader, a clean source stop, retained identity and keys, and a nonexistent destination.
+This route does not make startup accept the older format or provide a generic old-format converter.
 
 The existing generic legacy converter remains subject to its atom-record format fence.
 `HomeBuilder::create` refuses that unsupported generic native result before it creates files.

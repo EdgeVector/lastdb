@@ -34,7 +34,10 @@ Definitions, selected keys, queues, and temporary work have separate allowances.
 
 Native snapshots require feature 256; counted receipts also require feature 512 and count semantic version 1. Older programs refuse 512. The final writer refuses version-zero counted prototypes because their allocator references differ. An older supported uncounted snapshot needs a streamed count pass before writer admission, with format and workspace limits.
 
-Backup manifests accept both supported feature sets and reject unknown bits. Journal-backed homes receive an explicit refusal; this change provides no converter. The local backup bundle excludes node identity and encryption keys, which need separate recovery arrangements.
+Backup manifests accept both supported feature sets and reject unknown bits.
+Startup refuses journal-backed homes and performs no automatic conversion.
+The separate [native transfer command](../vendor/laststore/src/bin/lastdb-native-transfer.rs) moves compatible records from an explicit source reader into a fresh destination.
+It does not convert arbitrary older formats. The local backup bundle excludes node identity and encryption keys, which need separate recovery arrangements.
 
 Local native backup capture now saves an exact snapshot, source home, frontier, and durable file hold before network work.
 Resume uses the saved cut. The separate gated native backup jobs supply transfer and restore source code.

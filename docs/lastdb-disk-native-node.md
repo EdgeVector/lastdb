@@ -6,8 +6,11 @@ The [storage parts guide](lastdb-storage-parts.md) describes packed files and au
 
 The native packed engine is the sole logical LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
-An empty home initializes directly. A nonempty older format receives an error before conversion or logical namespace access.
-No migration path forms part of this cutover.
+An empty home initializes directly. Startup refuses an unsupported older format before logical namespace access and performs no conversion.
+The separate owner command [lastdb-native-transfer](../vendor/laststore/src/bin/lastdb-native-transfer.rs) supports explicit record export, import, and verification.
+A compatible source reader exports records; the destination writer imports them into a nonexistent target.
+This requires a cleanly stopped source, compatible native record codecs, and retained identity and encryption keys.
+It is not an automatic startup migration or a converter for arbitrary older formats.
 Legacy Cloud Sync activation receives an explicit error.
 Native backup has a separate, disabled-by-default source gate; its source availability does not establish production cloud readiness.
 
@@ -21,7 +24,7 @@ The core model owns current schemas, molecules, keys, selected tips, confirmed a
 A selected tip can remain without its value after a call that needs no value.
 A value fetch adds the full atom to that same logical record.
 The warm set preserves an existing full value when an unchanged tip arrives.
-Both positive states use the same record limit, source controls, and whole-record purge.
+Both positive states use the same warm byte budget, source controls, and whole-record purge.
 Private write preparation retains complete changes until disk commit.
 The commit then publishes clean logical records. Older calls retain their earlier values and memory charges until release.
 The recency list selects clean logical records for purge. It does not hold a second set of values.
