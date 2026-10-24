@@ -145,13 +145,14 @@ Faults of these phases:
 - Nothing finds a dead molecule except the candidate rows of the molecule drain
   (`docs/lastdb-molecule-drain.md`). If the rows are lost, the molecules stay with their
   keys and no scan finds them again. `lastdb db inventory` lists the first 500 of them as
-  `unbound_sample`, and `lastdb db molecule-drain --molecule=<uuid>` queues one. A molecule
-  recount that rediscovers candidates is not built.
+  `unbound_sample`, and `lastdb db molecule-drain --molecule=<uuid>` queues one. The offline recount can restore a candidate for an empty unbound molecule.
 - The drain never repairs a `suspect` counter. Stop the node and run
   `lastdb db recount --molecules` to report exact header and binding counts.
   Add `--execute` to write the repairs under the stopped-home lock.
   Each scope and pass validates tips, retained conflicts, headers, and binding records before its first molecule write.
-  The repair preserves header metadata and queues an unbound molecule for the normal bounded drain.
+  The repair preserves header metadata and queues only an empty unbound molecule for the normal bounded drain.
+  A nonempty molecule without binding records refuses the complete repair before any writes.
+  Recover the missing bindings or complete an explicit owner-approved drain first.
   It refuses a missing live header, unreadable holder, or discarded storage record.
   It creates no atom body or missing schema definition.
 - After a drain the node-global key bundle (`mkb:`, `mkw:`), the `protein:` records without

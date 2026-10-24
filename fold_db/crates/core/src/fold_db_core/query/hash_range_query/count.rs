@@ -53,7 +53,7 @@ impl HashRangeQueryProcessor {
             if selected.is_empty() {
                 return Ok(0);
             }
-            let (_, _, keys, _) = self
+            let (_, _, keys, _, _) = self
                 .resolve_inspection_primary_page(
                     schema,
                     &selected,
@@ -71,7 +71,7 @@ impl HashRangeQueryProcessor {
         }
         let primary = Self::cokey_primary_field(schema, &selected);
         if Self::needs_named_layout_membership(schema, Some(&primary), filter) {
-            let (_, _, keys, _) = self
+            let (_, _, keys, _, _) = self
                 .resolve_cokey_primary_page(
                     schema,
                     &selected,

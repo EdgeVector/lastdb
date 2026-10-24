@@ -10,6 +10,7 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "range_continuation"))
 from node import file_hash, save
+from observations import observations
 
 
 def inventory(root):
@@ -48,28 +49,6 @@ def paired_inputs_match(grouped):
                 != [row["request_sha256"] for row in last["narrow_samples"]]):
             return False
     return True
-
-
-def observations(grouped, mode):
-    lines = ["", "Native work for the identical narrow requests (median of two per-run request means):",
-             "", "| Mode / source | File opens/request | Read bytes/request | Peak transient bytes/request | Process memory before / after bytes |",
-             "|---|---:|---:|---:|---|"]
-    for role, values in grouped.items():
-        means = []
-        memory = []
-        for value in values:
-            receipts = [sample["storage_read_receipt"] for sample in value["narrow_samples"]]
-            means.append({"opens": statistics.mean(receipt["file_opens"] for receipt in receipts),
-                "bytes": statistics.mean(sum(receipt[name] for name in (
-                    "legacy_replay_bytes", "footer_bytes", "payload_bytes", "format_probe_bytes")) for receipt in receipts),
-                "transient": statistics.mean(receipt["temporary_bytes_peak"] for receipt in receipts)})
-            memory.append(" / ".join(str(value["narrow_memory_" + phase]["process_memory_bytes"]["VmRSS"])
-                                      for phase in ("before", "after")))
-        numbers = [f"{statistics.median(row[name] for row in means):.1f}" for name in ("opens", "bytes", "transient")]
-        lines.append("| " + mode + " / " + role + " | " + " | ".join(numbers) + " | " + "; ".join(memory) + " |")
-    lines.extend(["", "Read bytes include OS-cache reads. Transient bytes omit returned bodies and warm caches.",
-                  "Process memory before/after the narrow requests is an observation, not a total-memory cap."])
-    return lines
 
 
 def main():
@@ -118,6 +97,7 @@ def main():
             candidate = grouped["candidate"]
             lines.extend(["", mode + ": candidate broad ranges complete for both received sources, their overlap, and local duplicates.",
                 "Reopen, source-specific Delete/Purge, current local values, API boundaries, and exclusive cursors return the complete expected values.",
+                "Range-field-only and omitted-range-field projections preserve exact fields, including the existing primary hash field, membership, source values, and continuation.",
                 "A legitimate mapped alternate schema supplies a 640-key excluded prefix and a 576-key all-hidden tail. Local primary precedence prevents peer exposure.",
                 "Actual preload selection verified per run: " + str([value["preload"]["actual_ready_selection_verified"] for value in candidate]) + "."])
         lines.extend(["", "Latency cells are medians of two per-run statistics; independent requests are not pooled.",
