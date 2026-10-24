@@ -14,6 +14,8 @@ The later construction and this byte profile still require independent cryptogra
 The [permissive implementation review](ope-permissive-implementation-review.md) records the available alternatives and the private-key requirement.
 The earlier [mandatory-preload design](encrypted-range-keys-local-preload.md) remains an alternative.
 This plan replaces its delivery sequence as the current recommendation.
+The [primary adoption plan](ope-primary-cutover-plan.md) defines the later release and data-conversion gates.
+It does not authorize a primary change.
 
 ## 1. Current state
 
@@ -254,6 +256,8 @@ Use an explicit offline converter with an owned, separate, inactive target.
 Never convert a live home in place, copy the primary, or use the archived primary as migration material.
 Conversion trials use fresh DEV data in CI.
 The existing native transfer path does not perform this key-identity rewrite.
+Primary adoption requires separate, candidate-specific approval for logical record transfer and target checks.
+The primary adoption plan keeps that approval distinct from the prohibition on filesystem clones.
 
 Read the source's explicit format and molecule bundles.
 Recover legacy original ranges only through that format's decoder; validate their regenerated source keys.
@@ -277,6 +281,8 @@ Do not confuse those operations or promise that former members lose data they al
 ### Verification and release
 
 Tests remain retired. Do not add or run a test suite, fixture harness, or test-coverage gate.
+Tom authorized one CI-only crypto proof program through "Do all of these" on 2026-10-24.
+That narrow exception covers the portable OPE proof requested on PR 365; it does not restore other tests.
 Local work uses source, syntax, documentation-link, and format checks only.
 Run LastDB builds, lint builds, and measurements in GitHub Actions.
 Product PRs retain `ci-required`, `generated-evidence`, and `benchmark-complete`.
