@@ -1,10 +1,10 @@
-//! Explicit DEV identity and paused native credentials. No database writer opens.
+//! Explicit account enrollment and paused credentials. No database writer opens.
 
 use super::*;
 use fold_db::security::Ed25519KeyPair;
 use folddb_profile::endpoints::{exemem_api_url_for, Environment};
 use lastdb_node::cloud::{
-    register_dev_native_device, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
+    register_native_device, CLOUD_RESUME_REQUIRED_FILE, CLOUD_SYNC_PAUSED_FILE,
 };
 use lastdb_node::host::IDENTITY_KEY_FILE;
 use std::io::Read;
@@ -37,12 +37,17 @@ pub(crate) fn setup(source: Option<&Path>, action: NativeBackupCommand) -> Resul
         }
         NativeBackupCommand::Connect {
             dev,
+            prod,
+            existing,
             invite_code_stdin,
             restored,
             json,
         } => {
-            if !dev {
-                return Err("native backup connect requires --dev".into());
+            if !matches!(
+                (dev, prod, existing),
+                (true, false, false) | (false, true, true)
+            ) {
+                return Err("native backup connect requires --dev or --prod --existing".into());
             }
             if restored && invite_code_stdin {
                 return Err("restored account reconnect does not accept a new invite".into());
@@ -51,6 +56,7 @@ pub(crate) fn setup(source: Option<&Path>, action: NativeBackupCommand) -> Resul
                 source.ok_or("native backup connect requires an explicit --data-dir")?,
                 invite_code_stdin,
                 restored,
+                existing,
                 json,
             )
         }
@@ -87,8 +93,21 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
     )
 }
 
-fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Result<(), String> {
-    let directory = if restored {
+fn connect(
+    home: &Path,
+    invite_stdin: bool,
+    restored: bool,
+    existing: bool,
+    json: bool,
+) -> Result<(), String> {
+    let environment = if existing {
+        Environment::Prod
+    } else {
+        Environment::Dev
+    };
+    let directory = if existing {
+        files::PreparedHome::open_existing(home)?
+    } else if restored {
         files::PreparedHome::open_restored(home)?
     } else {
         files::PreparedHome::open(home)?
@@ -97,12 +116,19 @@ fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Resul
     let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| "invalid native backup identity")?;
     let account = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())?;
-    let api_url = exemem_api_url_for(Environment::Dev);
-    if restored {
+    let api_url = exemem_api_url_for(environment);
+    if restored || existing {
         directory.device_id()?;
     }
     if directory.finish_saved_credentials(api_url)? {
-        return connected(&account, home, false, restored, json);
+        return connected(
+            &account,
+            home,
+            false,
+            (restored, existing),
+            environment,
+            json,
+        );
     }
     let invite = invite_stdin.then(read_invite).transpose()?;
     let device_id = directory.device_id()?;
@@ -111,7 +137,8 @@ fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Resul
         .build()
         .map_err(|_| "cannot construct native enrollment runtime")?;
     let registered = runtime
-        .block_on(register_dev_native_device(
+        .block_on(register_native_device(
+            environment,
             &pair,
             &device_id,
             invite.as_deref().map(String::as_str),
@@ -134,31 +161,34 @@ fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Resul
     directory
         .save_credentials(&credentials)
         .map_err(|error| format!("{error}; registration may have committed; retain this home"))?;
-    connected(&account, home, true, restored, json)
+    connected(
+        &account,
+        home,
+        true,
+        (restored, existing),
+        environment,
+        json,
+    )
 }
 
-fn validate_restored_credentials(
-    api_url: &str,
-    api_key: &str,
-    account: &str,
-) -> Result<(), String> {
+fn validate_saved_credentials(api_url: &str, api_key: &str, account: &str) -> Result<(), String> {
     use fold_db::sync::auth::{native_backup::NativeBackupClient, AuthClient, SyncAuth};
     let http = fold_db::sync::build_shared_http_client()
-        .map_err(|_| "cannot construct restored credential transport")?;
+        .map_err(|_| "cannot construct native credential transport")?;
     let auth = AuthClient::new(
         std::sync::Arc::new(http),
         api_url.to_owned(),
         SyncAuth::ApiKey(api_key.to_owned()),
     )
     .without_db_auto_claim();
-    let client = NativeBackupClient::from_auth(auth)
-        .map_err(|_| "invalid restored native account endpoint")?;
+    let client =
+        NativeBackupClient::from_auth(auth).map_err(|_| "invalid saved native account endpoint")?;
     let account = cloud_backup_protocol::AccountId::try_from(account.to_owned())
-        .map_err(|_| "invalid restored account identity")?;
+        .map_err(|_| "invalid saved account identity")?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|_| "cannot construct restored credential validation runtime")?;
+        .map_err(|_| "cannot construct native credential validation runtime")?;
     runtime
         .block_on(client.context(
             &cloud_backup_protocol::context::ContextReadRequest {
@@ -167,25 +197,29 @@ fn validate_restored_credentials(
             &account,
         ))
         .map(|_| ())
-        .map_err(|_| "saved native credentials do not authorize the restored account".into())
+        .map_err(|_| "saved native credentials do not authorize the selected account".into())
 }
 
 fn connected(
     account: &str,
     home: &Path,
     registered: bool,
-    restored: bool,
+    mode: (bool, bool),
+    environment: Environment,
     json: bool,
 ) -> Result<(), String> {
+    let (restored, existing) = mode;
     print(
         &serde_json::json!({
-            "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
+            "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": environment.as_str(),
             "account_id": account, "home": home, "credential_file": CLOUD_SYNC_PAUSED_FILE,
             "cloud_sync_off": true, "local_store_opened": restored,
             "local_store_read_only": restored, "database_writer_opened": false,
             "registration_attempted": registered, "credentials_saved": true,
             "api_key_output": false, "legacy_recipient_enrolled": false,
             "restored_home": restored, "automatic_backup_enabled": false,
+            "existing_home": existing, "identity_preserved": true,
+            "native_runtime_activation_changed": false,
         }),
         json,
     )

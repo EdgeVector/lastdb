@@ -26,31 +26,41 @@ pub async fn register_dev_native_device(
     device_id: &str,
     invite_code: Option<&str>,
 ) -> Result<Registered, String> {
-    let parsed = uuid::Uuid::parse_str(device_id).map_err(|_| "invalid DEV recovery device ID")?;
+    register_native_device(Environment::Dev, keypair, device_id, invite_code).await
+}
+
+/// Register the existing identity at one compiled environment; change no local intent.
+pub async fn register_native_device(
+    environment: Environment,
+    keypair: &Ed25519KeyPair,
+    device_id: &str,
+    invite_code: Option<&str>,
+) -> Result<Registered, String> {
+    let parsed = uuid::Uuid::parse_str(device_id).map_err(|_| "invalid native device ID")?;
     if parsed.get_version() != Some(uuid::Version::Random) {
-        return Err("DEV recovery requires a random device ID".into());
+        return Err("native enrollment requires a random device ID".into());
     }
     let request = signed_register_request(
-        exemem_api_url_for(Environment::Dev),
+        exemem_api_url_for(environment),
         keypair,
         invite_code,
         Some(device_id),
     )?;
     let client = fold_db::sync::build_shared_http_client()
-        .map_err(|_| "cannot construct DEV recovery register client")?;
+        .map_err(|_| "cannot construct native register client")?;
     let mut response = client
         .post(request.url.clone())
         .timeout(Duration::from_secs(30))
         .json(&request.body)
         .send()
         .await
-        .map_err(|_| "DEV recovery register request failed")?;
+        .map_err(|_| "native register request failed")?;
     if response.status().is_redirection() || response.url() != &request.url {
-        return Err("DEV recovery register redirected".into());
+        return Err("native register redirected".into());
     }
     if !response.status().is_success() {
         return Err(format!(
-            "DEV recovery register HTTP status {}",
+            "native register HTTP status {}",
             response.status().as_u16()
         ));
     }
@@ -58,13 +68,13 @@ pub async fn register_dev_native_device(
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|_| "cannot read DEV recovery response")?
+        .map_err(|_| "cannot read native register response")?
     {
         if chunk.len() > RESPONSE_LIMIT.saturating_sub(bytes.len()) {
-            return Err("DEV recovery response exceeds supported size".into());
+            return Err("native register response exceeds supported size".into());
         }
         bytes.extend_from_slice(&chunk);
     }
-    let text = std::str::from_utf8(&bytes).map_err(|_| "DEV recovery response is not UTF-8")?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "native register response is not UTF-8")?;
     parse_registered_response(text, &request.expected_user_hash)
 }

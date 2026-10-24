@@ -58,3 +58,30 @@ The DEV check must use an owned restored home with its daemon stopped.
 It must confirm the same account, unchanged database bytes, paused credentials, and automatic backup off.
 It must also confirm one idempotent retry without another registration.
 No primary operation or cloud deployment belongs to this change.
+
+## Existing-home PROD enrollment
+
+The separate explicit command supports an existing home with a live owner daemon:
+
+```text
+LASTDB_NATIVE_BACKUP_ENABLED=1 lastdb --data-dir /absolute/home cloud backup connect --prod --existing --json
+```
+
+Add `--invite-code-stdin` when the remote account requires a first-account invite.
+The command selects the compiled PROD endpoint. It accepts no caller URL.
+The owner socket must report the same account, home, and data directory.
+Legacy Cloud Sync, automatic backup, and the daemon's native gate must be off. No native worker can be active.
+The command checks both owner replies in parallel, with bounded replies and deadlines.
+It rechecks the same socket and daemon before credential publication.
+
+The command holds the existing identity and enrollment locks. It checks the identity inode and seed before and after registration.
+It saves the Cloud Sync Off marker and one durable device UUID before registration.
+It creates paused credentials with an atomic no-replace rename. Existing credentials must authorize the same account at the exact compiled endpoint.
+An unknown result requires an explicit retry. That retry keeps the same identity and device UUID.
+It never replaces credentials, creates an identity, opens the native store, changes a database file, or enrolls a legacy recipient.
+It refuses the primary archive. It does not require a restore receipt for this explicit existing-home mode.
+
+The command does not change the live daemon's environment or automatic consent.
+The CLI flag enables this enrollment command only. A separate controlled daemon start must enable native backup before a manual Start.
+The existing daemon loads paused credentials when the owner admits that manual request.
+Source checks do not establish successful PROD enrollment, backup, or restore.

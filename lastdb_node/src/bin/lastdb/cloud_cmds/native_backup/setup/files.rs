@@ -16,6 +16,8 @@ const DEVICE_FILE: &str = ".native_backup_device_id";
 const LOCK_FILE: &str = ".native_backup_enrollment.lock";
 const PENDING_FILE: &str = ".native_backup_credentials.pending";
 
+#[path = "files/existing.rs"]
+mod existing;
 #[path = "files/restored.rs"]
 mod restored;
 
@@ -25,6 +27,7 @@ pub(super) struct PreparedHome {
     directory: File,
     _lock: File,
     restored: Option<restored::Validation>,
+    existing: Option<existing::Validation>,
 }
 
 impl PreparedHome {
@@ -64,6 +67,7 @@ impl PreparedHome {
             directory,
             _lock: lock,
             restored: None,
+            existing: None,
         };
         prepared.verify_entries()?;
         prepared.seed()?;
@@ -72,7 +76,9 @@ impl PreparedHome {
 
     fn verify_entries(&self) -> Result<(), String> {
         self.verify_binding()?;
-        if let Some(restored) = &self.restored {
+        if let Some(existing) = &self.existing {
+            existing.check(self)
+        } else if let Some(restored) = &self.restored {
             restored.check(self)
         } else {
             verify_contents(&self.directory)
@@ -81,7 +87,9 @@ impl PreparedHome {
 
     pub(super) fn seed(&self) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
         self.verify_binding()?;
-        if let Some(restored) = &self.restored {
+        if let Some(existing) = &self.existing {
+            existing.seed(self)
+        } else if let Some(restored) = &self.restored {
             restored.seed(self)
         } else {
             read_seed(&self.directory)
@@ -132,10 +140,15 @@ impl PreparedHome {
         let credentials: Credentials = serde_json::from_slice(&bytes)
             .map_err(|_| "invalid saved native credentials; registration may have committed")?;
         if credentials.api_url != api_url || credentials.api_key.is_empty() {
-            return Err("saved native credentials do not match the compiled DEV endpoint".into());
+            return Err("saved native credentials do not match the compiled endpoint".into());
         }
         if let Some(restored) = &self.restored {
-            super::validate_restored_credentials(api_url, &credentials.api_key, &restored.account)?;
+            super::validate_saved_credentials(api_url, &credentials.api_key, &restored.account)?;
+            self.verify_entries()?;
+        }
+        if let Some(existing) = &self.existing {
+            super::validate_saved_credentials(api_url, &credentials.api_key, &existing.account)?;
+            existing.verify_owner()?;
             self.verify_entries()?;
         }
         self.sync_file(name)?;
@@ -154,14 +167,19 @@ impl PreparedHome {
 
     fn publish(&self) -> Result<(), String> {
         self.verify_entries()?;
+        if let Some(existing) = &self.existing {
+            existing.verify_owner()?;
+        }
+        self.verify_entries()?;
         if recovery_files::entry_present(&self.directory, CLOUD_SYNC_PAUSED_FILE)? {
             return Err("refusing to replace paused native credentials".into());
         }
-        fs::renameat(
+        fs::renameat_with(
             &self.directory,
             PENDING_FILE,
             &self.directory,
             CLOUD_SYNC_PAUSED_FILE,
+            fs::RenameFlags::NOREPLACE,
         )
         .map_err(|_| "cannot publish paused native credentials")?;
         self.sync()
