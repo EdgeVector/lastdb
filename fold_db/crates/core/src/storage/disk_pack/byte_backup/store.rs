@@ -22,18 +22,35 @@ impl Store {
         policy: &laststore::disk_pack::maintenance::SpacePolicy,
     ) -> StorageResult<Self> {
         let root = home.join("cloud-byte-source-v2");
-        match fs::DirBuilder::new().mode(0o700).create(&root) {
-            Ok(()) => File::open(home)?.sync_all()?,
+        Self::open_root(&root, home, policy)
+    }
+    pub(super) fn open_external(
+        root: &Path,
+        policy: &laststore::disk_pack::maintenance::SpacePolicy,
+    ) -> StorageResult<Self> {
+        Self::open_root(root, root, policy)
+    }
+    fn open_root(
+        root: &Path,
+        space_root: &Path,
+        policy: &laststore::disk_pack::maintenance::SpacePolicy,
+    ) -> StorageResult<Self> {
+        match fs::DirBuilder::new().mode(0o700).create(root) {
+            Ok(()) => File::open(
+                root.parent()
+                    .ok_or_else(|| invalid("byte source directory parent"))?,
+            )?
+            .sync_all()?,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
-        let meta = fs::symlink_metadata(&root)?;
+        let meta = fs::symlink_metadata(root)?;
         if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return Err(invalid("byte source directory ownership"));
         }
-        super::certify::scratch_cleanup(&root)?;
+        super::certify::scratch_cleanup(root)?;
         let mut total = 0u64;
-        for (index, entry) in fs::read_dir(&root)?.enumerate() {
+        for (index, entry) in fs::read_dir(root)?.enumerate() {
             if index >= MAX_FILES {
                 return Err(invalid("byte source file count"));
             }
@@ -44,11 +61,11 @@ impl Store {
                 .ok_or_else(|| invalid("byte source spool overflow"))?;
         }
         let store = Self {
-            root,
+            root: root.to_path_buf(),
             bytes: AtomicU64::new(total),
             coordinator: AtomicU64::new(0),
             policy: policy.clone(),
-            space_root: home.to_path_buf(),
+            space_root: space_root.to_path_buf(),
         };
         store.admit(0)?;
         Ok(store)

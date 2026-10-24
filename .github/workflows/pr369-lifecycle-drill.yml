@@ -40,8 +40,8 @@ jobs:
         run: |
           set -euo pipefail
           case "$VARIANT" in
-            baseline) product=50532a6395a8bcb0cb8020d4999123ccd3d92fe3 ;;
-            fixed) product=d328fa7a1ab9dac6ceef1b0971f02d77902d2b19 ;;
+            baseline) product=990068703c32d0ba69d9511d71fcd248c3c4f9e2 ;;
+            fixed) product=f454975365e54f507d0c9f68e3aab4f980ecb1d4 ;;
             *) exit 1 ;;
           esac
           git merge-base --is-ancestor "$product" HEAD

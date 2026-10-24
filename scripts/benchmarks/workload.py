@@ -159,7 +159,8 @@ class Workload:
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
                 path = "/api/query" if kind == "read" else "/api/mutations/batch"
-                observe = self.case == "update/128"
+                observe = (self.case == "update/128"
+                           or self.case == "update/1" and self.recipe["native_timing"])
                 before = read_counters(self.node.process.pid) if observe else None
                 result, elapsed, receipt = self.node.call(
                     path, body, receipt=kind == "read", request_id=request_id)

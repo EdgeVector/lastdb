@@ -32,25 +32,32 @@ impl Store {
         home.join("data/cloud-byte-backup-v2")
     }
     pub fn active(home: &Path) -> Result<Option<Id>> {
-        Ok(read::<Active>(&Self::base(home).join("active.json"))?.map(|a| a.request_id))
+        Self::active_at(&Self::base(home))
+    }
+    pub fn active_at(base: &Path) -> Result<Option<Id>> {
+        Ok(read::<Active>(&base.join("active.json"))?.map(|a| a.request_id))
     }
     pub fn open(home: &Path, id: &Id) -> Result<Self> {
-        let base = Self::base(home);
-        directory(&base)?;
+        Self::open_at(&Self::base(home), id)
+    }
+    pub fn open_at(base: &Path, id: &Id) -> Result<Self> {
+        directory(base)?;
         directory(&base.join("jobs"))?;
         let root = base.join("jobs").join(id.as_str());
         directory(&root)?;
-        let bytes = Arc::new(AtomicU64::new(count(&base, 0, &mut 0)?));
+        let bytes = Arc::new(AtomicU64::new(count(base, 0, &mut 0)?));
         Ok(Self {
-            base,
+            base: base.to_path_buf(),
             root,
             id: id.clone(),
             bytes,
         })
     }
     pub fn lock(home: &Path) -> Result<File> {
-        let base = Self::base(home);
-        directory(&base)?;
+        Self::lock_at(&Self::base(home))
+    }
+    pub fn lock_at(base: &Path) -> Result<File> {
+        directory(base)?;
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -62,6 +69,9 @@ impl Store {
         private_file(&file.metadata()?)?;
         file.try_lock().map_err(|_| BackupError::Busy)?;
         Ok(file)
+    }
+    pub fn reopen(&self) -> Result<Self> {
+        Self::open_at(&self.base, &self.id)
     }
     pub fn select(&self, id: &Id) -> Result<()> {
         if id != &self.id {
@@ -103,13 +113,11 @@ impl Store {
 }
 
 pub(super) fn state(home: &Path, id: &Id) -> Result<Option<Saved>> {
-    read_state_at(
-        &Store::base(home)
-            .join("jobs")
-            .join(id.as_str())
-            .join("state.json"),
-        id,
-    )
+    state_at(&Store::base(home), id)
+}
+
+pub(super) fn state_at(base: &Path, id: &Id) -> Result<Option<Saved>> {
+    read_state_at(&base.join("jobs").join(id.as_str()).join("state.json"), id)
 }
 
 fn read_state_at(path: &Path, id: &Id) -> Result<Option<Saved>> {
@@ -125,7 +133,11 @@ fn read_state_at(path: &Path, id: &Id) -> Result<Option<Saved>> {
 
 /// A bounded close marker remains writable without a job-directory walk.
 pub(super) fn close(home: &Path, id: &Id) -> Result<()> {
-    let root = Store::base(home).join("jobs").join(id.as_str());
+    close_at(&Store::base(home), id)
+}
+
+pub(super) fn close_at(base: &Path, id: &Id) -> Result<()> {
+    let root = base.join("jobs").join(id.as_str());
     let info = fs::symlink_metadata(&root)?;
     if !info.is_dir() || info.uid() != unsafe { libc::geteuid() } || info.mode() & 0o077 != 0 {
         return Err(BackupError::Invalid);

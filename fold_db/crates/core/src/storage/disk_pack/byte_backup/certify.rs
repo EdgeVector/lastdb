@@ -6,12 +6,11 @@ use laststore::disk_pack::{home::HomeRead, ReadBudget};
 use std::fs::{self, File};
 
 pub(super) fn read(inner: &Inner, budget: ReadBudget) -> StorageResult<HomeRead> {
-    inner
+    let source = inner
         .source
         .as_ref()
-        .ok_or_else(|| invalid("byte retained source unavailable"))?
-        .read_retained(&inner.runtime.home, budget, &inner.runtime.read_lease)
-        .map_err(super::super::map)
+        .ok_or_else(|| invalid("byte retained source unavailable"))?;
+    inner.home.read(source, budget)
 }
 fn bounded_read(inner: &Inner, bytes: u64, keys: u64) -> StorageResult<HomeRead> {
     read(
@@ -86,7 +85,7 @@ fn atom(
     drop(atom);
     drop(row);
     let mut reader = bounded_read(inner, budget::DIRECTORY_READ_BYTES, 10000)?;
-    files::read_directories(&mut reader, scope.as_deref(), &id, &dependencies, key)?;
+    files::read_directories(&mut reader, scope.as_deref(), &id, &dependencies)?;
     drop(reader);
     for dependency in dependencies {
         native_file(inner, key, &dependency)?;
@@ -101,14 +100,14 @@ fn native_file(
     scratch_cleanup(&inner.store.root)?;
     let path = inner.store.root.join("native-cas.pending");
     let result = (|| {
-        let mut output = files::NativeCasOutput::create(&path, &inner.runtime.space_policy)?;
+        let mut output = files::NativeCasOutput::create(&path, inner.home.space_policy())?;
         let mut reader = bounded_read(inner, budget::NATIVE_STREAM_LOOKUP_READ_BYTES, 1)?;
         let proof = files::read_native_cas(&mut reader, dependency, &mut output)?;
         drop(reader);
         drop(output.finish()?);
         let proof =
             proof.ok_or_else(|| invalid("byte backup remote-only file source unsupported"))?;
-        files::verify_native_cas(proof, &path, key, dependency, &inner.runtime.space_policy)?;
+        files::verify_native_cas(proof, &path, key, dependency, inner.home.space_policy())?;
         Ok(())
     })();
     scratch_cleanup(&inner.store.root)?;

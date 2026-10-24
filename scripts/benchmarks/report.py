@@ -109,6 +109,7 @@ def render(output, manifest, comparison):
              f"Base: `{manifest['binaries']['baseline']['revision']}`  ",
              f"Candidate: `{manifest['binaries']['candidate']['revision']}`  ",
              f"Driver: `{manifest['driver_revision']}`", "",
+             f"Requested socket workers (0 = product default): {manifest['recipe'].get('uds_workers', 'unreported')}", "",
              "Each number is the median of the per-run measures. Percent changes use the base commit.",
              "Positive response-time changes and negative throughput changes mean slower results.", "",
              "| Case | Base p95 ms | Candidate p50 / p95 / p99 ms | p95 change | Candidate requests/s | Rate change | Errors |",

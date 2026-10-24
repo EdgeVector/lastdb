@@ -1,50 +1,9 @@
 use super::*;
 
-/// Collections that must never enter cloud backup (local-only / rebuildable /
-/// aside archives / at-rest-exempt). Everything else on disk with sealed segs
-/// is backed up so second-device restore is a usable copy of the primary
-/// (schemas, atoms, cas_blobs/file blobs, range indexes, etc.).
-///
-/// **Coupled to at-rest encryption policy (won't-undo, 2026-08-03):** the
-/// chunk-backup plane below has no encryption of its own — it ships on-disk
-/// `.seg` bytes verbatim (live-path file-backed PUT), so a namespace
-/// exempt from at-rest encryption
-/// (`encrypting_namespaced_store::LASTSTORE_PLAINTEXT_NAMESPACES`) that is
-/// *not* excluded here goes to the object store in cleartext.
-///
-/// The first form of this coupling required *exclusion*, on the premise that
-/// cleartext catalogs in the object store are a confidentiality defect. The
-/// Trinity-only encryption standard (Tom, 2026-08-03 — brain
-/// `preference-lastdb-encryption-standard-trinity-only`) retires that premise:
-/// published schema definitions are not a secret, and "treating cleartext
-/// published schema JSON on disk or in cloud backup as a confidentiality
-/// incident" is explicitly out of standard. Excluding `schemas` would also make
-/// a restored device an unusable copy of the primary — it is a source-of-truth
-/// collection (`mini_cutover::plane_roles::SOT_NAMED_COLLECTIONS`).
-///
-/// So the coupling now demands a **declaration** rather than exclusion: every
-/// at-rest-plaintext namespace must be either listed here or named in
-/// `BACKUP_CLEARTEXT_CATALOG_NAMESPACES` below. That keeps the guard load-bearing —
-/// adding a namespace to the plaintext allowlist still fails the build until
-/// someone states which of the two it is — while allowing the catalogs the
-/// standard says may travel in the clear. Enforced by
-/// `backup_role_matches_at_rest_encryption_exemption` below.
-///
-/// **Coupled to source-of-truth role (2026-08-04):** the confidentiality
-/// coupling above says nothing about durability, and that gap shipped —
-/// `schema_states` and `schema_superseded_by` are SOT
-/// (`mini_cutover::plane_roles::SOT_COLLECTIONS`) and were excluded here purely
-/// as fallout of the retired secrecy premise, so a restored device silently
-/// lost every non-default schema state. Both are now backed up, and
-/// `sot_collections_are_backed_up_or_declared_exception` below fails the build
-/// if a future SOT collection is excluded without a stated reason.
-///
-/// The remaining entries that are only here because of the original exclusion
-/// coupling (`schema_index`, `public_keys`, `idempotency`) are deliberately left
-/// excluded: none is source of truth, so a restored device rebuilds or
-/// re-earns them. Their exclusion is a restore-completeness choice, not a
-/// secrecy one. (History: post-WASM ghosts `views` / `view_states` /
-/// `transform_field_overrides` / `process_results` dropped from this list.)
+/// Local or rebuildable collections omitted from the legacy chunk manifest.
+/// Native backups copy the held file inventory. Backup inclusion is independent
+/// of the CAS-only storage wrapper: direct atom, tip, and control records retain
+/// their stored bytes, while encrypted atom content and CAS payloads stay sealed.
 pub(super) const BACKUP_EXCLUDED_EXACT: &[&str] = &[
     // Sync machinery / ephemeral queues — not product state.
     "sync_capture",
@@ -99,13 +58,8 @@ pub(super) fn backup_role_for_collection(collection: &str) -> Option<BackupManif
     if is_backup_excluded_collection(collection) {
         return None;
     }
-    // All remaining finalized/CAS-eligible collections (schemas, cas_blobs,
-    // field indexes, tips, proteins, log, blobs, …) are mutable product
-    // state. "Finalized" here is lifecycle, not crypto — see
-    // `concepts-lastdb-cloud-upload-seal-is-lifecycle-not-crypto`; whether the
-    // bytes are actually encrypted is a separate question answered by
-    // `LASTSTORE_PLAINTEXT_NAMESPACES` and enforced against this exclusion
-    // list by `backup_role_matches_at_rest_encryption_exemption` below.
+    // Remaining collections are mutable product state. This role controls
+    // retention and publication, not value encryption.
     Some(BackupManifestRole::Mutable)
 }
 

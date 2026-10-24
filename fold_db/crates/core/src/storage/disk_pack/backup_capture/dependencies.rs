@@ -319,7 +319,7 @@ fn certify_atom(
     drop(atom);
     drop(record);
     let mut read = held_read(inner, budget::DIRECTORY_READ_BYTES)?;
-    files::read_directories(&mut read, scope.as_deref(), &id, &dependencies, key)?;
+    files::read_directories(&mut read, scope.as_deref(), &id, &dependencies)?;
     drop(read);
     for dependency in dependencies {
         if let Some(index) = store.find(
