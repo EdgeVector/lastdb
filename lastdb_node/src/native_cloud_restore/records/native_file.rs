@@ -8,7 +8,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 
 pub(super) fn verify(
-    session: &RestoreSession,
+    session: &VerifiedNativeContext<'_>,
     home: &DiskHome,
     current: &Current,
     key: &[u8; 32],
@@ -23,7 +23,7 @@ pub(super) fn verify(
     result
 }
 
-fn cleanup(session: &RestoreSession) -> Result<()> {
+fn cleanup(session: &VerifiedNativeContext<'_>) -> Result<()> {
     for name in [
         "native-cas.pending",
         "native-cas.json.pending",
@@ -37,12 +37,12 @@ fn cleanup(session: &RestoreSession) -> Result<()> {
             Err(error) => return Err(error.into()),
         }
     }
-    File::open(&session.root)?.sync_all()?;
+    File::open(session.root)?.sync_all()?;
     Ok(())
 }
 
 fn verify_inner(
-    session: &RestoreSession,
+    session: &VerifiedNativeContext<'_>,
     home: &DiskHome,
     current: &Current,
     key: &[u8; 32],
@@ -59,7 +59,7 @@ fn verify_inner(
             .open(path)?;
         let mut output = CapacityWriter {
             file,
-            root: &session.root,
+            root: session.root,
         };
         let mut read = home
             .read_committed(
