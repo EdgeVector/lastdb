@@ -74,6 +74,16 @@ A nightly run uses the selected commit and its first parent.
 The workflow records complete SHAs and executable hashes.
 The running daemon must report the expected revision.
 
+Manual comparisons accept `baseline_workers` and `candidate_workers`: 0, 4, 8, 16, or 32.
+Zero keeps the product default. Automatic PR, main, and nightly runs keep zero for both versions.
+The worker override requires a GitHub-hosted runner and changes only the owned generated daemon.
+The recipe and summary record both counts. Startup checks each explicit count against `/api/status` and retains the result.
+Use two revisions with identical product source for a worker comparison. Retain the fresh candidate build and separate executable identities.
+The worker count also controls active mutation replies and the request-byte allowance. These measurements cover the combined change.
+Compare latency, request rate, queue wait, and sampled daemon memory before a recommendation.
+The native diagnostic pass also joins slow single-record updates to their exact write scopes and physical commits.
+Process observations for those calls stay outside their RPC timer and run only in the separate diagnostic pass.
+
 The driver uses the workflow's exact source revision, separate from both product checkouts.
 For a PR, this is the event's merge tree, which includes the current base driver.
 An older PR head need not contain any benchmark scripts. The summary records the driver revision.

@@ -19,6 +19,7 @@ def render(output):
         raise ValueError("The separate native diagnostic campaign is incomplete")
     lines = ["# Native write diagnostics — separate from ordinary latency", "",
              f"Driver: `{manifest['driver_revision']}`. Pairs: {manifest['recipe']['pairs']}.",
+             f"Requested socket workers (0 = product default): {manifest['recipe'].get('uds_workers', 'unreported')}",
              "Native timing is enabled only for these generated CI homes.",
              "Instrumentation can change latency; use the ordinary campaign for the speed comparison.",
              "Scope means are per native request; physical means are per distinct commit.",
@@ -28,7 +29,7 @@ def render(output):
              "|---|---:|---:|---:|---|"]
     physical_lines = ["", "| Run / case | Commit mean ms | Largest physical phases ms |",
                       "|---|---:|---|"]
-    tails = ["", "## Exact slow batch-update requests", "",
+    tails = ["", "## Exact slow update requests", "",
              "Each request joins to an enclosed scope and one distinct physical commit by sequence and time.",
              "Shared physical commits retain their request count; their cost is not assigned to every request.", ""]
     for run in manifest["runs"]:
@@ -37,7 +38,8 @@ def render(output):
         data = json.loads((output / run["directory"] / "native-phases.json").read_text())
         if not data["complete"]:
             raise ValueError("Native phase coverage is incomplete")
-        for name in ("update/128", "concurrent-write/1", "concurrent-write/4"):
+        for name in ("update/1", "update/128", "concurrent-write/1", "concurrent-write/4",
+                     "concurrent-write/32", "concurrent-mixed/32"):
             case = data["cases"][name]
             label = f"{run['directory']} / {name}"
             lines.append(f"| {label} | {case['scopes']} | {case['distinct_physical_commits']} | "
