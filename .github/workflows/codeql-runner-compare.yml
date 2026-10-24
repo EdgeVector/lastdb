@@ -1,0 +1,102 @@
+name: CodeQL runner comparison
+
+# Manual operational comparison only. Normal security analysis stays enabled.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full source SHA (empty selects this workflow revision)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: codeql-runner-comparison
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: CodeQL comparison / ${{ matrix.runner }} / ${{ matrix.round }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-latest-8-cores]
+        round: [1, 2, 3]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Require an exact source revision
+        env:
+          SOURCE_SHA: ${{ inputs.revision || github.sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+
+      - name: Record source and runner resources
+        run: |
+          [ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ]
+          {
+            echo "Source: $SOURCE_SHA"
+            echo "Runner: ${{ matrix.runner }}; round: ${{ matrix.round }}"
+            echo "Image: $ImageOS $ImageVersion"
+            echo "Processors: $(nproc)"
+            free -m
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Initialize the same Rust security analysis
+        id: init
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          languages: rust
+          build-mode: none
+          tools: linked
+          trap-caching: false
+          dependency-caching: false
+          db-location: ${{ runner.temp }}/codeql-database
+
+      - name: Extract Rust and run the default security queries
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          output: ${{ runner.temp }}/codeql-results
+          upload: never
+          upload-database: false
+
+      - name: Record the fixed analysis bundle
+        if: always()
+        env:
+          CODEQL_VERSION: ${{ steps.init.outputs.codeql-version }}
+        run: echo "CodeQL bundle version $CODEQL_VERSION; default Rust queries; fresh database and no analysis cache." >> "$GITHUB_STEP_SUMMARY"
+
+  summary:
+    needs: compare
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Summarize each runner and round from job timestamps
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '| Runner and round | Result | Job seconds | Analysis seconds |'
+            echo '|---|---|---:|---:|'
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '
+              def seconds:
+                if .completed_at and .started_at then
+                  (.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601)
+                else "-" end;
+              .jobs[] | select(.name | startswith("CodeQL comparison /")) |
+              [.name, (.conclusion // .status), seconds,
+               ([.steps[] | select(.name == "Extract Rust and run the default security queries") |
+                 seconds][0] // "-")] |
+              "| \(.[0]) | \(.[1]) | \(.[2]) | \(.[3]) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
