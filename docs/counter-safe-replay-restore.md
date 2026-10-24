@@ -15,6 +15,9 @@ It leaves the replay cursor before the refused entry.
 A current snapshot supplies the recovery route.
 
 Physical namespace aliases cannot bypass this rule.
+The refusal also covers protein membership, schema authority, and database catalogs.
+Those records require the related molecule binding records and counts in the same batch.
+Complete snapshots retain these logical namespaces and validate their stored counts.
 Opaque metadata keeps its existing replay path.
 The legacy raw tip, header, and conflict writers are removed.
 Cloud activation stays disabled.
