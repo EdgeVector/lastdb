@@ -1,54 +1,5 @@
 use super::*;
 
-#[derive(Deserialize)]
-pub(super) struct BatchMutationsRequest {
-    pub(super) mutations: Vec<Operation>,
-    #[serde(default)]
-    pub(super) convergence: Option<MutationConvergence>,
-}
-
-pub(super) fn parse_batch_mutation_components(
-    req: &UdsRequest,
-) -> Result<Vec<MutationComponents>, UdsResponse> {
-    let Ok(value) = serde_json::from_slice::<Value>(&req.body) else {
-        return Err(content_free(400, "Bad Request"));
-    };
-
-    // A strict `Operation` refusing a key it does not declare is the
-    // client↔node version-skew signal (`unknown_key`), not a malformed body:
-    // brain 0.8.0 sent per-mutation `durability` to a primary that predated
-    // the key and got the same bare `Bad Request` as a typo (2026-09-03).
-    let operations = match value {
-        Value::Array(items) => {
-            let mut operations = Vec::with_capacity(items.len());
-            for item in items {
-                match serde_json::from_value::<Operation>(item) {
-                    Ok(operation) => operations.push(operation),
-                    Err(err) => return Err(Reject::from_serde_error(&err, None).response()),
-                }
-            }
-            operations
-        }
-        other => match serde_json::from_value::<BatchMutationsRequest>(other) {
-            Ok(request) => {
-                return Ok(request
-                    .mutations
-                    .into_iter()
-                    .map(|operation| {
-                        MutationComponents::from_operation(operation, request.convergence, None)
-                    })
-                    .collect());
-            }
-            Err(err) => return Err(Reject::from_serde_error(&err, None).response()),
-        },
-    };
-
-    Ok(operations
-        .into_iter()
-        .map(|operation| MutationComponents::from_operation(operation, None, None))
-        .collect())
-}
-
 pub(super) async fn execute_mutations_batch_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -57,7 +8,7 @@ pub(super) async fn execute_mutations_batch_route(
     // One timer around the whole batch parse: the loop inside parses every
     // item, so this is already the per-item parse SUM, not a point sample.
     let parse_started = std::time::Instant::now();
-    let parsed = parse_batch_mutation_components(req);
+    let parsed = parse_batch_mutation_body(&req.body);
     fold_db::request_phases::add_phase(
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
