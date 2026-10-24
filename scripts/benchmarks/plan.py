@@ -39,6 +39,14 @@ def main():
     if not base or set(base) == {"0"}:
         base = git("rev-parse", candidate + "^").decode().strip()
     baseline = revision(base)
+    requested_baseline = baseline
+    if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+        parents = git("rev-list", "--parents", "-n", "1", candidate).decode().split()
+        if len(parents) != 3:
+            raise ValueError("A PR comparison requires its exact two-parent candidate merge commit")
+        # The event payload can lag the base used to create refs/pull/N/merge.
+        # Compare against the base actually present in that candidate tree.
+        baseline = revision(parents[1])
     if baseline == candidate:
         raise ValueError("Baseline and candidate revisions must differ; preserve the fresh candidate program")
     merge_base = git("merge-base", baseline, candidate).decode().strip()
@@ -48,6 +56,7 @@ def main():
                if path not in DOCUMENT_FILES and Path(path).suffix.lower() not in {".md", ".rst"}]
     required = args.always or bool(product) or not paths
     result = {"required": str(required).lower(), "baseline": baseline, "candidate": candidate,
+              "requested_baseline": requested_baseline,
               "driver": git("rev-parse", "HEAD").decode().strip(),
               "reason": "product or benchmark configuration change" if product else
                         "scheduled, main, manual, or empty change" if required else "documentation-only change"}
