@@ -301,7 +301,7 @@ impl DbOperations {
                 crate::crypto::content_key_proof::verify_or_establish(store.as_ref(), &key, fresh)
                     .await?;
             }
-            Ok(())
+            Ok::<(), crate::storage::StorageError>(())
         })
         .await?;
         runtime.finish_fresh_initialization().await

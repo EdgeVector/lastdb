@@ -37,7 +37,8 @@ pub fn convert_transferred_node(root: &Path, account_key: &[u8; 32]) -> StorageR
         if record.collection == "cas_blobs"
             || record.collection == "__native_home"
             || CATALOG_NAMESPACES.contains(&record.collection)
-            || record.key == marker
+            || (record.key == marker
+                && record.collection == native_routing::collection_for_key(marker.as_bytes()))
         {
             std::io::copy(body, &mut std::io::sink())?;
             return Ok(());

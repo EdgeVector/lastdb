@@ -59,7 +59,9 @@ jobs:
             vendor/laststore/src/disk_pack/home/transfer.rs \
             vendor/laststore/src/disk_pack/home/transfer \
             > "$RUNNER_TEMP/native-transfer-adapter.patch"
-          git -C "$baseline" apply "$RUNNER_TEMP/native-transfer-adapter.patch"
+          if [ -s "$RUNNER_TEMP/native-transfer-adapter.patch" ]; then
+            git -C "$baseline" apply "$RUNNER_TEMP/native-transfer-adapter.patch"
+          fi
           # Register the adapter without importing later old-reader changes.
           python3 - "$baseline/vendor/laststore/src/disk_pack/home.rs" <<'PY'
           from pathlib import Path
