@@ -5,6 +5,7 @@ import json
 import re
 
 from ranges import latency, validate
+from condition_values import extend
 
 SCHEMA, HASH, COUNT, SHIFT = "ReceivedRangeBatches", "generated", 16384, 8192
 TOTAL = COUNT + SHIFT
@@ -25,8 +26,8 @@ def hidden(number):
 
 def fields(hashed, ranged, source, revision="seed"):
     title = json.dumps([hashed, ranged, source, revision], ensure_ascii=True)
-    return {"bucket": hashed, "id": ranged, "title": title,
-            "body": hashlib.shake_256(title.encode()).hexdigest(128)}
+    return extend({"bucket": hashed, "id": ranged, "title": title,
+                   "body": hashlib.shake_256(title.encode()).hexdigest(128)}, source)
 
 
 def query(start="", end="\U0010ffff", limit=256, hashed=HASH):

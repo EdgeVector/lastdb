@@ -2,6 +2,7 @@
 
 from query import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, TOTAL, key, latency, prefix, query, validate, walk
 from seed import Seed
+from conditions import Conditions
 
 
 class Workload:
@@ -94,12 +95,14 @@ class Workload:
         self.seed.changed()
         known.append(self.keyed("delete-purge-update-and-reopened"))
         reopened = self.broad("changed-reopened")
+        conditions = Conditions(self.node, SCHEMA, self.seed.expected()).run()
         preload = self.preload()
         return {"received_records_per_source": COUNT, "sources": 2, "overlap_records": 8192,
             "known_key_passes": known, "broad": broad, "boundaries": boundaries,
             "reopened": reopened, "preload": preload, "narrow_latency": latency(measured),
             "narrow_samples": measured, "ordered_mutation_sha256": self.seed.offered.hexdigest(),
             "narrow_memory_before": memory_before, "narrow_memory_after": memory_after,
+            "conditions": conditions,
             "final_values_sha256": self.seed.final_hash(), "seed_inputs": self.seed.paths,
             "status": self.node.status("final"), "all_values_verified": True,
             "scope": "Generated received-data query operations; seed time excluded; no cloud transport or power-loss claim"}

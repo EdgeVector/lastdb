@@ -9,6 +9,8 @@ import statistics
 
 from node import file_hash, save
 from observations import observations
+from conditions import paired_conditions_match
+from condition_report import condition_summary
 
 
 def inventory(root):
@@ -44,7 +46,8 @@ def paired_inputs_match(grouped):
                 or first["final_values_sha256"] != last["final_values_sha256"]
                 or len(first["narrow_samples"]) != 64 or len(last["narrow_samples"]) != 64
                 or [row["request_sha256"] for row in first["narrow_samples"]]
-                != [row["request_sha256"] for row in last["narrow_samples"]]):
+                != [row["request_sha256"] for row in last["narrow_samples"]]
+                or not paired_conditions_match(first, last)):
             return False
     return True
 
@@ -84,6 +87,7 @@ def main():
             lines.extend(["", "| Mode | Narrow requests/run | Base p50 / p95 / p99 ms | Candidate p50 / p95 / p99 ms | p95 change |",
                 "|---|---:|---|---|---:|", f"| {mode} | 64 | {text('baseline')} | {text('candidate')} | {change:+.1f}% |"])
             lines.extend(observations(grouped, mode))
+            lines.extend(condition_summary(grouped, mode))
             if change > 20:
                 print("::notice::" + mode + " narrow-range p95 increased more than20%; advisory only")
             limitations = [case["http_status"] for value in grouped["baseline"] for case in value["broad"]
@@ -99,6 +103,7 @@ def main():
     text = "\n".join(lines) + "\n"
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)
+    print(text, end="")
     save(args.output / "artifact-files.json", {"files": inventory(args.output),
          "scope": "Exact file hashes before upload; full raw bodies stay outside Git in this14-day artifact"})
 

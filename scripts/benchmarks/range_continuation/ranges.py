@@ -5,6 +5,8 @@ import json
 import math
 import statistics
 
+from condition_values import extend
+
 SCHEMA, HASH, COUNT = "RangeContinuation", "generated", 16384
 FIELDS = ["bucket", "id", "title", "body"]
 EDGE_HASH = "edge-\u00e9-\u732b"
@@ -17,8 +19,8 @@ def key(number):
 
 def fields(hashed, ranged, revision="seed"):
     title = json.dumps([hashed, ranged, revision], ensure_ascii=True)
-    return {"bucket": hashed, "id": ranged, "title": title,
-            "body": hashlib.shake_256(title.encode()).hexdigest(512)}
+    return extend({"bucket": hashed, "id": ranged, "title": title,
+                   "body": hashlib.shake_256(title.encode()).hexdigest(512)})
 
 
 def query(hashed, start, end, limit=256):
