@@ -89,6 +89,13 @@ PR candidate compilation overlaps the main cache producer before the baseline re
 On a miss, a PR waits up to ten minutes only while the exact baseline's main run can publish its cache.
 A missing producer, incompatible environment, failed lookup, expired wait, or rejected cache uses a fresh baseline build.
 No compiled target directory enters the cache.
+The runner checks free disk space before builds and again before measurements.
+It reserves 32 GiB for two fresh build trees, plus the selected corpus budget.
+Standard and batch-insert runs reserve 16 GiB for one generated home and output.
+Nightly runs reserve 48 GiB; the 100,000-record run 40082466885 reached 29.8 GiB.
+The driver removes each owned home before the next version starts.
+Cleanup runs only below the required budget. A second check rejects insufficient space after cleanup.
+The CI summary records free space before builds, before measurements, and after the run.
 The summary states the build mode, preparation time, producer run, source, and executable hash.
 The first main run fills the new cache. Native toolchain, compiler, source, or recipe changes require another build.
 Cache expiry or upload failure affects speed only; the source build remains available.

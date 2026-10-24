@@ -65,7 +65,12 @@ jobs:
           path: baseline
           persist-credentials: false
 
-      - name: Reserve disk space for both builds and the nightly corpus
+      - name: Check space for two fresh builds and the selected corpus
+        id: disk-build
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build
+
+      - name: Reclaim disk space only when the build budget needs it
+        if: steps.disk-build.outputs.cleanup-required == 'true'
         uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
@@ -75,6 +80,9 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: false
+
+      - name: Require the build and corpus disk budget
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase build --require
 
       - name: Select one Rust toolchain for both builds
         working-directory: candidate
@@ -169,6 +177,25 @@ jobs:
           path: ${{ runner.temp }}/benchmark-programs/${{ inputs.baseline }}
           key: lastdb-benchmark-program-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-context.outputs.fingerprint }}-${{ inputs.baseline }}
 
+      - name: Check corpus space after both programs are ready
+        id: disk-measure
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure
+
+      - name: Reclaim disk space only when the corpus budget needs it
+        if: steps.disk-measure.outputs.cleanup-required == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Require corpus space before measurements
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase measure --require
+
       - name: Measure alternating baseline and candidate pairs
         id: measurement
         env:
@@ -202,6 +229,10 @@ jobs:
               --candidate-revision "$CANDIDATE_SHA" \
               --driver-revision "$DRIVER_SHA" \
               --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
+
+      - name: Record remaining runner space
+        if: always()
+        run: python3 driver/scripts/benchmarks/disk.py --profile "$BENCH_PROFILE" --phase finish
 
       - name: Publish benchmark summary
         if: always()
