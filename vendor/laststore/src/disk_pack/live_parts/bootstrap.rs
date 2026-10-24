@@ -36,20 +36,39 @@ impl TreePath {
     }
 }
 
-pub(super) fn collect(root: &Path, current: &Current, allowed: &[Coordinate]) -> Result<LiveParts> {
-    if allowed.len() > MAX_DEPENDENCIES || allowed.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(corrupt(
-            "bootstrap part coordinates are not bounded and ordered",
-        ));
+/// One round shares a work ceiling and count ledger across all imported trees.
+/// Directory edits account allocator templates separately from these subtrees.
+pub(in crate::disk_pack) struct LocatorImports<'a>(Collector<'a>);
+
+impl<'a> LocatorImports<'a> {
+    pub(in crate::disk_pack) fn new(
+        root: &'a Path,
+        current: &'a Current,
+        allowed: &'a [Coordinate],
+    ) -> Result<Self> {
+        Ok(Self(Collector::new(root, current, allowed)?))
     }
-    current.encode()?;
-    let mut collector = Collector {
-        root,
-        current,
-        allowed,
-        live: LiveParts::new(),
-        work: Work::seed(),
-    };
+
+    pub(in crate::disk_pack) fn add(&mut self, tree: &TreeRoot) -> Result<()> {
+        if tree.kind != TreeKind::Locator {
+            return Err(corrupt("imported live tree is not a locator"));
+        }
+        self.0.tree(tree, TreePath::root(tree))
+    }
+
+    pub(in crate::disk_pack) fn finish(self) -> Result<Changes> {
+        let mut changes = Changes::default();
+        for (coordinate, count) in self.0.live.counts {
+            let count = i64::try_from(count)
+                .map_err(|_| corrupt("imported live-part count exceeds signed delta"))?;
+            changes.add_part(coordinate, count)?;
+        }
+        Ok(changes)
+    }
+}
+
+pub(super) fn collect(root: &Path, current: &Current, allowed: &[Coordinate]) -> Result<LiveParts> {
+    let mut collector = Collector::new(root, current, allowed)?;
     let tree = current.directory.clone();
     collector.tree(&tree, TreePath::root(&tree))?;
     let mut empty = Changes::default();
@@ -58,7 +77,23 @@ pub(super) fn collect(root: &Path, current: &Current, allowed: &[Coordinate]) ->
     Ok(collector.live)
 }
 
-impl Collector<'_> {
+impl<'a> Collector<'a> {
+    fn new(root: &'a Path, current: &'a Current, allowed: &'a [Coordinate]) -> Result<Self> {
+        if allowed.len() > MAX_DEPENDENCIES || allowed.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(corrupt(
+                "bootstrap part coordinates are not bounded and ordered",
+            ));
+        }
+        current.encode()?;
+        Ok(Self {
+            root,
+            current,
+            allowed,
+            live: LiveParts::new(),
+            work: Work::seed(),
+        })
+    }
+
     fn include(&mut self, changes: Changes) -> Result<()> {
         self.live.apply_checked(
             self.root,

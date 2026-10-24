@@ -7,6 +7,12 @@ pub(super) struct PreparedCommit {
     space: SpaceReservation,
 }
 
+impl PreparedCommit {
+    pub(super) fn dependency_parts(&self) -> u64 {
+        self.reservation.quote().dependency_parts()
+    }
+}
+
 /// New operations and added space; the accepted prefix stays in the queue.
 pub(super) struct PreparedAppend {
     incoming: PreparedCommit,
@@ -115,8 +121,10 @@ impl PackRuntime {
         let gate = self.enter_write().await;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let _gate = gate;
-            runtime.commit(operations)
+            let result = runtime.commit(operations);
+            drop(gate);
+            runtime.capture_cleanup.release_idle();
+            result
         })
         .await
     }
@@ -198,6 +206,16 @@ impl PackRuntime {
         hidden_changes: &[(String, String)],
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
+        self.commit_prepared_group_merged(prepared, hidden_changes, requests, None)
+    }
+
+    pub(super) fn commit_prepared_group_merged(
+        &self,
+        prepared: PreparedCommit,
+        hidden_changes: &[(String, String)],
+        requests: &[Arc<transaction::PendingBatch>],
+        compaction: Option<&maintenance::PackHandoff>,
+    ) -> StorageResult<()> {
         let PreparedCommit {
             operations,
             batch_bytes: _,
@@ -221,7 +239,11 @@ impl PackRuntime {
                 .collect()
         };
         let mut writer = self.writer.lock().expect("native snapshot writer");
-        let result = writer.commit_mutation(operations, reservation);
+        let started = std::time::Instant::now();
+        let (result, receipt) = match compaction {
+            Some(handoff) => handoff.commit(&mut writer, operations, reservation),
+            None => (writer.commit_mutation(operations, reservation), None),
+        };
         let publication = match result {
             Ok(publication) => {
                 self.parts
@@ -236,6 +258,9 @@ impl PackRuntime {
         };
         let _timing = laststore::commit_timing::stage("memory_publication_us");
         self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
+        if let (Some(handoff), Some(receipt)) = (compaction, receipt) {
+            handoff.record(self.finish_merged_pack(&writer, receipt, started));
+        }
         drop(space);
         self.failed.store(false, Ordering::Release);
         Ok(())
@@ -254,17 +279,26 @@ impl PackRuntime {
         Ok(target)
     }
 
-    pub(super) async fn enter_write(self: &Arc<Self>) -> tokio::sync::OwnedMutexGuard<()> {
+    pub(super) async fn enter_write(self: &Arc<Self>) -> WriteGuard {
         loop {
             let gate = self.enter_prepare().await;
             let target = self.seal_queue();
             if target <= *self.completed.borrow() || self.failed.load(Ordering::Acquire) {
-                return gate;
+                let publication = Arc::clone(&self.write_gate).lock_owned().await;
+                return WriteGuard {
+                    _preparation: gate,
+                    _publication: publication,
+                };
             }
             drop(gate);
             let _ = self.wait_for_queue(target).await;
         }
     }
+}
+
+pub(super) struct WriteGuard {
+    _preparation: tokio::sync::OwnedMutexGuard<()>,
+    _publication: tokio::sync::OwnedMutexGuard<()>,
 }
 
 fn prefix_batch_bytes(

@@ -128,7 +128,8 @@ impl LocatorForest {
 /// One allocator per existing object. New groups join an existing object, so one
 /// publication adds one locator part, not one part for each object it touches.
 /// A fresh object exists only for the first groups of an empty directory.
-/// Parked sparse allocators hold no descriptors between individual tree edits.
+/// At most one sparse allocator keeps a descriptor between individual tree edits.
+/// Switching objects parks the previous allocator; finish retains every barrier.
 pub(super) struct LocatorChanges {
     protection: super::private_files::OutputFiles,
     root: PathBuf,
@@ -137,6 +138,7 @@ pub(super) struct LocatorChanges {
     /// The existing object that receives new groups, chosen once per publication.
     shared: Option<Uuid>,
     edited: BTreeMap<Uuid, (TreeRoot, SparsePages)>,
+    open_object: Option<Uuid>,
     changes: Changes,
 }
 
@@ -157,6 +159,7 @@ impl LocatorChanges {
             new: None,
             shared: None,
             edited: BTreeMap::new(),
+            open_object: None,
             changes: Changes::default(),
         }
     }
@@ -208,6 +211,9 @@ impl LocatorChanges {
 
     /// The empty tree of the object that receives new groups, or None when the
     /// directory has no group yet or page zero of the object is not an empty leaf.
+    /// Migration safety: homes written by older builds may have locator objects whose
+    /// page zero is not an empty leaf. This function validates the empty-tree invariant
+    /// and returns None if violated, forcing creation of a new object.
     fn shared_empty_tree(
         &mut self,
         call: &mut ReadCall,
@@ -236,7 +242,15 @@ impl LocatorChanges {
             kind: TreeKind::Locator,
         };
         let page = call.tree_page(&empty, 0)?;
-        Ok((page.level() == 0 && page.count() == 0).then_some(empty))
+        // Validate that page zero is an empty leaf. If not (e.g., an object written by an
+        // older build or a future incompatible layout), refuse to reuse it and force a new
+        // object. This prevents corruption from merging into the wrong tree.
+        if page.level() != 0 || page.count() != 0 {
+            // Reset shared choice so subsequent groups also get a new object.
+            self.shared = None;
+            return Ok(None);
+        }
+        Ok(Some(empty))
     }
 
     pub(super) fn edit(
@@ -249,7 +263,7 @@ impl LocatorChanges {
         self.edit_mode(call, Some(references), tree, changes)
     }
 
-    /// Catch-up fully seeds its final root; private graft edits need no deltas.
+    /// A synthetic empty allocator has no selected old root to retire.
     pub(super) fn edit_untracked(
         &mut self,
         call: &mut ReadCall,
@@ -273,6 +287,15 @@ impl LocatorChanges {
         {
             return forest.edit(call, references, tree, changes);
         }
+        if self.open_object != Some(tree.object) {
+            if let Some((_, pages)) = self
+                .open_object
+                .and_then(|object| self.edited.get_mut(&object))
+            {
+                pages.park();
+            }
+            self.open_object = Some(tree.object);
+        }
         let pages = match self.edited.remove(&tree.object) {
             Some((_, pages)) => pages,
             None => {
@@ -287,9 +310,8 @@ impl LocatorChanges {
             Some(references) => edit.put_many(call, references, changes)?,
             None => edit.put_many_untracked(call, changes)?,
         }
-        let (tree, mut pages, changes) = edit.finish_tree()?;
+        let (tree, pages, changes) = edit.finish_tree()?;
         self.changes.merge(changes)?;
-        pages.park();
         self.edited.insert(tree.object, (tree.clone(), pages));
         Ok(tree)
     }

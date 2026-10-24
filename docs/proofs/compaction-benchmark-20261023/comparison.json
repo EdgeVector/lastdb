@@ -1,0 +1,1108 @@
+{
+  "capacity_refusals": {
+    "after": 0,
+    "before": 0
+  },
+  "limits": [
+    "three local pairs",
+    "alternating order; shared host and uncontrolled filesystem cache",
+    "median of per-run measures; no universal latency guarantee",
+    "old and new publication timers have different scope",
+    "refused copies excluded from successful-copy latency"
+  ],
+  "pairs": 3,
+  "runs": [
+    {
+      "binary_sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+      "capacity_refusals": 0,
+      "driver_sha256": "f933b7abdc63a73378a346814ed62f04ff06ae084065dac28799907e923c191e",
+      "durable_baseline_largest_completion_gap_ms": 170.008041,
+      "durable_baseline_max_ms": 113.788125,
+      "durable_baseline_p50_ms": 70.18116699999999,
+      "durable_baseline_p95_ms": 92.683125,
+      "durable_baseline_p99_ms": 111.684417,
+      "durable_catch_up_records": 17890,
+      "durable_catch_up_rounds": 9,
+      "durable_cleanup_bytes_removed": 491520,
+      "durable_cleanup_files_removed": 6,
+      "durable_cleanup_finished_during_copy": false,
+      "durable_cleanup_ms": 14548.690333,
+      "durable_cleanup_reclaim_deferred": false,
+      "durable_client_delay_plus_rpc_p95_ms": 147.32933399999192,
+      "durable_copy_ms": 14528.497875,
+      "durable_maintenance_pair_ms": 14580.072167,
+      "durable_max_dispatch_lag_ms": 278.2143339999834,
+      "durable_overlap_samples": 144,
+      "durable_p95_slowdown": 0.9201881788081703,
+      "durable_publication_retries": null,
+      "durable_published": true,
+      "durable_write_largest_completion_gap_ms": 408.930125,
+      "durable_write_max_ms": 367.8975,
+      "durable_write_p50_ms": 46.54,
+      "durable_write_p95_ms": 85.285916,
+      "durable_write_p99_ms": 186.495709,
+      "idle_copy_ms": 112094.729708,
+      "label": "before",
+      "monitor_errors": [],
+      "name": "pair-0-before",
+      "native_entries": 1200046,
+      "pair": 0,
+      "product_support_sha256": "7e904c4491cab9cd9fc9291c7bcab8b053d46ea41aa7d27d68cbf2b0eb6cbd04",
+      "queued_baseline_largest_completion_gap_ms": 141.397542,
+      "queued_baseline_max_ms": 140.927875,
+      "queued_baseline_p50_ms": 66.080479,
+      "queued_baseline_p95_ms": 119.49525,
+      "queued_baseline_p99_ms": 137.3425,
+      "queued_catch_up_records": 41468,
+      "queued_catch_up_rounds": 9,
+      "queued_cleanup_bytes_removed": 0,
+      "queued_cleanup_files_removed": 0,
+      "queued_cleanup_finished_during_copy": false,
+      "queued_cleanup_ms": 33103.644834,
+      "queued_cleanup_reclaim_deferred": false,
+      "queued_client_delay_plus_rpc_p95_ms": 10183.998541000032,
+      "queued_copy_ms": 33158.249416,
+      "queued_maintenance_pair_ms": 33204.36175,
+      "queued_max_dispatch_lag_ms": 10831.95791700001,
+      "queued_overlap_samples": 395,
+      "queued_p95_slowdown": 1.111992250738,
+      "queued_publication_retries": null,
+      "queued_published": true,
+      "queued_write_largest_completion_gap_ms": 175.271333,
+      "queued_write_max_ms": 174.78875,
+      "queued_write_p50_ms": 69.187125,
+      "queued_write_p95_ms": 132.877792,
+      "queued_write_p99_ms": 159.010375,
+      "records": 100000,
+      "reported_publication_max_ms": 368,
+      "resource_samples": 211,
+      "scale_support_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+      "seed_seconds": 284.933843292,
+      "snapshot_support_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+      "source_revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+      "two_copy_file_handles": 85,
+      "two_copy_memory_mib": 299.125,
+      "two_copy_ms": 17512.146542,
+      "two_copy_reported_jobs": null,
+      "value_digest": "7ec69e17e965e11df410a4c87258603c72e93dbf14eda4f3f4b4130671055f9e",
+      "workload_sha256": "3636f106f9805613a0a04315c602c6844807fc59a31458b0603dd102a3de9541"
+    },
+    {
+      "binary_sha256": "3ef02ad18cf0e7d6c5a2b1d68ccb16c252282a0fb9a41735ca9d6860fac576cb",
+      "capacity_refusals": 0,
+      "driver_sha256": "f933b7abdc63a73378a346814ed62f04ff06ae084065dac28799907e923c191e",
+      "durable_baseline_largest_completion_gap_ms": 215.25475,
+      "durable_baseline_max_ms": 156.901292,
+      "durable_baseline_p50_ms": 47.0122915,
+      "durable_baseline_p95_ms": 133.4475,
+      "durable_baseline_p99_ms": 155.56375,
+      "durable_catch_up_records": 25465,
+      "durable_catch_up_rounds": 13,
+      "durable_cleanup_bytes_removed": 4587520,
+      "durable_cleanup_files_removed": 116,
+      "durable_cleanup_finished_during_copy": true,
+      "durable_cleanup_ms": 69.368917,
+      "durable_cleanup_reclaim_deferred": false,
+      "durable_client_delay_plus_rpc_p95_ms": 161.9468339999851,
+      "durable_copy_ms": 20556.064708,
+      "durable_maintenance_pair_ms": 20556.064708,
+      "durable_max_dispatch_lag_ms": 110.64712500001406,
+      "durable_overlap_samples": 195,
+      "durable_p95_slowdown": 0.9400104235748141,
+      "durable_publication_retries": 4,
+      "durable_published": true,
+      "durable_write_largest_completion_gap_ms": 227.646666,
+      "durable_write_max_ms": 170.507875,
+      "durable_write_p50_ms": 48.495458,
+      "durable_write_p95_ms": 125.442041,
+      "durable_write_p99_ms": 169.418708,
+      "idle_copy_ms": 71171.256541,
+      "label": "after",
+      "monitor_errors": [],
+      "name": "pair-0-after",
+      "native_entries": 1200046,
+      "pair": 0,
+      "product_support_sha256": "7e904c4491cab9cd9fc9291c7bcab8b053d46ea41aa7d27d68cbf2b0eb6cbd04",
+      "queued_baseline_largest_completion_gap_ms": 181.052833,
+      "queued_baseline_max_ms": 180.57975,
+      "queued_baseline_p50_ms": 51.7605,
+      "queued_baseline_p95_ms": 121.656708,
+      "queued_baseline_p99_ms": 166.004208,
+      "queued_catch_up_records": 42598,
+      "queued_catch_up_rounds": 9,
+      "queued_cleanup_bytes_removed": 4440064,
+      "queued_cleanup_files_removed": 114,
+      "queued_cleanup_finished_during_copy": true,
+      "queued_cleanup_ms": 104.059167,
+      "queued_cleanup_reclaim_deferred": false,
+      "queued_client_delay_plus_rpc_p95_ms": 2811.4306659999515,
+      "queued_copy_ms": 23930.90325,
+      "queued_maintenance_pair_ms": 23930.90325,
+      "queued_max_dispatch_lag_ms": 2939.9547919999804,
+      "queued_overlap_samples": 395,
+      "queued_p95_slowdown": 0.9374698845212875,
+      "queued_publication_retries": 0,
+      "queued_published": true,
+      "queued_write_largest_completion_gap_ms": 185.814791,
+      "queued_write_max_ms": 185.282625,
+      "queued_write_p50_ms": 47.580334,
+      "queued_write_p95_ms": 114.0495,
+      "queued_write_p99_ms": 169.228208,
+      "records": 100000,
+      "reported_publication_max_ms": 9,
+      "resource_samples": 150,
+      "scale_support_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+      "seed_seconds": 200.192769084,
+      "snapshot_support_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+      "source_revision": "c94ec77605b40a1d99398ab24118b7856bff310d",
+      "two_copy_file_handles": 153,
+      "two_copy_memory_mib": 280.34375,
+      "two_copy_ms": 12531.973583,
+      "two_copy_reported_jobs": 2,
+      "value_digest": "7ec69e17e965e11df410a4c87258603c72e93dbf14eda4f3f4b4130671055f9e",
+      "workload_sha256": "3636f106f9805613a0a04315c602c6844807fc59a31458b0603dd102a3de9541"
+    },
+    {
+      "binary_sha256": "3ef02ad18cf0e7d6c5a2b1d68ccb16c252282a0fb9a41735ca9d6860fac576cb",
+      "capacity_refusals": 0,
+      "driver_sha256": "f933b7abdc63a73378a346814ed62f04ff06ae084065dac28799907e923c191e",
+      "durable_baseline_largest_completion_gap_ms": 231.368959,
+      "durable_baseline_max_ms": 187.61175,
+      "durable_baseline_p50_ms": 46.735958499999995,
+      "durable_baseline_p95_ms": 121.243416,
+      "durable_baseline_p99_ms": 173.2465,
+      "durable_catch_up_records": 25466,
+      "durable_catch_up_rounds": 13,
+      "durable_cleanup_bytes_removed": 4784128,
+      "durable_cleanup_files_removed": 119,
+      "durable_cleanup_finished_during_copy": true,
+      "durable_cleanup_ms": 104.731,
+      "durable_cleanup_reclaim_deferred": false,
+      "durable_client_delay_plus_rpc_p95_ms": 164.49462499996008,
+      "durable_copy_ms": 20458.506292,
+      "durable_maintenance_pair_ms": 20458.506292,
+      "durable_max_dispatch_lag_ms": 107.87766699996837,
+      "durable_overlap_samples": 195,
+      "durable_p95_slowdown": 1.0469173352885406,
+      "durable_publication_retries": 4,
+      "durable_published": true,
+      "durable_write_largest_completion_gap_ms": 246.211167,
+      "durable_write_max_ms": 186.499708,
+      "durable_write_p50_ms": 47.320791,
+      "durable_write_p95_ms": 126.931834,
+      "durable_write_p99_ms": 173.318333,
+      "idle_copy_ms": 66988.737041,
+      "label": "after",
+      "monitor_errors": [],
+      "name": "pair-1-after",
+      "native_entries": 1200046,
+      "pair": 1,
+      "product_support_sha256": "7e904c4491cab9cd9fc9291c7bcab8b053d46ea41aa7d27d68cbf2b0eb6cbd04",
+      "queued_baseline_largest_completion_gap_ms": 194.55125,
+      "queued_baseline_max_ms": 194.075917,
+      "queued_baseline_p50_ms": 48.608479,
+      "queued_baseline_p95_ms": 105.122834,
+      "queued_baseline_p99_ms": 158.173125,
+      "queued_catch_up_records": 42583,
+      "queued_catch_up_rounds": 10,
+      "queued_cleanup_bytes_removed": 4374528,
+      "queued_cleanup_files_removed": 113,
+      "queued_cleanup_finished_during_copy": true,
+      "queued_cleanup_ms": 120.350459,
+      "queued_cleanup_reclaim_deferred": false,
+      "queued_client_delay_plus_rpc_p95_ms": 2195.395999999989,
+      "queued_copy_ms": 23735.944417,
+      "queued_maintenance_pair_ms": 23735.944417,
+      "queued_max_dispatch_lag_ms": 2352.380291999964,
+      "queued_overlap_samples": 395,
+      "queued_p95_slowdown": 1.1245653822460684,
+      "queued_publication_retries": 1,
+      "queued_published": true,
+      "queued_write_largest_completion_gap_ms": 176.353125,
+      "queued_write_max_ms": 171.535375,
+      "queued_write_p50_ms": 46.24875,
+      "queued_write_p95_ms": 118.2175,
+      "queued_write_p99_ms": 162.943,
+      "records": 100000,
+      "reported_publication_max_ms": 9,
+      "resource_samples": 144,
+      "scale_support_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+      "seed_seconds": 196.718915125,
+      "snapshot_support_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+      "source_revision": "c94ec77605b40a1d99398ab24118b7856bff310d",
+      "two_copy_file_handles": 153,
+      "two_copy_memory_mib": 303.203125,
+      "two_copy_ms": 11525.216584,
+      "two_copy_reported_jobs": 2,
+      "value_digest": "7ec69e17e965e11df410a4c87258603c72e93dbf14eda4f3f4b4130671055f9e",
+      "workload_sha256": "3636f106f9805613a0a04315c602c6844807fc59a31458b0603dd102a3de9541"
+    },
+    {
+      "binary_sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+      "capacity_refusals": 0,
+      "driver_sha256": "f933b7abdc63a73378a346814ed62f04ff06ae084065dac28799907e923c191e",
+      "durable_baseline_largest_completion_gap_ms": 204.574166,
+      "durable_baseline_max_ms": 144.594458,
+      "durable_baseline_p50_ms": 47.2911455,
+      "durable_baseline_p95_ms": 131.639625,
+      "durable_baseline_p99_ms": 144.257583,
+      "durable_catch_up_records": 21459,
+      "durable_catch_up_rounds": 9,
+      "durable_cleanup_bytes_removed": 688128,
+      "durable_cleanup_files_removed": 8,
+      "durable_cleanup_finished_during_copy": false,
+      "durable_cleanup_ms": 18671.353041,
+      "durable_cleanup_reclaim_deferred": false,
+      "durable_client_delay_plus_rpc_p95_ms": 448.8484999999513,
+      "durable_copy_ms": 18742.497709,
+      "durable_maintenance_pair_ms": 18820.195125,
+      "durable_max_dispatch_lag_ms": 760.7347919999938,
+      "durable_overlap_samples": 182,
+      "durable_p95_slowdown": 0.9460886112369281,
+      "durable_publication_retries": null,
+      "durable_published": true,
+      "durable_write_largest_completion_gap_ms": 854.502625,
+      "durable_write_max_ms": 853.970084,
+      "durable_write_p50_ms": 50.0372705,
+      "durable_write_p95_ms": 124.54275,
+      "durable_write_p99_ms": 153.559791,
+      "idle_copy_ms": 69530.841833,
+      "label": "before",
+      "monitor_errors": [],
+      "name": "pair-1-before",
+      "native_entries": 1200046,
+      "pair": 1,
+      "product_support_sha256": "7e904c4491cab9cd9fc9291c7bcab8b053d46ea41aa7d27d68cbf2b0eb6cbd04",
+      "queued_baseline_largest_completion_gap_ms": 165.270458,
+      "queued_baseline_max_ms": 164.742083,
+      "queued_baseline_p50_ms": 51.740938,
+      "queued_baseline_p95_ms": 106.252208,
+      "queued_baseline_p99_ms": 146.210875,
+      "queued_catch_up_records": 42117,
+      "queued_catch_up_rounds": 9,
+      "queued_cleanup_bytes_removed": 0,
+      "queued_cleanup_files_removed": 0,
+      "queued_cleanup_finished_during_copy": false,
+      "queued_cleanup_ms": 25289.639041,
+      "queued_cleanup_reclaim_deferred": false,
+      "queued_client_delay_plus_rpc_p95_ms": 3693.5997919999954,
+      "queued_copy_ms": 25331.315875,
+      "queued_maintenance_pair_ms": 25343.308916,
+      "queued_max_dispatch_lag_ms": 3701.246167000022,
+      "queued_overlap_samples": 395,
+      "queued_p95_slowdown": 0.9291944125998776,
+      "queued_publication_retries": null,
+      "queued_published": true,
+      "queued_write_largest_completion_gap_ms": 168.666416,
+      "queued_write_max_ms": 168.185083,
+      "queued_write_p50_ms": 50.112459,
+      "queued_write_p95_ms": 98.728958,
+      "queued_write_p99_ms": 154.217875,
+      "records": 100000,
+      "reported_publication_max_ms": 764,
+      "resource_samples": 158,
+      "scale_support_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+      "seed_seconds": 197.867556833,
+      "snapshot_support_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+      "source_revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+      "two_copy_file_handles": 85,
+      "two_copy_memory_mib": 297.21875,
+      "two_copy_ms": 21273.468292,
+      "two_copy_reported_jobs": null,
+      "value_digest": "7ec69e17e965e11df410a4c87258603c72e93dbf14eda4f3f4b4130671055f9e",
+      "workload_sha256": "3636f106f9805613a0a04315c602c6844807fc59a31458b0603dd102a3de9541"
+    },
+    {
+      "binary_sha256": "ca1668f8c1fda2819f2ec32b9b7f2e4e2343f1881a1c9bf04aa5eb7ad588e8ec",
+      "capacity_refusals": 0,
+      "driver_sha256": "f933b7abdc63a73378a346814ed62f04ff06ae084065dac28799907e923c191e",
+      "durable_baseline_largest_completion_gap_ms": 184.299416,
+      "durable_baseline_max_ms": 138.49,
+      "durable_baseline_p50_ms": 46.215396,
+      "durable_baseline_p95_ms": 121.656083,
+      "durable_baseline_p99_ms": 135.7645,
+      "durable_catch_up_records": 21731,
+      "durable_catch_up_rounds": 9,
+      "durable_cleanup_bytes_removed": 622592,
+      "durable_cleanup_files_removed": 7,
+      "durable_cleanup_finished_during_copy": false,
+      "durable_cleanup_ms": 18805.815792,
+      "durable_cleanup_reclaim_deferred": false,
+      "durable_client_delay_plus_rpc_p95_ms": 315.0066669999829,
+      "durable_copy_ms": 18781.510542,
+      "durable_maintenance_pair_ms": 18859.888,
+      "durable_max_dispatch_lag_ms": 471.4443340000116,
+      "durable_overlap_samples": 184,
+      "durable_p95_slowdown": 0.9900083828936034,
+      "durable_publication_retries": null,
+      "durable_published": true,
+      "durable_write_largest_completion_gap_ms": 617.378833,
+      "durable_write_max_ms": 559.276209,
+      "durable_write_p50_ms": 51.970416,
+      "durable_write_p95_ms": 120.440542,
+      "durable_write_p99_ms": 169.329375,
+      "idle_copy_ms": 67873.103708,
+      "label": "before",
+      "monitor_errors": [],
+      "name": "pair-2-before",
+      "native_entries": 1200046,
+      "pair": 2,
+      "product_support_sha256": "7e904c4491cab9cd9fc9291c7bcab8b053d46ea41aa7d27d68cbf2b0eb6cbd04",
+      "queued_baseline_largest_completion_gap_ms": 130.23,
+      "queued_baseline_max_ms": 129.711292,
+      "queued_baseline_p50_ms": 48.559229,
+      "queued_baseline_p95_ms": 99.048917,
+      "queued_baseline_p99_ms": 128.860167,
+      "queued_catch_up_records": 42501,
+      "queued_catch_up_rounds": 9,
+      "queued_cleanup_bytes_removed": 0,
+      "queued_cleanup_files_removed": 0,
+      "queued_cleanup_finished_during_copy": false,
+      "queued_cleanup_ms": 23961.702042,
+      "queued_cleanup_reclaim_deferred": false,
+      "queued_client_delay_plus_rpc_p95_ms": 2527.456166999962,
+      "queued_copy_ms": 24011.614125,
+      "queued_maintenance_pair_ms": 24045.187625,
+      "queued_max_dispatch_lag_ms": 2526.305000000036,
+      "queued_overlap_samples": 395,
+      "queued_p95_slowdown": 1.0666030300967348,
+      "queued_publication_retries": null,
+      "queued_published": true,
+      "queued_write_largest_completion_gap_ms": 168.03025,
+      "queued_write_max_ms": 163.754125,
+      "queued_write_p50_ms": 47.019541,
+      "queued_write_p95_ms": 105.645875,
+      "queued_write_p99_ms": 146.080833,
+      "records": 100000,
+      "reported_publication_max_ms": 534,
+      "resource_samples": 155,
+      "scale_support_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+      "seed_seconds": 195.385419375,
+      "snapshot_support_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+      "source_revision": "c6b4f7ed9ac5a24169e3f41a66579fdc5ba80de7",
+      "two_copy_file_handles": 85,
+      "two_copy_memory_mib": 266.5,
+      "two_copy_ms": 22234.858167,
+      "two_copy_reported_jobs": null,
+      "value_digest": "7ec69e17e965e11df410a4c87258603c72e93dbf14eda4f3f4b4130671055f9e",
+      "workload_sha256": "3636f106f9805613a0a04315c602c6844807fc59a31458b0603dd102a3de9541"
+    },
+    {
+      "binary_sha256": "3ef02ad18cf0e7d6c5a2b1d68ccb16c252282a0fb9a41735ca9d6860fac576cb",
+      "capacity_refusals": 0,
+      "driver_sha256": "f933b7abdc63a73378a346814ed62f04ff06ae084065dac28799907e923c191e",
+      "durable_baseline_largest_completion_gap_ms": 226.619916,
+      "durable_baseline_max_ms": 171.203958,
+      "durable_baseline_p50_ms": 47.5856665,
+      "durable_baseline_p95_ms": 107.421709,
+      "durable_baseline_p99_ms": 162.477958,
+      "durable_catch_up_records": 24430,
+      "durable_catch_up_rounds": 11,
+      "durable_cleanup_bytes_removed": 5570560,
+      "durable_cleanup_files_removed": 131,
+      "durable_cleanup_finished_during_copy": true,
+      "durable_cleanup_ms": 118.7545,
+      "durable_cleanup_reclaim_deferred": false,
+      "durable_client_delay_plus_rpc_p95_ms": 142.01491699998843,
+      "durable_copy_ms": 20965.38025,
+      "durable_maintenance_pair_ms": 20965.38025,
+      "durable_max_dispatch_lag_ms": 77.09491699995397,
+      "durable_overlap_samples": 195,
+      "durable_p95_slowdown": 1.2126610739361816,
+      "durable_publication_retries": 2,
+      "durable_published": true,
+      "durable_write_largest_completion_gap_ms": 210.677583,
+      "durable_write_max_ms": 169.541833,
+      "durable_write_p50_ms": 50.99675,
+      "durable_write_p95_ms": 130.266125,
+      "durable_write_p99_ms": 156.475833,
+      "idle_copy_ms": 69184.848792,
+      "label": "after",
+      "monitor_errors": [],
+      "name": "pair-2-after",
+      "native_entries": 1200046,
+      "pair": 2,
+      "product_support_sha256": "7e904c4491cab9cd9fc9291c7bcab8b053d46ea41aa7d27d68cbf2b0eb6cbd04",
+      "queued_baseline_largest_completion_gap_ms": 134.828375,
+      "queued_baseline_max_ms": 134.287917,
+      "queued_baseline_p50_ms": 51.6366255,
+      "queued_baseline_p95_ms": 106.872584,
+      "queued_baseline_p99_ms": 132.020958,
+      "queued_catch_up_records": 42599,
+      "queued_catch_up_rounds": 10,
+      "queued_cleanup_bytes_removed": 4374528,
+      "queued_cleanup_files_removed": 113,
+      "queued_cleanup_finished_during_copy": true,
+      "queued_cleanup_ms": 166.304209,
+      "queued_cleanup_reclaim_deferred": false,
+      "queued_client_delay_plus_rpc_p95_ms": 3824.3861659999643,
+      "queued_copy_ms": 25493.208417,
+      "queued_maintenance_pair_ms": 25493.208417,
+      "queued_max_dispatch_lag_ms": 3813.8608329999784,
+      "queued_overlap_samples": 395,
+      "queued_p95_slowdown": 1.024569753080921,
+      "queued_publication_retries": 1,
+      "queued_published": true,
+      "queued_write_largest_completion_gap_ms": 159.776833,
+      "queued_write_max_ms": 159.296458,
+      "queued_write_p50_ms": 50.630584,
+      "queued_write_p95_ms": 109.498417,
+      "queued_write_p99_ms": 141.308334,
+      "records": 100000,
+      "reported_publication_max_ms": 20,
+      "resource_samples": 152,
+      "scale_support_sha256": "56255902c9ebe7b38e8dbe4ba92ef20cdf4a55d432babdcab227852a6e80b5e2",
+      "seed_seconds": 189.026869125,
+      "snapshot_support_sha256": "56322a5e8cbb3d43ef331d4ad00d44017706e2362eb045458747fd3f76fc6fe6",
+      "source_revision": "c94ec77605b40a1d99398ab24118b7856bff310d",
+      "two_copy_file_handles": 153,
+      "two_copy_memory_mib": 294.78125,
+      "two_copy_ms": 14117.2005,
+      "two_copy_reported_jobs": 2,
+      "value_digest": "7ec69e17e965e11df410a4c87258603c72e93dbf14eda4f3f4b4130671055f9e",
+      "workload_sha256": "3636f106f9805613a0a04315c602c6844807fc59a31458b0603dd102a3de9541"
+    }
+  ],
+  "summary": {
+    "after": {
+      "durable_baseline_largest_completion_gap_ms": {
+        "max": 231.368959,
+        "median": 226.619916,
+        "min": 215.25475,
+        "n": 3
+      },
+      "durable_baseline_max_ms": {
+        "max": 187.61175,
+        "median": 171.203958,
+        "min": 156.901292,
+        "n": 3
+      },
+      "durable_baseline_p50_ms": {
+        "max": 47.5856665,
+        "median": 47.0122915,
+        "min": 46.735958499999995,
+        "n": 3
+      },
+      "durable_baseline_p95_ms": {
+        "max": 133.4475,
+        "median": 121.243416,
+        "min": 107.421709,
+        "n": 3
+      },
+      "durable_baseline_p99_ms": {
+        "max": 173.2465,
+        "median": 162.477958,
+        "min": 155.56375,
+        "n": 3
+      },
+      "durable_catch_up_records": {
+        "max": 25466,
+        "median": 25465,
+        "min": 24430,
+        "n": 3
+      },
+      "durable_catch_up_rounds": {
+        "max": 13,
+        "median": 13,
+        "min": 11,
+        "n": 3
+      },
+      "durable_cleanup_bytes_removed": {
+        "max": 5570560,
+        "median": 4784128,
+        "min": 4587520,
+        "n": 3
+      },
+      "durable_cleanup_files_removed": {
+        "max": 131,
+        "median": 119,
+        "min": 116,
+        "n": 3
+      },
+      "durable_cleanup_ms": {
+        "max": 118.7545,
+        "median": 104.731,
+        "min": 69.368917,
+        "n": 3
+      },
+      "durable_client_delay_plus_rpc_p95_ms": {
+        "max": 164.49462499996008,
+        "median": 161.9468339999851,
+        "min": 142.01491699998843,
+        "n": 3
+      },
+      "durable_copy_ms": {
+        "max": 20965.38025,
+        "median": 20556.064708,
+        "min": 20458.506292,
+        "n": 3
+      },
+      "durable_maintenance_pair_ms": {
+        "max": 20965.38025,
+        "median": 20556.064708,
+        "min": 20458.506292,
+        "n": 3
+      },
+      "durable_max_dispatch_lag_ms": {
+        "max": 110.64712500001406,
+        "median": 107.87766699996837,
+        "min": 77.09491699995397,
+        "n": 3
+      },
+      "durable_overlap_samples": {
+        "max": 195,
+        "median": 195,
+        "min": 195,
+        "n": 3
+      },
+      "durable_p95_slowdown": {
+        "max": 1.2126610739361816,
+        "median": 1.0469173352885406,
+        "min": 0.9400104235748141,
+        "n": 3
+      },
+      "durable_publication_retries": {
+        "max": 4,
+        "median": 4,
+        "min": 2,
+        "n": 3
+      },
+      "durable_write_largest_completion_gap_ms": {
+        "max": 246.211167,
+        "median": 227.646666,
+        "min": 210.677583,
+        "n": 3
+      },
+      "durable_write_max_ms": {
+        "max": 186.499708,
+        "median": 170.507875,
+        "min": 169.541833,
+        "n": 3
+      },
+      "durable_write_p50_ms": {
+        "max": 50.99675,
+        "median": 48.495458,
+        "min": 47.320791,
+        "n": 3
+      },
+      "durable_write_p95_ms": {
+        "max": 130.266125,
+        "median": 126.931834,
+        "min": 125.442041,
+        "n": 3
+      },
+      "durable_write_p99_ms": {
+        "max": 173.318333,
+        "median": 169.418708,
+        "min": 156.475833,
+        "n": 3
+      },
+      "idle_copy_ms": {
+        "max": 71171.256541,
+        "median": 69184.848792,
+        "min": 66988.737041,
+        "n": 3
+      },
+      "native_entries": {
+        "max": 1200046,
+        "median": 1200046,
+        "min": 1200046,
+        "n": 3
+      },
+      "queued_baseline_largest_completion_gap_ms": {
+        "max": 194.55125,
+        "median": 181.052833,
+        "min": 134.828375,
+        "n": 3
+      },
+      "queued_baseline_max_ms": {
+        "max": 194.075917,
+        "median": 180.57975,
+        "min": 134.287917,
+        "n": 3
+      },
+      "queued_baseline_p50_ms": {
+        "max": 51.7605,
+        "median": 51.6366255,
+        "min": 48.608479,
+        "n": 3
+      },
+      "queued_baseline_p95_ms": {
+        "max": 121.656708,
+        "median": 106.872584,
+        "min": 105.122834,
+        "n": 3
+      },
+      "queued_baseline_p99_ms": {
+        "max": 166.004208,
+        "median": 158.173125,
+        "min": 132.020958,
+        "n": 3
+      },
+      "queued_catch_up_records": {
+        "max": 42599,
+        "median": 42598,
+        "min": 42583,
+        "n": 3
+      },
+      "queued_catch_up_rounds": {
+        "max": 10,
+        "median": 10,
+        "min": 9,
+        "n": 3
+      },
+      "queued_cleanup_bytes_removed": {
+        "max": 4440064,
+        "median": 4374528,
+        "min": 4374528,
+        "n": 3
+      },
+      "queued_cleanup_files_removed": {
+        "max": 114,
+        "median": 113,
+        "min": 113,
+        "n": 3
+      },
+      "queued_cleanup_ms": {
+        "max": 166.304209,
+        "median": 120.350459,
+        "min": 104.059167,
+        "n": 3
+      },
+      "queued_client_delay_plus_rpc_p95_ms": {
+        "max": 3824.3861659999643,
+        "median": 2811.4306659999515,
+        "min": 2195.395999999989,
+        "n": 3
+      },
+      "queued_copy_ms": {
+        "max": 25493.208417,
+        "median": 23930.90325,
+        "min": 23735.944417,
+        "n": 3
+      },
+      "queued_maintenance_pair_ms": {
+        "max": 25493.208417,
+        "median": 23930.90325,
+        "min": 23735.944417,
+        "n": 3
+      },
+      "queued_max_dispatch_lag_ms": {
+        "max": 3813.8608329999784,
+        "median": 2939.9547919999804,
+        "min": 2352.380291999964,
+        "n": 3
+      },
+      "queued_overlap_samples": {
+        "max": 395,
+        "median": 395,
+        "min": 395,
+        "n": 3
+      },
+      "queued_p95_slowdown": {
+        "max": 1.1245653822460684,
+        "median": 1.024569753080921,
+        "min": 0.9374698845212875,
+        "n": 3
+      },
+      "queued_publication_retries": {
+        "max": 1,
+        "median": 1,
+        "min": 0,
+        "n": 3
+      },
+      "queued_write_largest_completion_gap_ms": {
+        "max": 185.814791,
+        "median": 176.353125,
+        "min": 159.776833,
+        "n": 3
+      },
+      "queued_write_max_ms": {
+        "max": 185.282625,
+        "median": 171.535375,
+        "min": 159.296458,
+        "n": 3
+      },
+      "queued_write_p50_ms": {
+        "max": 50.630584,
+        "median": 47.580334,
+        "min": 46.24875,
+        "n": 3
+      },
+      "queued_write_p95_ms": {
+        "max": 118.2175,
+        "median": 114.0495,
+        "min": 109.498417,
+        "n": 3
+      },
+      "queued_write_p99_ms": {
+        "max": 169.228208,
+        "median": 162.943,
+        "min": 141.308334,
+        "n": 3
+      },
+      "reported_publication_max_ms": {
+        "max": 20,
+        "median": 9,
+        "min": 9,
+        "n": 3
+      },
+      "resource_samples": {
+        "max": 152,
+        "median": 150,
+        "min": 144,
+        "n": 3
+      },
+      "seed_seconds": {
+        "max": 200.192769084,
+        "median": 196.718915125,
+        "min": 189.026869125,
+        "n": 3
+      },
+      "two_copy_file_handles": {
+        "max": 153,
+        "median": 153,
+        "min": 153,
+        "n": 3
+      },
+      "two_copy_memory_mib": {
+        "max": 303.203125,
+        "median": 294.78125,
+        "min": 280.34375,
+        "n": 3
+      },
+      "two_copy_ms": {
+        "max": 14117.2005,
+        "median": 12531.973583,
+        "min": 11525.216584,
+        "n": 3
+      },
+      "two_copy_reported_jobs": {
+        "max": 2,
+        "median": 2,
+        "min": 2,
+        "n": 3
+      }
+    },
+    "before": {
+      "durable_baseline_largest_completion_gap_ms": {
+        "max": 204.574166,
+        "median": 184.299416,
+        "min": 170.008041,
+        "n": 3
+      },
+      "durable_baseline_max_ms": {
+        "max": 144.594458,
+        "median": 138.49,
+        "min": 113.788125,
+        "n": 3
+      },
+      "durable_baseline_p50_ms": {
+        "max": 70.18116699999999,
+        "median": 47.2911455,
+        "min": 46.215396,
+        "n": 3
+      },
+      "durable_baseline_p95_ms": {
+        "max": 131.639625,
+        "median": 121.656083,
+        "min": 92.683125,
+        "n": 3
+      },
+      "durable_baseline_p99_ms": {
+        "max": 144.257583,
+        "median": 135.7645,
+        "min": 111.684417,
+        "n": 3
+      },
+      "durable_catch_up_records": {
+        "max": 21731,
+        "median": 21459,
+        "min": 17890,
+        "n": 3
+      },
+      "durable_catch_up_rounds": {
+        "max": 9,
+        "median": 9,
+        "min": 9,
+        "n": 3
+      },
+      "durable_cleanup_bytes_removed": {
+        "max": 688128,
+        "median": 622592,
+        "min": 491520,
+        "n": 3
+      },
+      "durable_cleanup_files_removed": {
+        "max": 8,
+        "median": 7,
+        "min": 6,
+        "n": 3
+      },
+      "durable_cleanup_ms": {
+        "max": 18805.815792,
+        "median": 18671.353041,
+        "min": 14548.690333,
+        "n": 3
+      },
+      "durable_client_delay_plus_rpc_p95_ms": {
+        "max": 448.8484999999513,
+        "median": 315.0066669999829,
+        "min": 147.32933399999192,
+        "n": 3
+      },
+      "durable_copy_ms": {
+        "max": 18781.510542,
+        "median": 18742.497709,
+        "min": 14528.497875,
+        "n": 3
+      },
+      "durable_maintenance_pair_ms": {
+        "max": 18859.888,
+        "median": 18820.195125,
+        "min": 14580.072167,
+        "n": 3
+      },
+      "durable_max_dispatch_lag_ms": {
+        "max": 760.7347919999938,
+        "median": 471.4443340000116,
+        "min": 278.2143339999834,
+        "n": 3
+      },
+      "durable_overlap_samples": {
+        "max": 184,
+        "median": 182,
+        "min": 144,
+        "n": 3
+      },
+      "durable_p95_slowdown": {
+        "max": 0.9900083828936034,
+        "median": 0.9460886112369281,
+        "min": 0.9201881788081703,
+        "n": 3
+      },
+      "durable_publication_retries": {
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0
+      },
+      "durable_write_largest_completion_gap_ms": {
+        "max": 854.502625,
+        "median": 617.378833,
+        "min": 408.930125,
+        "n": 3
+      },
+      "durable_write_max_ms": {
+        "max": 853.970084,
+        "median": 559.276209,
+        "min": 367.8975,
+        "n": 3
+      },
+      "durable_write_p50_ms": {
+        "max": 51.970416,
+        "median": 50.0372705,
+        "min": 46.54,
+        "n": 3
+      },
+      "durable_write_p95_ms": {
+        "max": 124.54275,
+        "median": 120.440542,
+        "min": 85.285916,
+        "n": 3
+      },
+      "durable_write_p99_ms": {
+        "max": 186.495709,
+        "median": 169.329375,
+        "min": 153.559791,
+        "n": 3
+      },
+      "idle_copy_ms": {
+        "max": 112094.729708,
+        "median": 69530.841833,
+        "min": 67873.103708,
+        "n": 3
+      },
+      "native_entries": {
+        "max": 1200046,
+        "median": 1200046,
+        "min": 1200046,
+        "n": 3
+      },
+      "queued_baseline_largest_completion_gap_ms": {
+        "max": 165.270458,
+        "median": 141.397542,
+        "min": 130.23,
+        "n": 3
+      },
+      "queued_baseline_max_ms": {
+        "max": 164.742083,
+        "median": 140.927875,
+        "min": 129.711292,
+        "n": 3
+      },
+      "queued_baseline_p50_ms": {
+        "max": 66.080479,
+        "median": 51.740938,
+        "min": 48.559229,
+        "n": 3
+      },
+      "queued_baseline_p95_ms": {
+        "max": 119.49525,
+        "median": 106.252208,
+        "min": 99.048917,
+        "n": 3
+      },
+      "queued_baseline_p99_ms": {
+        "max": 146.210875,
+        "median": 137.3425,
+        "min": 128.860167,
+        "n": 3
+      },
+      "queued_catch_up_records": {
+        "max": 42501,
+        "median": 42117,
+        "min": 41468,
+        "n": 3
+      },
+      "queued_catch_up_rounds": {
+        "max": 9,
+        "median": 9,
+        "min": 9,
+        "n": 3
+      },
+      "queued_cleanup_bytes_removed": {
+        "max": 0,
+        "median": 0,
+        "min": 0,
+        "n": 3
+      },
+      "queued_cleanup_files_removed": {
+        "max": 0,
+        "median": 0,
+        "min": 0,
+        "n": 3
+      },
+      "queued_cleanup_ms": {
+        "max": 33103.644834,
+        "median": 25289.639041,
+        "min": 23961.702042,
+        "n": 3
+      },
+      "queued_client_delay_plus_rpc_p95_ms": {
+        "max": 10183.998541000032,
+        "median": 3693.5997919999954,
+        "min": 2527.456166999962,
+        "n": 3
+      },
+      "queued_copy_ms": {
+        "max": 33158.249416,
+        "median": 25331.315875,
+        "min": 24011.614125,
+        "n": 3
+      },
+      "queued_maintenance_pair_ms": {
+        "max": 33204.36175,
+        "median": 25343.308916,
+        "min": 24045.187625,
+        "n": 3
+      },
+      "queued_max_dispatch_lag_ms": {
+        "max": 10831.95791700001,
+        "median": 3701.246167000022,
+        "min": 2526.305000000036,
+        "n": 3
+      },
+      "queued_overlap_samples": {
+        "max": 395,
+        "median": 395,
+        "min": 395,
+        "n": 3
+      },
+      "queued_p95_slowdown": {
+        "max": 1.111992250738,
+        "median": 1.0666030300967348,
+        "min": 0.9291944125998776,
+        "n": 3
+      },
+      "queued_publication_retries": {
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0
+      },
+      "queued_write_largest_completion_gap_ms": {
+        "max": 175.271333,
+        "median": 168.666416,
+        "min": 168.03025,
+        "n": 3
+      },
+      "queued_write_max_ms": {
+        "max": 174.78875,
+        "median": 168.185083,
+        "min": 163.754125,
+        "n": 3
+      },
+      "queued_write_p50_ms": {
+        "max": 69.187125,
+        "median": 50.112459,
+        "min": 47.019541,
+        "n": 3
+      },
+      "queued_write_p95_ms": {
+        "max": 132.877792,
+        "median": 105.645875,
+        "min": 98.728958,
+        "n": 3
+      },
+      "queued_write_p99_ms": {
+        "max": 159.010375,
+        "median": 154.217875,
+        "min": 146.080833,
+        "n": 3
+      },
+      "reported_publication_max_ms": {
+        "max": 764,
+        "median": 534,
+        "min": 368,
+        "n": 3
+      },
+      "resource_samples": {
+        "max": 211,
+        "median": 158,
+        "min": 155,
+        "n": 3
+      },
+      "seed_seconds": {
+        "max": 284.933843292,
+        "median": 197.867556833,
+        "min": 195.385419375,
+        "n": 3
+      },
+      "two_copy_file_handles": {
+        "max": 85,
+        "median": 85,
+        "min": 85,
+        "n": 3
+      },
+      "two_copy_memory_mib": {
+        "max": 299.125,
+        "median": 297.21875,
+        "min": 266.5,
+        "n": 3
+      },
+      "two_copy_ms": {
+        "max": 22234.858167,
+        "median": 21273.468292,
+        "min": 17512.146542,
+        "n": 3
+      },
+      "two_copy_reported_jobs": {
+        "max": null,
+        "median": null,
+        "min": null,
+        "n": 0
+      }
+    }
+  }
+}

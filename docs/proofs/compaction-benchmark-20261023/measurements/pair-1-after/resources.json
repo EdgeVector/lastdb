@@ -1,0 +1,1298 @@
+[
+  {
+    "at_ns": 1792776119625994000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776120664457000,
+    "lsof_exit": 0,
+    "open_fds": 15,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776121708497000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776122751726000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776123796431000,
+    "lsof_exit": 0,
+    "open_fds": 15,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776124839016000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776125883975000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776126929273000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776127973179000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776129017458000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776130062812000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776131101350000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776132146853000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776133190922000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776134234046000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776135268111000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776136307753000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776137346777000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776138393037000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776139437291000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776140485316000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776141529492000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776142563812000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776143608711000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776144652791000,
+    "lsof_exit": 0,
+    "open_fds": 82,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776145688757000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776146732253000,
+    "lsof_exit": 0,
+    "open_fds": 82,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776147767013000,
+    "lsof_exit": 0,
+    "open_fds": 82,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776148804430000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776149851529000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776150886534000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776151932846000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776152973981000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776154017081000,
+    "lsof_exit": 0,
+    "open_fds": 82,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776155064043000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776156107696000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776157152315000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776158196521000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776159241342000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776160285261000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776161332435000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776162372495000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307347456
+  },
+  {
+    "at_ns": 1792776163411787000,
+    "lsof_exit": 0,
+    "open_fds": 82,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307429376
+  },
+  {
+    "at_ns": 1792776164453496000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307593216
+  },
+  {
+    "at_ns": 1792776165490297000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307593216
+  },
+  {
+    "at_ns": 1792776166534446000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307675136
+  },
+  {
+    "at_ns": 1792776167571431000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307675136
+  },
+  {
+    "at_ns": 1792776168614948000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307675136
+  },
+  {
+    "at_ns": 1792776169659074000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307675136
+  },
+  {
+    "at_ns": 1792776170694834000,
+    "lsof_exit": 0,
+    "open_fds": 82,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307675136
+  },
+  {
+    "at_ns": 1792776171733373000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776172777414000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776173819990000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776174863530000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776175907924000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776176952273000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776177998119000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776179034211000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307789824
+  },
+  {
+    "at_ns": 1792776180075912000,
+    "lsof_exit": 0,
+    "open_fds": 17,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307855360
+  },
+  {
+    "at_ns": 1792776181118518000,
+    "lsof_exit": 0,
+    "open_fds": 18,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307855360
+  },
+  {
+    "at_ns": 1792776182153266000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307855360
+  },
+  {
+    "at_ns": 1792776183188216000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307855360
+  },
+  {
+    "at_ns": 1792776184232975000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307855360
+  },
+  {
+    "at_ns": 1792776185266990000,
+    "lsof_exit": 0,
+    "open_fds": 17,
+    "phase": "idle-full",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 307855360
+  },
+  {
+    "at_ns": 1792776186307834000,
+    "lsof_exit": 0,
+    "open_fds": 47,
+    "phase": "queued-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 308445184
+  },
+  {
+    "at_ns": 1792776187345494000,
+    "lsof_exit": 0,
+    "open_fds": 35,
+    "phase": "queued-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 308445184
+  },
+  {
+    "at_ns": 1792776188390292000,
+    "lsof_exit": 0,
+    "open_fds": 25,
+    "phase": "queued-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 308461568
+  },
+  {
+    "at_ns": 1792776189434667000,
+    "lsof_exit": 0,
+    "open_fds": 23,
+    "phase": "queued-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 308461568
+  },
+  {
+    "at_ns": 1792776190478943000,
+    "lsof_exit": 0,
+    "open_fds": 22,
+    "phase": "queued-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 308920320
+  },
+  {
+    "at_ns": 1792776191521781000,
+    "lsof_exit": 0,
+    "open_fds": 25,
+    "phase": "queued-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 308920320
+  },
+  {
+    "at_ns": 1792776192566766000,
+    "lsof_exit": 0,
+    "open_fds": 50,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 311459840
+  },
+  {
+    "at_ns": 1792776193611501000,
+    "lsof_exit": 0,
+    "open_fds": 24,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 311459840
+  },
+  {
+    "at_ns": 1792776194653440000,
+    "lsof_exit": 0,
+    "open_fds": 77,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 312672256
+  },
+  {
+    "at_ns": 1792776195698636000,
+    "lsof_exit": 0,
+    "open_fds": 56,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 312672256
+  },
+  {
+    "at_ns": 1792776196736671000,
+    "lsof_exit": 0,
+    "open_fds": 66,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 312770560
+  },
+  {
+    "at_ns": 1792776197777533000,
+    "lsof_exit": 0,
+    "open_fds": 86,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313147392
+  },
+  {
+    "at_ns": 1792776198825021000,
+    "lsof_exit": 0,
+    "open_fds": 94,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313327616
+  },
+  {
+    "at_ns": 1792776199865607000,
+    "lsof_exit": 0,
+    "open_fds": 90,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313622528
+  },
+  {
+    "at_ns": 1792776200915728000,
+    "lsof_exit": 0,
+    "open_fds": 94,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313622528
+  },
+  {
+    "at_ns": 1792776201960887000,
+    "lsof_exit": 0,
+    "open_fds": 94,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313622528
+  },
+  {
+    "at_ns": 1792776203009693000,
+    "lsof_exit": 0,
+    "open_fds": 86,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313622528
+  },
+  {
+    "at_ns": 1792776204050538000,
+    "lsof_exit": 0,
+    "open_fds": 86,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 313688064
+  },
+  {
+    "at_ns": 1792776205095906000,
+    "lsof_exit": 0,
+    "open_fds": 26,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 314671104
+  },
+  {
+    "at_ns": 1792776206130593000,
+    "lsof_exit": 0,
+    "open_fds": 27,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 314966016
+  },
+  {
+    "at_ns": 1792776207170591000,
+    "lsof_exit": 0,
+    "open_fds": 51,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 314966016
+  },
+  {
+    "at_ns": 1792776208214810000,
+    "lsof_exit": 0,
+    "open_fds": 42,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 314982400
+  },
+  {
+    "at_ns": 1792776209259694000,
+    "lsof_exit": 0,
+    "open_fds": 36,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 314982400
+  },
+  {
+    "at_ns": 1792776210297481000,
+    "lsof_exit": 0,
+    "open_fds": 37,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 314998784
+  },
+  {
+    "at_ns": 1792776211345477000,
+    "lsof_exit": 0,
+    "open_fds": 32,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315015168
+  },
+  {
+    "at_ns": 1792776212389340000,
+    "lsof_exit": 0,
+    "open_fds": 40,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315015168
+  },
+  {
+    "at_ns": 1792776213432297000,
+    "lsof_exit": 0,
+    "open_fds": 27,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315015168
+  },
+  {
+    "at_ns": 1792776214476761000,
+    "lsof_exit": 0,
+    "open_fds": 41,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315015168
+  },
+  {
+    "at_ns": 1792776215515776000,
+    "lsof_exit": 0,
+    "open_fds": 19,
+    "phase": "queued-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315015168
+  },
+  {
+    "at_ns": 1792776216554050000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776217588459000,
+    "lsof_exit": 0,
+    "open_fds": 40,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776218633457000,
+    "lsof_exit": 0,
+    "open_fds": 53,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776219676977000,
+    "lsof_exit": 0,
+    "open_fds": 64,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776220721881000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776221765290000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776222809521000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776223845208000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776224892162000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776225931380000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776226977182000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "reset-after-queued",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315113472
+  },
+  {
+    "at_ns": 1792776228024439000,
+    "lsof_exit": 0,
+    "open_fds": 13,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315506688
+  },
+  {
+    "at_ns": 1792776229069469000,
+    "lsof_exit": 0,
+    "open_fds": 13,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776230114414000,
+    "lsof_exit": 0,
+    "open_fds": 13,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776231154597000,
+    "lsof_exit": 0,
+    "open_fds": 13,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776232200544000,
+    "lsof_exit": 0,
+    "open_fds": 23,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776233245429000,
+    "lsof_exit": 0,
+    "open_fds": 13,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776234293484000,
+    "lsof_exit": 0,
+    "open_fds": 22,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776235338028000,
+    "lsof_exit": 0,
+    "open_fds": 13,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776236385718000,
+    "lsof_exit": 0,
+    "open_fds": 49,
+    "phase": "durable-baseline",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776237440336000,
+    "lsof_exit": 0,
+    "open_fds": 25,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776238484519000,
+    "lsof_exit": 0,
+    "open_fds": 25,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776239531121000,
+    "lsof_exit": 0,
+    "open_fds": 51,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776240576397000,
+    "lsof_exit": 0,
+    "open_fds": 62,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776241626715000,
+    "lsof_exit": 0,
+    "open_fds": 74,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315523072
+  },
+  {
+    "at_ns": 1792776242670996000,
+    "lsof_exit": 0,
+    "open_fds": 91,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315539456
+  },
+  {
+    "at_ns": 1792776243709469000,
+    "lsof_exit": 0,
+    "open_fds": 86,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315539456
+  },
+  {
+    "at_ns": 1792776244745011000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315555840
+  },
+  {
+    "at_ns": 1792776245790164000,
+    "lsof_exit": 0,
+    "open_fds": 97,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315555840
+  },
+  {
+    "at_ns": 1792776246833208000,
+    "lsof_exit": 0,
+    "open_fds": 83,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315555840
+  },
+  {
+    "at_ns": 1792776247877242000,
+    "lsof_exit": 0,
+    "open_fds": 94,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315621376
+  },
+  {
+    "at_ns": 1792776248921236000,
+    "lsof_exit": 0,
+    "open_fds": 25,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315621376
+  },
+  {
+    "at_ns": 1792776249964857000,
+    "lsof_exit": 0,
+    "open_fds": 52,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315621376
+  },
+  {
+    "at_ns": 1792776251011329000,
+    "lsof_exit": 0,
+    "open_fds": 33,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315621376
+  },
+  {
+    "at_ns": 1792776252054659000,
+    "lsof_exit": 0,
+    "open_fds": 39,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315621376
+  },
+  {
+    "at_ns": 1792776253096767000,
+    "lsof_exit": 0,
+    "open_fds": 47,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 315621376
+  },
+  {
+    "at_ns": 1792776254136215000,
+    "lsof_exit": 0,
+    "open_fds": 23,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 316489728
+  },
+  {
+    "at_ns": 1792776255184401000,
+    "lsof_exit": 0,
+    "open_fds": 44,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 316489728
+  },
+  {
+    "at_ns": 1792776256229012000,
+    "lsof_exit": 0,
+    "open_fds": 18,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776257267210000,
+    "lsof_exit": 0,
+    "open_fds": 16,
+    "phase": "durable-active",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776258310982000,
+    "lsof_exit": 0,
+    "open_fds": 17,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776259355028000,
+    "lsof_exit": 0,
+    "open_fds": 55,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776260394277000,
+    "lsof_exit": 0,
+    "open_fds": 79,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776261438769000,
+    "lsof_exit": 0,
+    "open_fds": 99,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776262483007000,
+    "lsof_exit": 0,
+    "open_fds": 129,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776263526719000,
+    "lsof_exit": 0,
+    "open_fds": 153,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776264563448000,
+    "lsof_exit": 0,
+    "open_fds": 153,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776265602489000,
+    "lsof_exit": 0,
+    "open_fds": 153,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776266644322000,
+    "lsof_exit": 0,
+    "open_fds": 153,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776267688423000,
+    "lsof_exit": 0,
+    "open_fds": 153,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  },
+  {
+    "at_ns": 1792776268726062000,
+    "lsof_exit": 0,
+    "open_fds": 153,
+    "phase": "two-copies",
+    "pid": 4396,
+    "ps_exit": 0,
+    "rss_bytes": 317931520
+  }
+]

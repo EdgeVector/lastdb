@@ -11,6 +11,7 @@ impl SnapshotWriter {
         staged: &mut crate::disk_pack::maintenance::CompactionPublication,
     ) -> Result<Option<MaintenanceReceipt>> {
         self.check_admission()?;
+        output.ensure_usable()?;
         if !output.belongs_to(&self.lock) || !staged.belongs_to(output) {
             return Err(crate::disk_pack::corrupt(
                 "compaction belongs to another writer lease",
@@ -40,6 +41,7 @@ impl SnapshotWriter {
             return Err(error);
         }
         self.current = staged.current.clone();
+        self.changes.rewritten(&previous, &self.current);
         self.dependencies = staged.parts;
         self.legacy_live = None;
         let mut receipt = output.receipt();
@@ -69,6 +71,7 @@ impl SnapshotWriter {
     /// read view before it calls `reclaim` under that view's exclusive lock.
     pub fn pack(&mut self, policy: &SpacePolicy) -> Result<MaintenanceReceipt> {
         self.check_admission()?;
+        let previous = self.current.clone();
         self.poisoned = true;
         let packed = crate::disk_pack::maintenance::compact_locked(&self.lock, policy);
         let (current, receipt) = match packed {
@@ -84,6 +87,7 @@ impl SnapshotWriter {
         };
         self.compaction.completed(&receipt);
         self.current = current;
+        self.changes.rewritten(&previous, &self.current);
         self.dependencies = receipt.parts_after;
         self.legacy_live = None;
         self.poisoned = false;
@@ -138,6 +142,32 @@ impl SnapshotWriter {
         )
     }
 
+    /// Register exact changes at the same cut used by off-gate preparation.
+    pub fn capture_pack_handoff(
+        &self,
+        output: &mut crate::disk_pack::maintenance::PreparedCompaction,
+    ) -> Result<(
+        crate::disk_pack::lifetime::GenerationHold,
+        super::RetiredCaptures,
+    )> {
+        self.check_admission()?;
+        if !output.belongs_to(&self.lock) {
+            return Err(crate::disk_pack::corrupt(
+                "change capture belongs to another writer",
+            ));
+        }
+        output.require_no_merge_capture()?;
+        let cut = self.capture_pack_root()?;
+        let (capture, retired) = self.changes.register(&self.current)?;
+        output.set_merge_capture(capture);
+        Ok((cut, retired))
+    }
+
+    /// The node retires abandoned capture arrays outside its write gate.
+    pub fn capture_cleanup(&self) -> super::CaptureCleanup {
+        self.changes.cleanup_handle()
+    }
+
     /// Synchronous fallback: replay a bounded final delta, seed complete live
     /// counts, and publish while the caller owns the write boundary. The node's
     /// staged path seeds before it takes the final publication boundary.
@@ -147,6 +177,7 @@ impl SnapshotWriter {
     ) -> Result<MaintenanceReceipt> {
         self.check_admission()?;
         output.catch_up_bounded(self.capture_pack_root()?, 4096)?;
+        let previous = self.current.clone();
         self.poisoned = true;
         let result =
             crate::durability::complete_native_commit(&self.root, || output.finish(&self.lock));
@@ -160,6 +191,7 @@ impl SnapshotWriter {
         };
         self.compaction.completed(&receipt);
         self.current = current;
+        self.changes.rewritten(&previous, &self.current);
         self.dependencies = receipt.parts_after;
         self.legacy_live = None;
         self.poisoned = false;

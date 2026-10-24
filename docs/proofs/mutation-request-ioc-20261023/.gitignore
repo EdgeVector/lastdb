@@ -1,0 +1,4 @@
+# Generated benchmark output stays outside the source tree.
+/results/
+/builds.json
+/cleanup.json

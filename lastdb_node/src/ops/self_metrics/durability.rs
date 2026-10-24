@@ -131,32 +131,21 @@ impl<'de> Deserialize<'de> for DurabilityHealth {
     }
 }
 
-/// Operator-facing cloud backup storage honesty (referenced vs billed).
-///
-/// Wire-transparent Instant byte/chunk gauges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BackupStorageHealth {
-    /// Cloud object bytes for digests in the live tip keep-set.
-    pub referenced_bytes: Gauge,
-    /// Total listed `backup/chunks/` object bytes (billable inventory).
-    pub billed_bytes: Gauge,
-    /// `billed − referenced` when keep-set known; 0 when fail-closed.
-    pub reclaimable_bytes: Gauge,
-    pub referenced_chunks: Gauge,
-    pub billed_chunks: Gauge,
-    pub reclaimable_chunks: Gauge,
-}
-
-impl Default for BackupStorageHealth {
-    fn default() -> Self {
-        Self {
-            referenced_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            billed_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            reclaimable_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            referenced_chunks: Gauge::field_not_served(Unit::Chunks, GAUGE_INSTANT),
-            billed_chunks: Gauge::field_not_served(Unit::Chunks, GAUGE_INSTANT),
-            reclaimable_chunks: Gauge::field_not_served(Unit::Chunks, GAUGE_INSTANT),
-        }
+gauge_health! {
+    /// Operator-facing cloud backup storage honesty (referenced vs billed).
+    ///
+    /// Wire-transparent Instant byte/chunk gauges.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct BackupStorageHealth {
+        /// Cloud object bytes for digests in the live tip keep-set.
+        pub referenced_bytes: (Unit::Bytes, GAUGE_INSTANT),
+        /// Total listed `backup/chunks/` object bytes (billable inventory).
+        pub billed_bytes: (Unit::Bytes, GAUGE_INSTANT),
+        /// `billed − referenced` when keep-set known; 0 when fail-closed.
+        pub reclaimable_bytes: (Unit::Bytes, GAUGE_INSTANT),
+        pub referenced_chunks: (Unit::Chunks, GAUGE_INSTANT),
+        pub billed_chunks: (Unit::Chunks, GAUGE_INSTANT),
+        pub reclaimable_chunks: (Unit::Chunks, GAUGE_INSTANT),
     }
 }
 
@@ -170,49 +159,6 @@ impl From<fold_db::storage::laststore::BackupStorageFootprint> for BackupStorage
             billed_chunks: g_instant(fp.billed_chunks, Unit::Chunks),
             reclaimable_chunks: g_instant(fp.reclaimable_chunks, Unit::Chunks),
         }
-    }
-}
-
-impl Serialize for BackupStorageHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("BackupStorageHealth", 6)?;
-        s.serialize_field("referenced_bytes", &wire_u64(&self.referenced_bytes))?;
-        s.serialize_field("billed_bytes", &wire_u64(&self.billed_bytes))?;
-        s.serialize_field("reclaimable_bytes", &wire_u64(&self.reclaimable_bytes))?;
-        s.serialize_field("referenced_chunks", &wire_u64(&self.referenced_chunks))?;
-        s.serialize_field("billed_chunks", &wire_u64(&self.billed_chunks))?;
-        s.serialize_field("reclaimable_chunks", &wire_u64(&self.reclaimable_chunks))?;
-        s.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for BackupStorageHealth {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            referenced_bytes: Option<u64>,
-            #[serde(default)]
-            billed_bytes: Option<u64>,
-            #[serde(default)]
-            reclaimable_bytes: Option<u64>,
-            #[serde(default)]
-            referenced_chunks: Option<u64>,
-            #[serde(default)]
-            billed_chunks: Option<u64>,
-            #[serde(default)]
-            reclaimable_chunks: Option<u64>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        Ok(Self {
-            referenced_bytes: g_instant_wire(raw.referenced_bytes, Unit::Bytes),
-            billed_bytes: g_instant_wire(raw.billed_bytes, Unit::Bytes),
-            reclaimable_bytes: g_instant_wire(raw.reclaimable_bytes, Unit::Bytes),
-            referenced_chunks: g_instant_wire(raw.referenced_chunks, Unit::Chunks),
-            billed_chunks: g_instant_wire(raw.billed_chunks, Unit::Chunks),
-            reclaimable_chunks: g_instant_wire(raw.reclaimable_chunks, Unit::Chunks),
-        })
     }
 }
 

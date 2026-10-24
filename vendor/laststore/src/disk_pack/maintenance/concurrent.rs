@@ -20,12 +20,17 @@ pub struct CompactionPlan {
 pub struct PreparedCompaction {
     pub(super) identity: uuid::Uuid,
     pub(super) lock: Arc<WriteLock>,
-    pub(super) source: GenerationHold,
+    // Keep original inputs protected until this job and its private output drop.
+    _source: GenerationHold,
     pub(super) caught: GenerationHold,
     pub(super) output: PackOutput,
     pub(super) protection: crate::disk_pack::private_files::OutputFiles,
-    _space: SpaceReservation,
-    policy: SpacePolicy,
+    pub(super) cached_receipt: Option<generation::Generation>,
+    pub(super) merge_capture: Option<Arc<crate::disk_pack::snapshot::changes::ChangeCapture>>,
+    pub(super) live: crate::disk_pack::live_parts::LiveParts,
+    pub(super) failed: bool,
+    pub(super) _space: SpaceReservation,
+    pub(super) policy: SpacePolicy,
     pub(super) off_gate_millis: u64,
     rounds: u64,
     changes: u64,
@@ -53,6 +58,14 @@ impl CompactionPlan {
 
     /// Reserve space and copy outside the write gate; the source lease protects all input.
     pub fn copy(self, policy: &SpacePolicy) -> Result<PreparedCompaction> {
+        let root = self.lock.root().to_path_buf();
+        let mut output =
+            crate::durability::prepare_native_files(&root, || self.copy_inner(policy))?;
+        output.prepared();
+        Ok(output)
+    }
+
+    fn copy_inner(self, policy: &SpacePolicy) -> Result<PreparedCompaction> {
         let started = std::time::Instant::now();
         let root = self.lock.root();
         let current = self.source.current();
@@ -69,14 +82,23 @@ impl CompactionPlan {
             super::tier::TierCopy::copy(root, current, boundary, self.protection.clone())?
         };
         output.receipt.tier_boundary = boundary;
+        let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
+            root,
+            &output.current,
+            &output.dependencies,
+        )?;
 
         Ok(PreparedCompaction {
             identity: uuid::Uuid::new_v4(),
             lock: self.lock,
-            source: self.source,
+            _source: self.source,
             caught: self.caught,
             output,
             protection: self.protection,
+            cached_receipt: None,
+            merge_capture: None,
+            live,
+            failed: false,
             _space: space,
             policy: policy.clone(),
             off_gate_millis: started.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
@@ -91,6 +113,19 @@ impl PreparedCompaction {
     /// Replay only keys whose original mutation sequence is newer than the previous cut.
     /// The hold keeps that cut's files until the complete round ends.
     pub fn catch_up(&mut self, cut: GenerationHold) -> Result<u64> {
+        self.ensure_usable()?;
+        if cut.current() == self.caught.current() {
+            return Ok(0);
+        }
+        let root = self.lock.root().to_path_buf();
+        self.failed = true;
+        let count = crate::durability::prepare_native_files(&root, || self.catch_up_inner(cut))?;
+        self.failed = false;
+        self.prepared();
+        Ok(count)
+    }
+
+    pub(super) fn catch_up_inner(&mut self, cut: GenerationHold) -> Result<u64> {
         let count = self.catch_up_bounded(cut, u64::MAX)?;
         self.off_gate_millis = self
             .started
@@ -161,6 +196,21 @@ impl PreparedCompaction {
         self.rounds
     }
 
+    /// Selected adaptive tier boundary; zero denotes a full copy.
+    pub fn tier_boundary(&self) -> u64 {
+        self.output.receipt.tier_boundary
+    }
+
+    /// A failed private file or barrier operation invalidates this whole job.
+    pub(in crate::disk_pack) fn ensure_usable(&self) -> Result<()> {
+        if self.failed {
+            return Err(crate::Error::Config(
+                "failed compaction must be discarded".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub(in crate::disk_pack) fn belongs_to(&self, lock: &WriteLock) -> bool {
         std::ptr::eq(lock, self.lock.as_ref())
     }
@@ -185,6 +235,7 @@ impl PreparedCompaction {
         self,
         lock: &WriteLock,
     ) -> Result<(Current, MaintenanceReceipt)> {
+        self.ensure_usable()?;
         if !std::ptr::eq(lock, self.lock.as_ref()) {
             return Err(corrupt("compaction belongs to another writer lease"));
         }

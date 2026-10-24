@@ -1,12 +1,15 @@
 //! Direct immutable snapshot commits. CURRENT is the only recovery authority.
 
 mod admission;
+pub(in crate::disk_pack) mod changes;
 mod maintenance;
+mod merge;
 mod quote;
 mod reclaim;
 mod writer;
 
 pub use admission::SnapshotReservation;
+pub use changes::{CaptureCleanup, RetiredCaptures};
 pub use quote::{SnapshotMutationShape, SnapshotQuote};
 pub use reclaim::ReclaimPlan;
 pub use writer::SnapshotWriter;

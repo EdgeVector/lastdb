@@ -10,9 +10,10 @@ Commands:
   try   --path LOCK
         Non-blocking acquire; exit 0 if free (then release), 1 if busy.
 
-Used by db-perf-guard to claim an exclusive cargo window, and by
-scripts/ci/with-fold-host-cargo-lock.sh so agent/routine cargo can queue
-behind the probe instead of thrashing the host.
+Optional coordination between performance measurements via
+scripts/ci/with-fold-host-cargo-lock.sh. Ordinary builds and checks do not
+require this lock. It does not guarantee an idle host. Build before locking,
+bound each measurement, and release between measurements; see CLAUDE.md.
 
 Fairness: flock(2) is not a queue. A full suite that released the lock could
 reacquire it before a targeted proof that had waited through the whole run

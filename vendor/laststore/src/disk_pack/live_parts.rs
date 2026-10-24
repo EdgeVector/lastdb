@@ -14,6 +14,7 @@ mod overflow;
 mod payload;
 mod scan;
 
+pub(super) use bootstrap::LocatorImports;
 pub(super) use changes::Changes;
 pub(super) use scan::{add_directory_empty_root, observe_new_parts};
 
@@ -154,6 +155,10 @@ impl LiveParts {
 
     pub(super) fn coordinates(&self) -> Vec<Coordinate> {
         self.counts.keys().copied().collect()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.counts.len()
     }
 
     pub(super) fn reference_count(&self, coordinate: &Coordinate) -> Result<u64> {

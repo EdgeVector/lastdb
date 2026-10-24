@@ -19,9 +19,10 @@ pub struct SnapshotWriter {
     pub(super) poisoned: bool,
     pub(super) dependencies: u64,
     pub(super) legacy_live: Option<LiveParts>,
-    pub(super) lock: Arc<WriteLock>,
+    pub(in crate::disk_pack) lock: Arc<WriteLock>,
     admission: Arc<AdmissionLedger>,
     pub(super) compaction: crate::disk_pack::maintenance::CompactionPolicy,
+    pub(super) changes: super::changes::ChangeCaptures,
 }
 
 impl SnapshotWriter {
@@ -58,6 +59,7 @@ impl SnapshotWriter {
             lock: Arc::new(lock),
             admission: Arc::default(),
             compaction: Default::default(),
+            changes: Default::default(),
         })
     }
 
@@ -113,7 +115,16 @@ impl SnapshotWriter {
     pub fn commit_reserved(
         &mut self,
         mutations: Vec<SnapshotMutation>,
+        reservation: SnapshotReservation,
+    ) -> Result<PublishedGeneration> {
+        self.commit_reserved_base(mutations, reservation, None)
+    }
+
+    pub(super) fn commit_reserved_base(
+        &mut self,
+        mutations: Vec<SnapshotMutation>,
         mut reservation: SnapshotReservation,
+        base: Option<super::merge::MergePublication<'_>>,
     ) -> Result<PublishedGeneration> {
         self.check_admission()?;
         let actual = SnapshotQuote::from_iter_with_limit(
@@ -124,11 +135,20 @@ impl SnapshotWriter {
         reservation.begin()?;
         self.poisoned = true;
         let root = self.root.clone();
-        let publication =
-            durability::complete_native_commit(&root, || self.commit(mutations, actual))?;
+        let committed =
+            durability::complete_native_commit(&root, || self.commit(mutations, actual, base))?;
         reservation.complete()?;
+        let publication = committed.publication;
+        let previous = self.current.clone();
         self.current = publication.current.clone();
         self.dependencies = publication.dependency_parts;
+        self.changes.committed(
+            &previous,
+            &self.current,
+            &self.root,
+            &self.read_lease(),
+            committed.changes,
+        );
         self.poisoned = false;
         Ok(publication)
     }
@@ -137,7 +157,8 @@ impl SnapshotWriter {
         &mut self,
         mutations: Vec<SnapshotMutation>,
         quote: SnapshotQuote,
-    ) -> Result<PublishedGeneration> {
+        base: Option<super::merge::MergePublication<'_>>,
+    ) -> Result<super::changes::CapturedPublication> {
         let mut proposed = self.current.clone();
         proposed.generation = publish::fresh_generation(&self.root, self.current.generation)?;
         proposed.previous_generation = self.current.generation;
@@ -196,14 +217,11 @@ impl SnapshotWriter {
             return Err(corrupt("snapshot payload exceeded its admitted dimensions"));
         }
         drop(payload_timing);
-        let legacy_live = self.legacy_live.take();
-        publish::publish_prepared(
-            &self.lock,
-            &self.current,
-            proposed,
-            prepared,
-            payload,
-            legacy_live,
-        )
+        let changes = self.changes.prepare(&self.current, &self.root, &prepared);
+        let publication = self.publish_mutations(proposed, prepared, payload, base)?;
+        Ok(super::changes::CapturedPublication {
+            publication,
+            changes,
+        })
     }
 }

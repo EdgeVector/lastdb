@@ -1,6 +1,19 @@
 //! Mutation, aggregate and batch-mutation handlers.
+//!
+//! `request` shows the single-request steps, and `plan` holds pure request
+//! rules. The write helpers here use the existing host interface directly.
 
+use std::future::Future;
+use std::pin::Pin;
+
+use fold_db::fold_db_core::mutation_manager::MutationManager;
+
+use self::plan::MutationPlan;
 use super::*;
+
+mod plan;
+mod request;
+pub use request::execute_mutation;
 
 mod fields;
 pub use fields::*;
@@ -43,131 +56,47 @@ pub struct MutationComponents {
 pub const MUTATION_CLOUD_PUBLICATION_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(30);
 
-/// Execute `POST /api/mutation`: resolve the schema, build the [`Mutation`]
-/// signed by the node's public key, and write it under the given access context
-/// (the I2 namespace write-guard runs inside `write_mutations_with_access`).
-/// Returns the `{ mutation_id, success }` payload. Single copy of both hosts'
-/// mutation route.
-///
-/// # Errors
-/// [`HostError`] `404` when the schema is unknown, `500` on a write failure.
-pub async fn execute_mutation<H: HostNode>(
-    host: &H,
-    components: MutationComponents,
-    ctx: &AccessContext,
-) -> Result<Value, HostError> {
-    let MutationComponents {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence,
-        durability,
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
-        aggregate_set,
-    } = components;
-
-    let (canonical, aggregate_set) = resolve_mutation_schema(host, &schema, aggregate_set)?;
-    reject_illegal_must_exist(mutation_type, must_exist)?;
-    let cloud_policy =
-        cloud_capture_policy(mutation_type, durability, cloud_publication, must_exist)?;
-    if let Some(prefix) = key_range_prefix.as_deref() {
-        validate_key_range_prefix(
-            prefix,
-            mutation_type,
-            &key_value,
-            cloud_publication.is_some(),
-            aggregate_set.is_some(),
-        )?;
-    }
-    let validate_started = std::time::Instant::now();
-    validate_mutation_fields(host, &schema, &canonical, &fields_and_values).await?;
-    request_phases::add_phase(RequestPhase::Validate, validate_started.elapsed());
-
-    // Classify + admit BEFORE the write so a large blob write queues on the bulk
-    // lane instead of thrashing the shared flush log / blocking pool ahead of
-    // interactive writes. Held across the whole write.
-    let payload_bytes = fields_payload_bytes(&fields_and_values);
-
-    let key_values = match key_range_prefix {
-        Some(prefix) => {
-            resolve_delete_prefix_keys(
-                host,
-                canonical.clone(),
-                key_value.hash.clone().expect("validated hash"),
-                prefix,
-                ctx,
-            )
-            .await?
-        }
-        None => vec![key_value],
-    };
-    if key_values.is_empty() {
-        return Ok(empty_delete_response());
-    }
-    let template = MutationTemplate {
-        canonical: &canonical,
-        fields_and_values: &fields_and_values,
-        mutation_type,
-        source_file_name: &source_file_name,
-        durability,
-        expected: &expected,
-        must_exist,
-        aggregate_set: &aggregate_set,
-    };
-    let mutations = build_mutations(host, key_values, &template);
-
-    let (receipt, aggregate_write) =
-        write_mutation_receipt(host, mutations, ctx, cloud_policy, payload_bytes).await?;
-    let mutation_id = if aggregate_write {
-        source_mutation_id(&receipt)?
-    } else {
-        receipt
-            .mutation_ids
-            .last()
-            .cloned()
-            .ok_or_else(|| HostError::internal("Mutation returned no IDs"))?
-    };
-    // Default convergence is Async: return without waiting on the global
-    // pending-task tracker. The "index_wait" phase only runs for Sync, and
-    // times this barrier — not off-thread index/embedding work (that is
-    // spawned and never blocks the request even under Sync).
-    let background_tasks_drained = wait_for_requested_convergence(host, convergence).await;
-
-    Ok(mutation_response(
-        &mutation_id,
-        background_tasks_drained,
-        &receipt,
-        payload_bytes,
-    ))
+/// Per-class operation counts as the route renders them.
+pub(super) fn operations_json(operations: &ResidentCommitOperations) -> Value {
+    serde_json::json!({
+        "created": operations.created,
+        "updated": operations.updated,
+        "deleted": operations.deleted,
+        "no_op": operations.no_op,
+        "total": operations.total(),
+    })
 }
 
-/// Resolve the schema name and the aggregate-set schema names, timed as the
-/// schema-resolve phase.
+/// Resident-commit stage clocks, in microseconds.
 ///
-/// Phase timers are always-on: each is one pair of monotonic clock reads
-/// (sub-microsecond) around work that is µs-to-ms scale, reported through
-/// the task-local accumulator (`fold_db::request_phases`) so no signature
-/// here changes. Outside an instrumented socket request the adds no-op.
-fn resolve_mutation_schema<H: HostNode>(
+/// These ride the response rather than `status.request_ops` phases: the phase
+/// set is a partition of the request's wall clock and these spans overlap
+/// buckets that already exist, so publishing them there would corrupt every
+/// request's `unattributed` remainder. See
+/// `fold_db::fold_db_core::mutation_manager::receipt`.
+pub(super) fn stages_json(stages: &ResidentCommitStages) -> Value {
+    serde_json::json!({
+        "prepare": stages.prepare_us,
+        "gate_wait": stages.gate_wait_us,
+        "publish": stages.publish_us,
+        "ack": stages.ack_us,
+    })
+}
+
+pub(super) async fn wait_for_requested_convergence<H: HostNode>(
     host: &H,
-    schema: &str,
-    aggregate_set: Option<AggregateSet>,
-) -> Result<(String, Option<AggregateSet>), HostError> {
-    let resolve_started = std::time::Instant::now();
-    let resolved = (|| {
-        let canonical = resolve_required_schema_name(host, schema)?;
-        let aggregate_set = aggregate_set
-            .map(|aggregate| resolve_aggregate_set_schema_names(host, aggregate))
-            .transpose()?;
-        Ok::<_, HostError>((canonical, aggregate_set))
-    })();
-    request_phases::add_phase(RequestPhase::SchemaResolve, resolve_started.elapsed());
-    resolved
+    convergence: MutationConvergence,
+) -> bool {
+    if !convergence.waits() {
+        return false;
+    }
+
+    let index_wait_started = std::time::Instant::now();
+    let background_tasks_drained = host
+        .wait_for_background_tasks(MUTATION_BACKGROUND_TASK_TIMEOUT)
+        .await;
+    request_phases::add_phase(RequestPhase::IndexWait, index_wait_started.elapsed());
+    background_tasks_drained
 }
 
 /// Build the `{ mutation_id, success, … }` payload of a committed mutation.
@@ -197,50 +126,6 @@ fn mutation_response(
     response
 }
 
-/// Reject a `key_range_prefix` delete that combines unsupported fields.
-fn validate_key_range_prefix(
-    prefix: &str,
-    mutation_type: MutationType,
-    key_value: &KeyValue,
-    has_cloud_publication: bool,
-    has_aggregate_set: bool,
-) -> Result<(), HostError> {
-    if !matches!(mutation_type, MutationType::Delete) {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix is only valid on delete",
-        ));
-    }
-    if prefix.is_empty() {
-        return Err(HostError::new(400, "key_range_prefix must not be empty"));
-    }
-    if key_value.hash.as_deref().is_none_or(str::is_empty) {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix requires key_value.hash",
-        ));
-    }
-    if key_value.range.is_some() {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix cannot be combined with key_value.range",
-        ));
-    }
-    if has_cloud_publication {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix does not support cloud_publication",
-        ));
-    }
-    if has_aggregate_set {
-        return Err(HostError::new(
-            400,
-            "key_range_prefix does not support aggregate_set",
-        ));
-    }
-    Ok(())
-}
-
 /// Response for a prefix delete that matched no rows.
 fn empty_delete_response() -> Value {
     let operations = ResidentCommitOperations::default();
@@ -259,66 +144,70 @@ fn empty_delete_response() -> Value {
     })
 }
 
-/// The request fields shared by every mutation a single request builds.
-struct MutationTemplate<'a> {
-    canonical: &'a str,
-    fields_and_values: &'a HashMap<String, Value>,
-    mutation_type: MutationType,
-    source_file_name: &'a Option<String>,
-    durability: MutationDurability,
-    expected: &'a Option<fold_db::schema::types::cas::CasExpectation>,
-    must_exist: Option<bool>,
-    aggregate_set: &'a Option<AggregateSet>,
-}
-
-/// Build one signed [`Mutation`] per key from the shared template.
+/// Build one mutation identity per selected key. UUID allocation stays
+/// outside the pure request policy.
 fn build_mutations<H: HostNode>(
     host: &H,
     key_values: Vec<KeyValue>,
-    tpl: &MutationTemplate<'_>,
+    plan: &MutationPlan,
 ) -> Vec<Mutation> {
+    let components = &plan.components;
     key_values
         .into_iter()
         .map(|key_value| {
-            let mut mutation = Mutation::new(
-                tpl.canonical.to_string(),
-                tpl.fields_and_values.clone(),
-                key_value,
-                host.public_key(),
-                tpl.mutation_type,
-            );
-            mutation.source_file_name.clone_from(tpl.source_file_name);
-            if tpl.durability.waits_for_persist() {
-                mutation.synchronous = Some(true);
-            }
-            let mutation = match tpl.expected.clone() {
-                Some(expectation) => mutation.with_expected(expectation),
-                None => mutation,
-            };
-            let mutation = match tpl.must_exist {
-                Some(flag) => mutation.with_must_exist(flag),
-                None => mutation,
-            };
-            match tpl.aggregate_set.clone() {
-                Some(aggregate) => mutation.with_aggregate_set(aggregate),
-                None => mutation,
-            }
+            configure_mutation(
+                Mutation::new(
+                    plan.canonical.clone(),
+                    components.fields_and_values.clone(),
+                    key_value,
+                    host.public_key(),
+                    components.mutation_type,
+                ),
+                components.source_file_name.clone(),
+                components.durability,
+                components.expected.clone(),
+                components.must_exist,
+                components.aggregate_set.clone(),
+            )
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
-/// Admit and write the mutations, mapping a core failure to a [`HostError`].
-/// Returns the receipt and whether it came from the aggregate commit path.
-async fn write_mutation_receipt<H: HostNode>(
+/// Set the caller's options without copying an owned mutation payload.
+fn configure_mutation(
+    mut mutation: Mutation,
+    source_file_name: Option<String>,
+    durability: MutationDurability,
+    expected: Option<fold_db::schema::types::cas::CasExpectation>,
+    must_exist: Option<bool>,
+    aggregate_set: Option<AggregateSet>,
+) -> Mutation {
+    mutation.source_file_name = source_file_name;
+    if durability.waits_for_persist() {
+        mutation.synchronous = Some(true);
+    }
+    if let Some(expectation) = expected {
+        mutation = mutation.with_expected(expectation);
+    }
+    if let Some(flag) = must_exist {
+        mutation = mutation.with_must_exist(flag);
+    }
+    if let Some(aggregate) = aggregate_set {
+        mutation = mutation.with_aggregate_set(aggregate);
+    }
+    mutation
+}
+
+/// Build, admit, and commit the selected mutations under the caller's access
+/// context. Return the receipt and whether it came from the aggregate path.
+async fn commit_mutation<H: HostNode>(
     host: &H,
-    mutations: Vec<Mutation>,
+    plan: &MutationPlan,
+    key_values: Vec<KeyValue>,
     ctx: &AccessContext,
-    cloud_policy: CloudCapturePolicy,
     payload_bytes: usize,
 ) -> Result<(ResidentCommitReceipt, bool), HostError> {
-    // The QoS admission wait was previously invisible — charged as handler
-    // work in `duration_ms` with nothing to distinguish "queued behind the
-    // write governor" from "the write was slow". Time it as its own bucket.
+    let mutations = build_mutations(host, key_values, plan);
     let admission_started = std::time::Instant::now();
     let permit = host
         .acquire_op_permit(Lane::for_write_bytes(payload_bytes))
@@ -327,33 +216,17 @@ async fn write_mutation_receipt<H: HostNode>(
     let _permit = permit?;
     let manager = host.fold_db().mutation_manager();
     let aggregate_write = mutations.len() == 1 && mutations[0].aggregate_set.is_some();
-    let receipt = if aggregate_write {
-        manager
-            .write_aggregate_set_with_access_receipt_cloud(
-                mutations
-                    .into_iter()
-                    .next()
-                    .expect("one aggregate mutation"),
-                ctx,
-                cloud_policy,
-            )
-            .await
-    } else {
-        manager
-            .write_mutations_with_access_receipt_cloud(mutations, ctx, cloud_policy)
-            .await
-    }
-    .map_err(|e| {
-        // Prefer a typed mapping when available; keep the historical
-        // "Mutation execution failed:" prefix only for true 500s so
-        // owner diagnostics stay readable.
-        let mapped = HostError::from(e);
-        if mapped.status == 500 {
-            HostError::internal(format!("Mutation execution failed: {}", mapped.message))
-        } else {
-            mapped
-        }
-    })?;
+    let receipt = start_core_commit(manager, mutations, ctx, plan.cloud_policy, aggregate_write)
+        .await
+        .map_err(|e| {
+            // Preserve typed status codes and the historical prefix for true 500s.
+            let mapped = HostError::from(e);
+            if mapped.status == 500 {
+                HostError::internal(format!("Mutation execution failed: {}", mapped.message))
+            } else {
+                mapped
+            }
+        })?;
 
     let receipt = if aggregate_write {
         require_durable_aggregate_receipt(receipt, "Aggregate set")?
@@ -361,4 +234,34 @@ async fn write_mutation_receipt<H: HostNode>(
         receipt
     };
     Ok((receipt, aggregate_write))
+}
+
+type CoreCommitFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ResidentCommitReceipt, SchemaError>> + Send + 'a>>;
+
+/// Construct the large write future in a separate frame, as the socket route
+/// dispatcher does. That frame returns before the request polls the write,
+/// so debug builds do not keep its construction stack through the whole commit.
+#[inline(never)]
+fn start_core_commit<'a>(
+    manager: &'a MutationManager,
+    mutations: Vec<Mutation>,
+    ctx: &'a AccessContext,
+    cloud_policy: CloudCapturePolicy,
+    aggregate_write: bool,
+) -> CoreCommitFuture<'a> {
+    if aggregate_write {
+        Box::pin(
+            manager.write_aggregate_set_with_access_receipt_cloud(
+                mutations
+                    .into_iter()
+                    .next()
+                    .expect("one aggregate mutation"),
+                ctx,
+                cloud_policy,
+            ),
+        )
+    } else {
+        Box::pin(manager.write_mutations_with_access_receipt_cloud(mutations, ctx, cloud_policy))
+    }
 }

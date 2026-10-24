@@ -9,8 +9,8 @@
 #     worktree caches (see 2026-08-05 setup-budget-exceeded under concurrent cargo)
 #   - wait for a free heavy-cargo window (default 900s), then refuse with exit 3
 #     (named concurrent-cargo) if still busy; emit FINDING lines with pid age
-#   - hold host-local exclusive cargo lock while measuring so agents that wrap
-#     cargo via scripts/ci/with-fold-host-cargo-lock.sh queue behind the probe
+#   - coordinate the measurement phase with other opted-in measurements;
+#     ordinary builds do not use this lock and may run concurrently
 #   - classify cold/warm target + HEAD before setup so over-budget failures are
 #     attributable (cold-compile vs product regression)
 #   - setup timeouts report as setup-budget failures instead of empty logs
@@ -27,7 +27,7 @@ usage() {
 usage: scripts/ci/run-db-perf-guard.sh [--setup-timeout DURATION] [--bench-timeout DURATION] [--log-dir DIR] [--criterion-dir DIR]
 
 Runs:
-  preflight:   concurrent-cargo wait/refuse + host cargo lock + cold/warm classify
+  preflight:   concurrent-cargo wait/refuse + cold/warm classify
   setup:       cargo bench -p fold_db --bench query_path_bench --bench db_operations_bench --no-run
   measurement: FOLD_BENCH_FAST_GUARD=1 FOLD_DISABLE_NATIVE_INDEX=1 cargo bench -p fold_db --bench query_path_bench --bench db_operations_bench
   compare:     scripts/lints/bench-compare.py --criterion-dir <criterion-dir>
@@ -44,10 +44,10 @@ Env:
   FOLD_DB_PERF_CONCURRENT_POLL_SECONDS
       Poll interval while waiting (default 15).
   FOLD_HOST_CARGO_LOCK_PATH / FOLD_DB_PERF_HOST_LOCK_ACQUIRE_SECONDS
-      Exclusive host cargo lock held for the suite; agents should wrap cargo
-      with scripts/ci/with-fold-host-cargo-lock.sh.
+      Optional measurement coordination after setup. Ordinary builds do not
+      require the lock. It does not guarantee an idle host.
   FOLD_DB_PERF_SKIP_HOST_CARGO_LOCK=1
-      Skip exclusive lock acquisition (self-tests).
+      Skip optional measurement coordination.
 USAGE
 }
 
@@ -93,8 +93,12 @@ if [[ -z "$criterion_dir" ]]; then
 fi
 
 if [[ -z "$log_dir" ]]; then
-  log_dir="${TMPDIR:-/tmp}/fold-db-perf-guard"
+  log_dir="$(python3 "$repo_root/scripts/benchmark_output.py" --label db-perf-guard)"
 fi
+
+# Reject explicit output paths in this or another Git worktree before writes.
+python3 "$repo_root/scripts/benchmark_output.py" --check "$log_dir" >/dev/null
+python3 "$repo_root/scripts/benchmark_output.py" --check "$criterion_dir" >/dev/null
 
 mkdir -p "$CARGO_TARGET_DIR" "$log_dir"
 rm -rf "$criterion_dir"
@@ -120,10 +124,8 @@ echo "criterion_dir=$criterion_dir"
 # Always release the host lock if we acquired it (including early exit paths).
 trap 'db_perf_release_host_cargo_lock' EXIT INT TERM
 
-# Preflight: wait for a free window, then claim the host exclusive cargo lock.
-# Do not start a multi-minute cold compile while another cargo owns the machine.
+# Only this measurement job waits for other work. Ordinary builds run directly.
 db_perf_refuse_if_concurrent_cargo "db-perf-guard"
-db_perf_acquire_host_cargo_lock "db-perf-guard"
 
 # Classification for cold-compile vs product-regression attribution.
 target_state_line="$(db_perf_classify_target_state "$CARGO_TARGET_DIR" release 'query_path_bench-*')"
@@ -177,8 +179,13 @@ run_phase setup "$setup_timeout" "$log_dir/criterion-setup.log" \
 # Successful setup means this HEAD is warm for the next fire.
 db_perf_stamp_warm_head "$CARGO_TARGET_DIR"
 
+# Setup builds outside the measurement lock. Check load again before measuring;
+# this lock coordinates opted-in measurements, not ordinary agent builds.
+db_perf_refuse_if_concurrent_cargo "db-perf-guard"
+db_perf_acquire_host_cargo_lock "db-perf-guard"
 run_phase criterion "$bench_timeout" "$log_dir/criterion-measurement.log" \
   env FOLD_BENCH_FAST_GUARD=1 FOLD_DISABLE_NATIVE_INDEX=1 \
   "$cargo_bin" bench -p fold_db --bench query_path_bench --bench db_operations_bench
+db_perf_release_host_cargo_lock
 
 "$compare_bin" --criterion-dir "$criterion_dir"

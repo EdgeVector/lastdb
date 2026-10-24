@@ -35,6 +35,14 @@ impl Drop for Scope {
 }
 
 pub(super) fn complete<T>(root: &Path, commit: impl FnOnce() -> Result<T>) -> Result<T> {
+    scoped(root, commit, true)
+}
+
+pub(super) fn prepare<T>(root: &Path, prepare: impl FnOnce() -> Result<T>) -> Result<T> {
+    scoped(root, prepare, false)
+}
+
+fn scoped<T>(root: &Path, work: impl FnOnce() -> Result<T>, drain: bool) -> Result<T> {
     let file = File::open(root)?;
     let device = file.metadata()?.dev();
     if ACTIVE.with(|active| active.borrow().is_some()) {
@@ -47,13 +55,17 @@ pub(super) fn complete<T>(root: &Path, commit: impl FnOnce() -> Result<T>) -> Re
         });
     });
     let scope = Scope;
-    let result = commit()?;
-    let _timing = crate::commit_timing::stage("final_drain_us");
-    flush_pending()?;
-    // Do not use the scoped helper here: success requires the full device drain.
-    super::timed(&super::DATA_SYNCS, &super::DATA_SYNC_MICROS, || {
-        super::full_barrier(&file)
-    })?;
+    let result = work()?;
+    if drain {
+        let _timing = crate::commit_timing::stage("final_drain_us");
+        flush_pending()?;
+        // Success for a visible publication requires the full device drain.
+        super::timed(&super::DATA_SYNCS, &super::DATA_SYNC_MICROS, || {
+            super::full_barrier(&file)
+        })?;
+    } else {
+        flush_pending()?;
+    }
     drop(scope);
     Ok(result)
 }

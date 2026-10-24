@@ -1,0 +1,18 @@
+{
+  "complete": false,
+  "exclusive_window": "existing with-fold-host-cargo-lock wrapper",
+  "host_load_average": [
+    20.6171875,
+    23.1611328125,
+    30.40966796875
+  ],
+  "order": [
+    "before",
+    "after"
+  ],
+  "pair": 0,
+  "records": 100000,
+  "runner_sha256": "0155889889386a565e69440d11040eb8a45b095116fddf591c2e78ac51bbba2d",
+  "runs": [],
+  "started_ns": 1792772861273130000
+}

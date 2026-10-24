@@ -44,7 +44,8 @@ the same. See REVIEW.md for equivalence and the internal Rust signature tradeoff
   16 child objects/document, nested maps/arrays, strings/numbers/booleans/nulls.
 - Client CPU 0; all daemon threads/four configured workers on CPU 1. Host Cargo/
   performance lock excludes heavy build overlap. Fully warmed point reads use
-  eight interleaved 512-request blocks per kind; point_blocks.json is retained.
+  eight interleaved 512-request blocks per kind; point blocks were recorded
+  during the run.
 - Every query checks metadata field membership and atom identifier types. Every
   timed read checks returned values/count/order; ten complete pre-write response
   fingerprints per run compare fields, metadata and page payloads within each
@@ -57,16 +58,14 @@ the same. See REVIEW.md for equivalence and the internal Rust signature tradeoff
   field bucket. The baseline returned it, so that assertion aborted before any
   timed pair. The expectation was fixed and the entire experiment restarted.
   Its four stopped synthetic homes were cleaned; four additional graceful stops
-  are excluded from the 75 above. The excluded attempt, original driver, and
-  failure log are retained under excluded-initial-attempt. No product change
-  was needed and no initial-attempt samples enter the comparison.
+  are excluded from the 75 above. No product change was needed and no
+  initial-attempt samples enter the comparison. The excluded attempt artifacts were removed in the cleanup.
 
 ## Results (ms/request)
 
 Values are medians of four per-run p50/p95 values. Change compares reported p50
-medians; lower is better. measurements/comparison.json retains all paired deltas,
-raw per-run medians and throughput through the final flush. Requested queued
-writes may acknowledge durable; actual acknowledgement counts are retained.
+medians; lower is better. Requested queued writes may acknowledge durable;
+actual acknowledgement counts were recorded during the run.
 
 ### encrypted
 
@@ -132,11 +131,12 @@ Mixed-writer author choice is inspected in source; all fixture fields have one
 writer population. This is not power-loss recovery evidence. No peak-memory
 reduction was measured; avoided cloning is a structural claim from the source.
 
-Raw samples and full response captures are deterministic gzip files; raw and
-compressed hashes are in sample_manifest.json. Inputs, fixture hashes, point
-blocks, shutdown, CPU-affinity, cleanup receipts and response fingerprints remain.
-Fixtures and private keys are not committed. provenance.json identifies binaries,
-compiler/build command, source revisions and shared helper hashes.
+Bulk run artifacts, raw samples, response captures, receipts and their manifest
+were removed from the current tree after PR #284. The original evidence remains
+in that commit in Git history. This directory retains the reports, reusable
+drivers and compact provenance.json with binary hashes, compiler/build command,
+source revisions and shared helper hashes. Fixtures and private keys were never
+committed. Benchmark outputs should be kept outside the source tree.
 
 ```bash
 python3 docs/proofs/owned-query-format-benchmark-20261023/run.py --binaries /absolute/binaries --output /new/output --scratch /new/owned-homes --provenance docs/proofs/owned-query-format-benchmark-20261023/provenance.json

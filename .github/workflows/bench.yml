@@ -1,133 +1,80 @@
-name: Bench
+name: LastDB benchmarks
 
-# Performance-regression guard for the fold_db criterion benches
-# (fold_db/crates/core/benches/{query_path_bench,db_operations_bench,
-# encrypt_scan_bench}.rs). db_operations_bench includes storage metering
-# attribution coverage.
-#
-# DELIBERATELY OFF THE MERGE-QUEUE CRITICAL PATH. The benches seed up to 120K
-# records per case and take many minutes; putting them on every PR / in the
-# merge queue would re-inflate the queue build time that #959 + #964 just
-# halved (see project_fold_ci_build_time). So this workflow NEVER triggers on
-# `pull_request` / `merge_group` and is NOT a member of the `ci-required`
-# umbrella in ci.yml — it cannot block a merge.
-#
-# It runs instead:
-#   - on a weekly schedule (catches drift that lands without the label), and
-#   - on demand, when a maintainer adds the `run-benches` label to a PR
-#     (opt-in perf check for a change that's expected to move the curves), or
-#   - via manual workflow_dispatch.
-#
-# It runs the benches, then scripts/lints/bench-compare.py compares the fresh
-# criterion medians against the committed baseline
-# (fold_db/crates/core/benches/baseline/baseline.json) and FAILS on a >2x
-# regression of a guarded case (FLAT point-lookups guarded tighter at 1.6x).
-# Because it's not a required check, that failure is a loud signal to a human,
-# not a merge block.
-
+# Completion and upload are required for product changes. Speed changes are advisory.
 on:
-  schedule:
-    # Mondays 08:00 UTC — a quiet window; weekly is enough for drift detection.
-    - cron: "0 8 * * 1"
   pull_request:
-    types: [labeled]
-  workflow_dispatch:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "27 9 * * *"
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  # One bench run per ref; a newer push/label supersedes an in-flight one.
-  group: bench-${{ github.ref }}
-  cancel-in-progress: true
+  # Hosted PR runs supersede their own older attempt. No host measurement lock exists.
+  group: lastdb-bench-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  bench:
-    name: fold_db benches + regression guard
-    # On a PR, run ONLY when the `run-benches` label was just added — every
-    # other label event is a no-op. (schedule / workflow_dispatch have no
-    # label, so the guard is PR-event-specific.)
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.label.name == 'run-benches'
-    runs-on: ubuntu-latest
-    # The benches seed up to 120K-record corpora across several cardinalities for
-    # multiple groups; allow ample headroom on a shared runner.
-    timeout-minutes: 90
-    env:
-      # Match the rest of the workspace's CI: no debuginfo, cap link parallelism.
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_BUILD_JOBS: "2"
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.plan.outputs.required }}
+      baseline: ${{ steps.plan.outputs.baseline }}
+      candidate: ${{ steps.plan.outputs.candidate }}
+      driver: ${{ steps.plan.outputs.driver }}
+      reason: ${{ steps.plan.outputs.reason }}
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@v1.3.1
+      # The event's merge tree contains the current driver even for an old PR head.
+      - uses: actions/checkout@v5
         with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
-
-      - name: Install Rust
-        run: rustup show active-toolchain
-
-      - name: Configure git for private dependencies
-        # Org-level GH_PAT — see gbrain preferences/edgevector-gh-pat.
-        run: git config --global url."https://x-access-token:${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Cache Rust artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1-bench"
-
-      - name: Reset criterion output
-        run: rm -rf target/criterion
-
-      # Run benches. Criterion writes per-case estimates under
-      # target/criterion/<group>/<id>/new/estimates.json, which the guard reads.
-      # The query-path bench is split by guarded group so one long process cannot
-      # starve late-suite guarded cases before the regression guard runs.
-      # FOLD_BENCH_FAST_GUARD keeps the scheduled guard bounded; local full
-      # benchmark runs keep Criterion's default warmup/measurement windows.
-      - name: Run benches
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select exact product revisions and changed paths
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          for query_group in \
-            indexed_point_lookup \
-            point_lookup_vs_schema_count \
-            realistic_message_lookup \
-            indexed_full_read \
-            value_filter_scan \
-            hashrange_page_list_vs_N \
-            count_rows_vs_field_count \
-            count_rows_vs_row_count \
-            concurrent_list_reads \
-            concurrent_mixed_read_write
-          do
-            echo "::group::query_path_bench ${query_group}"
-            FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
-              --bench query_path_bench -- "${query_group}"
-            echo "::endgroup::"
-          done
-          FOLD_BENCH_FAST_GUARD=1 cargo bench -p fold_db \
-            --bench db_operations_bench
-          cargo bench -p fold_db --bench encrypt_scan_bench
-          # (api_query_latency_bench was deleted with the fold_db_node crate
-          # in the Mini-only cutover, 2026-07-12.)
+          args=()
+          if [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then args+=(--always); fi
+          python3 scripts/benchmarks/plan.py "${args[@]}" --output "$RUNNER_TEMP/benchmark-plan.json"
 
-      - name: Regression guard (vs committed baseline)
-        run: python3 scripts/lints/bench-compare.py
+  benchmark:
+    needs: plan
+    if: needs.plan.outputs.required == 'true'
+    uses: ./.github/workflows/bench-run.yml
+    with:
+      baseline: ${{ needs.plan.outputs.baseline }}
+      candidate: ${{ needs.plan.outputs.candidate }}
+      driver: ${{ needs.plan.outputs.driver }}
+      profile: ${{ github.event_name == 'schedule' && 'nightly' || 'standard' }}
 
-      # Keep the raw criterion output as an artifact so a maintainer can inspect
-      # the full report / HTML when the guard flags a regression.
-      - name: Upload criterion report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: criterion-report
-          path: target/criterion
-          retention-days: 14
-          if-no-files-found: ignore
+  benchmark-complete:
+    name: benchmark-complete
+    needs: [plan, benchmark]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require complete measurements and verified uploads for product changes
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          REQUIRED: ${{ needs.plan.outputs.required }}
+          BENCHMARK_RESULT: ${{ needs.benchmark.result }}
+          REASON: ${{ needs.plan.outputs.reason }}
+        run: |
+          set -euo pipefail
+          [ "$PLAN_RESULT" = success ]
+          case "$REQUIRED:$BENCHMARK_RESULT" in
+            true:success) echo "Complete benchmark and verified uploads. Speed changes remain advisory." ;;
+            false:skipped) echo "No product changes; measurements are unnecessary." ;;
+            *) echo "::error::Required benchmark or upload did not complete: $BENCHMARK_RESULT"; exit 1 ;;
+          esac
+          echo "$REASON" >> "$GITHUB_STEP_SUMMARY"

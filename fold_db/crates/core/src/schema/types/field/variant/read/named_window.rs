@@ -79,10 +79,17 @@ impl FieldVariant {
         if selection.limit == 0 {
             return Ok((selection.values, false));
         }
-        if let (FieldKind::HashRange, HashRangeFilter::HashKey(hash)) = (self.kind, filter) {
+        if self.kind == FieldKind::HashRange
+            && matches!(
+                filter,
+                HashRangeFilter::HashKey(_)
+                    | HashRangeFilter::HashRangePrefix { .. }
+                    | HashRangeFilter::HashRangeRange { .. }
+            )
+        {
             self.resolve_named_hash_pages(
                 db_ops,
-                hash,
+                filter,
                 include_tombstones,
                 &mut selection,
                 membership,
@@ -106,7 +113,7 @@ impl FieldVariant {
     async fn resolve_named_hash_pages<'a>(
         &self,
         db_ops: &Arc<DbOperations>,
-        hash: &str,
+        filter: &HashRangeFilter,
         include_tombstones: bool,
         selection: &mut NamedWindow,
         membership: &mut Membership<'a>,
@@ -123,7 +130,7 @@ impl FieldVariant {
             let (rows, window_applied) = Self::hash_range_tip_matches(
                 db_ops,
                 molecule,
-                hash,
+                filter,
                 self.common().storage_prefix(),
                 &Some(window.clone()),
                 include_tombstones,
@@ -206,13 +213,20 @@ impl FieldVariant {
         filter: Option<&HashRangeFilter>,
         include_tombstones: bool,
     ) -> Result<bool, SchemaError> {
-        if let (FieldKind::HashRange, Some(HashRangeFilter::HashKey(hash)), Some(molecule)) =
-            (self.kind, filter, self.common().molecule_uuid())
+        if let (
+            FieldKind::HashRange,
+            Some(
+                filter @ (HashRangeFilter::HashKey(_)
+                | HashRangeFilter::HashRangePrefix { .. }
+                | HashRangeFilter::HashRangeRange { .. }),
+            ),
+            Some(molecule),
+        ) = (self.kind, filter, self.common().molecule_uuid())
         {
             let (tips, _) = Self::hash_range_tip_matches(
                 db_ops,
                 molecule,
-                hash,
+                filter,
                 self.common().storage_prefix(),
                 &Some(KeyWindow::offset(0, 1)),
                 include_tombstones,

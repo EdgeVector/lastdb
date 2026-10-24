@@ -13,6 +13,7 @@ use uuid::Uuid;
 mod admission;
 mod build;
 mod maintenance;
+mod merge;
 mod mutation_quote;
 mod read;
 mod stream;
@@ -20,6 +21,7 @@ mod write;
 
 pub use admission::MutationReservation;
 pub use build::{HomeBuilder, HomeGroupWriter};
+pub use merge::PackMerge;
 pub use mutation_quote::MutationQuote;
 pub use read::HomeRead;
 pub use stream::StreamedRecord;

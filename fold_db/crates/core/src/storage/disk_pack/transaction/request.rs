@@ -76,17 +76,22 @@ where
     let operations = pending.freeze_operations();
     let operations_len = operations.len();
     let shape = BatchShape::of(&operations);
+    // Compaction can publish an equivalent physical root during logical
+    // preparation. Admission binds owned quota to this logical frontier.
+    let publication = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);
     // A cancelled pre-admission caller cannot release the queue's older quota.
-    let (prepared, gate) =
-        LastStoreKvStore::run_blocking(move || Ok((owner.prepare_queued(operations)?, gate)))
-            .await?;
+    let (prepared, gate, publication) = LastStoreKvStore::run_blocking(move || {
+        Ok((owner.prepare_queued(operations)?, gate, publication))
+    })
+    .await?;
     super::super::timing::mark(&mut timing, "capacity_prepare_us");
-    protect_paths(&runtime, &pending, None)?;
+    protect_paths(&runtime, &pending)?;
     // Every caller waits for the complete snapshot and clean core publication.
     // Publication, ownership transfer and worker creation contain no await.
     let pending_timing = Arc::clone(&pending);
-    let sequence = runtime.accept_queued(pending, prepared, false, None)?;
+    let sequence = runtime.accept_queued(pending, prepared)?;
+    drop(publication);
     drop(gate);
     super::super::timing::mark(&mut timing, "accept_us");
     let hold = note_gate_hold(held_from, operations_len, sequence, &shape);
@@ -216,11 +221,7 @@ fn note_gate_hold(
     held
 }
 
-fn protect_paths(
-    runtime: &PackRuntime,
-    pending: &PendingBatch,
-    delay: Option<std::time::Duration>,
-) -> StorageResult<Option<std::time::Duration>> {
+fn protect_paths(runtime: &PackRuntime, pending: &PendingBatch) -> StorageResult<()> {
     // Recheck the complete staged batch before consuming its typed paths. A
     // late metadata stage must not reuse an insufficient memory owner. The
     // durable fallback invalidates/refetches records without an uncharged cache.
@@ -246,14 +247,7 @@ fn protect_paths(
         .lock()
         .expect("native model reservation")
         .clone();
-    let changes =
-        super::super::logical_paths::controls::expanded_coordinates(&pending.changed_coordinates());
-    let publication = super::super::logical_paths::PathPublication {
-        definitions,
-        owner,
-        changed_sources: changes,
-        early: delay.is_some(),
-    };
+    let publication = super::super::logical_paths::PathPublication { definitions, owner };
     let protection = match super::super::logical_paths::PathProtection::reserve(
         runtime,
         &paths,
@@ -261,13 +255,12 @@ fn protect_paths(
         publication,
     ) {
         Ok(protection) => protection,
-        Err(StorageError::WriteResourceLimit { .. }) => return Ok(None),
+        Err(StorageError::WriteResourceLimit { .. }) => return Ok(()),
         Err(error) => return Err(error),
     };
-    let delay = delay.filter(|_| protection.memory_ready());
     *pending
         .path_protection
         .lock()
         .expect("native typed path protection") = Some(protection);
-    Ok(delay)
+    Ok(())
 }

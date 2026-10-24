@@ -65,7 +65,8 @@ pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
         });
     });
     let capture = Capture;
-    let result = action();
+    let (result, reads) = crate::read_receipt::observe_disk_reads(action);
+    note_reads(reads);
     let report = ACTIVE.with(|active| {
         active.borrow_mut().take().map(|mut report| {
             report.total_us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
@@ -75,6 +76,21 @@ pub fn measure<T>(action: impl FnOnce() -> T) -> (T, Option<Report>) {
     });
     drop(capture);
     (result, report)
+}
+
+fn note_reads(reads: crate::read_receipt::DiskReadReceipt) {
+    for (name, value) in [
+        ("read_file_opens", reads.file_opens),
+        ("read_operations", reads.read_operations),
+        ("read_metadata_operations", reads.metadata_operations),
+        ("read_payload_bytes", reads.payload_bytes),
+        ("read_format_bytes", reads.format_probe_bytes),
+        ("read_open_us", reads.open_nanos / 1000),
+        ("read_metadata_us", reads.metadata_nanos / 1000),
+        ("read_io_us", reads.read_nanos / 1000),
+    ] {
+        count(name, value);
+    }
 }
 
 /// Synchronous phase guard. It cannot move to a different thread.
@@ -91,6 +107,12 @@ pub fn stage(name: &'static str) -> Stage {
         started: (enabled() && ACTIVE.with(|active| active.borrow().is_some())).then(Instant::now),
         thread: PhantomData,
     }
+}
+
+/// Measure one synchronous action without extending the guard beyond it.
+pub fn during<T>(name: &'static str, action: impl FnOnce() -> T) -> T {
+    let _stage = stage(name);
+    action()
 }
 
 impl Drop for Stage {

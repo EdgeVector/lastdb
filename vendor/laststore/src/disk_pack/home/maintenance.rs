@@ -41,6 +41,20 @@ impl HomeSnapshot {
     pub fn capture_pack_root(&self) -> Result<crate::disk_pack::lifetime::GenerationHold> {
         self.writer.capture_pack_root()
     }
+    /// Keep exact temporary changes while the replacement prepares off-gate.
+    pub fn capture_pack_handoff(
+        &self,
+        output: &mut crate::disk_pack::maintenance::PreparedCompaction,
+    ) -> Result<(
+        crate::disk_pack::lifetime::GenerationHold,
+        crate::disk_pack::snapshot::RetiredCaptures,
+    )> {
+        self.writer.capture_pack_handoff(output)
+    }
+    /// Retire capture resources without taking the snapshot writer mutex.
+    pub fn capture_cleanup(&self) -> crate::disk_pack::snapshot::CaptureCleanup {
+        self.writer.capture_cleanup()
+    }
     /// Publish completed private output after a bounded final catch-up.
     pub fn finish_pack(
         &mut self,

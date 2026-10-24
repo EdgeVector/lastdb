@@ -36,9 +36,7 @@ pub struct NativeDiskStatus {
 #[derive(Clone)]
 pub(super) struct NativeReadView {
     pub(super) current: Current,
-    pub(super) accepted: Arc<Vec<Arc<transaction::PendingBatch>>>,
     pub(super) revision: u64,
-    pub(super) sequence: u64,
 }
 
 impl PackRuntime {
@@ -70,16 +68,13 @@ impl PackRuntime {
         // Maintenance holds the view lock while it reclaims. A status read must
         // not wait behind it, so it reports the last root the ledger saw.
         let view = self.view.try_read().ok();
-        let (generation, frontier, accepted) = if let Some(view) = view.as_deref() {
-            (
-                view.current.generation,
-                view.current.frontier,
-                view.accepted.len(),
-            )
+        let (generation, frontier) = if let Some(view) = view.as_deref() {
+            (view.current.generation, view.current.frontier)
         } else {
             let (generation, frontier) = self.parts.root();
-            (generation, frontier, 0)
+            (generation, frontier)
         };
+        let accepted = queue.request_count();
         let (core, core_bytes, core_memory, core_model) = {
             let mut core = self.core.lock().expect("native core status");
             (
@@ -118,44 +113,6 @@ impl PackRuntime {
 
     /// The caller owns the write gate and complete physical/logical reservations.
     /// Captured core values retain their reservation until the last reader releases them.
-    pub(super) fn install_accepted(
-        &self,
-        batch: Arc<transaction::PendingBatch>,
-        sequence: u64,
-    ) -> StorageResult<()> {
-        let changes = batch.changed_coordinates();
-        let mut view = self.view.write().expect("native complete read view");
-        if self.failed.load(Ordering::Acquire) {
-            return Err(StorageError::BackendError(
-                "native accepted view requires a healthy writer".into(),
-            ));
-        }
-        let revision = next_revision(&view)?;
-        self.invalidate_changed_records(&changes);
-        if let Some(protection) = batch
-            .path_protection
-            .lock()
-            .expect("native typed paths")
-            .as_ref()
-        {
-            protection.publish(sequence)?;
-        }
-        let records = batch.latest_records();
-        self.publish_schema_key_changes(records.iter().map(|record| {
-            (
-                record.collection.as_str(),
-                record.key.as_str(),
-                record.body.is_none(),
-            )
-        }));
-        let mut accepted = view.accepted.as_ref().clone();
-        accepted.push(batch);
-        view.accepted = Arc::new(accepted);
-        view.revision = revision;
-        view.sequence = sequence;
-        Ok(())
-    }
-
     /// Old calls retain their typed values; the flush log is not their read state.
     pub(super) fn install_committed(
         &self,
@@ -167,7 +124,9 @@ impl PackRuntime {
         let mut view = self.view.write().expect("native complete read view");
         if !hidden_changes.is_empty() {
             let revision = next_revision(&view)?;
-            self.invalidate_changed_records(hidden_changes);
+            if requests.is_empty() {
+                self.invalidate_changed_records(hidden_changes);
+            }
             self.publish_schema_key_changes(
                 key_changes.iter().map(|(collection, key, deleted)| {
                     (collection.as_str(), key.as_str(), *deleted)
@@ -176,6 +135,9 @@ impl PackRuntime {
             view.revision = revision;
         }
         for request in requests {
+            // Later raw effects invalidate an earlier request's clean cache
+            // even when the later request uses the disk-only memory fallback.
+            self.invalidate_changed_records(&request.changed_coordinates());
             if let Some(protection) = request
                 .path_protection
                 .lock()
@@ -185,13 +147,7 @@ impl PackRuntime {
                 protection.publish_clean()?;
             }
         }
-        let sequence = view.sequence;
-        self.core
-            .lock()
-            .expect("core atomic flush completion")
-            .complete_flush(sequence);
         view.current = current;
-        view.accepted = Arc::new(Vec::new());
         Ok(())
     }
 
