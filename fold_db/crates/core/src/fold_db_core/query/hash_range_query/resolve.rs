@@ -148,10 +148,23 @@ impl HashRangeQueryProcessor {
         &self,
         field: &FieldVariant,
         request: &PrimaryRequest<'_>,
-        filter: Option<HashRangeFilter>,
+        mut filter: Option<HashRangeFilter>,
         selected: &mut PrimarySelection,
     ) -> Result<(), SchemaError> {
         for namespace in request.received {
+            if let Some(HashRangeFilter::HashRangeKeys(keys)) = &mut filter {
+                // Only hydrated, visible winners suppress later sources.
+                // Membership runs after this merge, so a winner that fails
+                // its layout still cannot expose a lower-priority value.
+                keys.retain(|(hash, range)| {
+                    !selected
+                        .values
+                        .contains_key(&KeyValue::new(Some(hash.clone()), Some(range.clone())))
+                });
+                if keys.is_empty() {
+                    break;
+                }
+            }
             let mut shared = self
                 .resolve_field_from_namespace(
                     field,
