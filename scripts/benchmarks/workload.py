@@ -194,15 +194,18 @@ class Workload:
         try:
             with ThreadPoolExecutor(max_workers=clients) as pool:
                 futures = [pool.submit(self.worker, items, barrier, stopped, mode) for items in jobs]
+                case_started_us = time.time_ns() // 1000
                 started = time.perf_counter()
                 barrier.wait(timeout=30)
                 rows = [sample for future in futures for sample in future.result()]
                 elapsed = time.perf_counter() - started
+                case_ended_us = time.time_ns() // 1000
         finally:
             monitor_stop.set()
             monitor_thread.join(timeout=5)
         metric = describe(rows, elapsed)
         metric.update(sequence=sequence, clients=clients, batch_records=batch,
+                      case_started_unix_us=case_started_us, case_ended_unix_us=case_ended_us,
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
         metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before

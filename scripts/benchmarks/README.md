@@ -108,6 +108,26 @@ The report lists the five largest reported phases for each slow call.
 Socket queue wait precedes server duration. Parent and child phases can overlap, so their values must not be added.
 These phases locate time in the request code. They do not prove a physical disk flush or storage correctness.
 
+## PR 317 native diagnostics and read repeat
+
+PR 317 uses four ordinary base/candidate pairs with the standard request sizes and case order.
+This repeat retains the mixed-read P99 for each pair. The ordinary daemon has native diagnostics off.
+The shared workflow defaults stay unchanged for other PRs, main pushes, and nightly runs.
+
+A separate diagnostic pair uses fresh generated homes and enables the existing `LASTDB_SNAPSHOT_TIMING` output.
+This mode requires a GitHub-hosted Actions runner. It follows the ordinary measurements and uses the same exact programs.
+The diagnostic results stay in `native-diagnostics/` within the run artifact.
+They supply phase evidence, not the ordinary speed comparison.
+
+Each timed case records its outer UTC bounds outside the response-time measurement.
+Each native scope must match one physical commit through its sequence and enclosed time interval.
+The scope count must equal the actual successful write-call count for that case.
+Missing or ambiguous evidence fails the diagnostic capture.
+Each physical commit enters the totals once, even when it serves several requests.
+The artifact retains request counts, phase coverage, physical counts, and the slowest native records.
+Missing phase fields stay unreported. Parent and child phase totals can overlap.
+The physical request count can include background work. It is not an exclusive cost for each client call.
+
 ## Results and limits
 
 Open the workflow summary from the PR checks. Download its `lastdb-benchmarks` artifact for detail.
