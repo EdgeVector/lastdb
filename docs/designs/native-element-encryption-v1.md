@@ -3,42 +3,42 @@
 The native pack container has no whole-file encryption.
 It keeps its existing compression, checksums, and file format.
 
-This change removes a duplicate record envelope from two exact record families:
+The current policy wraps only local CAS blob records.
+Tom set this policy on 2026-10-23.
 
-- Atom body records keep their existing encrypted content.
-- New account-v2 CAS records contain one encrypted file envelope.
-- Old CAS records keep their account envelope and their original file keys.
-
-The change does not remove atom counters, molecule counters, or blob counters.
-It does not change the hash codec, range codec, or molecule key bundle.
-The CAS record keeps its JSON fields and its existing `ENC:` file representation.
-The new suite changes the file address to the hash of the encrypted envelope.
+- Atom bodies keep their existing content encryption and no outer storage envelope.
+- Tip values, counters, history, conflicts, metadata, and change-feed values use direct storage.
+- Local CAS records receive an account storage envelope around their existing file envelope.
+- Molecule key bundles and sensitive identity fields keep their explicit key encryption.
+- Hash blinding and the range codec keep their existing behavior.
 
 ## Record policy
 
-The writer recognizes an atom body through the existing body-key codec.
-It recognizes a new CAS record through its key, account-v2 suite, and encrypted file fields.
-The key and `content_sha256` must contain the same encrypted-byte hash.
-The record must omit file access keys.
-Those records go to the native store without another account envelope.
+`EncryptingNamespacedStore` selects only the exact `cas_blobs` namespace.
+Its constructor has no caller-controlled plaintext list or broad encryption option.
+All other namespaces return the underlying storage handle directly.
+The wrapper never encrypts a complete packed file or a lookup key.
 
-Old CAS suites keep account encryption.
-Their public file names can expose enough information to derive their old file keys.
-A new reader does not rewrite those records or their atoms.
+The wrapper encrypts the complete local CAS record, including the blob metadata and encrypted file bytes.
+The CAS reader can still decode an account-v2 record with only its existing file envelope.
+Every new CAS write receives the outer account envelope.
 
-Other records keep their current protection.
-This includes tips, counters, history, conflicts, metadata, and the change feed.
-Some of those records contain copies of the original API keys or private metadata.
-A plaintext exception for a complete namespace would expose those fields.
+Atoms retain encryption of the content field.
+The atom header remains readable: atom identity, schema, source filename, creation time, and optional metadata.
+Tips retain their key encoding, while their atom pointer and per-key metadata remain readable.
+Other direct control records can also contain original API keys and private metadata.
+Native cloud backups copy these exact stored bytes and preserve that visibility.
+This is an explicit policy change, not whole-file encryption.
 
-The ordinary reader accepts a direct record only when it has the required inner envelope.
-It also reads old records through their existing outer envelope.
-A failed outer authentication never becomes a plaintext read.
-Atom and file readers still check their existing inner authentication.
+Reseal and reap accept only `cas_blobs`.
+They cannot add wrappers to atom or tip records or delete those direct records as unsealed residue.
+Replay writes direct non-CAS bytes and cannot restore the broad encryption policy.
 
-Reap preserves the two inner-protected record families.
-Reseal does not add another envelope to a direct inner-protected record.
-There is no bulk rewrite of old records.
+The keyed constructors retain a single explicit encrypted account-key proof.
+This small control value verifies the account key before the database can serve requests.
+It is not a namespace-wide storage envelope.
+A wrong key or changed proof refuses startup and never replaces the proof.
+Keyless embedded construction keeps its existing behavior and cannot supply a keyed native cloud restore.
 
 ## Per-file key and CAS contract
 
@@ -77,16 +77,22 @@ The key derivation uses the original file hash.
 
 ## Old-reader boundary
 
-The encrypted logical marker advances from `4` to `5` before the node serves new writes.
-The normal native request makes that marker durable.
-An older reader refuses marker `5` before it can discard an unfamiliar direct record.
-The new reader accepts marker `4` and reads its existing records.
-Native restore accepts marker `4` or `5` after account authentication.
+The logical marker `layout:v3:keys` uses direct ASCII value `6`.
+The node format marker uses `format=2`.
+The creation-intent marker names the third current-key initialization protocol.
+Normal startup rejects earlier node markers before it opens the physical store.
+A direct physical logical constructor also requires marker `6`.
+There is no automatic rewrite or format-4/5 upgrade.
+An offline conversion remains separate work; this change does not open or change a primary home.
 
-The pack format and cloud protocol do not change.
+Native restore requires marker `6` and the explicit encrypted account-key proof.
+It checks both before destination publication.
+The atom and file readers still authenticate their existing encrypted content.
+The metadata and file-dependency decoders read the direct control records.
+
+The physical pack format and cloud transport do not change.
 Native backup copies the exact stored file bytes.
-The shared atom and CAS decoders support both record forms during backup and restore.
-The manifest, directory, and control-record authentication stay in place.
+New backups retain only the CAS storage wrapper, atom content encryption, and explicit key encryption.
 
 ## File size and memory
 

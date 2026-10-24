@@ -173,11 +173,8 @@ impl EncryptingKvStore {
         Ok(sealed)
     }
 
-    /// Preserve an existing element seal; wrap only records that still need one.
+    /// Every new local CAS record receives the account storage envelope.
     async fn protect_value(&self, key: &[u8], value: Vec<u8>) -> StorageResult<Vec<u8>> {
-        if inner_protected::has_inner_protection(&self.namespace, key, &value) {
-            return Ok(value);
-        }
         self.seal_value(key, &value).await
     }
 
@@ -247,7 +244,7 @@ impl EncryptingKvStore {
             && !is_sealed_at_rest(&stored)
         {
             return Err(StorageError::EncryptionError(
-                "atom or file record lacks its required inner protection".into(),
+                "CAS record lacks its required file protection".into(),
             ));
         }
         let crypto = self.select_crypto(key);

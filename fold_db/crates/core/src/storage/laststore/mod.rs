@@ -43,7 +43,7 @@ mod partition_scan;
 mod prefix_layouts;
 mod residue_types;
 
-use super::encrypting_namespaced_store::LASTSTORE_PLAINTEXT_NAMESPACES;
+use super::encrypting_namespaced_store::CATALOG_NAMESPACES;
 use super::error::{StorageError, StorageResult};
 use super::traits::{
     ExecutionModel, FlushBehavior, KvMutation, KvStore, NamespacedStore, PartitionedScan,
@@ -94,7 +94,7 @@ const TIPS_COLLECTION: &str = "tips";
 /// An at-rest envelope there is what made Tom's primary unbootable on 2026-08-16:
 /// `TypedKvStore` parsed ciphertext as JSON (`expected value at line 1 column 1`)
 /// and `get_all_schemas` aborted `open_existing_store`. Reject at the LastStore
-/// put so a mis-wired `EncryptingNamespacedStore::new()` (empty allowlist)
+/// put so a legacy replay envelope
 /// fails closed instead of poisoning the catalog.
 pub(in crate::storage) fn reject_enc_on_plaintext_catalog(
     collection: &str,
@@ -104,7 +104,7 @@ pub(in crate::storage) fn reject_enc_on_plaintext_catalog(
     // 2026-08-16 brick was an `ENC:` body the catalog reader could not parse,
     // and `ENZ:` / binary `ENB:` bodies would fail identically.
     let enveloped = crate::crypto::is_sealed_at_rest(value);
-    if enveloped && LASTSTORE_PLAINTEXT_NAMESPACES.contains(&collection) {
+    if enveloped && CATALOG_NAMESPACES.contains(&collection) {
         return Err(StorageError::InvalidOperation(format!(
             "refusing to persist ENC:/ENZ:/ENB: envelope in plaintext catalog \
              collection {collection:?} — schema/catalog rows must stay JSON so \

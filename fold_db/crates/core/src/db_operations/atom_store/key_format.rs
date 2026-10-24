@@ -8,20 +8,18 @@
 //! the current logical identity marker before it can serve. A home from a build
 //! that kept blob reference edges has the key format `3`: it has no blob
 //! counters, so this build refuses it and asks for a new empty home.
-//! Format `5` permits direct atom/CAS records with their existing inner seal.
-//! The encrypted marker advances durably before the node can serve new writes,
-//! so a format-4 reader refuses the home rather than hiding those records.
+//! Format `6` wraps only local CAS records. Atoms retain encrypted content;
+//! tips and control values have no outer envelope. Earlier homes require an
+//! explicit offline conversion and are never rewritten by startup.
 
 use super::AtomStore;
 use crate::storage::{KvMutation, StorageError};
 
-/// `5`: element-protected atom/CAS records need no outer namespace envelope.
-/// `4` has the same counters and keys, with an additional outer value envelope.
-pub(crate) const KEY_FORMAT: &[u8] = b"5";
-const PREVIOUS_KEY_FORMAT: &[u8] = b"4";
+/// `6`: a storage envelope exists only on local CAS records.
+pub(crate) const KEY_FORMAT: &[u8] = b"6";
 
 pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
-    value == KEY_FORMAT || value == PREVIOUS_KEY_FORMAT
+    value == KEY_FORMAT
 }
 
 /// The backend permits these exact keys together while current creation is
@@ -56,7 +54,7 @@ impl AtomStore {
     }
 
     /// A crash can leave either no proofs or the complete durable proof batch.
-    /// Validate the latter through the encryption seam. A partial boundary is
+    /// Validate the exact stored format bytes. A partial boundary is
     /// refused rather than inferred from data.
     pub(crate) async fn fresh_native_initialization_needed(&self) -> Result<bool, StorageError> {
         let keys = CURRENT_NATIVE_INITIALIZATION_KEYS
@@ -97,17 +95,12 @@ impl AtomStore {
             .inner()
             .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await?;
-        match stored.as_deref() {
-            Some(value) if value == KEY_FORMAT => Ok(()),
-            Some(value) if value == PREVIOUS_KEY_FORMAT => {
-                // The normal boot owns a native request scope here. Its durable
-                // commit finishes before construction returns or data writes run.
-                self.initialize_key_format().await
-            }
-            _ => Err(StorageError::InvalidOperation(
-                "this home does not use the current key format; create a new empty home".into(),
-            )),
+        if stored.as_deref() != Some(KEY_FORMAT) {
+            return Err(StorageError::InvalidOperation(
+                "this home does not use the CAS-only wrapper format; create a new empty home or convert it offline".into(),
+            ));
         }
+        Ok(())
     }
 }
 

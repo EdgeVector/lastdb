@@ -215,6 +215,9 @@ impl DbOperations {
             admit_meter_trust,
         )
         .await?;
+        if let Some(key) = molecule_wrap_key.or(atom_content_key) {
+            crate::crypto::content_key_proof::verify_or_establish(store.as_ref(), &key).await?;
+        }
         let public_key_store = PublicKeyStore::new(public_keys_typed);
         let metadata_store = MetadataStore::new(metadata_typed, idempotency_typed);
         let attribution_ledger = AttributionLedger::new(attribution_ledger_kv).await?;

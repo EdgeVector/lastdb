@@ -197,17 +197,23 @@ Config hashes for fkanban live in `~/.fkanban/config.json` (`schemaHashes.card`,
 
 | Piece | Shipping default | Notes |
 |-------|------------------|--------|
-| HashKey in `mk:…` | **`blind_v1`** when env unset | Override only with `LASTDB_HASH_KEY_ENCODING=plain` (tests) |
-| RangeKey in `mk:…` | **`ope_v1`** when env unset | Override only with `LASTDB_RANGE_KEY_ENCODING=plain` (tests) |
+| HashKey in `mk:…` | **`blind_v1`** when env unset | Explicit unencoded homes use `LASTDB_HASH_KEY_ENCODING=plain` |
+| RangeKey in `mk:…` | **`ope_v1`** when env unset | Explicit unencoded homes use `LASTDB_RANGE_KEY_ENCODING=plain` |
 | Atom **content** | Sealed under account E2E key on write | **Dual-read** of legacy plain until reseal; **`LASTDB_ATOM_CONTENT_STRICT=1`** = fail-closed open (Trinity Son) |
 | File KDK + local CAS | Per-blob DEK in sealed content; local `cas_blobs` sealed under DEK | Plain CAS writes need `LASTDB_ALLOW_PLAIN_CAS=1` |
 | Per-field unique DEK | **Not the model** | Same account `encryption_key` for content seal |
 | Schema catalog | Mixed plain / `ENC:…` over history | Open before parse |
 
+The storage wrapper covers only local `cas_blobs` records in logical format `6`.
+Atom content keeps its own encryption. Atom headers, tip values, counters, and other control values have no outer storage envelope.
+Lookup keys remain outside the wrapper. Hash blinding and the range codec remain separate.
+A single explicit encrypted account-key proof protects keyed startup and native restore.
+Earlier node formats require an offline conversion; startup does not rewrite them.
+
 **Agent rules:**
 
 1. **Open before parse** — never feed `ENC:…` to `serde_json`. Column-1 deserialize errors usually mean ciphertext hit JSON.
-2. Assume product keys are **blind+OPE** unless you deliberately set plain for tests.
+2. Assume product keys are **blind+OPE** unless the home explicitly selects plain keys.
 3. Do not enable `LASTDB_ATOM_CONTENT_STRICT=1` on a home until atom content is re-sealed (or dual-read is intentional).
 4. Depth: `fold_db/docs/DESIGN_OPERATION_TRINITY.md` (today vs target).
 

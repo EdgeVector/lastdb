@@ -6,9 +6,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-const INITIALIZING: &str = "laststore-current-keys-v2-initializing";
+const INITIALIZING: &str = "laststore-current-keys-v3-initializing";
 const STAGING: &str = "physical";
-pub(super) const NODE_BYTES: &[u8] = b"format=1\nhome=disk-pack\n";
+pub(super) const NODE_BYTES: &[u8] = b"format=2\nhome=disk-pack\n";
 
 /// The stable node-marker inode serializes creation and remains locked for the
 /// runtime's lifetime. The directory marker authorizes only this new protocol.
@@ -237,8 +237,7 @@ impl PackRuntime {
         Ok(())
     }
 
-    /// The caller first validates the whole proof batch through the normal
-    /// encryption seam. Cancellation retains the intent and the write guard.
+    /// The caller first validates the complete logical format batch. Cancellation retains the intent and the write guard.
     pub(crate) async fn finish_fresh_initialization(self: &Arc<Self>) -> StorageResult<()> {
         if !self.fresh_initialization_pending() {
             return Ok(());

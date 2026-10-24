@@ -149,7 +149,7 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
         drop(atom);
         drop(body);
         let mut read = self.reader(8 * 1024 * 1024, 3)?;
-        read_directories(&mut read, scope, atom_id, &dependencies, self.key)?;
+        read_directories(&mut read, scope, atom_id, &dependencies)?;
         Ok(())
     }
 
@@ -164,15 +164,16 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
             read.get_bounded("tips", &native_routing::encode(raw.as_bytes()), ROW_MAX)
                 .map_err(super::super::map)?
         };
-        row.map(|bytes| decode(self.key, bytes)).transpose()
+        row.map(|bytes| decode(bytes)).transpose()
     }
 }
 
-fn decode<T: DeserializeOwned>(key: &[u8; 32], bytes: Vec<u8>) -> StorageResult<T> {
-    let plain = crate::crypto::at_rest::open_at_rest_bounded_owned(key, bytes, ROW_MAX, ROW_MAX)
-        .map_err(|_| invalid("metadata record envelope"))?;
-    let value = budget_json::decode(&plain)?;
-    drop(plain);
+fn decode<T: DeserializeOwned>(bytes: Vec<u8>) -> StorageResult<T> {
+    if bytes.len() as u64 > ROW_MAX {
+        return Err(invalid("metadata record exceeds its bound"));
+    }
+    let value = budget_json::decode(&bytes)?;
+    drop(bytes);
     serde_json::from_value(value).map_err(|_| invalid("metadata record format"))
 }
 

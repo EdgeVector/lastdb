@@ -6,7 +6,7 @@ use super::*;
 pub(crate) enum DbSealCommand {
     /// Rewrite sealed values to an explicit binary `ENB:` target.
     ///
-    /// One allowlisted plane per call: atoms, tips, metadata, change_feed.
+    /// Only local CAS blob records have a storage envelope to rewrite.
     /// Default is dry-run.
     /// Pass `--execute` to rewrite in place under the same key (no dual-key
     /// copies). Bounded (`--max-rows` / `--max-secs`) and resumable; a killed
@@ -21,7 +21,6 @@ pub(crate) enum DbSealCommand {
     /// owner-gated there. Sequence one plane at a time, smallest first, with a
     /// backup cut published between planes and never while a cut is staged.
     ///
-    /// `cas_blobs` is not on the allowlist (exempt).
     ResealAtRest {
         /// One allowlisted collection (required).
         #[arg(long)]
@@ -60,7 +59,7 @@ pub(crate) enum DbSealCommand {
     /// encrypts already reads as absent (drop-dual-read, 2026-09-14); reads
     /// never delete it, so it stays on disk and rides into every backup and
     /// restore. This verb is the bounded reaper. One sealed plane per call:
-    /// atoms, tips, metadata, change_feed.
+    /// cas_blobs.
     /// Default is dry-run. Pass `--execute` to delete.
     /// Bounded (`--max-rows` / `--max-secs`) and resumable from a durable
     /// checkpoint; `--progress` reports it without scanning. The unsealed rows of
@@ -69,8 +68,7 @@ pub(crate) enum DbSealCommand {
     /// of each call.
     ///
     /// A sealed row is never touched, even one that does not open under this
-    /// node's key. Every plaintext-by-policy namespace (schemas, db_catalog,
-    /// molecule_keys, …) and the reserved marker namespace are refused by name.
+    /// node's key. Every namespace other than cas_blobs is refused by name.
     ///
     /// **Heavy op, on request only.** On a healthy home the correct count is
     /// zero; run the dry-run first and read a non-zero count as a signal (a

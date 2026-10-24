@@ -2,7 +2,7 @@
 
 use super::super::types::*;
 use super::super::SyncEngine;
-use crate::crypto::{is_sealed_at_rest, seal_at_rest, CryptoProvider};
+use crate::crypto::{is_sealed_at_rest, CryptoProvider};
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::LogOp;
 use crate::sync::org_sync::SyncTarget;
@@ -233,7 +233,7 @@ impl SyncEngine {
         // backend. Direct/live KvStore::put calls still reach
         // `reject_enc_on_plaintext_catalog` unchanged and fail closed.
         if kv.backend_name() == "laststore"
-            && crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES.contains(&namespace)
+            && crate::storage::CATALOG_NAMESPACES.contains(&namespace)
         {
             return Self::unwrap_at_rest_value(
                 namespace,
@@ -268,21 +268,9 @@ impl SyncEngine {
             });
         }
 
-        if is_sealed_at_rest(value_bytes) {
-            return Ok(value_bytes.to_vec());
-        }
-
-        match self.enc_key.as_ref() {
-            // Local seal failure must abort (Crypto), not poison-skip a good
-            // remote payload — advancing past a seal failure permanently drops
-            // the peer value.
-            Some(key) => seal_at_rest(key, value_bytes).map_err(|e| {
-                SyncError::Crypto(format!(
-                    "at-rest envelope seal failed in '{namespace}': {e}"
-                ))
-            }),
-            None => Ok(value_bytes.to_vec()),
-        }
+        // Direct atom, tip, and control records retain their original value
+        // bytes. Only the CAS namespace wrapper may add an outer envelope.
+        Ok(value_bytes.to_vec())
     }
 
     /// Rewrites log entry keys based on namespace isolation rules.
