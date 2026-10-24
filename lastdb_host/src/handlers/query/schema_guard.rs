@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// Supported native selectors for the product query rejection's remediation.
+const KEYED_FILTER_VARIANTS: &[&str] = &[
+    "HashKey",
+    "HashRangeKey",
+    "HashRangePrefix",
+    "HashRangeRange",
+    "HashRangeKeys",
+];
+
 pub(in crate::handlers) fn looks_like_schema_identity(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
