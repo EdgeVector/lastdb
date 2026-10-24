@@ -38,19 +38,22 @@ fn distinct_in_order<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<Strin
 pub(super) fn eligible_protein_atoms<'a>(
     schema: &'a Schema,
     mutation_key_values: &[KeyValue],
-    atom_results: &'a [(usize, String, Atom)],
+    atom_results: &'a [super::PreparedFieldAtom],
     accepted: &super::prepared::AcceptedSources,
 ) -> Vec<(usize, &'a Atom, &'a str)> {
     let mut eligible = Vec::new();
-    for (idx, field_name, atom) in atom_results {
-        let key_value = &mutation_key_values[*idx];
+    for prepared in atom_results {
+        let idx = prepared.mutation_index;
+        let field_name = &prepared.field_name;
+        let atom = &prepared.atom;
+        let key_value = &mutation_key_values[idx];
         let Some(field) = schema.runtime_fields.get(field_name) else {
             continue;
         };
         let Some(mol_uuid) = field.common().molecule_uuid() else {
             continue;
         };
-        let source = (*idx, mol_uuid.clone(), atom.uuid().to_string());
+        let source = (idx, mol_uuid.clone(), atom.uuid().to_string());
         let Some(accepted) = accepted.get(&source) else {
             continue;
         };
@@ -62,7 +65,7 @@ pub(super) fn eligible_protein_atoms<'a>(
         {
             continue;
         }
-        eligible.push((*idx, atom, mol_uuid.as_str()));
+        eligible.push((idx, atom, mol_uuid.as_str()));
     }
     eligible
 }

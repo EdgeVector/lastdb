@@ -19,7 +19,7 @@ impl MutationManager {
         schema: &mut Schema,
         schema_mutations: &[Mutation],
         mutation_key_values: &[KeyValue],
-        atom_results: Vec<(usize, String, Atom)>,
+        atom_results: &[super::PreparedFieldAtom],
     ) -> (ModifiedFieldKeys, super::prepared::AcceptedSources) {
         // field_name -> the keys touched on that field's molecule this batch.
         // An empty changed-key set can still carry a molecule header update.
@@ -27,19 +27,22 @@ impl MutationManager {
         let mut accepted_sources = HashMap::new();
         let mut slot_heads = super::batch_rebase::BatchSlotHeads::default();
 
-        for (idx, field_name, atom) in atom_results {
+        for prepared in atom_results {
+            let idx = prepared.mutation_index;
+            let field_name = &prepared.field_name;
+            let atom = &prepared.atom;
             let mutation = &schema_mutations[idx];
             let key_value = &mutation_key_values[idx];
 
             // Extra keys in the mutation payload (e.g. sibling partition keys for
             // field_hash protein fold) are not schema fields — skip atom tip write.
-            let Some(schema_field) = schema.runtime_fields.get_mut(&field_name) else {
+            let Some(schema_field) = schema.runtime_fields.get_mut(field_name) else {
                 continue;
             };
 
             slot_heads.overlay_field(schema_field, key_value);
             let accepted =
-                self.write_field_atom(schema_field, key_value, mutation, &field_name, &atom);
+                self.write_field_atom(schema_field, key_value, mutation, field_name, atom);
             slot_heads.record_field(schema_field, key_value);
             if accepted {
                 if let (Some(uuid), Some(entry)) = (
