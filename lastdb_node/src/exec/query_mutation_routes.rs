@@ -1,3 +1,4 @@
+use super::mutation_notifications::{single_mutation_id, MutationWatchHint};
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -39,16 +40,6 @@ pub(super) async fn execute_query_route(
     .await
 }
 
-pub(super) fn mutation_type_label(mt: &fold_db::schema::types::MutationType) -> &'static str {
-    use fold_db::schema::types::MutationType;
-    match mt {
-        MutationType::Create => "create",
-        MutationType::Update => "update",
-        MutationType::Delete => "delete",
-        MutationType::Purge => "purge",
-    }
-}
-
 /// Record the parse phase and answer a rejection, so a refused mutation is
 /// visible to both instruments that went blind on this route.
 ///
@@ -81,44 +72,28 @@ pub(super) async fn execute_mutation_route(
         Ok(components) => components,
         Err(rejection) => return rejection,
     };
-    let watch_schema = components.schema.clone();
-    let watch_mt = mutation_type_label(&components.mutation_type).to_string();
-    let watch_hash = components.key_value.hash.clone();
-    let watch_range = components.key_value.range.clone();
+    let hint = MutationWatchHint::from(&components);
     let change_feed_reservation = match host.change_feed_queue.try_reserve() {
         Ok(reservation) => reservation,
         Err(message) => return error_response(503, message, ctx),
     };
     let (result, captured_notifications) = fold_db::db_operations::ChangeFeedStore::capture_native(
         vec![(
-            handlers::resolve_schema_name(host, &watch_schema)
+            handlers::resolve_schema_name(host, &hint.schema)
                 .ok()
                 .flatten()
-                .unwrap_or_else(|| watch_schema.clone()),
-            durable_change_event(
-                watch_schema.clone(),
-                watch_mt.clone(),
-                watch_hash.clone(),
-                watch_range.clone(),
-                String::new(),
-                &Value::Null,
-            ),
+                .unwrap_or_else(|| hint.schema.clone()),
+            hint.event(String::new(), &Value::Null, fold_db::clock::unix_millis()),
         )],
         handlers::execute_mutation(host, components, ctx),
     )
     .await;
     let result = result.and_then(|value| {
-        let mutation_id = value
-            .get("mutation_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| HostError::new(500, "Single mutation receipt has no input identity"))?;
-        let event = durable_change_event(
-            watch_schema.clone(),
-            watch_mt.clone(),
-            watch_hash.clone(),
-            watch_range.clone(),
+        let mutation_id = single_mutation_id(&value)?;
+        let event = hint.event(
             mutation_id.to_string(),
             &value,
+            fold_db::clock::unix_millis(),
         );
         // Queue submit is in-memory and cannot wait. Capacity was reserved
         // before product commit, so overload cannot create a committed row
@@ -128,7 +103,7 @@ pub(super) async fn execute_mutation_route(
         }
         let change_record_started = std::time::Instant::now();
         host.local_outbox
-            .append(watch_schema, watch_mt, watch_hash, watch_range);
+            .append(hint.schema, hint.operation, hint.hash, hint.range);
         fold_db::request_phases::add_phase(
             fold_db::request_phases::RequestPhase::ChangeRecord,
             change_record_started.elapsed(),
