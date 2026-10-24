@@ -41,6 +41,7 @@ def phase_lines(output, manifest):
              "These are actual measured calls joined to server records by request ID.",
              "Phase capture runs after each timed case. It is excluded from latency and throughput.",
              "The request ring is finite. Missing coverage and omitted phases mean unreported, not zero.",
+             "Socket queue wait precedes server duration; it is not part of that duration.",
              "Phase totals can overlap; do not add a parent phase to its children.", "",
              "| Run | Matching requests | Slow write RPC ms | Server ms | Largest reported phases ms |",
              "|---|---:|---:|---:|---|"]

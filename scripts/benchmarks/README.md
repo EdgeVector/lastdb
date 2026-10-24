@@ -91,6 +91,23 @@ Both versions run on the current GitHub machine, even when the baseline program 
 The daemon uses its default storage, memory limits, and automatic maintenance settings.
 Cloud stays off because the generated home has no cloud configuration.
 
+## Request phases
+
+Each measured call carries a unique request ID.
+After each write case, the driver requests the current request records from the explicit diagnostic status route.
+It matches records by the exact request ID and the `github-benchmark` client name.
+The samples retain each match. The `request-phases/` directory retains the full diagnostic response and the match count.
+The diagnostic call starts after the timed calls, the memory samples, and the final disk-size observation.
+It does not enter those measurements. It can give maintenance extra time between cases.
+Compare base and candidate runs from the same driver. Do not reuse old measurements for this comparison.
+
+The request ring holds 256 records. A standard case has 256 calls; a nightly case has 2,048 calls.
+Other calls can displace measured records. An older baseline can also return a cached request list with no matches.
+The artifact states the exact coverage. An absent record or phase is unreported, not zero.
+The report lists the five largest reported phases for each slow call.
+Socket queue wait precedes server duration. Parent and child phases can overlap, so their values must not be added.
+These phases locate time in the request code. They do not prove a physical disk flush or storage correctness.
+
 ## Results and limits
 
 Open the workflow summary from the PR checks. Download its `lastdb-benchmarks` artifact for detail.
