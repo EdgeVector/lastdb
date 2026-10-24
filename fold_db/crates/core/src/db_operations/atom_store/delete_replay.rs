@@ -22,6 +22,8 @@ pub struct DeletePruneReport {
     pub cutoff_after_nanos: u64,
     pub examined: u64,
     pub pruned: u64,
+    pub operations: u64,
+    pub batches: u64,
 }
 
 fn invalid(text: impl std::fmt::Display) -> StorageError {
@@ -83,6 +85,10 @@ impl AtomStore {
             cutoff_after_nanos: cutoff,
             ..Default::default()
         };
+        if previous != cutoff {
+            report.operations += 2;
+            report.batches += 1;
+        }
         if execute && previous != cutoff {
             let floor = serde_json::to_vec(&Cutoff {
                 v: 1,
@@ -136,6 +142,8 @@ impl AtomStore {
                 }
             }
             report.pruned += deletes.len() as u64;
+            report.operations += deletes.len() as u64;
+            report.batches += u64::from(!deletes.is_empty());
             if execute && !deletes.is_empty() {
                 self.main_store.inner().batch_mutate(deletes).await?;
             }

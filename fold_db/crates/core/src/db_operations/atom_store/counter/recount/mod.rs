@@ -105,10 +105,12 @@ impl AtomStore {
         }
         self.recount_blobs(options, &mut report).await?;
         if let Some(cutoff) = options.delete_cutoff_nanos {
-            report.delete_prune = Some(
-                self.prune_delete_barriers(&options.scopes, cutoff, options.execute)
-                    .await?,
-            );
+            let prune = self
+                .prune_delete_barriers(&options.scopes, cutoff, options.execute)
+                .await?;
+            report.operations += prune.operations;
+            report.batches += prune.batches;
+            report.delete_prune = Some(prune);
         }
         report.range_reads = self.range_walks().snapshot().since(before);
         report.elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
