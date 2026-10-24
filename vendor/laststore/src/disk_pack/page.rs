@@ -247,7 +247,7 @@ impl ReadCall {
     }
 
     /// The selected empty page belongs to every new group's own read budget.
-    /// All other pages and file handles remain local to that group's call.
+    /// All other pages and validation records remain local to that group's call.
     pub(super) fn reuse_empty_locator(
         &mut self,
         template: &EmptyLocator,
