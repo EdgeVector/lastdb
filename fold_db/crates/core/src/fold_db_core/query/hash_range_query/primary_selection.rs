@@ -16,6 +16,8 @@ pub(super) struct PrimaryRequest<'a> {
 
 pub(super) struct PrimarySelection {
     pub values: HashMap<KeyValue, FieldValue>,
+    /// Range-field bodies that proved membership, from each key's chosen source.
+    pub layout_values: HashMap<KeyValue, FieldValue>,
     pub sources: HashMap<KeyValue, KeySource>,
     pub had_spine: bool,
 }
@@ -29,6 +31,7 @@ impl PrimarySelection {
             .collect();
         Self {
             values,
+            layout_values: HashMap::new(),
             sources,
             had_spine,
         }
@@ -52,6 +55,7 @@ impl PrimarySelection {
 
     pub fn retain_keys(&mut self, keys: &HashSet<KeyValue>) {
         self.values.retain(|key, _| keys.contains(key));
+        self.layout_values.retain(|key, _| keys.contains(key));
         self.sources.retain(|key, _| keys.contains(key));
     }
 }

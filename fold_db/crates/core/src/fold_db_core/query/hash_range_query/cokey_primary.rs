@@ -2,12 +2,13 @@
 
 use super::*;
 
-/// The primary field's name, its values, the API-form page keys and key sources.
+/// The primary name, values, API page keys, sources and verified range values.
 pub(super) type CokeyPrimaryPage = (
     String,
     HashMap<KeyValue, FieldValue>,
     Vec<KeyValue>,
     HashMap<KeyValue, KeySource>,
+    HashMap<KeyValue, FieldValue>,
 );
 
 impl HashRangeQueryProcessor {
@@ -41,13 +42,19 @@ impl HashRangeQueryProcessor {
             window,
             Some(KeyWindow::Offset { limit: 0, .. } | KeyWindow::After { limit: 0, .. })
         ) {
-            return Ok((primary_name, HashMap::new(), Vec::new(), HashMap::new()));
+            return Ok((
+                primary_name,
+                HashMap::new(),
+                Vec::new(),
+                HashMap::new(),
+                HashMap::new(),
+            ));
         }
 
         // --- 1. Primary: current resolve under filter / namespaces ---
         // The primary selects its layout before the window. Secondaries fill
         // only those keys, and actual tip presence controls the fallback.
-        let primary = self
+        let mut primary = self
             .resolve_primary(
                 schema,
                 &primary_name,
@@ -57,10 +64,6 @@ impl HashRangeQueryProcessor {
                 received_from_namespaces,
             )
             .await?;
-        let had_named_spine_keys = primary.had_spine;
-        let primary_vals = primary.values;
-        let page_keys: Vec<_> = primary_vals.keys().cloned().collect();
-        let key_sources = primary.sources;
 
         // A schema key field is the dense row spine for rows written through
         // that layout. Multi-key expand is the exception: a sibling layout can
@@ -70,9 +73,9 @@ impl HashRangeQueryProcessor {
         // Do not fall back after dropping sibling-layout tips: that re-opens
         // the union. Projecting the empty key field does not block fallback.
         let fallback = Self::cokey_fallback_field(selected, &primary_name)
-            .filter(|_| page_keys.is_empty() && !had_named_spine_keys);
-        let (primary_vals, page_keys, key_sources) = if let Some(fallback) = fallback {
-            let fallback_page = self
+            .filter(|_| primary.values.is_empty() && !primary.had_spine);
+        if let Some(fallback) = fallback {
+            primary = self
                 .resolve_primary(
                     schema,
                     fallback,
@@ -83,12 +86,15 @@ impl HashRangeQueryProcessor {
                 )
                 .await?;
             primary_name = fallback.to_string();
-            let keys = fallback_page.values.keys().cloned().collect();
-            (fallback_page.values, keys, fallback_page.sources)
-        } else {
-            (primary_vals, page_keys, key_sources)
-        };
+        }
+        let page_keys: Vec<_> = primary.values.keys().cloned().collect();
         crate::db_operations::note_page_key_forms(Self::countable_keys(&page_keys), 0);
-        Ok((primary_name, primary_vals, page_keys, key_sources))
+        Ok((
+            primary_name,
+            primary.values,
+            page_keys,
+            primary.sources,
+            primary.layout_values,
+        ))
     }
 }
