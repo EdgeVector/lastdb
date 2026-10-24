@@ -24,8 +24,11 @@
 mod apply;
 mod blobs;
 mod decide;
+mod molecules;
 mod report;
 mod retention;
+
+pub use molecules::MoleculeRecountReport;
 
 pub use report::{Change, RecountOptions, RecountReport};
 
@@ -82,6 +85,9 @@ impl AtomStore {
             ..RecountReport::default()
         };
         let before = self.range_walks().snapshot();
+        if options.molecules {
+            self.validate_molecule_recount(options).await?;
+        }
         for scope in &options.scopes {
             for index in 0..shards {
                 let pass = Pass {
@@ -89,6 +95,10 @@ impl AtomStore {
                     index,
                     count: shards,
                 };
+                if options.molecules {
+                    self.recount_molecules(&pass, options.execute, &mut report)
+                        .await?;
+                }
                 self.recount_pass(&pass, options.execute, &mut report)
                     .await?;
             }

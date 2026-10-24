@@ -21,8 +21,10 @@ has the right shape (`docs/app-manifest-retention.md`).
 - Use a day-slice hash for a HashRange log (for example the day of the entry). The sweep lists the
   expired keys hash by hash, in the hashes that it has seen written since the policy exists. A
   day-slice hash keeps each hash small, so one listing reads few keys.
-- Set the policy before the first write. A Hash or Single schema tracks only writes made after the
-  policy exists and has no backfill. A Range or HashRange schema ages its keys by their range key.
+- Set the policy before the first write, or explicitly backfill existing personal Hash/HashRange records
+  with `lastdb schema-retention backfill --schema <name> --confirm-expire-existing`.
+  The backfill keeps the original Hash tip ages and registers untouched HashRange hashes.
+  Retired Single/Range layouts do not support this backfill.
 
 ## What a pass does
 

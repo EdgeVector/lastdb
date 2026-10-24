@@ -9,47 +9,17 @@ pub(super) async fn execute_query_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    // Parse spans body → typed `Query`, matching what the mutation route
-    // charges to `parse`: the pagination/cursor extractors below mutate the
-    // same object and are part of turning the wire body into a request.
+    // Keep the complete body-to-query decode inside the existing parse phase.
     let parse_started = std::time::Instant::now();
-    let mut obj = match body_object(req) {
-        Ok(obj) => obj,
-        Err(resp) => return resp,
-    };
-    let limit = match take_pagination(&mut obj, WireKey::Limit) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let offset = match take_pagination(&mut obj, WireKey::Offset) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let cursor = match take_cursor(&mut obj) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let expected_total_count = match take_pagination(&mut obj, WireKey::ExpectedTotalCount) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    // Diagnose a missing required key before `serde` collapses it into an
-    // undifferentiated failure, which is what made an absent `fields` surface
-    // as the bare `Bad Request` that cost real minutes to bisect by hand.
-    //
-    // The list lives in `wire` so one test can pin it against the real `Query`
-    // type; see `QUERY_REQUIRED_KEYS` for why `filter` is not on it.
-    if let Err(resp) = require_keys(&obj, QUERY_REQUIRED_KEYS) {
-        return resp;
-    }
-    let mut query = match serde_json::from_value::<Query>(Value::Object(obj)) {
+    let QueryRequest {
+        query,
+        limit,
+        offset,
+        cursor,
+    } = match body_object(req).and_then(parse_query_body) {
         Ok(query) => query,
-        // Every required key is present, so this is a value that does not match
-        // its grammar, or a key this node's grammar does not know (version
-        // skew). Neither the value nor the key is echoed (I4).
-        Err(err) => return Reject::from_serde_error(&err, None).response(),
+        Err(resp) => return resp,
     };
-    query.expected_total_count = expected_total_count;
     fold_db::request_phases::add_phase(
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
@@ -204,19 +174,7 @@ fn parse_mutation_components(req: &UdsRequest) -> Result<MutationComponents, Uds
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
     );
-    let Operation::Mutation {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence,
-        durability,
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
-    } = match parsed {
+    let operation = match parsed {
         Ok(operation) => operation,
         Err(err) => {
             // Every required key is present, so this is either a value outside
@@ -234,20 +192,11 @@ fn parse_mutation_components(req: &UdsRequest) -> Result<MutationComponents, Uds
         }
     };
 
-    Ok(MutationComponents {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence: convergence.unwrap_or_default(),
-        durability: durability.unwrap_or_default(),
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
+    Ok(MutationComponents::from_operation(
+        operation,
+        None,
         aggregate_set,
-    })
+    ))
 }
 
 /// `GET /api/local-watch?after_seq=0&timeout_ms=0[&schema=App/Event][&hash=H][&start=R][&end=R]`

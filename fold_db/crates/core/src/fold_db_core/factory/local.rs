@@ -60,6 +60,7 @@ pub(super) async fn create_local_fold_db(
     let db_ops = open_db_operations(store_stack.store, e2e_keys).await?;
     let fold_db = FoldDB::initialize_from_init(FoldDbInit {
         db_ops: Arc::new(db_ops),
+        offline_maintenance: options.offline_maintenance,
         signer,
         search_outbox_inbox: options.search_outbox_inbox,
         mutation_log_capture: Some(store_stack.mutation_log_capture),

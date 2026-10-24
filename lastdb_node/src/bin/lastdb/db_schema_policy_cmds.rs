@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "db_schema_policy_cmds/retention_backfill.rs"]
+mod retention_backfill;
+
 /// `lastdb log-filter [directive]` — read or swap the daemon's tracing filter.
 ///
 /// Read and write share one function because they share every failure mode
@@ -128,6 +131,20 @@ pub(crate) fn schema_retention_command(
     let socket = home.join("data").join("folddb.sock");
     let mut confirm = false;
     let (action, schema, ttl_seconds, hash_partitions, json_only) = match action {
+        SchemaRetentionCommand::Backfill {
+            schema,
+            page_size,
+            confirm_expire_existing,
+            json,
+        } => {
+            return retention_backfill::run(
+                &socket,
+                &schema,
+                page_size,
+                confirm_expire_existing,
+                json,
+            );
+        }
         SchemaRetentionCommand::Get { schema, json } => ("get", schema, None, Vec::new(), json),
         SchemaRetentionCommand::Set {
             schema,
@@ -161,10 +178,14 @@ pub(crate) fn schema_retention_command(
             "confirm_expire_existing": confirm,
         }),
     )?;
+    print_retention_policy(&response, json_only)
+}
+
+fn print_retention_policy(response: &serde_json::Value, json_only: bool) -> Result<(), String> {
     if json_only {
         println!(
             "{}",
-            serde_json::to_string_pretty(&response)
+            serde_json::to_string_pretty(response)
                 .map_err(|error| format!("serialize schema retention response: {error}"))?
         );
         return Ok(());

@@ -238,14 +238,11 @@ slots they remove and release the records in the same batch as the tip deletes.
   `purge_capped_slots` in the status counts these slots.
 - The janitor drains the markers. It keeps a cursor over the directory of the slot,
   releases the records 32 for each batch, and deletes the marker with the last
-  batch. A drain releases only the records written before the erase. A marker lives
-  at most one retention window (the window of the node when the erase wrote it, or the
-  window of the janitor when that is longer). Every record of the slot has its own
-  queue entry, due one window after the record was written (the window of that time),
-  so the marker only speeds the release up. If the window was cut before the erase (from
-  120 s to 30 s, for example), the marker has the short window and can be deleted before
-  the janitor drained it: the records then end with their own entries, up to the old
-  window after their write, and not at once (`docs/lastdb-time-queue.md`).
+  batch. A drain releases only the records written before the erase.
+  The marker stays until that exact slot directory is complete.
+  A shorter retention window cannot discard unfinished erase work.
+  Each record also retains its own expiry queue entry.
+  The marker's older `window_nanos` field remains readable but supplies no completion proof.
 - A protein key move is not an erase and releases nothing.
 - The reads of an erase run inside the gate and share the 40,000 key budget. A slot
   whose earlier releases left more than that many deleted directory keys can make
@@ -354,25 +351,19 @@ release the kept conflict records of the slots they remove. See
 
 ## Reads and acknowledgement
 
-- The receipt of a write says `durability: queued` when the write was acknowledged from
-  memory, and `durability: durable` when it waited for the flush. A default create or
-  update is `queued`: it returns when its batch is accepted in memory, before the flush
-  (at most 500 ms later). A delete, a purge, a replay, and a write that memory admission
-  refuses are `durable`. The batch of a write holds the tips, the counters and the bodies
-  of the request, so a crash before the flush loses the whole batch and leaves the
-  earlier consistent state.
-- A query by key shows the new value as soon as the batch is accepted.
-  `GET /api/atom/{id}` reads a body by id and does not go through a tip. After a
-  `queued` write it can return 200 with the old body of a replaced atom until the
-  flush commits the batch (measured 0.14 to 0.43 s after the acknowledgement, median
-  0.26 s, in 20 rounds on a synthetic home). After a `durable` write (a delete or a
-  purge) it returns 404 at once.
+- Every native write returns `durability: durable` after the complete disk commit and clean core publication.
+  Create, Update, Delete, Purge, and replay share that boundary. There is no early memory ack or 500 ms collection timer.
+  Each native commit keeps the affected tips, counters, and bodies consistent.
+- A query by key sees the new committed value after the ack.
+  `GET /api/atom/{id}` reads a body by identity, without a tip.
+  It returns 404 after the commit removes that body's last counted reference.
+  A body with another reference remains present.
 - `POST /api/storage/liveness/explain` (`lastdb liveness explain atom|molecule|blob`)
   returns the counters. For an atom it returns `refs`, `suspect`, `blobs`,
   `body_present` and a state: `live`, `suspect`, `inconsistent` or `absent`. One
   call takes up to 10,000 ids. It cannot list the referrers: the counter holds a
   number, not a list.
-- A private background batch can share the bounded collection window without early publication.
+- Private background requests can share the eager FIFO commit without early publication.
   Write preparation can read that owned prefix; ordinary reads retain the committed state.
   The janitor, dwell pass, and molecule drain still return after durability.
   A batch that requires a sealed fence includes that flush wait in its measured writer cost.
@@ -642,8 +633,9 @@ that does not parse gives the default.
 - Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in
   this build. `verify-refs` finds the damage and `recount` repairs it.
 - A lost body (a tip names an atom that has no body) is found and never repaired.
-- A molecule counter fault has no repair path. The drain never changes a counter, and
-  the recount repairs atom and blob counters only.
+- The drain does not repair counter faults. The offline `db recount --molecules` option
+  repairs molecule headers and binding counters from complete, readable source records.
+  A missing live header needs metadata recovery before that repair.
 - The planner cannot catch a counter that is too low by less than the removal.
 - A blob row with no counter is invisible to the verifier and the recount, and nothing
   deletes it (cloud paths only).

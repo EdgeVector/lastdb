@@ -40,6 +40,7 @@ mod paging;
 mod pending_values;
 mod predicates;
 mod primary_selection;
+mod received_window;
 mod resolve;
 mod secondary;
 mod shares;
@@ -115,6 +116,8 @@ struct CokeyRows {
     fields: HashMap<String, HashMap<KeyValue, FieldValue>>,
     page_keys: Vec<KeyValue>,
     key_sources: HashMap<KeyValue, KeySource>,
+    /// Primary resolution can add writer metadata that secondary reads do not.
+    primary_field: String,
 }
 
 /// Processor for HashRange schema queries using field resolution

@@ -167,6 +167,18 @@ pub(crate) enum SchemaRetentionCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Track existing personal records under the current TTL, in durable pages.
+    /// The original write times stay intact. Old records can expire at once.
+    Backfill {
+        #[arg(long)]
+        schema: String,
+        #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u16).range(1..=64))]
+        page_size: u16,
+        #[arg(long)]
+        confirm_expire_existing: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Clear the current policy for one installed schema.
     ///
     /// An operator policy that overrides a manifest policy is removed and the

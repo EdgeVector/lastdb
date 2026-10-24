@@ -67,13 +67,10 @@ pub(in crate::handlers) fn cursor_payload(
     drops: RowDrops,
 ) -> Value {
     // This shape over-fetches `limit + 1` and infers `has_more` from the extra
-    // row. Dropped rows never reach `page`, so a page short by a drop would read
-    // as "no more rows" and silently truncate the rest of the partition —
-    // trading a loud 400 for quiet data loss. Count them back in: they were
-    // fetched, they just were not delivered. Content tombstones count for
-    // exactly the same reason dangling rows do, and omitting them was the whole
-    // defect: on a partition where two rows in five are tombstoned, every page
-    // came back short and the fifth page looked like the end of the set.
+    // row. A drop that still consumes an output slot can hide the probe row,
+    // so count those unfilled slots back in. Internal candidate refills retain
+    // their integrity counters but replace their missing rows before this
+    // boundary; those drops must not make an exhausted range claim more data.
     let fetched = page.len().saturating_add(drops.total());
     let has_more = fetched > limit;
     if page.len() > limit {

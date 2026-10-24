@@ -45,7 +45,9 @@ pub use parts::NativePartsStatus;
 pub(crate) use read::memory::{core_memory_get, core_memory_insert, core_memory_sources};
 pub(crate) use read::snapshots::{read_snapshot_active, read_snapshot_get, read_snapshot_insert};
 pub use read::PackReadScope;
-pub use restore::{prepare_restored_node, validate_restored_atom_key};
+pub use restore::{
+    prepare_restored_node, validate_restored_atom_key, validate_restored_node, RestoredNodeGuard,
+};
 pub use view::NativeDiskStatus;
 pub use write::NativeFlushReceipt;
 

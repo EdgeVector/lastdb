@@ -62,7 +62,8 @@ pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
-    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
+    MoleculeRecountReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest,
+    VerifySummary,
 };
 pub(crate) use filter::SchemaKeyMembership;
 /// Historical derived-index prefixes the reclaim path may delete.

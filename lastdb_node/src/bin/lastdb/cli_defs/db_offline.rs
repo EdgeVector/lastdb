@@ -4,6 +4,17 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbOfflineCommand {
+    /// Validate a complete native record transfer in a separate inactive home.
+    /// The source must stop cleanly; identity moves through the native key service.
+    /// This does not start a node, enable cloud, or promote the target.
+    PrepareNativeTransfer {
+        /// Existing source home whose account opens the transferred records.
+        #[arg(long)]
+        source_home: PathBuf,
+        /// Explicitly permit the primary as the stopped migration source.
+        #[arg(long)]
+        i_know_this_is_primary: bool,
+    },
     /// Rebuild every atom counter from the tip records and the conflict
     /// records. OFFLINE: it refuses a home that a daemon serves.
     ///
@@ -46,8 +57,13 @@ pub(crate) enum DbOfflineCommand {
         /// count too low.
         #[arg(long, requires = "all_scopes")]
         blobs_exact: bool,
-        /// Passes over the tips and records. Each pass holds the atoms of one
-        /// shard in memory, so more passes use less memory (default 1).
+        /// Repair molecule slots, conflict-record and binding counts. The home
+        /// must be stopped. Missing live headers or undecodable holders refuse repair.
+        #[arg(long)]
+        molecules: bool,
+        /// Passes over the tips and records. More passes use less memory.
+        /// Molecule repair permits 100,000 molecules and 64 MiB of header bytes
+        /// in one pass; increase this count if either budget refuses the run.
         #[arg(long, default_value_t = 1)]
         shards: u32,
         /// Allow a home under the primary directory.

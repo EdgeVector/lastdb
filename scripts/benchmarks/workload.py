@@ -9,12 +9,15 @@ import threading
 import time
 
 from node import save
+from phases import capture_phases
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
 FIELDS = ["bucket", "id", "title", "body"]
 PROFILES = {
     "standard": {"records": 10000, "samples": 256, "write_samples": 32, "pairs": 2},
     "nightly": {"records": 100000, "samples": 2048, "write_samples": 128, "pairs": 3},
+    "batch-insert": {"records": 10000, "samples": 256, "write_samples": 256,
+                     "pairs": 3, "insert_only": True},
 }
 
 
@@ -135,20 +138,23 @@ class Workload:
                 numbers = list(range(first, first + batch))
             body = (read_request(numbers) if kind == "read" else
                     write_request(numbers, f"{self.case}-{index}", mode == "insert"))
-            jobs[index % clients].append((kind, numbers, body))
+            request_id = f"bench-{len(self.metrics)}-{index:06d}"
+            jobs[index % clients].append((kind, numbers, body, request_id))
         return jobs
 
     def worker(self, jobs, barrier, stopped, mode):
         samples = []
         barrier.wait(timeout=30)
-        for kind, numbers, body in jobs:
+        for kind, numbers, body, request_id in jobs:
             if stopped.is_set():
                 break
             sample = {"kind": kind, "records": len(numbers),
+                      "request_id": request_id,
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
                 path = "/api/query" if kind == "read" else "/api/mutations/batch"
-                result, elapsed, receipt = self.node.call(path, body, receipt=kind == "read")
+                result, elapsed, receipt = self.node.call(
+                    path, body, receipt=kind == "read", request_id=request_id)
                 sample.update(elapsed_ms=elapsed, read_receipt=receipt)
                 if kind == "read":
                     validate_read(result, numbers)
@@ -163,6 +169,8 @@ class Workload:
                         raise RuntimeError("The hot read did not report warm hits for the requested fields")
                 else:
                     self.validate_write(result, len(numbers))
+                    if self.recipe.get("insert_only"):
+                        sample["resident_stages_us"] = result["resident_stages_us"]
             except Exception as failure:
                 sample["error"] = f"{type(failure).__name__}: {failure}"
                 stopped.set()
@@ -190,18 +198,25 @@ class Workload:
         try:
             with ThreadPoolExecutor(max_workers=clients) as pool:
                 futures = [pool.submit(self.worker, items, barrier, stopped, mode) for items in jobs]
+                case_started_us = time.time_ns() // 1000
                 started = time.perf_counter()
                 barrier.wait(timeout=30)
                 rows = [sample for future in futures for sample in future.result()]
                 elapsed = time.perf_counter() - started
+                case_ended_us = time.time_ns() // 1000
         finally:
             monitor_stop.set()
             monitor_thread.join(timeout=5)
         metric = describe(rows, elapsed)
         metric.update(sequence=sequence, clients=clients, batch_records=batch,
+                      case_started_unix_us=case_started_us, case_ended_unix_us=case_ended_us,
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
         metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before
+        # Capture after timed work and its resource observations. The diagnostic
+        # call never enters latency, throughput, memory, or the disk-size window.
+        if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:
+            metric["phase_coverage"] = capture_phases(self.node, self.output, name, sequence, rows)
         self.metrics[name] = metric
         if mode == "mixed":
             for kind in ("read", "write"):
@@ -228,12 +243,14 @@ class Workload:
                 validate_read(result, numbers)
             self.measure("hot-read/1", "hot")
             self.measure("hot-read/32", "hot", batch=32)
-            for mode in ("insert", "update"):
+            modes = ("insert",) if self.recipe.get("insert_only") else ("insert", "update")
+            for mode in modes:
                 for batch in (1, 128):
                     self.measure(f"{mode}/{batch}", mode, batch=batch, samples=self.recipe["write_samples"])
-            for clients in (1, 4, 16, 32):
-                for mode in ("read", "write", "mixed"):
-                    self.measure(f"concurrent-{mode}/{clients}", mode, clients=clients)
+            if not self.recipe.get("insert_only"):
+                for clients in (1, 4, 16, 32):
+                    for mode in ("read", "write", "mixed"):
+                        self.measure(f"concurrent-{mode}/{clients}", mode, clients=clients)
             native, _, _ = self.node.call("/api/db/native-status")
             save(self.output / "native-status.json", native)
             if native["native_disk"].get("writer_failed") is not False:

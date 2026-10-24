@@ -37,6 +37,10 @@ Any other baseline error fails the operation.
 Matched latency uses 32 identical 128-key intervals with 64-record pages.
 Both variants first receive the same complete known-key warm prefill.
 The report gives p50, p95, p99, maximum, and individual request times.
+It also gives internal key requests, warm hits, file read calls, read bytes, and peak transient bytes per request.
+Internal key requests count the logical storage requests, including repeats. They are not the native guard's examined-key count.
+The report keeps process memory before/after the narrow phase and the process lifetime peak separate.
+These observations do not establish an in-flight request peak or a total-memory cap.
 It compares medians of two per-run statistics. It does not pool requests across runs.
 Elapsed time includes the socket and complete response bytes, with client decode and validation outside the timer.
 The client, OS cache, and shared runner affect the result.
@@ -46,6 +50,10 @@ The client, OS cache, and shared runner affect the result.
 The recipe includes late bounds near key 16000, half-open endpoints, prefixes, offsets, and exclusive cursors.
 Cross-hash cursor ties use the public range-first/hash-second order.
 Empty and inverted intervals, an empty range key, NUL bytes, and Unicode boundaries receive explicit selectors.
+Range-field-only and omitted-range-field projections verify the exact current response fields.
+The current response also retains the declared primary hash field, `bucket`.
+Both binaries must return that field and the requested fields, with no other field.
+The selectors cover ranges, prefixes, and the single-hash path.
 Delete, Purge, and an update precede a durable flush and graceful reopen.
 Known-key reads verify every seeded coordinate, including absent deleted keys.
 The candidate repeats its broad range after the reopen.
@@ -56,9 +64,37 @@ Otherwise the result states that preload coverage remains unproved.
 Linux process memory and native status remain separate observations.
 Process `VmHWM` can include startup and seed work. No total-memory cap is claimed.
 The recipe makes no power-loss, complete-merge, cross-device sync, cloud, or concurrent-mutation result.
-Received namespaces retain their complete merge and current resource limit.
+This recipe does not measure received namespaces. The `received_ranges` recipe measures their bounded merge and current resource limits.
 Offsets still walk and charge preceding selected keys. Cursors seek directly.
 The complete-read key limit stays unchanged.
+
+## Keyed field-condition comparison
+
+Both existing range recipes also use at most 128 keys under the named hash `condition-reuse`.
+The schema declares `score`, `optional`, and `never` in addition to the four original fields.
+Only this hash receives the extra field values. The original timed range projections stay four fields.
+Scores have repeated numeric values. The optional field has missing, null, numeric, and string values.
+The `never` field is always missing. Condition reads verify every live key under this hash.
+Local Delete/Purge and an update precede these reads. The received recipe also removes values from selected sources.
+
+Eight cases use the ordinary keyed query API. They cover a predicate with and without a projected condition field,
+a primary-field condition, a captured empty field map, nullable absence, a numeric filter, and value order with a limit.
+A separate value-order case omits its sort field from the projection.
+An additional request verifies the API offset and limit after the condition stage.
+No condition request uses a cursor or an unkeyed selector.
+Missing numeric values pass the numeric filter. Concrete null and string values fail it.
+Equal numeric scores use ascending range keys as their tie order.
+
+Each case has 32 warm requests per run after a complete condition reference read.
+Each case also has one request after its own process restart, with schema preload off.
+The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
+Every returned value and each field's atom, molecule, writer, and source metadata must match the same-home reference.
+The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
+The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
+The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
+The request counter does not measure the native guard's examined-key count.
+Transient byte receipts omit captured field maps. Process snapshots do not measure an in-flight peak or a total-memory cap.
+The public writer does not create legacy body tombstones. Empty-spine and legacy body-tombstone behavior remain source-review scope.
 
 ## Artifacts and limits
 

@@ -1,6 +1,14 @@
 //! Mutation field validation and aggregate schema/receipt helpers (shared).
 
-use super::*;
+use std::collections::HashMap;
+
+use fold_db::fold_db_core::mutation_manager::{ResidentCommitReceipt, ResidentDurability};
+use fold_db::schema::types::{AggregateSet, Schema};
+use serde_json::Value;
+
+use crate::handlers::schema_resolve::resolve_schema_name;
+use crate::host_node::HostNode;
+use crate::HostError;
 
 // ---------------------------------------------------------------------------
 // Mutation field validation (shared)
@@ -53,7 +61,7 @@ pub fn mutation_unknown_fields(
         None
     } else {
         // HashMap iteration order is non-deterministic; sort so the error
-        // payload is stable across runs (and so tests can pin order).
+        // payload is stable across runs.
         unknown.sort();
         let available = mutation_writable_field_names(schema);
         Some((unknown, available))
@@ -139,9 +147,10 @@ pub(in super::super) async fn validate_mutation_fields<H: HostNode>(
 }
 
 /// Approximate serialized byte size of a mutation's field payload — the QoS lane
-/// signal for a write (a large blob write lands on [`Lane::Bulk`], a small row
-/// write on [`Lane::Interactive`]). Uses each value's compact JSON length, which
-/// is a cheap, allocation-light proxy for the bytes the write will persist.
+/// signal for a write (a large blob write lands on [`crate::qos::Lane::Bulk`],
+/// a small row write on [`crate::qos::Lane::Interactive`]). Uses each value's
+/// compact JSON length, which is a cheap, allocation-light proxy for the bytes
+/// the write will persist.
 pub(in super::super) fn fields_payload_bytes(fields: &HashMap<String, Value>) -> usize {
     fields
         .values()

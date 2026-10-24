@@ -25,6 +25,13 @@ Lightweight source, syntax, and format checks can run locally. Tests remain reti
 | Fields per record | 4 | 4 |
 | Body bytes per record | 1,024 | 1,024 |
 
+The manual comparison also offers `batch-insert` for a focused insert review.
+It keeps the standard 10,000 records and the same cold and hot read preparation.
+It measures 256 insert requests at each batch size, with three alternating pairs.
+Each version supplies 768 requests per batch size. Updates and concurrency are excluded.
+The raw write samples retain `resident_stages_us` from each response.
+The standard and nightly recipes, time limits, upload checks, and completion gate stay unchanged.
+
 Each case uses actual product requests through the daemon's Unix socket:
 
 - Cold reads use exact keys once after the owned daemon restarts.
@@ -46,7 +53,9 @@ These checks reject invalid measurements. They do not form a test suite.
 
 ## Base and candidate
 
-A PR run compares its exact event base with the event's merge revision.
+A PR run compares its exact merge revision with that merge's first parent.
+The event's base value can lag the base used for the candidate merge tree.
+The plan records that value and uses the actual merge parent for the comparison.
 The candidate includes current base changes, so the comparison measures the proposed merge result.
 An older branch cannot turn unrelated changes on main into a claimed PR speed change.
 A main push uses its new tip and the previous tip from the push event.
@@ -60,7 +69,7 @@ An older PR head need not contain any benchmark scripts. The summary records the
 
 The separate `LastDB historical benchmark comparison` manual workflow accepts exact baseline
 and candidate SHAs. An empty candidate uses the selected workflow revision.
-An empty baseline uses the candidate's first parent. Either recipe is available.
+An empty baseline uses the candidate's first parent. All three recipes are available.
 The two revisions must differ. The plan rejects identical revisions before builds or cache restores.
 This prevents a baseline cache restore from replacing the fresh candidate at the same source path.
 Select the current main workflow to measure old product revisions with the current driver.
@@ -90,6 +99,43 @@ Old benchmark numbers and generated database homes never supply a new measuremen
 Both versions run on the current GitHub machine, even when the baseline program comes from the cache.
 The daemon uses its default storage, memory limits, and automatic maintenance settings.
 Cloud stays off because the generated home has no cloud configuration.
+
+## Request phases
+
+Each measured call carries a unique request ID.
+After each write case, the driver requests the current request records from the explicit diagnostic status route.
+It matches records by the exact request ID and the `github-benchmark` client name.
+The samples retain each match. The `request-phases/` directory retains the full diagnostic response and the match count.
+The diagnostic call starts after the timed calls, the memory samples, and the final disk-size observation.
+It does not enter those measurements. It can give maintenance extra time between cases.
+Compare base and candidate runs from the same driver. Do not reuse old measurements for this comparison.
+
+The request ring holds 256 records. A standard case has 256 calls; a nightly case has 2,048 calls.
+Other calls can displace measured records. An older baseline can also return a cached request list with no matches.
+The artifact states the exact coverage. An absent record or phase is unreported, not zero.
+The report lists the five largest reported phases for each slow call.
+Socket queue wait precedes server duration. Parent and child phases can overlap, so their values must not be added.
+These phases locate time in the request code. They do not prove a physical disk flush or storage correctness.
+
+## PR 317 native diagnostics and read repeat
+
+PR 317 uses four ordinary base/candidate pairs with the standard request sizes and case order.
+This repeat retains the mixed-read P99 for each pair. The ordinary daemon has native diagnostics off.
+The shared workflow defaults stay unchanged for other PRs, main pushes, and nightly runs.
+
+A separate diagnostic pair uses fresh generated homes and enables the existing `LASTDB_SNAPSHOT_TIMING` output.
+This mode requires a GitHub-hosted Actions runner. It follows the ordinary measurements and uses the same exact programs.
+The diagnostic results stay in `native-diagnostics/` within the run artifact.
+They supply phase evidence, not the ordinary speed comparison.
+
+Each timed case records its outer UTC bounds outside the response-time measurement.
+Each native scope must match one physical commit through its sequence and enclosed time interval.
+The scope count must equal the actual successful write-call count for that case.
+Missing or ambiguous evidence fails the diagnostic capture.
+Each physical commit enters the totals once, even when it serves several requests.
+The artifact retains request counts, phase coverage, physical counts, and the slowest native records.
+Missing phase fields stay unreported. Parent and child phase totals can overlap.
+The physical request count can include background work. It is not an exclusive cost for each client call.
 
 ## Results and limits
 

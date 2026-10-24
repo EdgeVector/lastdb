@@ -3,26 +3,42 @@
 //! `request` shows the single-request steps, and `plan` holds pure request
 //! rules. The write helpers here use the existing host interface directly.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use fold_db::fold_db_core::mutation_manager::MutationManager;
+use fold_db::access::AccessContext;
+use fold_db::constants::MUTATION_BACKGROUND_TASK_TIMEOUT;
+use fold_db::fold_db_core::mutation_manager::{
+    CloudCapturePolicy, MutationManager, ResidentCommitOperations, ResidentCommitReceipt,
+    ResidentCommitStages, ResidentDurability,
+};
+use fold_db::request_phases::{self, RequestPhase};
+use fold_db::schema::types::operations::{
+    MutationCloudPublication, MutationConvergence, MutationDurability, Operation,
+};
+use fold_db::schema::types::{AggregateSet, KeyValue, Mutation, MutationType, SchemaError};
+use serde_json::Value;
 
+use crate::host_node::HostNode;
+use crate::qos::Lane;
+use crate::HostError;
+
+use self::cloud::attach_cloud_receipt;
+use self::fields::require_durable_aggregate_receipt;
 use self::plan::MutationPlan;
-use super::*;
 
 mod plan;
 mod request;
 pub use request::execute_mutation;
 
 mod fields;
-pub use fields::*;
-mod cloud;
-pub(in crate::handlers) use cloud::*;
+pub use fields::{mutation_unknown_fields, mutation_writable_field_names, unknown_fields_body};
 mod aggregate;
-pub use aggregate::*;
+mod cloud;
+pub use aggregate::{execute_aggregate_finalize, execute_aggregate_repair};
 mod batch;
-pub use batch::*;
+pub use batch::execute_mutations_batch;
 
 // ---------------------------------------------------------------------------
 // Mutation (POST /api/mutation)
@@ -47,6 +63,47 @@ pub struct MutationComponents {
     /// Concrete replacement for this source row's aggregate member. The
     /// single-mutation path uses the atomic aggregate commit primitive.
     pub aggregate_set: Option<AggregateSet>,
+}
+
+impl MutationComponents {
+    /// Move parsed fields into a request without host or storage access.
+    /// An operation's convergence overrides the caller's default. The caller
+    /// supplies the separately decoded aggregate sidecar, when supported.
+    #[must_use]
+    pub fn from_operation(
+        operation: Operation,
+        default_convergence: Option<MutationConvergence>,
+        aggregate_set: Option<AggregateSet>,
+    ) -> Self {
+        let Operation::Mutation {
+            schema,
+            fields_and_values,
+            key_value,
+            mutation_type,
+            source_file_name,
+            expected,
+            convergence,
+            durability,
+            cloud_publication,
+            must_exist,
+            key_range_prefix,
+        } = operation;
+
+        Self {
+            schema,
+            fields_and_values,
+            key_value,
+            mutation_type,
+            source_file_name,
+            expected,
+            convergence: convergence.or(default_convergence).unwrap_or_default(),
+            durability: durability.unwrap_or_default(),
+            cloud_publication,
+            must_exist,
+            key_range_prefix,
+            aggregate_set,
+        }
+    }
 }
 
 /// Maximum off-box publication wait after a durable Delete commits locally.
@@ -186,15 +243,9 @@ fn configure_mutation(
     if durability.waits_for_persist() {
         mutation.synchronous = Some(true);
     }
-    if let Some(expectation) = expected {
-        mutation = mutation.with_expected(expectation);
-    }
-    if let Some(flag) = must_exist {
-        mutation = mutation.with_must_exist(flag);
-    }
-    if let Some(aggregate) = aggregate_set {
-        mutation = mutation.with_aggregate_set(aggregate);
-    }
+    mutation.expected = expected;
+    mutation.must_exist = must_exist;
+    mutation.aggregate_set = aggregate_set;
     mutation
 }
 

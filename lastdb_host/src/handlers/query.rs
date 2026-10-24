@@ -14,22 +14,21 @@ mod paging;
 pub(in crate::handlers) use self::paging::*;
 mod schema_guard;
 pub(in crate::handlers) use self::schema_guard::*;
-mod plan;
+mod execute;
+mod rules;
 
-/// Execute `POST /api/query`: resolve the schema, apply the paginated push-down
-/// (cheap exact count → fetch only the requested page) when the query is an
-/// unfiltered "list all", else the bounded materialize-then-slice fallback, and
-/// build the `{ results, total_count, returned_count, limit, offset, has_more }`
-/// page payload. This is the single copy of the full node's `execute_query` /
-/// `execute_query_with_context` pagination policy; the minimal daemon inherits
-/// the push-down + read-gate it previously simplified away.
+/// Execute `POST /api/query`: resolve the schema, check request rules, and
+/// select the bounded read before rendering the page response. Ordinary
+/// ascending keyed reads do not require a count. Administrative requests
+/// retain their explicit access check and bounded execution paths.
 ///
 /// `limit`/`offset` are the pagination fields the caller already stripped from
 /// the body (the `Query` type is `deny_unknown_fields`).
 ///
 /// # Errors
-/// [`HostError`] `404` when the schema is unknown, `503` when the read gate is
-/// saturated, `500` on a core failure.
+/// [`HostError`] `400` for invalid query options, `404` when an app schema is
+/// unknown, `409` when an expected count differs, `503` when the read gate is
+/// saturated, and the core's typed status on a read failure.
 pub async fn execute_query<H: HostNode>(
     host: &H,
     query: Query,
@@ -67,7 +66,6 @@ async fn execute_query_scoped<H: HostNode>(
     ctx: &AccessContext,
     allow_full_scan: bool,
 ) -> Result<Value, HostError> {
-    let expected_total_count = query.expected_total_count;
     // Resolve descriptive names → canonical. Bare unknown names still fall
     // through so legacy CLI paths get the standard query-engine not-found
     // substring, but app-owned refs (`owner/name`) are never views: returning a
@@ -110,38 +108,16 @@ async fn execute_query_scoped<H: HostNode>(
         ));
     }
 
-    if expected_total_count.is_some() && !can_push_down_key_restricted(&query) {
-        return Err(HostError::new(
-            400,
-            "expected_total_count requires a keyed query with no post-key filters".to_string(),
-        ));
-    }
-    if cursor.is_some() && !is_key_restricted_filter(query.filter.as_ref()) {
-        return Err(HostError::new(
-            400,
-            "Cross-hash query cursors are unsupported; use an offset or query one hash with a cursor"
-                .to_string(),
-        ));
-    }
-    if cursor.is_some()
-        && (!can_push_down_key_restricted(&query)
-            || matches!(query.sort_order, Some(SortOrder::Desc)))
-    {
-        return Err(HostError::new(
-            400,
-            "Query cursors require ascending keyed reads without field conditions or value ordering; use an offset for this query".to_string(),
-        ));
-    }
+    rules::validate_query_options(&query, cursor.as_ref())?;
 
     let limit = clamp_request_limit(limit);
     let offset = offset.unwrap_or(0);
-    let run = plan::QueryRun {
+    let run = execute::QueryRun {
         host,
         ctx,
         limit,
         offset,
         cursor,
-        expected_total_count,
     };
     if let Some(payload) = run.caller_supplied_page(&query).await? {
         return Ok(payload);

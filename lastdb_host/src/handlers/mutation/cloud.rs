@@ -1,6 +1,20 @@
 //! Cloud-capture policy and cloud receipt rendering for mutations.
 
-use super::*;
+use std::collections::HashSet;
+
+use fold_db::access::AccessContext;
+use fold_db::fold_db_core::mutation_manager::{
+    CloudCapturePolicy, CloudCaptureState, CloudMutationReceipt, CloudPublicationState,
+};
+use fold_db::schema::types::field::HashRangeFilter;
+use fold_db::schema::types::operations::{MutationCloudPublication, MutationDurability};
+use fold_db::schema::types::{KeyValue, MutationType, Query};
+use serde_json::Value;
+
+use crate::host_node::HostNode;
+use crate::HostError;
+
+use super::MUTATION_CLOUD_PUBLICATION_TIMEOUT;
 
 pub(in super::super) fn is_durable_delete(
     mutation_type: MutationType,
@@ -159,7 +173,7 @@ pub(in super::super) fn attach_batch_cloud_capture(
 }
 
 /// Request-shape gate for `must_exist`, mirroring
-/// `Mutation::reject_illegal_must_exist` in the core crate.
+/// `fold_db::schema::types::Mutation::reject_illegal_must_exist` in the core crate.
 ///
 /// `Update` accepts the flag: it is the opt-in that turns today's silent
 /// upsert into a loud miss, so a narrow update cannot mint a row that no wide

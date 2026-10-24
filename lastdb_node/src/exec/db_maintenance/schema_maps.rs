@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod retention_backfill;
+
 /// `POST /api/db/molecule-keys` — list one molecule's live `mk:` keys.
 /// Read-only. Body: `{ molecule: string, max_keys?: usize }`.
 ///
@@ -94,6 +96,10 @@ struct RetentionBody {
     /// Confirms a `clear` that puts a shorter manifest TTL in force.
     #[serde(default)]
     confirm_expire_existing: bool,
+    #[serde(default)]
+    cursor: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 /// Whether clearing `previous` puts a SHORTER manifest TTL in force, so that
@@ -202,6 +208,9 @@ pub(in crate::exec) async fn execute_db_schema_retention_route(
     };
     if body.schema.is_empty() {
         return error_response(400, "schema is required", ctx);
+    }
+    if body.action == "backfill" {
+        return retention_backfill::execute(req, ctx, host, &body).await;
     }
     let store = host.db.db_ops().schemas();
     // A failed read is an error, never "no policy": the audit row and the

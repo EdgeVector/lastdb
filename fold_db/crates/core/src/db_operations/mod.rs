@@ -36,8 +36,8 @@ pub use admin_db::{
 pub use atom_store::{
     AtomCounterReport, AtomCounterView, AtomStore, BlobCounterReport, BlobCounterView,
     BlobRecountReport, ConflictRetentionReport, DwellCursor, DwellGuard, DwellStep, MoleculeData,
-    MoleculeDrainReport, MoleculeDrainVerdict, NetStep, RecountOptions, RecountReport,
-    VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
+    MoleculeDrainReport, MoleculeDrainVerdict, MoleculeRecountReport, NetStep, RecountOptions,
+    RecountReport, VerifyReport, VerifyRequest, VerifySummary, WalkStats, WriterWatch, DWELL_CHUNK,
 };
 pub(crate) use atom_store::{ChangedKey, FilterLayout, OneDSlot};
 pub use attribution_ledger::{
@@ -75,8 +75,8 @@ pub(crate) use conflict_operations::{
     home_conflict_event_key, next_home_conflict_event_seq, HomeConflictEvent,
 };
 pub use core::{
-    note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally, DbOperations, KeyForm,
-    QueryRowDrops,
+    note_page_key_forms, note_tombstoned_row, with_query_row_drop_tally,
+    with_refilled_query_row_drops, DbOperations, KeyForm, QueryRowDrops,
 };
 pub use lineage_index::LineageIndex;
 pub use metadata_store::MetadataStore;

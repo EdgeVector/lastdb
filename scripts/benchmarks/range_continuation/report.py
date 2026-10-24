@@ -8,6 +8,9 @@ from pathlib import Path
 import statistics
 
 from node import file_hash, save
+from observations import observations
+from conditions import paired_conditions_match
+from condition_report import condition_summary
 
 
 def inventory(root):
@@ -43,7 +46,8 @@ def paired_inputs_match(grouped):
                 or first["final_values_sha256"] != last["final_values_sha256"]
                 or len(first["narrow_samples"]) != 64 or len(last["narrow_samples"]) != 64
                 or [row["request_sha256"] for row in first["narrow_samples"]]
-                != [row["request_sha256"] for row in last["narrow_samples"]]):
+                != [row["request_sha256"] for row in last["narrow_samples"]]
+                or not paired_conditions_match(first, last)):
             return False
     return True
 
@@ -62,9 +66,7 @@ def main():
         accepted = manifest.get("complete") is True and args.job_status == "success"
         if not accepted:
             lines.append("The measurement manifest or job is incomplete. Combined latency conclusions remain unavailable.")
-        lines.extend(["Exact builds: " + "; ".join(role + " `" + row["revision"] + "`" for role, row in manifest["binaries"].items()),
-            "", "| Mode | Narrow requests/run | Base p50 / p95 / p99 ms | Candidate p50 / p95 / p99 ms | p95 change |",
-            "|---|---:|---|---|---:|"])
+        lines.append("Exact builds: " + "; ".join(role + " `" + row["revision"] + "`" for role, row in manifest["binaries"].items()))
         for mode in ("plain", "encrypted"):
             grouped = {role: [] for role in ("baseline", "candidate")}
             for entry in manifest["runs"]:
@@ -82,7 +84,10 @@ def main():
                               for name in ("p50_ms", "p95_ms", "p99_ms")} for role, values in grouped.items()}
             change = (medians["candidate"]["p95_ms"] / medians["baseline"]["p95_ms"] - 1) * 100
             text = lambda role: " / ".join(f"{medians[role][name]:.3f}" for name in ("p50_ms", "p95_ms", "p99_ms"))
-            lines.append(f"| {mode} | 64 | {text('baseline')} | {text('candidate')} | {change:+.1f}% |")
+            lines.extend(["", "| Mode | Narrow requests/run | Base p50 / p95 / p99 ms | Candidate p50 / p95 / p99 ms | p95 change |",
+                "|---|---:|---|---|---:|", f"| {mode} | 64 | {text('baseline')} | {text('candidate')} | {change:+.1f}% |"])
+            lines.extend(observations(grouped, mode))
+            lines.extend(condition_summary(grouped, mode))
             if change > 20:
                 print("::notice::" + mode + " narrow-range p95 increased more than20%; advisory only")
             limitations = [case["http_status"] for value in grouped["baseline"] for case in value["broad"]
@@ -93,10 +98,12 @@ def main():
             "The narrow requests compare identical selectors after a complete known-key prefill. OS cache and runner variation remain uncontrolled.",
             "Memory uses Linux VmRSS/VmHWM samples, including earlier work in each process. No total-memory cap or power-loss result is claimed.",
             "Candidate preload coverage requires actual ready-domain and memory-selection counters; otherwise the result explicitly omits that claim.",
+            "Range-field-only and omitted-range-field projections preserve exact fields, including the existing primary hash field, membership, and continuation.",
             "No cloud, cross-device sync, or broad-baseline latency improvement is established."])
     text = "\n".join(lines) + "\n"
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)
+    print(text, end="")
     save(args.output / "artifact-files.json", {"files": inventory(args.output),
          "scope": "Exact file hashes before upload; full raw bodies stay outside Git in this14-day artifact"})
 

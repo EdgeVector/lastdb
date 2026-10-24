@@ -16,11 +16,15 @@ const DEVICE_FILE: &str = ".native_backup_device_id";
 const LOCK_FILE: &str = ".native_backup_enrollment.lock";
 const PENDING_FILE: &str = ".native_backup_credentials.pending";
 
+#[path = "files/restored.rs"]
+mod restored;
+
 pub(super) struct PreparedHome {
     parent: File,
     name: OsString,
     directory: File,
     _lock: File,
+    restored: Option<restored::Validation>,
 }
 
 impl PreparedHome {
@@ -59,6 +63,7 @@ impl PreparedHome {
                 .to_os_string(),
             directory,
             _lock: lock,
+            restored: None,
         };
         prepared.verify_entries()?;
         prepared.seed()?;
@@ -67,15 +72,24 @@ impl PreparedHome {
 
     fn verify_entries(&self) -> Result<(), String> {
         self.verify_binding()?;
-        verify_contents(&self.directory)
+        if let Some(restored) = &self.restored {
+            restored.check(self)
+        } else {
+            verify_contents(&self.directory)
+        }
     }
 
     pub(super) fn seed(&self) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
         self.verify_binding()?;
-        read_seed(&self.directory)
+        if let Some(restored) = &self.restored {
+            restored.seed(self)
+        } else {
+            read_seed(&self.directory)
+        }
     }
 
     pub(super) fn device_id(&self) -> Result<String, String> {
+        self.verify_entries()?;
         if !recovery_files::entry_present(&self.directory, DEVICE_FILE)? {
             self.write_new(DEVICE_FILE, uuid::Uuid::new_v4().to_string().as_bytes())?;
         }
@@ -91,6 +105,7 @@ impl PreparedHome {
     }
 
     pub(super) fn finish_saved_credentials(&self, api_url: &str) -> Result<bool, String> {
+        self.verify_entries()?;
         let paused = recovery_files::entry_present(&self.directory, CLOUD_SYNC_PAUSED_FILE)?;
         let pending = recovery_files::entry_present(&self.directory, PENDING_FILE)?;
         if paused && pending {
@@ -119,6 +134,10 @@ impl PreparedHome {
         if credentials.api_url != api_url || credentials.api_key.is_empty() {
             return Err("saved native credentials do not match the compiled DEV endpoint".into());
         }
+        if let Some(restored) = &self.restored {
+            super::validate_restored_credentials(api_url, &credentials.api_key, &restored.account)?;
+            self.verify_entries()?;
+        }
         self.sync_file(name)?;
         if pending {
             self.publish()?;
@@ -134,6 +153,7 @@ impl PreparedHome {
     }
 
     fn publish(&self) -> Result<(), String> {
+        self.verify_entries()?;
         if recovery_files::entry_present(&self.directory, CLOUD_SYNC_PAUSED_FILE)? {
             return Err("refusing to replace paused native credentials".into());
         }
@@ -148,6 +168,7 @@ impl PreparedHome {
     }
 
     fn write_new(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
+        self.verify_entries()?;
         let mut file = File::from(
             fs::openat(
                 &self.directory,
@@ -181,7 +202,7 @@ impl PreparedHome {
     }
 
     fn sync(&self) -> Result<(), String> {
-        self.verify_binding()?;
+        self.verify_entries()?;
         self.directory
             .sync_all()
             .map_err(|_| "cannot sync native enrollment home")?;
