@@ -110,7 +110,7 @@ pub(super) fn write_all(
             Ok(count) => bytes = &bytes[count..],
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                wait(stream, libc::POLLOUT, deadline)?
+                wait(stream, libc::POLLOUT, deadline)?;
             }
             Err(_) => return Err("owner status request failed".into()),
         }
@@ -129,7 +129,7 @@ pub(super) fn read(
             Ok(count) => return Ok(count),
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                wait(stream, libc::POLLIN, deadline)?
+                wait(stream, libc::POLLIN, deadline)?;
             }
             Err(_) => return Err("owner status reply failed".into()),
         }
