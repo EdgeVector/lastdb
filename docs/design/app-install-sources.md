@@ -131,20 +131,26 @@ Apps depend on one or both surfaces:
 - Apps consume files from the inbox (lastseek and Search share the same inbox)
 - Watermark-based consumption (only `--consume` deletes files)
 
-**IndexChangeBatch JSON schema** (example):
+**IndexChangeBatch JSON schema** (from `fold_db/crates/core/src/db_operations/search_index/sink.rs`):
 
 ```json
 {
   "format_version": 1,
-  "batch_id": "uuid",
-  "timestamp": "RFC3339",
+  "schema_name": "brain/Concept",
+  "searchable_fields": ["title", "content"],
   "changes": [
     {
-      "operation": "create" | "update" | "delete",
-      "schema_name": "brain/Concept",
-      "key": { "hash": "...", "range": "..." },
-      "fields": { "id": "...", "title": "...", "content": "..." },
-      "metadata": { ... }
+      "mutation_id": "01JB3...",
+      "kind": "upsert",
+      "key_value": {
+        "hash": null,
+        "range": "concept-001"
+      },
+      "fields_and_values": {
+        "id": "concept-001",
+        "title": "Example Concept",
+        "content": "..."
+      }
     }
   ]
 }
@@ -152,9 +158,8 @@ Apps depend on one or both surfaces:
 
 **Contract elements**:
 - `format_version` field (bumped on breaking changes)
-- Top-level keys (`batch_id`, `timestamp`, `changes`)
-- Change keys (`operation`, `schema_name`, `key`, `fields`, `metadata`)
-- Types of each field
+- Top-level keys: `schema_name`, `searchable_fields`, `changes`
+- Each change: `mutation_id` (string), `kind` (enum: "upsert" | "tombstone"), `key_value` (`{hash: Option<String>, range: Option<String>}`), `fields_and_values` (HashMap<String, Value>)
 
 **Inbox path**: `{LASTDB_HOME}/apps/search/inbox/` (configurable via `SEARCH_INBOX` env var)
 
@@ -200,22 +205,22 @@ Apps depend on one or both surfaces:
 #### Outbox surface
 
 **Breaking changes** (require `outbox_format_version` bump):
-- Remove a top-level key from `IndexChangeBatch` (e.g., remove `batch_id`)
-- Change the type of a key (e.g., `timestamp` string → int)
-- Remove an operation type (e.g., no more `"delete"`)
-- Change the structure of `changes[]` items
+- Remove a top-level key from `IndexChangeBatch` (e.g., remove `schema_name`)
+- Change the type of a key (e.g., `searchable_fields` Option<HashSet<String>> → Vec<String>)
+- Remove a `kind` value (e.g., no more `"tombstone"`)
+- Change the structure of `changes[]` items or `key_value`
 - Change the inbox path convention
 
 **Additive changes** (no version bump):
-- Add a new optional top-level key (old consumers ignore it)
-- Add a new operation type (old consumers skip unknown operations)
-- Add new fields to change items (old consumers ignore them)
+- Add a new optional top-level key (old consumers ignore it via serde default)
+- Add a new `kind` value (old consumers that match exhaustively on "upsert" | "tombstone" would break, but consumers using serde typically handle unknown variants gracefully if they use a catch-all)
+- Add new keys to `fields_and_values` (old consumers ignore them)
 
 **Examples**:
 - **Breaking (HTTP)**: Removing `GET /api/schemas` would break Brain's `brain init`. Bump `lastdb_api_version`.
 - **Breaking (outbox)**: Renaming `changes` to `mutations` would break lastseek and Search. Bump `outbox_format_version`.
 - **Additive (HTTP)**: Adding `POST /api/queries/batch` (PR #1527). No version bump.
-- **Additive (outbox)**: Adding `"source_app_id"` field to change items. No version bump.
+- **Additive (outbox)**: Adding `"source_app_id"` field to `IndexChangeBatch`. No version bump.
 
 ### 2.3 How LastDB declares supported contract versions
 

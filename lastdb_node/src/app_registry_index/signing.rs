@@ -27,9 +27,18 @@ pub struct CompatRow {
     pub artifact: Option<String>,
     /// The node build string (`lastdbd --version`, `/api/version` `build`).
     pub lastdb_version: String,
-    /// The node's request grammar at proof time, when the proof recorded it.
+    /// The node's HTTP API contract version at proof time, when the proof
+    /// recorded it. Governs the request-grammar version reported by `GET
+    /// /api/version`. Apps using the HTTP API (Brain, LastSecrets) check this
+    /// before install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lastdb_api_version: Option<u32>,
+    /// The node's outbox format contract version at proof time, when the proof
+    /// recorded it. Governs the IndexChangeBatch JSON schema written to the
+    /// search inbox. Apps consuming the outbox (lastseek, Search) check this
+    /// before install.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbox_format_version: Option<u32>,
     /// RFC 3339 UTC timestamp of the proof.
     pub proved_at: String,
     /// The proof run id (routine + run id, or a path the operator can open).

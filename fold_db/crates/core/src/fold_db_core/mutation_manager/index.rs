@@ -50,6 +50,7 @@ impl MutationManager {
             return None;
         }
         Some(IndexChangeBatch {
+            format_version: 1,
             schema_name: schema_name.to_string(),
             searchable_fields: searchable_outbox_fields(schema),
             changes,

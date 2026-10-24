@@ -23,10 +23,28 @@ pub struct IndexChange {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexChangeBatch {
+    /// The outbox format version this batch conforms to. Consumers (lastseek,
+    /// Search) can check this to ensure compatibility before processing.
+    /// Additive: old consumers without this field in their schema will ignore
+    /// it (serde's default behavior). Set to `CURRENT_OUTBOX_FORMAT_VERSION`
+    /// from `lastdb_node::version`.
+    #[serde(
+        default = "default_format_version",
+        skip_serializing_if = "is_current_format_version"
+    )]
+    pub format_version: u32,
     pub schema_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub searchable_fields: Option<HashSet<String>>,
     pub changes: Vec<IndexChange>,
+}
+
+fn default_format_version() -> u32 {
+    1
+}
+
+fn is_current_format_version(v: &u32) -> bool {
+    *v == 1
 }
 
 /// Off-path consumer of committed mutation changes that should be reflected in

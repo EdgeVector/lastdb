@@ -38,7 +38,9 @@ pub(super) fn instance_id() -> &'static str {
 ///
 /// ```json
 /// {"ok":true,"api_version":1,"build":"0.23.3-2068-g51fca83b2",
-///  "capabilities":{"atomic_aggregate_set_v1":true},"instance_id":"<pid-nanos>"}
+///  "capabilities":{"atomic_aggregate_set_v1":true},"instance_id":"<pid-nanos>",
+///  "min_supported_api_version":1,"current_outbox_format_version":1,
+///  "min_supported_outbox_format_version":1}
 /// ```
 ///
 /// No database state and no caller bytes: `api_version` and `capabilities` are
@@ -46,7 +48,14 @@ pub(super) fn instance_id() -> &'static str {
 /// startup, `instance_id` is process-lifetime. A client compares the
 /// `api_version` it was built against with this one and prints one line that
 /// names the fix (`brew upgrade lastdb`) instead of failing on its first write.
-pub fn version_response() -> UdsResponse {
+///
+/// The response includes contract version ranges for both surfaces (HTTP API
+/// and outbox format), allowing apps to check compatibility before install.
+pub fn version_response(
+    min_supported_api_version: u32,
+    current_outbox_format_version: u32,
+    min_supported_outbox_format_version: u32,
+) -> UdsResponse {
     let build = build_version();
     let instance_id = instance_id();
     // `build` is a git-describe string (`[0-9A-Za-z.-]`) or the literal
@@ -57,7 +66,7 @@ pub fn version_response() -> UdsResponse {
         200,
         "OK",
         format!(
-            "{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{instance_id}\"}}"
+            "{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"instance_id\":\"{instance_id}\",\"min_supported_api_version\":{min_supported_api_version},\"current_outbox_format_version\":{current_outbox_format_version},\"min_supported_outbox_format_version\":{min_supported_outbox_format_version}}}"
         )
         .into_bytes(),
     )
@@ -97,12 +106,17 @@ pub fn method_not_allowed_response(allow: &str) -> UdsResponse {
 ///
 /// `mint_pairing` supplies a browser-pairing mint callback. `lastdbd` passes
 /// [`no_pairing_mint`], so the mint verb answers `404`.
+///
+/// `version_params` provides the contract version ranges for the version
+/// handshake response (min_supported_api_version, current_outbox_format_version,
+/// min_supported_outbox_format_version).
 pub fn dispatch<F, M>(
     req: &UdsRequest,
     ctx: &AccessContext,
     socket: SocketKind,
     execute_data: F,
     mint_pairing: M,
+    version_params: (u32, u32, u32),
 ) -> UdsResponse
 where
     F: FnOnce(DataRoute, &UdsRequest, &AccessContext) -> UdsResponse,
@@ -110,7 +124,9 @@ where
 {
     match route(req, socket) {
         ControlRoute::Health => health_response(),
-        ControlRoute::Version => version_response(),
+        ControlRoute::Version => {
+            version_response(version_params.0, version_params.1, version_params.2)
+        }
         ControlRoute::Data(data) => execute_data(data, req, ctx),
         ControlRoute::MintBrowserPairingCode => {
             mint_browser_pairing_code_response(ctx, mint_pairing)

@@ -39,6 +39,7 @@ pub mod schema_sync_audit;
 pub mod seal;
 pub mod service_home;
 pub mod shared_surface;
+pub mod version;
 pub mod volume_isolation;
 pub mod watch_gate;
 
