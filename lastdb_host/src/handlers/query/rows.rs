@@ -196,40 +196,9 @@ pub(in crate::handlers) fn format_rows(
 
     request_phases::add_phase(RequestPhase::HydrateFormat, format_started.elapsed());
 
-    // Deterministic total order: results come from a randomized HashMap
-    // iteration, so offset/limit pagination would otherwise overlap/drop rows.
-    // Primary key is `range` (direction follows sort_order); `hash` is an
-    // always-ascending tiebreaker (opaque content hash — reversing it is churn).
+    // Keep the deterministic response order inside the existing sort phase.
     let sort_started = std::time::Instant::now();
-    results.sort_by(|a, b| {
-        let primary = if let Some(order_by) = order_by {
-            let af = a
-                .get("fields")
-                .and_then(|fields| fields.get(&order_by.field));
-            let bf = b
-                .get("fields")
-                .and_then(|fields| fields.get(&order_by.field));
-            compare_json_values(af, bf, order_by.order.as_ref())
-        } else {
-            let a_range = a["key"]["range"].as_str().unwrap_or("");
-            let b_range = b["key"]["range"].as_str().unwrap_or("");
-            match sort_order {
-                Some(SortOrder::Desc) => b_range.cmp(a_range),
-                _ => a_range.cmp(b_range),
-            }
-        };
-        primary
-            .then_with(|| {
-                let a_range = a["key"]["range"].as_str().unwrap_or("");
-                let b_range = b["key"]["range"].as_str().unwrap_or("");
-                a_range.cmp(b_range)
-            })
-            .then_with(|| {
-                let a_hash = a["key"]["hash"].as_str().unwrap_or("");
-                let b_hash = b["key"]["hash"].as_str().unwrap_or("");
-                a_hash.cmp(b_hash)
-            })
-    });
+    results.sort_by(|a, b| super::rules::compare_rows(a, b, sort_order, order_by));
 
     request_phases::add_phase(RequestPhase::HydrateSort, sort_started.elapsed());
 
@@ -250,16 +219,4 @@ fn unprojected_sort_field(query: &Query) -> Option<String> {
         return None;
     }
     Some(field.clone())
-}
-
-pub(in crate::handlers) fn compare_json_values(
-    a: Option<&Value>,
-    b: Option<&Value>,
-    order: Option<&SortOrder>,
-) -> std::cmp::Ordering {
-    let ordering = fold_db::json_order::compare_json_values(a, b);
-    match order {
-        Some(SortOrder::Desc) => ordering.reverse(),
-        _ => ordering,
-    }
 }

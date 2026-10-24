@@ -1,8 +1,12 @@
-//! Pure query option and keyed-page rules. No host, storage, or task access.
+//! Pure query option, keyed-page, and row-order rules.
+//! No host, storage, or task access.
+
+use std::cmp::Ordering;
 
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
-use fold_db::schema::types::operations::{Query, SortOrder};
+use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
 use fold_db::schema::types::KeyValue;
+use serde_json::Value;
 
 use crate::HostError;
 
@@ -86,4 +90,47 @@ pub(super) fn keyed_window(
         KeyWindow::offset(offset, overfetch_limit)
     };
     Ok(Some(window))
+}
+
+/// Compare response rows independently of reads, formatting, and phase timers.
+/// Field ordering uses the core's JSON order; otherwise the range is primary.
+/// Equal primary values use ascending range and then ascending hash ties, even
+/// when the caller requests descending order.
+pub(super) fn compare_rows(
+    a: &Value,
+    b: &Value,
+    sort_order: Option<&SortOrder>,
+    order_by: Option<&QueryOrderBy>,
+) -> Ordering {
+    let primary = if let Some(order_by) = order_by {
+        let af = a
+            .get("fields")
+            .and_then(|fields| fields.get(&order_by.field));
+        let bf = b
+            .get("fields")
+            .and_then(|fields| fields.get(&order_by.field));
+        let ordering = fold_db::json_order::compare_json_values(af, bf);
+        match order_by.order.as_ref() {
+            Some(SortOrder::Desc) => ordering.reverse(),
+            _ => ordering,
+        }
+    } else {
+        let a_range = a["key"]["range"].as_str().unwrap_or("");
+        let b_range = b["key"]["range"].as_str().unwrap_or("");
+        match sort_order {
+            Some(SortOrder::Desc) => b_range.cmp(a_range),
+            _ => a_range.cmp(b_range),
+        }
+    };
+    primary
+        .then_with(|| {
+            let a_range = a["key"]["range"].as_str().unwrap_or("");
+            let b_range = b["key"]["range"].as_str().unwrap_or("");
+            a_range.cmp(b_range)
+        })
+        .then_with(|| {
+            let a_hash = a["key"]["hash"].as_str().unwrap_or("");
+            let b_hash = b["key"]["hash"].as_str().unwrap_or("");
+            a_hash.cmp(b_hash)
+        })
 }
