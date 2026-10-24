@@ -3,7 +3,8 @@
 use super::{AtomStore, RangeWalk};
 use crate::atom::delete_barrier::{delete_barrier_key, DeleteBarrier};
 use crate::schema::types::field::{build_storage_key, FilterUtils};
-use crate::storage::{KvMutation, StorageError, StorageResult};
+use crate::storage::error::StorageResult;
+use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
 
 const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
