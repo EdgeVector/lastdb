@@ -1,7 +1,8 @@
 //! Retain the logical encryption seam without borrowing a snapshot caller.
 
 use crate::storage::disk_pack::{PackReadScope, PackRuntime};
-use crate::storage::{KvStore, NamespacedStore, StorageError, StorageResult};
+use crate::storage::error::{StorageError, StorageResult};
+use crate::storage::{KvStore, NamespacedStore};
 use async_trait::async_trait;
 use std::sync::Arc;
 
