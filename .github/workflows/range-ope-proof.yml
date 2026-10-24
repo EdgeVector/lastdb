@@ -38,8 +38,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: range-ope-proof
-      # Tom's 2026-10-24 "Do all of these" authorizes the single CI-only
-      # crypto proof in the primary adoption plan. Other tests stay retired.
+      # Tom explicitly approved this single CI-only crypto proof on 2026-10-24:
+      # "Allow this CI-only exception". Other tests stay retired.
       - name: Lint the portable crate and proof
         run: cargo clippy --locked -p lastdb_range_crypto --all-targets -- -D warnings
       - name: Execute the authorized crypto proof
