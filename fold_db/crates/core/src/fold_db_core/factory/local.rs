@@ -61,6 +61,7 @@ pub(super) async fn create_local_fold_db(
     verify_boot_decrypt_integrity(&store_stack.enc_store).await?;
     let fold_db = FoldDB::initialize_from_init(FoldDbInit {
         db_ops: Arc::new(db_ops),
+        offline_maintenance: options.offline_maintenance,
         signer,
         search_outbox_inbox: options.search_outbox_inbox,
         mutation_log_capture: Some(store_stack.mutation_log_capture),

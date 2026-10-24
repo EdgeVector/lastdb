@@ -102,6 +102,7 @@ impl FoldDB {
             signer,
             search_outbox_inbox: None,
             mutation_log_capture,
+            offline_maintenance: false,
         })
         .await
     }
@@ -167,6 +168,7 @@ impl FoldDB {
             signer,
             search_outbox_inbox: Some(restore_inbox),
             mutation_log_capture: None,
+            offline_maintenance: false,
         })
         .await?;
         db.preserve_retired_restore_intents = true;
@@ -187,6 +189,7 @@ impl FoldDB {
             signer,
             search_outbox_inbox,
             mutation_log_capture,
+            offline_maintenance,
         } = init;
         // Initialize pending task tracker
         let pending_tasks = Arc::new(super::super::pending_task_tracker::PendingTaskTracker::new());
@@ -232,17 +235,18 @@ impl FoldDB {
 
         info!("Created MutationManager for mutation operations");
 
-        let background_flush = Self::start_background_flush(&db_ops);
+        let background_flush = Self::start_background_flush(&db_ops, offline_maintenance);
 
         Self::log_resident_policy();
 
-        let background_protein_reaper = Self::start_protein_reaper(&db_ops);
+        let background_protein_reaper = Self::start_protein_reaper(&db_ops, offline_maintenance);
 
-        let background_conflict_janitor = Self::start_conflict_janitor(&db_ops);
+        let background_conflict_janitor =
+            Self::start_conflict_janitor(&db_ops, offline_maintenance);
 
-        let background_molecule_drain = Self::start_molecule_drain(&db_ops);
+        let background_molecule_drain = Self::start_molecule_drain(&db_ops, offline_maintenance);
 
-        let sync_coordinator = Self::start_sync_coordinator(&db_ops);
+        let sync_coordinator = Self::start_sync_coordinator(&db_ops, offline_maintenance);
 
         Ok(Self {
             schema_manager,
@@ -269,6 +273,7 @@ impl FoldDB {
 /// surrounding subsystems (mutation manager, sync engine) each pull what
 /// they need by name.
 pub struct FoldDbInit {
+    pub(crate) offline_maintenance: bool,
     pub db_ops: Arc<DbOperations>,
     pub signer: Arc<crate::security::Ed25519KeyPair>,
     pub search_outbox_inbox: Option<PathBuf>,
