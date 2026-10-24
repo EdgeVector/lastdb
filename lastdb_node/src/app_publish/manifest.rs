@@ -111,6 +111,16 @@ pub fn load_manifest(path: &Path) -> Result<AppManifest, String> {
         return Err("manifest app_id must be non-empty".into());
     }
     validate_app_version(&manifest.version)?;
+
+    // Validate contract_surfaces: only "http" and "outbox" are allowed
+    for surface in &manifest.contract_surfaces {
+        if surface != "http" && surface != "outbox" {
+            return Err(format!(
+                "manifest contract_surfaces contains unknown value '{surface}': only 'http' and 'outbox' are supported"
+            ));
+        }
+    }
+
     if manifest.schemas.is_empty() {
         return Err(
             "manifest declares no schemas — a LastDB app manifest must list the schemas it uses"

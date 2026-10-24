@@ -1,13 +1,13 @@
 // Real evidence capture for PR #370 contract version infrastructure
 // Run with: cargo run --example verify_contract_evidence
 
-use lastdb_node::app_publish::AppManifest;
 use fold_db::db_operations::search_index::IndexChangeBatch;
+use lastdb_node::app_publish::AppManifest;
 
 fn main() {
     println!("=== Real Evidence: Contract Version Infrastructure ===");
     println!();
-    
+
     test_real_manifests();
     test_contract_surfaces_validation();
     test_index_batch_parsing();
@@ -16,7 +16,7 @@ fn main() {
 
 fn test_real_manifests() {
     println!("## 1. Real App Manifests Parse with New AppManifest\n");
-    
+
     // Real manifest WITHOUT contract version fields (old format)
     let old_manifest = r#"{
   "app_id": "example",
@@ -30,15 +30,24 @@ fn test_real_manifests() {
     {"name": "example/Record", "schema_type": "Hash", "fields": ["id", "data"]}
   ]
 }"#;
-    
+
     print!("Parsing OLD manifest (no contract fields)... ");
     match serde_json::from_str::<AppManifest>(old_manifest) {
         Ok(manifest) => {
             println!("OK");
             println!("  app_id: {}", manifest.app_id);
-            println!("  contract_surfaces: {:?} (defaulted to empty)", manifest.contract_surfaces);
-            println!("  api_version: {:?} (defaulted to None)", manifest.api_version);
-            println!("  outbox_format_version: {:?} (defaulted to None)", manifest.outbox_format_version);
+            println!(
+                "  contract_surfaces: {:?} (defaulted to empty)",
+                manifest.contract_surfaces
+            );
+            println!(
+                "  api_version: {:?} (defaulted to None)",
+                manifest.api_version
+            );
+            println!(
+                "  outbox_format_version: {:?} (defaulted to None)",
+                manifest.outbox_format_version
+            );
         }
         Err(e) => {
             println!("✗ {}", e);
@@ -46,7 +55,7 @@ fn test_real_manifests() {
         }
     }
     println!();
-    
+
     // Real manifest WITH contract version fields (new format)
     let new_manifest = r#"{
   "app_id": "example-http",
@@ -62,7 +71,7 @@ fn test_real_manifests() {
     {"name": "example/Record", "schema_type": "Hash", "fields": ["id", "data"]}
   ]
 }"#;
-    
+
     print!("Parsing NEW manifest (with contract fields)... ");
     match serde_json::from_str::<AppManifest>(new_manifest) {
         Ok(manifest) => {
@@ -70,7 +79,10 @@ fn test_real_manifests() {
             println!("  app_id: {}", manifest.app_id);
             println!("  contract_surfaces: {:?}", manifest.contract_surfaces);
             println!("  api_version: {:?}", manifest.api_version);
-            println!("  outbox_format_version: {:?}", manifest.outbox_format_version);
+            println!(
+                "  outbox_format_version: {:?}",
+                manifest.outbox_format_version
+            );
         }
         Err(e) => {
             println!("ERR: {}", e);
@@ -81,12 +93,39 @@ fn test_real_manifests() {
 
 fn test_contract_surfaces_validation() {
     println!("## 2. contract_surfaces Validation\n");
-    
-    // Unknown value - parses but will be rejected by resolve.rs in PR 2
-    let unknown_surface = r#"{
-  "app_id": "test",
+
+    // Valid values
+    let valid_manifest = r#"{
+  "app_id": "test-valid",
   "metadata": {
-    "display_name": "Test",
+    "display_name": "Test Valid",
+    "description": "Test",
+    "homepage_url": "https://test.com"
+  },
+  "version": "1.0.0",
+  "contract_surfaces": ["http", "outbox"],
+  "schemas": [
+    {"name": "test/S", "schema_type": "Hash", "fields": ["id"]}
+  ]
+}"#;
+
+    print!("Parsing manifest with VALID contract_surfaces [\"http\", \"outbox\"]... ");
+    match serde_json::from_str::<AppManifest>(valid_manifest) {
+        Ok(manifest) => {
+            println!("OK");
+            println!("  contract_surfaces: {:?}", manifest.contract_surfaces);
+        }
+        Err(e) => {
+            println!("ERR: {}", e);
+        }
+    }
+    println!();
+
+    // Unknown value - should be rejected at parse time
+    let unknown_surface = r#"{
+  "app_id": "test-invalid",
+  "metadata": {
+    "display_name": "Test Invalid",
     "description": "Test",
     "homepage_url": "https://test.com"
   },
@@ -96,25 +135,36 @@ fn test_contract_surfaces_validation() {
     {"name": "test/S", "schema_type": "Hash", "fields": ["id"]}
   ]
 }"#;
-    
-    print!("Parsing manifest with UNKNOWN contract_surfaces... ");
-    match serde_json::from_str::<AppManifest>(unknown_surface) {
-        Ok(manifest) => {
-            println!("OK Parsed");
-            println!("  contract_surfaces: {:?}", manifest.contract_surfaces);
-            println!("  Note: Parse succeeds (Vec<String>), but resolve.rs will reject");
-            println!("        unknown values in PR 2's pick_row() compatibility check.");
+
+    print!(
+        "Parsing manifest with UNKNOWN contract_surfaces [\"unknown_surface\", \"invalid\"]... "
+    );
+
+    // Write to temp file and use load_manifest for proper validation
+    use std::io::Write;
+    let temp_path = std::env::temp_dir().join("test_invalid_manifest.json");
+    std::fs::File::create(&temp_path)
+        .unwrap()
+        .write_all(unknown_surface.as_bytes())
+        .unwrap();
+
+    match lastdb_node::app_publish::load_manifest(&temp_path) {
+        Ok(_) => {
+            println!("UNEXPECTED: Parsed successfully (validation failed to reject)");
         }
         Err(e) => {
-            println!("ERR Rejected at parse time: {}", e);
+            println!("REJECTED");
+            println!("  Error: {}", e);
         }
     }
+
+    std::fs::remove_file(&temp_path).ok();
     println!();
 }
 
 fn test_index_batch_parsing() {
     println!("## 3. Real IndexChangeBatch Parsing\n");
-    
+
     // OLD batch (no format_version) - from lastseek/Search consumers
     let old_batch = r#"{
   "schema_name": "example/Record",
@@ -128,13 +178,16 @@ fn test_index_batch_parsing() {
     }
   ]
 }"#;
-    
+
     print!("Parsing OLD IndexChangeBatch (no format_version)... ");
     match serde_json::from_str::<IndexChangeBatch>(old_batch) {
         Ok(batch) => {
             println!("OK");
             println!("  schema_name: {}", batch.schema_name);
-            println!("  format_version: {} (serde defaulted)", batch.format_version);
+            println!(
+                "  format_version: {} (serde defaulted)",
+                batch.format_version
+            );
             println!("  changes: {} item(s)", batch.changes.len());
         }
         Err(e) => {
@@ -143,7 +196,7 @@ fn test_index_batch_parsing() {
         }
     }
     println!();
-    
+
     // NEW batch (with format_version) - written by this PR's code
     let new_batch = r#"{
   "format_version": 1,
@@ -158,7 +211,7 @@ fn test_index_batch_parsing() {
     }
   ]
 }"#;
-    
+
     print!("Parsing NEW IndexChangeBatch (with format_version)... ");
     match serde_json::from_str::<IndexChangeBatch>(new_batch) {
         Ok(batch) => {
@@ -173,7 +226,7 @@ fn test_index_batch_parsing() {
         }
     }
     println!();
-    
+
     // Re-serialize and check skip_serializing_if
     print!("Re-serializing batch (format_version == 1)... ");
     match serde_json::from_str::<IndexChangeBatch>(new_batch) {
