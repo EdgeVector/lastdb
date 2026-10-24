@@ -172,7 +172,7 @@ async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
     let first = host
         .db
         .mutation_manager()
-        .write_mutations_batch_async(vec![mutation], None)
+        .write_mutations_batch_with_receipt(vec![mutation], None)
         .await?;
     let cached = host
         .db
@@ -180,20 +180,46 @@ async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
         .metadata()
         .get_idempotency_ids(&[cache_key])
         .await?;
-    if cached != first.iter().cloned().map(Some).collect::<Vec<_>>() {
+    if cached
+        != first
+            .mutation_ids
+            .iter()
+            .cloned()
+            .map(Some)
+            .collect::<Vec<_>>()
+    {
         return Err("the authored write lacks its exact cached receipt".into());
     }
     let second = host
         .db
         .mutation_manager()
-        .write_mutations_batch_async(vec![repeated.clone()], None)
+        .write_mutations_batch_with_receipt(vec![repeated.clone()], None)
         .await?;
-    if first.len() != 1 || first != second || second[0] == repeated.uuid {
-        return Err("the identical authored retry did not return the cached receipt".into());
+    let after = host
+        .db
+        .db_ops()
+        .metadata()
+        .get_idempotency_ids(&[format!("idem:{}", repeated.content_hash())])
+        .await?;
+    if first.mutation_ids.len() != 1
+        || first.operations.created != 1
+        || second.mutation_ids != vec![repeated.uuid]
+        || after != cached
+        || second.operations.no_op != 1
+        || second.operations.created != 0
+        || second.operations.updated != 0
+        || second.operations.deleted != 0
+    {
+        return Err(format!(
+            "the authored retry did not skip: first={:?}, repeated={:?}",
+            first.operations, second.operations
+        )
+        .into());
     }
     Ok(
-        serde_json::json!({"same_receipt":true, "different_offered_uuid":true,
-        "same_signed_clock_and_content":true}),
+        serde_json::json!({"cached_receipt_unchanged":true, "different_offered_uuid":true,
+        "same_signed_clock_and_content":true, "public_receipt_is_input_identity":true,
+        "duplicate_operations":second.operations}),
     )
 }
 
