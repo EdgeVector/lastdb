@@ -1,5 +1,5 @@
 //! Offline native inventory proof. No user query or native record rewrite occurs.
-use super::{dependencies, RestoreError, RestoreSession, Result};
+use super::{RestoreError, RestoreSession, Result, VerifiedNativeContext};
 use cloud_backup_protocol::Digest;
 use fold_db::storage::disk_pack::{file_dependencies as directory, file_recovery};
 use lastdb_storage_policy::backup_decode::{
@@ -23,6 +23,14 @@ pub(super) fn admit_count(external_count: u64) -> Result<()> {
 }
 
 pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u64) -> Result<u64> {
+    verify_context(&session.verified_context(), key, external_count)
+}
+
+pub(super) fn verify_context(
+    session: &VerifiedNativeContext<'_>,
+    key: &[u8; 32],
+    external_count: u64,
+) -> Result<u64> {
     admit_count(external_count)?;
     let home =
         DiskHome::open(&session.physical()).map_err(|_| RestoreError::Invalid("native home"))?;
@@ -76,7 +84,7 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
                 let mut read = home
                     .read_committed(current.clone(), budget(DIRECTORY_READ_BYTES, 3))
                     .map_err(|_| RestoreError::Limit("native file directory"))?;
-                directory::read_directories(&mut read, scope.as_deref(), &id, &expected, key)
+                directory::read_directories(&mut read, scope.as_deref(), &id, &expected)
                     .map_err(|_| RestoreError::Invalid("native file directory coverage"))?;
                 drop(read);
                 for dependency in expected {
@@ -104,6 +112,13 @@ pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u
 }
 
 pub(super) fn verify_metadata(session: &RestoreSession, key: &[u8; 32]) -> Result<()> {
+    verify_metadata_context(&session.verified_context(), key)
+}
+
+pub(super) fn verify_metadata_context(
+    session: &VerifiedNativeContext<'_>,
+    key: &[u8; 32],
+) -> Result<()> {
     // The coverage set from verify() is gone before this separate bounded pass.
     let current = accepted_current(session)?;
     let home =
@@ -118,7 +133,7 @@ pub(super) fn verify_metadata(session: &RestoreSession, key: &[u8; 32]) -> Resul
 }
 
 fn verify_dependency(
-    session: &RestoreSession,
+    session: &VerifiedNativeContext<'_>,
     home: &DiskHome,
     current: &Current,
     key: &[u8; 32],
@@ -129,8 +144,8 @@ fn verify_dependency(
         return Ok(());
     }
     let file = file_recovery::open_verified_ciphertext(
-        &dependencies::data_root(session),
-        &session.accepted().native_root.home_id,
+        &session.data_root(),
+        &session.native_root.home_id,
         dependency.logical_pointer_sha256(),
         dependency.kind(),
         dependency.access(),
@@ -140,11 +155,11 @@ fn verify_dependency(
     drop(file);
     let identity = file_recovery::entry_key(dependency.logical_pointer_sha256(), dependency.kind());
     let hash = cloud_backup_protocol::bytes_sha256(identity.as_bytes());
-    let raw = raw_digest(&hash)?;
-    if !covered.contains(&raw) && covered.len() == COVERAGE_MAX {
+    let identity_digest = raw_digest(&hash)?;
+    if !covered.contains(&identity_digest) && covered.len() == COVERAGE_MAX {
         return Err(RestoreError::Limit("file coverage identity memory"));
     }
-    covered.insert(raw);
+    covered.insert(identity_digest);
     Ok(())
 }
 
@@ -157,10 +172,9 @@ fn budget(bytes: u64, keys: u64) -> ReadBudget {
     }
 }
 
-fn accepted_current(session: &RestoreSession) -> Result<Current> {
+fn accepted_current(session: &VerifiedNativeContext<'_>) -> Result<Current> {
     let bytes = super::download::bytes(&session.physical().join("CURRENT"), 4096)?;
-    if cloud_backup_protocol::bytes_sha256(&bytes) != session.accepted().native_root.current_sha256
-    {
+    if cloud_backup_protocol::bytes_sha256(&bytes) != session.native_root.current_sha256 {
         return Err(RestoreError::Invalid("accepted native root"));
     }
     let fixed: [u8; 4096] = bytes

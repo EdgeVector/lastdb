@@ -25,6 +25,16 @@ on:
         description: Capture native phases in a separate generated-data pass
         type: boolean
         default: false
+      baseline_workers:
+        description: Baseline socket workers (0 uses the product default)
+        type: choice
+        options: ["0", "4", "8", "16", "32"]
+        default: "0"
+      candidate_workers:
+        description: Candidate socket workers (0 uses the product default)
+        type: choice
+        options: ["0", "4", "8", "16", "32"]
+        default: "0"
 
 permissions:
   contents: read
@@ -60,3 +70,5 @@ jobs:
       profile: ${{ inputs.profile }}
       resource_only: ${{ inputs.resource_only }}
       investigation: ${{ inputs.investigation }}
+      baseline_workers: ${{ inputs.baseline_workers }}
+      candidate_workers: ${{ inputs.candidate_workers }}

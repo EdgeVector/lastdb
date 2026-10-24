@@ -127,25 +127,20 @@ impl FoldDB {
             Some(e2e_keys.index_key()),
             Some(e2e_keys.ope_key()),
         );
-        // Use the same at-rest encryption seam as the normal Mini factory.
-        // Without it TypedKvStore parses ciphertext as JSON:
-        // `Serialization error: expected value at line 1 column 1`.
+        // Restore uses the same fixed CAS-only wrapper as normal startup.
         let crypto: Arc<dyn crate::crypto::CryptoProvider> = Arc::new(
             crate::crypto::LocalCryptoProvider::from_key(e2e_keys.encryption_key()),
         );
         let store: Arc<dyn crate::storage::traits::NamespacedStore> = Arc::new(
-            crate::storage::EncryptingNamespacedStore::with_plaintext_namespaces(
-                store,
-                crypto,
-                crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES
-                    .iter()
-                    .copied()
-                    .map(str::to_string)
-                    .collect(),
-            ),
+            crate::storage::EncryptingNamespacedStore::new(store, crypto),
         );
         // Keyed atom reads require content encrypted with this account's E2E
         // key. Pass the same content key as the normal native constructor.
+        crate::db_operations::atom_store::counter::restore_validation::validate_pending(
+            store.as_ref(),
+        )
+        .await
+        .map_err(|error| StorageError::InvalidOperation(error.to_string()))?;
         let db_ops = Arc::new(
             DbOperations::from_namespaced_store_with_atom_and_molecule_keys(
                 store,
@@ -168,7 +163,7 @@ impl FoldDB {
             signer,
             search_outbox_inbox: Some(restore_inbox),
             mutation_log_capture: None,
-            offline_maintenance: false,
+            offline_maintenance: true,
         })
         .await?;
         db.preserve_retired_restore_intents = true;
@@ -191,6 +186,9 @@ impl FoldDB {
             mutation_log_capture,
             offline_maintenance,
         } = init;
+        if !offline_maintenance {
+            db_ops.atoms().freeze_replay_cutoff().await?;
+        }
         // Initialize pending task tracker
         let pending_tasks = Arc::new(super::super::pending_task_tracker::PendingTaskTracker::new());
 
@@ -214,9 +212,6 @@ impl FoldDB {
             );
         }
 
-        if !offline_maintenance {
-            db_ops.atoms().freeze_replay_cutoff().await?;
-        }
         let author_clock_state = Self::load_author_clock_state(&db_ops, &signer).await?;
 
         // Create MutationManager for handling all mutation operations.

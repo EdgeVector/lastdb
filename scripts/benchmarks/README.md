@@ -46,9 +46,15 @@ Each case uses actual product requests through the daemon's Unix socket:
 - Insert cases use new keys. Update cases change existing values on the hot keys.
 - Concurrent reads, writes, and mixed work use 1, 4, 16, and 32 clients.
 - Mixed work has equal read and write request counts. Its report separates their response times.
+- Each mixed client alternates reads and writes. Adjacent clients start with opposite kinds.
+- The CI summary verifies each client's sequence and shows the first and last completion times for both kinds.
 - Mixed readers and writers use the same hot keys.
 
 Each read requires a complete result with valid generated values and a storage receipt.
+Mixed clients retain equal call counts, so both kinds continue through the case, apart from the final calls.
+The raw samples record the client and its request number. The summary checks actual completed calls after the case.
+Completion windows require complete request-phase coverage. Larger cases can exceed the current request ring and leave these windows unavailable.
+The corrected mixed assignment changes the recipe. Compare product revisions with the same corrected driver; do not pool earlier mixed results.
 The cold boundary purges clean logical records after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.
 Each hot read requires at least one warm hit per requested field and key.
@@ -67,6 +73,16 @@ A main push uses its new tip and the previous tip from the push event.
 A nightly run uses the selected commit and its first parent.
 The workflow records complete SHAs and executable hashes.
 The running daemon must report the expected revision.
+
+Manual comparisons accept `baseline_workers` and `candidate_workers`: 0, 4, 8, 16, or 32.
+Zero keeps the product default. Automatic PR, main, and nightly runs keep zero for both versions.
+The worker override requires a GitHub-hosted runner and changes only the owned generated daemon.
+The recipe and summary record both counts. Startup checks each explicit count against `/api/status` and retains the result.
+Use two revisions with identical product source for a worker comparison. Retain the fresh candidate build and separate executable identities.
+The worker count also controls active mutation replies and the request-byte allowance. These measurements cover the combined change.
+Compare latency, request rate, queue wait, and sampled daemon memory before a recommendation.
+The native diagnostic pass also joins slow single-record updates to their exact write scopes and physical commits.
+Process observations for those calls stay outside their RPC timer and run only in the separate diagnostic pass.
 
 The driver uses the workflow's exact source revision, separate from both product checkouts.
 For a PR, this is the event's merge tree, which includes the current base driver.

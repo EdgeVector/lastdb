@@ -66,6 +66,11 @@ The key reader retains the same byte charges, digest checks, and overflow-key va
 Keys with overflow pages retain their bounded owned buffer. Borrowed keys leave scope before the page drops.
 The output pages, live counts, selected root, and durability barriers retain their existing rules.
 
+Locator edits share at most 32 open file handles within one publication batch.
+Each hash group retains its own page buffers, validation records, and read budget.
+Each file handle reuse checks the current file length, including private files that grow during the batch.
+The handles close before the final directory edit or on an error. No handle survives the batch.
+
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.
 It drops before final count changes and receipt output; no cache survives the commit or an error.

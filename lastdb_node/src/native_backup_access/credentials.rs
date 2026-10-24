@@ -24,6 +24,11 @@ pub fn client_from_home(home: &Path) -> Result<NativeBackupClient, String> {
 /// Exact saved-job recovery only, after the owner validates its durable identity.
 /// This does not authorize a new capture, upload, generation, or stream.
 pub(crate) fn client_for_recovery(home: &Path) -> Result<NativeBackupClient, String> {
+    NativeBackupClient::from_auth(auth_for_recovery(home)?).map_err(|error| error.to_string())
+}
+
+/// Shared credential selection; the caller chooses its separately versioned protocol.
+pub(crate) fn auth_for_recovery(home: &Path) -> Result<AuthClient, String> {
     let active = home.join("cloud_sync.json");
     let paused = home.join("cloud_sync.json.paused");
     let active_present = present(&active)?;
@@ -70,7 +75,7 @@ pub(crate) fn client_for_recovery(home: &Path) -> Result<NativeBackupClient, Str
         SyncAuth::ApiKey(credentials.api_key),
     )
     .without_db_auto_claim();
-    NativeBackupClient::from_auth(auth).map_err(|error| error.to_string())
+    Ok(auth)
 }
 
 fn present(path: &Path) -> Result<bool, String> {

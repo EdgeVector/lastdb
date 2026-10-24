@@ -68,6 +68,9 @@ pub(super) async fn dispatch_sync_deliver(
         DataRoute::SyncNativeBackup => {
             super::super::native_backup_routes::execute(req, ctx, host).await
         }
+        DataRoute::SyncByteBackupV2 => {
+            super::super::byte_backup_routes::execute(req, ctx, host).await
+        }
         DataRoute::SyncCloudResumePrimary => {
             execute_sync_cloud_resume_primary_route(req, ctx, host)
         }

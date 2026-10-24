@@ -58,7 +58,7 @@ class Node:
         self.process = None
         self.log = (root / (name + ".log")).open("ab")
 
-    def start(self, binary):
+    def start(self, binary, expect_refusal=False):
         environment = {"PATH": os.environ["PATH"], "HOME": str(self.home),
                        "LASTDB_HOME": str(self.home), "FOLDDB_HOME": str(self.home),
                        "LASTDB_ISOLATED_COPY": "1", "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1",
@@ -66,6 +66,12 @@ class Node:
         self.process = subprocess.Popen([str(binary), "--data-dir", str(self.home),
             "--socket-path", str(self.sock), "--full-socket-path", str(self.sock) + ".full"],
             env=environment, stdout=self.log, stderr=self.log, stdin=subprocess.DEVNULL)
+        if expect_refusal:
+            require(self.process.wait(timeout=120) != 0, "Wrong account key did not refuse startup")
+            self.process = None
+            require(b"content key proof" in Path(self.log.name).read_bytes(),
+                    "Wrong-key startup did not refuse through the account proof")
+            return
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             require(self.process.poll() is None, "Generated daemon exited before ready")
@@ -125,6 +131,68 @@ def read(sock, expected):
             "Migrated exact-key values differ")
 
 
+def transfer(args, physical, target):
+    (target.home / "data").mkdir(mode=0o700)
+    export = subprocess.Popen([str(args.source_transfer), "export", "--home", str(physical)],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        imported = subprocess.run([str(args.candidate / "lastdb-native-transfer"), "import",
+            "--home", str(target.home / "data/disk-pack")], stdin=export.stdout,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
+        export.stdout.close()
+        _, source_receipt = export.communicate(timeout=60)
+        require(export.returncode == 0 and imported.returncode == 0, "Native record transfer failed")
+    finally:
+        if export.poll() is None:
+            export.kill()
+            export.wait(timeout=15)
+    require(json.loads(source_receipt) == json.loads(imported.stderr), "Native receipts differ")
+    return json.loads(source_receipt)
+
+
+def digest(args, home):
+    return json.loads(run([args.candidate / "lastdb-native-transfer", "verify", "--home",
+                           home / "data/disk-pack"]).stderr)
+
+
+def account_checks(args, root, source, backup, expected):
+    restored, wrong = Node(root, "restored"), Node(root, "wrong")
+    try:
+        old_physical = root / "restored-old"
+        run([args.source_recovery, "restore", "--home", old_physical, "--backup", backup])
+        transfer(args, old_physical, restored)
+        run([args.candidate / "lastdb", "--data-dir", restored.home, "db",
+             "prepare-native-transfer", "--source-home", source.home])
+        restored.start(args.candidate / "lastdbd")
+        read(restored.sock, expected)
+        restored.stop()
+        wrong.start(args.candidate / "lastdbd")
+        wrong.stop()
+        before = digest(args, restored.home)
+        refused = subprocess.run(list(map(str, [args.candidate / "lastdb", "--data-dir",
+            restored.home, "db", "prepare-native-transfer", "--source-home", wrong.home])),
+            capture_output=True, timeout=180)
+        require(refused.returncode != 0 and b"content key proof" in refused.stderr,
+                "Wrong-key restore did not refuse through the account proof")
+        require(digest(args, restored.home) == before, "Wrong-key restore changed stored records")
+        # Both homes are private generated DEV homes with stopped owned daemons.
+        # Retain the independent identity; copy only the already stopped data.
+        shutil.rmtree(wrong.home / "data")
+        shutil.copytree(restored.home / "data", wrong.home / "data")
+        before = digest(args, wrong.home)
+        wrong.start(args.candidate / "lastdbd", expect_refusal=True)
+        require(digest(args, wrong.home) == before, "Wrong-key startup changed stored records")
+        restored.start(args.candidate / "lastdbd")
+        read(restored.sock, expected)
+        restored.stop()
+        return {"pre_change_backup_restore": True, "restored_account_proof": True,
+                "wrong_key_restore_refused": True, "wrong_key_startup_refused": True,
+                "wrong_key_records_unchanged": True}
+    finally:
+        wrong.close()
+        restored.close()
+
+
 def status_layout(cli, node, online):
     environment = {**os.environ, "HOME": str(node.home), "LASTDB_HOME": str(node.home),
                    "FOLDDB_HOME": str(node.home), "LASTDB_SOCKET_PATH": str(node.sock)}
@@ -148,22 +216,11 @@ def exercise(args, root):
                 "receipt_value": "Native migration receipt value"}}})
         mutations(source.sock, [mutation("retained", "source"), mutation("deleted", "source")])
         mutations(source.sock, [mutation("deleted", kind="delete")])
+        backup = root / "pre-change-backup"
+        receipt = call(source.sock, "/api/db/native-backup", {"destination": str(backup)})
+        require(receipt["native_backup"]["complete"], "Pre-change native backup is incomplete")
         source.stop()
-        (target.home / "data").mkdir(mode=0o700)
-        export = subprocess.Popen([str(args.source_transfer), "export", "--home",
-            str(source.home / "data/disk-pack")], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            imported = subprocess.run([str(args.candidate / "lastdb-native-transfer"), "import",
-                "--home", str(target.home / "data/disk-pack")], stdin=export.stdout,
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
-            export.stdout.close()
-            _, source_receipt = export.communicate(timeout=60)
-            require(export.returncode == 0 and imported.returncode == 0, "Native record transfer failed")
-        finally:
-            if export.poll() is None:
-                export.kill()
-                export.wait(timeout=15)
-        require(json.loads(source_receipt) == json.loads(imported.stderr), "Native receipts differ")
+        source_receipt = transfer(args, source.home / "data/disk-pack", target)
         run([args.candidate / "lastdb", "--data-dir", target.home, "db", "prepare-native-transfer",
              "--source-home", source.home])
         expected = {"retained": {"receipt_id": "retained", "receipt_value": "source"}}
@@ -175,6 +232,8 @@ def exercise(args, root):
         compact = call(target.sock, "/api/db/compact", {"dry_run": False, "grace_ms": 0})
         require(compact["compact"]["native_disk"].get("executed") is True, "Target compaction did not execute")
         target.stop()
+        accounts = account_checks(args, root, source, backup,
+            {"retained": {"receipt_id": "retained", "receipt_value": "source"}})
         target.start(args.candidate / "lastdbd")
         read(target.sock, expected)
         target.stop()
@@ -183,7 +242,7 @@ def exercise(args, root):
         source.start(args.baseline / "lastdbd")
         read(source.sock, {"retained": {"receipt_id": "retained", "receipt_value": "source"}})
         source.stop()
-        return {"passed": True, "source_retained": True, "record_transfer": json.loads(source_receipt),
+        return {"passed": True, "source_retained": True, "record_transfer": source_receipt, **accounts,
                 "target_compaction": True, "target_reopen": True, "source_reopen": True,
                 "native_status_serving": True, "native_status_stopped": True}
     finally:
@@ -196,6 +255,7 @@ def main():
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--source-transfer", type=Path, required=True)
+    parser.add_argument("--source-recovery", type=Path, required=True)
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="native-transfer-", dir=os.environ.get("RUNNER_TEMP")))
     result = exercise(args, root)

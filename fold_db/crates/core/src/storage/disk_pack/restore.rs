@@ -1,4 +1,6 @@
 //! Validate an inactive native restore or finish its fresh wrapper. No source rewrite.
+mod proof;
+
 use super::{initialization::NODE_BYTES, map, StorageError, StorageResult, NODE_MARKER};
 use laststore::disk_pack::backup::{prepare_snapshot_directories, validate_snapshot};
 use std::fs::{File, OpenOptions};
@@ -63,27 +65,10 @@ pub fn validate_restored_node(
             pages: 4096,
             blocks: 16384,
             bytes: 8 * 1024 * 1024,
-            keys: 1,
+            keys: 2,
         })
         .map_err(map)?;
-    let key = crate::db_operations::atom_store::AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes();
-    let route = super::super::laststore::native_routing::collection_for_key(key);
-    let stored = reader
-        .get_bounded(
-            route,
-            &super::super::laststore::native_routing::encode(key),
-            8192,
-        )
-        .map_err(map)?
-        .ok_or_else(|| refusal("native logical format marker is missing"))?;
-    if !crate::crypto::is_sealed_at_rest(&stored) {
-        return Err(refusal("native account proof requires an encrypted marker"));
-    }
-    let plain = crate::crypto::at_rest::open_at_rest_bounded(account_key, &stored, 4096)
-        .map_err(|_| refusal("native logical format marker cannot be opened"))?;
-    if !crate::db_operations::atom_store::key_format::is_supported_key_format(&plain) {
-        return Err(refusal("unsupported restored logical format"));
-    }
+    proof::verify(&mut reader, account_key)?;
     let guard = RestoredNodeGuard {
         root: root.to_path_buf(),
         directory,
@@ -130,7 +115,7 @@ fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
     ))
 }
 
-fn existing_bytes(path: &Path, maximum: u64) -> StorageResult<Vec<u8>> {
+pub(super) fn existing_bytes(path: &Path, maximum: u64) -> StorageResult<Vec<u8>> {
     let file = open_existing(path, false)?;
     if file.metadata()?.len() > maximum {
         return Err(refusal("restored validation file exceeds its bound"));
@@ -166,7 +151,13 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
         let entry = entry?;
         if !matches!(
             entry.file_name().to_str(),
-            Some("disk-pack" | NODE_MARKER | "laststore-layout-v1" | "native-file-recovery-v1")
+            Some(
+                "disk-pack"
+                    | NODE_MARKER
+                    | "laststore-layout-v1"
+                    | "native-file-recovery-v1"
+                    | super::restore_safety::PENDING_FILE
+            )
         ) {
             return Err(refusal("unexpected restore wrapper member"));
         }
@@ -182,22 +173,14 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
             pages: 4096,
             blocks: 16384,
             bytes: 8 * 1024 * 1024,
-            keys: 1,
+            keys: 2,
         })
         .map_err(map)?;
-    let key = crate::db_operations::atom_store::AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes();
-    let route = super::super::laststore::native_routing::collection_for_key(key);
-    let stored = reader
-        .get(route, &super::super::laststore::native_routing::encode(key))
-        .map_err(map)?
-        .ok_or_else(|| refusal("native logical format marker is missing"))?;
-    let plain = crate::crypto::at_rest::open_at_rest_bounded(account_key, &stored, 4096)
-        .map_err(|_| refusal("native logical format marker cannot be opened"))?;
-    if !crate::db_operations::atom_store::key_format::is_supported_key_format(&plain) {
-        return Err(refusal("unsupported restored logical format"));
-    }
+    proof::verify(&mut reader, account_key)?;
     drop(reader);
     prepare_snapshot_directories(&physical, &validated.current).map_err(map)?;
+    // The first logical open must check all counters before cleanup can run.
+    super::restore_safety::mark_native(root)?;
     let marker = root.join(NODE_MARKER);
     regular_or_absent(&marker)?;
     let mut lock = OpenOptions::new()
@@ -231,7 +214,7 @@ fn regular_or_absent(path: &Path) -> StorageResult<()> {
     }
 }
 
-fn finish_file(file: &mut File, expected: &[u8]) -> StorageResult<()> {
+pub(super) fn finish_file(file: &mut File, expected: &[u8]) -> StorageResult<()> {
     let length = file.metadata()?.len();
     if length > expected.len() as u64 {
         return Err(refusal("restore marker differs"));

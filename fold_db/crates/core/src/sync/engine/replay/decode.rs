@@ -2,7 +2,7 @@
 
 use super::super::types::*;
 use super::super::SyncEngine;
-use crate::crypto::{is_sealed_at_rest, seal_at_rest, CryptoProvider};
+use crate::crypto::{is_sealed_at_rest, CryptoProvider};
 use crate::sync::error::{SyncError, SyncResult};
 use crate::sync::log::LogOp;
 use crate::sync::org_sync::SyncTarget;
@@ -125,84 +125,11 @@ impl SyncEngine {
         }
     }
 
-    /// Deserialize an incoming replayed record value, unwrapping the at-rest
-    /// envelope first (see [`Self::unwrap_at_rest_value`]). A `serde_json`
-    /// failure on the **already-unsealed, already-decrypted** bytes is
-    /// deterministic JSON-shape poison, so the replay loop skips it (see
-    /// [`Self::handle_replay_apply_error`]) instead of aborting the cursor
-    /// forever. At-rest unwrap / decrypt failures are [`SyncError::Crypto`] and
-    /// still abort-and-retry (never advance past unrecovered peer data).
-    pub(super) async fn decode_incoming<T: serde::de::DeserializeOwned>(
-        namespace: &str,
-        crypto: &dyn CryptoProvider,
-        at_rest_key: Option<&[u8; 32]>,
-        value_bytes: &[u8],
-    ) -> SyncResult<T> {
-        let plaintext =
-            Self::unwrap_at_rest_value(namespace, crypto, at_rest_key, value_bytes).await?;
-        serde_json::from_slice(&plaintext).map_err(|e| SyncError::PoisonEntry {
-            namespace: namespace.to_string(),
-            reason: format!(
-                "value did not deserialize as {}: {e}",
-                std::any::type_name::<T>()
-            ),
-        })
-    }
-
-    /// Decode the *local* record stored under a replay key. New production
-    /// wiring reads through the encrypted store view, so the value is usually
-    /// already plaintext JSON; legacy/test wiring may still expose an `ENC:`
-    /// envelope, so this keeps the same dual-read path as incoming entries.
-    ///
-    /// Returns:
-    /// - `Ok(None)` when the key is genuinely absent — LWW may accept incoming.
-    /// - `Ok(Some(T))` when the local value decrypts and deserializes.
-    /// - `Err(_)` when a local value is **present but unreadable** (wrong/rotated
-    ///   at-rest key, corrupt ciphertext, or non-JSON plaintext). Callers must
-    ///   **not** treat this as "absent" and silently overwrite: a drifted key
-    ///   must block replay the same way outer unseal wrong-key failures do
-    ///   (see [`Self::should_quarantine_unsealed_entry`]).
-    ///
-    /// Unwrap failures already return [`SyncError::Crypto`] (abort). Local
-    /// JSON-shape failures also block (never treated as "absent") so a drifted
-    /// local key cannot be silently overwritten by an incoming peer value.
-    pub(super) async fn decode_local<T: serde::de::DeserializeOwned>(
-        namespace: &str,
-        crypto: &dyn CryptoProvider,
-        at_rest_key: Option<&[u8; 32]>,
-        stored: Option<Vec<u8>>,
-    ) -> SyncResult<Option<T>> {
-        let Some(bytes) = stored else {
-            return Ok(None);
-        };
-        let plaintext = Self::unwrap_at_rest_value(namespace, crypto, at_rest_key, &bytes)
-            .await
-            .map_err(|e| match e {
-                // Defensive: unwrap is Crypto today; if a future path reintroduces
-                // Poison on the local dual-read, still abort rather than overwrite.
-                SyncError::PoisonEntry { namespace, reason } => SyncError::Crypto(format!(
-                    "local record present but undecryptable in '{namespace}': {reason}"
-                )),
-                SyncError::Crypto(msg) => SyncError::Crypto(format!(
-                    "local record present but undecryptable in '{namespace}': {msg}"
-                )),
-                other => other,
-            })?;
-        match serde_json::from_slice(&plaintext) {
-            Ok(v) => Ok(Some(v)),
-            Err(e) => Err(SyncError::Crypto(format!(
-                "local record present but undecodable as {}: {e}",
-                std::any::type_name::<T>()
-            ))),
-        }
-    }
-
     /// Decode an incoming replay value before writing it into `self.store`.
     ///
-    /// Production wires `self.store` to the encrypted store view, so callers
-    /// must pass plaintext and let the local at-rest seam choose the right
-    /// provider for the final replay key. Legacy incoming values that still
-    /// carry `ENC:` are unwrapped here.
+    /// Only local CAS values pass through an encrypting store. Other values
+    /// keep their stored bytes, including any explicit field or key envelope.
+    /// The legacy catalog recovery branch remains limited to catalog records.
     pub(super) async fn stored_replay_value(
         &self,
         namespace: &str,
@@ -233,7 +160,7 @@ impl SyncEngine {
         // backend. Direct/live KvStore::put calls still reach
         // `reject_enc_on_plaintext_catalog` unchanged and fail closed.
         if kv.backend_name() == "laststore"
-            && crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES.contains(&namespace)
+            && crate::storage::CATALOG_NAMESPACES.contains(&namespace)
         {
             return Self::unwrap_at_rest_value(
                 namespace,
@@ -268,21 +195,9 @@ impl SyncEngine {
             });
         }
 
-        if is_sealed_at_rest(value_bytes) {
-            return Ok(value_bytes.to_vec());
-        }
-
-        match self.enc_key.as_ref() {
-            // Local seal failure must abort (Crypto), not poison-skip a good
-            // remote payload — advancing past a seal failure permanently drops
-            // the peer value.
-            Some(key) => seal_at_rest(key, value_bytes).map_err(|e| {
-                SyncError::Crypto(format!(
-                    "at-rest envelope seal failed in '{namespace}': {e}"
-                ))
-            }),
-            None => Ok(value_bytes.to_vec()),
-        }
+        // Direct atom, tip, and control records retain their original value
+        // bytes. Only the CAS namespace wrapper may add an outer envelope.
+        Ok(value_bytes.to_vec())
     }
 
     /// Rewrites log entry keys based on namespace isolation rules.

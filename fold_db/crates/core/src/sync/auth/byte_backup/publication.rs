@@ -2,6 +2,7 @@ use super::*;
 use cloud_backup_protocol::v2::inventory::InventoryProof;
 use cloud_backup_protocol::v2::publication::*;
 use cloud_backup_protocol::v2::Begin;
+use cloud_backup_protocol::ErrorCode;
 
 impl ByteBackupClient {
     pub async fn commit(
@@ -26,7 +27,15 @@ impl ByteBackupClient {
 
     pub async fn head(&self, request: &HeadReadRequest) -> Result<HeadReadResult> {
         request.validate()?;
-        let response: HeadReadResult = self.post("heads/read", request).await?;
+        let response: HeadReadResult = match self.post("heads/read", request).await {
+            Ok(response) => response,
+            Err(NativeBackupError::Protocol(error))
+                if error.code == ErrorCode::NotFound && error.field.as_str() == "stream" =>
+            {
+                HeadReadResult::Error { error }
+            }
+            Err(error) => return Err(error),
+        };
         response.validate_for(request)?;
         Ok(response)
     }

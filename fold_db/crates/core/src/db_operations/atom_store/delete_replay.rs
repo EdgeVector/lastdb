@@ -8,7 +8,7 @@ use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
-pub(crate) const FENCED_KEY_FORMAT: &[u8] = b"5;delete-replay-cutoff=v1";
+pub(crate) const FENCED_KEY_FORMAT: &[u8] = b"6;delete-replay-cutoff=v1";
 
 #[derive(Serialize, Deserialize)]
 struct Cutoff {
@@ -44,6 +44,13 @@ impl AtomStore {
     /// The serving process cannot advance this boundary. Offline recount uses
     /// a separate instance without this cache and always reads its disk state.
     pub(crate) async fn freeze_replay_cutoff(&self) -> StorageResult<()> {
+        if let Some(runtime) = self
+            .namespaced_store
+            .as_ref()
+            .and_then(|store| store.disk_pack_runtime())
+        {
+            runtime.begin_serving().await?;
+        }
         let cutoff = self.read_minimum_replay_time().await?;
         if let Err(cutoff) = self.serving_replay_cutoff.set(cutoff) {
             if self.serving_replay_cutoff.get() != Some(&cutoff) {
@@ -73,9 +80,7 @@ impl AtomStore {
                 }
                 Ok(floor.minimum_written_at_nanos)
             }
-            (Some(marker), None) if marker == super::key_format::KEY_FORMAT || marker == b"4" => {
-                Ok(0)
-            }
+            (Some(marker), None) if marker == super::key_format::KEY_FORMAT => Ok(0),
             _ => Err(invalid("the floor and format marker disagree")),
         }
     }

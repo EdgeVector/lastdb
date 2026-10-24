@@ -34,37 +34,6 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) use write::{Recorded, TipConflictDigest};
 
-impl AtomStore {
-    /// Record conflicts that no tip write accompanies (a replayed pair), and
-    /// commit their rows and references in one native write scope.
-    pub(crate) async fn record_conflicts_committed(
-        &self,
-        conflicts: Vec<TipConflict>,
-        storage_prefix: Option<&str>,
-    ) -> Result<(), SchemaError> {
-        self.in_write_scope(async {
-            let recorded = self.record_tip_conflicts(conflicts, storage_prefix).await?;
-            if recorded.rows.is_empty() {
-                return Ok(());
-            }
-            self.commit_tip_changes(super::counter::TipChangeSet {
-                scope: storage_prefix,
-                tips: Vec::new(),
-                bodies: &[],
-                body_source: None,
-                records: recorded.refs,
-                releases: Vec::new(),
-                rows: recorded.rows,
-                deletes: Vec::new(),
-                guarded_deletes: Vec::new(),
-            })
-            .await
-            .map(|_| ())
-        })
-        .await
-    }
-}
-
 /// One molecule of a tip store: its uuid, the molecule, and the changed keys in API form.
 pub(in super::super) type StoreMolecule<'a> = (
     &'a str,

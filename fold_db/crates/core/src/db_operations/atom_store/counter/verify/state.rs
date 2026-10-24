@@ -194,7 +194,10 @@ impl Run {
         let report = &mut self.report;
         report.phase = self.phase;
         report.tally_atoms = self.tally.len() as u64;
-        report.tally_complete = self.tally.complete;
+        report.tally_complete = self.tally.complete
+            && self.molecule_tips.complete
+            && self.molecule_records.complete
+            && self.ids_complete;
         report.touched_atoms = touched_atoms;
         report.mismatches_total = report.mismatches.total();
         report.suspect_atoms = report.mismatches.suspect_counter;

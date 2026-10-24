@@ -59,7 +59,9 @@ jobs:
             vendor/laststore/src/disk_pack/home/transfer.rs \
             vendor/laststore/src/disk_pack/home/transfer \
             > "$RUNNER_TEMP/native-transfer-adapter.patch"
-          git -C "$baseline" apply "$RUNNER_TEMP/native-transfer-adapter.patch"
+          if [ -s "$RUNNER_TEMP/native-transfer-adapter.patch" ]; then
+            git -C "$baseline" apply "$RUNNER_TEMP/native-transfer-adapter.patch"
+          fi
           # Register the adapter without importing later old-reader changes.
           python3 - "$baseline/vendor/laststore/src/disk_pack/home.rs" <<'PY'
           from pathlib import Path
@@ -80,16 +82,16 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked --release -p lastdb_node --bin lastdb --bin lastdbd
-          cargo build --locked --release -p laststore --bin lastdb-native-transfer
+          cargo build --locked --release -p laststore --bin lastdb-native-transfer --bin lastdb-disk-recovery
           mkdir -p "$RUNNER_TEMP/native-candidate-bin"
-          for binary in lastdb lastdbd lastdb-native-transfer; do
+          for binary in lastdb lastdbd lastdb-native-transfer lastdb-disk-recovery; do
             cp "target/release/$binary" "$RUNNER_TEMP/native-candidate-bin/$binary"
           done
           # Each source owns separate Cargo output. Cross-workspace output can
           # reuse an incompatible policy crate from the other revision.
           cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
             --target-dir "$RUNNER_TEMP/native-source-target" \
-            -p laststore --bin lastdb-native-transfer
+            -p laststore --bin lastdb-native-transfer --bin lastdb-disk-recovery
       - name: Obtain the original baseline program pair
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,12 +120,14 @@ jobs:
             --baseline "$BASELINE_BIN_DIR" \
             --candidate "$RUNNER_TEMP/native-candidate-bin" \
             --source-transfer "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" \
+            --source-recovery "$RUNNER_TEMP/native-source-target/release/lastdb-disk-recovery" \
             > "$RUNNER_TEMP/native-transfer-result.json"
           {
             echo '## Native record transfer'
             echo "Source reader: $BASELINE_OID, with only the transport adapter."
             echo "Target writer: ${{ github.event.pull_request.head.sha || github.sha }}."
             echo 'Full stored-record digest, retained source, durable writes, target compaction and both reopens passed.'
+            echo 'The pre-change native backup restored with the new account-key proof. Wrong-key startup and restore refused with the complete stored-record digest unchanged.'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Package macOS transfer workers and matched programs
         if: runner.os == 'macOS'

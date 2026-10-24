@@ -10,11 +10,9 @@ use crate::sync::org_sync::SyncTarget;
 use std::sync::atomic::Ordering;
 
 impl SyncEngine {
-    /// Replay a single log entry with convergent per-key molecule handling.
-    ///
-    /// Non-molecule keys (atoms, history) are written unconditionally.
-    /// Per-key molecule records merge via LWW. Legacy whole-molecule `ref:`
-    /// keys are dropped (product path retired).
+    /// Replay complete mutations through the normal counter writer. Raw
+    /// lifecycle entries fail before their first effect; opaque metadata keeps
+    /// its own replay policy. Retired key formats remain unsupported.
     ///
     /// **Org-scoped keys are skipped** (consented drop — incident 2026-07-13):
     /// after the org-crypto map was removed, org-E2E ciphertext cannot be

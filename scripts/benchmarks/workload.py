@@ -123,7 +123,7 @@ class Workload:
             save(self.output / "upgrade-source.json", {
                 "seed_revision": self.node.revision, "records": self.recipe["records"],
                 "target_revision": self.upgrade_target[1], "generated_data_only": True})
-            self.node.binary, self.node.revision = self.upgrade_target
+            self.node.binary, self.node.revision, self.node.workers = self.upgrade_target
         self.node.start()
         result, _, _ = self.node.call("/api/admin/shed", {})
         boundary = result["shed"]
@@ -139,7 +139,10 @@ class Workload:
     def prepare(self, mode, batch, samples, clients):
         jobs = [[] for _ in range(clients)]
         for index in range(samples):
-            kind = "read" if mode in ("cold", "hot", "read") or (mode == "mixed" and index % 2 == 0) else "write"
+            client, turn = index % clients, index // clients
+            # Every client alternates; adjacent clients start with opposite kinds.
+            mixed_read = mode == "mixed" and (client + turn) % 2 == 0
+            kind = "read" if mode in ("cold", "hot", "read") or mixed_read else "write"
             if mode == "cold":
                 numbers = list(range(self.cold_next, self.cold_next + batch))
                 self.cold_next += batch
@@ -153,21 +156,22 @@ class Workload:
             body = (read_request(numbers) if kind == "read" else
                     write_request(numbers, f"{self.case}-{index}", mode == "insert"))
             request_id = f"bench-{len(self.metrics)}-{index:06d}"
-            jobs[index % clients].append((kind, numbers, body, request_id))
+            jobs[client].append((kind, numbers, body, request_id))
         return jobs
 
-    def worker(self, jobs, barrier, stopped, mode):
+    def worker(self, jobs, barrier, stopped, mode, client):
         samples = []
         barrier.wait(timeout=30)
-        for kind, numbers, body, request_id in jobs:
+        for turn, (kind, numbers, body, request_id) in enumerate(jobs):
             if stopped.is_set():
                 break
-            sample = {"kind": kind, "records": len(numbers),
+            sample = {"kind": kind, "records": len(numbers), "client": client, "client_request": turn,
                       "request_id": request_id,
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
                 path = "/api/query" if kind == "read" else "/api/mutations/batch"
-                observe = self.case == "update/128"
+                observe = (self.case == "update/128"
+                           or self.case == "update/1" and self.recipe["native_timing"])
                 before = read_counters(self.node.process.pid) if observe else None
                 result, elapsed, receipt = self.node.call(
                     path, body, receipt=kind == "read", request_id=request_id)
@@ -219,7 +223,8 @@ class Workload:
         monitor_thread.start()
         try:
             with ThreadPoolExecutor(max_workers=clients) as pool:
-                futures = [pool.submit(self.worker, items, barrier, stopped, mode) for items in jobs]
+                futures = [pool.submit(self.worker, items, barrier, stopped, mode, client)
+                           for client, items in enumerate(jobs)]
                 case_started_us = time.time_ns() // 1000
                 started = time.perf_counter()
                 barrier.wait(timeout=30)

@@ -12,7 +12,7 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
         bare: &str,
         body: Vec<u8>,
     ) -> StorageResult<Option<PerKeyRecord>> {
-        let record = narrow(decode(self.key, body)?)?;
+        let record = narrow(decode(body)?)?;
         let molecule = molecule_key_codec::molecule_uuid_from_storage_key(bare)
             .ok_or_else(|| invalid("metadata molecule identity"))?;
         let pointer: Option<MoleculeGenerationPointer> = self.get(
@@ -65,7 +65,7 @@ impl<F: FnMut(ReadBudget) -> StorageResult<HomeRead>> Proof<'_, F> {
             return Ok(None);
         }
         drop(pointer);
-        let slot = narrow_slot(decode(self.key, body)?)?;
+        let slot = narrow_slot(decode(body)?)?;
         let base =
             molecule_key_codec::molecule_record_key_from_generation_key(molecule, generation, bare)
                 .ok_or_else(|| invalid("generation metadata coordinate"))?;

@@ -11,7 +11,7 @@ use crate::disk_pack::lifetime::{
 use crate::disk_pack::{corrupt, Current, ReadBudget, PART_BYTES};
 use crate::Result;
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const MAX_FILES: usize = lastdb_storage_policy::native_v1::MAX_BACKUP_FILES;
@@ -112,15 +112,34 @@ impl SnapshotExport {
         home.read_retained(&self.reference, budget, lease)
     }
 
+    /// Standalone certification uses the same exact retained generation. The
+    /// returned bounded call owns its shared deletion guard without a writer.
+    pub fn read_committed(&self, home: &DiskHome, budget: ReadBudget) -> Result<HomeRead> {
+        let _reference = self.reference.hold()?;
+        home.read_committed(self.current().clone(), budget)
+    }
+
     /// A writer-owned reader retains only its generation. It does not hold the
     /// global filesystem deletion lock during a slow transfer.
     pub fn reader(&self, path: &Path, lease: &WriterReadLease) -> Result<SnapshotReader> {
+        self.reader_held(
+            path,
+            GenerationHold::from_reference(lease, &self.reference)?,
+        )
+    }
+
+    /// Standalone streams retain the exact durable reference and shared deletion
+    /// guard through the final file access. Publication remains independent.
+    pub fn standalone_reader(&self, path: &Path) -> Result<SnapshotReader> {
+        self.reader_held(path, self.reference.hold()?)
+    }
+
+    fn reader_held(&self, path: &Path, hold: GenerationHold) -> Result<SnapshotReader> {
         let position = self
             .files
             .binary_search_by(|file| file.path.as_path().cmp(path))
             .map_err(|_| corrupt("snapshot export path is not in its inventory"))?;
         let selected = &self.files[position];
-        let hold = GenerationHold::from_reference(lease, &self.reference)?;
         let input = match path.to_str() {
             Some("CURRENT") => Input::Memory(Cursor::new(self.current_bytes.to_vec())),
             _ => {
@@ -151,6 +170,31 @@ pub struct SnapshotReader {
     remaining: u64,
     bytes: u64,
     _hold: GenerationHold,
+}
+
+impl SnapshotReader {
+    /// Select an offset within the same held immutable file without reading its prefix.
+    pub fn seek_to(&mut self, offset: u64) -> std::io::Result<()> {
+        if offset > self.bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "snapshot offset exceeds file",
+            ));
+        }
+        match &mut self.input {
+            Input::File(file) => {
+                if file.metadata()?.len() != self.bytes {
+                    return Err(std::io::Error::other("snapshot export file length changed"));
+                }
+                file.seek(SeekFrom::Start(offset))?;
+            }
+            Input::Memory(cursor) => {
+                cursor.seek(SeekFrom::Start(offset))?;
+            }
+        }
+        self.remaining = self.bytes - offset;
+        Ok(())
+    }
 }
 
 impl Read for SnapshotReader {

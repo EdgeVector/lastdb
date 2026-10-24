@@ -272,6 +272,8 @@ pub enum DataRoute {
     SyncCloudOn,
     /// `POST /api/sync/native-backup` — explicit owner native backup work or status.
     SyncNativeBackup,
+    /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
+    SyncByteBackupV2,
     /// `POST /api/sync/cloud-resume-primary` — durable owner job or status.
     SyncCloudResumePrimary,
     /// `POST /api/sync/quarantine-replay-blocker` — clear the exact active

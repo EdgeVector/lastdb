@@ -17,17 +17,17 @@ from workload import PROFILES, Workload
 from growth import PROFILES as GROWTH_PROFILES, GrowthWorkload
 
 
-def measure(binary, revision, recipe, output, seed_binary=None, seed_revision=None, minimum_retired=0):
+def measure(binary, revision, recipe, output, workers, seed=None, minimum_retired=0):
     node, error = None, None
     started = time.monotonic()
     try:
-        node = Node(seed_binary or binary, seed_revision or revision, output,
-                    native_timing=recipe["native_timing"])
+        program = seed or (binary, revision, workers)
+        node = Node(program[0], program[1], output, native_timing=recipe["native_timing"], workers=program[2])
         node.start()
         if recipe.get("growth"):
             GrowthWorkload(node, recipe, output).run()
         else:
-            target = (binary, revision) if seed_binary else None
+            target = (binary, revision, workers) if seed else None
             Workload(node, recipe, output, target, minimum_retired).run()
     except BaseException as failure:
         error = f"{type(failure).__name__}: {failure}"
@@ -67,6 +67,7 @@ def recipe_for(args):
               "clients": [1] if PROFILES[args.profile].get("insert_only") else [1, 4, 16, 32],
               "writes": "durable acknowledgements; product default storage and maintenance",
               "reads": "known exact hash/range keys; storage receipts on every measured read",
+              "mixed": "each client alternates read/write; adjacent clients start with opposite kinds",
               "cold": "purged warm records after reopen; disjoint first keys; positive disk payload receipts; OS pages uncontrolled",
               "timing": "RPC through response bytes; payload construction and response validation excluded",
               "throughput": "closed-loop; includes Python client, validation, and scheduler overhead",
@@ -86,6 +87,7 @@ def recipe_for(args):
     if args.seed_with_baseline:
         recipe["seed_with_baseline"] = True
         recipe["minimum_retired"] = args.minimum_retired
+    recipe["uds_workers"] = {label: getattr(args, f"{label}_workers") for label in ("baseline", "candidate")}
     return recipe
 
 
@@ -94,6 +96,7 @@ def main():
     for label in ("baseline", "candidate"):
         parser.add_argument(f"--{label}", type=Path, required=True)
         parser.add_argument(f"--{label}-revision", required=True)
+        parser.add_argument(f"--{label}-workers", type=int, choices=(0, 4, 8, 16, 32), default=0)
     parser.add_argument("--profile", choices=PROFILES, default="standard")
     parser.add_argument("--pairs", type=int, choices=range(1, 7))
     parser.add_argument("--native-timing", action="store_true")
@@ -104,10 +107,11 @@ def main():
     parser.add_argument("--driver-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if (args.native_timing or args.growth_only or args.seed_with_baseline) and (
+    if (args.native_timing or args.growth_only or args.seed_with_baseline
+            or args.baseline_workers or args.candidate_workers) and (
             os.environ.get("GITHUB_ACTIONS") != "true"
             or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
-        parser.error("Diagnostics, growth, and upgrade measurements require a GitHub-hosted Actions runner")
+        parser.error("Diagnostic, growth, upgrade, and worker measurements require a GitHub-hosted Actions runner")
     if args.native_timing and args.growth_only:
         parser.error("Resource growth uses ordinary daemon memory settings without native diagnostics")
     if args.seed_with_baseline and args.growth_only:
@@ -149,11 +153,14 @@ def main():
             output = args.output / f"pair-{pair}-{label}"
             output.mkdir()
             print(json.dumps({"pair": pair, "version": label, "profile": args.profile}), flush=True)
-            seed = binaries["baseline"] if args.seed_with_baseline else None
+            baseline = binaries["baseline"]
+            seed = ((Path(baseline["path"]), baseline["revision"], recipe["uds_workers"]["baseline"])
+                    if args.seed_with_baseline else None)
             entry = {"pair": pair, "label": label, "directory": output.name,
-                     "seed_revision": seed["revision"] if seed else binaries[label]["revision"],
+                     "seed_revision": baseline["revision"] if seed else binaries[label]["revision"],
+                     "uds_workers": recipe["uds_workers"][label],
                      **measure(Path(binaries[label]["path"]), binaries[label]["revision"], recipe, output,
-                               Path(seed["path"]) if seed else None, seed["revision"] if seed else None,
+                               recipe["uds_workers"][label], seed,
                                args.minimum_retired if label == "candidate" else 0)}
             manifest["runs"].append(entry)
             save(manifest_path, manifest)

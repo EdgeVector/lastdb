@@ -112,6 +112,10 @@ PR / merge: this repo is canonical on GitHub since 2026-09-29 (brain
 `ci-required`, `generated-evidence`, and `benchmark-complete`. The Forgejo copy is archived: do not push to it and do not use
 `last-stack-forge-api` for fold.
 
+After you publish or update a PR, read its comments, reviews, and CI results.
+Fix the required changes and check again. Continue until the PR merges or closes.
+Do not end the work at publication or at green CI with unresolved review comments.
+
 > NEVER `--all-features` in a sandbox/cloud run (network model downloads).
 > See the build and CI record below.
 

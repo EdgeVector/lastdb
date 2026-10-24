@@ -21,13 +21,13 @@ def slow_requests(rows, scopes, commits):
         matching = [scope for scope in scopes
                     if before <= scope["started_us"] <= scope["ended_us"] <= after]
         if len(matching) != 1:
-            raise ValueError("An observed batch update lacks one enclosed native request scope")
+            raise ValueError("An observed update lacks one enclosed native request scope")
         scope = matching[0]
         physical = [commit for commit in commits
                     if commit["first_sequence"] <= scope["sequence"] <= commit["sequence"]
                     and scope["started_us"] <= commit["started_us"] <= commit["ended_us"] <= scope["ended_us"]]
         if len(physical) != 1:
-            raise ValueError("An observed batch update lacks one enclosed physical commit")
+            raise ValueError("An observed update lacks one enclosed physical commit")
         selected.append({"request_id": row["request_id"], "elapsed_ms": row["elapsed_ms"],
             "resident_stages_us": row.get("resident_stages_us"),
             "server_request_ops": row.get("server_request_ops"),
@@ -66,7 +66,7 @@ def correlate(case, rows, metric, events):
             "physical_counts": averages(physical, "counts"),
             "slowest_scopes": sorted(scopes, key=lambda event: event["total_us"], reverse=True)[:4],
             "slowest_physical_commits": sorted(physical, key=lambda event: event["total_us"], reverse=True)[:4],
-            "slowest_requests": slow_requests(rows, scopes, physical) if case == "update/128" else []}
+            "slowest_requests": slow_requests(rows, scopes, physical) if case in ("update/1", "update/128") else []}
 
 
 def collect_native_phases(output):
