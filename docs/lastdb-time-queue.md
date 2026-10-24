@@ -435,31 +435,14 @@ What the net does not cover:
   `record_without_queue_entry`, and `recount --execute` gives it a new queue
   entry. The old entry stays as a row that no directory lists: it holds no
   reference, so it is garbage and not a leak of atoms.
-- A drain marker is not older than one lifetime, so the range above covers it for
-  its whole life. Every record of an erased slot has its own queue entry, due one
-  window after the record was written (the window of the node at that time), so each
-  record ends at most that window after its own write, and the ordinary lane releases
-  it. The marker only makes the janitor release the records of the slot sooner. A
-  marker older than its lifetime is deleted without a drain (the log says `dropped
-  drain markers older than the retention window`). The marker records the window of
-  the node that wrote it (`window_nanos`), and the janitor uses the longer of that
-  window and its own. A shorter `LASTDB_CONFLICT_RETENTION_SECS` at a later start does
-  not drop a marker that an earlier start wrote. **The order that is not covered:**
-  the window is cut first (from 120 s to 30 s, for example) and the purge comes
-  after it. The marker then records the new, short window, and the janitor deletes
-  it when it is older than that, also when it has not drained it yet (a backlog of
-  markers that the janitor reaches under its duty pacing). The records of the slot
-  were written under the old window. They end with their own queue entries, up to the
-  old window after their write, and not at once. A review measured it with a window cut
-  from 120 s to 30 s and 1,480 markers: the janitor dropped the markers and the
-  records ended about 92 s after the purge (before S8b the markers drained at once).
-  Nothing is kept longer than the old window. This is a known limit and it is not fixed
-  here: the marker would need the latest expiry of the records of its slot, and an erase
-  reads only a part of them (at most 100 records and 256 slots). A marker from an
-  older build has no recorded window. The janitor does not delete it for its age; it
-  drains it. Two faults remain out of reach, and both
-  hold no reference: a marker bucket that lost its row while the janitor was
-  stopped for longer than a window, and a marker the janitor could not see.
+- A drain marker represents unfinished erase work. It has no age deadline.
+  The janitor deletes it only with the final release batch of its exact slot directory.
+  This also applies when the retention window becomes shorter before the erase.
+  Older records can retain a longer original expiry; the new window cannot prove their absence.
+  The directory row and marker enter the same atomic erase batch.
+  Listed buckets remain visible after the arithmetic net's probe window ends.
+  A corrupt or externally removed directory row outside that window remains a repair case.
+  The per-record expiry entries and offline recount retain their existing recovery roles.
 - A bucket that holds only deleted keys is not a fault, and the net leaves it.
 
 ## What can go wrong and what catches it
