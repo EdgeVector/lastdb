@@ -1,10 +1,15 @@
 # Native disk node path
 
+Current source: main `8a0a40b4f`, reviewed 2026-10-24.
+The [memory and disk routes](lastdb-rehydrate.md) describe the logical model.
+The [storage parts guide](lastdb-storage-parts.md) describes packed files and automatic maintenance.
+
 The native packed engine is the sole logical LastDB engine.
 Normal startup and direct FoldDB constructors use it without an activation flag.
 An empty home initializes directly. A nonempty older format receives an error before conversion or logical namespace access.
 No migration path forms part of this cutover.
-Cloud activation receives an explicit error. A later change must enable native backup and cloud transfer.
+Legacy Cloud Sync activation receives an explicit error.
+Native backup has a separate, disabled-by-default source gate; its source availability does not establish production cloud readiness.
 
 The [cutover results](proofs/core-clarity-20261018/RESULTS.md) identify the exact source, releases, and fresh-data checks.
 The [logical warm-set plan](lastdb-logical-warm-set-plan.md) records the current component boundaries.
@@ -17,26 +22,30 @@ A selected tip can remain without its value after a call that needs no value.
 A value fetch adds the full atom to that same logical record.
 The warm set preserves an existing full value when an unchanged tip arrives.
 Both positive states use the same record limit, source controls, and whole-record purge.
-Accepted writes remain complete through flush and any older calls that retain them.
+Private write preparation retains complete changes until disk commit.
+The commit then publishes clean logical records. Older calls retain their earlier values and memory charges until release.
 The recency list selects clean logical records for purge. It does not hold a second set of values.
-The logical record cap defaults to 10,000. Separate allowances cover metadata, complete selected keys, and accepted write values.
+The warm set defaults to a 256 MiB byte limit. The former 10,000-record cap is retired.
+Separate allowances cover definitions, complete selected keys, private writes, and temporary work.
 Those allowances do not define a whole-process memory maximum.
 
-A covered logical write can receive its ACK after complete core publication and before disk commit.
-This memory ACK is the default when the required reservations fit.
-An explicit durable request, insufficient reservation, or uncovered raw control operation waits for disk instead.
-A queued response alone does not prove that its request avoided a disk wait.
-Native status exposes the actual accepted and completed sequences, pending batches, and dirty logical records.
+Every native write waits for its complete disk commit and clean core publication before the ack.
+No native route returns an early memory ack.
+When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
+Native status exposes accepted and completed sequences and pending requests.
+The retained dirty-record fields remain zero for compatibility.
 `core_warm_tip_only_paths` counts retained positive paths whose values are not in memory.
 Normal status uses these same core counts for its logical-record count, holds, dirty records, and purge total.
 Its tip-only count and warm lookup counters also come from the core.
 Normal status returns a saved sample, normally refreshed every 60 seconds; native status returns the current counters.
 The separate background purge counters describe queued work, without another value store.
 
-The default flush delay is 500 ms. Native admission requires a configured delay from 1 to 500 ms.
-A private write queue retains prepared disk bytes and resource owners until the flush.
-Ordinary reads cannot inspect that queue. Private serialized write preparation can inspect its pending records.
-Captured core values retain their memory reservations until the last call releases them.
+The first accepted request starts the disk worker immediately. There is no 500 ms collection timer.
+A FIFO lock lets callers already ahead of the worker share one complete disk commit.
+Later callers wait behind the worker. Each caller waits for its own completed sequence.
+A private write queue retains prepared bytes and resource owners until completion.
+Ordinary reads cannot inspect that queue. Private write preparation can inspect its ordered pending changes.
+The [eager queue design](lastdb-eager-durable-queue.md) defines the order, limits, and compaction handoff.
 
 ## Home fence
 
@@ -51,6 +60,7 @@ Neither entry selects the older engine or converts its files.
 ## One read boundary
 
 One call captures an immutable typed core view and a committed disk root.
+Until the next complete publication, ordinary reads retain the previous committed state.
 Queries in a batch share the call's work budget and temporary buffers.
 Each query item retains its own result or explicit failure.
 A failed native read cannot become an empty success through a fallback.
@@ -73,15 +83,30 @@ The write gate selects the current comparison state for conditional writes.
 Logical values and confirmed absence become visible together with their key-membership changes.
 Purge operations use the same boundary.
 
-Uncovered raw, administrative, and replay operations remain private until disk commit.
-Their commit invalidates affected core dependencies and publishes key changes before success.
-Only complete disk publication clears the corresponding dirty state.
+All requests remain private until disk commit, including raw, administrative, and replay operations.
+The commit updates key membership, invalidates changed sources, and installs covered clean values under one read boundary.
+An uncovered change clears affected core records before success.
 This queue is disk output and resource lifetime state, rather than an alternate source for ordinary reads.
+
+## Backup boundary
+
+Local backup exports the selected snapshot and exact dependency files. Restore verifies them before it publishes a fresh destination.
+The native capture code also saves an exact source home, snapshot generation, frontier, and durable file hold before network work.
+Resume uses that saved cut. It does not select a newer root.
+
+The [native backup design](designs/native-cloud-backup-mini-v1.md) describes separate owner jobs, transfer, restore, and release gates.
+`LASTDB_NATIVE_BACKUP_ENABLED` controls that source route and defaults off.
+Legacy Cloud Sync remains disabled. Local capture and export do not prove deployed cloud transfer or cloud recovery.
+
+Sources: [request completion](../fold_db/crates/core/src/storage/disk_pack/transaction/request.rs),
+[queue](../fold_db/crates/core/src/storage/disk_pack/queue.rs),
+[clean publication](../fold_db/crates/core/src/storage/disk_pack/view.rs),
+and [backup capture](../fold_db/crates/core/src/storage/disk_pack/backup_capture/capture.rs).
 
 ## Historical receipts
 
 The [October 15 receipt](proofs/disk-native-node-20261015/report.md) records the earlier development path and its debug comparison.
-That step required explicit activation and durable-only writes. Those controls do not describe current startup or ACK behavior.
+That step required explicit engine activation. Its controls and measurements describe only its recorded source.
 The [7110c7f5 receipt](proofs/layer2-completion-20261016/node-final-off-summary.json) measures a later historical candidate.
 The [October 16 status report](lastdb-disk-rollout-status.md) describes that candidate's earlier limits.
 Neither receipt establishes current performance, primary behavior, or upgrade readiness.

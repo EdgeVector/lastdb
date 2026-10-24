@@ -1,6 +1,7 @@
 # Native snapshot commits
 
-Status: integrated local protocol in this branch, October 23, 2026.
+Status: integrated local protocol on main, reviewed at `8a0a40b4f` on October 24, 2026.
+The [native summary](lastdb-disk-native-node.md) describes current writes, reads, and the separate native backup gate.
 The [operational report](proofs/snapshot-commits-20261022/RESULTS.md) records the generated-data product results and their limits.
 This protocol describes source guarantees. The product results do not establish power-loss behavior or a primary result.
 
@@ -255,10 +256,11 @@ The `lastdb-disk-home build` and generic `convert` commands therefore do not sup
 The product factory creates a fresh home with the required atom-record authority.
 Backup restore preserves the feature authority of a supported snapshot bundle.
 
-Native cloud sync remains blocked by the factory and cloud activation gates.
-The snapshot commit does not activate cloud upload, import, or a sync-only mutation log.
-Atomic capture of a snapshot and its included cloud sync boundary remains separate work.
-No claim here establishes cloud retention, import idempotence, or cloud recovery.
+Legacy Cloud Sync remains blocked by the factory and activation gates.
+Local native backup capture saves the exact snapshot, source home, frontier, and durable file hold before network work.
+The separate [native backup source](designs/native-cloud-backup-mini-v1.md) includes saved jobs, transfer, restore, and a disabled-by-default gate.
+Capture and export do not establish deployed cloud transfer or cloud recovery.
+The snapshot commit does not activate multi-device sync, atomic sync imports, or safe mutation-log retirement.
 
 Erase accounting commits its final aggregate snapshot with the erase in one native batch.
 The live debit follows the durable root.
