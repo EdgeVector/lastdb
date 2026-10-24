@@ -159,12 +159,22 @@ pub fn block_on_data_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let fut = execute_data_route(route, req, ctx, host);
-    handle.block_on(with_handler_timeout_budget(
+    handle.block_on(execute_data_route_with_timeout(route, req, ctx, host))
+}
+
+/// The same deadline applies when a mutation awaits outside its socket worker.
+pub async fn execute_data_route_with_timeout(
+    route: DataRoute,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    with_handler_timeout_budget(
         ctx,
         data_route_budget_for_request(route, req),
-        fut,
-    ))
+        execute_data_route(route, req, ctx, host),
+    )
+    .await
 }
 
 /// Resolve the route budget plus any explicit request-owned remote wait.

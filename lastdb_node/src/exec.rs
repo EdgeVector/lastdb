@@ -202,9 +202,11 @@ mod query_mutation_routes;
 mod query_read_receipt;
 mod schema_routes;
 mod setup_routes;
+mod socket_queue;
 mod storage_routes;
 mod sync_routes;
 mod timeouts;
+pub use socket_queue::{current_socket_queue_wait, with_socket_queue_wait};
 
 use admin_routes::*;
 use aggregate_routes::*;

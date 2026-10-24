@@ -2,6 +2,8 @@
 //! wrapper) for the control-socket HTTP/1.1 subset.
 
 use super::*;
+mod connection;
+pub use connection::{finish_connection, receive_connection};
 
 /// An HTTP/1.1 response to write back over the control socket.
 ///
@@ -270,64 +272,17 @@ fn serve_connection_with_timeout<H>(
 where
     H: FnOnce(&UdsRequest, &AccessContext) -> UdsResponse,
 {
-    // Read-phase budget (B4): bounds a slowloris peer during request parse.
-    // Handler work is deliberately NOT under this budget — setup verbs such as
-    // `POST /api/schemas/load` fetch the published catalog over the network and
-    // routinely take longer than `UDS_CONN_BUDGET` (observed ~20s+). Counting
-    // that work against the same deadline made the subsequent response write
-    // fail with TimedOut → empty reply to the client even after a successful
-    // load (first-run `brain init` / `kanban init` against Mini).
-    let read_deadline = std::time::Instant::now() + budget;
-    // Read from a buffered clone so the parser can own its reader while the
-    // original handle stays free for the response write. The read half is
-    // wrapped in a DeadlineStream so every recv re-arms the *remaining*
-    // aggregate budget — a slow-drip peer can't reset the window per byte (B4).
-    let read_half = stream.try_clone()?;
-    let response = match read_request(io::BufReader::new(DeadlineStream::new(
-        &read_half,
-        read_deadline,
-    ))) {
-        Ok(request) => {
-            // Re-read peer pid on the live stream for ops attribution. Accept
-            // already gated same-user; this is best-effort and never blocks
-            // the request if the credential read fails.
-            let peer_pid = peer_pid_from_stream(stream);
-            let base = uds_access_context(owner_user_id, socket_kind, transport, verification)
-                .with_peer_pid(peer_pid);
-            // Multi-DB handle (design-org-db-handle-platform-gap): SDK sends
-            // `X-LastDB-Db`; Mini scopes mutate/query via storage_prefix.
-            // Invalid locators fail closed with 400 so a typo cannot silently
-            // land in personal home.
-            let ctx = match base.with_db_handle(request.header(fold_db::access::LASTDB_DB_HEADER)) {
-                Ok(ctx) => ctx,
-                Err(msg) => {
-                    return write_response(
-                        &mut DeadlineStream::new(stream, std::time::Instant::now() + budget),
-                        &UdsResponse::new(400, "Bad Request", msg.into_bytes())
-                            .with_header("Content-Type", "text/plain; charset=utf-8"),
-                    );
-                }
-            };
-            handler(&request, &ctx)
-        }
-        // Peer hung up before a request, the transport failed, or the aggregate
-        // deadline was exhausted mid-read (TimedOut → Io): nothing to answer, and
-        // the write would just fail too. Close the connection content-free.
-        Err(UdsHttpError::Empty | UdsHttpError::Io(_)) => return Ok(()),
-        Err(e) => error_response(&e),
+    let Some((request, context)) = connection::receive_with_budget(
+        stream,
+        owner_user_id,
+        socket_kind,
+        transport,
+        verification,
+        budget,
+    )?
+    else {
+        return Ok(());
     };
-    // Write-phase budget: a *fresh* window starting after the handler returns.
-    // A peer that stops reading the response still can't wedge the accept loop
-    // (same B4 write-side bound as before), but long-running local handler work
-    // no longer starves the response write.
-    let write_deadline = std::time::Instant::now() + budget;
-    let mut write_half = DeadlineStream::new(stream, write_deadline);
-    write_response(&mut write_half, &response)?;
-    // `Connection: close`, one request per connection: shut down the write half
-    // so the peer's read sees a clean EOF and its `read_to_end` returns instead
-    // of blocking on a half-open socket. A failure here means the peer already
-    // went away after we flushed the response — there is nothing left to do, so
-    // it does not override the successful write.
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-    Ok(())
+    let response = handler(&request, &context);
+    connection::finish_with_budget(stream, &response, budget)
 }

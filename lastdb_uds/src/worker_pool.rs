@@ -37,6 +37,9 @@ use crate::uds_http;
 
 mod dispatch;
 use dispatch::{Dispatch, Rejected, Slot};
+mod completion;
+pub use completion::ConnectionWork;
+mod submit;
 
 /// Default queue depth when `LASTDB_UDS_QUEUE` is unset.
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
@@ -136,7 +139,7 @@ struct ConnJob {
     /// wait IS the request's queue wait.
     enqueued_at: Instant,
     /// Consumes the stream (handler owns it until done).
-    work: Box<dyn FnOnce(UnixStream) + Send + 'static>,
+    work: Box<dyn FnOnce(UnixStream, ConnectionWork) + Send + 'static>,
     /// Admission owns one count until this job's handler finishes.
     in_flight_guard: InFlightGuard,
 }
@@ -266,66 +269,6 @@ impl UdsWorkerPool {
         Self::new(WorkerPoolConfig::from_env())
     }
 
-    /// Queue an accepted connection for a worker.
-    ///
-    /// On [`SubmitError::QueueFull`], writes HTTP 503
-    /// (`uds_worker_queue_full`) to `stream` and closes it — the caller must
-    /// not use `stream` again.
-    pub fn try_submit_connection<F>(&self, stream: UnixStream, work: F) -> Result<(), SubmitError>
-    where
-        F: FnOnce(UnixStream) + Send + 'static,
-    {
-        let in_flight_guard = {
-            let mut state = self
-                .inner
-                .admission
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.closed {
-                None
-            } else {
-                state.in_flight += 1;
-                Some(InFlightGuard(Arc::clone(&self.inner)))
-            }
-        };
-        let Some(in_flight_guard) = in_flight_guard else {
-            let mut stream = stream;
-            if let Err(e) = uds_http::write_busy_and_close(&mut stream) {
-                tracing::debug!(error = %e, "busy response write failed");
-            }
-            return Err(SubmitError::ShutDown);
-        };
-        let job = ConnJob {
-            stream,
-            enqueued_at: Instant::now(),
-            work: Box::new(work),
-            in_flight_guard,
-        };
-        match self.inner.dispatch.submit(job) {
-            Ok(()) => {
-                self.inner.submitted.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
-            Err(Rejected::Full(job)) => {
-                self.inner
-                    .queue_full_rejects
-                    .fetch_add(1, Ordering::Relaxed);
-                let mut stream = job.stream;
-                if let Err(e) = uds_http::write_busy_and_close(&mut stream) {
-                    tracing::debug!(error = %e, "busy response write failed");
-                }
-                Err(SubmitError::QueueFull)
-            }
-            Err(Rejected::Closed(job)) => {
-                let mut stream = job.stream;
-                if let Err(e) = uds_http::write_busy_and_close(&mut stream) {
-                    tracing::debug!(error = %e, "busy response write failed");
-                }
-                Err(SubmitError::ShutDown)
-            }
-        }
-    }
-
     #[must_use]
     pub fn workers(&self) -> usize {
         self.inner.workers
@@ -416,8 +359,7 @@ fn worker_loop(dispatch: &Dispatch<ConnJob>) {
         // job sat in the bounded queue behind busy workers.
         let queue_wait = enqueued_at.elapsed();
         CURRENT_QUEUE_WAIT.with(|cell| cell.set(Some(queue_wait)));
-        work(stream);
+        work(stream, ConnectionWork::new(in_flight_guard, queue_wait));
         CURRENT_QUEUE_WAIT.with(|cell| cell.set(None));
-        drop(in_flight_guard);
     }
 }

@@ -49,8 +49,7 @@ pub async fn execute_data_route(
     // `Handle::block_on` on the UDS worker thread that picked the job up, so
     // the pool's thread-local is readable right here. `None` off a worker
     // thread (tests, direct calls) leaves the phase unset.
-    let queue_wait_us = lastdb_uds::worker_pool::current_queue_wait()
-        .map_or(0, fold_db::request_phases::duration_us);
+    let queue_wait_us = current_socket_queue_wait().map_or(0, fold_db::request_phases::duration_us);
     let started = std::time::Instant::now();
 
     // Phase accumulator scope: mutation-path recording sites (parse here in
