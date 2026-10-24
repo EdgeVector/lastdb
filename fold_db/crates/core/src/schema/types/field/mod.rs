@@ -11,5 +11,3 @@ pub use filter_utils::{
 };
 pub use hash_range_filter::{HashRangeFilter, HashRangeFilterResult, KeyWindow, SAMPLE_PEEK_CAP};
 pub use variant::{FieldKind, FieldValue, FieldVariant};
-
-pub mod base;

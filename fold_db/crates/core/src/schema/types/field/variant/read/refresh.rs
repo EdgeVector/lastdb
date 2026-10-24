@@ -22,13 +22,17 @@ impl FieldVariant {
     }
 
     async fn refresh_from_db_captured(&mut self, db_ops: &DbOperations) -> Result<(), SchemaError> {
-        super::super::super::base::refresh_field_molecule_from_db(
-            &mut self.inner,
-            &mut self.molecule,
-            self.kind,
-            db_ops,
-        )
-        .await
+        let Some(molecule_uuid) = self.common().molecule_uuid().cloned() else {
+            return Ok(());
+        };
+        if let Some(data) = db_ops
+            .atoms()
+            .load_molecule_per_key(&molecule_uuid, self.common().storage_prefix())
+            .await?
+        {
+            self.molecule = Some(data);
+        }
+        Ok(())
     }
 
     /// Load the selected key set through the typed core model and disk root.
@@ -53,7 +57,7 @@ impl FieldVariant {
             )
             .await?;
         match narrowed {
-            Some((data, ranges)) if self.kind.matches_data(&data) => {
+            Some((data, ranges)) => {
                 self.molecule = Some(data);
                 Ok(ranges)
             }

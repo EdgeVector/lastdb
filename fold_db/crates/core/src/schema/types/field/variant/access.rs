@@ -1,6 +1,5 @@
 use crate::db_operations::MoleculeData;
 use crate::schema::types::key_value::KeyValue;
-use crate::schema::types::SchemaError;
 
 use super::{FieldKind, FieldVariant};
 
@@ -9,16 +8,16 @@ impl FieldVariant {
     #[must_use]
     pub(crate) fn atom_entry_at_key(&self, key: &KeyValue) -> Option<&crate::atom::AtomEntry> {
         let molecule = self.molecule.as_ref()?;
-        let (hash, range) = self.slot_coordinates(key)?;
-        molecule.get_atom_entry(&hash, &range)
+        let (hash, range) = self.slot_coordinates_ref(key)?;
+        molecule.get_atom_entry(hash, range)
     }
 
     /// Key metadata at `key`, using the same slot projection as atom entries.
     #[must_use]
     pub(crate) fn key_metadata_at_key(&self, key: &KeyValue) -> Option<&crate::atom::KeyMetadata> {
         let molecule = self.molecule.as_ref()?;
-        let (hash, range) = self.slot_coordinates(key)?;
-        molecule.get_key_metadata(&hash, &range)
+        let (hash, range) = self.slot_coordinates_ref(key)?;
+        molecule.get_key_metadata(hash, range)
     }
 
     /// Returns whether a molecule is present in this field.
@@ -51,16 +50,8 @@ impl FieldVariant {
     }
 
     /// Install a freshly-loaded molecule into this field's slot.
-    pub(crate) fn set_molecule_data(&mut self, data: MoleculeData) -> Result<(), SchemaError> {
-        // Keep unified HashRange loads as HashRange for keyed fields (Hash/
-        // Range/HashRange all accept HashRange via matches_data).
-        if !self.kind.matches_data(&data) {
-            return Err(SchemaError::InvalidData(
-                "set_molecule_data: MoleculeData variant does not match field kind".to_string(),
-            ));
-        }
+    pub(crate) fn set_molecule_data(&mut self, data: MoleculeData) {
         self.molecule = Some(data);
-        Ok(())
     }
 
     /// Returns the writer public key from a Single molecule, if present and non-empty.
