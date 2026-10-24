@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 mod blob;
+mod repair_drill;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -26,6 +27,7 @@ pub async fn measure(db: &FoldDB, phase: &str) -> Result<Value> {
         "drain" => drain(db).await?,
         "replay" => replay(db).await?,
         "blob" => blob::measure(db).await?,
+        phase if phase.starts_with("repair-") => repair_drill::measure(db, phase).await?,
         _ => return Err("unknown finite lifecycle operation".into()),
     };
     value["phase"] = json!(phase);

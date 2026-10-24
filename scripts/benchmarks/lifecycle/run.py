@@ -11,6 +11,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "range_continuation"))
 from node import Node, file_hash, save
+from repair import measure_repair
 
 FIELDS = ["bucket", "id", "body"]
 
@@ -130,8 +131,8 @@ def retention(node):
     return hashed, ranged, young, values
 
 
-def recount(node, cli, label, execute=False, cutoff=None, success=True):
-    arguments = ["--data-dir", str(node.home), "db", "recount", "--all-scopes", "--molecules", "--shards", "4", "--json"]
+def recount(node, cli, label, execute=False, cutoff=None, success=True, shards=4):
+    arguments = ["--data-dir", str(node.home), "db", "recount", "--all-scopes", "--molecules", "--shards", str(shards), "--json"]
     if execute:
         arguments.append("--execute")
     if cutoff is not None:
@@ -158,6 +159,7 @@ def run(node, args, results):
     expected_history = {history_keys[0]: "reused-tip"}
     if read(node, "LifecycleHistory", history_keys) != expected_history:
         raise RuntimeError("The reopened drain changed the reused tip or restored an erased tip")
+    results["repair_drill"] = measure_repair(node, args, command, recount)
     hashed, ranged, young, results["backfill"] = retention(node)
     results["ttl"] = helper(node, args.helper, "ttl", 3600)
     if read(node, "LifecycleHash", hashed, True) != {key: "young-hash" for key in hashed[:2]}:
@@ -215,7 +217,7 @@ def run(node, args, results):
     else:
         raise RuntimeError("The actual verifier exceeds its bounded steps")
     results["final_status"] = node.status("after-compaction-and-restart")
-    results["scope"] = ("Generated real operations; healthy counter repair, no fabricated corruption, "
+    results["scope"] = ("Generated real operations plus Tom-approved one-time damaged-counter repair drill; "
                         "no power-loss, cloud transport, or physical media erasure claim")
     return results
 

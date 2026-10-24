@@ -32,9 +32,9 @@ def main():
                     lines.append("- " + name + ": " + str(round(elapsed, 3)) + " ms")
             lines.append("Raw request/reply records, owner commands and shutdown receipts are in the artifact.")
     lines.extend(["", "Scope: generated personal homes, plain and encrypted key modes, real writes, TTL,",
-                  "bounded conflict drains, healthy-home molecule repair, explicit delete cleanup,",
+                  "bounded conflict drains, approved one-time damaged-counter repair drill, explicit delete cleanup,",
                   "old replay refusal, shared atoms, real minimum file-blob dwell, compaction and reopened known-key reads.",
-                  "No fabricated corrupt source, power-loss, cloud transport, or physical erase claim."])
+                  "The repair drill changes only generated data. No power-loss, cloud transport, or physical erase claim."])
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write("\n".join(lines) + "\n")
 
