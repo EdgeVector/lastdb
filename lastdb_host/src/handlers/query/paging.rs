@@ -1,4 +1,4 @@
-//! Themed module split from the parent.
+//! Query page response assembly and continuation cursors.
 
 use super::*;
 
@@ -100,129 +100,11 @@ pub(in crate::handlers) fn counted_offset_payload(
     page_payload(page, Some(total_count), limit, offset, has_more, drops)
 }
 
-// The paginated push-down applies only to a true "list all" query: no
-// caller-supplied key filter (so the node owns the fetch) and no value filters
-// (those need every candidate materialized to evaluate).
-
-/// Key/partition filters that do **not** require a full-schema product scan.
-/// `Page` / `PageAfter` / `SampleN` alone still walk the schema and are treated
-/// as unfiltered product scans for the deprecation gate.
-///
-/// The predicate itself lives on [`HashRangeFilter`] because the count path
-/// keys off the same distinction: a key-restricted read counts and pages its
-/// partition, an unfiltered one the whole schema. Two copies drifting apart is
-/// what let a key-restricted read pass the scan gate but miss the push-down.
-pub(in crate::handlers) fn is_key_restricted_filter(filter: Option<&HashRangeFilter>) -> bool {
-    filter.is_some_and(HashRangeFilter::is_key_restricted)
-}
-
-/// Supported native selectors for the product query rejection's remediation.
-pub(in crate::handlers) const KEYED_FILTER_VARIANTS: &[&str] = &[
-    "HashKey",
-    "HashRangeKey",
-    "HashRangePrefix",
-    "HashRangeRange",
-    "HashRangeKeys",
-];
-
-pub(in crate::handlers) fn can_push_down(query: &Query) -> bool {
-    query.filter.is_none() && has_no_post_key_stage(query)
-}
-
-/// Can this key-restricted read be counted and windowed instead of
-/// materialized whole?
-///
-/// The filter has to select a **key set** (so the count describes the same rows
-/// the page will), and nothing may decide row membership after the keys are
-/// read. `value_filters` drop rows by their hydrated content,
-/// `field_predicates` / `order_by` / `predicate_limit` run the two-pass plan
-/// over every candidate — each would be answering from an arbitrary slice of
-/// its input if a window were taken first. Those shapes keep the
-/// materialize-then-slice fallback.
-pub(in crate::handlers) fn can_push_down_key_restricted(query: &Query) -> bool {
-    is_key_restricted_filter(query.filter.as_ref()) && has_no_post_key_stage(query)
-}
-
-/// Reversing one ascending key window also reverses its hash ties.
-pub(in crate::handlers) fn descending_cross_hash_batch(query: &Query) -> bool {
-    if !matches!(query.sort_order, Some(SortOrder::Desc)) {
-        return false;
-    }
-    let Some(HashRangeFilter::HashRangeKeys(keys)) = &query.filter else {
-        return false;
-    };
-    keys.first()
-        .is_some_and(|(hash, _)| keys.iter().any(|(other, _)| other != hash))
-}
-
-/// The exact keyed count is required only for a descending offset page, where
-/// it chooses the window from the high end, or when a caller asks the node to
-/// verify a keyed COUNT assertion. Ordinary ascending keyed pages use a cursor
-/// and must not pay a partition count merely to populate metadata.
-pub(in crate::handlers) fn key_restricted_count_is_required(
-    query: &Query,
-    cursor: Option<&KeyValue>,
-    expected_total_count: Option<usize>,
-) -> bool {
-    expected_total_count.is_some()
-        || (cursor.is_none() && matches!(query.sort_order.as_ref(), Some(SortOrder::Desc)))
-}
-
-pub(in crate::handlers) fn reject_wrong_expected_total_count(
-    expected: usize,
-    actual: usize,
-) -> HostError {
-    let _ = (expected, actual);
-    HostError::new(
-        409,
-        "expected_total_count did not match the keyed count".to_string(),
-    )
-}
-
-/// No stage that decides row membership after the key set is read.
-pub(in crate::handlers) fn has_no_post_key_stage(query: &Query) -> bool {
-    !query.requires_post_key_work()
-}
-
-pub(in crate::handlers) fn caller_supplied_page(query: &Query) -> Option<(usize, usize)> {
-    if query.requires_post_key_work() {
-        return None;
-    }
-    match &query.filter {
-        Some(HashRangeFilter::Page { offset, limit }) => Some((*offset, *limit)),
-        _ => None,
-    }
-}
-
-pub(in crate::handlers) fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
+fn next_cursor_for(page: &[Value], has_more: bool) -> Option<KeyValue> {
     if !has_more {
         return None;
     }
     page.last()
         .and_then(|row| row.get("key"))
         .and_then(|key| serde_json::from_value::<KeyValue>(key.clone()).ok())
-}
-
-/// Translate a caller's `(offset, limit)` page request into the ascending
-/// [`HashRangeFilter::Page`] that selects it, honouring `sort_order`. Records are
-/// stored/sliced in ascending `(range, hash)` order; a descending page counts
-/// from the high end, so map it to the matching ascending window (the fetched
-/// page is then re-ordered descending by [`format_rows`]).
-pub(in crate::handlers) fn page_filter_for(
-    sort_order: Option<&SortOrder>,
-    total: usize,
-    offset: usize,
-    limit: usize,
-) -> HashRangeFilter {
-    match sort_order {
-        Some(SortOrder::Desc) => {
-            let asc_offset = total.saturating_sub(offset.saturating_add(limit));
-            let asc_limit = total.saturating_sub(offset).saturating_sub(asc_offset);
-            HashRangeFilter::Page {
-                offset: asc_offset,
-                limit: asc_limit,
-            }
-        }
-        _ => HashRangeFilter::Page { offset, limit },
-    }
 }

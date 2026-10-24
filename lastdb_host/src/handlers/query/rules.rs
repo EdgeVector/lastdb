@@ -1,4 +1,4 @@
-//! Pure query option, keyed-page, and row-order rules.
+//! Pure query selection, admission, keyed-page, and row-order rules.
 //! No host, storage, or task access.
 
 use std::cmp::Ordering;
@@ -8,12 +8,8 @@ use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
 use fold_db::schema::types::KeyValue;
 use serde_json::Value;
 
+use crate::qos::Lane;
 use crate::HostError;
-
-use super::paging::{
-    can_push_down_key_restricted, descending_cross_hash_batch, is_key_restricted_filter,
-    page_filter_for, reject_wrong_expected_total_count,
-};
 
 /// Check options after schema resolution and the product keyed-access check,
 /// preserving the order in which invalid combinations are rejected.
@@ -58,7 +54,10 @@ pub(super) fn keyed_window(
     if let Some(total) = total {
         if let Some(expected) = query.expected_total_count {
             if expected != total {
-                return Err(reject_wrong_expected_total_count(expected, total));
+                return Err(HostError::new(
+                    409,
+                    "expected_total_count did not match the keyed count".to_string(),
+                ));
             }
         }
     } else if query.expected_total_count.is_some() {
@@ -133,4 +132,109 @@ pub(super) fn compare_rows(
             let b_hash = b["key"]["hash"].as_str().unwrap_or("");
             a_hash.cmp(b_hash)
         })
+}
+
+/// Key/partition filters that do **not** require a full-schema product scan.
+/// `Page` / `PageAfter` / `SampleN` alone still walk the schema and are treated
+/// as unfiltered product scans for the deprecation gate.
+///
+/// The predicate itself lives on [`HashRangeFilter`] because the count path
+/// keys off the same distinction: a key-restricted read counts and pages its
+/// partition, an unfiltered one the whole schema. Two copies drifting apart is
+/// what let a key-restricted read pass the scan gate but miss the push-down.
+pub(super) fn is_key_restricted_filter(filter: Option<&HashRangeFilter>) -> bool {
+    filter.is_some_and(HashRangeFilter::is_key_restricted)
+}
+
+/// An unfiltered administrative query needs no post-key stage.
+pub(super) fn can_push_down(query: &Query) -> bool {
+    query.filter.is_none() && !query.requires_post_key_work()
+}
+
+/// Can this key-restricted read be counted and windowed instead of
+/// materialized whole?
+///
+/// The filter has to select a **key set** (so the count describes the same rows
+/// the page will), and nothing may decide row membership after the keys are
+/// read. `value_filters` drop rows by their hydrated content,
+/// `field_predicates` / `order_by` / `predicate_limit` run the two-pass plan
+/// over every candidate — each would be answering from an arbitrary slice of
+/// its input if a window were taken first. Those shapes keep the
+/// materialize-then-slice fallback.
+pub(super) fn can_push_down_key_restricted(query: &Query) -> bool {
+    is_key_restricted_filter(query.filter.as_ref()) && !query.requires_post_key_work()
+}
+
+/// Reversing one ascending key window also reverses its hash ties.
+fn descending_cross_hash_batch(query: &Query) -> bool {
+    if !matches!(query.sort_order, Some(SortOrder::Desc)) {
+        return false;
+    }
+    let Some(HashRangeFilter::HashRangeKeys(keys)) = &query.filter else {
+        return false;
+    };
+    keys.first()
+        .is_some_and(|(hash, _)| keys.iter().any(|(other, _)| other != hash))
+}
+
+/// The exact keyed count is required only for a descending offset page, where
+/// it chooses the window from the high end, or when a caller asks the node to
+/// verify a keyed COUNT assertion. Ordinary ascending keyed pages use a cursor
+/// and must not pay a partition count merely to populate metadata.
+pub(super) fn key_restricted_count_is_required(query: &Query, cursor: Option<&KeyValue>) -> bool {
+    query.expected_total_count.is_some()
+        || (cursor.is_none() && matches!(query.sort_order.as_ref(), Some(SortOrder::Desc)))
+}
+
+/// A bare page can use count-and-fetch only without a post-key stage.
+pub(super) fn caller_supplied_page(query: &Query) -> Option<(usize, usize)> {
+    if query.requires_post_key_work() {
+        return None;
+    }
+    match &query.filter {
+        Some(HashRangeFilter::Page { offset, limit }) => Some((*offset, *limit)),
+        _ => None,
+    }
+}
+
+/// Translate a caller's `(offset, limit)` page request into the ascending
+/// [`HashRangeFilter::Page`] that selects it, honouring `sort_order`. Records are
+/// stored/sliced in ascending `(range, hash)` order; a descending page counts
+/// from the high end, so map it to the matching ascending window (the fetched
+/// page is then re-ordered descending by [`super::rows::format_rows`]).
+pub(super) fn page_filter_for(
+    sort_order: Option<&SortOrder>,
+    total: usize,
+    offset: usize,
+    limit: usize,
+) -> HashRangeFilter {
+    match sort_order {
+        Some(SortOrder::Desc) => {
+            let asc_offset = total.saturating_sub(offset.saturating_add(limit));
+            let asc_limit = total.saturating_sub(offset).saturating_sub(asc_offset);
+            HashRangeFilter::Page {
+                offset: asc_offset,
+                limit: asc_limit,
+            }
+        }
+        _ => HashRangeFilter::Page { offset, limit },
+    }
+}
+
+/// Select fallback admission from the key filter and page limit.
+/// Unkeyed administrative reads always use Bulk; other shapes retain the
+/// existing page-size policy.
+pub(super) fn lane_for_unknown_cardinality(query: &Query) -> Lane {
+    if !is_key_restricted_filter(query.filter.as_ref()) {
+        // Administrative inspection may need to reject many other-layout
+        // candidates before it can return even one logical record.
+        return Lane::Bulk;
+    }
+    let limit = match &query.filter {
+        Some(HashRangeFilter::Page { limit, .. } | HashRangeFilter::PageAfter { limit, .. }) => {
+            *limit
+        }
+        _ => return Lane::Interactive,
+    };
+    Lane::for_page_limit(limit)
 }
