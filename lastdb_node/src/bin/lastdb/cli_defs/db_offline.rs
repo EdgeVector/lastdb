@@ -50,6 +50,11 @@ pub(crate) enum DbOfflineCommand {
         /// must be stopped. Missing live headers or undecodable holders refuse repair.
         #[arg(long)]
         molecules: bool,
+        /// Reject replay at or before this unix second, then prune older Delete
+        /// barriers. This is an explicit global cutoff. Stale peers need resync.
+        /// Without --execute this reports only. Older programs refuse the fenced home.
+        #[arg(long, requires = "all_scopes")]
+        delete_cutoff_unix_secs: Option<u64>,
         /// Passes over the tips and records. More passes use less memory.
         /// Molecule repair permits 100,000 molecules and 64 MiB of header bytes
         /// in one pass; increase this count if either budget refuses the run.

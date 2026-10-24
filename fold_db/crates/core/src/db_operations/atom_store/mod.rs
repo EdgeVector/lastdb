@@ -33,6 +33,8 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod delete_replay;
+pub use delete_replay::DeletePruneReport;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;

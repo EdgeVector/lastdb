@@ -29,6 +29,10 @@ pub enum SchemaError {
     /// A normal Delete won while an imported Put waited to publish in memory.
     /// The replay caller removes stale mutations and retries the remaining batch.
     ReplayDeleteBarrierChanged,
+    /// A retired source needs a current snapshot before it can replay again.
+    ReplayBeforeDeleteCutoff {
+        cutoff_nanos: u64,
+    },
     PermissionDenied(String),
     /// A named database has no catalog membership for the requested schema.
     /// This is a distinct failure so callers never infer authorization from an
@@ -189,6 +193,8 @@ impl fmt::Display for SchemaError {
             Self::ReplayDeleteBarrierChanged => {
                 write!(f, "Delete barrier changed during mutation replay")
             }
+            Self::ReplayBeforeDeleteCutoff { cutoff_nanos } => write!(f,
+                "replay_cutoff_requires_resync: original write time is missing or at/before {cutoff_nanos}; restore a current snapshot before replay"),
             Self::InvalidCursor(msg) => write!(f, "Invalid resume cursor: {msg}"),
             Self::PermissionDenied(msg) => write!(f, "Permission denied: {msg}"),
             Self::CatalogMembershipDenied {
