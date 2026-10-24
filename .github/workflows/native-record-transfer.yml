@@ -12,6 +12,11 @@ on:
       - 'scripts/release/native-transfer-check.py'
       - '.github/workflows/native-record-transfer.yml'
   workflow_dispatch:
+    inputs:
+      baseline_oid:
+        description: Full accepted source revision of the installed native reader
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,7 +36,7 @@ jobs:
     timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: '3'
-      BASELINE_OID: f7e77989a050aa490d64231474c6d7df847c24af
+      BASELINE_OID: ${{ inputs.baseline_oid || 'f7e77989a050aa490d64231474c6d7df847c24af' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,6 +46,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$BASELINE_OID" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$BASELINE_OID" HEAD
           baseline="$RUNNER_TEMP/native-source"
           git worktree add --detach "$baseline" "$BASELINE_OID"
           git diff "$BASELINE_OID" HEAD -- \
@@ -57,8 +64,8 @@ jobs:
           import sys
           path = Path(sys.argv[1])
           text = path.read_text()
-          assert 'pub mod transfer;' not in text
-          path.write_text(text.replace('mod stream;\n', 'mod stream;\npub mod transfer;\n', 1))
+          if 'pub mod transfer;' not in text:
+              path.write_text(text.replace('mod stream;\n', 'mod stream;\npub mod transfer;\n', 1))
           PY
       - uses: Swatinem/rust-cache@v2
         with:
@@ -69,20 +76,26 @@ jobs:
           set -euo pipefail
           cargo build --locked --release -p lastdb_node --bin lastdb --bin lastdbd
           cargo build --locked --release -p laststore --bin lastdb-native-transfer
+          mkdir -p "$RUNNER_TEMP/native-candidate-bin"
+          for binary in lastdb lastdbd lastdb-native-transfer; do
+            cp "target/release/$binary" "$RUNNER_TEMP/native-candidate-bin/$binary"
+          done
+          # Share dependency output; preserve candidate executables before the
+          # old workspace emits its own programs at these same output paths.
           cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
-            --target-dir "$RUNNER_TEMP/native-source-target" \
+            --target-dir "$GITHUB_WORKSPACE/target" \
             -p lastdb_node --bin lastdb --bin lastdbd
           cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
-            --target-dir "$RUNNER_TEMP/native-source-target" \
+            --target-dir "$GITHUB_WORKSPACE/target" \
             -p laststore --bin lastdb-native-transfer
       - name: Run the complete two-home operational path
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/release/native-transfer-check.py \
-            --baseline "$RUNNER_TEMP/native-source-target/release" \
-            --candidate "$GITHUB_WORKSPACE/target/release" \
-            --source-transfer "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" \
+            --baseline "$GITHUB_WORKSPACE/target/release" \
+            --candidate "$RUNNER_TEMP/native-candidate-bin" \
+            --source-transfer "$GITHUB_WORKSPACE/target/release/lastdb-native-transfer" \
             > "$RUNNER_TEMP/native-transfer-result.json"
           {
             echo '## Native record transfer'
@@ -95,15 +108,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(uname -m)" = arm64
           output="$RUNNER_TEMP/native-migration-artifact"
           mkdir -p "$output"
           for binary in lastdb lastdbd lastdb-native-transfer; do
-            cp "target/release/$binary" "$output/$binary"
+            cp "$RUNNER_TEMP/native-candidate-bin/$binary" "$output/$binary"
             strip "$output/$binary"
             codesign --force --sign - "$output/$binary"
             codesign --verify --strict "$output/$binary"
           done
-          cp "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" "$output/source-native-transfer"
+          cp "$GITHUB_WORKSPACE/target/release/lastdb-native-transfer" "$output/source-native-transfer"
           strip "$output/source-native-transfer"
           codesign --force --sign - "$output/source-native-transfer"
           codesign --verify --strict "$output/source-native-transfer"

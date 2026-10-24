@@ -81,7 +81,8 @@ class Node:
         if self.process is None:
             return
         process = self.process
-        identity = json.loads((self.home / "current-session.json").read_text())
+        current = json.loads((self.home / "current-session.json").read_text())
+        identity = {name: current[name] for name in ("pid", "start_ts")}
         process.send_signal(signal.SIGTERM)
         require(process.wait(timeout=120) == 0, "Generated daemon did not stop cleanly")
         self.process = None
