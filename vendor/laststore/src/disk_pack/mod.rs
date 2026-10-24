@@ -36,6 +36,7 @@ mod page;
 mod page_write;
 mod private_files;
 mod publish;
+mod read_budget;
 mod record;
 mod selected_batch;
 pub mod snapshot;

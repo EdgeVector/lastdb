@@ -165,7 +165,7 @@ fn budget(request: &Value) -> Result<ReadBudget> {
         bytes: field("bytes", 256 * 1024 * 1024),
         keys: field("keys", 10000),
     };
-    budget.validate()?;
+    // The held native reader validates against its captured format feature.
     Ok(budget)
 }
 

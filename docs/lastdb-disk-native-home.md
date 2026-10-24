@@ -35,6 +35,11 @@ The transfer adapter does not import the newer source reader or its size limit.
 
 Read work and memory limits remain separate from the key format limit.
 A finite read budget can refuse an expensive path.
+Legacy read-page ceilings stay at 4,096.
+An extended generation permits at most 32,768 pages under the same finite work-byte ceiling.
+`ReadBudget::for_current` selects compatible administrative defaults from the captured generation.
+Native administrative reads and write preparation use those bounds.
+This avoids an impossible exact read of two adjacent 32 MiB keys under the old page ceiling.
 No active OPE performance claim follows from this format support.
 The full reader/writer change and active OPE measurements still precede primary approval.
 

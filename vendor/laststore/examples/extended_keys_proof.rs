@@ -72,8 +72,9 @@ fn main() -> Result<()> {
     verify(&transferred, &keys, true)?;
     verify_old_reader(&legacy_reader, &transferred, false)?;
     verify_legacy(&legacy, &legacy_reader)?;
+    verify_maximum(&scratch.0)?;
     fs::remove_dir_all(&scratch.0)?;
-    println!("extended_keys_proof: passed; sizes=1048576,9437184; sparse_cross_part=true; exact=true; batch=true; range=true; compaction=true; transfer=true; reopen=true; legacy_refusal=true; old_reader_refusal=true");
+    println!("extended_keys_proof: passed; sizes=1048576,9437184,33554432; sparse_cross_part=true; exact=true; batch=true; range=true; compaction=true; transfer=true; reopen=true; legacy_refusal=true; old_reader_refusal=true; upper_boundary=true");
     Ok(())
 }
 
@@ -84,7 +85,12 @@ fn key(first: char, bytes: usize) -> String {
 }
 
 fn body(key: &str) -> Vec<u8> {
-    format!("generated-body:{}", key.len()).into_bytes()
+    format!(
+        "generated-body:{}:{}",
+        key.len(),
+        key.as_bytes()[HASH.len()]
+    )
+    .into_bytes()
 }
 
 fn put(home: &DiskHome, key: &str) -> Result<()> {
@@ -111,6 +117,7 @@ fn budget() -> ReadBudget {
 fn verify(path: &Path, keys: &[String], extended: bool) -> Result<()> {
     let home = DiskHome::open(path)?;
     let selected = home.read(budget())?;
+    let limits = ReadBudget::for_current(selected.current());
     assert_eq!(
         selected.current().required_features & FEATURE_EXTENDED_KEYS != 0,
         extended
@@ -125,7 +132,7 @@ fn verify(path: &Path, keys: &[String], extended: bool) -> Result<()> {
     );
     drop(selected);
     for key in keys {
-        let mut read = home.read(budget())?;
+        let mut read = home.read(limits)?;
         assert_eq!(read.get(COLLECTION, key)?, Some(body(key)));
         if key.len() > 8 * 1024 * 1024 {
             assert!(read.costs().overflow_pages > PAGES_PER_PART);
@@ -135,14 +142,14 @@ fn verify(path: &Path, keys: &[String], extended: bool) -> Result<()> {
         .iter()
         .map(|key| (COLLECTION.into(), key.clone()))
         .collect();
-    let mut read = home.read(budget())?;
+    let mut read = home.read(limits)?;
     let found = read.get_many(&coordinates)?;
     assert_eq!(found.len(), keys.len());
     for (found, key) in found.into_iter().zip(keys) {
         assert_eq!(found?, Some(body(key)));
     }
     drop(read);
-    let mut read = home.read(budget())?;
+    let mut read = home.read(limits)?;
     let mut range = read.hash_range(
         COLLECTION,
         HASH,
@@ -162,7 +169,7 @@ fn verify(path: &Path, keys: &[String], extended: bool) -> Result<()> {
 }
 
 fn transfer_round_trip(parent: &Path, source: &Path, target: &Path) -> Result<()> {
-    let stream = parent.join("records.bin");
+    let stream = parent.join(format!("records-{}.bin", uuid::Uuid::new_v4()));
     let home = DiskHome::open(source)?;
     let file = fs::OpenOptions::new()
         .write(true)
@@ -180,6 +187,12 @@ fn transfer_round_trip(parent: &Path, source: &Path, target: &Path) -> Result<()
 fn verify_legacy(path: &Path, reader: &Path) -> Result<()> {
     HomeBuilder::create_empty_with_schema_record_refs(path, HomeDescriptor::new(1, 0)?)?;
     let home = DiskHome::open(path)?;
+    assert!(home
+        .read(ReadBudget {
+            pages: 4097,
+            ..budget()
+        })
+        .is_err());
     let keys = vec![key('a', 40000), key('b', 40000)];
     for key in &keys {
         put(&home, key)?;
@@ -215,4 +228,36 @@ fn verify_old_reader(reader: &Path, home: &Path, compatible: bool) -> Result<()>
     }
     assert_eq!(fs::read(home.join("CURRENT"))?, before);
     Ok(())
+}
+
+fn verify_maximum(parent: &Path) -> Result<()> {
+    let source = parent.join("maximum");
+    let target = parent.join("maximum-transfer");
+    HomeBuilder::create_empty_with_extended_keys(&source, HomeDescriptor::new(1, 0)?)?;
+    let home = DiskHome::open(&source)?;
+    let keys = vec![
+        key('a', EXTENDED_STORAGE_KEY_BYTES),
+        key('b', EXTENDED_STORAGE_KEY_BYTES),
+    ];
+    for key in &keys {
+        put(&home, key)?;
+    }
+    verify(&source, &keys, true)?;
+    let before = fs::read(source.join("CURRENT"))?;
+    let snapshot = home.snapshot()?;
+    let oversized = vec![HomeMutation {
+        collection: COLLECTION.into(),
+        key: key('c', EXTENDED_STORAGE_KEY_BYTES + 1),
+        body: Some(vec![]),
+    }];
+    assert!(snapshot.reserve_mutation(&oversized).is_err());
+    drop(snapshot);
+    assert_eq!(fs::read(source.join("CURRENT"))?, before);
+    let mut snapshot = home.snapshot()?;
+    assert_eq!(snapshot.compact(&SpacePolicy::default())?.records_copied, 2);
+    drop(snapshot);
+    drop(home);
+    verify(&source, &keys, true)?;
+    transfer_round_trip(parent, &source, &target)?;
+    verify(&target, &keys, true)
 }
