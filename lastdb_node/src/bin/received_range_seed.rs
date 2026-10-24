@@ -3,6 +3,7 @@
 //! This executable uses ordinary mutation/storage APIs. It neither contacts a
 //! sender nor measures sync, and cannot run outside a fresh owned CI home.
 
+// The mutation future crosses enough nested types to exceed rustc's default.
 #![recursion_limit = "256"]
 
 use fold_db::schema::types::Mutation;

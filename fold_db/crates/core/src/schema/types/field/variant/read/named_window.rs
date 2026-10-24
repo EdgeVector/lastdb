@@ -5,9 +5,8 @@ use crate::schema::types::field::fetch_atoms_with_key_metadata_async_with_prefix
 
 /// Query semantics can require another declared coordinate's field value.
 /// Owned batches avoid a borrow across the next physical tip read.
-type Membership<'a> = dyn FnMut(
-        HashMap<KeyValue, FieldValue>,
-    ) -> BoxFuture<'a, Result<HashMap<KeyValue, FieldValue>, SchemaError>>
+type FieldValues = HashMap<KeyValue, FieldValue>;
+type Membership<'a> = dyn FnMut(FieldValues) -> BoxFuture<'a, Result<(FieldValues, FieldValues), SchemaError>>
     + Send
     + 'a;
 
@@ -16,6 +15,7 @@ struct NamedWindow {
     limit: usize,
     after: Option<KeyValue>,
     values: HashMap<KeyValue, FieldValue>,
+    layout_values: FieldValues,
     had_spine: bool,
     refilling: bool,
 }
@@ -31,6 +31,7 @@ impl NamedWindow {
             limit,
             after,
             values: HashMap::new(),
+            layout_values: HashMap::new(),
             had_spine: false,
             refilling: false,
         }
@@ -48,7 +49,11 @@ impl NamedWindow {
         }
     }
 
-    fn accept(&mut self, keys: Vec<KeyValue>, mut values: HashMap<KeyValue, FieldValue>) {
+    fn accept(
+        &mut self,
+        keys: Vec<KeyValue>,
+        (mut values, mut layout_values): (FieldValues, FieldValues),
+    ) {
         for key in keys {
             let Some(value) = values.remove(&key) else {
                 continue;
@@ -56,6 +61,9 @@ impl NamedWindow {
             if self.skip > 0 {
                 self.skip -= 1;
             } else if self.values.len() < self.limit {
+                if let Some(layout_value) = layout_values.remove(&key) {
+                    self.layout_values.insert(key.clone(), layout_value);
+                }
                 self.values.insert(key, value);
             }
         }
@@ -73,11 +81,11 @@ impl FieldVariant {
         window: KeyWindow,
         include_tombstones: bool,
         membership: &mut Membership<'a>,
-    ) -> Result<(HashMap<KeyValue, FieldValue>, bool), SchemaError> {
+    ) -> Result<(FieldValues, FieldValues, bool), SchemaError> {
         self.require_supported_read(Some(filter))?;
         let mut selection = NamedWindow::new(window);
         if selection.limit == 0 {
-            return Ok((selection.values, false));
+            return Ok((selection.values, selection.layout_values, false));
         }
         if self.kind == FieldKind::HashRange
             && matches!(
@@ -107,7 +115,11 @@ impl FieldVariant {
         }
         self.stamp_molecule_meta(&mut selection.values);
         self.record_resolved_tip_keys(&selection.values);
-        Ok((selection.values, selection.had_spine))
+        Ok((
+            selection.values,
+            selection.layout_values,
+            selection.had_spine,
+        ))
     }
 
     async fn resolve_named_hash_pages<'a>(
