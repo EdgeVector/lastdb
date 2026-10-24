@@ -202,14 +202,14 @@ class Workload:
             monitor_stop.set()
             monitor_thread.join(timeout=5)
         metric = describe(rows, elapsed)
-        # Capture only after the complete timed case and its memory monitor end.
-        # Status requests never enter the measured latency or request counts.
-        if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:
-            metric["phase_coverage"] = capture_phases(self.node, self.output, name, sequence, rows)
         metric.update(sequence=sequence, clients=clients, batch_records=batch,
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
         metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before
+        # Capture after timed work and its resource observations. The diagnostic
+        # call never enters latency, throughput, memory, or the disk-size window.
+        if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:
+            metric["phase_coverage"] = capture_phases(self.node, self.output, name, sequence, rows)
         self.metrics[name] = metric
         if mode == "mixed":
             for kind in ("read", "write"):
