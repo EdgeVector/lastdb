@@ -171,7 +171,14 @@ async fn plan_delete(
         remove: (0..loaded.targets.len())
             .filter(|&index| blocked.contains(&loaded.targets[index].candidate.mk_key))
             .collect(),
-        spared: HashSet::new(),
+        // A surviving field keeps the logical key visible. Its retention age
+        // and search record must survive even when other fields were erased.
+        spared: loaded
+            .targets
+            .iter()
+            .filter(|target| !blocked.contains(&target.candidate.mk_key))
+            .map(|target| target.key_index)
+            .collect(),
         barrier_rows,
     })
 }
