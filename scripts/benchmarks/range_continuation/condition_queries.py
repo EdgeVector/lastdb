@@ -50,13 +50,13 @@ def selected(expected, spec):
     return keys[:spec.get("predicate_limit", len(keys))]
 
 
-def validate(result, expected, spec, reference=None):
+def validate(result, expected, spec, reference=None, *, conditioned=True):
     keys = selected(expected, spec)
     wanted = keys[spec.get("offset", 0):spec.get("offset", 0) + spec["limit"]]
     rows = result.get("results", [])
     actual = [(row["key"].get("hash"), row["key"].get("range")) for row in rows]
     if (actual != wanted or result.get("returned_count") != len(wanted)
-            or result.get("total_count") != len(keys)
+            or result.get("total_count") != (len(keys) if conditioned else None)
             or result.get("has_more") != (spec.get("offset", 0) + len(wanted) < len(keys))
             or result.get("next_cursor") is not None
             or result.get("unresolved_rows") != 0 or result.get("tombstoned_rows") != 0):

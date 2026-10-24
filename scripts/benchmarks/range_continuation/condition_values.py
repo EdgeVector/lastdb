@@ -1,5 +1,7 @@
 """Small keyed condition data within the existing generated daemon recipes."""
 
+import hashlib
+
 HASH, COUNT = "condition-reuse", 128
 EXTRA_FIELDS = ["score", "optional", "never"]
 
@@ -13,6 +15,13 @@ def extend(values, source=None):
         return values
     number = int(values["id"].rsplit("-", 1)[1])
     rank = 0 if source is None else source + 1
+    # Only this fixed hash uses nested JSON. Eight 1KiB strings expose value
+    # copies while the complete response stays below the existing 4MiB cap.
+    seed = values["body"]
+    values["body"] = {"source": marker(source), "identity": {"hash": HASH, "range": values["id"]},
+        "parts": [{"position": part, "flags": [True, None, number],
+            "payload": hashlib.shake_256((seed + str(part)).encode()).hexdigest(512)}
+            for part in range(8)]}
     values["title"] = marker(source) + "-class-" + str(number % 4)
     values["score"] = rank * 100 + number % 16
     if number % 4:
