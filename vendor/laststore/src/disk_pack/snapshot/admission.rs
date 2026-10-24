@@ -22,8 +22,7 @@ struct State {
 pub(super) struct AdmissionLedger(Mutex<State>);
 
 /// Owned, non-cloneable capacity for one complete batch on one writer instance.
-/// Dropping an unused ticket returns its quota. A failed commit retains the
-/// uncertain charge while that poisoned writer exists.
+/// Dropping the reservation returns its quota, even if a commit began and failed.
 pub struct SnapshotReservation {
     ledger: Arc<AdmissionLedger>,
     id: u64,
@@ -214,15 +213,7 @@ impl Drop for SnapshotReservation {
         let Ok(mut state) = self.ledger.0.lock() else {
             return;
         };
-        if state
-            .entries
-            .get(&self.id)
-            .is_some_and(|entry| !entry.uncertain)
-        {
-            let entry = state
-                .entries
-                .remove(&self.id)
-                .expect("known unused reservation");
+        if let Some(entry) = state.entries.remove(&self.id) {
             state.bytes -= entry.reserved_bytes;
         }
     }
