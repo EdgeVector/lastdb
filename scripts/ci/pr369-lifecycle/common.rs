@@ -119,6 +119,12 @@ pub(super) async fn values(db: &FoldDB, keys: &[String]) -> Result<Vec<Option<Va
         .ok_or("schema missing")?;
     let field = &schema.runtime_fields["payload"];
     let molecule = field.common().molecule_uuid().ok_or("molecule missing")?;
+    // Match the normal query executor: a cold process must load this molecule's
+    // stored key bundle before it encodes API keys for exact disk reads.
+    db.db_ops()
+        .atoms()
+        .load_molecule_key_bundle(molecule)
+        .await?;
     let codec = db.db_ops().atoms().key_codec_for_molecule(molecule)?;
     let bases = keys
         .iter()
