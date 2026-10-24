@@ -240,21 +240,13 @@ impl AtomStore {
                     }
                     continue;
                 }
-                let (records, markers, expired) = self.split_due_rows(&page, now_nanos);
+                let (records, markers) = self.split_due_rows(&page);
                 let refused = cursor.register(markers);
-                let outcome = if records.is_empty() && expired.is_empty() {
+                let outcome = if records.is_empty() {
                     ReleaseOutcome::default()
                 } else {
-                    self.release_due_records(&records, &expired, now_nanos)
-                        .await?
+                    self.release_due_records(&records, now_nanos).await?
                 };
-                if !expired.is_empty() {
-                    tracing::info!(
-                        target: "fold_node::database",
-                        markers = expired.len(),
-                        "conflict janitor dropped drain markers older than the retention window"
-                    );
-                }
                 let stays = refused.is_some();
                 match refused {
                     None => cursor.reader.finish(page),
@@ -264,10 +256,7 @@ impl AtomStore {
                         now_nanos.saturating_add(RETRY_NANOS),
                     ),
                 }
-                if !records.is_empty()
-                    || !expired.is_empty()
-                    || marker_pages >= MARKER_PAGES_PER_STEP
-                {
+                if !records.is_empty() || marker_pages >= MARKER_PAGES_PER_STEP {
                     return Ok(Some(StepOutcome {
                         lane: Lane::Ordinary,
                         released: outcome.released,
