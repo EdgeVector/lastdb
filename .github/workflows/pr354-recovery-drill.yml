@@ -2,7 +2,6 @@ name: PR 354 one-time recovery drill
 
 on:
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -96,7 +95,7 @@ jobs:
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/pr354-artifact.zip"
           actual=$(sha256sum "$RUNNER_TEMP/pr354-artifact.zip" | cut -d ' ' -f 1)
-          test "$actual" = "$EXPECTED_SHA"
+          test "$actual" = "${EXPECTED_SHA#sha256:}"
           expiry=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq '.expires_at')
           {
             echo "Verified artifact: $DOWNLOAD_URL"
