@@ -130,6 +130,7 @@ def main():
     text = "\n".join(lines) + "\n"
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
         stream.write(text)
+    print(text, end="")
     save(args.output / "artifact-files.json", {"files": inventory(args.output),
          "scope": "Exact file hashes before upload; full raw bodies stay outside Git in this14-day artifact"})
 

@@ -123,6 +123,7 @@ async fn activate_generated_receivers(host: &Host) -> Result<(), Box<dyn std::er
         .db_ops()
         .open_namespace("share_subscriptions")
         .await?;
+    let mut controls = Vec::with_capacity(SENDERS.len());
     for sender in SENDERS {
         let subscription = ShareSubscription {
             sender_pubkey: format!("generated-ci-{sender}"),
@@ -132,10 +133,12 @@ async fn activate_generated_receivers(host: &Host) -> Result<(), Box<dyn std::er
             active: true,
             share_grant: None,
         };
-        subscriptions
-            .put(sender.as_bytes(), serde_json::to_vec(&subscription)?)
-            .await?;
+        controls.push((
+            sender.as_bytes().to_vec(),
+            serde_json::to_vec(&subscription)?,
+        ));
     }
+    subscriptions.batch_put(controls).await?;
     Ok(())
 }
 
