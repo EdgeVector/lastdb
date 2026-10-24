@@ -34,11 +34,11 @@ pub(super) async fn run(root: &Path) -> Result<Value> {
         ..Default::default()
     };
     counted_intent(&engine, &target, &home, &mut progress).await?;
-    refusals(&engine, &target, &home, root, &mut progress).await?;
+    let refused = refusals(&engine, &target, &home, root, &mut progress).await?;
     db.shutdown_local_only().await?;
     Ok(
         json!({"case":"raw-replay", "passed":true, "complete_mutation_counted":true,
-        "refused_operations":7, "memory_cursor":42, "disk_cursor":42, "partial_effects":0}),
+        "refused_operations":refused, "memory_cursor":42, "disk_cursor":42, "partial_effects":0}),
     )
 }
 
@@ -134,7 +134,7 @@ async fn refusals(
     home: &homes::Home,
     root: &Path,
     progress: &mut DownloadProgress,
-) -> Result<()> {
+) -> Result<usize> {
     let snapshot = homes::snapshot(root)?;
     let tip = snapshot
         .namespaces
@@ -150,6 +150,8 @@ async fn refusals(
         })
         .ok_or("missing tip")?;
     let cases = raw_cases(&tip.key, &tip.value);
+    let count = cases.len();
+    require(count >= 21, "membership refusal cases are missing")?;
     let main = home.logical.open_namespace("main").await?;
     let opaque_before = b"original generated metadata".to_vec();
     main.put(b"drill:must-not-write", opaque_before.clone())
@@ -191,7 +193,7 @@ async fn refusals(
             "refused entry changed its lifecycle record",
         )?;
     }
-    Ok(())
+    Ok(count)
 }
 
 fn fetched(seq: u64, op: LogOp) -> FetchedEntry {
@@ -212,7 +214,7 @@ fn fetched(seq: u64, op: LogOp) -> FetchedEntry {
 fn raw_cases(key: &str, value: &str) -> Vec<LogOp> {
     let opaque = LogOp::encode_bytes(b"drill:must-not-write");
     let bytes = LogOp::encode_bytes(b"generated opaque metadata");
-    vec![
+    let mut cases = vec![
         LogOp::Put {
             namespace: "main".into(),
             key: key.into(),
@@ -254,5 +256,35 @@ fn raw_cases(key: &str, value: &str) -> Vec<LogOp> {
             key: LogOp::encode_bytes(b"physical-alias"),
             value: value.into(),
         },
-    ]
+    ];
+    for (namespace, key) in [
+        ("main", "protein:generated"),
+        ("main", "molprot:generated"),
+        ("proteins", "physical-alias"),
+        ("schemas", "generated-authority"),
+        ("schema_states", "generated-authority"),
+        ("schema_superseded_by", "generated-authority"),
+        ("db_catalog", "generated-authority"),
+    ] {
+        let key = LogOp::encode_bytes(key.as_bytes());
+        cases.push(LogOp::Delete {
+            namespace: namespace.into(),
+            key: key.clone(),
+        });
+        cases.push(LogOp::LogicalCommit {
+            changes: vec![
+                LogicalChange {
+                    namespace: "main".into(),
+                    key: LogOp::encode_bytes(b"drill:must-not-write"),
+                    value: Some(LogOp::encode_bytes(b"must not publish")),
+                },
+                LogicalChange {
+                    namespace: namespace.into(),
+                    key,
+                    value: Some(LogOp::encode_bytes(b"generated authority")),
+                },
+            ],
+        });
+    }
+    cases
 }

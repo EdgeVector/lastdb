@@ -20,7 +20,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '3'
       CARGO_PROFILE_DEV_DEBUG: '0'
-      PRODUCT_OID: fe957bea5d9a857e02a8ea8efd7d910a918ccb80
+      PRODUCT_OID: f34701290600d4c5788001ea8c641a793d338d12
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           output="$RUNNER_TEMP/pr354-results.jsonl"
           : > "$output"
-          for mode in seed complete reopen-complete interrupt refuse-partial refuse-partial recover reopen-recovered raw-replay shared-files; do
+          for mode in seed complete reopen-complete interrupt refuse-partial refuse-partial recover reopen-recovered raw-replay shared-files marker-entries; do
             if ! timeout 180 target/debug/examples/pr354-counter-recovery "$mode" "$PR354_HOME" \
               >> "$output" 2>> "$RUNNER_TEMP/pr354-runtime.log"; then
               cat "$output"
@@ -74,7 +74,7 @@ jobs:
             echo 'Product functions remain unchanged. The CI patch only links the drill and exposes the existing replay callback.'
             echo 'This deterministic recovery drill uses the dev profile. Product release measurements and native Linux/macOS recovery run separately.'
             cat "$RUNNER_TEMP/pr354-visibility.sha256"
-            echo 'Complete restore, serving reopen, durable interrupted restore, two refused restarts, complete retry, counted mutation replay, seven raw replay refusals, and shared-file controls passed.'
+            echo 'Complete restore, serving reopen, durable interrupted restore, two refused restarts, complete retry, counted mutation replay, lifecycle and membership replay refusals, shared-file controls, and native marker entry cases passed.'
             echo 'The drill uses generated data. It uses no primary home, archive, account credential, cloud service, or cargo test.'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7

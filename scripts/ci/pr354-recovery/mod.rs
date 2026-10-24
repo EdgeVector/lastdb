@@ -2,6 +2,7 @@
 
 mod homes;
 mod interrupted;
+mod markers;
 mod raw_replay;
 mod shared_files;
 
@@ -31,6 +32,7 @@ impl SyncEngine {
             "reopen-recovered" => homes::reopen(root, "partial").await,
             "raw-replay" => raw_replay::run(root).await,
             "shared-files" => shared_files::run(root).await,
+            "marker-entries" => markers::run(root).await,
             "cleanup" => cleanup(root),
             _ => Err(std::io::Error::other("unknown drill mode").into()),
         }
