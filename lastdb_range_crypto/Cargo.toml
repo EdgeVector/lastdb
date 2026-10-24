@@ -1,0 +1,23 @@
+[package]
+name = "lastdb_range_crypto"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+autotests = false
+license = "Apache-2.0"
+description = "Private-key-derived, byte-sortable range terms for LastDB"
+
+[dependencies]
+hkdf = "0.12"
+hmac.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[lib]
+test = false
+doctest = false
+bench = false
+
+[lints]
+workspace = true

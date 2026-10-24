@@ -2030,6 +2030,7 @@ dependencies = [
  "hashbrown 0.17.0",
  "hkdf",
  "hmac 0.12.1",
+ "lastdb_range_crypto",
  "lastdb_storage_policy",
  "laststore",
  "libc",
@@ -3100,6 +3101,17 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "lastdb_range_crypto"
+version = "0.1.0"
+dependencies = [
+ "hkdf",
+ "hmac 0.12.1",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
  "zeroize",
 ]
 
