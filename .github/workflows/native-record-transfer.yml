@@ -7,6 +7,7 @@ on:
       - 'vendor/laststore/src/disk_pack/home.rs'
       - 'vendor/laststore/src/bin/lastdb-native-transfer.rs'
       - 'vendor/laststore/Cargo.toml'
+      - 'vendor/laststore/examples/extended_keys_proof.rs'
       - 'lastdb_node/src/native_transfer_target.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs/db_offline.rs'
       - 'scripts/release/native-transfer-check.py'
@@ -53,7 +54,6 @@ jobs:
           baseline="$RUNNER_TEMP/native-source"
           git worktree add --detach "$baseline" "$BASELINE_OID"
           git diff "$BASELINE_OID" HEAD -- \
-            vendor/laststore/Cargo.toml \
             vendor/laststore/src/bin/lastdb-native-transfer.rs \
             vendor/laststore/src/disk_pack/home/transfer.rs \
             vendor/laststore/src/disk_pack/home/transfer \
@@ -62,13 +62,18 @@ jobs:
             git -C "$baseline" apply "$RUNNER_TEMP/native-transfer-adapter.patch"
           fi
           # Register the adapter without importing later old-reader changes.
-          python3 - "$baseline/vendor/laststore/src/disk_pack/home.rs" <<'PY'
+          python3 - "$baseline/vendor/laststore/src/disk_pack/home.rs" "$baseline/vendor/laststore/Cargo.toml" <<'PY'
           from pathlib import Path
           import sys
           path = Path(sys.argv[1])
           text = path.read_text()
           if 'pub mod transfer;' not in text:
               path.write_text(text.replace('mod stream;\n', 'mod stream;\npub mod transfer;\n', 1))
+          manifest = Path(sys.argv[2])
+          text = manifest.read_text()
+          if 'name = "lastdb-native-transfer"' not in text:
+              text += '\n[[bin]]\nbench = false\ntest = false\nname = "lastdb-native-transfer"\npath = "src/bin/lastdb-native-transfer.rs"\n'
+              manifest.write_text(text)
           PY
           # The old worker only exports. Do not import a newer target builder
           # or change any reader, key limit, feature flag, or stored bytes.
@@ -107,6 +112,43 @@ jobs:
           cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
             --target-dir "$RUNNER_TEMP/native-source-target" \
             -p laststore --bin lastdb-native-transfer --bin lastdb-disk-recovery
+      # Tom explicitly approved this one native CI-only proof on 2026-10-24:
+      # "Allow this native CI-only exception". Other tests stay retired.
+      - name: Lint and execute the authorized native key proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked -p laststore --example extended_keys_proof -- -D warnings
+          cargo run --locked --release -p laststore --example extended_keys_proof -- \
+            --legacy-reader "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" \
+            | tee "$RUNNER_TEMP/extended-keys-proof.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/extended-keys-source.txt"
+          shasum -a 256 "$RUNNER_TEMP/extended-keys-proof.txt" > "$RUNNER_TEMP/extended-keys-proof.sha256"
+          {
+            echo '## Extended native key proof'
+            echo "Source: $(git rev-parse HEAD)"
+            echo "Old reader: $BASELINE_OID, with export-only transport adapter."
+            cat "$RUNNER_TEMP/extended-keys-proof.txt"
+            cat "$RUNNER_TEMP/extended-keys-proof.sha256"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        id: extended_keys_proof
+        with:
+          name: extended-keys-proof-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/extended-keys-proof.txt
+            ${{ runner.temp }}/extended-keys-proof.sha256
+            ${{ runner.temp }}/extended-keys-source.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Record native key proof artifact and retention
+        env:
+          PROOF_URL: ${{ steps.extended_keys_proof.outputs.artifact-url }}
+          PROOF_DIGEST: ${{ steps.extended_keys_proof.outputs.artifact-digest }}
+        run: |
+          echo "Artifact: $PROOF_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact SHA-256: $PROOF_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Retention: 14 days from upload.' >> "$GITHUB_STEP_SUMMARY"
       - name: Obtain the original baseline program pair
         env:
           GH_TOKEN: ${{ github.token }}
