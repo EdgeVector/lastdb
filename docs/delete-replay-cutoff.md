@@ -29,6 +29,16 @@ A TTL Delete can remove tips only before its original age cutoff. The mutation e
 
 A mutation without a TTL cutoff keeps its existing content hash. Old programs that discard a signed TTL cutoff cannot validate the changed content.
 
+## Upgrade order
+
+Pause TTL on each peer with `LASTDB_TTL_SWEEP=0` before the first peer runs this version. Upgrade every peer that can send or receive this database. Keep old offline peers paused until they also upgrade.
+
+After all peers accept the signed TTL cutoff, enable TTL again. The new signed envelope fails verification on an older peer that drops the cutoff. That failure stops replay. It does not permit a broader Delete.
+
+Choose the explicit delete cutoff only after the owner accepts that older offline work requires resync. Stop the target home before the cleanup command. After cleanup, start a program that supports the fenced format. Do not downgrade that home to an older program.
+
+A stale peer must obtain a current snapshot from the fenced state before it resumes replay. Keep the replay floor with that snapshot. An old backup is not a current snapshot.
+
 ## Limits
 
 The cleanup removes local delete order records. It does not erase historical backups or cloud files. A deliberate restore from an older backup can restore old data and its old replay rule.
