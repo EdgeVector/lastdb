@@ -24,8 +24,11 @@
 mod apply;
 mod blobs;
 mod decide;
+mod molecules;
 mod report;
 mod retention;
+
+pub use molecules::MoleculeRecountReport;
 
 pub use report::{Change, RecountOptions, RecountReport};
 
@@ -89,6 +92,10 @@ impl AtomStore {
                     index,
                     count: shards,
                 };
+                if options.molecules {
+                    self.recount_molecules(&pass, options.execute, &mut report)
+                        .await?;
+                }
                 self.recount_pass(&pass, options.execute, &mut report)
                     .await?;
             }

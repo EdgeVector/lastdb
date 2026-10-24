@@ -18,6 +18,9 @@ pub struct RecountOptions {
     /// nothing references. Without it the blob step only raises counters.
     #[serde(default)]
     pub blobs_exact: bool,
+    /// Rebuild molecule header and binding counters on this stopped home.
+    #[serde(default)]
+    pub molecules: bool,
 }
 
 impl Default for RecountOptions {
@@ -27,6 +30,7 @@ impl Default for RecountOptions {
             scopes: vec![None],
             shards: 1,
             blobs_exact: false,
+            molecules: false,
         }
     }
 }
@@ -109,6 +113,8 @@ pub struct RecountReport {
     /// The blob step: the blob counters against the atom counters and the tips.
     #[serde(default)]
     pub blobs: crate::db_operations::atom_store::BlobRecountReport,
+    #[serde(default)]
+    pub molecules: super::MoleculeRecountReport,
     pub changes: Vec<Change>,
     pub notes: Vec<String>,
 }
@@ -118,7 +124,11 @@ impl RecountReport {
     /// bodies of atoms, and retention rows of records.
     #[must_use]
     pub fn changed(&self) -> u64 {
-        self.created
+        self.molecules.headers_rewritten
+            + self.molecules.bindings_rewritten
+            + self.molecules.bindings_deleted
+            + self.molecules.drains_queued
+            + self.created
             + self.raised
             + self.lowered
             + self.suspect_cleared

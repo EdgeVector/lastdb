@@ -46,6 +46,10 @@ pub(crate) enum DbOfflineCommand {
         /// count too low.
         #[arg(long, requires = "all_scopes")]
         blobs_exact: bool,
+        /// Repair molecule slots, conflict-record and binding counts. The home
+        /// must be stopped. Missing live headers or undecodable holders refuse repair.
+        #[arg(long)]
+        molecules: bool,
         /// Passes over the tips and records. Each pass holds the atoms of one
         /// shard in memory, so more passes use less memory (default 1).
         #[arg(long, default_value_t = 1)]

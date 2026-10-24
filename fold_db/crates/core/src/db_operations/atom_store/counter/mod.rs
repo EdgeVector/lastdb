@@ -55,7 +55,7 @@ pub(crate) use commit::{
 pub use molecule::counts_of_header;
 pub use molecule_plan::{MoleculeCounts, MoleculeFault};
 pub use read::AtomCounterView;
-pub use recount::{Change, RecountOptions, RecountReport};
+pub use recount::{Change, MoleculeRecountReport, RecountOptions, RecountReport};
 pub(crate) use refs::event_atoms;
 pub use report::AtomCounterReport;
 pub(crate) use report::CounterEvents;
