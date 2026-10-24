@@ -100,6 +100,7 @@ struct Pending {
 fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surface: Surface) {
     let host = Arc::clone(&server.host);
     let replies = Arc::clone(&server.mutation_replies);
+    let queued_at = std::time::Instant::now();
     server.handle.spawn(async move {
         // Hold one slot from handler start through final write/drop. Neither
         // handler outputs nor slow-peer replies can multiply by queue capacity.
@@ -114,7 +115,7 @@ fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surfac
             completion,
         } = pending;
         let response = exec::with_socket_queue_wait(
-            completion.queue_wait(),
+            completion.queue_wait().saturating_add(queued_at.elapsed()),
             exec::execute_data_route_with_timeout(route, &request, &context, &host),
         )
         .await;
