@@ -147,9 +147,13 @@ Faults of these phases:
   keys and no scan finds them again. `lastdb db inventory` lists the first 500 of them as
   `unbound_sample`, and `lastdb db molecule-drain --molecule=<uuid>` queues one. A molecule
   recount that rediscovers candidates is not built.
-- A molecule that is refused or `suspect` has no repair path. The drain never changes a
-  counter. A tip written outside the planner into a dead molecule is erased by the drain, and
-  `slots` goes below zero: the header stays `suspect`.
+- The drain never repairs a `suspect` counter. Stop the node and run
+  `lastdb db recount --molecules` to report exact header and binding counts.
+  Add `--execute` to write the repairs under the stopped-home lock.
+  Each scope and pass validates tips, retained conflicts, headers, and binding records before its first molecule write.
+  The repair preserves header metadata and queues an unbound molecule for the normal bounded drain.
+  It refuses a missing live header, unreadable holder, or discarded storage record.
+  It creates no atom body or missing schema definition.
 - After a drain the node-global key bundle (`mkb:`, `mkw:`), the `protein:` records without
   members, the delete-ledger rows and the search entries of the erased keys stay.
 - The schema drop reads the whole database catalog with `list_entries` (a scan of a small
@@ -157,5 +161,5 @@ Faults of these phases:
 - A molecule whose `records` counter names kept conflict records that no slot directory entry
   names (the counter and the directory differ) is not released by any drain step. The records
   end with their own retention window, and the drain waits for them. Such a molecule does not
-  block an install. A molecule recount would repair it; it is not built.
+  block an install. The offline molecule recount repairs the counter from the actual retained records.
 

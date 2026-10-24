@@ -15,6 +15,9 @@ impl MutationManager {
             .as_ref()
             .map(|_| (job.validated_present, job.retry_requires_finalize));
         let attempt = async {
+            self.require_replay_cutoff(&job.erasures)
+                .await
+                .map_err(PurgeAttemptError::Rejected)?;
             // Both erasure verbs accept caller conditions. Compare before any
             // selected tip or body is removed, under the native write gate.
             self.check_cas_preconditions(&job.erasures, job.storage_prefix.as_deref())

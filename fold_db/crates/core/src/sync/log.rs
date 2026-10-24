@@ -278,6 +278,9 @@ pub struct MutationEnvelope {
     /// mutation. The derived total is deliberately absent from the log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregate_set: Option<crate::schema::types::AggregateSet>,
+    /// Signed TTL erasure boundary. Absence preserves legacy unconditional erase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub erase_tips_before_nanos: Option<u64>,
 }
 
 impl MutationEnvelope {

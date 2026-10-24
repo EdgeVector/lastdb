@@ -40,6 +40,10 @@ impl Mutation {
         push_field(&mut digest, self.author_clock_writer_id.as_bytes());
         json_field(&mut digest, &self.imported_version);
         json_field(&mut digest, &self.aggregate_set);
+        if let Some(cutoff) = self.erase_tips_before_nanos {
+            push_field(&mut digest, b"lastdb-ttl-erase-cutoff-v1");
+            digest.update(cutoff.to_be_bytes());
+        }
         format!("{:x}", digest.finalize())
     }
 }

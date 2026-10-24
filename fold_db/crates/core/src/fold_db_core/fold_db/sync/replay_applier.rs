@@ -12,6 +12,12 @@ impl FoldDB {
             let mutation_manager = Arc::clone(&mutation_manager);
             let materializer = Arc::clone(&materializer);
             Box::pin(async move {
+                // Reject retired author clocks before materialization can fetch
+                // or stage bytes. Native publication checks the fence again.
+                mutation_manager
+                    .require_envelope_replay_cutoff(&envelopes)
+                    .await
+                    .map_err(crate::sync::MutationIntentReplayError::from)?;
                 let envelopes = materializer(envelopes)
                     .await
                     .map_err(crate::sync::MutationIntentReplayError::materialization)?;

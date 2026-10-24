@@ -18,6 +18,12 @@ pub struct RecountOptions {
     /// nothing references. Without it the blob step only raises counters.
     #[serde(default)]
     pub blobs_exact: bool,
+    /// Rebuild molecule header and binding counters on this stopped home.
+    #[serde(default)]
+    pub molecules: bool,
+    /// Explicit global replay floor for stopped-home delete-barrier cleanup.
+    #[serde(default)]
+    pub delete_cutoff_nanos: Option<u64>,
 }
 
 impl Default for RecountOptions {
@@ -27,6 +33,8 @@ impl Default for RecountOptions {
             scopes: vec![None],
             shards: 1,
             blobs_exact: false,
+            molecules: false,
+            delete_cutoff_nanos: None,
         }
     }
 }
@@ -109,6 +117,10 @@ pub struct RecountReport {
     /// The blob step: the blob counters against the atom counters and the tips.
     #[serde(default)]
     pub blobs: crate::db_operations::atom_store::BlobRecountReport,
+    #[serde(default)]
+    pub molecules: super::MoleculeRecountReport,
+    #[serde(default)]
+    pub delete_prune: Option<crate::db_operations::atom_store::DeletePruneReport>,
     pub changes: Vec<Change>,
     pub notes: Vec<String>,
 }
@@ -118,7 +130,13 @@ impl RecountReport {
     /// bodies of atoms, and retention rows of records.
     #[must_use]
     pub fn changed(&self) -> u64 {
-        self.created
+        self.delete_prune.as_ref().map_or(0, |prune| {
+            prune.pruned + u64::from(prune.cutoff_before_nanos != prune.cutoff_after_nanos)
+        }) + self.molecules.headers_rewritten
+            + self.molecules.bindings_rewritten
+            + self.molecules.bindings_deleted
+            + self.molecules.drains_queued
+            + self.created
             + self.raised
             + self.lowered
             + self.suspect_cleared

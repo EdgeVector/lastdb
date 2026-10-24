@@ -60,6 +60,7 @@ impl MutationManager {
         }
         state.force_durable = true;
         let committed = transaction::request_scope(Some(Arc::clone(&request.runtime)), async {
+            self.require_replay_cutoff(&request.mutations).await?;
             let notifications =
                 crate::db_operations::ChangeFeedStore::native_events(&request.mutations);
             request

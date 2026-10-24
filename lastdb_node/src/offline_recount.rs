@@ -32,6 +32,8 @@ pub struct RecountArgs<'a> {
     pub all_scopes: bool,
     /// Set the blob counters to the exact count. Needs `all_scopes`.
     pub blobs_exact: bool,
+    pub molecules: bool,
+    pub delete_cutoff_unix_secs: Option<u64>,
     pub shards: u32,
     pub i_know_this_is_primary: bool,
     pub json: bool,
@@ -52,6 +54,18 @@ struct Output<'a> {
 
 /// Run the recount on a stopped home and print the report.
 pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
+    if let Some(cutoff) = args.delete_cutoff_unix_secs {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs();
+        if !args.all_scopes || cutoff == 0 || cutoff > now {
+            return Err(
+                "delete cutoff requires --all-scopes and a positive unix second at or before now"
+                    .into(),
+            );
+        }
+    }
     if !args.i_know_this_is_primary {
         refuse_primary(args.home).map_err(|e| format!("{e}; or pass --i-know-this-is-primary"))?;
     }
@@ -73,6 +87,14 @@ pub fn recount_offline(args: &RecountArgs<'_>) -> Result<(), String> {
         scopes,
         shards: args.shards.max(1),
         blobs_exact: args.blobs_exact && args.all_scopes,
+        molecules: args.molecules,
+        delete_cutoff_nanos: args
+            .delete_cutoff_unix_secs
+            .map(|secs| {
+                secs.checked_mul(1_000_000_000)
+                    .ok_or_else(|| "delete cutoff overflows nanoseconds".to_string())
+            })
+            .transpose()?,
     };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -231,6 +253,12 @@ fn print_report(
 
 /// The blob step of the report.
 fn print_blob_step(report: &RecountReport) {
+    print_delete_prune(report);
+    if report.molecules.ran {
+        let m = &report.molecules;
+        println!("  molecules: {} counted; {} headers rewritten, {} binding counters rewritten, {} binding counters deleted, {} drains queued",
+            m.molecules, m.headers_rewritten, m.bindings_rewritten, m.bindings_deleted, m.drains_queued);
+    }
     let blobs = &report.blobs;
     if !blobs.ran {
         return;
@@ -266,5 +294,22 @@ fn print_blob_step(report: &RecountReport) {
     }
     for note in &blobs.notes {
         println!("  note: {note}");
+    }
+}
+
+fn print_delete_prune(report: &RecountReport) {
+    if let Some(prune) = &report.delete_prune {
+        println!(
+            "  delete barriers: {} examined, {} pruned; global replay cutoff {} -> {} ns ({})",
+            prune.examined,
+            prune.pruned,
+            prune.cutoff_before_nanos,
+            prune.cutoff_after_nanos,
+            if prune.executed {
+                "executed"
+            } else {
+                "report only"
+            }
+        );
     }
 }

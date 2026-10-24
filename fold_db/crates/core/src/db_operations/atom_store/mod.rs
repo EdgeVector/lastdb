@@ -33,6 +33,8 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod delete_replay;
+pub use delete_replay::DeletePruneReport;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;
@@ -62,7 +64,8 @@ pub(crate) use bounded_range::{RangeWalk, WalkTotals};
 pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
-    RecountOptions, RecountReport, VerifyReport, VerifyRequest, VerifySummary,
+    MoleculeRecountReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest,
+    VerifySummary,
 };
 pub(crate) use filter::SchemaKeyMembership;
 /// Historical derived-index prefixes the reclaim path may delete.
