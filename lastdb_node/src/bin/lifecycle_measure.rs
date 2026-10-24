@@ -51,17 +51,64 @@ fn checked_home() -> Result<PathBuf, Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let home = checked_home()?;
     let phase = std::env::args().nth(2).ok_or("missing lifecycle phase")?;
+    let value = if phase.starts_with("repair-") {
+        offline_repair_phase(&home, &phase).await?
+    } else {
+        host_phase(&home, &phase).await?
+    };
+    println!("{}", serde_json::to_string(&value)?);
+    Ok(())
+}
+
+async fn host_phase(
+    home: &std::path::Path,
+    phase: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let host = Host::boot(&home).await.map_err(std::io::Error::other)?;
     let outcome = if phase == "ttl" {
         let started = std::time::Instant::now();
         lastdb_node::ttl_sweep::sweep_ttl(&host, &AtomicBool::new(false)).await;
         Ok(serde_json::json!({"phase":"ttl","elapsed_ms":started.elapsed().as_secs_f64()*1000.0}))
     } else {
-        fold_db::benchmark_support::lifecycle::measure(&host.db, &phase).await
+        fold_db::benchmark_support::lifecycle::measure(&host.db, phase).await
     };
     let shutdown = host.db.shutdown().await;
     let value = outcome?;
     shutdown?;
-    println!("{}", serde_json::to_string(&value)?);
-    Ok(())
+    Ok(value)
+}
+
+async fn offline_repair_phase(
+    home: &std::path::Path,
+    phase: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    use fold_db::fold_db_core::factory::{create_fold_db_with_options, FoldDbOptions};
+    use fold_db::storage::config::{DatabaseConfig, StorageEngine};
+    use lastdb_node::offline_home::{load_e2e_keys, preflight_stopped_home};
+
+    // Use the real offline guard and factory. A Host boot clears the prior
+    // daemon's receipt; an offline operation instead keeps that receipt and
+    // flushes its own work, exactly as the owner recount command does.
+    let data = home.join("data");
+    let (_, _lock) = preflight_stopped_home(home, &data).map_err(std::io::Error::other)?;
+    let (keys, signer) = load_e2e_keys(home).map_err(std::io::Error::other)?;
+    let db = create_fold_db_with_options(
+        &DatabaseConfig {
+            path: data,
+            engine: StorageEngine::Laststore,
+            cloud_sync: None,
+        },
+        &keys,
+        signer,
+        FoldDbOptions {
+            offline_maintenance: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    let outcome = fold_db::benchmark_support::lifecycle::measure(&db, phase).await;
+    let shutdown = db.shutdown_local_only().await;
+    let value = outcome?;
+    shutdown?;
+    Ok(value)
 }
