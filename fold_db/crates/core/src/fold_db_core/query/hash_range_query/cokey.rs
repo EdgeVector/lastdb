@@ -48,6 +48,7 @@ impl HashRangeQueryProcessor {
                 fields: HashMap::new(),
                 page_keys: Vec::new(),
                 key_sources: HashMap::new(),
+                primary_field: String::new(),
             });
         }
 
@@ -65,6 +66,7 @@ impl HashRangeQueryProcessor {
             fields: HashMap::from([(primary_name.clone(), primary_vals)]),
             page_keys,
             key_sources,
+            primary_field: primary_name,
         };
         // Membership already resolved the range field through the selected
         // source. Move it only when requested and complete for this final page.
@@ -73,7 +75,7 @@ impl HashRangeQueryProcessor {
             .as_ref()
             .and_then(|key| key.range_field.as_ref())
             .filter(|range_field| {
-                *range_field != &primary_name
+                *range_field != &rows.primary_field
                     && selected.contains(range_field)
                     && !rows.page_keys.is_empty()
                     && rows
@@ -87,7 +89,6 @@ impl HashRangeQueryProcessor {
         self.fill_cokey_projection(
             schema,
             &selected,
-            &primary_name,
             &mut rows,
             include_tombstones,
             request_concurrency,
@@ -106,17 +107,18 @@ impl HashRangeQueryProcessor {
         &self,
         schema: &mut Schema,
         selected: &[String],
-        primary_name: &str,
         rows: &mut CokeyRows,
         include_tombstones: bool,
         request_concurrency: Option<usize>,
     ) -> Result<(), SchemaError> {
-        if selected.len() == 1 && selected[0] == primary_name {
+        if selected.len() == 1 && selected[0] == rows.primary_field {
             return Ok(());
         }
         let secondary: Vec<String> = selected
             .iter()
-            .filter(|fname| fname.as_str() != primary_name && !rows.fields.contains_key(*fname))
+            .filter(|fname| {
+                fname.as_str() != rows.primary_field && !rows.fields.contains_key(*fname)
+            })
             .cloned()
             .collect();
         for fname in &secondary {

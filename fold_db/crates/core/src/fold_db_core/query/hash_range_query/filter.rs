@@ -120,11 +120,9 @@ impl HashRangeQueryProcessor {
             .await?;
         let kept_keys = self.select_condition_keys(&pass_a, &options);
 
-        // Pass B resolves every projected field as a secondary, which blinds what
-        // it is given — so it must be handed API form or it misses on every field
-        // and the whole filtered query comes back empty on a blinded home. Pass A
-        // already returns API form, so the keys carry straight through.
-        self.query_exact_keys(schema, fields, &kept_keys, &pass_a.key_sources, &options)
+        // Reuse captured secondaries only after conditions choose the API keys.
+        // Remaining fields use the same exact reader and selected namespaces.
+        self.query_exact_keys(schema, fields, &kept_keys, pass_a, &options)
             .await
     }
 
