@@ -116,12 +116,11 @@ impl<J> Dispatch<J> {
             if state.closed {
                 return Err(job);
             }
-            match state.idle.pop() {
-                Some(slot) => slot,
-                None => {
-                    state.queue.push_front(job);
-                    return Ok(());
-                }
+            if let Some(slot) = state.idle.pop() {
+                slot
+            } else {
+                state.queue.push_front(job);
+                return Ok(());
             }
         };
         slot.give(Hand::Job(job));

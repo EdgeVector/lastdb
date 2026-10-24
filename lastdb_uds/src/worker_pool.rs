@@ -359,7 +359,10 @@ fn worker_loop(dispatch: &Dispatch<ConnJob>) {
         // job sat in the bounded queue behind busy workers.
         let queue_wait = enqueued_at.elapsed();
         CURRENT_QUEUE_WAIT.with(|cell| cell.set(Some(queue_wait)));
-        work(stream, ConnectionWork::new(in_flight_guard, queue_wait));
+        work(
+            stream,
+            ConnectionWork::new(in_flight_guard, enqueued_at, queue_wait),
+        );
         CURRENT_QUEUE_WAIT.with(|cell| cell.set(None));
     }
 }

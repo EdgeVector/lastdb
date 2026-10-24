@@ -20,10 +20,19 @@ impl BodyBudget {
         Self(Arc::new(Semaphore::new(bytes)))
     }
 
-    pub(super) fn reserve(&self, handle: &tokio::runtime::Handle) -> std::io::Result<BodyLease> {
+    pub(super) fn try_reserve(&self) -> Option<BodyLease> {
         let bytes = u32::try_from(MAX_PARSE_BYTES).expect("bounded HTTP parse size fits u32");
-        handle
-            .block_on(Arc::clone(&self.0).acquire_many_owned(bytes))
+        Arc::clone(&self.0)
+            .try_acquire_many_owned(bytes)
+            .ok()
+            .map(BodyLease)
+    }
+
+    pub(super) async fn reserve(&self) -> std::io::Result<BodyLease> {
+        let bytes = u32::try_from(MAX_PARSE_BYTES).expect("bounded HTTP parse size fits u32");
+        Arc::clone(&self.0)
+            .acquire_many_owned(bytes)
+            .await
             .map(BodyLease)
             .map_err(std::io::Error::other)
     }

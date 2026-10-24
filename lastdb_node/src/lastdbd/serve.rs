@@ -39,6 +39,7 @@ pub(crate) struct Server {
     pub(crate) handle: tokio::runtime::Handle,
     pub(crate) worker_pool: UdsWorkerPool,
     body_budget: body_budget::BodyBudget,
+    mutation_replies: Arc<tokio::sync::Semaphore>,
 }
 
 /// Collect this UDS worker's heap after one request, before the next job.
@@ -167,11 +168,13 @@ impl Server {
         worker_pool: UdsWorkerPool,
     ) -> Self {
         let body_budget = body_budget::BodyBudget::new(worker_pool.workers());
+        let mutation_replies = Arc::new(tokio::sync::Semaphore::new(worker_pool.workers()));
         Self {
             host,
             handle,
             worker_pool,
             body_budget,
+            mutation_replies,
         }
     }
 

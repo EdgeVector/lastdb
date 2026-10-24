@@ -6,13 +6,54 @@ use std::os::unix::net::UnixStream;
 pub(super) fn serve(
     server: &Server,
     surface: Surface,
-    mut stream: UnixStream,
+    stream: UnixStream,
     transport: CallerTransport,
     verification: CallerVerification,
     completion: ConnectionWork,
 ) -> std::io::Result<()> {
-    // Reserve before allocation, not after a parsed body enters another queue.
-    let mut body = server.body_budget.reserve(&server.handle)?;
+    // Workers never wait for byte permits: queued responses must stay runnable.
+    if let Some(body) = server.body_budget.try_reserve() {
+        return serve_reserved(
+            server,
+            surface,
+            stream,
+            transport,
+            verification,
+            completion,
+            body,
+        );
+    }
+    let server = server.clone();
+    server.handle.clone().spawn(async move {
+        match server.body_budget.reserve().await {
+            Ok(body) => completion.resume(stream, move |stream, completion| {
+                let result = serve_reserved(
+                    &server,
+                    surface,
+                    stream,
+                    transport,
+                    verification,
+                    completion,
+                    body,
+                );
+                log_result(result, surface);
+                collect_finished_request_heap();
+            }),
+            Err(error) => log_result(Err(error), surface),
+        }
+    });
+    Ok(())
+}
+
+fn serve_reserved(
+    server: &Server,
+    surface: Surface,
+    mut stream: UnixStream,
+    transport: CallerTransport,
+    verification: CallerVerification,
+    completion: ConnectionWork,
+    mut body: body_budget::BodyLease,
+) -> std::io::Result<()> {
     let Some((request, context)) = uds_http::receive_connection(
         &mut stream,
         &server.host.user_hash,
@@ -58,7 +99,13 @@ struct Pending {
 
 fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surface: Surface) {
     let host = Arc::clone(&server.host);
+    let replies = Arc::clone(&server.mutation_replies);
     server.handle.spawn(async move {
+        // Hold one slot from handler start through final write/drop. Neither
+        // handler outputs nor slow-peer replies can multiply by queue capacity.
+        let Ok(reply_slot) = replies.acquire_owned().await else {
+            return;
+        };
         let Pending {
             stream,
             request,
@@ -75,9 +122,10 @@ fn defer(server: &Server, pending: Pending, route: uds_router::DataRoute, surfac
         // for byte capacity must not prevent these responses from reaching a worker.
         drop(request);
         drop(body);
-        completion.resume(stream, move |mut stream| {
+        completion.resume(stream, move |mut stream, _completion| {
             let result = uds_http::finish_connection(&mut stream, &response);
             drop(response);
+            drop(reply_slot);
             log_result(result, surface);
             collect_finished_request_heap();
         });

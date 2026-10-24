@@ -3,12 +3,17 @@ use super::*;
 
 pub struct ConnectionWork {
     guard: InFlightGuard,
+    enqueued_at: Instant,
     queue_wait: Duration,
 }
 
 impl ConnectionWork {
-    pub(super) fn new(guard: InFlightGuard, queue_wait: Duration) -> Self {
-        Self { guard, queue_wait }
+    pub(super) fn new(guard: InFlightGuard, enqueued_at: Instant, queue_wait: Duration) -> Self {
+        Self {
+            guard,
+            enqueued_at,
+            queue_wait,
+        }
     }
 
     #[must_use]
@@ -16,17 +21,17 @@ impl ConnectionWork {
         self.queue_wait
     }
 
-    /// Finish an accepted response on the same bounded worker pool. This is
-    /// neither a new admission nor a detached blocking thread.
+    /// Continue an accepted request on the same bounded worker pool. The
+    /// callback retains its original admission and initial arrival time.
     pub fn resume<F>(self, stream: UnixStream, work: F)
     where
-        F: FnOnce(UnixStream) + Send + 'static,
+        F: FnOnce(UnixStream, Self) + Send + 'static,
     {
         let dispatch = Arc::clone(&self.guard.0.dispatch);
         let job = ConnJob {
             stream,
-            enqueued_at: Instant::now(),
-            work: Box::new(move |stream, _completion| work(stream)),
+            enqueued_at: self.enqueued_at,
+            work: Box::new(work),
             in_flight_guard: self.guard,
         };
         // The guard retains PoolInner, so its Drop cannot close dispatch while
