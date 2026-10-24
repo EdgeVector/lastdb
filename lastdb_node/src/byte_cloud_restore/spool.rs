@@ -1,0 +1,90 @@
+use super::{local, RestoreError, RestoreSession, Result};
+use std::fs;
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
+use std::sync::atomic::Ordering;
+
+const MAX: u64 = cloud_backup_protocol::limits::DURABLE_LOCAL_SPOOL_MAX_BYTES
+    - lastdb_storage_policy::backup_decode::RESTORE_SPOOL_RESERVE_BYTES;
+
+impl RestoreSession {
+    pub(super) fn reserve_spool(&self, bytes: u64) -> Result<()> {
+        let allocated = bytes
+            .div_ceil(4096)
+            .checked_mul(4096)
+            .ok_or(RestoreError::Limit("spool bytes"))?;
+        if self
+            .spool_bytes
+            .load(Ordering::Relaxed)
+            .checked_add(allocated)
+            .is_none_or(|total| total > MAX)
+        {
+            return Err(RestoreError::Limit("spool bytes"));
+        }
+        Ok(())
+    }
+    pub(super) fn add_spool_file(&self, path: &Path) -> Result<()> {
+        let bytes = allocated(path)?;
+        let total = self
+            .spool_bytes
+            .load(Ordering::Relaxed)
+            .checked_add(bytes)
+            .ok_or(RestoreError::Limit("spool bytes"))?;
+        if total > MAX {
+            return Err(RestoreError::Limit("spool bytes"));
+        }
+        self.spool_bytes.store(total, Ordering::Relaxed);
+        Ok(())
+    }
+    pub(super) fn remove_spool_file(&self, path: &Path) -> Result<()> {
+        let bytes = match fs::symlink_metadata(path) {
+            Ok(_) => allocated(path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        fs::remove_file(path)?;
+        self.spool_bytes.store(
+            self.spool_bytes
+                .load(Ordering::Relaxed)
+                .saturating_sub(bytes),
+            Ordering::Relaxed,
+        );
+        Ok(())
+    }
+    pub(super) fn check_spool(&self) -> Result<()> {
+        let mut bytes = 0u64;
+        let mut count = 0usize;
+        for folder in ["cache", "entries"] {
+            let path = self.root.join(folder);
+            local::directory(&path)?;
+            for entry in fs::read_dir(path)? {
+                count += 1;
+                if count
+                    > cloud_backup_protocol::limits::NATIVE_FILES_MAX
+                        + 2 * cloud_backup_protocol::v2::limits::MAX_PAGES
+                        + 8
+                {
+                    return Err(RestoreError::Limit("spool entries"));
+                }
+                bytes = bytes
+                    .checked_add(allocated(&entry?.path())?)
+                    .ok_or(RestoreError::Limit("spool bytes"))?;
+                if bytes > MAX {
+                    return Err(RestoreError::Limit("spool bytes"));
+                }
+            }
+        }
+        self.spool_bytes.store(bytes, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+fn allocated(path: &Path) -> Result<u64> {
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_file() {
+        return Err(RestoreError::Invalid("spool file"));
+    }
+    meta.blocks()
+        .checked_mul(512)
+        .ok_or(RestoreError::Limit("spool bytes"))
+}

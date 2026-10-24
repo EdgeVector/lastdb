@@ -5,6 +5,7 @@ mod credentials;
 mod discovery;
 mod restore;
 
+pub(crate) use credentials::auth_for_recovery;
 pub(crate) use credentials::client_for_recovery;
 pub use credentials::client_from_home;
 pub use discovery::{discover, NativeBackupDiscovery};
