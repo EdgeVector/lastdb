@@ -6,13 +6,15 @@ use fold_db::security::Ed25519KeyPair;
 use fold_db::storage::disk_pack::{validate_restored_node, RestoredNodeGuard};
 use std::path::PathBuf;
 
-const RESTORE_RECEIPT: &str = "native-cloud-restore-receipt.json";
+#[path = "restored_receipt.rs"]
+mod receipt;
 
 pub(super) struct Validation {
     guard: RestoredNodeGuard,
     identity: File,
     seed: zeroize::Zeroizing<[u8; 32]>,
     home: PathBuf,
+    receipt: receipt::Proof,
     pub(super) account: String,
 }
 
@@ -28,7 +30,7 @@ impl PreparedHome {
         let directory = recovery_files::open_directory(home)?;
         require_private_directory(&directory)?;
         refuse_daemon(home)?;
-        verify_restore_receipt(&directory, home)?;
+        let receipt = receipt::Proof::open(&directory, home)?;
         let identity = File::from(
             fs::openat(
                 &directory,
@@ -67,6 +69,7 @@ impl PreparedHome {
                 identity,
                 seed,
                 home: home.to_path_buf(),
+                receipt,
                 account,
             }),
         };
@@ -92,7 +95,7 @@ impl Validation {
             recovery_files::read_private_file(&prepared.directory, CLOUD_RESUME_REQUIRED_FILE, 0)?;
         }
         verify_automatic_off(&self.home)?;
-        verify_restore_receipt(&prepared.directory, &self.home)
+        self.receipt.check(&prepared.directory)
     }
 
     pub(super) fn seed(
@@ -144,31 +147,6 @@ fn identity_seed(directory: &File) -> Result<zeroize::Zeroizing<[u8; 32]>, Strin
         .try_into()
         .map_err(|_| "restored identity must contain exactly 32 bytes")?;
     Ok(zeroize::Zeroizing::new(seed))
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Receipt {
-    version: u8,
-    session_id: uuid::Uuid,
-    report: lastdb_node::native_cloud_restore::RestoreReport,
-}
-
-fn verify_restore_receipt(directory: &File, home: &Path) -> Result<(), String> {
-    let bytes = recovery_files::read_private_file(directory, RESTORE_RECEIPT, 65_536)?;
-    let receipt: Receipt =
-        serde_json::from_slice(&bytes).map_err(|_| "invalid native restore receipt")?;
-    if receipt.version != 1
-        || receipt.session_id.is_nil()
-        || receipt.report.destination != home
-        || !receipt.report.file_dependencies_verified
-        || receipt.report.native_files == 0
-        || receipt.report.native_bytes == 0
-        || cloud_backup_protocol::Digest::try_from(receipt.report.commit_sha256).is_err()
-    {
-        return Err("native restore provenance does not match this home".into());
-    }
-    Ok(())
 }
 
 fn verify_automatic_off(home: &Path) -> Result<(), String> {
