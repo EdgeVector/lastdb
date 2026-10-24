@@ -219,6 +219,9 @@ impl FoldDB {
             );
         }
 
+        if !offline_maintenance {
+            db_ops.atoms().freeze_replay_cutoff().await?;
+        }
         let author_clock_state = Self::load_author_clock_state(&db_ops, &signer).await?;
 
         // Create MutationManager for handling all mutation operations.

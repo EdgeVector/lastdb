@@ -21,7 +21,9 @@ pub(crate) const KEY_FORMAT: &[u8] = b"5";
 const PREVIOUS_KEY_FORMAT: &[u8] = b"4";
 
 pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
-    value == KEY_FORMAT || value == PREVIOUS_KEY_FORMAT
+    value == KEY_FORMAT
+        || value == PREVIOUS_KEY_FORMAT
+        || value == super::delete_replay::FENCED_KEY_FORMAT
 }
 
 /// The backend permits these exact keys together while current creation is
@@ -98,6 +100,7 @@ impl AtomStore {
             .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await?;
         match stored.as_deref() {
+            Some(super::delete_replay::FENCED_KEY_FORMAT) => Ok(()),
             Some(value) if value == KEY_FORMAT => Ok(()),
             Some(value) if value == PREVIOUS_KEY_FORMAT => {
                 // The normal boot owns a native request scope here. Its durable
@@ -107,7 +110,8 @@ impl AtomStore {
             _ => Err(StorageError::InvalidOperation(
                 "this home does not use the current key format; create a new empty home".into(),
             )),
-        }
+        }?;
+        self.minimum_replay_time().await.map(|_| ())
     }
 }
 

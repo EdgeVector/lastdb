@@ -33,6 +33,9 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod delete_replay;
+pub use delete_replay::DeletePruneReport;
+pub(crate) use delete_replay::CUTOFF_KEY as DELETE_REPLAY_CUTOFF_KEY;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;
@@ -142,6 +145,9 @@ type ExactTipLocks =
 #[derive(Clone)]
 pub struct AtomStore {
     main_store: Arc<TypedKvStore<dyn KvStore>>,
+    /// Validated once before serving. Only stopped-home maintenance can move
+    /// this floor; replay cannot write its two metadata records.
+    serving_replay_cutoff: Arc<std::sync::OnceLock<u64>>,
     /// Owner namespace factory for physical-plane maintenance.
     ///
     /// Legacy constructors leave this unset. Production construction and the
