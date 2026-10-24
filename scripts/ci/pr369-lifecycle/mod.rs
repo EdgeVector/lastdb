@@ -8,7 +8,15 @@ use common::{require, Result};
 use serde_json::{json, Value};
 use std::path::Path;
 
-pub async fn run(mode: &str, root: &Path, fixed: bool) -> Result<Value> {
+pub fn run<'a>(
+    mode: &'a str,
+    root: &'a Path,
+    fixed: bool,
+) -> futures::future::LocalBoxFuture<'a, Result<Value>> {
+    Box::pin(run_inner(mode, root, fixed))
+}
+
+async fn run_inner(mode: &str, root: &Path, fixed: bool) -> Result<Value> {
     let runner = std::fs::canonicalize(std::env::var("RUNNER_TEMP")?)?;
     let owned = std::fs::canonicalize(root)?;
     require(
