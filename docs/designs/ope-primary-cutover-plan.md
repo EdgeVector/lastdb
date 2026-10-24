@@ -2,8 +2,9 @@
 
 Status: Proposed plan, 2026-10-24. No primary change is authorized by this document.
 
-The [candidate security review](ope-candidate-security-review.md) blocks activation of the first evaluated OPE extension.
-Resolve its construction and confidentiality decision before package B can introduce an active writer.
+The [candidate security review](ope-candidate-security-review.md) rejected the first carry-profile extension.
+The replacement uses the published binary CLWW construction with a bounded PRF.
+Independent review and the complete native route still precede activation.
 
 The primary needs new readers, new writers, and an explicit data-format conversion.
 A binary upgrade alone does not select the new OPE.
@@ -17,13 +18,12 @@ That source precedes the OPE candidate.
 This observation identifies the installed pair; it does not establish the primary's stored encoding settings.
 The final preflight must read those settings through a supported product operation.
 
-[PR 365](https://github.com/EdgeVector/lastdb/pull/365) adds a portable candidate and a plan.
-It does not connect that candidate to the active range readers or writers.
-Its [required CI](https://github.com/EdgeVector/lastdb/actions/runs/40132379816) and [benchmarks](https://github.com/EdgeVector/lastdb/actions/runs/40132379860) passed.
-Those node benchmarks do not measure the inactive OPE candidate.
-The [Factory Manager hold](https://github.com/EdgeVector/lastdb/pull/365#issuecomment-6389494816) remains unresolved.
-Tom's instruction, "Do all of these," authorizes the single CI-only crypto proof program in this plan.
-Other tests and replacement test harnesses remain prohibited.
+[PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge after CI confirmed its extra suffix leakage.
+The replacement source uses independent 128-bit CLWW output blocks and excludes the PRF maximum before bit addition.
+It also supplies scoped molecule grants and authenticated original-range protection.
+Those APIs remain disconnected from the serving format.
+Tom authorized the single CI-only crypto proof through "Do all of these"; other tests remain retired.
+The replacement's exact instantiation still requires independent review and its own CI results.
 
 After adoption:
 
@@ -61,7 +61,7 @@ Review integrity checks, key ownership, and the leakage of the published extensi
 Resolve any review defect before activation.
 Keep a scheme change explicit if that review rejects the candidate.
 
-The candidate's hex form uses `16*N + 18` bytes for `N` logical range bytes.
+The replacement's hex form uses `256*(N+1)` bytes for `N` logical range bytes.
 The current whole stored-key limit is 65,535 bytes.
 Choose a versioned storage change that preserves every supported old logical range length.
 Do not silently reduce the logical limit or truncate a key.
@@ -217,6 +217,6 @@ Do not claim that all retained data gains the new protection at promotion.
 
 ## 4. Next action
 
-Complete PR 365's authorized CI-only proof program and resolve its review hold.
-Then complete the cryptographic and size contract before active native integration.
+Complete independent review and CI for the replacement profile.
+Then complete the native size contract before active reader and writer integration.
 Prepare the conversion and release evidence before a request to change the primary.

@@ -1,14 +1,14 @@
-use crate::{term_bytes, Error, RangeTerm, Result, FORMAT_ID};
+use crate::{term_bytes, Error, RangeTerm, Result, BIT_BLOCK_BYTES, FORMAT_ID};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::fmt;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 // One fixed marker precedes every value, including an empty range. It is
 // input framing, not a length prefix: total input length in the PRF context
 // would break the common-prefix property required for ordered comparison.
 const INPUT_MARKER: u8 = 1;
-const PRF_DOMAIN: &[u8] = b"lastdb:range-ope:prefix-prf:v1\0";
+const PRF_DOMAIN: &[u8] = b"lastdb:range-ope:binary-prefix-prf:v1\0";
 
 /// A private, symmetric key for exactly one ordered stream.
 pub struct RangeOpeKey(Zeroizing<[u8; 32]>);
@@ -50,22 +50,25 @@ impl RangeOpeKey {
             Hmac::<Sha256>::new_from_slice(self.0.as_ref()).map_err(|_| Error::KeyDerivation)?;
         prefix.update(PRF_DOMAIN);
         prefix.update(FORMAT_ID.as_bytes());
-        for (position, bit) in input_bits(range).enumerate() {
-            let mut digest = prefix.clone().finalize().into_bytes();
-            output[position + 1] = digest[0];
-            let digest_bytes: &mut [u8] = digest.as_mut();
-            digest_bytes.zeroize();
+        for (slot, bit) in output
+            .chunks_exact_mut(BIT_BLOCK_BYTES)
+            .zip(input_bits(range))
+        {
+            let block = crate::prf::nonwrapping_block(&prefix)?;
+            slot.copy_from_slice(block.as_ref());
+            // CLWW adds the input bit to this independent PRF block. Exclusion
+            // of 2^128-1 makes both additions fit, with no suffix propagation.
+            let mut carry = u16::from(bit);
+            for byte in slot.iter_mut().rev() {
+                let sum = u16::from(*byte) + carry;
+                *byte = (sum & 0xff) as u8;
+                carry = sum >> 8;
+            }
+            if carry != 0 {
+                return Err(Error::PrfRefused);
+            }
             prefix.update(&[bit]);
         }
-        // C = P + 128*B in base 256, with one byte per input bit. Keeping
-        // the backward carry makes byte order exact; +1 is insufficient.
-        let mut carry = 0u16;
-        for (slot, bit) in output[1..].iter_mut().rev().zip(input_bits(range).rev()) {
-            let sum = u16::from(*slot) + (u16::from(bit) << 7) + carry;
-            *slot = (sum & 0xff) as u8;
-            carry = sum >> 8;
-        }
-        output[0] = carry as u8;
         Ok(RangeTerm::from_encryption(std::mem::take(&mut *output)))
     }
 

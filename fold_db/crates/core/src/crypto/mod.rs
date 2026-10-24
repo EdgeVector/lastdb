@@ -41,7 +41,8 @@ pub use keyring_store::{keyring_path, load_or_init, KEYRING_FILENAME};
 // Portable candidate API only. Native molecule encodings do not select this
 // format until range values, readers, writers, and conversion are complete.
 pub use lastdb_range_crypto::{
-    EncryptedRangeBounds, RangeOpeKey, RangeOpeRoot, RangeScope, RangeTerm,
+    EncryptedRangeBounds, ProtectedRange, RangeMoleculeKey, RangeOpeKey, RangeOpeRoot,
+    RangeScope, RangeTerm,
 };
 pub use provider::{CryptoProvider, LocalCryptoProvider};
 pub mod inbox;

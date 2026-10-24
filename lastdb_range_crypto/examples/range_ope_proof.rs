@@ -3,7 +3,7 @@
 
 use lastdb_range_crypto::{term_bytes, Error, RangeOpeKey, RangeOpeRoot, RangeScope, RangeTerm};
 
-const LIMIT: usize = 1 << 20;
+const LIMIT: usize = 32 << 20;
 const SCOPE: RangeScope<'static> = RangeScope {
     molecule: "generated-proof-molecule",
     blinded_hash: "generated-proof-blinded-hash",
@@ -22,7 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let intervals = check_prefixes(&key, &values, &terms)?;
     check_scopes(&root, &key)?;
     check_codec(&key, &values, &terms)?;
-    check_suffix_leakage()?;
+    check_suffix_isolation()?;
+    check_protected_ranges()?;
     println!(
         "range_ope_proof: passed; values={}; prefix_intervals={intervals}; scopes=5; codec=passed",
         values.len()
@@ -30,29 +31,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Both pairs share length, order and first-differing-bit position. Different
-// head-difference distributions therefore distinguish equal CLWW leakage.
-fn check_suffix_leakage() -> Result<(), Error> {
-    let mut distinguishing = 0;
+// A suffix never changes the first differing output block in the replacement.
+fn check_suffix_isolation() -> Result<(), Error> {
     for seed in 0..=u8::MAX {
         let root = RangeOpeRoot::from_private_key_seed(&[seed; 32])?;
         let key = root.for_scope(SCOPE)?;
         let head = |value| -> Result<u128, Error> {
             let term = key.encrypt(&[value], LIMIT)?;
-            Ok(term.as_ref()[..10]
+            Ok(term.as_ref()[128..144]
                 .iter()
                 .fold(0u128, |number, byte| (number << 8) | u128::from(*byte)))
         };
-        assert_eq!(head(0x80)? - head(0x00)?, 128);
-        let difference = head(0xc0)? - head(0x40)?;
-        assert!((127..=129).contains(&difference));
-        distinguishing += usize::from(difference != 128);
+        assert_eq!(head(0x80)? - head(0x00)?, 1);
+        assert_eq!(head(0xc0)? - head(0x40)?, 1);
     }
-    assert!(
-        distinguishing > 0,
-        "fixed-input suffix-leakage counterexample was absent"
-    );
-    println!("range_ope_suffix_leakage: confirmed; generated_keys=256; distinguishing_keys={distinguishing}; activation=blocked");
+    println!("range_ope_suffix_isolation: passed; generated_keys=256");
     Ok(())
 }
 
@@ -77,7 +70,7 @@ fn generated_values() -> Vec<Vec<u8>> {
         values.push(vec![byte]);
         values.push(vec![0x12, 0x34, byte]);
     }
-    for length in [8, 32, 256, 4096, 8192] {
+    for length in [8, 32, 256, 4096, 8192, 65535] {
         values.push(vec![0; length]);
         values.push(vec![255; length]);
     }
@@ -170,10 +163,10 @@ fn check_codec(key: &RangeOpeKey, values: &[Vec<u8>], terms: &[RangeTerm]) -> Re
     let mut prior_text: Option<String> = None;
     for (value, term) in values.iter().zip(terms) {
         let size = term_bytes(value.len())?;
-        assert_eq!(size, 8 * value.len() + 9);
+        assert_eq!(size, 128 * (value.len() + 1));
         assert_eq!(term.as_ref().len(), size);
         let text = term.to_storage_text(size * 2)?;
-        assert_eq!(text.len(), 16 * value.len() + 18);
+        assert_eq!(text.len(), 256 * (value.len() + 1));
         assert_eq!(&RangeTerm::from_storage_text(&text, size)?, term);
         assert_eq!(term.to_storage_text(size * 2 - 1), Err(Error::ByteLimit));
         assert_eq!(
@@ -191,19 +184,92 @@ fn check_codec(key: &RangeOpeKey, values: &[Vec<u8>], terms: &[RangeTerm]) -> Re
     let good = terms[0].to_storage_text(LIMIT)?;
     let mut uppercase = good.clone();
     uppercase.replace_range(2..3, "A");
-    let mut carry = good.clone();
-    carry.replace_range(0..2, "02");
     for invalid in [
         String::new(),
         uppercase,
-        carry,
         good[..good.len() - 1].to_owned(),
-        "00".repeat(10),
+        "00".repeat(127),
+        "00".repeat(129),
     ] {
         assert_eq!(
             RangeTerm::from_storage_text(&invalid, LIMIT),
             Err(Error::InvalidTerm)
         );
     }
+    Ok(())
+}
+
+fn check_protected_ranges() -> Result<(), Error> {
+    let root = RangeOpeRoot::from_private_key_seed(&[0x42; 32])?;
+    let molecule = root.for_molecule(SCOPE.molecule, SCOPE.epoch)?;
+    let wrap_key = [0x19; 32];
+    let wrapped = molecule.wrap_for_access(&wrap_key, "generated-access")?;
+    let recipient = lastdb_range_crypto::RangeMoleculeKey::from_access_wrap(
+        &wrap_key,
+        SCOPE.molecule,
+        SCOPE.epoch,
+        "generated-access",
+        &wrapped,
+    )?;
+    for value in [b"".as_slice(), b"prefix\0suffix", b"\xff\x00\x80"] {
+        let prepared = molecule.protect_range(SCOPE.blinded_hash, value, 65535)?;
+        assert_eq!(
+            recipient
+                .open_range(SCOPE.blinded_hash, &prepared, 65535)?
+                .as_slice(),
+            value
+        );
+        assert_eq!(prepared.term, root.for_scope(SCOPE)?.encrypt(value, LIMIT)?);
+        assert!(matches!(
+            recipient.open_range("another-hash", &prepared, 65535),
+            Err(Error::Authentication)
+        ));
+        let mut changed = prepared.clone();
+        changed.encrypted[13] ^= 1;
+        assert!(matches!(
+            recipient.open_range(SCOPE.blinded_hash, &changed, 65535),
+            Err(Error::Authentication)
+        ));
+        let mut changed = prepared.clone();
+        let mut text = changed.term.to_storage_text(LIMIT)?;
+        let digit = if &text[..1] == "0" { "1" } else { "0" };
+        text.replace_range(..1, digit);
+        changed.term = RangeTerm::from_storage_text(&text, LIMIT)?;
+        assert!(matches!(
+            recipient.open_range(SCOPE.blinded_hash, &changed, 65535),
+            Err(Error::Authentication)
+        ));
+    }
+    check_grant_contexts(&wrapped, &wrap_key)?;
+    assert!(matches!(
+        molecule.protect_range(SCOPE.blinded_hash, b"large", 2),
+        Err(Error::ByteLimit)
+    ));
+    println!("range_original_and_grants: passed; scope_tamper_refused=true; ciphertext_tamper_refused=true");
+    Ok(())
+}
+
+fn check_grant_contexts(wrapped: &[u8], wrap_key: &[u8; 32]) -> Result<(), Error> {
+    use lastdb_range_crypto::RangeMoleculeKey;
+    for (molecule, epoch, domain) in [
+        ("another-molecule", SCOPE.epoch, "generated-access"),
+        (SCOPE.molecule, 8, "generated-access"),
+        (SCOPE.molecule, SCOPE.epoch, "another-access"),
+    ] {
+        assert!(matches!(
+            RangeMoleculeKey::from_access_wrap(wrap_key, molecule, epoch, domain, wrapped),
+            Err(Error::Authentication)
+        ));
+    }
+    assert!(matches!(
+        RangeMoleculeKey::from_access_wrap(
+            &[0x20; 32],
+            SCOPE.molecule,
+            SCOPE.epoch,
+            "generated-access",
+            wrapped
+        ),
+        Err(Error::Authentication)
+    ));
     Ok(())
 }

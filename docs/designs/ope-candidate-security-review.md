@@ -1,6 +1,9 @@
 # OPE candidate security review
 
-Status: Activation blocked, 2026-10-24. A replacement or an explicit confidentiality decision is required.
+Status: Carry-profile candidate rejected and PR 365 closed without merge, 2026-10-24.
+
+This finding applies to `lastdb:clww-carry128:hmac-sha256:v1`.
+The replacement binary CLWW profile uses a distinct identity and requires its own review.
 
 The [independent automated review](https://github.com/EdgeVector/lastdb/pull/365#discussion_r4368589478) found a concrete suffix-leakage counterexample.
 This is a code review result, not an independent professional cryptographic audit.

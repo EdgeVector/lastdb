@@ -1,5 +1,8 @@
 # Permissive OPE Implementations And The Private-Key Contract
 
+Current route: [binary CLWW replacement](ope-range-keys-implementation-plan.md).
+The earlier backward-carry candidate below is rejected; [PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge.
+
 Source review: 2026-10-24. This is a candidate review, not an implementation audit or a release approval.
 Implementation now starts with LastDB-owned source under the [fixed candidate codec contract](../../lastdb_range_crypto/README.md).
 

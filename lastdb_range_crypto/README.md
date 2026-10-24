@@ -1,126 +1,132 @@
 # LastDB Range Crypto
 
-Status: First implementation package, 2026-10-24. The active disk codec does not select this format.
+Status: Replacement candidate, 2026-10-24. Native readers and writers do not select this format.
 
-Activation is blocked by the [suffix-leakage counterexample](../docs/designs/ope-candidate-security-review.md).
-Correct byte order does not resolve that confidentiality defect or permit native integration.
+This crate independently implements binary CLWW OPE from the [FSE 2016 paper, Section 3.2](https://saweis.net/pdfs/pore-clww.pdf).
+Its PRF excludes the maximum 128-bit value, so addition of a plaintext bit cannot wrap.
+Independent output blocks replace the rejected extension's suffix carry.
+The [earlier security finding](../docs/designs/ope-candidate-security-review.md) applies to the closed carry-profile candidate.
+This replacement still requires independent review of its exact PRF, framing, key grants, and protected original ranges before native activation.
+No restricted vendor source or OPE dependency is used.
 
-This Apache-2.0 crate implements the published CLWW-derived exact OPE construction with backward carry and high-bit placement.
-The [construction note](https://cipherstash.com/research/backward-carry-ope) describes this later extension.
-The [original CLWW paper](https://saweis.net/pdfs/pore-clww.pdf) describes the underlying prefix-based construction.
-The implementation uses existing RustCrypto primitives and no vendor OPE dependency or copied vendor source.
+## Published construction and PRF instantiation
 
-The later extension and this exact byte profile need independent cryptographic review before activation.
-The original paper's security proof does not automatically cover this extension.
-This crate makes no claim of an independent audit or an order-only leakage guarantee.
+For each plaintext bit, CLWW emits `u = F(key, position, prior_bits) + bit mod M`.
+This profile uses `M = 2^128` and a separate 16-byte block for every bit.
+The ordinary unsigned byte order compares the first unequal block.
+All later output blocks are irrelevant to that comparison.
 
-## Purpose
+The LastDB PRF derives a candidate from the first 16 bytes of HMAC-SHA256.
+It rejects the all-`0xff` block and tries the next counter, for at most 16 draws.
+Thus, every returned block lies between zero and `2^128-2`.
+Addition of zero or one stays within 128 bits.
+An exhausted sampler returns `PrfRefused`; it produces no ciphertext.
+A caller must refuse that write before its ack.
 
-A user with the private identity seed can create deterministic, sortable terms for complete range values.
-The cloud can compare existing terms without the private key.
-Key creation requires no directory preload, server call, or registration of each range value.
-Only values under one molecule, blinded hash, and epoch need comparable terms.
+In the random-function model, a returned block is uniform over all non-maximum 128-bit values.
+Coupling it to a uniform 128-bit block fails with probability at most `Q/2^128` across `Q` prefix evaluations.
+Add the HMAC PRF advantage to that bound.
+The 16-draw refusal probability for one prefix is `2^-2048` in that model.
+These are review arguments for this instantiation, not an independent audit or a promise of order-only secrecy.
 
-The public API provides private-key derivation, complete range terms, prefix interval bounds, and bounded canonical text conversion.
-It does not provide an atom cipher, an original-range decoder, a cloud protocol, or a database migration.
+## Exact stored-byte profile
 
-## Private-key derivation
+The identity is `lastdb:clww-binary128-nonwrapping:hmac-sha256:v1`.
+The rejected identity was `lastdb:clww-carry128:hmac-sha256:v1`; its terms are incompatible.
+A change to the PRF, framing, derivation, or block format requires another identity.
 
-The input is the user's 32-byte private Ed25519 identity seed, rather than a public key or a serialized key file.
-`RangeOpeRoot::from_private_key_seed` derives a separate 32-byte root through HKDF-SHA256.
-It uses salt `lastdb:range-ope:private-seed:v1` and info `lastdb:range-ope:root-key:v1`.
-This root is independent of the existing content and hash purposes.
+Prepend the fixed byte `0x01` to the complete logical input, including an empty value.
+Read all bits most significant first.
+Encode each prior bit as one byte, zero or one.
+Do not normalize text, narrow the domain, or truncate the range.
+Do not include the complete input length in the prefix PRF context.
+Position is implicit in the length of the prior-bit sequence.
 
-The molecule key uses HKDF-Expand from that root.
-Its info contains these four length-framed fields:
-
-1. `lastdb:range-ope:molecule-key:v1`.
-2. The exact `FORMAT_ID`.
-3. The exact UTF-8 molecule identity.
-4. The eight-byte big-endian epoch.
-
-The hash key uses HKDF-Expand from the molecule key.
-Its info contains the length-framed label `lastdb:range-ope:hash-key:v1` and the stored blinded hash.
-Each field length is an unsigned four-byte big-endian integer.
-A scope component must not exceed 65,535 bytes; the molecule identity must be nonempty.
-An empty hash is framed explicitly and does not alias an absent field.
-
-This hierarchy permits a later grant of a molecule secret without disclosure of the account root.
-The protected grant API remains later work; this crate exports no plaintext key accessor.
-The same private seed and scope produce the same term across devices.
-The new format does not draw its OPE key from the existing random molecule bundle.
-Existing bundles require an explicit integration and conversion decision.
-
-Private key holders use zeroizing storage and redacted debug output.
-Owned intermediate plaintext and keystream buffers use zeroizing storage where available.
-The cryptographic libraries' internal stack copies do not receive a full memory-erasure guarantee from this crate.
-
-## Frozen candidate byte profile
-
-The identity is `lastdb:clww-carry128:hmac-sha256:v1`.
-Changing the derivation, PRF, framing, marker, or carry rule creates a new incompatible profile.
-This profile is not byte-compatible with the vendor's BLAKE3 implementation.
-
-The logical input is the exact complete byte string, with a fixed byte `0x01` before it.
-The marker also precedes an empty input.
-Text receives no case conversion, Unicode normalization, numeric interpretation, or truncation.
-The complete input length is not part of the PRF input, because that would destroy common-prefix order.
-
-For input bit position `i`, obtain the first byte of:
+For each counter from zero through 15, obtain the first 16 bytes of:
 
 ```text
 HMAC-SHA256(scoped_key,
-    "lastdb:range-ope:prefix-prf:v1\0" || FORMAT_ID || prior_bits)
+  "lastdb:range-ope:binary-prefix-prf:v1\0" || FORMAT_ID || prior_bits ||
+  0xff || counter_u32_big_endian)
 ```
 
-Process bits most significant first. Each prior bit occupies one byte, `0x00` or `0x01`.
-Let `P` be those PRF bytes in big-endian order.
-Let `B` be the plaintext bits, each also stored as one base-256 digit.
-The ciphertext is `P + 128*B`, with a reserved leading byte for the final carry.
-The implementation computes the carry from right to left.
+The terminator cannot appear among the prior-bit bytes.
+The fixed-width counter makes rejection draws distinct.
+After the first accepted block, add the input bit as a big-endian integer.
+Append that block and update the prefix state with the plaintext bit.
+There is no carry into another block and no reserved leading ciphertext byte.
+The first unequal plaintext bit therefore changes its complete output block by exactly one.
+A shorter plaintext produces a proper ciphertext prefix and sorts first.
 
-The prefix PRF is a keyed function of all earlier bits, rather than a separate map for each independent input byte.
-The carry rule retains the complete integer sum.
-Two values first differ under the same PRF state, so the high-bit signal determines the direction before the later digits.
-If one value is a prefix of another, the extra digits can add a carry to the common prefix or leave it equal.
-The shorter value sorts first in both cases.
-This explains order correctness; it does not prove the privacy of the construction.
+Raw term size is `128*(N+1)` bytes for `N` logical input bytes.
+Canonical lowercase hex size is `256*(N+1)` bytes.
+The empty range has a real 128-byte term.
+Parsing checks canonical hex and a positive raw size divisible by 128; it does not authenticate a term.
 
-Raw term size is `8*N + 9` bytes for `N` logical input bytes.
-Canonical lowercase hex size is `16*N + 18` bytes.
-An empty range therefore has a real nine-byte term.
-The leading carry is zero or one, and the raw size is congruent to one modulo eight.
-The parser checks shape and canonical lowercase hex, rather than authenticity or scope.
-Keep terms from different scopes out of the same ordered stream.
+For prefix `p`, select `[encrypt(p), encrypt(successor(p)))`.
+The successor increments the rightmost byte below `0xff` and removes the suffix.
+An empty or all-`0xff` prefix has no upper bound within that named hash.
+Bounds accept raw bytes, including a successor that is not valid UTF-8.
 
-## Prefix reads and resource limits
+## Private-key derivation
 
-For prefix `p`, create the interval `[encrypt(p), encrypt(successor(p)))`.
-The successor increments the rightmost byte below `0xff` and removes the suffix after it.
-No successor means the end of that named hash stream.
-The bound may contain invalid UTF-8 bytes; it is not an API text value.
-An empty prefix selects the complete named hash stream.
-An encrypted prefix is not used as a ciphertext byte prefix.
+The root input is the user's 32-byte private Ed25519 identity seed.
+Use HKDF-SHA256 with salt `lastdb:range-ope:private-seed:v1` and info `lastdb:range-ope:root-key:v1`.
+This purpose is separate from the current content and hash purposes.
 
-`max_term_bytes` bounds each raw output before allocation.
-`max_text_bytes` bounds the complete hexadecimal output before allocation.
-The prefix method may allocate two bounded terms and one bounded temporary plaintext successor.
-The crate imposes no small integer domain or fixed logical range length.
-Native callers must account for the entire stored key frame, not only this term.
+Derive a molecule key with HKDF-Expand and these length-framed fields:
 
-The current native format caps an entire stored key at 65,535 bytes.
-Its current `ope_v1` expands a logical range eight times; this profile's hex form expands it sixteen times, plus framing.
-Preserve the full existing logical range allowance through an explicit new format before activation.
-Do not silently reduce that allowance, truncate a value, or hash it into a narrow domain.
+1. `lastdb:range-ope:molecule-key:v1`.
+2. The exact `FORMAT_ID`.
+3. The exact molecule identity in UTF-8.
+4. The eight-byte big-endian epoch.
 
-## Remaining release work
+Derive the OPE stream key from that molecule key with the framed label `lastdb:range-ope:hash-key:v1` and stored blinded hash.
+Each field length uses four unsigned big-endian bytes.
+A scope component has a 65,535-byte cap; a molecule identity cannot be empty.
+An empty hash is explicit and does not alias an absent context.
+The same private seed and scope produce the same terms across devices.
+The current random molecule bundles do not define this new range root.
 
-The [implementation plan](../docs/designs/ope-range-keys-implementation-plan.md) covers encrypted original ranges, all readers and writers, conversion, and restore.
-Those changes precede selection of the new native codec.
-The future cloud protocol also needs authorization, coherent revisions, freshness, and response-completeness rules.
+Key holders use zeroizing storage and redacted debug output.
+The crate supplies no raw secret accessor.
+Library-internal stack copies receive no complete memory-erasure guarantee.
 
-CAUTION: Terms expose order, equality, length, and additional structure. They do not replace authenticated content encryption.
+## Protected original ranges and scoped grants
 
-Do not assume that the later variant exposes only the leakage proved for original CLWW ORE.
-Its full leakage analysis is part of the independent release review.
-Product use remains blocked on that review and completion of the integration packages.
+`RangeOpeRoot::for_molecule` derives a molecule secret without disclosure of the account root.
+`RangeMoleculeKey::for_hash` derives its exact OPE stream key.
+
+`protect_range` prepares the term and an independently encrypted original range.
+Its key uses HKDF-Expand from the molecule key with label `lastdb:range-ope:original-key:v1` and the blinded hash.
+The cipher is AES-256-GCM-SIV with a fresh random 12-byte nonce.
+Its envelope is `[version=1][nonce:12][ciphertext][tag:16]`.
+
+The authenticated context frames `lastdb:range-ope:original-context:v1`, the format, molecule, epoch, blinded hash, and SHA-256 of the term.
+The digest binds the entire term without a scope-field size reduction.
+`open_range` authenticates the context, decrypts the original, and checks its regenerated term.
+A changed scope, term, or ciphertext produces refusal.
+A prepared write retry must reuse the complete prepared value.
+
+`wrap_for_access` protects only the molecule secret under an authorized access-domain key.
+Its context frames `lastdb:range-ope:grant-context:v1`, the format, molecule, epoch, and exact nonempty access domain.
+It uses the same nonce and envelope rules and a fixed 32-byte secret payload.
+`from_access_wrap` authenticates that context before it creates a recipient key holder.
+A recipient does not need the owner's private seed.
+This grant codec does not grant authorization, change membership, or implement a cloud share service.
+
+## Resource and release boundary
+
+Caller byte limits bound original ranges, raw terms, and canonical text before their use.
+Context sizes have explicit bounds, and size arithmetic is checked.
+The native whole-key cap remains 65,535 bytes; this source does not raise it or select a new home format.
+Native integration must preserve the complete old logical range allowance despite the larger terms.
+
+The [implementation plan](../docs/designs/ope-range-keys-implementation-plan.md) covers all readers, writers, migration, and primary adoption.
+The single authorized CI proof covers order, prefixes, scopes, sizes, malformed input, suffix isolation, and protected range/grant context checks.
+Builds and execution stay in CI; other tests remain retired.
+
+CAUTION: Searchable terms expose order, equality, length, and first-differing-bit information. Low-entropy ranges still permit inference.
+
+Authenticated original-range encryption does not remove leakage from searchable terms.
+This candidate remains inactive until cryptographic review and the complete native integration pass their release gates.

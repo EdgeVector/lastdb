@@ -52,7 +52,10 @@ impl RangeTerm {
         if size > max_term_bytes {
             return Err(Error::ByteLimit);
         }
-        if !text.len().is_multiple_of(2) || size < term_bytes(0)? || size % 8 != 1 {
+        if !text.len().is_multiple_of(2)
+            || size < term_bytes(0)?
+            || !size.is_multiple_of(term_bytes(0)?)
+        {
             return Err(Error::InvalidTerm);
         }
         let mut bytes = Vec::new();
@@ -63,9 +66,6 @@ impl RangeTerm {
             let high = hex_digit(pair[0]).ok_or(Error::InvalidTerm)?;
             let low = hex_digit(pair[1]).ok_or(Error::InvalidTerm)?;
             bytes.push((high << 4) | low);
-        }
-        if bytes[0] > 1 {
-            return Err(Error::InvalidTerm);
         }
         Ok(Self(bytes))
     }
