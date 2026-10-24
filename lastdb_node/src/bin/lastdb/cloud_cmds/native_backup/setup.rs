@@ -1,4 +1,4 @@
-//! Explicit fresh DEV identity and paused native credentials. No local store opens.
+//! Explicit DEV identity and paused native credentials. No database writer opens.
 
 use super::*;
 use fold_db::security::Ed25519KeyPair;
@@ -181,7 +181,8 @@ fn connected(
         &serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
             "account_id": account, "home": home, "credential_file": CLOUD_SYNC_PAUSED_FILE,
-            "cloud_sync_off": true, "local_store_opened": false,
+            "cloud_sync_off": true, "local_store_opened": restored,
+            "local_store_read_only": restored, "database_writer_opened": false,
             "registration_attempted": registered, "credentials_saved": true,
             "api_key_output": false, "legacy_recipient_enrolled": false,
             "restored_home": restored, "automatic_backup_enabled": false,
