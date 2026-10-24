@@ -74,6 +74,8 @@ The handles close before the final directory edit or on an error. No handle surv
 The isolated native diagnostic mode separates tree page reads and validation, retired references, leaf merge, leaf output, and parent output.
 Changed-value references overlap the leaf merge phase. Directory lookup remains separate.
 These phases remain off during ordinary benchmark measurements and normal use.
+Locator parent output checks every separator, then creates only its packed payload.
+The fixed-width payload belongs only to directory parents; locator parents no longer create and discard that buffer.
 
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.

@@ -163,15 +163,8 @@ pub(super) fn parent(
     if level >= 8 || children.len() < 2 || (kind == TreeKind::Directory && children.len() > 89) {
         return Err(corrupt("internal page height or child count"));
     }
-    let mut payload = Vec::with_capacity((children.len() - 1) * INTERNAL_WIDTH);
-    for child in &children[1..] {
-        payload.extend_from_slice(
-            child
-                .minimum
-                .as_ref()
-                .ok_or_else(|| corrupt("missing separator"))?,
-        );
-        payload.extend_from_slice(&child.number.to_le_bytes());
+    if children[1..].iter().any(|child| child.minimum.is_none()) {
+        return Err(corrupt("missing separator"));
     }
     let fields = PageFields {
         kind: if kind == TreeKind::Locator {
@@ -206,6 +199,11 @@ pub(super) fn parent(
             }),
         )?
     } else {
+        let mut payload = Vec::with_capacity((children.len() - 1) * INTERNAL_WIDTH);
+        for child in &children[1..] {
+            payload.extend_from_slice(child.minimum.as_ref().expect("validated separator"));
+            payload.extend_from_slice(&child.number.to_le_bytes());
+        }
         pages.append(fields, &payload)?
     };
     Ok(Child {
