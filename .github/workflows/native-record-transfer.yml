@@ -1,0 +1,117 @@
+name: Native record transfer
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/laststore/src/disk_pack/home/**'
+      - 'vendor/laststore/src/disk_pack/home.rs'
+      - 'vendor/laststore/src/bin/lastdb-native-transfer.rs'
+      - 'vendor/laststore/Cargo.toml'
+      - 'lastdb_node/src/native_transfer_target.rs'
+      - 'lastdb_node/src/bin/lastdb/cli_defs/db_offline.rs'
+      - 'scripts/release/native-transfer-check.py'
+      - '.github/workflows/native-record-transfer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration:
+    name: Native migration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '3'
+      BASELINE_OID: f7e77989a050aa490d64231474c6d7df847c24af
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Prepare the exact old reader with the transport adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/native-source"
+          git worktree add --detach "$baseline" "$BASELINE_OID"
+          git diff "$BASELINE_OID" HEAD -- \
+            vendor/laststore/Cargo.toml \
+            vendor/laststore/src/bin/lastdb-native-transfer.rs \
+            vendor/laststore/src/disk_pack/home/build.rs \
+            vendor/laststore/src/disk_pack/home/transfer.rs \
+            vendor/laststore/src/disk_pack/home/transfer \
+            > "$RUNNER_TEMP/native-transfer-adapter.patch"
+          git -C "$baseline" apply "$RUNNER_TEMP/native-transfer-adapter.patch"
+          # Register the adapter without importing later old-reader changes.
+          python3 - "$baseline/vendor/laststore/src/disk_pack/home.rs" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          assert 'pub mod transfer;' not in text
+          path.write_text(text.replace('mod stream;\n', 'mod stream;\npub mod transfer;\n', 1))
+          PY
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-record-transfer-${{ matrix.os }}
+      - name: Build both programs and their exact transport workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p lastdb_node --bin lastdb --bin lastdbd
+          cargo build --locked --release -p laststore --bin lastdb-native-transfer
+          cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
+            --target-dir "$RUNNER_TEMP/native-source-target" \
+            -p lastdb_node --bin lastdb --bin lastdbd
+          cargo build --locked --release --manifest-path "$RUNNER_TEMP/native-source/Cargo.toml" \
+            --target-dir "$RUNNER_TEMP/native-source-target" \
+            -p laststore --bin lastdb-native-transfer
+      - name: Run the complete two-home operational path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release/native-transfer-check.py \
+            --baseline "$RUNNER_TEMP/native-source-target/release" \
+            --candidate "$GITHUB_WORKSPACE/target/release" \
+            --source-transfer "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" \
+            > "$RUNNER_TEMP/native-transfer-result.json"
+          {
+            echo '## Native record transfer'
+            echo "Source reader: $BASELINE_OID, with only the transport adapter."
+            echo "Target writer: ${{ github.event.pull_request.head.sha || github.sha }}."
+            echo 'Full stored-record digest, retained source, durable writes, target compaction and both reopens passed.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Package macOS transfer workers and matched programs
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/native-migration-artifact"
+          mkdir -p "$output"
+          for binary in lastdb lastdbd lastdb-native-transfer; do
+            cp "target/release/$binary" "$output/$binary"
+            strip "$output/$binary"
+            codesign --force --sign - "$output/$binary"
+            codesign --verify --strict "$output/$binary"
+          done
+          cp "$RUNNER_TEMP/native-source-target/release/lastdb-native-transfer" "$output/source-native-transfer"
+          strip "$output/source-native-transfer"
+          codesign --force --sign - "$output/source-native-transfer"
+          codesign --verify --strict "$output/source-native-transfer"
+          shasum -a 256 "$output/lastdb" "$output/lastdbd" \
+            "$output/lastdb-native-transfer" "$output/source-native-transfer" > "$output/SHA256SUMS"
+          printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > "$output/target-source.txt"
+          printf '%s\n' "$BASELINE_OID" > "$output/baseline-source.txt"
+          cp "$RUNNER_TEMP/native-transfer-result.json" "$output/operational-result.json"
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'macOS'
+        with:
+          name: native-migration-${{ github.event.pull_request.head.sha || github.sha }}-aarch64-apple-darwin
+          path: ${{ runner.temp }}/native-migration-artifact/*
+          if-no-files-found: error
+          retention-days: 14
