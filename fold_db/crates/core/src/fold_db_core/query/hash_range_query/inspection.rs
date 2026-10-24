@@ -40,6 +40,7 @@ impl HashRangeQueryProcessor {
                 HashMap::new(),
                 Vec::new(),
                 HashMap::new(),
+                HashMap::new(),
             ));
         }
         let mut candidate_cap = sample_size.unwrap_or(INSPECTION_KEY_CAP);
@@ -83,7 +84,7 @@ impl HashRangeQueryProcessor {
         let kept: HashSet<_> = page_keys.iter().cloned().collect();
         values.retain(|key, _| kept.contains(key));
         sources.retain(|key, _| kept.contains(key));
-        Ok((primary_name, values, page_keys, sources))
+        Ok((primary_name, values, page_keys, sources, HashMap::new()))
     }
 
     async fn inspection_candidates(

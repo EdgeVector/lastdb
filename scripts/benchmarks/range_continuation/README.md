@@ -37,6 +37,10 @@ Any other baseline error fails the operation.
 Matched latency uses 32 identical 128-key intervals with 64-record pages.
 Both variants first receive the same complete known-key warm prefill.
 The report gives p50, p95, p99, maximum, and individual request times.
+It also gives internal key requests, warm hits, file read calls, read bytes, and peak transient bytes per request.
+Internal key requests count the logical storage requests, including repeats. They are not the native guard's examined-key count.
+The report keeps process memory before/after the narrow phase and the process lifetime peak separate.
+These observations do not establish an in-flight request peak or a total-memory cap.
 It compares medians of two per-run statistics. It does not pool requests across runs.
 Elapsed time includes the socket and complete response bytes, with client decode and validation outside the timer.
 The client, OS cache, and shared runner affect the result.
@@ -46,6 +50,10 @@ The client, OS cache, and shared runner affect the result.
 The recipe includes late bounds near key 16000, half-open endpoints, prefixes, offsets, and exclusive cursors.
 Cross-hash cursor ties use the public range-first/hash-second order.
 Empty and inverted intervals, an empty range key, NUL bytes, and Unicode boundaries receive explicit selectors.
+Range-field-only and omitted-range-field projections verify the exact current response fields.
+The current response also retains the declared primary hash field, `bucket`.
+Both binaries must return that field and the requested fields, with no other field.
+The selectors cover ranges, prefixes, and the single-hash path.
 Delete, Purge, and an update precede a durable flush and graceful reopen.
 Known-key reads verify every seeded coordinate, including absent deleted keys.
 The candidate repeats its broad range after the reopen.

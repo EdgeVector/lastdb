@@ -84,6 +84,12 @@ class Workload:
             tie = query(HASH, key(16000), key(16128), 17)
             tie["cursor"] = {"hash": hashed, "range": key(16063)}
             cases.append(("cross-hash-tie-" + hashed, tie))
+        projections = [("range-field-only", query(HASH, key(8180), key(8250), 17), ["id"]),
+            ("range-without-range-field", query(HASH, key(8180), key(8250), 17), ["bucket", "title", "body"]),
+            ("prefix-without-range-field", prefix(HASH, "key-00819", 7), ["title"]),
+            ("hash-without-range-field", {"schema_name": SCHEMA, "limit": 3,
+                "filter": {"HashKey": EDGE_HASH}}, ["body"])]
+        cases.extend((label, {**request, "fields": fields}) for label, request, fields in projections)
         return [walk(self.node, self.expected, request, label) for label, request in cases]
 
     def run(self):
@@ -96,12 +102,14 @@ class Workload:
         broad.append(walk(self.node, self.expected,
             {"schema_name": SCHEMA, "fields": FIELDS, "limit": 256, "filter": {"HashKey": HASH}},
             "broad16384-hash"))
+        memory_before = self.node.status("immediately-before-narrow-latency")
         measured = []
         for ordinal in range(32):
             first = ordinal * (COUNT - 128) // 31
             value = walk(self.node, self.expected, query(HASH, key(first), key(first + 128), 64),
                          "matched-narrow-" + str(ordinal))
             measured.extend(value["samples"])
+        memory_after = self.node.status("immediately-after-narrow-latency")
         boundaries = self.edges()
         self.mutate([("delete", HASH, key(n), "removed") for n in (0, 255, 4095, 16000)]
                     + [("purge", HASH, key(n), "removed") for n in (64, 256, 8192, 16383)]
@@ -131,6 +139,7 @@ class Workload:
         return {"records_seeded": COUNT, "edge_records": len(EDGE_KEYS), "known_key_passes": known,
                 "broad": broad, "boundaries": boundaries, "narrow_latency": latency(measured),
                 "narrow_samples": measured, "reopened": reopened, "preload": preload,
+                "narrow_memory_before": memory_before, "narrow_memory_after": memory_after,
                 "ordered_mutation_sha256": self.offered.hexdigest(),
                 "final_values_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest(),
                 "status": self.node.status("final"), "all_values_verified": True,
