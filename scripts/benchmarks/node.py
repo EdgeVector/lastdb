@@ -36,9 +36,10 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 class Node:
-    def __init__(self, binary, revision, output, native_timing=False):
+    def __init__(self, binary, revision, output, native_timing=False, workers=0):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
+        self.workers = workers
         # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir="/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
@@ -82,6 +83,8 @@ class Node:
                            RUST_MIN_STACK="16777216")
         if self.native_timing:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
+        if self.workers:
+            environment["LASTDB_UDS_WORKERS"] = str(self.workers)
         self.log = (self.output / "node.log").open("a")
         self.process = subprocess.Popen(
             [str(self.binary), "--data-dir", str(self.home), "--socket-path", str(self.socket),
@@ -99,6 +102,13 @@ class Node:
                         save(self.output / "version.json", version)
                         if f"bench-{self.revision}" not in json.dumps(version):
                             raise RuntimeError("The actual daemon version differs from the selected revision")
+                        if self.workers:
+                            status, _, _ = self.call("/api/status")
+                            observed = status["status"]["uds"]["workers"]
+                            save(self.output / "worker-config.json",
+                                 {"requested": self.workers, "observed": observed})
+                            if observed != self.workers:
+                                raise RuntimeError("The daemon worker count differs from the selected count")
                         return
                 except (OSError, http.client.HTTPException):
                     pass

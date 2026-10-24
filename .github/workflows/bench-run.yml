@@ -21,6 +21,12 @@ on:
       resource_only:
         type: boolean
         default: false
+      baseline_workers:
+        type: string
+        default: "0"
+      candidate_workers:
+        type: string
+        default: "0"
 
 permissions:
   contents: read
@@ -36,6 +42,8 @@ jobs:
       CARGO_TERM_COLOR: always
       BENCH_PROFILE: ${{ inputs.profile }}
       BENCH_INVESTIGATION: ${{ inputs.investigation }}
+      BENCH_BASELINE_WORKERS: ${{ inputs.baseline_workers }}
+      BENCH_CANDIDATE_WORKERS: ${{ inputs.candidate_workers }}
     steps:
       - name: Prepare external result directory
         run: |
@@ -215,6 +223,8 @@ jobs:
               --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
               --baseline-revision "$BASELINE_SHA" \
               --candidate-revision "$CANDIDATE_SHA" \
+              --baseline-workers "$BENCH_BASELINE_WORKERS" \
+              --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT" "${args[@]}"
 
@@ -231,6 +241,8 @@ jobs:
               --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
               --baseline-revision "$BASELINE_SHA" \
               --candidate-revision "$CANDIDATE_SHA" \
+              --baseline-workers "$BENCH_BASELINE_WORKERS" \
+              --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
 
@@ -247,6 +259,8 @@ jobs:
               --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
               --baseline-revision "$BASELINE_SHA" \
               --candidate-revision "$CANDIDATE_SHA" \
+              --baseline-workers "$BENCH_BASELINE_WORKERS" \
+              --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
 
