@@ -1,6 +1,8 @@
-//! Exact read-only restore validation while the native preparation gate is held.
+//! Exact read-only validation under the exclusive, inactive restore owner.
 
-use crate::db_operations::atom_store::{AtomStore, VerifyRequest};
+mod reader;
+
+use crate::db_operations::atom_store::{AtomStore, RecountOptions, RecountReport, VerifyRequest};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::{restore_safety, PackRuntime};
 use crate::storage::{KvStore, NamespacedStore};
@@ -11,14 +13,16 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
     let runtime = store
         .disk_pack_runtime()
         .ok_or_else(|| invalid("native restore owner is missing"))?;
-    let raw = restore_safety::raw_main(runtime).await?;
+    let raw = restore_safety::raw_main(Arc::clone(&runtime)).await?;
     let main = store.open_namespace("main").await?;
     let scopes = restored_scopes(raw.as_ref(), main.as_ref()).await?;
-    let atoms = AtomStore::new(Arc::new(crate::storage::TypedKvStore::new(main)));
+    let namespaces = reader::open(store, runtime, Arc::clone(&main)).await?;
+    let atoms = AtomStore::new(Arc::new(crate::storage::TypedKvStore::new(main)))
+        .with_namespaced_store(namespaces);
     atoms.minimum_replay_time().await?;
-    for scope in scopes {
+    for scope in &scopes {
         let mut request = VerifyRequest {
-            scope,
+            scope: scope.clone(),
             max_pages: Some(1024),
             max_ms: Some(30_000),
             pause_ms: Some(0),
@@ -49,6 +53,33 @@ pub(crate) async fn validate(store: &dyn NamespacedStore) -> Result<(), SchemaEr
             }
             request.cursor = Some(next);
         }
+    }
+    validate_global_blobs(&atoms, scopes).await?;
+    Ok(())
+}
+
+async fn validate_global_blobs(
+    atoms: &AtomStore,
+    scopes: BTreeSet<Option<String>>,
+) -> Result<(), SchemaError> {
+    let options = RecountOptions {
+        execute: false,
+        blobs_exact: true,
+        scopes: scopes.into_iter().collect(),
+        ..RecountOptions::default()
+    };
+    let mut report = RecountReport::default();
+    atoms.recount_blobs(&options, &mut report).await?;
+    if !report.blobs.ran
+        || !report.blobs.exact
+        || report.changed() != 0
+        || report.blobs.unreadable_counters != 0
+        || report.blobs.rows_missing != 0
+        || !report.blobs.notes.is_empty()
+    {
+        return Err(invalid(
+            "restored global file references do not match their counters and files",
+        ));
     }
     Ok(())
 }

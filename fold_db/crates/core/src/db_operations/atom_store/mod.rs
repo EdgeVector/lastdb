@@ -62,7 +62,7 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
-pub(crate) use conflict_record::{DurableTipDecision, TipConflict};
+pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
     MoleculeRecountReport, RecountOptions, RecountReport, VerifyReport, VerifyRequest,

@@ -215,9 +215,13 @@ impl PackReadScope {
         let Some(runtime) = store.disk_pack_runtime() else {
             return Ok(None);
         };
-        Ok(Some(Self {
-            context: ReadContext::current(&runtime).await?,
-        }))
+        Self::for_runtime(&runtime).await.map(Some)
+    }
+
+    pub(crate) async fn for_runtime(runtime: &Arc<PackRuntime>) -> StorageResult<Self> {
+        Ok(Self {
+            context: ReadContext::current(runtime).await?,
+        })
     }
 
     /// Attach this same root and budget to an asynchronous child task.

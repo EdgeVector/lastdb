@@ -44,6 +44,8 @@ Keep an incomplete restore under a program that supports this validation marker.
 Validation discovers scopes from raw keys and reads their values through the correct encryption reader.
 It refuses a protected record that the encryption reader discards.
 It checks atom references, body/counter pairs, molecule counts, bindings, retained conflicts, and file holds.
+It counts file references across every restored scope before it compares the global file counts.
+The logical namespace reader also checks that each referenced file exists.
 It changes no count.
 The pending marker goes only after complete validation and a durable barrier.
 
