@@ -1,5 +1,6 @@
 //! A bounded retry cache. A hit still requires matching current record values.
-use crate::storage::{KvStore, StorageError, StorageResult, TypedKvStore};
+use crate::storage::error::StorageResult;
+use crate::storage::{KvStore, StorageError, TypedKvStore};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
