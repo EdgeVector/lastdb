@@ -19,10 +19,13 @@ Before the first delete, the command writes and flushes two records in one batch
 
 After this change, LastDB refuses a replayed mutation with a missing author time or an author time at or before the cutoff. A stale device must obtain a current snapshot before it resumes replay. LastDB also refuses old raw key writes because they carry no author time.
 
-The rule applies before replay effects and again inside the native write scope. A replay refusal does not advance the cloud replay cursor.
+The rule applies before replay effects and before the native write scope.
+A replay refusal does not advance the cloud replay cursor.
 
 The serving process reads and validates the marker and floor once at startup.
 Its clones share that fixed value. Normal writes need no extra disk read or lock for this check.
+The check uses the final mutation inputs before the shared write lock.
+The lock still protects checks that depend on earlier writes.
 Offline recount uses a separate instance that reads disk and cannot use the serving cache.
 Raw replay cannot write or delete either cutoff metadata record, even on an ordinary home.
 A snapshot restore opens a new process and validates its own restored floor.
