@@ -1,9 +1,9 @@
 use super::{
-    codec::Bootstrap, invalid, model::State, protocol, store::Store, ByteBackupCapture, Inner,
-    PackRuntime, StorageResult,
+    codec::Bootstrap, context::CaptureHome, invalid, model::State, protocol, store::Store,
+    ByteBackupCapture, Inner, PackRuntime, StorageResult,
 };
+use cloud_backup_protocol::bytes_sha256;
 use cloud_backup_protocol::v2::Begin;
-use cloud_backup_protocol::{bytes_sha256, DecimalU64, Digest, Id, NativeRoot};
 use laststore::disk_pack::backup::export::SnapshotExport;
 use laststore::disk_pack::lifetime::{DurableReference, ReferencePurpose};
 use laststore::disk_pack::Current;
@@ -33,7 +33,8 @@ impl PackRuntime {
             if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(invalid("byte capture requires complete writer recovery"));
             }
-            require_v1_cleanup(&runtime)?;
+            require_v1_cleanup(runtime.home.path())?;
+            let home = CaptureHome::Writer(Arc::clone(&runtime));
             let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
             if store.exists("job.json")? {
                 let old: State = store.read("job.json")?;
@@ -42,19 +43,19 @@ impl PackRuntime {
                     if old.key_sha256 != bytes_sha256(key.as_ref()) {
                         return Err(invalid("byte source account key differs"));
                     }
-                    validate_cut(&runtime, &old)?;
+                    validate_cut(&home, &old)?;
                     drop(gate);
                     let source = if old.released {
                         None
                     } else {
                         Some(
-                            SnapshotExport::open(retain(&runtime, &old)?)
+                            SnapshotExport::open(retain(&home, &old)?)
                                 .map_err(super::super::map)?,
                         )
                     };
                     return finish(
                         Inner {
-                            runtime,
+                            home,
                             store,
                             state: Mutex::new(old),
                             source,
@@ -62,6 +63,7 @@ impl PackRuntime {
                             _admission: admission,
                         },
                         &key,
+                        true,
                     );
                 }
                 if !old.released || old.begin.job == begin.job {
@@ -74,38 +76,21 @@ impl PackRuntime {
                 .lock()
                 .map_err(|_| invalid("byte writer lock"))?;
             let current = writer.current().clone();
-            let state = State {
-                format: 2,
-                begin,
-                reference_id: uuid::Uuid::new_v4(),
-                current_bytes: current.encode().map_err(super::super::map)?.to_vec(),
-                native_root: native_root(&runtime, &current)?,
-                key_sha256: bytes_sha256(key.as_ref()),
-                ready: false,
-                objects: 0,
-                verified: 0,
-                native_files: 0,
-                native_bytes: 0,
-                metadata_pack_objects: 0,
-                multi_file_pack_objects: 0,
-                terminal: None,
-                local_cancelled: false,
-                released: false,
-            };
+            let state = new_state(&home, begin, &key, &current)?;
             store.write("job.json", &state)?;
-            let reference = retain(&runtime, &state)?;
+            let reference = retain(&home, &state)?;
             drop(writer);
             drop(gate);
             let source = SnapshotExport::open(reference).map_err(super::super::map)?;
             let inner = Inner {
-                runtime,
+                home,
                 store,
                 state: Mutex::new(state),
                 source: Some(source),
                 readers: AtomicUsize::new(0),
                 _admission: admission,
             };
-            finish(inner, &key)
+            finish(inner, &key, true)
         })
         .await
     }
@@ -118,36 +103,41 @@ impl PackRuntime {
         let runtime = Arc::clone(self);
         let key = zeroize::Zeroizing::new(*key);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
+            let home = CaptureHome::Writer(Arc::clone(&runtime));
             let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
             let state: State = store.read("job.json")?;
             state.validate()?;
-            validate_cut(&runtime, &state)?;
+            validate_cut(&home, &state)?;
             if state.key_sha256 != bytes_sha256(key.as_ref()) {
                 return Err(invalid("byte source account key differs"));
             }
             let source = if state.released {
                 None
             } else {
-                retain(&runtime, &state)
+                retain(&home, &state)
                     .and_then(|reference| {
                         SnapshotExport::open(reference).map_err(super::super::map)
                     })
                     .ok()
             };
             let inner = Inner {
-                runtime,
+                home,
                 store,
                 state: Mutex::new(state),
                 source,
                 readers: AtomicUsize::new(0),
                 _admission: admission,
             };
-            finish(inner, &key)
+            finish(inner, &key, false)
         })
         .await
     }
 }
-fn finish(inner: Inner, key: &[u8; 32]) -> StorageResult<ByteBackupCapture> {
+pub(super) fn finish(
+    inner: Inner,
+    key: &[u8; 32],
+    admit_export: bool,
+) -> StorageResult<ByteBackupCapture> {
     let mut state = inner
         .state
         .lock()
@@ -163,8 +153,21 @@ fn finish(inner: Inner, key: &[u8; 32]) -> StorageResult<ByteBackupCapture> {
         state.native_bytes = source.bytes();
         inner.store.write("job.json", &*state)?;
     }
-    if !state.ready && state.terminal.is_none() && !state.local_cancelled && inner.source.is_some()
-    {
+    let active = state.terminal.is_none() && !state.local_cancelled && !state.released;
+    let eligible = if active {
+        let validation = super::counters::require_validated(&inner);
+        if admit_export {
+            validation?;
+            true
+        } else {
+            validation.is_ok()
+        }
+    } else {
+        true
+    };
+    // Recovery must still obtain a handle for exact terminal/local cancellation.
+    // Content APIs recheck eligibility before they expose the retained cut.
+    if !state.ready && active && eligible && inner.source.is_some() {
         super::certify::certify(&inner, key)?;
         super::planner::build(&inner, &mut state, key)?;
     }
@@ -176,10 +179,10 @@ fn finish(inner: Inner, key: &[u8; 32]) -> StorageResult<ByteBackupCapture> {
     capture.finish_terminal()?;
     Ok(capture)
 }
-fn retain(runtime: &PackRuntime, state: &State) -> StorageResult<DurableReference> {
-    let current = validate_cut(runtime, state)?;
+pub(super) fn retain(home: &CaptureHome, state: &State) -> StorageResult<DurableReference> {
+    let current = validate_cut(home, state)?;
     DurableReference::create_identified(
-        runtime.home.path(),
+        home.home().path(),
         &current,
         ReferencePurpose::CloudRecovery,
         0,
@@ -187,7 +190,7 @@ fn retain(runtime: &PackRuntime, state: &State) -> StorageResult<DurableReferenc
     )
     .map_err(super::super::map)
 }
-pub(super) fn validate_cut(runtime: &PackRuntime, state: &State) -> StorageResult<Current> {
+pub(super) fn validate_cut(home: &CaptureHome, state: &State) -> StorageResult<Current> {
     state.validate()?;
     let bytes: &[u8; 4096] = state
         .current_bytes
@@ -195,33 +198,13 @@ pub(super) fn validate_cut(runtime: &PackRuntime, state: &State) -> StorageResul
         .try_into()
         .map_err(|_| invalid("byte CURRENT length"))?;
     let current = Current::decode(bytes).map_err(super::super::map)?;
-    if native_root(runtime, &current)? != state.native_root {
+    if home.native_root(&current)? != state.native_root {
         return Err(invalid("byte source native cut differs"));
     }
     Ok(current)
 }
-fn native_root(runtime: &PackRuntime, current: &Current) -> StorageResult<NativeRoot> {
-    let live = runtime
-        .view
-        .read()
-        .map_err(|_| invalid("byte source view lock"))?;
-    if live.current.home_digest != current.home_digest {
-        return Err(invalid("byte source home differs"));
-    }
-    let root = NativeRoot {
-        home_id: Id::try_from(runtime.home.descriptor().identity.to_string()).map_err(protocol)?,
-        home_digest: Digest::try_from(crate::hex::hex_lower(current.home_digest))
-            .map_err(protocol)?,
-        current_sha256: bytes_sha256(&current.encode().map_err(super::super::map)?),
-        generation: DecimalU64::new(current.generation),
-        frontier: DecimalU64::new(current.frontier),
-        required_features: DecimalU64::new(current.required_features),
-    };
-    root.validate().map_err(protocol)?;
-    Ok(root)
-}
-fn require_v1_cleanup(runtime: &PackRuntime) -> StorageResult<()> {
-    let path = runtime.home.path().join("cloud-export-v1/job.json");
+pub(super) fn require_v1_cleanup(root: &std::path::Path) -> StorageResult<()> {
+    let path = root.join("cloud-export-v1/job.json");
     match std::fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
@@ -253,4 +236,30 @@ pub(super) fn clear_previous(store: &Store, state: &State) -> StorageResult<()> 
         }
     }
     Ok(())
+}
+
+pub(super) fn new_state(
+    home: &CaptureHome,
+    begin: Begin,
+    key: &[u8; 32],
+    current: &Current,
+) -> StorageResult<State> {
+    Ok(State {
+        format: 2,
+        begin,
+        reference_id: uuid::Uuid::new_v4(),
+        current_bytes: current.encode().map_err(super::super::map)?.to_vec(),
+        native_root: home.native_root(current)?,
+        key_sha256: bytes_sha256(key),
+        ready: false,
+        objects: 0,
+        verified: 0,
+        native_files: 0,
+        native_bytes: 0,
+        metadata_pack_objects: 0,
+        multi_file_pack_objects: 0,
+        terminal: None,
+        local_cancelled: false,
+        released: false,
+    })
 }

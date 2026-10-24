@@ -4,7 +4,9 @@ use super::*;
 
 #[path = "register/recovery.rs"]
 mod recovery;
-pub use recovery::{register_dev_native_device, register_dev_recovery_device};
+pub use recovery::{
+    register_dev_native_device, register_dev_recovery_device, register_native_device,
+};
 
 /// Marker file recording that the initial cloud bootstrap-restore completed;
 /// its presence keeps subsequent boots from re-running the full restore.

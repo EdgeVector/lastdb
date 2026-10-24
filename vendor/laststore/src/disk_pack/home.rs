@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 mod admission;
+mod boundary;
 mod build;
 mod maintenance;
 mod merge;
@@ -242,6 +243,11 @@ impl DiskHome {
     /// The immutable placement/key identity held by this home handle.
     pub fn descriptor(&self) -> &HomeDescriptor {
         &self.descriptor
+    }
+
+    /// Validate an exact saved root against this immutable native home identity.
+    pub fn validate_current(&self, current: &Current) -> Result<()> {
+        self.descriptor.check_current(current)
     }
 
     /// Use an already verified complete publication from this home's writer.

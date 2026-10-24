@@ -82,9 +82,7 @@ fn group(
     let mut bytes = 0;
     let mut buffer = [0u8; 65536];
     for file in members {
-        let mut reader = source
-            .reader(&file.path, &inner.runtime.read_lease)
-            .map_err(super::super::map)?;
+        let mut reader = inner.home.reader(source, &file.path)?;
         let mut file_hash = Sha256::new();
         let mut length = 0u64;
         loop {

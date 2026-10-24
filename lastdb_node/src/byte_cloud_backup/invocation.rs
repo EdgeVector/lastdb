@@ -26,8 +26,7 @@ pub(super) fn run(
         Ok(()) => InvocationOutcome::Complete,
         Err(error) => {
             saved.blocked_reason = Some(error.to_string());
-            match Store::open(&source.home, &saved.request_id).and_then(|fresh| fresh.save(&saved))
-            {
+            match store.reopen().and_then(|fresh| fresh.save(&saved)) {
                 Ok(()) => InvocationOutcome::Paused(error.pause_state()),
                 Err(checkpoint) => InvocationOutcome::Paused(checkpoint.pause_state()),
             }

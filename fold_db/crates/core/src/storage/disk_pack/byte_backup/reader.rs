@@ -21,6 +21,7 @@ impl ByteBackupCapture {
         {
             return Err(invalid("byte source reader phase"));
         }
+        self.require_export(&state)?;
         if self.inner.readers.load(Ordering::Acquire)
             >= lastdb_storage_policy::BACKUP_RESOURCES.concurrent_streams
         {
@@ -75,11 +76,10 @@ impl ByteBackupReader {
             .source
             .as_ref()
             .ok_or_else(|| io::Error::other("byte source unavailable"))?;
-        let mut reader = source
-            .reader(
-                Path::new(part.path.as_str()),
-                &self.inner.runtime.read_lease,
-            )
+        let mut reader = self
+            .inner
+            .home
+            .reader(source, Path::new(part.path.as_str()))
             .map_err(|_| io::Error::other("byte source generation read"))?;
         reader.seek_to(part.offset)?;
         self.reader = Some(reader);

@@ -10,6 +10,8 @@ use lastdb_node::host::{CLOUD_SYNC_CONFIG_FILE, IDENTITY_KEY_FILE};
 
 #[path = "recovery_home/files.rs"]
 pub(super) mod files;
+#[path = "recovery_home/native_registration.rs"]
+mod native_registration;
 #[path = "recovery_home/seed_registration.rs"]
 mod seed_registration;
 use super::CloudCommand;
@@ -26,12 +28,35 @@ struct Credentials {
 pub(super) fn handles(action: &CloudCommand) -> bool {
     matches!(
         action,
-        CloudCommand::PrepareRecoveryHome { .. } | CloudCommand::RecoverDevCredentialsHome { .. }
+        CloudCommand::PrepareRecoveryHome { .. }
+            | CloudCommand::RecoverDevCredentialsHome { .. }
+            | CloudCommand::RecoverCredentialsHome { .. }
     )
 }
 
 pub(super) fn command(source: Option<&Path>, action: CloudCommand) -> Result<(), String> {
     match action {
+        CloudCommand::RecoverCredentialsHome {
+            into,
+            env,
+            expected_user_hash,
+            identity_seed_stdin,
+            invite_code_file,
+            json,
+        } => {
+            if source.is_some() || !identity_seed_stdin {
+                return Err(
+                    "recover-credentials-home requires seed stdin without --data-dir".into(),
+                );
+            }
+            native_registration::command(
+                &into,
+                &env,
+                &expected_user_hash,
+                invite_code_file.as_deref(),
+                json,
+            )
+        }
         CloudCommand::PrepareRecoveryHome {
             into,
             env,
