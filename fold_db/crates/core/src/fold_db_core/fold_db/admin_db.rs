@@ -21,6 +21,7 @@ mod maintenance;
 mod orphan_gc;
 mod repair;
 mod retention;
+mod retention_backfill;
 mod schema_keys;
 mod storage_reports;
 

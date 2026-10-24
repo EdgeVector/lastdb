@@ -42,10 +42,27 @@ verbs and the knobs are in [`lastdb-ttl-sweep.md`](lastdb-ttl-sweep.md).
 | Layout | What expires | Records written before the declare |
 |---|---|---|
 | Range | Every record whose range key starts with 20 digits of unix seconds older than the TTL, whichever name wrote it. | **Deleted at the next sweep.** |
-| HashRange | In each hash partition the node has seen written since the policy exists, every record whose range key is older than the TTL. A partition that gets no write after the declare is not swept. | **Deleted in any partition that receives a later write.** |
-| Hash, Single | A record whose last write through the policy is older than the TTL. A rewrite resets the age (see below). | Kept. There is no backfill: only writes after the declare are tracked. |
+| HashRange | In each registered hash, every record whose range key is older than the TTL. | A later write or an explicit backfill registers the hash. |
+| Hash | A record whose last write is older than the TTL. A rewrite resets the age. | An explicit backfill adds the original write age. |
+| Legacy Single | Only records tracked after the policy starts. | Not supported by the current logical-layout backfill. |
 
 A range key that does not begin with 20 digits is never expired.
+
+### Backfill existing personal records
+
+After a policy starts, run `lastdb schema-retention backfill --schema <name> --confirm-expire-existing`.
+The command covers current Hash and HashRange schemas in the personal scope.
+It registers old hashes and adds old Hash keys with their original tip write times.
+It does not restart their ages at the time of the command.
+CAUTION: Existing records can expire at the next sweep.
+
+Each call handles at most 64 keys, with a smaller bound for a wide schema.
+The native write scope covers the current tip-clock reads and the age writes.
+A repeated page cannot replace a newer age with an older one.
+Each returned cursor follows a durable page; a restart can safely repeat the command.
+New writes retain their normal tracking path.
+A concurrent schema change requires a new complete pass.
+The command does not declare completion for other database scopes or retired key layouts.
 
 **A rewrite resets the age of a Hash or Single record.** The sweep re-reads the
 age of its keys before each batch and drops a key that a client rewrote since
