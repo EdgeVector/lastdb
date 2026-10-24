@@ -42,6 +42,7 @@ Each candidate walks the complete range, prefix, and single-hash selectors.
 Each page contains at most 256 records.
 Every page verifies values, duplicate removal, order, count, and exclusive cursor continuation.
 The baseline may return its known nonretryable 503 `read_resource_limit` for these broad selectors.
+This includes its exact native 10,000-key work limit, the complete-read continuation limit, or the disk-read budget refusal.
 That operation remains unavailable and never becomes a fast latency sample.
 An unexpected error or an incomplete candidate operation fails the workflow.
 

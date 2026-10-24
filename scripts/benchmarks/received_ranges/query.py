@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 
 from ranges import latency, validate
 
@@ -66,7 +67,11 @@ def walk(node, expected, request, label, baseline=False):
         if receipt["http_status"] == 503:
             message = result.get("message", "")
             known = ("bounded continuation" in message or message ==
-                     "read resource limit exceeded: disk-pack v1: read resource limit exceeded")
+                     "read resource limit exceeded: disk-pack v1: read resource limit exceeded"
+                     or re.fullmatch(
+                         r"read resource limit exceeded: native required work: "
+                         r"examined_keys=10000\+1/10000, charged_bytes=\d+\+\d+/268435456",
+                         message) is not None)
             if (samples or result.get("error") != "read_resource_limit"
                     or result.get("retryable") is not False or not known):
                 raise RuntimeError("An unexpected baseline failure occurs in " + label)
