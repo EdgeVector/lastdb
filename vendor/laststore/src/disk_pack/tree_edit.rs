@@ -130,11 +130,13 @@ impl<P: TreePages> TreeEdit<P> {
         path: PathStep,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
-        let page = crate::commit_timing::during("tree_edit_read_validate_us", || {
-            let page = call.tree_page(&self.root, path.number)?;
-            validate_page(call, &self.root, &page, &path)?;
-            Ok::<_, crate::Error>(page)
+        let page = crate::commit_timing::during("tree_edit_read_page_us", || {
+            call.tree_page(&self.root, path.number)
         })?;
+        crate::commit_timing::during("tree_edit_validate_keys_us", || {
+            validate_page(call, &self.root, &page, &path)
+        })?;
+        crate::commit_timing::count("tree_edit_entries", page.count() as u64);
         if self.track_changes {
             let _timing = crate::commit_timing::stage("tree_edit_retire_refs_us");
             self.changes.observe_page(

@@ -313,6 +313,7 @@ impl<'a> Publisher<'a> {
         // Release locator descriptors before the separate directory edit phase.
         drop(locator_files);
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
+        let _timing = crate::commit_timing::stage("publication_directory_edit_us");
         self.directory.put_many(
             &mut call,
             references,
