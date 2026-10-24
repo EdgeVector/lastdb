@@ -1,0 +1,109 @@
+name: PR 354 one-time recovery drill
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pr354-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery:
+    if: github.head_ref == 'evidence/pr354-recovery-drill-20261024' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: '3'
+      PRODUCT_OID: fe957bea5d9a857e02a8ea8efd7d910a918ccb80
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pr354-one-time-recovery
+      - name: Link the one-time drill without changing product functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PRODUCT_OID" HEAD
+          git diff --exit-code "$PRODUCT_OID" HEAD -- fold_db/crates/core/src
+          destination=fold_db/crates/core/src/sync/engine/transfer/s3_io/download/pr354_drill
+          mkdir -p "$destination" fold_db/crates/core/examples
+          cp scripts/ci/pr354-recovery/*.rs "$destination/"
+          printf '\nmod pr354_drill;\n' >> fold_db/crates/core/src/sync/engine/transfer/s3_io/download.rs
+          cat scripts/ci/pr354-recovery/bridge.rs >> fold_db/crates/core/src/fold_db_core/fold_db/sync/replay_applier.rs
+          cp scripts/ci/pr354-recovery/example.rs fold_db/crates/core/examples/pr354-counter-recovery.rs
+          git diff -- fold_db/crates/core/src > "$RUNNER_TEMP/pr354-visibility.patch"
+          sha256sum "$RUNNER_TEMP/pr354-visibility.patch" > "$RUNNER_TEMP/pr354-visibility.sha256"
+          root=$(mktemp -d "$RUNNER_TEMP/pr354-generated.XXXXXX")
+          echo "PR354_HOME=$root" >> "$GITHUB_ENV"
+      - name: Build the exact product with the isolated drill entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p fold_db --example pr354-counter-recovery \
+            > "$RUNNER_TEMP/pr354-build.log" 2>&1 || { tail -120 "$RUNNER_TEMP/pr354-build.log"; exit 1; }
+      - name: Run generated-data recovery cases in separate processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/pr354-results.jsonl"
+          : > "$output"
+          for mode in seed complete reopen-complete interrupt refuse-partial refuse-partial recover reopen-recovered raw-replay shared-files; do
+            timeout 180 target/release/examples/pr354-counter-recovery "$mode" "$PR354_HOME" \
+              >> "$output" 2>> "$RUNNER_TEMP/pr354-runtime.log"
+          done
+          cat "$output"
+          {
+            echo '## PR 354 generated-data recovery drill'
+            echo "Product source: $PRODUCT_OID"
+            echo "Drill source: ${{ github.event.pull_request.head.sha || github.sha }}"
+            echo 'Product functions remain unchanged. The CI patch only links the drill and exposes the existing replay callback.'
+            cat "$RUNNER_TEMP/pr354-visibility.sha256"
+            echo 'Complete restore, serving reopen, durable interrupted restore, two refused restarts, complete retry, counted mutation replay, seven raw replay refusals, and shared-file controls passed.'
+            echo 'The drill uses generated data. It uses no primary home, archive, account credential, cloud service, or cargo test.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        id: evidence
+        if: always()
+        with:
+          name: pr354-recovery-${{ github.event.pull_request.head.sha || github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/pr354-results.jsonl
+            ${{ runner.temp }}/pr354-runtime.log
+            ${{ runner.temp }}/pr354-build.log
+            ${{ runner.temp }}/pr354-visibility.patch
+            ${{ runner.temp }}/pr354-visibility.sha256
+      - name: Verify the retained artifact and its expiration
+        if: always() && steps.evidence.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.evidence.outputs.artifact-id }}
+          EXPECTED_SHA: ${{ steps.evidence.outputs.artifact-digest }}
+          DOWNLOAD_URL: ${{ steps.evidence.outputs.artifact-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/pr354-artifact.zip"
+          actual=$(sha256sum "$RUNNER_TEMP/pr354-artifact.zip" | cut -d ' ' -f 1)
+          test "$actual" = "$EXPECTED_SHA"
+          expiry=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq '.expires_at')
+          {
+            echo "Verified artifact: $DOWNLOAD_URL"
+            echo "SHA-256: $actual"
+            echo "Expires: $expiry"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove owned generated homes after retained evidence verification
+        if: success()
+        shell: bash
+        run: target/release/examples/pr354-counter-recovery cleanup "$PR354_HOME" >> "$GITHUB_STEP_SUMMARY"
