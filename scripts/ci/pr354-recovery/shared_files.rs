@@ -33,7 +33,7 @@ pub(super) async fn run(root: &Path) -> Result<Value> {
         }
     }
     require(altered == 2, "generated source lacks two atom counters")?;
-    let scope = format!("cloud:{}", "b".repeat(64));
+    let scope = "b".repeat(64);
     let scoped = rows.iter().map(|(key, value)| {
         (
             format!("{scope}:{}", String::from_utf8_lossy(key)).into_bytes(),
