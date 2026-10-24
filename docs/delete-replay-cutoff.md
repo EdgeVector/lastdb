@@ -5,11 +5,11 @@ Delete keeps a durable order record for each removed molecule key. This record b
 The owner can remove old delete records from a stopped home:
 
 ```sh
-lastdb db recount --home /absolute/generated-or-owned/home --all-scopes --delete-cutoff-unix-secs SECONDS --json
-lastdb db recount --home /absolute/generated-or-owned/home --all-scopes --delete-cutoff-unix-secs SECONDS --execute --json
+lastdb --data-dir /absolute/generated-or-owned/home db recount --all-scopes --delete-cutoff-unix-secs SECONDS --json
+lastdb --data-dir /absolute/generated-or-owned/home db recount --all-scopes --delete-cutoff-unix-secs SECONDS --execute --json
 ```
 
-Use the existing `db recount --help` home option for the installed CLI. The command first reports the proposed changes. The `--execute` option writes them. The command uses the existing stopped-home lock and primary refusal.
+The command first reports the proposed changes. The `--execute` option writes them. The command uses the existing stopped-home lock and primary refusal.
 
 Choose the cutoff explicitly. No timer advances it. A cutoff must be positive, cannot decrease, and cannot advance beyond the current time. Include every scope. The database names the known scopes; use `--scope` for any additional scope.
 
