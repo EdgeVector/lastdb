@@ -213,7 +213,7 @@ impl GroupWriter<'_> {
         body_bytes: u64,
         body: &mut dyn Read,
     ) -> Result<Location> {
-        self.check_version(version)?;
+        self.check_version(key, version)?;
         let location = self
             .owner
             .pack
@@ -235,7 +235,7 @@ impl GroupWriter<'_> {
     }
 
     fn tombstone_inner(&mut self, key: &str, version: MutationVersion) -> Result<()> {
-        self.check_version(version)?;
+        self.check_version(key, version)?;
         let location = Location {
             source: Source::Tombstone,
             version,
@@ -252,17 +252,20 @@ impl GroupWriter<'_> {
         )
     }
 
-    fn check_version(&self, version: MutationVersion) -> Result<()> {
+    fn check_version(&self, key: &str, version: MutationVersion) -> Result<()> {
         if self.owner.failed {
             return Err(corrupt(
                 "artifact builder requires a fresh identity after failure",
             ));
         }
-        if version.batch > self.owner.frontier
+        if key.len() > super::key_limits::key_byte_limit(self.owner.required_features)
+            || version.batch > self.owner.frontier
             || version.operation as usize
                 >= super::current::batch_operation_limit(self.owner.required_features)
         {
-            return Err(corrupt("source version exceeds held boundary"));
+            return Err(corrupt(
+                "source key or version exceeds held format boundary",
+            ));
         }
         Ok(())
     }

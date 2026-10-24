@@ -1,5 +1,5 @@
 use super::page::{Page, PageAddress};
-use super::{corrupt, resource, Current, DirectoryEntry, Location, Source, KEY_BYTES};
+use super::{corrupt, resource, Current, DirectoryEntry, Location, Source};
 use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
@@ -269,7 +269,7 @@ impl ReadCall {
         key: &str,
     ) -> Result<Option<Location>> {
         self.examine()?;
-        if key.len() > KEY_BYTES {
+        if key.len() > self.current.storage_key_byte_limit() {
             return Err(corrupt("storage key exceeds format limit"));
         }
         let directory_key = Self::directory_key(collection, group)?;
@@ -310,7 +310,7 @@ impl ReadCall {
     }
 
     pub(super) fn directory_key(collection: &str, group: u16) -> Result<Vec<u8>> {
-        if collection.len() > KEY_BYTES - 4 || group >= 1024 {
+        if collection.len() > super::key_limits::COLLECTION_BYTES || group >= 1024 {
             return Err(corrupt("directory coordinate exceeds format limit"));
         }
         let mut key = Vec::new();

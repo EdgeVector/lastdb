@@ -141,7 +141,9 @@ impl HomeRead {
         start: &[u8],
         end: &[u8],
     ) -> Result<HashRangeCursor<'_>> {
-        if start.len() > super::super::KEY_BYTES || end.len() > super::super::KEY_BYTES {
+        if start.len() > self.current().storage_key_byte_limit()
+            || end.len() > self.current().storage_key_byte_limit()
+        {
             return Err(super::super::corrupt(
                 "administrative bound exceeds key limit",
             ));
@@ -167,8 +169,8 @@ impl HomeRead {
         end: &[u8],
     ) -> Result<HashRangeCursor<'_>> {
         if group >= 1024
-            || start.len() > super::super::KEY_BYTES
-            || end.len() > super::super::KEY_BYTES
+            || start.len() > self.current().storage_key_byte_limit()
+            || end.len() > self.current().storage_key_byte_limit()
         {
             return Err(super::super::corrupt("administrative group or bound"));
         }

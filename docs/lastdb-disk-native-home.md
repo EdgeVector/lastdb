@@ -8,6 +8,36 @@ The disk reader and snapshot writer use saved LastStore placement and key identi
 Native disk storage is the product default; this document does not activate or change a primary home.
 The artifact format remains separate. The home identity and key codecs stay unchanged.
 
+## Extended native keys
+
+The optional `CURRENT` feature `0x400` (`1024`) selects a 32 MiB storage-key limit.
+A native generation without that feature keeps the 65,535-byte limit.
+Standalone artifacts keep the old limit.
+Collection names stay limited to 65,531 bytes because the directory uses a two-byte length.
+
+Only an explicit fresh-home builder or a separate conversion target can select this feature.
+Normal startup and default new homes do not select it.
+Older programs refuse the unknown feature before a value read or a writer open.
+This physical feature does not select an OPE codec or convert any logical key.
+
+The limit covers the larger OPE term and embedded delete identities.
+Admission quotes, exact and batch reads, range bounds, and source builders use the selected generation's limit.
+A key overflow chain has at most `ceil((key_bytes - inline_bytes) / 16256)` pages.
+Each page retains the complete suffix size, and the reader checks the chain and the complete key digest.
+Writers emit the tail first, so a chain can cross metadata files without a contiguous reservation.
+Live file counts follow every page in that chain.
+
+Native record transfer keeps the source feature and key bytes.
+Its record metadata cap permits JSON's six-byte expansion for each key and collection byte.
+Header and footer caps stay unchanged.
+Transfer into an older writer refuses an unsupported feature before target creation.
+The transfer adapter does not import the newer source reader or its size limit.
+
+Read work and memory limits remain separate from the key format limit.
+A finite read budget can refuse an expensive path.
+No active OPE performance claim follows from this format support.
+The full reader/writer change and active OPE measurements still precede primary approval.
+
 ## Home descriptor
 
 The exact marker `laststore-pack-home-v1` contains 4,096 bytes.

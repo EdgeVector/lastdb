@@ -11,7 +11,7 @@ pub(super) fn record_header(
 ) -> Result<[u8; 96]> {
     if key.len() > KEY_BYTES || body_bytes > lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES
     {
-        return Err(corrupt("record exceeds legacy-compatible limits"));
+        return Err(corrupt("record exceeds format limits"));
     }
     let mut bytes = [0; 96];
     bytes[..8].copy_from_slice(b"LDREC1\0\0");

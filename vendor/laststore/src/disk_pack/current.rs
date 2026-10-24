@@ -122,7 +122,8 @@ impl Current {
             || (self.required_features
                 & (super::FEATURE_SCHEMA_RECORD_REFS
                     | super::FEATURE_LARGE_BATCHES
-                    | super::FEATURE_ATOM_RECORDS)
+                    | super::FEATURE_ATOM_RECORDS
+                    | super::FEATURE_EXTENDED_KEYS)
                 != 0
                 && self.required_features & super::FEATURE_NATIVE_HOME == 0)
             || ((self.required_features & super::FEATURE_NATIVE_HOME != 0)

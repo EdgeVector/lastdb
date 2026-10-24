@@ -72,9 +72,7 @@ pub(super) fn key_descriptor(
         );
     }
     if external {
-        let chunks = key[inline..].chunks(PAGE_PAYLOAD);
-        let count = chunks.len();
-        let first = pages.reserve(count)?;
+        let first = overflow_pages(pages, &key[inline..])?;
         if !packed {
             put16(&mut entry, 6, 1);
         }
@@ -82,26 +80,37 @@ pub(super) fn key_descriptor(
         if packed {
             put64(&mut entry, 176, (key.len() - inline) as u64);
         }
-        for (index, suffix) in chunks.enumerate() {
-            pages.append(
-                PageFields {
-                    kind: 4,
-                    level: 0,
-                    count: 0,
-                    width: 0,
-                    left: 0,
-                    next: if index + 1 == count {
-                        0
-                    } else {
-                        first + index as u64 + 1
-                    },
-                    auxiliary: (key.len() - inline) as u64,
-                },
-                suffix,
-            )?;
-        }
     }
     Ok(entry)
+}
+
+// Write the tail first, so every next address is known without a contiguous
+// multi-part reservation. Existing small keys retain the same pointer format.
+fn overflow_pages(pages: &mut impl TreePages, suffix: &[u8]) -> Result<u64> {
+    let mut next = 0;
+    for chunk in suffix.chunks(PAGE_PAYLOAD).rev() {
+        let number = pages.reserve(1)?;
+        if number == 0 {
+            return Err(corrupt("zero key overflow page"));
+        }
+        let written = pages.append(
+            PageFields {
+                kind: 4,
+                level: 0,
+                count: 0,
+                width: 0,
+                left: 0,
+                next,
+                auxiliary: suffix.len() as u64,
+            },
+            chunk,
+        )?;
+        if written != number {
+            return Err(corrupt("key overflow reservation changed"));
+        }
+        next = number;
+    }
+    Ok(next)
 }
 
 pub(super) fn leaf_fields(kind: TreeKind, count: usize) -> PageFields {

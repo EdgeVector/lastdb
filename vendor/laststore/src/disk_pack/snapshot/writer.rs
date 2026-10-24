@@ -127,9 +127,9 @@ impl SnapshotWriter {
         base: Option<super::merge::MergePublication<'_>>,
     ) -> Result<PublishedGeneration> {
         self.check_admission()?;
-        let actual = SnapshotQuote::from_iter_with_limit(
+        let actual = SnapshotQuote::from_iter_with_features(
             mutations.iter().map(SnapshotMutation::shape),
-            self.current.batch_operation_limit(),
+            self.current.required_features,
         )?;
         reservation.validate(&self.admission, actual)?;
         reservation.begin()?;
