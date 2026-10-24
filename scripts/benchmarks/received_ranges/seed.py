@@ -8,6 +8,7 @@ import subprocess
 
 from node import file_hash
 from query import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, HIDDEN_INTERVALS, HIDDEN_SCHEMA, SCHEMA, SHIFT, TOTAL, fields, hidden, key
+from condition_values import COUNT as CONDITION_COUNT, HASH as CONDITION_HASH, EXTRA_FIELDS, marker
 
 
 class Seed:
@@ -20,7 +21,8 @@ class Seed:
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
             "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
-            "fields": FIELDS, "field_descriptions": {name: "received range batches " + name for name in FIELDS}}})
+            "fields": FIELDS + EXTRA_FIELDS, "field_descriptions": {
+                name: "received range batches " + name for name in FIELDS + EXTRA_FIELDS}}})
         alternate_fields = ["bucket", "alternate_id", "title", "body"]
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": {
             "source": "system_seed", "name": HIDDEN_SCHEMA, "descriptive_name": HIDDEN_SCHEMA,
@@ -42,7 +44,8 @@ class Seed:
             mutations.append({"uuid": f"00000000-0000-4000-8000-{self.ordinal:012x}",
                 "schema_name": HIDDEN_SCHEMA if alternate else SCHEMA, "fields_and_values": value,
                 "key_value": {"hash": hashed, "range": ranged}, "pub_key": "generated-ci",
-                "mutation_type": action, "synchronous": True, "source_file_name": None})
+                "mutation_type": action, "synchronous": True,
+                "source_file_name": marker(source) if hashed == CONDITION_HASH else None})
             if action in ("delete", "purge"):
                 self.sources[source].pop((hashed, ranged), None)
             else:
@@ -72,8 +75,10 @@ class Seed:
                 for first in range(shift, shift + COUNT, 128):
                     self.batch(stream, source, [(HASH, key(number)) for number in range(first, first + 128)])
                 self.batch(stream, source, [(EDGE_HASH, value) for value in EDGE_KEYS])
+                self.batch(stream, source, [(CONDITION_HASH, key(number)) for number in range(CONDITION_COUNT)])
             local = [(HASH, key(number)) for number in range(0, TOTAL, 16) if not hidden(number)]
             local.extend((EDGE_HASH, value) for value in EDGE_KEYS[::2])
+            local.extend((CONDITION_HASH, key(number)) for number in range(0, CONDITION_COUNT, 16))
             for first in range(0, len(local), 128):
                 self.batch(stream, None, local[first:first + 128])
             for start, end in HIDDEN_INTERVALS:
@@ -90,6 +95,9 @@ class Seed:
             self.batch(stream, 1, [(HASH, key(number)) for number in (20001, 20002, 24575)], "purge")
             self.batch(stream, None, [(HASH, key(16000))], "update", "changed-local")
             self.batch(stream, 0, [(HASH, key(16001))], "update", "changed-source-zero")
+            self.batch(stream, 0, [(CONDITION_HASH, key(2))], "delete")
+            self.batch(stream, 1, [(CONDITION_HASH, key(3))], "purge")
+            self.batch(stream, None, [(CONDITION_HASH, key(0))], "delete")
         self.operate(path)
 
     def expected(self):

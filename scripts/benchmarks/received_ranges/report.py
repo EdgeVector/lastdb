@@ -11,6 +11,8 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent / "range_continuation"))
 from node import file_hash, save
 from observations import observations
+from conditions import paired_conditions_match
+from condition_report import condition_summary
 
 
 def inventory(root):
@@ -46,7 +48,8 @@ def paired_inputs_match(grouped):
                 or first["final_values_sha256"] != last["final_values_sha256"]
                 or len(first["narrow_samples"]) != 64 or len(last["narrow_samples"]) != 64
                 or [row["request_sha256"] for row in first["narrow_samples"]]
-                != [row["request_sha256"] for row in last["narrow_samples"]]):
+                != [row["request_sha256"] for row in last["narrow_samples"]]
+                or not paired_conditions_match(first, last)):
             return False
     return True
 
@@ -89,6 +92,7 @@ def main():
                 "|---|---:|---|---|---:|",
                 f"| {mode} | 64 | {text('baseline')} | {text('candidate')} | {change:+.1f}% |"])
             lines.extend(observations(grouped, mode))
+            lines.extend(condition_summary(grouped, mode))
             if change > 20:
                 print("::notice::" + mode + " narrow-range p95 increased more than20%; advisory only")
             limitations = [case["http_status"] for value in grouped["baseline"] for case in value["broad"]

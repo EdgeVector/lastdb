@@ -35,7 +35,10 @@ mod delete_candidates;
 mod erase;
 mod helpers;
 mod removals;
+mod retention_backfill;
 mod targets;
+
+pub(crate) use retention_backfill::retention_tip_clocks;
 
 pub(crate) use delete_candidates::plan_normal_delete_barriers;
 pub(super) use erase::{erase_keys, EraseOptions};

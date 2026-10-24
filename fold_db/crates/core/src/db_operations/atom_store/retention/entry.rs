@@ -54,8 +54,8 @@ pub(crate) struct DrainMarker {
     /// When the erase ran, in nanoseconds of the retention clock.
     pub(crate) erased_at: u64,
     /// The retention window of the node when it wrote the marker, in nanoseconds.
-    /// The marker lives at most this long. A marker without it (an older build)
-    /// is never deleted for its age.
+    /// Retained for older record decoders. It is not a completion deadline:
+    /// a marker stays until its exact slot directory is drained.
     #[serde(default)]
     pub(crate) window_nanos: u64,
 }

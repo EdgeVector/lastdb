@@ -12,7 +12,7 @@
 //! and which key it refused on, using only compile-time constants. See
 //! [`crate::reject`] for why naming the rule keeps I4 intact.
 
-use fold_db::schema::types::KeyValue;
+use fold_db::schema::types::{KeyValue, Query};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use serde_json::Value;
 
@@ -30,6 +30,42 @@ pub fn body_object(req: &UdsRequest) -> Result<serde_json::Map<String, Value>, U
         Ok(Value::Object(map)) => Ok(map),
         Ok(_) | Err(_) => Err(Reject::malformed_body().response()),
     }
+}
+
+/// A typed query and its separate page controls. Decoding owns no host state.
+pub struct QueryRequest {
+    pub query: Query,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+    pub cursor: Option<KeyValue>,
+}
+
+/// Decode a query body before any schema lookup, admission, or record read.
+/// Page controls are removed before the strict `Query` deserializer runs.
+/// The first rejection remains limit, offset, cursor, expected count, required
+/// keys, then the typed query grammar. Errors never echo caller values (I4).
+///
+/// # Errors
+/// Returns the existing content-free `400` response for an invalid query body.
+pub fn parse_query_body(
+    mut obj: serde_json::Map<String, Value>,
+) -> Result<QueryRequest, UdsResponse> {
+    let limit = take_pagination(&mut obj, WireKey::Limit)?;
+    let offset = take_pagination(&mut obj, WireKey::Offset)?;
+    let cursor = take_cursor(&mut obj)?;
+    let expected_total_count = take_pagination(&mut obj, WireKey::ExpectedTotalCount)?;
+    // Name the first missing required key before serde maps it to a generic
+    // invalid value. Optional `filter` still reaches the keyed-access guard.
+    require_keys(&obj, QUERY_REQUIRED_KEYS)?;
+    let mut query: Query = serde_json::from_value(Value::Object(obj))
+        .map_err(|error| Reject::from_serde_error(&error, None).response())?;
+    query.expected_total_count = expected_total_count;
+    Ok(QueryRequest {
+        query,
+        limit,
+        offset,
+        cursor,
+    })
 }
 
 /// Pull an optional non-negative pagination field out of a JSON object, removing
@@ -72,9 +108,6 @@ pub fn take_pagination(
 /// parses fine and must keep reaching the scan guard — the layer that actually
 /// decides whether an unfiltered read is permitted. Listing it here would
 /// reject at parse time a request the guard would have allowed.
-///
-/// [`tests::require_keys_matches_what_serde_actually_requires`] pins both
-/// directions against the real `Query` type.
 pub const QUERY_REQUIRED_KEYS: &[WireKey] = &[WireKey::SchemaName, WireKey::Fields];
 
 /// The keys `POST /api/mutation` genuinely requires, in the order a caller is
@@ -90,9 +123,6 @@ pub const QUERY_REQUIRED_KEYS: &[WireKey] = &[WireKey::SchemaName, WireKey::Fiel
 /// requiring any of them would reject at parse time a mutation the node would
 /// have applied. Same rule, and the same past mistake, as `filter` on
 /// [`QUERY_REQUIRED_KEYS`].
-///
-/// [`tests::mutation_required_keys_match_what_serde_actually_requires`] pins
-/// both directions against the real `Operation` type.
 pub const MUTATION_REQUIRED_KEYS: &[WireKey] = &[
     WireKey::OperationType,
     WireKey::Schema,
