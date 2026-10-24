@@ -7,16 +7,13 @@
 //! pages of its queue before it takes the write gate, and a writer does not wait
 //! for that.
 //!
-//! A batch keeps a writer waiting in two ways. It holds the write gate while it
-//! reads in the gate, stages its operations and is accepted. And a batch that
-//! seals the write queue (every durable batch that is not a memory acknowledgement
-//! does) makes every later writer wait in `enter_prepare` until the batch is
-//! durable, though the gate is free. So the time of a sealing batch runs from the
-//! moment it has the gate to the moment its flush is done. The time of a batch
-//! that shares a private background window includes its own gate hold and the
-//! shared flush hold, but excludes the open collection window. The wait for the gate itself is
-//! not part of it. A scope that an outer scope contains adds nothing: the outer
-//! scope holds the gate for both.
+//! A batch keeps a writer waiting during logical preparation and acceptance.
+//! The immediate disk worker then seals its complete cohort and keeps later
+//! preparation behind it until the flush completes. A background batch's cost
+//! includes its own preparation hold plus that shared flush hold. Client cost
+//! runs from preparation admission through its durable result. The wait for
+//! admission itself is excluded. There is no collection timer or memory ack.
+//! Nested scopes add nothing: their outer scope owns the complete batch.
 //!
 //! [`measure`] runs a job and adds up the time and the count of every write scope
 //! that the job opens in its own task (`request.rs`). The process also counts

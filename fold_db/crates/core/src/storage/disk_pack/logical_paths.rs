@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) mod absence;
 pub(super) mod body;
-mod completeness;
 pub(super) mod controls;
 pub(crate) mod core_filter;
 pub(crate) mod core_read;

@@ -5,13 +5,14 @@ use crate::disk_pack::corrupt;
 use crate::disk_pack::snapshot::SnapshotReservation;
 use crate::Result;
 
-/// Non-cloneable complete store quota. The exclusive native write gate must
-/// remain owned until the corresponding complete root is published.
+/// Non-cloneable complete store quota bound to one logical frontier.
+/// An equivalent compaction may replace physical addresses before commit.
 /// Physical space and protected logical records remain separate owned tokens.
 pub struct MutationReservation {
-    payload: SnapshotReservation,
-    quote: MutationQuote,
-    generation: u64,
+    pub(super) payload: SnapshotReservation,
+    pub(super) quote: MutationQuote,
+    frontier: u64,
+    required_features: u64,
 }
 
 impl MutationReservation {
@@ -23,7 +24,8 @@ impl MutationReservation {
     /// Transfer the admitted prefix after the caller accepts its extension.
     /// Preparation and transfer keep the same exclusive native write gate.
     pub fn absorb(&mut self, previous: MutationReservation) {
-        assert_eq!(self.generation, previous.generation);
+        assert_eq!(self.frontier, previous.frontier);
+        assert_eq!(self.required_features, previous.required_features);
         self.payload.absorb(previous.payload);
     }
 }
@@ -35,12 +37,28 @@ impl HomeSnapshot {
         operations: Vec<HomeMutation>,
         reservation: MutationReservation,
     ) -> Result<crate::disk_pack::PublishedGeneration> {
-        if reservation.generation != self.current().generation {
-            return Err(corrupt("complete mutation reservation root changed"));
+        self.validate_mutation(&operations, &reservation)?;
+        self.writer
+            .commit_reserved(self.address(operations)?, reservation.payload)
+    }
+
+    pub(super) fn validate_mutation(
+        &self,
+        operations: &[HomeMutation],
+        reservation: &MutationReservation,
+    ) -> Result<()> {
+        if reservation.frontier != self.current().frontier
+            || reservation.required_features != self.current().required_features
+        {
+            return Err(corrupt(
+                "complete mutation reservation logical root changed",
+            ));
         }
+        self.writer
+            .check_dependency_capacity(reservation.quote.dependency_parts())?;
         let actual = self
             .descriptor
-            .quote_mutation_with_limit(&operations, self.current().batch_operation_limit())?;
+            .quote_mutation_with_limit(operations, self.current().batch_operation_limit())?;
         if actual.map_pages() > reservation.quote.map_pages()
             || actual.dependency_parts() > reservation.quote.dependency_parts()
             || actual.physical_bytes() > reservation.quote.physical_bytes()
@@ -49,8 +67,7 @@ impl HomeSnapshot {
                 "complete mutation exceeded its admitted dimensions",
             ));
         }
-        self.writer
-            .commit_reserved(self.address(operations)?, reservation.payload)
+        Ok(())
     }
 
     /// Reserve payload and directory dependency capacity for all stored parts.
@@ -65,7 +82,8 @@ impl HomeSnapshot {
         Ok(MutationReservation {
             payload,
             quote,
-            generation: self.current().generation,
+            frontier: self.current().frontier,
+            required_features: self.current().required_features,
         })
     }
 
@@ -78,8 +96,12 @@ impl HomeSnapshot {
         previous: &MutationReservation,
         incoming: &[HomeMutation],
     ) -> Result<MutationReservation> {
-        if previous.generation != self.current().generation {
-            return Err(corrupt("complete mutation reservation root changed"));
+        if previous.frontier != self.current().frontier
+            || previous.required_features != self.current().required_features
+        {
+            return Err(corrupt(
+                "complete mutation reservation logical root changed",
+            ));
         }
         let limit = self.current().batch_operation_limit();
         let incoming = self.descriptor.quote_mutation_with_limit(incoming, limit)?;
@@ -92,7 +114,8 @@ impl HomeSnapshot {
         Ok(MutationReservation {
             payload,
             quote,
-            generation: previous.generation,
+            frontier: previous.frontier,
+            required_features: previous.required_features,
         })
     }
 }

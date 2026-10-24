@@ -117,9 +117,18 @@ impl ChangeFeedStore {
         events: Vec<ChangeFeedEvent>,
         captured: Option<Captured>,
     ) -> Result<u64, SchemaError> {
-        // Every writer takes the native gate before this mutex. Holding the tip
-        // through publication cannot invert the lock order of a fallback append.
-        let mut tip = Arc::clone(&self.tip).lock_owned().await;
+        // Native preparation has one FIFO owner. The private prefix contains
+        // earlier accepted tips; ordinary readers still see the durable tip.
+        let legacy_tip = if self.native.is_none() {
+            Some(Arc::clone(&self.tip).lock_owned().await)
+        } else {
+            None
+        };
+        let tip = if let Some(tip) = &legacy_tip {
+            **tip
+        } else {
+            self.prepared_tip().await?
+        };
         let first = tip
             .checked_add(1)
             .ok_or_else(|| SchemaError::InvalidData("change-feed sequence exhausted".into()))?;
@@ -165,10 +174,16 @@ impl ChangeFeedStore {
             // second writer after an acknowledged event reaches retention.
             self.store.inner().batch_delete(expired).await?;
         }
+        if self.native.is_some() {
+            self.stage_prepared_tip(end)?;
+        }
         let store = self.clone();
         let deliver = async move {
-            *tip = end;
-            drop(tip);
+            if let Some(mut tip) = legacy_tip {
+                *tip = end;
+            } else {
+                *store.tip.lock().await = end;
+            }
             for event in ready {
                 if let Some(captured) = &captured {
                     captured
@@ -190,5 +205,25 @@ impl ChangeFeedStore {
             deliver.await?;
         }
         Ok(end)
+    }
+
+    async fn prepared_tip(&self) -> Result<u64, SchemaError> {
+        let cache = Arc::as_ptr(&self.tip) as usize;
+        match transaction::publication::get::<u64>(self.native.clone(), cache, TIP_KEY)? {
+            Some(tip) => Ok(*tip),
+            None => Ok(*self.tip.lock().await),
+        }
+    }
+
+    fn stage_prepared_tip(&self, end: u64) -> Result<(), StorageError> {
+        // The existing private metadata prefix covers earlier queued calls and
+        // repeated stages in this call. The fallback is the durable memory tip.
+        transaction::publication::publish(
+            self.native.clone(),
+            Arc::as_ptr(&self.tip) as usize,
+            TIP_KEY.into(),
+            end,
+            || Ok(()),
+        )
     }
 }

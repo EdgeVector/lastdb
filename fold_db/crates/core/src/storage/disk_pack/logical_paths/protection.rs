@@ -8,14 +8,11 @@ pub(crate) struct PathProtection {
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     keys: Vec<CorePath>,
     pending: Mutex<Option<CoreModelUpdate>>,
-    memory_ready: bool,
 }
 
 pub(crate) struct PathPublication {
     pub definitions: Vec<PreparedCoreMemory>,
     pub owner: Option<Arc<crate::memory_budget::DeferReservation>>,
-    pub changed_sources: Vec<(String, String)>,
-    pub early: bool,
 }
 
 impl PathProtection {
@@ -65,36 +62,9 @@ impl PathProtection {
         let mut core = runtime.core.lock().expect("core write reservation");
         let keys = core.reserve_paths(&keys).map_err(|_| capacity())?;
         let changes: Vec<_> = changes.into_values().collect();
-        let dirty = if publication.early
-            && (publication.owner.is_some() || changes.is_empty())
-            && super::completeness::covers(
-                &changes,
-                &publication.definitions,
-                &publication.changed_sources,
-            ) {
-            let copied = changes
-                .iter()
-                .map(|change| CoreModelChange {
-                    path: change.path.clone(),
-                    slot: change.slot.clone(),
-                    sources: change.sources.clone(),
-                })
-                .collect();
-            core.prepare_dirty(
-                copied,
-                publication.definitions.clone(),
-                publication.owner.as_ref(),
-                &publication.changed_sources,
-            )
-            .ok()
-        } else {
-            None
-        };
-        let memory_ready = dirty.is_some();
-        let Ok(update) = dirty.map_or_else(
-            || core.prepare_clean(changes, publication.definitions, publication.owner.as_ref()),
-            Ok,
-        ) else {
+        let Ok(update) =
+            core.prepare_clean(changes, publication.definitions, publication.owner.as_ref())
+        else {
             core.release_paths(&keys);
             return Err(capacity());
         };
@@ -103,27 +73,10 @@ impl PathProtection {
             core: Arc::clone(&runtime.core),
             keys,
             pending: Mutex::new(Some(update)),
-            memory_ready,
         }))
     }
 
     /// The caller retains the view write lock through the complete typed change.
-    pub(crate) fn publish(&self, sequence: u64) -> StorageResult<()> {
-        if !self.memory_ready {
-            return Err(StorageError::BackendError(
-                "disk-first core publication requires its durable root".into(),
-            ));
-        }
-        let Some(update) = self.pending.lock().expect("core prepared paths").take() else {
-            return Ok(());
-        };
-        self.core
-            .lock()
-            .expect("core write publication")
-            .install_dirty(update, sequence);
-        Ok(())
-    }
-
     pub(crate) fn publish_clean(&self) -> StorageResult<()> {
         let Some(update) = self.pending.lock().expect("core prepared paths").take() else {
             return Ok(());
@@ -133,10 +86,6 @@ impl PathProtection {
             .expect("core durable publication")
             .install_clean(&update);
         Ok(())
-    }
-
-    pub(crate) fn memory_ready(&self) -> bool {
-        self.memory_ready
     }
 }
 

@@ -130,7 +130,7 @@ impl CoreWarmSet {
                 state.known = false;
                 state.absent = false;
                 state.tip_authorized = false;
-                state.holds == 0 && state.dirty.is_none()
+                state.holds == 0
             } else {
                 false
             };

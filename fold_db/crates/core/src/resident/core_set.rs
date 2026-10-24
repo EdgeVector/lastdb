@@ -190,7 +190,6 @@ struct PathState {
     /// The interned slot this path shares with its aliases.
     slot: tables::SlotId,
     holds: u32,
-    dirty: Option<u64>,
     known: bool,
     absent: bool,
     tip_authorized: bool,
@@ -256,11 +255,7 @@ impl CoreWarmSet {
                 .iter()
                 .filter(|(_, state)| state.holds > 0)
                 .count(),
-            dirty: self
-                .paths
-                .iter()
-                .filter(|(_, state)| state.dirty.is_some())
-                .count(),
+            dirty: 0,
             hits: self.hits,
             misses: self.misses,
             purged: self.purged,

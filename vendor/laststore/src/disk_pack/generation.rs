@@ -30,6 +30,16 @@ pub(super) fn write_live(
     live: &LiveParts,
     prior: Option<&Generation>,
 ) -> Result<Generation> {
+    write_live_cached(root, current, live, prior, None)
+}
+
+pub(in crate::disk_pack) fn write_live_cached(
+    root: &Path,
+    current: &Current,
+    live: &LiveParts,
+    prior: Option<&Generation>,
+    cached: Option<&Generation>,
+) -> Result<Generation> {
     if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
         return Err(corrupt("counted receipt requires its format feature"));
     }
@@ -41,15 +51,16 @@ pub(super) fn write_live(
     if path.try_exists()? {
         return verify(root, current);
     }
-    write_live_at(root, current, live, prior, path)
+    write_live_at_with_cache(root, current, live, prior, cached, path)
 }
 
-/// Prepare a complete counted receipt at the caller's private publication path.
-pub(in crate::disk_pack) fn write_live_at(
+/// Reuse verified immutable part facts while recomputing snapshot live counts.
+pub(in crate::disk_pack) fn write_live_at_with_cache(
     root: &Path,
     current: &Current,
     live: &LiveParts,
     prior: Option<&Generation>,
+    cached: Option<&Generation>,
     path: std::path::PathBuf,
 ) -> Result<Generation> {
     if current.required_features & super::FEATURE_LIVE_PART_COUNTS == 0 {
@@ -72,6 +83,7 @@ pub(in crate::disk_pack) fn write_live_at(
     let page_count = 1 + count.saturating_sub(150).div_ceil(201);
     let base_prefix = prefix(current, count as u64, page_count as u64, &current_bytes);
     let mut carried = carried::Carried::new(prior);
+    let mut cached = carried::Carried::new(cached);
     let mut ordinal = 0;
     for number in 0..page_count {
         let entries = (count - ordinal).min(if number == 0 { 150 } else { 201 });
@@ -83,9 +95,17 @@ pub(in crate::disk_pack) fn write_live_at(
             payload.extend_from_slice(&current_bytes);
         }
         for dependency in &dependencies[ordinal..ordinal + entries] {
-            let mut entry = match carried.get(dependency) {
-                Some(entry) => entry,
-                None => dependency.capture(root, current)?,
+            let mut entry = match (carried.get(dependency), cached.get(dependency)) {
+                (Some(left), Some(right))
+                    if dependency_record::immutable(&left)
+                        != dependency_record::immutable(&right) =>
+                {
+                    return Err(corrupt(
+                        "immutable dependency facts changed during compaction",
+                    ));
+                }
+                (Some(entry), _) | (_, Some(entry)) => entry,
+                (None, None) => dependency.capture(root, current)?,
             };
             put64(&mut entry, 24, live.reference_count(dependency)?);
             dependency_record::decode(current, &entry)?;

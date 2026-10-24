@@ -27,6 +27,34 @@ pub struct CompactionPublication {
 impl PreparedCompaction {
     /// No writer or publication lock is required for this complete preparation.
     pub fn prepare_publication(&mut self) -> Result<CompactionPublication> {
+        self.ensure_usable()?;
+        let root = self.lock.root().to_path_buf();
+        self.failed = true;
+        let staged = durability::prepare_native_files(&root, || self.prepare_publication_inner())?;
+        self.failed = false;
+        self.prepared();
+        Ok(staged)
+    }
+
+    /// One off-gate durability scope covers catch-up and its prepared receipt.
+    /// Files reach fsync here; the final publication still orders and drains the device.
+    pub fn catch_up_and_prepare(
+        &mut self,
+        cut: crate::disk_pack::lifetime::GenerationHold,
+    ) -> Result<CompactionPublication> {
+        self.ensure_usable()?;
+        let root = self.lock.root().to_path_buf();
+        self.failed = true;
+        let staged = durability::prepare_native_files(&root, || {
+            self.catch_up_inner(cut)?;
+            self.prepare_publication_inner()
+        })?;
+        self.failed = false;
+        self.prepared();
+        Ok(staged)
+    }
+
+    fn prepare_publication_inner(&mut self) -> Result<CompactionPublication> {
         let root = self.lock.root();
         for coordinate in &self.output.dependencies {
             self.protection.protect_path(&coordinate.path(root)?)?;
@@ -57,16 +85,17 @@ impl PreparedCompaction {
             pointer,
             pointer_file,
         };
-        // This full metadata walk stays outside the final publication gate.
-        // The retained source and private-output protection cover its inputs.
-        let live = crate::disk_pack::live_parts::LiveParts::bootstrap(
+        let cut = generation::read_receipt(root, self.caught.current())?;
+        let written = generation::write_live_at_with_cache(
             root,
             &staged.current,
-            &self.output.dependencies,
+            &self.live,
+            Some(&cut),
+            self.cached_receipt.as_ref(),
+            staged.receipt.clone(),
         )?;
-        let written =
-            generation::write_live_at(root, &staged.current, &live, None, staged.receipt.clone())?;
         staged.parts = written.dependencies;
+        self.cached_receipt = Some(written);
         staged.pointer_file.write_all(&staged.current.encode()?)?;
         durability::sync_dirty_file(&staged.pointer_file)?;
         self.prepared();
@@ -75,6 +104,16 @@ impl PreparedCompaction {
 }
 
 impl CompactionPublication {
+    /// A receipt-format transition must follow already admitted mutations.
+    pub fn changes_required_features(&self) -> bool {
+        self.current.required_features != self.expected.required_features
+    }
+
+    /// Exact replacement dependency count for pending mutation headroom.
+    pub fn dependency_parts(&self) -> u64 {
+        self.parts
+    }
+
     pub(in crate::disk_pack) fn belongs_to(&self, output: &PreparedCompaction) -> bool {
         self.identity == output.identity && std::sync::Arc::ptr_eq(&self.owner, &output.lock)
     }

@@ -45,8 +45,7 @@ pub(super) fn admit_bound(
     }
     let mut core = runtime.core.lock().expect("missing key core model");
     context.hold_core(&mut core, std::slice::from_ref(&path))?;
-    let sequence = (!view.accepted.is_empty()).then_some(view.sequence);
-    core.admit_absent(&path, sequence)
+    core.admit_absent(&path)
         .map_err(|error| StorageError::ReadResourceLimit {
             detail: error.to_string(),
         })?;

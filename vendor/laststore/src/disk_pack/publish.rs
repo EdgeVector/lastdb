@@ -41,22 +41,72 @@ struct Publisher<'a> {
     dependencies: Dependencies,
 }
 
+pub(in crate::disk_pack) struct PublicationBase {
+    pub(in crate::disk_pack) current: Current,
+    pub(in crate::disk_pack) live: LiveParts,
+    pub(in crate::disk_pack) cached: Option<generation::Generation>,
+}
+
 /// Publish prepared direct payload locations with one complete root change.
 pub(super) fn publish_prepared(
+    lock: &WriteLock,
+    previous: &Current,
+    proposed: Current,
+    mutations: Vec<PreparedMutation>,
+    payload: Option<WrittenData>,
+    legacy_live: Option<LiveParts>,
+) -> Result<PublishedGeneration> {
+    publish_with_base(
+        lock,
+        previous,
+        proposed,
+        mutations,
+        payload,
+        legacy_live,
+        None,
+    )
+}
+
+pub(super) fn publish_prepared_base(
+    lock: &WriteLock,
+    previous: &Current,
+    proposed: Current,
+    mutations: Vec<PreparedMutation>,
+    payload: Option<WrittenData>,
+    base: PublicationBase,
+) -> Result<PublishedGeneration> {
+    publish_with_base(
+        lock,
+        previous,
+        proposed,
+        mutations,
+        payload,
+        None,
+        Some(base),
+    )
+}
+
+fn publish_with_base(
     lock: &WriteLock,
     previous: &Current,
     mut proposed: Current,
     mutations: Vec<PreparedMutation>,
     payload: Option<WrittenData>,
     legacy_live: Option<LiveParts>,
+    base: Option<PublicationBase>,
 ) -> Result<PublishedGeneration> {
     let root = lock.root();
-    let old_receipt = {
-        let _timing = crate::commit_timing::stage("prior_generation_us");
-        ensure_generation(lock, previous)?
-    };
+    let old_receipt =
+        crate::commit_timing::during("prior_generation_us", || ensure_generation(lock, previous))?;
     let lookup_timing = crate::commit_timing::stage("lookup_files_us");
-    let mut live = if previous.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
+    let rewritten = base.is_some();
+    let (base_current, base_live, cached) = match base {
+        Some(base) => (base.current, Some(base.live), base.cached),
+        None => (previous.clone(), None, None),
+    };
+    let mut live = if let Some(live) = base_live {
+        live
+    } else if previous.required_features & super::FEATURE_LIVE_PART_COUNTS != 0 {
         LiveParts::from_receipt(&old_receipt)?
     } else {
         legacy_live
@@ -64,17 +114,7 @@ pub(super) fn publish_prepared(
     };
     proposed.required_features |= super::FEATURE_LIVE_PART_COUNTS;
     let mut references = ReferenceCache::new(root, &proposed);
-    let directory = TreeEdit::new(root, previous.directory.clone(), proposed.generation)?;
-    let mut publisher = Publisher {
-        root,
-        locators: LocatorChanges::new(root, proposed.generation),
-        proposed,
-        directory,
-        pages: 0,
-        parts: 0,
-        mutations: 0,
-        dependencies: Dependencies::new(),
-    };
+    let mut publisher = Publisher::new(root, proposed, &base_current)?;
     if let Some(payload) = payload {
         publisher.dependencies.add_payload(
             payload.object,
@@ -82,9 +122,13 @@ pub(super) fn publish_prepared(
             payload.map_pages,
         )?;
     }
-    publisher.batch(mutations, &mut references)?;
+    crate::commit_timing::during("locator_edits_us", || {
+        publisher.batch(mutations, &mut references)
+    })?;
     let mut changes = Changes::default();
-    for output in publisher.locators.finish()? {
+    let outputs =
+        crate::commit_timing::during("locator_finish_us", || publisher.locators.finish())?;
+    for output in outputs {
         changes.merge(output.changes)?;
         publisher.pages += output.pages;
         publisher.parts += output.parts.len() as u64;
@@ -92,7 +136,10 @@ pub(super) fn publish_prepared(
             .dependencies
             .add_tree(&output.tree, output.parts)?;
     }
-    let (directory, pages, parts, retired) = publisher.directory.finish_with_changes()?;
+    let (directory, pages, parts, retired) =
+        crate::commit_timing::during("directory_finish_us", || {
+            publisher.directory.finish_with_changes()
+        })?;
     changes.merge(retired)?;
     publisher.proposed.directory = directory;
     publisher.pages += pages;
@@ -101,38 +148,65 @@ pub(super) fn publish_prepared(
         .dependencies
         .add_tree(&publisher.proposed.directory, parts)?;
     let dependencies = publisher.dependencies.finish();
-    finish_live(
-        root,
-        previous,
-        &publisher.proposed,
-        &mut live,
-        &dependencies,
-        changes,
-        references,
-    )?;
+    crate::commit_timing::during("live_parts_us", || {
+        finish_live(
+            root,
+            &base_current,
+            &publisher.proposed,
+            &mut live,
+            &dependencies,
+            changes,
+            references,
+        )
+    })?;
     drop(lookup_timing);
     let generation_timing = crate::commit_timing::stage("new_generation_us");
-    let receipt = generation::write_live(root, &publisher.proposed, &live, Some(&old_receipt))?;
+    let receipt = generation::write_live_cached(
+        root,
+        &publisher.proposed,
+        &live,
+        Some(&old_receipt),
+        cached.as_ref(),
+    )?;
     drop(generation_timing);
-    crate::commit_timing::count("metadata_pages", publisher.pages);
-    crate::commit_timing::count("metadata_parts", publisher.parts);
-    crate::commit_timing::count("dependency_parts", receipt.dependencies);
-    crate::commit_timing::count("storage_mutations", publisher.mutations);
+    install_publication(
+        lock,
+        previous,
+        rewritten,
+        PublishedGeneration {
+            current: publisher.proposed,
+            receipt: receipt.object,
+            dependency_parts: receipt.dependencies,
+            mutations: publisher.mutations,
+            metadata_pages_written: publisher.pages,
+            metadata_parts_written: publisher.parts,
+        },
+    )
+}
+
+fn install_publication(
+    lock: &WriteLock,
+    previous: &Current,
+    rewritten: bool,
+    publication: PublishedGeneration,
+) -> Result<PublishedGeneration> {
+    crate::commit_timing::count("metadata_pages", publication.metadata_pages_written);
+    crate::commit_timing::count("metadata_parts", publication.metadata_parts_written);
+    crate::commit_timing::count("dependency_parts", publication.dependency_parts);
+    crate::commit_timing::count("storage_mutations", publication.mutations);
     let _timing = crate::commit_timing::stage("root_publication_us");
     // A changed CURRENT under the lock is an unsupported writer, never a merge guess.
-    if artifact::current(root)? != *previous {
+    if artifact::current(lock.root())? != *previous {
         return Err(corrupt("CURRENT changed during publication"));
     }
-    publish_current(root, &publisher.proposed)?;
-    lock.remember_checked(&publisher.proposed)?;
-    Ok(PublishedGeneration {
-        current: publisher.proposed,
-        receipt: receipt.object,
-        dependency_parts: receipt.dependencies,
-        mutations: publisher.mutations,
-        metadata_pages_written: publisher.pages,
-        metadata_parts_written: publisher.parts,
-    })
+    if rewritten {
+        // A compacted base can retain older coordinates than the latest root.
+        // Retire captured deletion plans before those coordinates become live.
+        lock.files.invalidate()?;
+    }
+    publish_current(lock.root(), &publication.current)?;
+    lock.remember_checked(&publication.current)?;
+    Ok(publication)
 }
 
 fn finish_live(
@@ -151,7 +225,20 @@ fn finish_live(
     live.apply(root, proposed, changes)
 }
 
-impl Publisher<'_> {
+impl<'a> Publisher<'a> {
+    fn new(root: &'a Path, proposed: Current, base: &Current) -> Result<Self> {
+        Ok(Self {
+            root,
+            locators: LocatorChanges::new(root, proposed.generation),
+            directory: TreeEdit::new(root, base.directory.clone(), proposed.generation)?,
+            proposed,
+            pages: 0,
+            parts: 0,
+            mutations: 0,
+            dependencies: Dependencies::new(),
+        })
+    }
+
     fn batch(
         &mut self,
         mut mutations: Vec<PreparedMutation>,

@@ -198,14 +198,6 @@ impl PendingBatch {
             .collect()
     }
 
-    pub(super) fn latest_records(&self) -> Vec<Arc<PendingRecord>> {
-        let data = self.data.lock().expect("native pending graph records");
-        data.latest
-            .values()
-            .map(|slot| Arc::clone(&data.operations[*slot]))
-            .collect()
-    }
-
     pub(super) fn changed_coordinates(&self) -> Vec<(String, String)> {
         let data = self.data.lock().expect("native pending changes");
         data.latest.keys().cloned().collect()
