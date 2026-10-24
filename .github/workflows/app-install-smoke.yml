@@ -1,0 +1,301 @@
+name: app-install-smoke
+
+# End-to-end install smoke: build LastDB, then install and test priority apps
+# (Brain, Search, LastSecrets) from the static registry. Proves the app registry
+# install path works and apps are compatible with this LastDB build.
+#
+# No unit tests (deleted 2026-10-09). This is an e2e smoke test using real installs.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: 'Apps to test (comma-separated: brain,search,lastsecrets or "all")'
+        required: false
+        default: 'brain'
+  schedule:
+    # Daily at 09:00 UTC - catch app/lastdb compatibility breakage
+    - cron: '0 9 * * *'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  app-install-smoke:
+    name: install-${{ matrix.app }}
+    runs-on: macos-14  # Apple Silicon like production
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - brain
+          # Add more apps as they get smoke tests
+          # - search
+          # - lastsecrets
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure git for private dependencies
+        run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: app-smoke-macos-aarch64
+
+      - name: Build LastDB Mini binaries
+        run: |
+          cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+          
+          # Verify builds
+          target/debug/lastdb --version
+          target/debug/lastdbd --version
+
+      - name: Set up test environment
+        run: |
+          # Fresh isolated home for this test
+          export TEST_HOME="${HOME}/app-smoke-test-$$"
+          mkdir -p "$TEST_HOME"
+          echo "TEST_HOME=$TEST_HOME" >> "$GITHUB_ENV"
+          echo "LASTDB_HOME=$TEST_HOME/.lastdb" >> "$GITHUB_ENV"
+          
+          # Add built binaries to PATH
+          echo "$(pwd)/target/debug" >> "$GITHUB_PATH"
+          
+          # Create proof directory
+          mkdir -p "$TEST_HOME/proof"
+          echo "PROOF_DIR=$TEST_HOME/proof" >> "$GITHUB_ENV"
+
+      - name: Start LastDB daemon
+        run: |
+          cd "$TEST_HOME"
+          
+          # Start daemon in background
+          lastdbd --data-dir "$LASTDB_HOME" > "$PROOF_DIR/lastdbd-startup.log" 2>&1 &
+          LASTDBD_PID=$!
+          echo "LASTDBD_PID=$LASTDBD_PID" >> "$GITHUB_ENV"
+          
+          # Wait for socket
+          timeout=60
+          while [ $timeout -gt 0 ] && [ ! -S "$LASTDB_HOME/data/folddb.sock" ]; do
+            sleep 1
+            timeout=$((timeout - 1))
+          done
+          
+          if [ ! -S "$LASTDB_HOME/data/folddb.sock" ]; then
+            echo "LastDB socket did not appear after 60s"
+            cat "$PROOF_DIR/lastdbd-startup.log"
+            exit 1
+          fi
+          
+          # Check health
+          lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-initial.txt"
+          
+          # Log LastDB version being tested
+          lastdb --version | tee "$PROOF_DIR/lastdb-version.txt"
+
+      - name: Query static registry
+        run: |
+          cd "$TEST_HOME"
+          
+          # List available apps in registry
+          lastdb app list --channel stable | tee "$PROOF_DIR/registry-apps.txt"
+          
+          # Show app info from registry
+          lastdb app info ${{ matrix.app }} --json | tee "$PROOF_DIR/${{ matrix.app }}-registry-info.json"
+          
+          # Resolve app for this LastDB version
+          lastdb app resolve ${{ matrix.app }} --json | tee "$PROOF_DIR/${{ matrix.app }}-resolve.json"
+
+      - name: Install ${{ matrix.app }} from registry
+        run: |
+          cd "$TEST_HOME"
+          
+          # Install app
+          lastdb app install ${{ matrix.app }} --channel stable 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-install.log"
+          
+          # Verify install receipt
+          if [ -f "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" ]; then
+            cat "$LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json" | tee "$PROOF_DIR/${{ matrix.app }}-install-receipt.json"
+          else
+            echo "Install receipt not found at $LASTDB_HOME/apps/${{ matrix.app }}/lastdb-app-install.json"
+            ls -la "$LASTDB_HOME/apps/" || echo "apps dir does not exist"
+            exit 1
+          fi
+
+      - name: Set up ${{ matrix.app }} dependencies (Brain)
+        if: matrix.app == 'brain'
+        run: |
+          cd "$LASTDB_HOME/apps/${{ matrix.app }}"
+          
+          # Install Bun (Brain's package manager)
+          brew install bun
+          
+          # Install dependencies
+          bun install --frozen-lockfile 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-deps-install.log"
+          
+          # Link command
+          bun link 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-link.log"
+
+      - name: Initialize ${{ matrix.app }} schemas (Brain)
+        if: matrix.app == 'brain'
+        run: |
+          cd "$LASTDB_HOME/apps/${{ matrix.app }}"
+          
+          # Sync schemas with LastDB
+          brain init 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-init.log" || true
+          
+          # Check schema registration
+          lastdb --data-dir "$LASTDB_HOME" schemas list | grep -E "brain|fbrain" | tee "$PROOF_DIR/${{ matrix.app }}-schemas.txt" || echo "No brain schemas found"
+
+      - name: Run ${{ matrix.app }} health checks (Brain)
+        if: matrix.app == 'brain'
+        run: |
+          # Test basic Brain commands
+          brain --version 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-version.txt"
+          
+          # List empty brain (should succeed)
+          brain list 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-list-empty.txt"
+          
+          # Try creating a test concept
+          TEST_ID="test-concept-ci-$$"
+          echo "Testing ${{ matrix.app }} write and read operations with ID: $TEST_ID"
+          
+          brain put concepts "$TEST_ID" --content "Test concept from app-install-smoke CI run ${{ github.run_number }}" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-put-test.txt" || {
+            echo "Brain put failed"
+            cat "$PROOF_DIR/${{ matrix.app }}-put-test.txt"
+            exit 1
+          }
+          
+          # Try reading it back
+          brain get concepts "$TEST_ID" 2>&1 | tee "$PROOF_DIR/${{ matrix.app }}-get-test.txt" || {
+            echo "Brain get failed"
+            cat "$PROOF_DIR/${{ matrix.app }}-get-test.txt"
+            exit 1
+          }
+          
+          # Verify content contains our test string
+          if grep -q "Test concept from app-install-smoke" "$PROOF_DIR/${{ matrix.app }}-get-test.txt"; then
+            echo "✓ Brain read/write test passed"
+          else
+            echo "✗ Brain read/write test failed - content mismatch"
+            exit 1
+          fi
+          
+          # Check LastDB status after operations
+          lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-${{ matrix.app }}.txt"
+
+      - name: Collect proof summary
+        if: always()
+        run: |
+          cd "$PROOF_DIR"
+          
+          # Get LastDB build info
+          LASTDB_VERSION=$(cat lastdb-version.txt 2>/dev/null || echo "unknown")
+          
+          # Get app resolution
+          APP_SHA=$(cat ${{ matrix.app }}-resolve.json 2>/dev/null | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
+          APP_VERSION=$(cat ${{ matrix.app }}-resolve.json 2>/dev/null | grep -o '"app_version":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "unknown")
+          
+          # Create summary
+          cat > smoke-summary.txt <<EOF
+          LastDB App Install Smoke Test
+          ==============================
+          Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          App: ${{ matrix.app }}
+          Runner: macos-14 (Apple Silicon)
+          CI Run: ${{ github.run_number }}
+          
+          LastDB Build:
+          $LASTDB_VERSION
+          
+          App Resolution:
+          - Version: $APP_VERSION
+          - SHA: $APP_SHA
+          
+          Install Receipt:
+          $(cat ${{ matrix.app }}-install-receipt.json 2>/dev/null | head -20 || echo "N/A")
+          
+          Health Check Results:
+          EOF
+          
+          if [ "${{ matrix.app }}" = "brain" ]; then
+            cat >> smoke-summary.txt <<EOF
+          - Brain version: $(cat brain-version.txt 2>/dev/null || echo "FAILED")
+          - Brain list: $(test -f brain-list-empty.txt && echo "OK" || echo "FAILED")
+          - Brain schemas: $(grep -c "brain" brain-schemas.txt 2>/dev/null || echo "0") registered
+          - Write test: $(grep -q "test-concept" brain-put-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
+          - Read test: $(grep -q "Test concept from app-install-smoke" brain-get-test.txt 2>/dev/null && echo "OK" || echo "FAILED")
+          EOF
+          fi
+          
+          echo ""
+          cat smoke-summary.txt
+
+      - name: Upload proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-install-smoke-${{ matrix.app }}-${{ github.run_number }}
+          path: ${{ env.PROOF_DIR }}
+          if-no-files-found: error
+
+      - name: Save proof to repo (on main push)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Create proof directory in repo
+          PROOF_DATE=$(date -u +"%Y%m%d")
+          PROOF_REPO_DIR="docs/proofs/app-install-smoke-${{ matrix.app }}-${PROOF_DATE}"
+          mkdir -p "$PROOF_REPO_DIR"
+          
+          # Copy key artifacts
+          cp "$PROOF_DIR/smoke-summary.txt" "$PROOF_REPO_DIR/"
+          cp "$PROOF_DIR/${{ matrix.app }}-resolve.json" "$PROOF_REPO_DIR/" 2>/dev/null || true
+          cp "$PROOF_DIR/${{ matrix.app }}-install-receipt.json" "$PROOF_REPO_DIR/" 2>/dev/null || true
+          cp "$PROOF_DIR/lastdb-version.txt" "$PROOF_REPO_DIR/" 2>/dev/null || true
+          
+          echo "Proof artifacts saved to $PROOF_REPO_DIR"
+          ls -la "$PROOF_REPO_DIR"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Stop LastDB
+          if [ -n "$LASTDBD_PID" ]; then
+            kill "$LASTDBD_PID" 2>/dev/null || true
+            sleep 2
+            kill -9 "$LASTDBD_PID" 2>/dev/null || true
+          fi
+          
+          # Remove test home (proof saved via artifact)
+          rm -rf "$TEST_HOME"
+
+  smoke-required:
+    name: smoke-required
+    if: ${{ always() }}
+    needs: [app-install-smoke]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check if smoke tests passed
+        run: |
+          echo "app-install-smoke=${{ needs.app-install-smoke.result }}"
+          
+          # Allow scheduled runs to fail without blocking (info only)
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "Scheduled run - reporting status but not blocking"
+            exit 0
+          fi
+          
+          # For PR/push, require success
+          test "${{ needs.app-install-smoke.result }}" = "success"
