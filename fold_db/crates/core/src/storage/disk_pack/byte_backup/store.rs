@@ -35,7 +35,7 @@ impl Store {
         space_root: &Path,
         policy: &laststore::disk_pack::maintenance::SpacePolicy,
     ) -> StorageResult<Self> {
-        match fs::DirBuilder::new().mode(0o700).create(&root) {
+        match fs::DirBuilder::new().mode(0o700).create(root) {
             Ok(()) => File::open(
                 root.parent()
                     .ok_or_else(|| invalid("byte source directory parent"))?,
@@ -44,13 +44,13 @@ impl Store {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
-        let meta = fs::symlink_metadata(&root)?;
+        let meta = fs::symlink_metadata(root)?;
         if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return Err(invalid("byte source directory ownership"));
         }
-        super::certify::scratch_cleanup(&root)?;
+        super::certify::scratch_cleanup(root)?;
         let mut total = 0u64;
-        for (index, entry) in fs::read_dir(&root)?.enumerate() {
+        for (index, entry) in fs::read_dir(root)?.enumerate() {
             if index >= MAX_FILES {
                 return Err(invalid("byte source file count"));
             }
