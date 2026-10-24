@@ -252,11 +252,11 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let worker_pool = UdsWorkerPool::from_env();
     host.attach_uds_workers(worker_pool.clone());
     log_startup_limits(&worker_pool);
-    let server = Server {
-        host: Arc::clone(&host),
-        handle: runtime.handle().clone(),
-        worker_pool: worker_pool.clone(),
-    };
+    let server = Server::new(
+        Arc::clone(&host),
+        runtime.handle().clone(),
+        worker_pool.clone(),
+    );
 
     // Full-surface setup socket: same data surface PLUS the setup verbs
     // first-time clients need (`POST /api/schemas/load` — fkanban init /

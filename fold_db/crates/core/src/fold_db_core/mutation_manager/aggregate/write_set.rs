@@ -89,32 +89,48 @@ impl MutationManager {
         author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         let candidates = self.collect_invalidation_candidates(&mutations, storage_prefix)?;
-        let _guard_locks = self
-            .acquire_aggregate_named_locks(
+        let guard_locks = self
+            .acquire_ordinary_source_guards(
                 candidates
                     .iter()
-                    .map(|candidate| format!("aggregate_guard_lock\u{1f}{}", candidate.guard_key))
+                    .map(|candidate| candidate.guard_key.clone())
                     .collect(),
             )
-            .await;
-
-        let by_target = self
-            .resolve_invalidation_targets(candidates, &mutations, storage_prefix)
             .await?;
-        let _target_locks = self
-            .acquire_aggregate_named_locks(by_target.keys().cloned().collect())
-            .await;
+        let unenrolled = guard_locks.unenrolled();
+        self.with_aggregate_guards(guard_locks, async {
+            if unenrolled {
+                return self
+                    .write_mutations_batch_inner_with_clock(
+                        mutations,
+                        storage_prefix,
+                        origin,
+                        author_clock_barrier,
+                    )
+                    .await;
+            }
 
-        let (invalidations, invalidated_guards) = self.build_invalidations(by_target)?;
-        self.apply_invalidations(invalidations, invalidated_guards, storage_prefix)
-            .await?;
+            let by_target = self
+                .resolve_invalidation_targets(candidates, &mutations, storage_prefix)
+                .await?;
+            let _target_locks = self
+                .acquire_aggregate_named_locks(by_target.keys().cloned().collect())
+                .await;
+            self.with_aggregate_guards(_target_locks, async {
+                let (invalidations, invalidated_guards) = self.build_invalidations(by_target)?;
+                self.apply_invalidations(invalidations, invalidated_guards, storage_prefix)
+                    .await?;
 
-        self.write_mutations_batch_inner_with_clock(
-            mutations,
-            storage_prefix,
-            origin,
-            author_clock_barrier,
-        )
+                self.write_mutations_batch_inner_with_clock(
+                    mutations,
+                    storage_prefix,
+                    origin,
+                    author_clock_barrier,
+                )
+                .await
+            })
+            .await
+        })
         .await
     }
 

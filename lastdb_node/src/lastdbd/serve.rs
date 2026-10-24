@@ -11,6 +11,8 @@ use lastdb_uds::uds::UdsSocket;
 use lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use lastdb_uds::uds_router::{self, SocketKind};
 use lastdb_uds::worker_pool::{SubmitError, UdsWorkerPool};
+mod body_budget;
+mod deferred;
 
 /// Which listener a connection arrived on.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,6 +38,8 @@ pub(crate) struct Server {
     pub(crate) host: Arc<Host>,
     pub(crate) handle: tokio::runtime::Handle,
     pub(crate) worker_pool: UdsWorkerPool,
+    body_budget: body_budget::BodyBudget,
+    mutation_replies: Arc<tokio::sync::Semaphore>,
 }
 
 /// Collect this UDS worker's heap after one request, before the next job.
@@ -158,6 +162,22 @@ fn log_submit_error(pool: &UdsWorkerPool, err: SubmitError, surface: Surface) {
 }
 
 impl Server {
+    pub(crate) fn new(
+        host: Arc<Host>,
+        handle: tokio::runtime::Handle,
+        worker_pool: UdsWorkerPool,
+    ) -> Self {
+        let body_budget = body_budget::BodyBudget::new(worker_pool.workers());
+        let mutation_replies = Arc::new(tokio::sync::Semaphore::new(worker_pool.workers()));
+        Self {
+            host,
+            handle,
+            worker_pool,
+            body_budget,
+            mutation_replies,
+        }
+    }
+
     fn on_accept(
         &self,
         surface: Surface,
@@ -165,34 +185,21 @@ impl Server {
         transport: CallerTransport,
         verification: CallerVerification,
     ) {
-        let host = Arc::clone(&self.host);
-        let handle = self.handle.clone();
-        let owner_user_id = host.user_hash.clone();
-        let submitted = self
-            .worker_pool
-            .try_submit_connection(stream, move |mut stream| {
-                let outcome = uds_http::serve_connection(
-                    &mut stream,
-                    &owner_user_id,
-                    SocketKind::Owner,
-                    transport,
-                    verification,
-                    |req, ctx| route_request(surface, &handle, &host, req, ctx),
-                );
-                // Same thread that ran the request. Do not collect another
-                // worker. Under the slack line this is a no-op.
-                collect_finished_request_heap();
-                if let Err(e) = outcome {
-                    match surface {
-                        Surface::Owner => {
-                            tracing::debug!(error = %e, "control-socket connection ended with error");
-                        }
-                        Surface::Full => {
-                            tracing::debug!(error = %e, "full-socket connection ended with error");
-                        }
-                    }
-                }
-            });
+        let server = self.clone();
+        let submitted =
+            self.worker_pool
+                .try_submit_owned_connection(stream, move |stream, completion| {
+                    let result = deferred::serve(
+                        &server,
+                        surface,
+                        stream,
+                        transport,
+                        verification,
+                        completion,
+                    );
+                    deferred::log_result(result, surface);
+                    collect_finished_request_heap();
+                });
         if let Err(err) = submitted {
             log_submit_error(&self.worker_pool, err, surface);
         }
