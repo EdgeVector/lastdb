@@ -81,7 +81,7 @@ def walk(node, expected, request, label, baseline=False):
         count = len(result.get("results", []))
         if count > request["limit"] or position + count > len(wanted):
             raise RuntimeError("A received range page exceeds the requested interval")
-        validate(result, expected, wanted[position:position + count])
+        validate(result, expected, wanted[position:position + count], request.get("fields"))
         if receipt["storage_read_receipt"] is None:
             raise RuntimeError("A received range page lacks its native read receipt")
         samples.append({"request_id": receipt["request_id"], "elapsed_ms": receipt["elapsed_ms"],

@@ -52,6 +52,10 @@ Two matched pairs run for plain and encrypted key configurations.
 The second pair reverses the run order.
 Identical mutation, expected-value, and timed-request hashes are required for each pair.
 The CI summary gives medians of per-run p50, p95, and p99 values.
+It also gives internal key requests, warm hits, file read calls, read bytes, and peak transient bytes per request.
+Internal key requests count the logical storage requests, including repeats. They are not the native guard's examined-key count.
+The summary keeps process memory before/after the narrow phase and the process lifetime peak separate.
+These observations do not establish an in-flight request peak or a total-memory cap.
 A latency increase remains advisory. Incomplete measurements fail.
 The existing `benchmark-complete` gate remains unchanged.
 
@@ -65,6 +69,10 @@ Four concurrent source reads and the merged page add a fixed amount of temporary
 The existing per-call key and byte work limits remain unchanged.
 
 Additional selectors cover source overlap, source-only ranges, offsets after duplicate removal, and cross-hash cursor ties.
+Range-field-only and omitted-range-field projections verify the exact current response fields and source values.
+The current response also retains the declared primary hash field, `bucket`.
+Both binaries must return that field and the requested fields, with no other field.
+The selectors cover ranges, prefixes, and the single-hash path.
 Empty keys, empty and inverted intervals, NUL bytes, and Unicode receive explicit selectors.
 Source-specific Delete, Purge, and local/received updates precede a graceful reopen.
 Complete known-key reads then verify every generated coordinate, including deleted coordinates.

@@ -50,6 +50,12 @@ class Workload:
             after = query(key(8200), key(8328), 17)
             after["cursor"] = {"hash": hashed, "range": key(8263)}
             cases.append(("cross-hash-cursor-" + hashed, after))
+        projections = [("range-field-only", query(key(8180), key(8250), 17), ["id"]),
+            ("range-without-range-field", query(key(8180), key(8250), 17), ["bucket", "title", "body"]),
+            ("prefix-without-range-field", prefix("key-00819", 7), ["title"]),
+            ("hash-without-range-field", {"schema_name": SCHEMA, "limit": 3,
+                "filter": {"HashKey": EDGE_HASH}}, ["body"])]
+        cases.extend((label, {**request, "fields": fields}) for label, request, fields in projections)
         return [walk(self.node, self.seed.expected(), request, label) for label, request in cases]
 
     def preload(self):
