@@ -26,6 +26,10 @@ pub(crate) enum NativeBackupCommand {
         /// Read the first-account invite from bounded stdin, never from an argument.
         #[arg(long)]
         invite_code_stdin: bool,
+        /// Reconnect an inactive native restore without changing its identity or data.
+        /// Existing accounts need no new invitation. Backup remains off.
+        #[arg(long, conflicts_with = "invite_code_stdin")]
+        restored: bool,
         #[arg(long)]
         json: bool,
     },
