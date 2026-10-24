@@ -1,4 +1,6 @@
 //! Validate an inactive native restore or finish its fresh wrapper. No source rewrite.
+mod proof;
+
 use super::{initialization::NODE_BYTES, map, StorageError, StorageResult, NODE_MARKER};
 use laststore::disk_pack::backup::{prepare_snapshot_directories, validate_snapshot};
 use std::fs::{File, OpenOptions};
@@ -63,27 +65,10 @@ pub fn validate_restored_node(
             pages: 4096,
             blocks: 16384,
             bytes: 8 * 1024 * 1024,
-            keys: 1,
+            keys: 2,
         })
         .map_err(map)?;
-    let key = crate::db_operations::atom_store::AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes();
-    let route = super::super::laststore::native_routing::collection_for_key(key);
-    let stored = reader
-        .get_bounded(
-            route,
-            &super::super::laststore::native_routing::encode(key),
-            8192,
-        )
-        .map_err(map)?
-        .ok_or_else(|| refusal("native logical format marker is missing"))?;
-    if !crate::crypto::is_sealed_at_rest(&stored) {
-        return Err(refusal("native account proof requires an encrypted marker"));
-    }
-    let plain = crate::crypto::at_rest::open_at_rest_bounded(account_key, &stored, 4096)
-        .map_err(|_| refusal("native logical format marker cannot be opened"))?;
-    if !crate::db_operations::atom_store::key_format::is_supported_key_format(&plain) {
-        return Err(refusal("unsupported restored logical format"));
-    }
+    proof::verify(&mut reader, account_key)?;
     let guard = RestoredNodeGuard {
         root: root.to_path_buf(),
         directory,
@@ -185,25 +170,7 @@ pub fn prepare_restored_node(root: &Path, account_key: &[u8; 32]) -> StorageResu
             keys: 2,
         })
         .map_err(map)?;
-    let key = crate::db_operations::atom_store::AtomStore::CURRENT_KEY_FORMAT_KEY.as_bytes();
-    let route = super::super::laststore::native_routing::collection_for_key(key);
-    let stored = reader
-        .get(route, &super::super::laststore::native_routing::encode(key))
-        .map_err(map)?
-        .ok_or_else(|| refusal("native logical format marker is missing"))?;
-    if !crate::db_operations::atom_store::key_format::is_supported_key_format(&stored) {
-        return Err(refusal("unsupported restored logical format"));
-    }
-    use crate::crypto::content_key_proof as proof;
-    let stored = reader
-        .get(
-            proof::NAMESPACE,
-            &super::super::laststore::native_routing::encode(proof::KEY),
-        )
-        .map_err(map)?
-        .ok_or_else(|| refusal("account content-key proof is missing"))?;
-    proof::verify(account_key, &stored)
-        .map_err(|_| refusal("account content-key proof cannot be opened"))?;
+    proof::verify(&mut reader, account_key)?;
     drop(reader);
     prepare_snapshot_directories(&physical, &validated.current).map_err(map)?;
     let marker = root.join(NODE_MARKER);

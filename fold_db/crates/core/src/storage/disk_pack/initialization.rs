@@ -200,7 +200,8 @@ impl PackRuntime {
 
     /// Every native source mutation reaches this check before queue admission.
     /// Registry-only puts cannot create user data. The sole other permitted
-    /// batch contains every current initialization key and no source records.
+    /// batch contains every current initialization key, its optional account
+    /// proof, and no source records.
     pub(super) fn validate_initialization_write(
         &self,
         operations: &[HomeMutation],
@@ -214,11 +215,20 @@ impl PackRuntime {
             .map(|key| kv::coordinate("main", key.as_bytes()))
             .collect();
         let mut found = vec![false; expected.len()];
+        let mut proof_seen = false;
         for operation in operations {
             if operation.collection == REGISTRY
                 && operation.key.starts_with(NAMESPACES)
                 && operation.body.as_deref() == Some(&[1])
             {
+                continue;
+            }
+            if operation.collection == crate::crypto::content_key_proof::NAMESPACE
+                && operation.key.as_bytes() == crate::crypto::content_key_proof::KEY
+                && operation.body.is_some()
+                && !proof_seen
+            {
+                proof_seen = true;
                 continue;
             }
             let at = expected.iter().position(|(collection, key)| {
@@ -229,7 +239,7 @@ impl PackRuntime {
                 _ => return Err(refusal("source writes are refused during current creation")),
             }
         }
-        if found.iter().any(|found| *found) && !found.iter().all(|found| *found) {
+        if (proof_seen || found.iter().any(|found| *found)) && !found.iter().all(|found| *found) {
             return Err(refusal(
                 "current creation requires one complete key-proof batch",
             ));

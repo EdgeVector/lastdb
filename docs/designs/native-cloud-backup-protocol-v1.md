@@ -146,6 +146,8 @@ Only local CAS records use the outer storage envelope.
 Atom content and file bytes retain their existing encryption.
 Tip values and other control values remain readable in the stored backup bytes.
 Earlier logical formats require an explicit offline conversion; restore does not rewrite them.
+The native record transfer converts formats `4` and `5` in a separate inactive target.
+The original native reader restores an older physical backup before that transfer.
 Unsupported features cause refusal before destination publication.
 The snapshot-commit bit 0x100 is required. The retired journal bit 0x2 is refused.
 Native readers and this unreleased cloud profile refuse the old journal format without automatic conversion.

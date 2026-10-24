@@ -209,6 +209,8 @@ Atom content keeps its own encryption. Atom headers, tip values, counters, and o
 Lookup keys remain outside the wrapper. Hash blinding and the range codec remain separate.
 A single explicit encrypted account-key proof protects keyed startup and native restore.
 Earlier node formats require an offline conversion; startup does not rewrite them.
+The explicit native record transfer converts logical formats `4` and `5` in its inactive target.
+It preserves the source and publishes the new format with its account-key proof last.
 
 **Agent rules:**
 

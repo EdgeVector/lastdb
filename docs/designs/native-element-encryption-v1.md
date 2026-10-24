@@ -82,11 +82,18 @@ The node format marker uses `format=2`.
 The creation-intent marker names the third current-key initialization protocol.
 Normal startup rejects earlier node markers before it opens the physical store.
 A direct physical logical constructor also requires marker `6`.
-There is no automatic rewrite or format-4/5 upgrade.
-An offline conversion remains separate work; this change does not open or change a primary home.
+Startup does not rewrite an older home.
+The explicit native record transfer upgrades logical formats `4` and `5` in its inactive target.
+The old reader exports the source. The new reader authenticates its encrypted format marker before a target write.
+The conversion removes former outer envelopes except CAS and preserves the existing inner encryption.
+It publishes marker `6` and the new account-key proof last. An interrupted target can resume conversion.
+The source remains unchanged and can reopen with its original program.
+This change does not open or change a primary home.
 
 Native restore requires marker `6` and the explicit encrypted account-key proof.
 It checks both before destination publication.
+Inactive restored-home validation uses the same two-key check.
+An existing home with a missing proof refuses startup. Fresh creation writes the proof and marker in one native transaction.
 The atom and file readers still authenticate their existing encrypted content.
 The metadata and file-dependency decoders read the direct control records.
 
