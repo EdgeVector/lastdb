@@ -105,7 +105,7 @@ impl MutationManager {
         for (field_name, _uuid, _prefix, data) in store_loads {
             if let Some(data) = data {
                 if let Some(field) = schema.runtime_fields.get_mut(&field_name) {
-                    field.set_molecule_data(data)?;
+                    field.set_molecule_data(data);
                 }
             } else {
                 // No per-key header — fall through to the full load path below.
@@ -148,7 +148,7 @@ impl MutationManager {
                 continue;
             };
             if let Some(field) = schema.runtime_fields.get_mut(&field_name) {
-                field.set_molecule_data(data)?;
+                field.set_molecule_data(data);
             }
         }
         Ok(())

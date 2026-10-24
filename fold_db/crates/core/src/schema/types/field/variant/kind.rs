@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::db_operations::{FilterLayout, MoleculeData, OneDSlot};
+use crate::db_operations::{FilterLayout, OneDSlot};
 use crate::schema::types::schema::DeclarativeSchemaType;
 
 /// Discriminator for a field's key shape. Mirrors
@@ -39,20 +39,5 @@ impl FieldKind {
             Self::Range => FilterLayout::OneD(OneDSlot::Range),
             Self::Single | Self::HashRange => FilterLayout::Composite,
         }
-    }
-
-    /// True when this field uses the per-key (`mk:`/`mh:`) layout.
-    #[must_use]
-    pub(crate) fn is_per_key(self) -> bool {
-        true
-    }
-
-    /// Whether `data` matches this field kind.
-    ///
-    /// All field kinds accept the unified HashRange molecule shape.
-    #[must_use]
-    pub(crate) fn matches_data(self, _data: &MoleculeData) -> bool {
-        // All field kinds hydrate the unified HashRange molecule shape.
-        true
     }
 }
