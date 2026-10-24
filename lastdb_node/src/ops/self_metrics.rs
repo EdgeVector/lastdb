@@ -29,6 +29,9 @@ use serde_json::{json, Value};
 use super::gauge::{Availability, Gauge, Unit, Window};
 use crate::host::Host;
 
+#[macro_use]
+mod gauge_health;
+
 mod at_rest;
 mod atom_counter_lines;
 mod build_health;

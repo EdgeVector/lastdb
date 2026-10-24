@@ -1,104 +1,74 @@
 use super::*;
 
-/// Operator-facing read cost — what a read *costs*, not how long it took.
-///
-/// Cold shard loads (segment parse + `BTreeMap` rebuild, ~5.3 MB per `atoms`
-/// group) are the unit of cost for every read regression this node has chased.
-/// Wall time alone cannot separate "this query loaded 625 groups" from "this
-/// query waited on a lock"; this can.
-/// Wire-transparent read-cost gauges (cold loads + warm-set occupancy).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReadCostHealth {
-    /// Cold hash-group shard loads since the store was opened (monotonic).
-    pub cold_shard_loads: Gauge,
-    /// Hash-group handles currently resident in memory.
-    pub warm_resident_groups: Gauge,
-    /// Approximate bytes held by those handles.
-    pub warm_resident_bytes: Gauge,
-    /// Configured warm-set byte budget. `0` means eviction is disabled.
-    pub warm_budget_bytes: Gauge,
-    /// Configured append-descriptor cap. `0` means the handle cap is off.
+gauge_health! {
+    /// Operator-facing read cost — what a read *costs*, not how long it took.
     ///
-    /// `open_append_handles` over this is the node's descriptor headroom.
-    /// `warm_resident_groups` over this is **not** — see that field.
-    pub warm_budget_handles: Gauge,
-    /// Open append descriptors across all resident hash groups.
-    ///
-    /// The numerator of the descriptor budget. A group holds one of these only
-    /// after it has taken a write, so it sits below `warm_resident_groups`:
-    /// 5,048 against 13,818 in steady state on the primary on 2026-07-30, and
-    /// 2 against 4,915 while a cap on the group count was churning that same
-    /// home — eviction closes the file it evicts.
-    ///
-    /// Unavailable means the daemon does not report this field. A measured
-    /// zero would render a staged-behind daemon as having full descriptor
-    /// headroom, exactly the reassuring-zero failure this gauge was added to
-    /// prevent.
-    pub open_append_handles: Gauge,
-    /// Multi-op LastStore transactions that restored prior values after a
-    /// mid-batch error.
-    pub torn_transaction_rollbacks: Gauge,
-    /// Transactions whose restore or rollback flush failed.
-    pub torn_transaction_rollback_failures: Gauge,
-    /// Committed transactions whose post-commit cache refresh failed.
-    pub transaction_residency_refresh_failures: Gauge,
-    /// Keys-only group resolutions that found the group already warm.
-    ///
-    /// This and the six fields below are the id tiers beneath the warm body
-    /// set. Before them the body tier was the only instrumented one, so a
-    /// read-thrash diagnosis could only reach for the warm byte budget — the
-    /// most expensive knob on the node, because it is charged 1:1 into the
-    /// process memory budget and multiplied into the projection against the
-    /// guard ceiling. `id_tier_key_cache_hits` and `id_tier_sidecar_hits`
-    /// against `id_tier_live_scans` say whether the two cheap tiers are
-    /// working before that knob is the answer.
-    ///
-    /// The four `id_tier_*` counters sum to the number of keys-only
-    /// resolutions.
-    pub id_tier_resident: Gauge,
-    /// Keys-only resolutions served by the in-memory key-index cache.
-    pub id_tier_key_cache_hits: Gauge,
-    /// Keys-only resolutions served by the on-disk id sidecar.
-    pub id_tier_sidecar_hits: Gauge,
-    /// Keys-only resolutions that missed both id tiers and scanned a group.
-    pub id_tier_live_scans: Gauge,
-    /// Groups whose ids the key-index cache retains right now.
-    pub key_cache_groups: Gauge,
-    /// Charged bytes of those retained id lists.
-    pub key_cache_bytes: Gauge,
-    /// Configured key-index cache budget. `0` means the cache is disabled.
-    pub key_cache_budget_bytes: Gauge,
-}
-
-impl Default for ReadCostHealth {
-    fn default() -> Self {
-        Self {
-            cold_shard_loads: Gauge::field_not_served(Unit::Events, GAUGE_PROCESS_LIFETIME),
-            warm_resident_groups: Gauge::field_not_served(Unit::Named("group(s)"), GAUGE_INSTANT),
-            warm_resident_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            warm_budget_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            warm_budget_handles: Gauge::field_not_served(Unit::Named("handle(s)"), GAUGE_INSTANT),
-            open_append_handles: Gauge::field_not_served(Unit::Named("handle(s)"), GAUGE_INSTANT),
-            torn_transaction_rollbacks: Gauge::field_not_served(
-                Unit::Events,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            torn_transaction_rollback_failures: Gauge::field_not_served(
-                Unit::Events,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            transaction_residency_refresh_failures: Gauge::field_not_served(
-                Unit::Events,
-                GAUGE_PROCESS_LIFETIME,
-            ),
-            id_tier_resident: Gauge::field_not_served(Unit::Events, GAUGE_PROCESS_LIFETIME),
-            id_tier_key_cache_hits: Gauge::field_not_served(Unit::Events, GAUGE_PROCESS_LIFETIME),
-            id_tier_sidecar_hits: Gauge::field_not_served(Unit::Events, GAUGE_PROCESS_LIFETIME),
-            id_tier_live_scans: Gauge::field_not_served(Unit::Events, GAUGE_PROCESS_LIFETIME),
-            key_cache_groups: Gauge::field_not_served(Unit::Named("group(s)"), GAUGE_INSTANT),
-            key_cache_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-            key_cache_budget_bytes: Gauge::field_not_served(Unit::Bytes, GAUGE_INSTANT),
-        }
+    /// Cold shard loads (segment parse + `BTreeMap` rebuild, ~5.3 MB per `atoms`
+    /// group) are the unit of cost for every read regression this node has chased.
+    /// Wall time alone cannot separate "this query loaded 625 groups" from "this
+    /// query waited on a lock"; this can.
+    /// Wire-transparent read-cost gauges (cold loads + warm-set occupancy).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct ReadCostHealth {
+        /// Cold hash-group shard loads since the store was opened (monotonic).
+        pub cold_shard_loads: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Hash-group handles currently resident in memory.
+        pub warm_resident_groups: (Unit::Named("group(s)"), GAUGE_INSTANT),
+        /// Approximate bytes held by those handles.
+        pub warm_resident_bytes: (Unit::Bytes, GAUGE_INSTANT),
+        /// Configured warm-set byte budget. `0` means eviction is disabled.
+        pub warm_budget_bytes: (Unit::Bytes, GAUGE_INSTANT),
+        /// Configured append-descriptor cap. `0` means the handle cap is off.
+        ///
+        /// `open_append_handles` over this is the node's descriptor headroom.
+        /// `warm_resident_groups` over this is **not** — see that field.
+        pub warm_budget_handles: (Unit::Named("handle(s)"), GAUGE_INSTANT),
+        /// Open append descriptors across all resident hash groups.
+        ///
+        /// The numerator of the descriptor budget. A group holds one of these only
+        /// after it has taken a write, so it sits below `warm_resident_groups`:
+        /// 5,048 against 13,818 in steady state on the primary on 2026-07-30, and
+        /// 2 against 4,915 while a cap on the group count was churning that same
+        /// home — eviction closes the file it evicts.
+        ///
+        /// Unavailable means the daemon does not report this field. A measured
+        /// zero would render a staged-behind daemon as having full descriptor
+        /// headroom, exactly the reassuring-zero failure this gauge was added to
+        /// prevent.
+        pub open_append_handles: (Unit::Named("handle(s)"), GAUGE_INSTANT),
+        /// Multi-op LastStore transactions that restored prior values after a
+        /// mid-batch error.
+        pub torn_transaction_rollbacks: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Transactions whose restore or rollback flush failed.
+        pub torn_transaction_rollback_failures: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Committed transactions whose post-commit cache refresh failed.
+        pub transaction_residency_refresh_failures: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Keys-only group resolutions that found the group already warm.
+        ///
+        /// This and the six fields below are the id tiers beneath the warm body
+        /// set. Before them the body tier was the only instrumented one, so a
+        /// read-thrash diagnosis could only reach for the warm byte budget — the
+        /// most expensive knob on the node, because it is charged 1:1 into the
+        /// process memory budget and multiplied into the projection against the
+        /// guard ceiling. `id_tier_key_cache_hits` and `id_tier_sidecar_hits`
+        /// against `id_tier_live_scans` say whether the two cheap tiers are
+        /// working before that knob is the answer.
+        ///
+        /// The four `id_tier_*` counters sum to the number of keys-only
+        /// resolutions.
+        pub id_tier_resident: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Keys-only resolutions served by the in-memory key-index cache.
+        pub id_tier_key_cache_hits: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Keys-only resolutions served by the on-disk id sidecar.
+        pub id_tier_sidecar_hits: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Keys-only resolutions that missed both id tiers and scanned a group.
+        pub id_tier_live_scans: (Unit::Events, GAUGE_PROCESS_LIFETIME),
+        /// Groups whose ids the key-index cache retains right now.
+        pub key_cache_groups: (Unit::Named("group(s)"), GAUGE_INSTANT),
+        /// Charged bytes of those retained id lists.
+        pub key_cache_bytes: (Unit::Bytes, GAUGE_INSTANT),
+        /// Configured key-index cache budget. `0` means the cache is disabled.
+        pub key_cache_budget_bytes: (Unit::Bytes, GAUGE_INSTANT),
     }
 }
 
@@ -128,119 +98,6 @@ impl From<fold_db::storage::traits::ReadCostStats> for ReadCostHealth {
             key_cache_bytes: g_instant(s.key_cache_bytes, Unit::Bytes),
             key_cache_budget_bytes: g_instant(s.key_cache_budget_bytes, Unit::Bytes),
         }
-    }
-}
-
-impl Serialize for ReadCostHealth {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("ReadCostHealth", 16)?;
-        s.serialize_field("cold_shard_loads", &wire_u64(&self.cold_shard_loads))?;
-        s.serialize_field(
-            "warm_resident_groups",
-            &wire_u64(&self.warm_resident_groups),
-        )?;
-        s.serialize_field("warm_resident_bytes", &wire_u64(&self.warm_resident_bytes))?;
-        s.serialize_field("warm_budget_bytes", &wire_u64(&self.warm_budget_bytes))?;
-        s.serialize_field("warm_budget_handles", &wire_u64(&self.warm_budget_handles))?;
-        s.serialize_field("open_append_handles", &wire_u64(&self.open_append_handles))?;
-        s.serialize_field(
-            "torn_transaction_rollbacks",
-            &wire_u64(&self.torn_transaction_rollbacks),
-        )?;
-        s.serialize_field(
-            "torn_transaction_rollback_failures",
-            &wire_u64(&self.torn_transaction_rollback_failures),
-        )?;
-        s.serialize_field(
-            "transaction_residency_refresh_failures",
-            &wire_u64(&self.transaction_residency_refresh_failures),
-        )?;
-        s.serialize_field("id_tier_resident", &wire_u64(&self.id_tier_resident))?;
-        s.serialize_field(
-            "id_tier_key_cache_hits",
-            &wire_u64(&self.id_tier_key_cache_hits),
-        )?;
-        s.serialize_field(
-            "id_tier_sidecar_hits",
-            &wire_u64(&self.id_tier_sidecar_hits),
-        )?;
-        s.serialize_field("id_tier_live_scans", &wire_u64(&self.id_tier_live_scans))?;
-        s.serialize_field("key_cache_groups", &wire_u64(&self.key_cache_groups))?;
-        s.serialize_field("key_cache_bytes", &wire_u64(&self.key_cache_bytes))?;
-        s.serialize_field(
-            "key_cache_budget_bytes",
-            &wire_u64(&self.key_cache_budget_bytes),
-        )?;
-        s.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for ReadCostHealth {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            cold_shard_loads: Option<u64>,
-            #[serde(default)]
-            warm_resident_groups: Option<u64>,
-            #[serde(default)]
-            warm_resident_bytes: Option<u64>,
-            #[serde(default)]
-            warm_budget_bytes: Option<u64>,
-            #[serde(default)]
-            warm_budget_handles: Option<u64>,
-            #[serde(default)]
-            open_append_handles: Option<u64>,
-            #[serde(default)]
-            torn_transaction_rollbacks: Option<u64>,
-            #[serde(default)]
-            torn_transaction_rollback_failures: Option<u64>,
-            #[serde(default)]
-            transaction_residency_refresh_failures: Option<u64>,
-            #[serde(default)]
-            id_tier_resident: Option<u64>,
-            #[serde(default)]
-            id_tier_key_cache_hits: Option<u64>,
-            #[serde(default)]
-            id_tier_sidecar_hits: Option<u64>,
-            #[serde(default)]
-            id_tier_live_scans: Option<u64>,
-            #[serde(default)]
-            key_cache_groups: Option<u64>,
-            #[serde(default)]
-            key_cache_bytes: Option<u64>,
-            #[serde(default)]
-            key_cache_budget_bytes: Option<u64>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        Ok(Self {
-            cold_shard_loads: g_lifetime_wire(raw.cold_shard_loads, Unit::Events),
-            warm_resident_groups: g_instant_wire(raw.warm_resident_groups, Unit::Named("group(s)")),
-            warm_resident_bytes: g_instant_wire(raw.warm_resident_bytes, Unit::Bytes),
-            warm_budget_bytes: g_instant_wire(raw.warm_budget_bytes, Unit::Bytes),
-            warm_budget_handles: g_instant_wire(raw.warm_budget_handles, Unit::Named("handle(s)")),
-            open_append_handles: g_instant_wire(raw.open_append_handles, Unit::Named("handle(s)")),
-            torn_transaction_rollbacks: g_lifetime_wire(
-                raw.torn_transaction_rollbacks,
-                Unit::Events,
-            ),
-            torn_transaction_rollback_failures: g_lifetime_wire(
-                raw.torn_transaction_rollback_failures,
-                Unit::Events,
-            ),
-            transaction_residency_refresh_failures: g_lifetime_wire(
-                raw.transaction_residency_refresh_failures,
-                Unit::Events,
-            ),
-            id_tier_resident: g_lifetime_wire(raw.id_tier_resident, Unit::Events),
-            id_tier_key_cache_hits: g_lifetime_wire(raw.id_tier_key_cache_hits, Unit::Events),
-            id_tier_sidecar_hits: g_lifetime_wire(raw.id_tier_sidecar_hits, Unit::Events),
-            id_tier_live_scans: g_lifetime_wire(raw.id_tier_live_scans, Unit::Events),
-            key_cache_groups: g_instant_wire(raw.key_cache_groups, Unit::Named("group(s)")),
-            key_cache_bytes: g_instant_wire(raw.key_cache_bytes, Unit::Bytes),
-            key_cache_budget_bytes: g_instant_wire(raw.key_cache_budget_bytes, Unit::Bytes),
-        })
     }
 }
 
