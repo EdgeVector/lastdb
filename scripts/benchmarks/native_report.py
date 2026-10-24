@@ -24,24 +24,30 @@ def render(output):
              "Scope means are per native request; physical means are per distinct commit.",
              "A physical commit can serve several requests, including background work.",
              "Nested phase values overlap. Do not add them or assign one shared commit to each request.", "",
-             "| Run / clients | Write scopes | Physical commits | Scope mean ms | Largest scope phases ms |",
+             "| Run / case | Write scopes | Physical commits | Scope mean ms | Largest scope phases ms |",
              "|---|---:|---:|---:|---|"]
-    physical_lines = ["", "| Run / clients | Commit mean ms | Largest physical phases ms |",
+    physical_lines = ["", "| Run / case | Commit mean ms | Largest physical phases ms |",
                       "|---|---:|---|"]
+    tails = ["", "## Exact slow batch-update requests", "",
+             "Each request joins to an enclosed scope and one distinct physical commit by sequence and time.",
+             "Shared physical commits retain their request count; their cost is not assigned to every request.", ""]
     for run in manifest["runs"]:
         if not run["complete"]:
             raise ValueError("A native diagnostic run did not complete")
         data = json.loads((output / run["directory"] / "native-phases.json").read_text())
         if not data["complete"]:
             raise ValueError("Native phase coverage is incomplete")
-        for clients in (1, 4):
-            case = data["cases"][f"concurrent-write/{clients}"]
-            label = f"{run['directory']} / {clients}"
+        for name in ("update/128", "concurrent-write/1", "concurrent-write/4"):
+            case = data["cases"][name]
+            label = f"{run['directory']} / {name}"
             lines.append(f"| {label} | {case['scopes']} | {case['distinct_physical_commits']} | "
                          f"{case['scope_mean_us'] / 1000:.3f} | {largest(case['scope_phases_us'])} |")
             physical_lines.append(f"| {label} | {case['physical_mean_us'] / 1000:.3f} | "
                                   f"{largest(case['physical_phases_us'])} |")
-    return "\n".join(lines + physical_lines) + "\n"
+            for request in case.get("slowest_requests", []):
+                tails.extend([f"### {label}: {request['request_id']}", "", "```json",
+                              json.dumps(request, sort_keys=True), "```", ""])
+    return "\n".join(lines + physical_lines + tails) + "\n"
 
 
 def main():

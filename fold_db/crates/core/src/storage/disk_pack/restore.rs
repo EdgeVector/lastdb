@@ -130,7 +130,7 @@ fn same_entry(file: &File, path: &Path) -> StorageResult<()> {
     ))
 }
 
-fn existing_bytes(path: &Path, maximum: u64) -> StorageResult<Vec<u8>> {
+pub(super) fn existing_bytes(path: &Path, maximum: u64) -> StorageResult<Vec<u8>> {
     let file = open_existing(path, false)?;
     if file.metadata()?.len() > maximum {
         return Err(refusal("restored validation file exceeds its bound"));

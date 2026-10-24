@@ -74,6 +74,8 @@ Both existing range recipes also use at most 128 keys under the named hash `cond
 The schema declares `score`, `optional`, and `never` in addition to the four original fields.
 Only this hash receives the extra field values. The original timed range projections stay four fields.
 Only this hash uses nested JSON bodies below 9 KiB. Each body contains eight 1,024-character payloads, arrays, and objects.
+The body also contains signed and unsigned 64-bit boundaries, an integer above 2^53, a negative integer, and float values.
+Every response preserves their exact values, integer or float types, and the sign of negative zero.
 These bodies expose the cost of a full value copy. The original large-range body sizes stay unchanged.
 The condition seed batches contain 64 records. A received seed line stays below its 1 MiB cap.
 Scores have repeated numeric values. The optional field has missing, null, numeric, and string values.
@@ -97,6 +99,10 @@ Every returned value and each field's atom, molecule, writer, and source metadat
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
 The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary primary-field metadata contract.
 The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
+Every record retains exactly `key`, `fields`, `metadata`, and `author_pub_key`.
+The key retains both hash and range coordinates. The author names a writer from the original projected metadata map.
+The author is null when no field names a writer or the selected writer is empty.
+The check does not impose a new order on the original metadata map. Absent or empty writer coverage requires actual returned metadata.
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
 After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.
 It matches the exact request IDs and client name. Every warm cell requires 32 matches; every fresh-process cell requires one.
@@ -106,6 +112,18 @@ These status calls stay outside the timed and memory windows. Absent phase field
 The request counter does not measure the native guard's examined-key count.
 Transient byte receipts omit captured field maps. Process snapshots do not measure an in-flight peak or a total-memory cap.
 The public writer does not create legacy body tombstones. Empty-spine and legacy body-tombstone behavior remain source-review scope.
+
+## Narrow-request tail diagnostics
+
+All 64 narrow requests retain complete server phase records matched by request ID and client name.
+The ring read follows the narrow memory-after observation and stays outside the latency and memory windows.
+Each request also has bounded Linux process-counter observations before and after its HTTP timer.
+These observations occur inside the narrow memory window and change the gaps between requests.
+Compare the two product revisions with the same revised driver; old-driver absolute timings do not provide that control.
+The summary prints each run separately, plus its five slowest requests with their own phases, read receipts, and counter deltas.
+Missing counters and phases remain unreported. Host CPU and pressure values describe shared load and do not identify a cause alone.
+Process counter precision, identity checks, scheduler-stat availability, and observation duration stay explicit.
+No percentile is subtracted from another percentile. The current 256-entry ring must cover all 64 requests.
 
 ## Artifacts and limits
 

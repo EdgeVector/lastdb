@@ -5,10 +5,12 @@ use super::error::{StorageError, StorageResult};
 /// Raw replay must never write one part of the counter lifecycle by itself.
 pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> {
     if namespace != "main" {
-        return Ok(matches!(
-            namespace,
-            "atoms" | "cas_blobs" | "tips" | "field_tips" | "molecule_ref_edges" | "blob_ref_edges"
-        ));
+        return Ok(counter_namespace_alias(namespace)
+            || namespace == "cas_blobs"
+            || namespace == "db_catalog"
+            || crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(
+                namespace, key,
+            ));
     }
     let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
     let bare = source_key(key)?;
@@ -34,7 +36,18 @@ pub(crate) fn counter_owned(namespace: &str, key: &[u8]) -> StorageResult<bool> 
             | "mgd"
             | "fdep"
             | "cas_blob"
+            | "protein"
+            | "molprot"
     ))
+}
+
+/// Logical backups retain complete schema/catalog authority. Only physical
+/// aliases of the main lifecycle records are unsupported snapshot namespaces.
+pub(crate) fn counter_namespace_alias(namespace: &str) -> bool {
+    matches!(
+        namespace,
+        "atoms" | "tips" | "field_tips" | "molecule_ref_edges" | "blob_ref_edges" | "proteins"
+    )
 }
 
 pub(crate) fn validate(namespace: &str, key: &[u8]) -> StorageResult<()> {

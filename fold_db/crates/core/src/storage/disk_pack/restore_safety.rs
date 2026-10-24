@@ -23,14 +23,12 @@ pub(crate) async fn raw_main(runtime: Arc<PackRuntime>) -> StorageResult<Arc<dyn
 
 pub(super) fn pending(home: &DiskHome, path: &Path) -> StorageResult<bool> {
     let file = path.parent().map(|p| p.join(PENDING_FILE));
-    if let Some(file) = file.filter(|p| p.exists()) {
-        if !std::fs::symlink_metadata(&file)?.is_file()
-            || !PENDING_BYTES.starts_with(&std::fs::read(file)?)
-        {
-            return Err(StorageError::InvalidOperation(
-                "invalid restore validation marker".into(),
-            ));
-        }
+    if file
+        .as_deref()
+        .map(read_marker)
+        .transpose()?
+        .unwrap_or(false)
+    {
         return Ok(true);
     }
     let mut reader = home.read(budget()).map_err(map)?;
@@ -41,6 +39,29 @@ pub(super) fn pending(home: &DiskHome, path: &Path) -> StorageResult<bool> {
         .get_bounded(collection, &key, 8192)
         .map_err(map)?
         .is_some())
+}
+
+/// A missing target of a symlink is not an absent restore marker. Keep errors
+/// fail-closed and bound the read even if a damaged marker grows unexpectedly.
+fn read_marker(path: &Path) -> StorageResult<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(StorageError::InvalidOperation(
+                "invalid restore validation marker".into(),
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    }
+    let bytes = super::restore::existing_bytes(path, PENDING_BYTES.len() as u64)?;
+    if !PENDING_BYTES.starts_with(&bytes) {
+        return Err(StorageError::InvalidOperation(
+            "invalid restore validation marker".into(),
+        ));
+    }
+    // A crash can leave a prefix after create/write; that still requires validation.
+    Ok(true)
 }
 
 pub(super) fn mark_native(root: &Path) -> StorageResult<()> {
@@ -123,14 +144,7 @@ impl PackRuntime {
         }
         if let Some(home) = &self.node_home {
             let marker = home.root.join(PENDING_FILE);
-            if marker.try_exists()? {
-                if !std::fs::symlink_metadata(&marker)?.is_file()
-                    || !PENDING_BYTES.starts_with(&std::fs::read(&marker)?)
-                {
-                    return Err(StorageError::InvalidOperation(
-                        "restore marker changed".into(),
-                    ));
-                }
+            if read_marker(&marker)? {
                 std::fs::remove_file(marker)?;
                 File::open(&home.root)?.sync_all()?;
             }

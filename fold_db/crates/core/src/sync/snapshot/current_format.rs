@@ -34,10 +34,7 @@ pub(super) fn validate_photograph(
 }
 
 pub(super) fn refuse_counter_namespace(namespace: &str) -> SyncResult<()> {
-    if namespace != "main"
-        && namespace != "cas_blobs"
-        && crate::storage::current_keys::counter_owned(namespace, b"")?
-    {
+    if crate::storage::current_keys::counter_namespace_alias(namespace) {
         return Err(SyncError::Serialization(
             "backup uses a physical counter namespace alias; use a current native backup".into(),
         ));

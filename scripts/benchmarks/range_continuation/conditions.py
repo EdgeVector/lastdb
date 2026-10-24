@@ -12,9 +12,9 @@ def value_hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def capture_phases(node, samples):
+def capture_phases(node, samples, *, full_records=False):
     # Capture outside each timed cell. The current 256-entry request ring is
-    # larger than one 32-request cell; join by both caller and exact request ID.
+    # larger than one 64-request cell; join by both caller and exact request ID.
     response, _ = node.call("/api/status?recent=1")
     operations = response.get("status", {}).get("request_ops", {})
     requested = {sample["request_id"] for sample in samples}
@@ -32,7 +32,7 @@ def capture_phases(node, samples):
         raise RuntimeError("The request ring lacks complete measured condition request coverage")
     for sample in samples:
         operation = matched[sample["request_id"]]
-        sample["server_request_ops"] = {"duration_ms": operation["duration_ms"],
+        sample["server_request_ops"] = operation if full_records else {"duration_ms": operation["duration_ms"],
             "phases": {name: value for name, value in operation.get("phases", {}).items()
                        if name in ("hydrate_atoms_us", "hydrate_format_us")}}
     return {"requests": len(samples), "matched": len(matched), "complete": True,

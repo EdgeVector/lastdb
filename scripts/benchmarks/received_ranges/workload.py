@@ -2,7 +2,7 @@
 
 from query import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, TOTAL, key, latency, prefix, query, validate, walk
 from seed import Seed
-from conditions import Conditions
+from conditions import Conditions, capture_phases
 
 
 class Workload:
@@ -81,16 +81,21 @@ class Workload:
         known = [self.keyed("complete-known-key-prefill-immediately-before-latency")]
         memory_before = self.node.status("immediately-before-narrow-latency")
         measured = []
-        for ordinal in range(32):
-            first = ordinal * (TOTAL - 128) // 31
-            if first < 5640 and first + 128 > 5000:
-                first = 6000
-            if first + 128 > 24000:
-                first = 23000
-            value = walk(self.node, self.seed.expected(), query(key(first), key(first + 128), 64),
-                         "matched-narrow-" + str(ordinal))
-            measured.extend(value["samples"])
+        self.node.capture_process = True
+        try:
+            for ordinal in range(32):
+                first = ordinal * (TOTAL - 128) // 31
+                if first < 5640 and first + 128 > 5000:
+                    first = 6000
+                if first + 128 > 24000:
+                    first = 23000
+                value = walk(self.node, self.seed.expected(), query(key(first), key(first + 128), 64),
+                             "matched-narrow-" + str(ordinal))
+                measured.extend(value["samples"])
+        finally:
+            self.node.capture_process = False
         memory_after = self.node.status("immediately-after-narrow-latency")
+        narrow_coverage = capture_phases(self.node, measured, full_records=True)
         boundaries = self.edges()
         self.seed.changed()
         known.append(self.keyed("delete-purge-update-and-reopened"))
@@ -101,6 +106,7 @@ class Workload:
             "known_key_passes": known, "broad": broad, "boundaries": boundaries,
             "reopened": reopened, "preload": preload, "narrow_latency": latency(measured),
             "narrow_samples": measured, "ordered_mutation_sha256": self.seed.offered.hexdigest(),
+            "narrow_phase_coverage": narrow_coverage,
             "narrow_memory_before": memory_before, "narrow_memory_after": memory_after,
             "conditions": conditions,
             "final_values_sha256": self.seed.final_hash(), "seed_inputs": self.seed.paths,

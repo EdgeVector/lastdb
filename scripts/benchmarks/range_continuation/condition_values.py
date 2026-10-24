@@ -4,6 +4,9 @@ import hashlib
 
 HASH, COUNT = "condition-reuse", 128
 EXTRA_FIELDS = ["score", "optional", "never"]
+JSON_NUMBERS = {"signed_min": -(2 ** 63), "unsigned_max": 2 ** 64 - 1,
+    "above_exact_double": 2 ** 53 + 1, "negative": -17,
+    "fraction": 1.25, "zero": 0.0, "negative_zero": -0.0}
 
 
 def marker(source=None):
@@ -19,6 +22,7 @@ def extend(values, source=None):
     # copies while the complete response stays below the existing 4MiB cap.
     seed = values["body"]
     values["body"] = {"source": marker(source), "identity": {"hash": HASH, "range": values["id"]},
+        "numbers": JSON_NUMBERS,
         "parts": [{"position": part, "flags": [True, None, number],
             "payload": hashlib.shake_256((seed + str(part)).encode()).hexdigest(512)}
             for part in range(8)]}

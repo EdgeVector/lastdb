@@ -21,6 +21,7 @@ Lightweight source, syntax, and format checks can run locally. Tests remain reti
 | Seed records | 10,000 | 100,000 |
 | Read and concurrency requests per case | 256 | 2,048 |
 | Single and batch write requests per case | 32 | 128 |
+| 128-record update requests | 128 | 128 |
 | Complete base/candidate pairs | 2 | 3 |
 | Fields per record | 4 | 4 |
 | Body bytes per record | 1,024 | 1,024 |
@@ -29,8 +30,12 @@ The manual comparison also offers `batch-insert` for a focused insert review.
 It keeps the standard 10,000 records and the same cold and hot read preparation.
 It measures 256 insert requests at each batch size, with three alternating pairs.
 Each version supplies 768 requests per batch size. Updates and concurrency are excluded.
-The raw write samples retain `resident_stages_us` from each response.
-The ordinary standard and nightly speed recipes stay unchanged.
+All successful write samples retain `resident_stages_us` from each response.
+A missing field is null, not a measured zero.
+The standard recipe uses 128 calls only for the 128-record update case.
+Other case counts stay unchanged. The recipe records `batch_update_samples` explicitly.
+The extra update calls also change the home history before later concurrency cases.
+Compare both product revisions with this same driver. Do not compare this recipe with older run numbers.
 
 Each case uses actual product requests through the daemon's Unix socket:
 
@@ -179,6 +184,25 @@ The report lists the five largest reported phases for each slow call.
 Socket queue wait precedes server duration. Parent and child phases can overlap, so their values must not be added.
 These phases locate time in the request code. They do not prove a physical disk flush or storage correctness.
 
+The 128-record update case also retains native maintenance status before and after the case.
+Both status calls occur outside the latency, throughput, memory, and disk-size windows.
+These cumulative fields can show maintenance activity during the observation interval.
+They cannot locate that activity within a particular request.
+
+Each single-client 128-record update request retains bounded Linux counter observations before and after its RPC.
+The observations occur outside the response-time timer and keep each exact request ID.
+The samples retain both raw observations and their counter deltas, with missing values explicit.
+The observer interval also includes counter reads and response decode, so it differs from the RPC interval.
+Daemon CPU and I/O counters include all daemon threads and concurrent maintenance.
+Host CPU and pressure counters describe the whole CI machine, including other processes.
+Thread runqueue totals can overlap across CPUs. Do not subtract process CPU time from wall time to infer a wait.
+These observations affect throughput and can change the work schedule. Compare only runs from the same driver.
+
+The summary shows each update run's p50, p95, and p99, followed by its five slowest exact requests.
+Each slow request keeps its own RPC time, request phases, resident stages, and counter deltas together.
+No difference between unrelated percentiles supplies a stage duration.
+The `apply_us` request phase is residual batch time after named stages, not a direct CPU or disk measurement.
+
 ## PR 317 native diagnostics and read repeat
 
 PR 317 uses four ordinary base/candidate pairs with the standard request sizes and case order.
@@ -226,5 +250,6 @@ The workload uses a closed loop. It sends each client's next request after the p
 Memory samples occur every 200 ms during a case. They exclude seed and startup.
 Disk size counts file lengths, not allocated blocks. Background maintenance can change disk size during a sample.
 Files and directories removed before their size read contribute no bytes to that sample.
-The standard batch-write p99 uses only 32 samples per run. Read the raw samples before a speed decision.
+The standard insert and single-record update p99 use only 32 samples per run.
+The 128-record update p99 uses 128 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.
