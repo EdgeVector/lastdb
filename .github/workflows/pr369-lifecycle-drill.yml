@@ -1,0 +1,98 @@
+name: PR 369 one-time lifecycle drill
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pr369-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    if: github.head_ref == 'kanban/pr369-lifecycle-drill-20261024'
+    name: Lifecycle drill (${{ matrix.os }}, ${{ matrix.variant }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        variant: [baseline, fixed]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: '3'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      LASTDB_BLOB_DWELL_SECS: '1'
+      LASTDB_BLOB_DWELL_UNSAFE_SHORT_FOR_DEV: '1'
+      DRILL_SOURCE: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Select the exact product and link the isolated entry point
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          case "$VARIANT" in
+            baseline) product=50532a6395a8bcb0cb8020d4999123ccd3d92fe3 ;;
+            fixed) product=d328fa7a1ab9dac6ceef1b0971f02d77902d2b19 ;;
+            *) exit 1 ;;
+          esac
+          git merge-base --is-ancestor "$product" HEAD
+          git worktree add --detach "$RUNNER_TEMP/pr369-product" "$product"
+          echo "DRILL_OUTPUT=$RUNNER_TEMP/pr369-evidence" >> "$GITHUB_ENV"
+          python3 scripts/ci/pr369-lifecycle/install.py \
+            --product "$RUNNER_TEMP/pr369-product" --evidence "$RUNNER_TEMP/pr369-evidence"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pr369-lifecycle-${{ matrix.os }}-${{ matrix.variant }}
+          workspaces: ${{ runner.temp }}/pr369-product -> target
+          cache-on-failure: true
+      - name: Build the exact product with the one-time entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --manifest-path "$RUNNER_TEMP/pr369-product/Cargo.toml" \
+            -p fold_db --example pr369-lifecycle \
+            > "$DRILL_OUTPUT/build.log" 2>&1 || { tail -100 "$DRILL_OUTPUT/build.log"; exit 1; }
+      - name: Run the generated lifecycle cases
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/pr369-lifecycle/run.py \
+            --program "$RUNNER_TEMP/pr369-product/target/debug/examples/pr369-lifecycle" \
+            --evidence "$DRILL_OUTPUT" --variant "$VARIANT"
+      - uses: actions/upload-artifact@v7
+        id: evidence
+        if: always()
+        with:
+          name: pr369-lifecycle-${{ matrix.os }}-${{ matrix.variant }}-${{ github.event.pull_request.head.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/pr369-evidence/*
+      - name: Verify the retained artifact and its expiry
+        if: always() && steps.evidence.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.evidence.outputs.artifact-id }}
+          EXPECTED_SHA: ${{ steps.evidence.outputs.artifact-digest }}
+          DOWNLOAD_URL: ${{ steps.evidence.outputs.artifact-url }}
+        run: python3 scripts/ci/pr369-lifecycle/artifact.py
+      - name: Remove the exact owned generated homes
+        if: success()
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          owned=$(cat "$DRILL_OUTPUT/owned-root.txt")
+          "$RUNNER_TEMP/pr369-product/target/debug/examples/pr369-lifecycle" cleanup "$owned" "$VARIANT" \
+            >> "$GITHUB_STEP_SUMMARY"
