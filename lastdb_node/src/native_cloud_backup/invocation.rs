@@ -63,5 +63,6 @@ pub(super) fn run(
     drop(store);
     drop(source);
     drop(permit);
+    drop(pause);
     outcome
 }

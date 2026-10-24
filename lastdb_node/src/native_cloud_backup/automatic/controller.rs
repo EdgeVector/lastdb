@@ -27,16 +27,17 @@ async fn run(host: Arc<Host>, shutdown: Arc<AtomicBool>) {
             Ok(Next::Again) => continue,
             Ok(Next::Idle(delay)) => delay,
             Ok(Next::Invoke { .. }) => unreachable!(),
-            Err(error) => match save_local_failure(&host, &error) {
-                Ok(delay) => delay,
-                Err(_) => {
+            Err(error) => {
+                if let Ok(delay) = save_local_failure(&host, &error) {
+                    delay
+                } else {
                     tracing::warn!(
                         reason = "automatic_backup_local_state_refused",
                         "automatic backup paused"
                     );
                     None
                 }
-            },
+            }
         };
         tokio::select! {
             changed = boundaries.changed() => { if changed.is_err() { return; } },

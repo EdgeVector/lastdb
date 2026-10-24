@@ -39,7 +39,7 @@ pub(super) async fn prepare(
                     match result {
                         TransferItemResult::Ok { transfer } => slots[index] = Some(transfer),
                         TransferItemResult::Error { error, .. } => {
-                            temporary(BackupError::Cloud(error.into()))?
+                            temporary(BackupError::Cloud(error.into()))?;
                         }
                     }
                 }
@@ -66,7 +66,7 @@ pub(super) async fn resume(
             .map_err(|_| BackupError::Waiting)?;
         match result {
             Ok(TransferResumeResult::Error { error, .. }) => {
-                temporary(BackupError::Cloud(error.into()))?
+                temporary(BackupError::Cloud(error.into()))?;
             }
             Ok(result) => return Ok(result),
             Err(error) => temporary(error.into())?,

@@ -157,7 +157,7 @@ impl BackupRuntime {
         let mut state = self
             .state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.pause = None;
         state.panicked |= matches!(
             outcome,
@@ -178,11 +178,11 @@ impl BackupRuntime {
         let _transition = self
             .transition
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let state = self
             .state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(pause) = &state.pause {
             pause.store(true, Ordering::Release);
         }
