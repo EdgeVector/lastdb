@@ -1,17 +1,18 @@
 # Current core memory and historical convergence record
 
-Status, 2026-10-18: the native packed engine is the sole logical engine.
+Current summary, 2026-10-24: the native packed engine is the sole logical engine.
 The core model owns current schemas, molecules, keys, tips, confirmed absence, and atom values.
 The recency list selects logical records for purge without a second set of values.
 The old serving graph, logical cache, mode controls, and alternate write branch are removed.
 
-Covered logical writes use memory ACKs by default when their reservations fit.
-Explicit durable requests, capacity limits, and uncovered raw operations can wait for disk.
-The private disk-output queue retains bytes and resource owners until flush; ordinary reads cannot inspect it.
+Every native write waits for the complete disk commit and clean core publication before the ack.
+The first accepted request starts the worker immediately. Callers ahead of that worker in the FIFO can share one commit.
+The private disk-output queue retains bytes and resource owners until completion; ordinary reads cannot inspect it.
 Captured core values keep their memory charges until their calls release them.
-The default flush delay remains 500 ms. Cloud activation stays disabled.
+There is no 500 ms collection timer. Legacy Cloud Sync activation stays disabled.
 
-The [current plan](lastdb-logical-warm-set-plan.md) records component responsibilities and the native writer cutover.
+Use the [current native summary](lastdb-disk-native-node.md) and [memory and disk routes](lastdb-rehydrate.md) for current responsibilities.
+The [October work plan](lastdb-logical-warm-set-plan.md) records the earlier implementation sequence.
 The [cutover results](proofs/core-clarity-20261018/RESULTS.md) record fresh-data API results and their exact source identities.
 The [earlier V6 benchmark](proofs/core-owned-writes-20261018/RESULTS.md) measures its earlier source, rather than this final cleanup.
 No primary operation forms part of this cutover proof.

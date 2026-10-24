@@ -1,5 +1,10 @@
 # LastDB logical warm set design
 
+CAUTION: This design records the October 18 implementation and its earlier write policy and record-count limit.
+Use the [memory and disk routes](lastdb-rehydrate.md) and [native summary](lastdb-disk-native-node.md) for current behavior.
+Native writes now wait for disk commit and clean memory publication. The warm set uses a byte limit.
+The historical design below does not authorize an early memory ack or a 500 ms collection timer.
+
 Status: native storage and shared core memory merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18.
 Selected tips without values merged in [PR 215](https://github.com/EdgeVector/lastdb/pull/215).
 The [core model spike](lastdb-core-model-warm-spike.md) records the earlier implementation.

@@ -15,7 +15,7 @@ use fold_db::fold_db_core::mutation_manager::{
 };
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::operations::{
-    MutationCloudPublication, MutationConvergence, MutationDurability,
+    MutationCloudPublication, MutationConvergence, MutationDurability, Operation,
 };
 use fold_db::schema::types::{AggregateSet, KeyValue, Mutation, MutationType, SchemaError};
 use serde_json::Value;
@@ -63,6 +63,47 @@ pub struct MutationComponents {
     /// Concrete replacement for this source row's aggregate member. The
     /// single-mutation path uses the atomic aggregate commit primitive.
     pub aggregate_set: Option<AggregateSet>,
+}
+
+impl MutationComponents {
+    /// Move parsed fields into a request without host or storage access.
+    /// An operation's convergence overrides the caller's default. The caller
+    /// supplies the separately decoded aggregate sidecar, when supported.
+    #[must_use]
+    pub fn from_operation(
+        operation: Operation,
+        default_convergence: Option<MutationConvergence>,
+        aggregate_set: Option<AggregateSet>,
+    ) -> Self {
+        let Operation::Mutation {
+            schema,
+            fields_and_values,
+            key_value,
+            mutation_type,
+            source_file_name,
+            expected,
+            convergence,
+            durability,
+            cloud_publication,
+            must_exist,
+            key_range_prefix,
+        } = operation;
+
+        Self {
+            schema,
+            fields_and_values,
+            key_value,
+            mutation_type,
+            source_file_name,
+            expected,
+            convergence: convergence.or(default_convergence).unwrap_or_default(),
+            durability: durability.unwrap_or_default(),
+            cloud_publication,
+            must_exist,
+            key_range_prefix,
+            aggregate_set,
+        }
+    }
 }
 
 /// Maximum off-box publication wait after a durable Delete commits locally.

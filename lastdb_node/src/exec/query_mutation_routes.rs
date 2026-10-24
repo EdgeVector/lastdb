@@ -174,19 +174,7 @@ fn parse_mutation_components(req: &UdsRequest) -> Result<MutationComponents, Uds
         fold_db::request_phases::RequestPhase::Parse,
         parse_started.elapsed(),
     );
-    let Operation::Mutation {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence,
-        durability,
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
-    } = match parsed {
+    let operation = match parsed {
         Ok(operation) => operation,
         Err(err) => {
             // Every required key is present, so this is either a value outside
@@ -204,20 +192,11 @@ fn parse_mutation_components(req: &UdsRequest) -> Result<MutationComponents, Uds
         }
     };
 
-    Ok(MutationComponents {
-        schema,
-        fields_and_values,
-        key_value,
-        mutation_type,
-        source_file_name,
-        expected,
-        convergence: convergence.unwrap_or_default(),
-        durability: durability.unwrap_or_default(),
-        cloud_publication,
-        must_exist,
-        key_range_prefix,
+    Ok(MutationComponents::from_operation(
+        operation,
+        None,
         aggregate_set,
-    })
+    ))
 }
 
 /// `GET /api/local-watch?after_seq=0&timeout_ms=0[&schema=App/Event][&hash=H][&start=R][&end=R]`

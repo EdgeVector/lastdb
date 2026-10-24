@@ -263,9 +263,9 @@ A miss fetches the required records in batches. The fetched logical records can 
 The recency list controls warm retention under a byte budget, which defaults to 256 MiB.
 The October 19 byte-limit decision replaces the old 10,000-logical-record cap.
 Each read enters the warm set. The purge removes least recently used clean records.
-The purge skips a record that a call still holds or that still awaits flush.
+The purge skips a record that a call still holds or a path reserved by private write preparation.
 If those records prevent enough purge, the charge can temporarily exceed the budget.
-Status counts that excess; the purge runs again after calls end or writes reach disk.
+Status counts that excess; the purge runs again after the owners release their records.
 An older call can retain its earlier values. Their memory owners stay charged until that call returns.
 These call lifetimes do not provide an old-value query or stored atom history.
 
@@ -273,7 +273,8 @@ The private disk queue retains prepared bytes until flush. Ordinary reads cannot
 The selected searchable snapshot owns local recovery. It does not replace the current logical memory state.
 The writer creates immutable payload files and changed search pages, then publishes one complete snapshot root.
 Reopen validates that root and its generation receipt. It performs no internal-journal replay.
-The local capture router remains, but no cloud engine attaches during this cutover.
+Legacy Cloud Sync remains disabled. Native backup uses a separate source gate that defaults off.
+Local capture saves an exact snapshot and durable file hold; its source code does not establish production cloud readiness.
 A successful native write completes its disk snapshot and core memory change before the ack.
 The disk queue starts immediately. No collection timer delays the ack.
 An internal file change clears affected core records before a later call can use them.
@@ -282,8 +283,9 @@ Native reads and writes always use the core model. No old memory mode flag selec
 The obsolete `LASTDB_RESIDENT_PERSIST_MS` setting has no effect, including at startup.
 The warm byte budget, definition allowance, selected-key allowance, and write allowance cover separate owners.
 They do not define one whole-process memory cap.
-The approved dirty-write share is 25%; the reviewed code reports the threshold but does not yet enforce that share.
-See the [byte-limit design](lastdb-warm-set-byte-limit-design.md) and [current source review](lastdb-searchable-snapshot-code-review.md).
+Native writes publish clean records after disk commit. They create no dirty warm-record state.
+The retained dirty counters and threshold do not grant an early memory ack or reserve a separate dirty share.
+See the [byte-limit design](lastdb-warm-set-byte-limit-design.md) and [current native summary](lastdb-disk-native-node.md).
 
 Selected HashRange schemas can load all required membership keys before their first query continues.
 Concurrent first queries share that load. Later range calls select complete keys from memory.

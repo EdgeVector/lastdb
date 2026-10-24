@@ -1,5 +1,9 @@
 # LastDB logical warm set work plan
 
+CAUTION: This plan records the October 18 implementation sequence and its earlier limits and write policy.
+Use the [memory and disk routes](lastdb-rehydrate.md) and [native summary](lastdb-disk-native-node.md) for current behavior.
+All native writes now wait for disk commit and clean memory publication. The warm set uses a byte limit.
+
 Status: selected schema preload, shared core memory, and native storage merged in [PR 214](https://github.com/EdgeVector/lastdb/pull/214), 2026-10-18.
 The [retention choice](lastdb-logical-warm-set-design.md#retention-choice) adds selected tips without values to the same logical warm set.
 Calls that fetch values retain full records. Accepted writes remain complete through flush.
