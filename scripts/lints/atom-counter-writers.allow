@@ -4,6 +4,8 @@
 # on a function that names a family the line does not list, and on a line that no function matches.
 # `*` as the function is for the planner module only.
 
+fold_db/crates/core/src/db_operations/metadata_store/idempotency.rs|retire_legacy|-|bounded cleanup inside the reserved idempotency namespace; deletes only validated legacy idem keys and writes its cleanup marker in the native request snapshot; no tip, atom or counter keys
+
 fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_barriers|-|explicit stopped-home maintenance: durably publish the replay floor and older-reader refusal before any Delete barrier can leave; never modifies a tip, atom or reference counter
 fold_db/crates/core/src/db_operations/atom_store/delete_replay.rs|prune_delete_scope|-|explicit stopped-home maintenance removes only identity-checked Delete barriers at or before the durable replay floor; no planner-owned record changes
 
