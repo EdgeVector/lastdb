@@ -8,7 +8,7 @@ use cloud_backup_protocol::v2::{
 use cloud_backup_protocol::{CloudScope, DecimalU64, Digest, Text};
 use fold_db::storage::disk_pack::byte_backup::Bootstrap;
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
-use futures_util::{StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use lastdb_node::byte_cloud_restore::{RecoveryKeys, RestoreSession};
 use std::io::Read;
 
@@ -96,7 +96,7 @@ async fn discover(
             .map_err(|_| "invalid V2 discovery cursor")?,
     };
     let directory = client.list(&request).await.map_err(|e| e.to_string())?;
-    let entries: Vec<_> = futures_util::stream::iter(directory.streams)
+    let entries: Vec<_> = futures::stream::iter(directory.streams)
         .map(|stream| async move {
             let request = HeadReadRequest {
                 version: Version::V2,

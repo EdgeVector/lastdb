@@ -48,7 +48,7 @@ fn request_now(host: &crate::host::Host, action: ByteBackupRequest) -> Result<By
     let source = Source::from_host(host)?;
     if matches!(action, ByteBackupRequest::Close) {
         let saved = previous.as_ref().ok_or(BackupError::Missing)?;
-        source.validate(&saved)?;
+        source.validate(saved)?;
         store::close(&host.home, &id)?;
     }
     if let Some(active) = runtime.snapshot().active {

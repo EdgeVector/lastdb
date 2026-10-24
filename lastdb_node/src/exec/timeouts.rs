@@ -242,6 +242,7 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::SyncCloudOff
         | DataRoute::SyncCloudOn
         | DataRoute::SyncNativeBackup
+        | DataRoute::SyncByteBackupV2
         | DataRoute::SyncCloudResumePrimary
         | DataRoute::SyncQuarantineReplayBlocker
         | DataRoute::AggregateRepair

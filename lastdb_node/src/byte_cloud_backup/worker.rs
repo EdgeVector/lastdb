@@ -195,7 +195,7 @@ async fn drive(
             work.push(transfer::complete(client, input, prepared, reader, pause));
         }
         // Settle every upload future before releasing source/reader ownership.
-        let results = futures_util::future::join_all(work).await;
+        let results = futures::future::join_all(work).await;
         let mut failure = None;
         for ((index, _), result) in batch.iter().zip(results) {
             match result {
