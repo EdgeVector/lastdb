@@ -281,6 +281,42 @@ fn prepare_install_dir(install_dir: &Path, force: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Swap staged install into place atomically: backup old → move staged → delete backup.
+/// On failure, rolls back and leaves the old install intact.
+fn swap_install_atomic(
+    install_dir: &Path,
+    staged_dir: &Path,
+    cleanup_staged: impl FnOnce(),
+) -> Result<(), String> {
+    let backup_dir = install_dir.with_file_name(format!(
+        "{}.upgrade-backup",
+        install_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("app")
+    ));
+    std::fs::rename(install_dir, &backup_dir).map_err(|e| {
+        cleanup_staged();
+        format!(
+            "failed to backup old install {} to {}: {e}",
+            install_dir.display(),
+            backup_dir.display()
+        )
+    })?;
+
+    if let Err(e) = std::fs::rename(staged_dir, install_dir) {
+        let _ = std::fs::rename(&backup_dir, install_dir);
+        return Err(format!(
+            "failed to move staged install from {} to {}: {e}",
+            staged_dir.display(),
+            install_dir.display()
+        ));
+    }
+
+    let _ = std::fs::remove_dir_all(&backup_dir);
+    Ok(())
+}
+
 /// Reinstall only when the resolved commit differs from the installed one.
 ///
 /// # Errors
@@ -341,37 +377,8 @@ pub fn upgrade_pinned(
         return Err(e);
     }
 
-    // Version constraint check passed; swap old and new installs safely
-    // 1. Rename old install to backup
-    let backup_dir = install_dir.with_file_name(format!(
-        "{}.upgrade-backup",
-        install_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("app")
-    ));
-    std::fs::rename(install_dir, &backup_dir).map_err(|e| {
-        cleanup_temp();
-        format!(
-            "failed to backup old install {} to {}: {e}",
-            install_dir.display(),
-            backup_dir.display()
-        )
-    })?;
-
-    // 2. Rename staged install to final location
-    if let Err(e) = std::fs::rename(&temp_dir, install_dir) {
-        // Restore the backup if the move failed
-        let _ = std::fs::rename(&backup_dir, install_dir);
-        return Err(format!(
-            "failed to move staged install from {} to {}: {e}",
-            temp_dir.display(),
-            install_dir.display()
-        ));
-    }
-
-    // 3. Remove the backup (old install is replaced successfully)
-    let _ = std::fs::remove_dir_all(&backup_dir);
+    // Version constraint check passed; atomically swap the staged install into place
+    swap_install_atomic(install_dir, &temp_dir, cleanup_temp)?;
 
     // Build outcome with final paths, not staging paths
     Ok(PinnedUpgradeOutcome {
