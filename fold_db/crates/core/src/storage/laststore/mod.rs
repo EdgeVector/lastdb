@@ -90,12 +90,10 @@ use uuid::Uuid;
 
 const TIPS_COLLECTION: &str = "tips";
 
-/// Catalog collections are plaintext-by-policy (Trinity-only). Persisting an
-/// An at-rest envelope there is what made Tom's primary unbootable on 2026-08-16:
+/// Catalog collections require direct JSON values. An at-rest envelope there is what made Tom's primary unbootable on 2026-08-16:
 /// `TypedKvStore` parsed ciphertext as JSON (`expected value at line 1 column 1`)
 /// and `get_all_schemas` aborted `open_existing_store`. Reject at the LastStore
-/// put so a legacy replay envelope
-/// fails closed instead of poisoning the catalog.
+/// put so a legacy replay envelope fails closed instead of poisoning the catalog.
 pub(in crate::storage) fn reject_enc_on_plaintext_catalog(
     collection: &str,
     value: &[u8],

@@ -24,7 +24,7 @@ pub(super) fn build_store_stack(
     let mutation_log_capture = Arc::new(crate::sync::capture::MutationLogCaptureRouter::default());
     let store = Arc::new(
         crate::sync::capture::MutationLogCaptureNamespacedStore::new(
-            enc_store.clone() as Arc<dyn NamespacedStore>,
+            enc_store as Arc<dyn NamespacedStore>,
             Arc::clone(&mutation_log_capture),
         ),
     );

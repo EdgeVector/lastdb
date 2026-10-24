@@ -199,10 +199,9 @@ impl SyncEngine {
 
     /// Decode an incoming replay value before writing it into `self.store`.
     ///
-    /// Production wires `self.store` to the encrypted store view, so callers
-    /// must pass plaintext and let the local at-rest seam choose the right
-    /// provider for the final replay key. Legacy incoming values that still
-    /// carry `ENC:` are unwrapped here.
+    /// Only local CAS values pass through an encrypting store. Other values
+    /// keep their stored bytes, including any explicit field or key envelope.
+    /// The legacy catalog recovery branch remains limited to catalog records.
     pub(super) async fn stored_replay_value(
         &self,
         namespace: &str,

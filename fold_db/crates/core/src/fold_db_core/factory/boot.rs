@@ -1,6 +1,6 @@
 //! Context for native boot decryption failures.
 
-use crate::error::{FoldDbError, FoldDbResult};
+use crate::error::FoldDbError;
 
 pub(super) fn is_decrypt_failure_text(msg: &str) -> bool {
     let lower = msg.to_ascii_lowercase();

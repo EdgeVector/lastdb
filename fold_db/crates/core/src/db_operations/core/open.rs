@@ -215,7 +215,7 @@ impl DbOperations {
             admit_meter_trust,
         )
         .await?;
-        if let Some(key) = molecule_wrap_key.or(atom_content_key) {
+        if let Some(key) = atom_content_key.or(molecule_wrap_key) {
             crate::crypto::content_key_proof::verify_or_establish(store.as_ref(), &key).await?;
         }
         let public_key_store = PublicKeyStore::new(public_keys_typed);
