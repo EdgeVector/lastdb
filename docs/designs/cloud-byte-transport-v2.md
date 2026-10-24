@@ -197,11 +197,14 @@ The automatic V1 controller does not select V2.
 Each exact control request permits six attempts within one 30-second monotonic deadline.
 Only validated ProviderPending, RetryLater, and OutcomeUnknown errors permit a retry.
 Bounded random delays separate attempts. Pause checks precede attempts and follow each delay.
-A successful Pending result returns to the existing finite status polls.
-Those polls have separate control deadlines; the 30-second limit does not cover the whole worker.
-The helper never repeats PUT. It repeats exact Complete requests when queue admission remains unknown.
-A failed batch keeps verified sibling receipts. Budget exhaustion keeps the last typed temporary error and source hold.
-An explicit resume uses the same job, cut, transfer identities, and bytes.
+A successful Pending result starts status-only continuation for the admitted transfer or commit.
+Status requests keep separate control deadlines; the 30-second limit does not cover the whole worker.
+Pending and typed temporary status errors continue with delays of 1, 2, 4, 8, 16, then 30 seconds.
+Close and shutdown checks precede each status request and interrupt each delay.
+A permanent refusal stops the worker. The source hold stays until exact terminal authority permits release.
+The helper never repeats PUT. It repeats exact Complete requests only when queue admission remains unknown.
+A failed batch keeps verified sibling receipts. Other control failures keep the last typed temporary error and source hold.
+A daemon exit retains the saved job and cut. An explicit resume uses their exact identities and bytes.
 
 Restore freezes one accepted V2 backup and verifies every inventory page and downloaded byte.
 It reconstructs each native file from its exact extents, then checks the complete file digest and length.

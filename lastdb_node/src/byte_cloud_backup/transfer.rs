@@ -1,4 +1,4 @@
-use super::{retry, BackupError, Result};
+use super::{retry, wait, BackupError, Result};
 use cloud_backup_protocol::v2::transfer::*;
 use cloud_backup_protocol::v2::Version;
 use fold_db::sync::auth::byte_backup::{ByteBackupClient, NativeBackupError};
@@ -88,16 +88,30 @@ pub(super) async fn complete(
     input: &TransferInput,
     prepared: TransferItemResult,
     reader: Box<dyn Read + Send>,
-    pause: &AtomicBool,
+    context: &wait::Context<'_>,
 ) -> Result<ObjectReceipt> {
+    let result = complete_one(client, input, prepared, reader, context).await;
+    context.note_result(&result);
+    result
+}
+
+async fn complete_one(
+    client: &ByteBackupClient,
+    input: &TransferInput,
+    prepared: TransferItemResult,
+    reader: Box<dyn Read + Send>,
+    context: &wait::Context<'_>,
+) -> Result<ObjectReceipt> {
+    let pause = context.pause;
     check_pause(pause)?;
     if let Some(receipt) = verified(prepared)? {
         return Ok(receipt);
     }
-    let resumed = resume_with_retry(client, input, pause).await?;
+    context.check()?;
+    let resumed = resume_with_retry(client, input, context).await?;
     match resumed {
         TransferResumeResult::Grant { response } => {
-            check_pause(pause)?;
+            context.check()?;
             // An HTTP outcome, including a timeout, never proves stored bytes.
             // Complete resolves this same transfer through service authority.
             let _observation = client.upload(input, &response, reader).await;
@@ -129,36 +143,23 @@ pub(super) async fn complete(
         job: input.job.clone(),
         request_ids: vec![input.request_id.clone()],
     };
-    for attempt in 0..16 {
-        check_pause(pause)?;
-        let item = retry::control("transfer_status", pause, || async {
-            let reply = client
-                .transfer_status(&request, std::slice::from_ref(input))
-                .await?;
-            match reply.items.into_iter().next().ok_or(BackupError::Invalid)? {
-                TransferItemResult::Error { error, .. } => Err(cloud_error(error)),
-                item => Ok(item),
-            }
-        })
-        .await?;
-        if let Some(receipt) = verified(item)? {
-            return Ok(receipt);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(
-            250 * (attempt + 1).min(12),
-        ))
-        .await;
-    }
-    Err(BackupError::Waiting)
+    wait::poll(context, "transfer_status", || async {
+        let reply = client
+            .transfer_status(&request, std::slice::from_ref(input))
+            .await?;
+        verified(reply.items.into_iter().next().ok_or(BackupError::Invalid)?)
+    })
+    .await
 }
 
 /// Grant retries reuse the exact identity and precede the single PUT opportunity.
 async fn resume_with_retry(
     client: &ByteBackupClient,
     input: &TransferInput,
-    pause: &AtomicBool,
+    context: &wait::Context<'_>,
 ) -> Result<TransferResumeResult> {
-    retry::control("transfer_resume", pause, || async {
+    retry::control("transfer_resume", context.pause, || async {
+        context.check()?;
         let result = client.resume(input).await;
         match result? {
             TransferResumeResult::Error { error, .. } => Err(cloud_error(error)),

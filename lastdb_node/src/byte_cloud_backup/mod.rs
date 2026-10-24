@@ -8,6 +8,7 @@ mod retry;
 mod source;
 mod store;
 mod transfer;
+mod wait;
 mod worker;
 
 pub use crate::native_cloud_backup::{BackupError, BackupRuntime};

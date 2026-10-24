@@ -1,4 +1,4 @@
-use super::{model::Saved, retry, store::Store, transfer, BackupError, Phase, Result};
+use super::{model::Saved, retry, store::Store, transfer, wait, BackupError, Phase, Result};
 use cloud_backup_protocol::v2::access::{
     InventoryMetadata, InventoryPutRequest, InventoryPutResult,
 };
@@ -157,7 +157,7 @@ async fn accepted(
     client: &ByteBackupClient,
     store: &Store,
     saved: &Saved,
-    mut response: CommitResponse,
+    response: CommitResponse,
     pause: &AtomicBool,
 ) -> Result<AcceptedBackup> {
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?;
@@ -166,24 +166,23 @@ async fn accepted(
         version: Version::V2,
         job: begin.job.clone(),
     };
-    for attempt in 0..64 {
+    response.validate_for(begin, commit)?;
+    match response {
+        CommitResponse::Accepted { backup } => return Ok(*backup),
+        CommitResponse::Rejected { .. } => return Err(BackupError::Source),
+        CommitResponse::Pending { .. } => {}
+    }
+    let context = wait::Context::new(store, saved, pause);
+    wait::poll(&context, "commit_status", || async {
+        let response = client.commit_status(&request).await?;
         response.validate_for(begin, commit)?;
         match response {
-            CommitResponse::Accepted { backup } => return Ok(*backup),
-            CommitResponse::Rejected { .. } => return Err(BackupError::Source),
-            CommitResponse::Pending { .. } => {}
+            CommitResponse::Accepted { backup } => Ok(Some(*backup)),
+            CommitResponse::Rejected { .. } => Err(BackupError::Source),
+            CommitResponse::Pending { .. } => Ok(None),
         }
-        check_work(store, saved, pause)?;
-        tokio::time::sleep(std::time::Duration::from_millis(
-            250 * (attempt + 1).min(12),
-        ))
-        .await;
-        response = retry::control("commit_status", pause, || async {
-            Ok(client.commit_status(&request).await?)
-        })
-        .await?;
-    }
-    Err(BackupError::Waiting)
+    })
+    .await
 }
 
 pub(super) fn check_work(store: &Store, saved: &Saved, pause: &AtomicBool) -> Result<()> {

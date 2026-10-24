@@ -218,10 +218,13 @@ async fn drive(
             refresh(capture, store, saved)?;
             return Err(error);
         }
+        let context = super::wait::Context::new(store, saved, pause);
         let mut work = Vec::new();
         for ((index, input), prepared) in batch.iter().zip(prepared.items) {
             let reader = Box::new(capture.reader(*index)?);
-            work.push(transfer::complete(client, input, prepared, reader, pause));
+            work.push(transfer::complete(
+                client, input, prepared, reader, &context,
+            ));
         }
         // Settle every upload future before releasing source/reader ownership.
         let results = futures::future::join_all(work).await;
@@ -230,9 +233,7 @@ async fn drive(
             match result {
                 Ok(receipt) => capture.confirm(*index, &receipt)?,
                 Err(error) => {
-                    if failure.is_none() {
-                        failure = Some(error);
-                    }
+                    super::wait::record_error(&mut failure, error);
                 }
             }
         }
