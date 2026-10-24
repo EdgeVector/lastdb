@@ -1,4 +1,4 @@
-//! The execution shapes of `execute_query`, one method per shape.
+//! Query execution paths. Pure request and keyed-page rules live in `rules`.
 
 use super::*;
 
@@ -9,7 +9,6 @@ pub(super) struct QueryRun<'a, H: HostNode> {
     pub(super) limit: usize,
     pub(super) offset: usize,
     pub(super) cursor: Option<KeyValue>,
-    pub(super) expected_total_count: Option<usize>,
 }
 
 impl<H: HostNode> QueryRun<'_, H> {
@@ -79,69 +78,25 @@ impl<H: HostNode> QueryRun<'_, H> {
         Ok(None)
     }
 
-    /// Key-restricted push-down: hydrate ONLY the requested window.
+    /// Count only when required, select the page, admit the read, and render it.
     pub(super) async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
-        let expected_total_count = self.expected_total_count;
-        let cursor = self.cursor.clone();
-        // Key-restricted push-down: hydrate ONLY the requested window. Count the
-        // partition only when the descending page calculation or an explicit COUNT
-        // assertion requires it.
-        //
-        // Without this, every `HashKey` / `HashRange*` read — which is every product
-        // read, since unfiltered scans are deprecated — fell to the fallback at the
-        // bottom of this function and paid `O(partition)` atom hydrations to return
-        // `O(page)` rows, on each page request. The push-down existed only for the
-        // unfiltered "list all" shape we tell apps not to use.
-        let total =
-            if key_restricted_count_is_required(&query, cursor.as_ref(), expected_total_count) {
-                count_rows(host, &query, ctx).await?
-            } else {
-                None
-            };
-        if let Some(total) = total {
-            if let Some(expected) = expected_total_count {
-                if expected != total {
-                    return Err(reject_wrong_expected_total_count(expected, total));
-                }
-            }
-        } else if expected_total_count.is_some() {
-            return Err(HostError::new(
-                400,
-                "expected_total_count is unavailable for this query".to_string(),
-            ));
-        }
-
-        // Descending range order retains ascending hashes for equal ranges.
-        // A reverse slice of ascending keys cannot preserve that tie order
-        // across hashes. Resolve only this explicit K-key batch, then use the
-        // normal formatter and offset; single-hash requests keep push-down.
-        // A tombstone-inclusive read declines the live count and likewise
-        // needs its selected set before a descending offset can be chosen.
-        if descending_cross_hash_batch(&query)
-            || (matches!(query.sort_order, Some(SortOrder::Desc)) && total.is_none())
-        {
+        let total = if key_restricted_count_is_required(
+            &query,
+            self.cursor.as_ref(),
+            query.expected_total_count,
+        ) {
+            count_rows(host, &query, ctx).await?
+        } else {
+            None
+        };
+        let Some(window) = rules::keyed_window(&query, limit, offset, self.cursor.as_ref(), total)?
+        else {
             return self.bounded_fallback(query).await;
-        }
+        };
 
         let overfetch_limit = limit.saturating_add(1);
-        let window = if let Some(after) = cursor.clone() {
-            KeyWindow::after(after, overfetch_limit)
-        } else if let Some(total) = total {
-            // Descending offset windows count from the high end, so this is
-            // the key-restricted page shape where the exact count feeds the
-            // node's own page selection.
-            match page_filter_for(query.sort_order.as_ref(), total, offset, overfetch_limit) {
-                HashRangeFilter::Page { offset, limit } => KeyWindow::offset(offset, limit),
-                // `page_filter_for` only ever returns `Page`; treating
-                // anything else as "no window" degrades to the old
-                // full-materialize path rather than silently paging wrong.
-                _ => KeyWindow::offset(0, total),
-            }
-        } else {
-            KeyWindow::offset(offset, overfetch_limit)
-        };
         // Admit on the page, not the partition — unlike the unfiltered branch
         // below, which admits on `total` because it may hydrate that many rows.
         let _permit = acquire_read_permit(host, Lane::for_read_rows(overfetch_limit)).await?;
