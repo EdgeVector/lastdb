@@ -1,7 +1,9 @@
 //! One explicitly authorized CI-only native proof. No primary or user data is opened.
 
 use lastdb_storage_policy::native_v1::{PAGES_PER_PART, PAGE_BYTES};
-use laststore::disk_pack::home::{transfer, DiskHome, HomeBuilder, HomeDescriptor, HomeMutation};
+use laststore::disk_pack::home::{
+    transfer, DiskHome, HomeBuilder, HomeDescriptor, HomeMutation, HomeSnapshot,
+};
 use laststore::disk_pack::maintenance::SpacePolicy;
 use laststore::disk_pack::{
     RangeBounds, ReadBudget, EXTENDED_STORAGE_KEY_BYTES, FEATURE_EXTENDED_KEYS,
@@ -74,7 +76,7 @@ fn main() -> Result<()> {
     verify_legacy(&legacy, &legacy_reader)?;
     verify_maximum(&scratch.0)?;
     fs::remove_dir_all(&scratch.0)?;
-    println!("extended_keys_proof: passed; sizes=1048576,9437184,33554432; sparse_cross_part=true; exact=true; batch=true; range=true; compaction=true; transfer=true; reopen=true; legacy_refusal=true; old_reader_refusal=true; upper_boundary=true; maximum_keys=16; update=true; tombstone=true");
+    println!("extended_keys_proof: passed; sizes=1048576,9437184,33554432; sparse_cross_part=true; exact=true; batch=true; range=true; compaction=true; transfer=true; reopen=true; legacy_refusal=true; old_reader_refusal=true; upper_boundary=true; maximum_keys=16; update=true; tombstone=true; off_gate_catch_up=true; finish_pack_fallback=true");
     Ok(())
 }
 
@@ -104,6 +106,10 @@ fn put(home: &DiskHome, key: &str) -> Result<()> {
 
 fn commit(home: &DiskHome, operations: Vec<HomeMutation>) -> Result<()> {
     let mut snapshot = home.snapshot()?;
+    commit_snapshot(&mut snapshot, operations)
+}
+
+fn commit_snapshot(snapshot: &mut HomeSnapshot, operations: Vec<HomeMutation>) -> Result<()> {
     let reservation = snapshot.reserve_mutation(&operations)?;
     snapshot.commit_mutation(operations, reservation)?;
     Ok(())
@@ -259,29 +265,8 @@ fn verify_maximum(parent: &Path) -> Result<()> {
         put(&home, key)?;
     }
     verify(&source, &keys, true)?;
-    commit(
-        &home,
-        vec![HomeMutation {
-            collection: COLLECTION.into(),
-            key: keys[7].clone(),
-            body: Some(b"updated".to_vec()),
-        }],
-    )?;
+    let deleted = edit_during_compaction(&home, &mut keys)?;
     let limits = ReadBudget::for_current(home.read(budget())?.current());
-    assert_eq!(
-        home.read(limits)?.get(COLLECTION, &keys[7])?,
-        Some(b"updated".to_vec())
-    );
-    put(&home, &keys[7])?;
-    let deleted = keys.remove(8);
-    commit(
-        &home,
-        vec![HomeMutation {
-            collection: COLLECTION.into(),
-            key: deleted.clone(),
-            body: None,
-        }],
-    )?;
     assert_eq!(home.read(limits)?.get(COLLECTION, &deleted)?, None);
     let before = fs::read(source.join("CURRENT"))?;
     let snapshot = home.snapshot()?;
@@ -309,4 +294,47 @@ fn verify_maximum(parent: &Path) -> Result<()> {
         None
     );
     Ok(())
+}
+
+fn edit_during_compaction(home: &DiskHome, keys: &mut Vec<String>) -> Result<String> {
+    let mut snapshot = home.snapshot()?;
+    let policy = SpacePolicy::default();
+    let mut output = snapshot.prepare_pack(false)?.copy(&policy)?;
+    assert_eq!(output.tier_boundary(), 0);
+    let updated = HomeMutation {
+        collection: COLLECTION.into(),
+        key: keys[7].clone(),
+        body: Some(b"updated".to_vec()),
+    };
+    commit_snapshot(&mut snapshot, vec![updated])?;
+    let limits = ReadBudget::for_current(snapshot.current());
+    assert_eq!(output.catch_up(snapshot.capture_pack_root()?)?, 1);
+    assert_eq!(snapshot.finish_pack(output)?.catch_up_records, 1);
+    assert_eq!(
+        home.read(limits)?.get(COLLECTION, &keys[7])?,
+        Some(b"updated".to_vec())
+    );
+    commit_snapshot(
+        &mut snapshot,
+        vec![HomeMutation {
+            collection: COLLECTION.into(),
+            key: keys[7].clone(),
+            body: Some(body(&keys[7])),
+        }],
+    )?;
+    let output = snapshot.prepare_pack(false)?.copy(&policy)?;
+    assert_eq!(output.tier_boundary(), 0);
+    let deleted = keys.remove(8);
+    commit_snapshot(
+        &mut snapshot,
+        vec![HomeMutation {
+            collection: COLLECTION.into(),
+            key: deleted.clone(),
+            body: None,
+        }],
+    )?;
+    // No explicit catch_up call: finish_pack must handle this final delta.
+    assert_eq!(snapshot.finish_pack(output)?.catch_up_records, 1);
+    assert_eq!(home.read(limits)?.get(COLLECTION, &deleted)?, None);
+    Ok(deleted)
 }
