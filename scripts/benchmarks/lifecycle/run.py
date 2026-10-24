@@ -139,7 +139,7 @@ def recount(node, cli, label, execute=False, cutoff=None, success=True):
     return command(node, cli, arguments, label, success=success)
 
 
-def run(node, args):
+def run(node, args, results):
     node.settings.update(LASTDB_TTL_SWEEP="0", LASTDB_CONFLICT_JANITOR_MS="0",
                          LASTDB_MOLECULE_DRAIN_MS="0", LASTDB_CONFLICT_RETENTION_SECS="3600")
     node.start()
@@ -147,8 +147,8 @@ def run(node, args):
     for name in ("LifecycleHistory", "LifecycleReplay", "LifecycleRange", "LifecycleBlob"):
         schema(node, name)
     schema(node, "LifecycleHash", hashed=True)
-    results = {"conflicts": helper(node, args.helper, "conflicts", 3600),
-               "purge": helper(node, args.helper, "purge", 1)}
+    results["conflicts"] = helper(node, args.helper, "conflicts", 3600)
+    results["purge"] = helper(node, args.helper, "purge", 1)
     # The marker's original one-second window passes while the home is stopped.
     node.stop()
     time.sleep(2)
@@ -243,7 +243,7 @@ def main():
         node = Node(args.binary, args.revision, mode, output)
         error, results = None, {}
         try:
-            results = run(node, args)
+            run(node, args, results)
         except BaseException as failure:
             error = type(failure).__name__ + ": " + str(failure)
         finally:

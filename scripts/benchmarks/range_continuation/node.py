@@ -83,7 +83,13 @@ class Node:
             ended = time.perf_counter_ns()
             if len(raw) > 4 * 1024 ** 2:
                 raise RuntimeError("A generated response exceeds fourMiB")
-            result = json.loads(raw)
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError as error:
+                if response.status not in expected or response.status < 400:
+                    raise RuntimeError(path + " returned HTTP" + str(response.status)
+                                       + " with a non-JSON response") from error
+                result = {"error": raw.decode("utf-8", errors="replace")}
             receipt = response.getheader("x-lastdb-read-receipt")
             row = {"request_id": request_id, "path": path, "request": request, "response": result,
                 "http_status": response.status, "started_ns": started, "ended_ns": ended,
