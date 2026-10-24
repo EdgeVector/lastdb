@@ -86,7 +86,7 @@ fn atom(
     drop(atom);
     drop(row);
     let mut reader = bounded_read(inner, budget::DIRECTORY_READ_BYTES, 10000)?;
-    files::read_directories(&mut reader, scope.as_deref(), &id, &dependencies, key)?;
+    files::read_directories(&mut reader, scope.as_deref(), &id, &dependencies)?;
     drop(reader);
     for dependency in dependencies {
         native_file(inner, key, &dependency)?;
