@@ -20,10 +20,13 @@ impl AtomStore {
         let candidates: Vec<_> = counts
             .iter()
             .filter_map(|(_, count)| {
-                (count.bindings == 0 && count.header.is_some())
-                    .then_some(count.molecule.as_deref())
-                    .flatten()
-                    .map(|molecule| Candidate::new(scope, molecule))
+                (count.bindings == 0
+                    && count.slots == 0
+                    && count.records == 0
+                    && count.header.is_some())
+                .then_some(count.molecule.as_deref())
+                .flatten()
+                .map(|molecule| Candidate::new(scope, molecule))
             })
             .collect();
         let present = self

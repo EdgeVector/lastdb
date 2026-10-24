@@ -115,16 +115,24 @@ impl AtomStore {
                 }
             }
         }
-        if counts
-            .values()
-            .any(|count| (count.slots > 0 || count.records > 0) && count.header.is_none())
-        {
+        validate_counts(&counts)?;
+        Ok(counts)
+    }
+}
+
+fn validate_counts(counts: &Counts) -> Result<(), SchemaError> {
+    for count in counts.values() {
+        let nonempty = count.slots > 0 || count.records > 0;
+        if nonempty && count.header.is_none() {
             return Err(invalid(
                 "a live molecule has no header; restore its metadata before recount",
             ));
         }
-        Ok(counts)
+        if nonempty && count.bindings == 0 {
+            return Err(invalid("a nonempty molecule has no binding records; recover its bindings or complete its explicit drain before recount"));
+        }
     }
+    Ok(())
 }
 
 fn tally_references(
