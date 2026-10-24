@@ -32,7 +32,7 @@ use fold_db::schema::types::{KeyValue, Schema, SchemaError};
 use fold_db::schema::SchemaState;
 use futures::StreamExt;
 use lastdb_uds::uds_http::UdsResponse;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::envelope::{envelope, json_ok, owner_json_or_content_free, owner_or_content_free};
 use crate::host_node::{HostNode, ReadBusy};
