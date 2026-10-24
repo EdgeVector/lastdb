@@ -249,6 +249,11 @@ pub(super) fn plane_sot_spotlight_lines(
 /// Silent when there is no descriptor to read (a home that predates them, or
 /// one never opened) — `status` should not invent a layout it cannot see.
 pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
+    match native_layout_status_line(store_root) {
+        Ok(Some(line)) => return vec![line],
+        Ok(None) => {}
+        Err(error) => return vec![format!("Layout: unreadable ({error})")],
+    }
     let descriptor = match laststore::describe_home(store_root) {
         Ok(Some(descriptor)) => descriptor,
         Ok(None) => return Vec::new(),
@@ -277,6 +282,35 @@ pub(super) fn layout_status_lines(store_root: &Path) -> Vec<String> {
         ));
     }
     lines
+}
+
+/// The native fence deliberately rejects the legacy descriptor parser. Inspect
+/// its exact format through read-only metadata opens, without a reader lease or
+/// writer: `status` must not create files or contend with the serving node.
+fn native_layout_status_line(store_root: &Path) -> Result<Option<String>, String> {
+    use laststore::disk_pack::home::{DiskHome, LEGACY_FENCE_BYTES};
+
+    let fence = match std::fs::File::open(store_root.join("laststore-layout-v1")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut bytes = Vec::new();
+    fence
+        .take(LEGACY_FENCE_BYTES.len() as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes != LEGACY_FENCE_BYTES {
+        return Ok(None);
+    }
+    // Open validates the descriptor checksum, supported codecs, and CURRENT's
+    // binding to that descriptor. Real native corruption remains an error.
+    let home = DiskHome::open(&store_root.join("disk-pack")).map_err(|error| error.to_string())?;
+    let descriptor = home.descriptor();
+    Ok(Some(format!(
+        "Layout: native packed storage key=hash-prefix epoch={} groups=1024 fanout={}",
+        descriptor.layout_epoch, descriptor.hash_fanout
+    )))
 }
 
 #[path = "status_ops_cmds/ops_rollup.rs"]
