@@ -214,9 +214,12 @@ impl Graft<'_> {
         let mut records = TreeCursor::recent(&mut source, live, self.previous.generation)?;
         let mut changes = Vec::new();
         let mut examined = 0u64;
+        let extended = self.cut.required_features & crate::disk_pack::FEATURE_EXTENDED_KEYS != 0;
         while let Some((key, value)) = records.next(&mut source)? {
             examined += 1;
-            if examined % 256 == 0 {
+            // A recent leaf also yields unchanged neighbors. Retain one
+            // extended key's pages even when its old version is skipped.
+            if extended || examined % 256 == 0 {
                 source = artifact::metadata_call(self.root, self.cut.clone());
             }
             let location = Location::decode_for_current(&value, self.cut)?;
@@ -225,7 +228,7 @@ impl Graft<'_> {
             }
             budget.note()?;
             changes.push((key, value));
-            if changes.len() == self.cut.batch_operation_limit().min(256) {
+            if extended || changes.len() == self.cut.batch_operation_limit().min(256) {
                 tree = locators.edit(output_call, references, tree, &changes)?;
                 changes.clear();
                 source = artifact::metadata_call(self.root, self.cut.clone());

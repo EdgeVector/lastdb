@@ -50,15 +50,11 @@ pub(super) fn require_marker(root: &Path) -> Result<()> {
 
 /// Administrative work still has finite per-path allocation and I/O limits.
 pub(super) fn metadata_call(root: &Path, current: Current) -> ReadCall {
+    let budget = ReadBudget::for_current(&current);
     ReadCall {
         root: root.to_path_buf(),
         current,
-        budget: ReadBudget {
-            pages: 4096,
-            blocks: 16_384,
-            bytes: 256 * 1024 * 1024,
-            keys: 10_000,
-        },
+        budget,
         costs: ReadCosts::default(),
         pages: HashMap::new(),
         blocks: HashMap::new(),

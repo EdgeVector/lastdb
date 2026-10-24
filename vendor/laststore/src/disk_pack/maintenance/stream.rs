@@ -45,7 +45,14 @@ impl<'a> RecordBody<'a> {
         };
         let mut prefix = vec![0; 96 + key.len()];
         stream.read_exact(&mut prefix)?;
-        if prefix[..96] != record_header(collection, key, body_bytes, stream.location.version)?
+        if prefix[..96]
+            != record_header(
+                collection,
+                key,
+                body_bytes,
+                stream.location.version,
+                stream.call.current.required_features,
+            )?
             || prefix[96..] != *key.as_bytes()
         {
             return Err(corrupt("compaction record identity or mutation version"));

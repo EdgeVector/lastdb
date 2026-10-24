@@ -189,7 +189,7 @@ impl LocatorChanges {
         }
         self.observe_new_values(call, references, changes)?;
         let forest = self.new.as_mut().expect("created forest");
-        let mut writer = forest.tree()?;
+        let mut writer = forest.tree()?.for_features(call.current.required_features);
         for (key, value) in changes {
             writer.add(key, *value)?;
         }

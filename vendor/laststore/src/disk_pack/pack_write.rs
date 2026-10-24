@@ -82,8 +82,9 @@ impl PackWriter {
         version: MutationVersion,
         body_bytes: u64,
         body: &mut dyn Read,
+        features: u64,
     ) -> Result<Location> {
-        let header = super::record::record_header(collection, key, body_bytes, version)?;
+        let header = super::record::record_header(collection, key, body_bytes, version, features)?;
         let record_bytes = 96u64
             .checked_add(key.len() as u64)
             .and_then(|n| n.checked_add(body_bytes))

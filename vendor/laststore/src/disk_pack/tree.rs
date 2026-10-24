@@ -137,6 +137,9 @@ impl ReadCall {
             return self.full_key(tree, entry).map(Cow::Owned);
         }
         let length = u32_at(entry, 0) as usize;
+        if length > self.current.storage_key_byte_limit() {
+            return Err(corrupt("key exceeds selected CURRENT format limit"));
+        }
         self.charge(length as u64)?;
         let key = key_layout::inline(entry);
         if key.len() != length || digest(key) != key_layout::key_digest(entry) {
@@ -147,6 +150,9 @@ impl ReadCall {
 
     pub(super) fn full_key(&mut self, tree: &TreeRoot, entry: &[u8]) -> Result<Vec<u8>> {
         let length = u32_at(entry, 0) as usize;
+        if length > self.current.storage_key_byte_limit() {
+            return Err(corrupt("key exceeds selected CURRENT format limit"));
+        }
         let inline = u16_at(entry, 4) as usize;
         self.charge(length as u64)?;
         let mut key = Vec::new();
@@ -158,7 +164,8 @@ impl ReadCall {
         // Only an overflow chain reads pages, so build the path on first use.
         let mut directory = None;
         while next != 0 {
-            if seen.len() >= 5 || !seen.insert(next) {
+            let limit = length.saturating_sub(inline).div_ceil(super::PAGE_PAYLOAD);
+            if seen.len() >= limit || !seen.insert(next) {
                 return Err(corrupt("key overflow cycle or limit"));
             }
             let directory = directory.get_or_insert_with(|| {

@@ -10,10 +10,12 @@ pub(super) fn read_records(
     descriptor: &HomeDescriptor,
     frontier: u64,
     header_sha256: [u8; 32],
+    required_features: u64,
 ) -> Result<TransferReceipt> {
     let mut stream = DigestRead::new(input);
     let mut actual = TransferReceipt::default();
-    let mut pending = stream.next_record()?;
+    let maximum = wire::record_metadata_max(required_features);
+    let mut pending = stream.next_record(maximum)?;
     while let Some(first) = pending.take() {
         let collection = first.collection.clone();
         let group = first.group;
@@ -34,7 +36,7 @@ pub(super) fn read_records(
                 }
             }
             actual.include(&row)?;
-            pending = stream.next_record()?;
+            pending = stream.next_record(maximum)?;
             let Some(next) = pending.as_ref() else {
                 break;
             };

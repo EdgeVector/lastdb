@@ -70,11 +70,11 @@ impl Page {
         }
         zero(&bytes[HEADER_BYTES + used..])?;
         let page = Self { buffer };
-        page.validate_shape()?;
+        page.validate_shape(features)?;
         Ok(page)
     }
 
-    fn validate_shape(&self) -> Result<()> {
+    fn validate_shape(&self, features: u64) -> Result<()> {
         let bytes = &self.buffer.bytes;
         let width = u16_at(bytes, 54) as usize;
         let used = self.payload().len();
@@ -116,7 +116,8 @@ impl Page {
                 && self.count() == 0
                 && self.left() == 0
                 && used > 0
-                && (1..=65_407).contains(&self.auxiliary()) =>
+                && (1..=(super::key_limits::key_byte_limit(features) - 128) as u64)
+                    .contains(&self.auxiliary()) =>
             {
                 return Ok(())
             }

@@ -34,9 +34,9 @@ impl SnapshotMutationShape {
         }
     }
 
-    fn dimensions(self) -> Result<MutationDimensions> {
-        if self.collection_bytes > super::super::KEY_BYTES - 4
-            || self.key_bytes > super::super::KEY_BYTES
+    fn dimensions(self, key_limit: usize) -> Result<MutationDimensions> {
+        if self.collection_bytes > super::super::key_limits::COLLECTION_BYTES
+            || self.key_bytes > key_limit
             || self.group >= 1024
             || self
                 .body_bytes
@@ -104,21 +104,18 @@ impl SnapshotQuote {
     pub(super) fn from_iter(
         shapes: impl IntoIterator<Item = SnapshotMutationShape>,
     ) -> Result<Self> {
-        Self::from_iter_with_limit(shapes, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+        Self::from_iter_with_features(shapes, 0)
     }
 
-    pub(in crate::disk_pack) fn from_iter_with_limit(
+    pub(in crate::disk_pack) fn from_iter_with_features(
         shapes: impl IntoIterator<Item = SnapshotMutationShape>,
-        operation_limit: usize,
+        features: u64,
     ) -> Result<Self> {
-        if ![
-            crate::disk_pack::LEGACY_BATCH_OPERATIONS,
-            crate::disk_pack::LARGE_BATCH_OPERATIONS,
-        ]
-        .contains(&operation_limit)
-        {
-            return Err(super::refuse("unsupported operation admission limit"));
+        if features & !super::super::SUPPORTED_FEATURES != 0 {
+            return Err(super::refuse("unsupported snapshot features"));
         }
+        let operation_limit = super::super::current::batch_operation_limit(features);
+        let key_limit = super::super::key_limits::key_byte_limit(features);
         let mut length = 0u64;
         let mut policy_bytes = 0u64;
         let mut operations = 0;
@@ -127,7 +124,7 @@ impl SnapshotQuote {
             if operations > operation_limit {
                 return Err(super::refuse("batch operation admission limit"));
             }
-            let dimensions = shape.dimensions()?;
+            let dimensions = shape.dimensions(key_limit)?;
             policy_bytes = policy_bytes
                 .checked_add(dimensions.policy_bytes)
                 .ok_or_else(|| super::super::corrupt("batch length overflow"))?;

@@ -14,7 +14,12 @@ pub(super) fn resolve(
     if delta == 0 {
         return Ok(());
     }
-    if !matches!(key.kind, 1 | 2) || key.first == 0 || !(1..=65_407).contains(&key.suffix_bytes) {
+    let maximum = resolver
+        .call
+        .current
+        .storage_key_byte_limit()
+        .saturating_sub(128) as u64;
+    if !matches!(key.kind, 1 | 2) || key.first == 0 || !(1..=maximum).contains(&key.suffix_bytes) {
         return Err(corrupt("live overflow reference bounds"));
     }
     let namespace = if key.kind == 1 {
@@ -32,7 +37,12 @@ pub(super) fn resolve(
     let mut bytes = 0u64;
     while number != 0 {
         resolver.step()?;
-        if seen.len() >= 5 || !seen.insert(number) {
+        if seen.len() as u64
+            >= key
+                .suffix_bytes
+                .div_ceil(crate::disk_pack::PAGE_PAYLOAD as u64)
+            || !seen.insert(number)
+        {
             return Err(corrupt("live overflow chain cycle or limit"));
         }
         let coordinate = Coordinate {

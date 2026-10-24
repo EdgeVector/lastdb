@@ -8,7 +8,7 @@ use std::path::Path;
 /// Conversion owns source ordering and its concurrent-write handoff separately.
 pub struct HomeBuilder {
     descriptor: HomeDescriptor,
-    inner: ArtifactBuilder,
+    pub(super) inner: ArtifactBuilder,
 }
 
 /// Ordered native group writer; every key must match its derived destination.
@@ -70,7 +70,11 @@ impl HomeBuilder {
 
     /// Create only at a nonexistent destination. Never modify the source home.
     /// The caller sets the atom-record feature before it finishes.
-    fn create_fenced(root: &Path, descriptor: HomeDescriptor, frontier: u64) -> Result<Self> {
+    pub(super) fn create_fenced(
+        root: &Path,
+        descriptor: HomeDescriptor,
+        frontier: u64,
+    ) -> Result<Self> {
         descriptor.validate()?;
         let inner = ArtifactBuilder::create_native(root, &descriptor, frontier)?;
         Ok(Self { descriptor, inner })

@@ -1,6 +1,6 @@
 # Private-key-derived OPE implementation plan
 
-Status: Replacement candidate under implementation, 2026-10-24. Native activation remains gated.
+Status: Portable replacement merged in PR #371, 2026-10-24. Native activation remains gated.
 
 [PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge after its suffix-leakage counterexample passed in CI.
 The [security finding](ope-candidate-security-review.md) remains the record for that rejected carry profile.
@@ -37,7 +37,7 @@ Known distributions and correlated data can still permit value inference.
 Independent review must accept this exact profile before native activation.
 A behavior proof and a clean compiler do not satisfy that gate.
 
-Tom authorized one CI-only crypto proof through "Do all of these" on 2026-10-24.
+Tom explicitly authorized one CI-only crypto proof on 2026-10-24: "Allow this CI-only exception".
 Reuse that one program for the replacement crypto contract; other tests and replacement test suites remain retired.
 Use supported product operations for native operational evidence.
 Run all LastDB builds, lint builds, and measurements in GitHub Actions.
@@ -46,7 +46,8 @@ Run all LastDB builds, lint builds, and measurements in GitHub Actions.
 
 Raw terms use `128*(N+1)` bytes and hex uses `256*(N+1)` for `N` logical bytes.
 An empty HashRange range has a real term; the hash-only empty slot remains a distinct key type.
-The native whole stored-key cap is currently 65,535 bytes.
+The default native whole stored-key cap remains 65,535 bytes.
+Native feature 1024 adds explicit 32 MiB capacity for fresh targets; it does not select the new range codec.
 
 Preserve the complete supported logical range length of every accepted source encoding.
 Account for molecule and hash framing, scopes, generation keys, barriers, retention identities, and other embedded keys.

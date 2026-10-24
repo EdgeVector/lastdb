@@ -23,11 +23,13 @@ mod generation;
 mod hash_range;
 pub mod home;
 mod key_layout;
+mod key_limits;
 pub mod lifetime;
 mod live_parts;
 mod location;
 mod locator_forest;
 pub mod maintenance;
+mod mutation_key;
 mod object;
 mod pack_write;
 mod packed_page;
@@ -35,6 +37,7 @@ mod page;
 mod page_write;
 mod private_files;
 mod publish;
+mod read_budget;
 mod record;
 mod selected_batch;
 pub mod snapshot;
@@ -52,6 +55,7 @@ pub use call::{ReadBudget, ReadCall, ReadCosts};
 pub use conversion_select::{resolve_conversion, ResolvedStore};
 pub use current::Current;
 pub use hash_range::{HashRangeCursor, HashScope, RangeBounds, RangePage, RangeRecord};
+pub use key_limits::{EXTENDED_STORAGE_KEY_BYTES, LEGACY_STORAGE_KEY_BYTES};
 pub use location::{DirectoryEntry, Location, MutationVersion, Source};
 pub use publish::PublishedGeneration;
 pub use tree::{TreeKind, TreeRoot};
@@ -94,6 +98,10 @@ pub const FEATURE_SNAPSHOT_COMMIT: u64 = 256;
 /// Older programs refuse this feature before they can publish an uncounted root.
 pub const FEATURE_LIVE_PART_COUNTS: u64 = 512;
 
+/// Explicit native format: complete keys can span several metadata parts.
+/// Older programs refuse this bit before any extended key can be read or written.
+pub const FEATURE_EXTENDED_KEYS: u64 = 1024;
+
 const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_NATIVE_HOME
     | FEATURE_FILE_LIFETIME
@@ -102,7 +110,8 @@ const SUPPORTED_FEATURES: u64 = FEATURE_OBJECT_METADATA
     | FEATURE_PACKED_KEYS
     | FEATURE_ATOM_RECORDS
     | FEATURE_SNAPSHOT_COMMIT
-    | FEATURE_LIVE_PART_COUNTS;
+    | FEATURE_LIVE_PART_COUNTS
+    | FEATURE_EXTENDED_KEYS;
 
 /// Most dependency parts one published generation can name. A writer that
 /// reaches it refuses further writes until maintenance replaces the receipt.
@@ -116,7 +125,7 @@ pub(crate) use lastdb_storage_policy::native_v1::{
 };
 const HEADER_BYTES: usize = 128;
 const PAGE_PAYLOAD: usize = PAGE_BYTES - HEADER_BYTES;
-const KEY_BYTES: usize = 65_535;
+const KEY_BYTES: usize = EXTENDED_STORAGE_KEY_BYTES;
 const KEY_DESCRIPTOR: usize = 176;
 const VALUE_BYTES: usize = 128;
 const LEAF_WIDTH: usize = KEY_DESCRIPTOR + VALUE_BYTES;
