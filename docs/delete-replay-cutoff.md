@@ -53,4 +53,3 @@ A stale peer must obtain a current snapshot from the fenced state before it resu
 The cleanup removes local delete order records. It does not erase historical backups or cloud files. A deliberate restore from an older backup can restore old data and its old replay rule.
 
 This change needs Factory Manager review. CI operational results must cover restart, replay refusal, new writes, and signed TTL replay before merge. The retired tests remain retired.
-
