@@ -240,9 +240,10 @@ Limits:
 - `rdel:v2:` is a delete barrier. It holds the stamp of the delete. It makes a later local write,
   a peer write that is replayed, and an older tip from a restore lose against the delete when
   their clock is not newer (`atom/delete_barrier.rs`, `apply_gate.rs`, `sync/engine/replay`). Only
-  `delete` writes it. It writes one for each spelling of the molecule key that a read accepts
-  (`atom/molecule_key_codec.rs`), which is two on a molecule with a 32-byte digest id. Each
-  device builds its own barrier from the replayed erase (`sync/policy.rs`), and nothing removes it.
+  `delete` writes it. The current codec uses the caller's exact molecule identity and one key
+  (`atom/molecule_key_codec.rs`). It does not substitute hex or base64url spellings.
+  Earlier two-spelling measurements describe historical source. Each device builds its own
+  barrier from the replayed erase (`sync/policy.rs`), and nothing removes it.
 - `lastdb db inventory` has no key class for either prefix, so it does not show them.
 
 ### Last writer wins
