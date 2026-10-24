@@ -86,7 +86,7 @@ def read(node, name, coordinates, hashed=False):
         "limit": max(1, len(coordinates)), "filter": {"HashRangeKeys": [list(key) for key in coordinates]}})
     if value.get("has_more"):
         raise RuntimeError("A complete known-key read unexpectedly continues")
-    return {(row["key"]["hash"], row["key"].get("range", "")): row["fields"]["body"]
+    return {(row["key"]["hash"], (row["key"].get("range") or "")): row["fields"]["body"]
             for row in value["results"]}
 
 
@@ -199,6 +199,21 @@ def run(node, args):
     if (read(node, "LifecycleHistory", history_keys) != expected_history
             or read(node, "LifecycleReplay", replay_keys) != expected_replay):
         raise RuntimeError("Readback after compaction and restart differs")
+    cursor = None
+    for _ in range(64):
+        verify, _ = node.call("/api/db/verify-refs", {"cursor": cursor, "max_pages": 64,
+                                                   "max_ms": 3000, "pause_ms": 0})
+        report = verify["verify_refs"]
+        if report["done"]:
+            if report["mismatches_total"] or not report["tally_complete"]:
+                raise RuntimeError("The actual counter verifier reports faults or incomplete totals")
+            results["counter_verifier"] = report
+            break
+        if not report["next_cursor"] or report["next_cursor"] == cursor:
+            raise RuntimeError("The actual verifier does not advance")
+        cursor = report["next_cursor"]
+    else:
+        raise RuntimeError("The actual verifier exceeds its bounded steps")
     results["final_status"] = node.status("after-compaction-and-restart")
     results["scope"] = ("Generated real operations; healthy counter repair, no fabricated corruption, "
                         "no power-loss, cloud transport, or physical media erasure claim")
