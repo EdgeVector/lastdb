@@ -257,6 +257,8 @@ impl<'a> Publisher<'a> {
         let mut items = mutations.into_iter().peekable();
         let mut directory_changes = BTreeMap::new();
         let mut directory_call = artifact::metadata_call(self.root, self.proposed.clone());
+        // Share only bounded descriptors, never a group's pages, checks, or budget.
+        let mut locator_files = super::call_io::CallFiles::default();
         while let Some(first) = items.next() {
             let collection = first.collection.clone();
             let group = first.group;
@@ -280,6 +282,7 @@ impl<'a> Publisher<'a> {
             }
             let key = super::ReadCall::directory_key(&collection, group)?;
             let mut call = artifact::metadata_call(self.root, self.proposed.clone());
+            call.files = std::mem::take(&mut locator_files);
             let entry = self
                 .directory_entry(&mut directory_call, &key)?
                 .map(|value| DirectoryEntry::decode(&value))
@@ -305,7 +308,10 @@ impl<'a> Publisher<'a> {
             }
             .encode()?;
             directory_changes.insert(key, value);
+            locator_files = std::mem::take(&mut call.files);
         }
+        // Release locator descriptors before the separate directory edit phase.
+        drop(locator_files);
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
         self.directory.put_many(
             &mut call,
@@ -314,8 +320,8 @@ impl<'a> Publisher<'a> {
         )
     }
     fn directory_entry(&self, call: &mut super::ReadCall, key: &[u8]) -> Result<Option<[u8; 128]>> {
-        // Reuse only immutable committed directory pages. Locator edits retain
-        // their own bounded read call, including any private allocator state.
+        // Reuse only immutable committed directory pages. Locator pages, checks,
+        // and budgets remain group-local; their descriptors live for this batch.
         match call.find(self.directory.root(), key) {
             Err(crate::Error::ReadBudgetExceeded) => {
                 *call = artifact::metadata_call(self.root, self.proposed.clone());
