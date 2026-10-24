@@ -341,29 +341,56 @@ pub fn upgrade_pinned(
         return Err(e);
     }
 
-    // Version constraint check passed; replace the old install with the staged one
-    std::fs::remove_dir_all(install_dir).map_err(|e| {
+    // Version constraint check passed; swap old and new installs safely
+    // 1. Rename old install to backup
+    let backup_dir = install_dir.with_file_name(format!(
+        "{}.upgrade-backup",
+        install_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("app")
+    ));
+    std::fs::rename(install_dir, &backup_dir).map_err(|e| {
+        cleanup_temp();
         format!(
-            "failed to remove old install {}: {e}",
-            install_dir.display()
-        )
-    })?;
-    std::fs::rename(&temp_dir, install_dir).map_err(|e| {
-        format!(
-            "failed to move staged install from {} to {}: {e}",
-            temp_dir.display(),
-            install_dir.display()
+            "failed to backup old install {} to {}: {e}",
+            install_dir.display(),
+            backup_dir.display()
         )
     })?;
 
-    let install = staged.unwrap();
+    // 2. Rename staged install to final location
+    if let Err(e) = std::fs::rename(&temp_dir, install_dir) {
+        // Restore the backup if the move failed
+        let _ = std::fs::rename(&backup_dir, install_dir);
+        return Err(format!(
+            "failed to move staged install from {} to {}: {e}",
+            temp_dir.display(),
+            install_dir.display()
+        ));
+    }
+
+    // 3. Remove the backup (old install is replaced successfully)
+    let _ = std::fs::remove_dir_all(&backup_dir);
+
+    // Build outcome with final paths, not staging paths
     Ok(PinnedUpgradeOutcome {
         app_id: resolution.app_id.clone(),
         installed_sha: receipt.sha,
-        resolved_sha: install.sha.clone(),
+        resolved_sha: resolution.sha.clone(),
         installed_version: receipt.version,
         resolved_version: resolution.app_version.clone(),
         upgraded: true,
-        install: Some(install),
+        install: Some(PinnedInstallOutcome {
+            app_id: resolution.app_id.clone(),
+            app_version: resolution.app_version.clone(),
+            sha: resolution.sha.clone(),
+            lastdb_version: resolution.lastdb_version.clone(),
+            channel: resolution.channel.clone(),
+            source: resolution.source.clone(),
+            install_dir: install_dir.display().to_string(),
+            checkout_path: install_dir.join("source").display().to_string(),
+            proof_run: resolution.proof_run.clone(),
+        }),
     })
 }
