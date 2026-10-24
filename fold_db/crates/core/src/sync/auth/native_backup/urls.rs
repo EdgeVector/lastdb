@@ -43,7 +43,7 @@ impl NativeBackupClient {
         self.api_endpoint(&format!("cloud/native-backup/v1/{operation}"))
     }
 
-    pub(super) fn api_endpoint(&self, operation: &str) -> Url {
+    pub(in crate::sync::auth) fn api_endpoint(&self, operation: &str) -> Url {
         let mut url = self.base.clone();
         let base = self.base.path().trim_end_matches('/');
         let api = if base.ends_with("/api") {
