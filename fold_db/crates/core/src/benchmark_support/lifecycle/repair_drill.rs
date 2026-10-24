@@ -13,7 +13,15 @@ use std::collections::BTreeMap;
 
 const CHECKPOINT: &[u8] = b"lifecycle-ci:repair-checkpoint";
 const SCOPE: &str = "6e18c61c7416a50b7f221c4cf2f80b6e9a1f4459db974a30430a1c87e3df44ca";
-const PREFIXES: &[&str] = &["mk:", "mh:", "history\0", "mref:v1:", "atom:", "cas:"];
+const PREFIXES: &[&str] = &[
+    "mk:",
+    "mh:",
+    "history\0",
+    "mref:v1:",
+    "atom:",
+    "cas_blob:",
+    "bref:",
+];
 type Rows = BTreeMap<Vec<u8>, Vec<u8>>;
 
 #[derive(Serialize, Deserialize)]
@@ -35,7 +43,8 @@ pub(super) async fn measure(db: &FoldDB, phase: &str) -> Result<Value> {
         return seed_scope(atoms, rows).await;
     }
     if phase == "repair-inventory" {
-        return Ok(json!({"digest":digest(&rows), "rows":rows.len()}));
+        return Ok(json!({"digest":digest(&rows), "rows":rows.len(),
+            "write_surface_digest":write_surface_digest(atoms, rows.clone()).await?}));
     }
     if phase == "repair-restore" {
         return restore(atoms).await;
@@ -67,7 +76,8 @@ pub(super) async fn measure(db: &FoldDB, phase: &str) -> Result<Value> {
     let after = inventory(atoms).await?;
     Ok(
         json!({"case":case, "original_digest":checkpoint.original_digest,
-        "damaged_digest":digest(&after), "changed_records":changes.len()}),
+        "damaged_digest":digest(&after), "changed_records":changes.len(),
+        "damaged_write_surface_digest":write_surface_digest(atoms, after).await?}),
     )
 }
 
@@ -95,6 +105,27 @@ async fn inventory(atoms: &AtomStore) -> Result<Rows> {
         }
     }
     Ok(rows)
+}
+
+async fn write_surface_digest(atoms: &AtomStore, mut rows: Rows) -> Result<String> {
+    for prefix in ["crq:", "crb:", "crs:"] {
+        let end = crate::schema::types::field::FilterUtils::create_prefix_end(prefix)?;
+        let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), 256);
+        for _ in 0..64 {
+            if walk.done() {
+                break;
+            }
+            let page = atoms.walk_step(&mut walk).await?;
+            if page.unsealed > 0 {
+                return Err("a queue record was discarded".into());
+            }
+            rows.extend(page.rows);
+        }
+        if !walk.done() {
+            return Err("the generated queue inventory exceeds its bound".into());
+        }
+    }
+    Ok(digest(&rows))
 }
 
 fn digest(rows: &Rows) -> String {

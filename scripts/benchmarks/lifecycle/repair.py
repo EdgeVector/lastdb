@@ -56,7 +56,7 @@ def measure_repair(node, args, command, recount):
     planned = plans[0]["recount"]["molecules"]
     if any(planned != plan["recount"]["molecules"] for plan in plans[1:]):
         raise RuntimeError("One-pass, two-pass, and four-pass molecule plans differ")
-    if helper("repair-inventory")["digest"] != damage["damaged_digest"]:
+    if helper("repair-inventory")["write_surface_digest"] != damage["damaged_write_surface_digest"]:
         raise RuntimeError("The report-only recount changed protected data")
     written = recount(node, args.cli, "repair-damaged-execute", execute=True)
     repaired = written["recount"]["molecules"]
@@ -83,7 +83,7 @@ def measure_repair(node, args, command, recount):
         if "molecule recount:" not in text:
             raise RuntimeError("The damaged-source refusal did not come from molecule validation")
         after = helper("repair-inventory")
-        if after["digest"] != damage["damaged_digest"]:
+        if after["write_surface_digest"] != damage["damaged_write_surface_digest"]:
             raise RuntimeError("A refused repair wrote a partial change")
         helper("repair-restore")
         refusals[case] = {"exit_code": result["exit_code"], "protected_data_unchanged": True}

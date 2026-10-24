@@ -64,7 +64,7 @@ async fn host_phase(
     home: &std::path::Path,
     phase: &str,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let host = Host::boot(&home).await.map_err(std::io::Error::other)?;
+    let host = Host::boot(home).await.map_err(std::io::Error::other)?;
     let outcome = if phase == "ttl" {
         let started = std::time::Instant::now();
         lastdb_node::ttl_sweep::sweep_ttl(&host, &AtomicBool::new(false)).await;
