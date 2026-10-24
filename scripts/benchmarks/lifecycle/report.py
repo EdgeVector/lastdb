@@ -25,6 +25,8 @@ def main():
             if result["error"]:
                 lines.append("Failure: " + result["error"])
             for name, operation in result["operations"].items():
+                if not isinstance(operation, dict):
+                    continue
                 elapsed = operation.get("elapsed_ms")
                 if elapsed is not None:
                     lines.append("- " + name + ": " + str(round(elapsed, 3)) + " ms")
