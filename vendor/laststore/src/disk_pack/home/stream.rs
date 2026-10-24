@@ -102,8 +102,13 @@ fn copy_record(
             return Err(corrupt("streamed record outside published object"));
         }
     }
-    let header =
-        super::super::record::record_header(collection, key, body_bytes, location.version)?;
+    let header = super::super::record::record_header(
+        collection,
+        key,
+        body_bytes,
+        location.version,
+        call.current.required_features,
+    )?;
     call.charge(location.record_bytes)?;
     let mut copy = RecordCopy {
         header: &header,

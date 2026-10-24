@@ -192,6 +192,7 @@ impl<'a> TierCopy<'a> {
         }
         let mut children = Vec::new();
         let mut number = page.left();
+        let key_limit = self.source.storage_key_byte_limit();
         for index in 0..=entries.len() {
             let lower = if index == 0 {
                 path.lower.clone()
@@ -220,6 +221,7 @@ impl<'a> TierCopy<'a> {
                     self.allocator(tree)?,
                     tree.kind,
                     &entries[index - 1].0,
+                    key_limit,
                 )?)
             };
             children.push(Child {
@@ -257,6 +259,7 @@ impl<'a> TierCopy<'a> {
 
     fn leaf(&mut self, tree: &TreeRoot, entries: Vec<(Vec<u8>, Vec<u8>)>) -> Result<u64> {
         let mut output: Vec<LeafEntry> = Vec::new();
+        let key_limit = self.source.storage_key_byte_limit();
         for (key, entry) in entries {
             let value: [u8; 128] = key_layout::value(&entry).try_into().expect("leaf value");
             let value = if tree.kind == TreeKind::Directory {
@@ -267,7 +270,8 @@ impl<'a> TierCopy<'a> {
             } else {
                 self.record(&key, value)?
             };
-            let descriptor = tree_output::key_descriptor(self.allocator(tree)?, tree.kind, &key)?;
+            let descriptor =
+                tree_output::key_descriptor(self.allocator(tree)?, tree.kind, &key, key_limit)?;
             output.push((descriptor, value));
         }
         if output.is_empty() {
@@ -321,9 +325,14 @@ impl<'a> TierCopy<'a> {
         let mut body =
             super::stream::RecordBody::open(&mut call, &collection, key, location.clone())?;
         let bytes = body.body_bytes();
-        let replacement = self
-            .pack
-            .put(&collection, key, location.version, bytes, &mut body)?;
+        let replacement = self.pack.put(
+            &collection,
+            key,
+            location.version,
+            bytes,
+            &mut body,
+            self.source.required_features,
+        )?;
         self.receipt.records_copied += 1;
         self.caches.keep(call);
         replacement.encode_for_features(self.source.required_features)

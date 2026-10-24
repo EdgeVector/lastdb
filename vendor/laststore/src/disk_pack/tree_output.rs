@@ -30,8 +30,9 @@ pub(super) fn key_descriptor(
     pages: &mut impl TreePages,
     kind: TreeKind,
     key: &[u8],
+    key_limit: usize,
 ) -> Result<Descriptor> {
-    if key.len() > super::KEY_BYTES {
+    if key.len() > key_limit {
         return Err(corrupt("tree key exceeds format limit"));
     }
     let packed = kind == TreeKind::Locator;

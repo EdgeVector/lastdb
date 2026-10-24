@@ -94,7 +94,9 @@ impl<P: TreePages> TreeEdit<P> {
     ) -> Result<()> {
         if self.failed
             || changes.len() > call.current.batch_operation_limit()
-            || changes.iter().any(|(key, _)| key.len() > super::KEY_BYTES)
+            || changes
+                .iter()
+                .any(|(key, _)| key.len() > call.current.storage_key_byte_limit())
             || changes.windows(2).any(|pair| pair[0].0 >= pair[1].0)
         {
             return Err(corrupt("failed tree edit or invalid sorted changes"));
@@ -231,7 +233,12 @@ impl<P: TreePages> TreeEdit<P> {
                 let (key, value) = updates.next().expect("peeked change");
                 self.change_value(call, references, None, value)?;
                 entries.push((
-                    tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
+                    tree_output::key_descriptor(
+                        &mut self.pages,
+                        self.root.kind,
+                        key,
+                        call.current.storage_key_byte_limit(),
+                    )?,
                     *value,
                 ));
             }
@@ -251,7 +258,12 @@ impl<P: TreePages> TreeEdit<P> {
         for (key, value) in updates {
             self.change_value(call, references, None, value)?;
             entries.push((
-                tree_output::key_descriptor(&mut self.pages, self.root.kind, key)?,
+                tree_output::key_descriptor(
+                    &mut self.pages,
+                    self.root.kind,
+                    key,
+                    call.current.storage_key_byte_limit(),
+                )?,
                 *value,
             ));
         }

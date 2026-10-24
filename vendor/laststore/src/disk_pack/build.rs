@@ -135,7 +135,12 @@ impl ArtifactBuilder {
         if self.locators.is_none() {
             self.locators = Some(LocatorForest::new(&self.root, self.generation)?);
         }
-        let locator = self.locators.as_mut().expect("created forest").tree()?;
+        let locator = self
+            .locators
+            .as_mut()
+            .expect("created forest")
+            .tree()?
+            .for_features(self.required_features);
         self.failed = false;
         Ok(GroupWriter {
             owner: self,
@@ -214,10 +219,14 @@ impl GroupWriter<'_> {
         body: &mut dyn Read,
     ) -> Result<Location> {
         self.check_version(key, version)?;
-        let location = self
-            .owner
-            .pack
-            .put(&self.collection, key, version, body_bytes, body)?;
+        let location = self.owner.pack.put(
+            &self.collection,
+            key,
+            version,
+            body_bytes,
+            body,
+            self.owner.required_features,
+        )?;
         self.locator.as_mut().expect("active group").add(
             key.as_bytes(),
             location.encode_for_features(self.owner.required_features)?,

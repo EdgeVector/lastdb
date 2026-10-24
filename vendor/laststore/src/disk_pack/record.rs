@@ -1,5 +1,5 @@
 use super::bytes::*;
-use super::{corrupt, Location, MutationVersion, ReadCall, BLOCK_BYTES, KEY_BYTES};
+use super::{corrupt, Location, MutationVersion, ReadCall, BLOCK_BYTES};
 use crate::read_receipt::TemporaryBytes;
 use crate::Result;
 
@@ -8,8 +8,10 @@ pub(super) fn record_header(
     key: &str,
     body_bytes: u64,
     version: MutationVersion,
+    features: u64,
 ) -> Result<[u8; 96]> {
-    if key.len() > KEY_BYTES || body_bytes > lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES
+    if key.len() > super::key_limits::key_byte_limit(features)
+        || body_bytes > lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES
     {
         return Err(corrupt("record exceeds format limits"));
     }
@@ -79,7 +81,13 @@ impl ReadCall {
             .record_bytes
             .checked_sub(96 + key.len() as u64)
             .ok_or_else(|| corrupt("record shorter than complete key"))?;
-        let expected = record_header(collection, key, body_bytes, location.version)?;
+        let expected = record_header(
+            collection,
+            key,
+            body_bytes,
+            location.version,
+            self.current.required_features,
+        )?;
         if record[..96] != expected || record[96..96 + key.len()] != *key.as_bytes() {
             return Err(corrupt(
                 "record full key, collection, or mutation version mismatch",

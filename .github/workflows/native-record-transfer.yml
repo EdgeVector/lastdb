@@ -55,7 +55,6 @@ jobs:
           git diff "$BASELINE_OID" HEAD -- \
             vendor/laststore/Cargo.toml \
             vendor/laststore/src/bin/lastdb-native-transfer.rs \
-            vendor/laststore/src/disk_pack/home/build.rs \
             vendor/laststore/src/disk_pack/home/transfer.rs \
             vendor/laststore/src/disk_pack/home/transfer \
             > "$RUNNER_TEMP/native-transfer-adapter.patch"
@@ -70,6 +69,22 @@ jobs:
           text = path.read_text()
           if 'pub mod transfer;' not in text:
               path.write_text(text.replace('mod stream;\n', 'mod stream;\npub mod transfer;\n', 1))
+          PY
+          # The old worker only exports. Do not import a newer target builder
+          # or change any reader, key limit, feature flag, or stored bytes.
+          python3 - "$baseline/vendor/laststore/src/disk_pack/home/transfer.rs" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          text = path.read_text().replace('mod input;\n', '')
+          text = text.replace('use super::{DiskHome, HomeBuilder};', 'use super::DiskHome;')
+          start = text.index('pub fn import(')
+          end = text.index('\nimpl TransferReceipt {', start)
+          refusal = '''pub fn import(_root: &Path, _input: &mut dyn Read) -> Result<TransferReceipt> {
+              Err(wire::refuse("old source worker is export-only"))
+          }
+          '''
+          path.write_text(text[:start] + refusal + text[end:])
           PY
       - uses: Swatinem/rust-cache@v2
         with:

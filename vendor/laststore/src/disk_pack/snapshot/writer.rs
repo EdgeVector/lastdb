@@ -189,6 +189,7 @@ impl SnapshotWriter {
                     version,
                     body.len() as u64,
                     &mut body.as_slice(),
+                    self.current.required_features,
                 )?
             } else {
                 Location {

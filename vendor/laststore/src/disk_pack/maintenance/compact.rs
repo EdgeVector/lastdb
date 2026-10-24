@@ -120,7 +120,9 @@ impl Compactor<'_> {
         (pack, locators, caches): (&mut PackWriter, &mut LocatorForest, &mut PackCaches),
     ) -> Result<DirectoryEntry> {
         let root = self.root;
-        let mut locator = locators.tree()?;
+        let mut locator = locators
+            .tree()?
+            .for_features(self.current.required_features);
         let mut call = caches.call(root, previous);
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
         while let Some((key, value)) = cursor.next(&mut call)? {
@@ -137,7 +139,14 @@ impl Compactor<'_> {
                 let version = location.version;
                 let mut body = RecordBody::open(&mut call, collection, key_text, location)?;
                 let body_bytes = body.body_bytes();
-                let location = pack.put(collection, key_text, version, body_bytes, &mut body)?;
+                let location = pack.put(
+                    collection,
+                    key_text,
+                    version,
+                    body_bytes,
+                    &mut body,
+                    self.current.required_features,
+                )?;
                 self.receipt.records_copied += 1;
                 location
             };
