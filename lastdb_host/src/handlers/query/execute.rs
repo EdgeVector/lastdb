@@ -22,7 +22,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // A caller-supplied bare Page filter is already the requested bounded fetch;
         // it still needs the cheap exact count so pagination metadata reflects the
         // full live set.
-        if let Some((page_offset, page_limit)) = caller_supplied_page(query) {
+        if let Some((page_offset, page_limit)) = rules::caller_supplied_page(query) {
             if matches!(query.sort_order, Some(SortOrder::Desc)) {
                 // Across hashes a reversed ascending window reverses hash ties.
                 // Inspection certifies at most INTERNAL_FETCH_CAP candidates;
@@ -82,11 +82,7 @@ impl<H: HostNode> QueryRun<'_, H> {
     pub(super) async fn key_restricted(&self, query: Query) -> Result<Value, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
-        let total = if key_restricted_count_is_required(
-            &query,
-            self.cursor.as_ref(),
-            query.expected_total_count,
-        ) {
+        let total = if rules::key_restricted_count_is_required(&query, self.cursor.as_ref()) {
             count_rows(host, &query, ctx).await?
         } else {
             None
@@ -167,7 +163,7 @@ impl<H: HostNode> QueryRun<'_, H> {
     async fn offset_paged(&self, mut query: Query, total: usize) -> Result<Value, HostError> {
         let (host, ctx) = (self.host, self.ctx);
         let (limit, offset) = (self.limit, self.offset);
-        query.filter = Some(page_filter_for(
+        query.filter = Some(rules::page_filter_for(
             query.sort_order.as_ref(),
             total,
             offset,
@@ -220,7 +216,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // or an equivalent caller limit) can walk up to 10k rows — admit as Bulk so it
         // cannot monopolise the interactive reservation. Smaller bounded pages stay
         // Interactive.
-        let lane = lane_for_unknown_cardinality(&query);
+        let lane = rules::lane_for_unknown_cardinality(&query);
         let _permit = acquire_read_permit(host, lane).await?;
         let (all_results, drops) = execute_query_rows_with_unresolved(host, query, ctx).await?;
         let total_count = all_results.len();
