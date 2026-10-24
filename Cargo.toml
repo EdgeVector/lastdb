@@ -91,8 +91,6 @@ default-members = [
 ]
 
 exclude = [
-    # One-off verification tools
-    "examples",
 
     # Vendored dependency forks are not workspace members; they are wired
     # in via [patch.crates-io] below.
