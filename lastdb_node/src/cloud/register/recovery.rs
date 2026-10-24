@@ -26,12 +26,23 @@ pub async fn register_dev_native_device(
     device_id: &str,
     invite_code: Option<&str>,
 ) -> Result<Registered, String> {
+    register_native_device(Environment::Dev, keypair, device_id, invite_code).await
+}
+
+/// Explicit compiled-environment registration without a local store or recipient.
+/// A failed or lost reply must retain the caller's durable device intent.
+pub async fn register_native_device(
+    environment: Environment,
+    keypair: &Ed25519KeyPair,
+    device_id: &str,
+    invite_code: Option<&str>,
+) -> Result<Registered, String> {
     let parsed = uuid::Uuid::parse_str(device_id).map_err(|_| "invalid DEV recovery device ID")?;
     if parsed.get_version() != Some(uuid::Version::Random) {
         return Err("DEV recovery requires a random device ID".into());
     }
     let request = signed_register_request(
-        exemem_api_url_for(Environment::Dev),
+        exemem_api_url_for(environment),
         keypair,
         invite_code,
         Some(device_id),

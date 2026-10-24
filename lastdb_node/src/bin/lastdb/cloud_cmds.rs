@@ -61,6 +61,7 @@ pub(super) fn cloud_command(data_dir: Option<PathBuf>, action: CloudCommand) -> 
             native_backup::run(&home, action)
         }
         CloudCommand::PrepareRecoveryHome { .. }
+        | CloudCommand::RecoverCredentialsHome { .. }
         | CloudCommand::RecoverDevCredentialsHome { .. } => {
             unreachable!("handled before home resolution")
         }

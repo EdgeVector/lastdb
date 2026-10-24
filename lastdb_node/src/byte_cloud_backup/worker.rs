@@ -15,6 +15,7 @@ use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::sync::atomic::AtomicBool;
 
 mod terminal;
+pub(super) use terminal::reconcile as reconcile_terminal;
 pub(super) use terminal::{terminal_invocation, validate_terminal};
 
 pub(super) async fn run(
@@ -34,12 +35,22 @@ pub(super) async fn run(
     }
     setup(source, store, saved, client, pause).await?;
     let begin = saved.begin.as_ref().ok_or(BackupError::Invalid)?.clone();
-    let capture = source
-        .runtime
-        .prepare_byte_backup_capture(begin.clone(), &source.key)
-        .await?;
+    if let Some(binding) = &mut saved.standalone {
+        if binding.capture_started_at.is_none() {
+            binding.capture_started_at = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| BackupError::Invalid)?
+                    .as_secs(),
+            );
+            store.save(saved)?;
+        }
+    }
+    let capture = source.prepare(begin.clone()).await?;
     refresh(&capture, store, saved)?;
-    let result = drive(&capture, store, saved, client, pause).await;
+    source.validate(saved)?;
+    let result = drive(source, &capture, store, saved, client, pause).await;
+    source.validate(saved)?;
     match result {
         Ok(backup) => finish(
             &capture,
@@ -157,11 +168,12 @@ async fn setup(
     saved.begin = Some(begin);
     saved.phase = Phase::Capturing;
     store.save(saved)?;
-    source.runtime.flush_native().await?;
+    source.flush().await?;
     Ok(())
 }
 
 async fn drive(
+    source: &Source,
     capture: &ByteBackupCapture,
     store: &Store,
     saved: &mut Saved,
@@ -242,10 +254,18 @@ async fn drive(
             return Err(error);
         }
     }
+    source.validate(saved)?;
     publication::publish(capture, store, saved, client, pause).await
 }
 
 fn refresh(capture: &ByteBackupCapture, store: &Store, saved: &mut Saved) -> Result<()> {
+    if let Some(binding) = &mut saved.standalone {
+        let root = capture.native_root()?;
+        if binding.native_root.as_ref().is_some_and(|old| *old != root) {
+            return Err(BackupError::Identity);
+        }
+        binding.native_root = Some(root);
+    }
     let status = capture.status()?;
     saved.objects_verified = status.verified_objects;
     saved.metadata_pack_objects = status.metadata_pack_objects;
@@ -298,20 +318,13 @@ async fn close(
     }
     if !saved.begin_submitted {
         source
-            .runtime
-            .cancel_unsubmitted_byte_backup_capture(
-                saved.begin.as_ref().ok_or(BackupError::Invalid)?,
-                &source.key,
-            )
+            .cancel(saved.begin.as_ref().ok_or(BackupError::Invalid)?)
             .await?;
         saved.phase = Phase::Closed;
         saved.retained_source_bytes = Some(0);
         return store.save(saved);
     }
-    let capture = source
-        .runtime
-        .resume_byte_backup_capture(&source.key)
-        .await?;
+    let capture = source.resume().await?;
     if capture.begin()? != *saved.begin.as_ref().ok_or(BackupError::Invalid)? {
         return Err(BackupError::Identity);
     }
