@@ -128,13 +128,18 @@ pub(super) async fn interrupt(root: &Path) -> Result<Value> {
         reached: Arc::clone(&reached),
     };
     let snapshot = homes::snapshot(root)?;
-    let task = tokio::spawn(async move { snapshot.restore(&store).await });
-    tokio::time::timeout(std::time::Duration::from_secs(30), reached.notified()).await?;
-    task.abort();
-    require(
-        task.await.is_err_and(|error| error.is_cancelled()),
-        "restore did not cancel",
-    )?;
+    {
+        let restore = snapshot.restore(&store);
+        tokio::pin!(restore);
+        tokio::select! {
+            result = &mut restore => {
+                result?;
+                return Err(std::io::Error::other("restore completed before its cancellation point").into());
+            }
+            reached = tokio::time::timeout(std::time::Duration::from_secs(30), reached.notified()) => reached?,
+        }
+        // Drop the real in-flight restore future, including its owner guard.
+    }
     require(
         batches.load(Ordering::SeqCst) == 1,
         "cancellation did not retain exactly one main batch",

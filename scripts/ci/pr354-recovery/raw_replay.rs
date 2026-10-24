@@ -151,6 +151,9 @@ async fn refusals(
         .ok_or("missing tip")?;
     let cases = raw_cases(&tip.key, &tip.value);
     let main = home.logical.open_namespace("main").await?;
+    let opaque_before = b"original generated metadata".to_vec();
+    main.put(b"drill:must-not-write", opaque_before.clone())
+        .await?;
     let cursors = home.raw.open_namespace("sync_cursors").await?;
     let before = cursors
         .get(b"cursor:")
@@ -180,7 +183,7 @@ async fn refusals(
             "refused entry advanced disk cursor",
         )?;
         require(
-            main.get(b"drill:must-not-write").await?.is_none(),
+            main.get(b"drill:must-not-write").await? == Some(opaque_before.clone()),
             "preflight allowed a partial batch effect",
         )?;
         require(

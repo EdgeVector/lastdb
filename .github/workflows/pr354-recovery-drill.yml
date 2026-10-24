@@ -28,6 +28,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: pr354-one-time-recovery
+          cache-on-failure: true
       - name: Link the one-time drill without changing product functions
         shell: bash
         run: |
