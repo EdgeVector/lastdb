@@ -1,6 +1,8 @@
 //! Temporary, owner-authorized CI operation on an already generated native home.
 #![recursion_limit = "256"]
 
+use fold_db::schema::types::author_clock::sign_mutation_author_clock;
+use fold_db::schema::types::{KeyValue, Mutation, MutationType};
 use lastdb_node::Host;
 use sha2::{Digest, Sha256};
 use std::os::unix::fs::MetadataExt;
@@ -103,6 +105,11 @@ async fn operation(host: &Host, seed: bool) -> Result<serde_json::Value, Failure
             store.batch_put(batch.to_vec()).await?;
         }
     }
+    let retry = if seed {
+        None
+    } else {
+        Some(authored_retry(host).await?)
+    };
     for (rows, absent) in [(&old, !seed), (&unknown, false)] {
         for batch in rows.chunks(128) {
             let values = store
@@ -125,7 +132,68 @@ async fn operation(host: &Host, seed: bool) -> Result<serde_json::Value, Failure
         serde_json::json!({"old_receipts":old.len(), "unscoped":1024, "scoped":1024,
         "unknown_records":unknown.len(), "unknown_before_first_legacy":768,
         "old_receipts_absent":!seed, "unknown_values_unchanged":true,
-        "cursor_removed":!seed, "completion_marker_present":!seed}),
+        "cursor_removed":!seed, "completion_marker_present":!seed,
+        "authored_retry":retry}),
+    )
+}
+
+async fn authored_retry(host: &Host) -> Result<serde_json::Value, Failure> {
+    let schema = lastdb_host::handlers::resolve_schema_name(host, "GitHubBenchmark")
+        .map_err(|_| "the generated schema lookup failed")?
+        .ok_or("the generated schema is absent")?;
+    let values = serde_json::from_value(serde_json::json!({
+        "bucket":"generated", "id":"signed-retry", "title":"authored retry", "body":"unchanged"
+    }))?;
+    let mut mutation = Mutation::new(
+        schema,
+        values,
+        KeyValue::new(Some("generated".into()), Some("signed-retry".into())),
+        host.public_key(),
+        MutationType::Create,
+    );
+    mutation.imported_written_at = Some(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+            .try_into()?,
+    );
+    mutation.logical_counter = 1_000_000;
+    mutation.author_clock_writer_id = host.public_key();
+    mutation.author_clock_signature_version =
+        fold_db::schema::types::MUTATION_AUTHOR_SIGNATURE_VERSION;
+    mutation.author_clock_signature = sign_mutation_author_clock(&mutation, &host.keypair);
+    let mut repeated = mutation.clone();
+    repeated.uuid = uuid::Uuid::new_v4().to_string();
+    repeated.author_clock_signature = sign_mutation_author_clock(&repeated, &host.keypair);
+    if mutation.content_hash() != repeated.content_hash() {
+        return Err("the authored retry content changed".into());
+    }
+    let cache_key = format!("idem:{}", mutation.content_hash());
+    let first = host
+        .db
+        .mutation_manager()
+        .write_mutations_batch_async(vec![mutation], None)
+        .await?;
+    let cached = host
+        .db
+        .db_ops()
+        .metadata()
+        .get_idempotency_ids(&[cache_key])
+        .await?;
+    if cached != first.iter().cloned().map(Some).collect::<Vec<_>>() {
+        return Err("the authored write lacks its exact cached receipt".into());
+    }
+    let second = host
+        .db
+        .mutation_manager()
+        .write_mutations_batch_async(vec![repeated.clone()], None)
+        .await?;
+    if first.len() != 1 || first != second || second[0] == repeated.uuid {
+        return Err("the identical authored retry did not return the cached receipt".into());
+    }
+    Ok(
+        serde_json::json!({"same_receipt":true, "different_offered_uuid":true,
+        "same_signed_clock_and_content":true}),
     )
 }
 

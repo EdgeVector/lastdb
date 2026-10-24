@@ -85,6 +85,12 @@ def main():
         node.start()
         native, _, _ = node.call("/api/db/native-status")
         workload.verify_upgrade(native)
+        record, _, _ = node.call("/api/query", {"schema_name":"GitHubBenchmark",
+            "fields":["bucket", "id", "title", "body"],
+            "filter":{"HashRangeKeys":[["generated", "signed-retry"]]}, "limit":1})
+        if (record.get("returned_count") != 1 or record["results"][0]["fields"] != {
+                "bucket":"generated", "id":"signed-retry", "title":"authored retry", "body":"unchanged"}):
+            raise RuntimeError("The authored retry record differs after restart")
         proof = {"candidate_revision":args.candidate_revision, "baseline_revision":args.baseline_revision,
                  "metadata":preserved, "upgrade":json.loads((args.output / "upgrade-complete.json").read_text()),
                  "restart_and_compaction":True}

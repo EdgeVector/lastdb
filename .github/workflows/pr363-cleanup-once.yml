@@ -33,16 +33,25 @@ jobs:
           persist-credentials: false
       - name: Check temporary driver syntax
         run: python3 -m py_compile driver/tools/one-time/retry_cleanup.py
+      - name: Reserve room for two independent build targets
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
       - name: Build the exact old and new daemons
         run: |
           set -euo pipefail
-          export CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-target"
           cd baseline
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$BASELINE" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-          cp "$CARGO_TARGET_DIR/dev-release/lastdbd" "$RUNNER_TEMP/baseline-lastdbd"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-baseline" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$BASELINE" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+          cp "$RUNNER_TEMP/cleanup-baseline/dev-release/lastdbd" "$RUNNER_TEMP/baseline-lastdbd"
           cd ../source
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-          cp "$CARGO_TARGET_DIR/dev-release/lastdbd" "$RUNNER_TEMP/candidate-lastdbd"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-candidate" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE" cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
+          cp "$RUNNER_TEMP/cleanup-candidate/dev-release/lastdbd" "$RUNNER_TEMP/candidate-lastdbd"
       - name: Build the temporary offline metadata helper
         run: |
           set -euo pipefail
@@ -50,13 +59,13 @@ jobs:
           cp driver/tools/one-time/retry_cleanup.rs source/lastdb_node/examples/retry_cleanup_once.rs
           printf '\n[[example]]\nname = "retry_cleanup_once"\ntest = false\nbench = false\n' >> source/lastdb_node/Cargo.toml
           cd source
-          CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-target" cargo build --locked --profile dev-release -p lastdb_node --example retry_cleanup_once
+          CARGO_TARGET_DIR="$RUNNER_TEMP/cleanup-candidate" FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE" cargo build --locked --profile dev-release -p lastdb_node --example retry_cleanup_once
       - name: Run the authorized one-time cleanup operation
         run: |
           timeout --signal=TERM --kill-after=90s 15m python3 driver/tools/one-time/retry_cleanup.py \
             --baseline "$RUNNER_TEMP/baseline-lastdbd" --baseline-revision "$BASELINE" \
             --candidate "$RUNNER_TEMP/candidate-lastdbd" --candidate-revision "$CANDIDATE" \
-            --helper "$RUNNER_TEMP/cleanup-target/dev-release/examples/retry_cleanup_once" \
+            --helper "$RUNNER_TEMP/cleanup-candidate/dev-release/examples/retry_cleanup_once" \
             --output "$RUNNER_TEMP/mixed-cleanup"
       - uses: actions/upload-artifact@v4
         if: always()
