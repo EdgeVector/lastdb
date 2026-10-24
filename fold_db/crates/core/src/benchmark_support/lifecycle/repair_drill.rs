@@ -108,8 +108,12 @@ async fn inventory(atoms: &AtomStore) -> Result<Rows> {
 }
 
 async fn write_surface_digest(atoms: &AtomStore, mut rows: Rows) -> Result<String> {
-    for prefix in ["crq:", "crb:", "crs:"] {
-        let end = crate::schema::types::field::FilterUtils::create_prefix_end(prefix)?;
+    for prefix in [None, Some(SCOPE)].into_iter().flat_map(|scope| {
+        ["crq:", "crb:", "crs:"]
+            .into_iter()
+            .map(move |prefix| build_storage_key(scope, prefix))
+    }) {
+        let end = crate::schema::types::field::FilterUtils::create_prefix_end(&prefix)?;
         let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), 256);
         for _ in 0..64 {
             if walk.done() {

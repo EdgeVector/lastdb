@@ -27,7 +27,8 @@ def sample(node):
         "filter": {"HashRangeKeys": [["repair", f"key-{number:02}"] for number in range(8)]}})
     if len(value["results"]) != 8 or value.get("has_more"):
         raise RuntimeError("The complete generated repair read lost a key")
-    return sorted(value["results"], key=lambda row: row["key"]["range"])
+    return sorted(({"key": row["key"], "fields": row["fields"]} for row in value["results"]),
+                  key=lambda row: row["key"]["range"])
 
 
 def measure_repair(node, args, command, recount):
