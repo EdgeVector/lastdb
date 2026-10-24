@@ -127,7 +127,9 @@ counter frees each body whose last reference goes, in the same batch.
 - A delete frees the record, not the disk bytes. Compaction returns the bytes.
 - A TTL is a schema retention policy. The sweep erases the expired keys of every schema
   that has a policy. A Range or HashRange schema needs a range key that starts with 20
-  digits of unix seconds. The policy must exist before the first write. See
+  digits of unix seconds. Set the policy before the first write, or
+  [explicitly backfill existing personal Hash/HashRange records](lastdb-ttl-sweep.md#schema-shape-that-a-ttl-needs)
+  with the owner's `--confirm-expire-existing` confirmation. See
   `docs/lastdb-ttl-sweep.md` and `docs/app-manifest-retention.md`.
 - A molecule goes only when its `slots`, `records` and `bindings` counters are all zero.
   A file blob goes after its counter reaches zero and a dwell of one hour passes.
