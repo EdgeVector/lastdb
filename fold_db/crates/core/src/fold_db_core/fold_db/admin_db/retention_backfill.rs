@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::schema::types::{schema::DeclarativeSchemaType, KeyValue};
+use crate::schema::SchemaError;
 use serde_json::{json, Value};
 
 impl FoldDB {
