@@ -119,8 +119,12 @@ pub fn install_pinned(
     }
 
     // Check version constraints in manifest (if present)
-    check_version_constraint(&checkout_path, &resolution.app_id, &resolution.lastdb_version)
-        .map_err(|e| cleanup(e))?;
+    check_version_constraint(
+        &checkout_path,
+        &resolution.app_id,
+        &resolution.lastdb_version,
+    )
+    .map_err(cleanup)?;
 
     let receipt = json!({
         "app_id": resolution.app_id,
@@ -170,27 +174,30 @@ fn check_version_constraint(
         checkout_path.join("lastdb-app.json"),
         checkout_path.join("folddb.toml"),
     ];
-    
+
     // Also try <app_id>.app.json
-    let app_json = checkout_path.join(format!("{}.app.json", app_id));
-    
+    let app_json = checkout_path.join(format!("{app_id}.app.json"));
+
     for path in manifest_candidates.iter().chain(std::iter::once(&app_json)) {
         if !path.exists() {
             continue;
         }
-        
-        let raw = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(_) => continue,
+
+        let Ok(raw) = std::fs::read_to_string(path) else {
+            continue;
         };
-        
+
         // Try parsing as JSON first
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
             if let Some(constraint_str) = json.get("lastdb").and_then(|v| v.as_str()) {
-                return version_constraint::check_constraint(app_id, constraint_str, lastdb_version);
+                return version_constraint::check_constraint(
+                    app_id,
+                    constraint_str,
+                    lastdb_version,
+                );
             }
         }
-        
+
         // Try parsing as TOML (for folddb.toml)
         if path.extension().and_then(|s| s.to_str()) == Some("toml") {
             // Simple line-by-line search for lastdb = "..."
@@ -201,14 +208,18 @@ fn check_version_constraint(
                     if let Some(rest) = rest.strip_prefix('=') {
                         let rest = rest.trim().trim_matches('"').trim_matches('\'');
                         if !rest.is_empty() {
-                            return version_constraint::check_constraint(app_id, rest, lastdb_version);
+                            return version_constraint::check_constraint(
+                                app_id,
+                                rest,
+                                lastdb_version,
+                            );
                         }
                     }
                 }
             }
         }
     }
-    
+
     // No manifest or no constraint found - allow install
     Ok(())
 }
@@ -277,7 +288,44 @@ pub fn upgrade_pinned(
             install: None,
         });
     }
-    let install = install_pinned(resolution, install_dir, true)?;
+
+    // Stage and check the new commit in a temporary directory first, so a rejected
+    // upgrade (version constraint failure) leaves the working install untouched.
+    let temp_dir = install_dir.with_file_name(format!(
+        "{}.upgrade-stage",
+        install_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("app")
+    ));
+
+    let cleanup_temp = || {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    };
+
+    // Stage the new version in temp_dir
+    let staged = install_pinned(resolution, &temp_dir, true);
+    if let Err(e) = staged {
+        cleanup_temp();
+        return Err(e);
+    }
+
+    // Version constraint check passed; replace the old install with the staged one
+    std::fs::remove_dir_all(install_dir).map_err(|e| {
+        format!(
+            "failed to remove old install {}: {e}",
+            install_dir.display()
+        )
+    })?;
+    std::fs::rename(&temp_dir, install_dir).map_err(|e| {
+        format!(
+            "failed to move staged install from {} to {}: {e}",
+            temp_dir.display(),
+            install_dir.display()
+        )
+    })?;
+
+    let install = staged.unwrap();
     Ok(PinnedUpgradeOutcome {
         app_id: resolution.app_id.clone(),
         installed_sha: receipt.sha,

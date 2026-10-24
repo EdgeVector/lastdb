@@ -38,7 +38,7 @@ impl Version {
         let patch = parts[2]
             .parse::<u64>()
             .map_err(|_| format!("invalid patch version in '{s}'"))?;
-        Ok(Version {
+        Ok(Self {
             major,
             minor,
             patch,
@@ -79,23 +79,23 @@ impl Predicate {
     pub fn parse(s: &str) -> Result<Self, String> {
         let s = s.trim();
         if let Some(rest) = s.strip_prefix(">=") {
-            Ok(Predicate {
+            Ok(Self {
                 op: Op::Gte,
                 version: Version::parse(rest.trim())?,
             })
         } else if let Some(rest) = s.strip_prefix('<') {
-            Ok(Predicate {
+            Ok(Self {
                 op: Op::Lt,
                 version: Version::parse(rest.trim())?,
             })
         } else if let Some(rest) = s.strip_prefix('=') {
-            Ok(Predicate {
+            Ok(Self {
                 op: Op::Eq,
                 version: Version::parse(rest.trim())?,
             })
         } else {
             // Bare version means exact match
-            Ok(Predicate {
+            Ok(Self {
                 op: Op::Eq,
                 version: Version::parse(s)?,
             })
@@ -121,7 +121,11 @@ pub struct Constraint {
 impl Constraint {
     /// Parse a constraint string, e.g. `">=0.23.0, <0.24.0"`.
     pub fn parse(s: &str) -> Result<Self, String> {
-        let parts: Vec<&str> = s.split(',').map(str::trim).filter(|p| !p.is_empty()).collect();
+        let parts: Vec<&str> = s
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .collect();
         if parts.is_empty() {
             return Err("constraint must not be empty".into());
         }
@@ -129,7 +133,7 @@ impl Constraint {
         for part in parts {
             predicates.push(Predicate::parse(part)?);
         }
-        Ok(Constraint { predicates })
+        Ok(Self { predicates })
     }
 
     /// Does `version` satisfy all predicates in this constraint?
@@ -142,9 +146,18 @@ impl Constraint {
         self.predicates
             .iter()
             .map(|p| match p.op {
-                Op::Eq => format!("={}.{}.{}", p.version.major, p.version.minor, p.version.patch),
-                Op::Gte => format!(">={}.{}.{}", p.version.major, p.version.minor, p.version.patch),
-                Op::Lt => format!("<{}.{}.{}", p.version.major, p.version.minor, p.version.patch),
+                Op::Eq => format!(
+                    "={}.{}.{}",
+                    p.version.major, p.version.minor, p.version.patch
+                ),
+                Op::Gte => format!(
+                    ">={}.{}.{}",
+                    p.version.major, p.version.minor, p.version.patch
+                ),
+                Op::Lt => format!(
+                    "<{}.{}.{}",
+                    p.version.major, p.version.minor, p.version.patch
+                ),
             })
             .collect::<Vec<_>>()
             .join(", ")
@@ -160,9 +173,10 @@ pub fn check_constraint(
     constraint_str: &str,
     lastdb_build: &str,
 ) -> Result<(), String> {
-    let constraint = Constraint::parse(constraint_str)
-        .map_err(|e| format!("app '{app_id}' has invalid lastdb constraint '{constraint_str}': {e}"))?;
-    
+    let constraint = Constraint::parse(constraint_str).map_err(|e| {
+        format!("app '{app_id}' has invalid lastdb constraint '{constraint_str}': {e}")
+    })?;
+
     let running_version = Version::parse(lastdb_build)
         .map_err(|e| format!("could not parse running lastdb version '{lastdb_build}': {e}"))?;
 
@@ -187,13 +201,34 @@ mod tests {
     #[test]
     fn parse_version() {
         let v = Version::parse("0.23.4").unwrap();
-        assert_eq!(v, Version { major: 0, minor: 23, patch: 4 });
+        assert_eq!(
+            v,
+            Version {
+                major: 0,
+                minor: 23,
+                patch: 4
+            }
+        );
 
         let v = Version::parse("0.23.4-pre.0-324-g0ef44ca87").unwrap();
-        assert_eq!(v, Version { major: 0, minor: 23, patch: 4 });
+        assert_eq!(
+            v,
+            Version {
+                major: 0,
+                minor: 23,
+                patch: 4
+            }
+        );
 
         let v = Version::parse("0.23.3-2378-gbe41e547e").unwrap();
-        assert_eq!(v, Version { major: 0, minor: 23, patch: 3 });
+        assert_eq!(
+            v,
+            Version {
+                major: 0,
+                minor: 23,
+                patch: 3
+            }
+        );
     }
 
     #[test]
@@ -206,7 +241,9 @@ mod tests {
 
     #[test]
     fn check_constraint_satisfied() {
-        assert!(check_constraint("test", ">=0.23.0, <0.24.0", "0.23.4-pre.0-324-g0ef44ca87").is_ok());
+        assert!(
+            check_constraint("test", ">=0.23.0, <0.24.0", "0.23.4-pre.0-324-g0ef44ca87").is_ok()
+        );
         assert!(check_constraint("test", ">=0.23.0", "0.23.0").is_ok());
         assert!(check_constraint("test", "<0.24.0", "0.23.99").is_ok());
     }
@@ -215,7 +252,7 @@ mod tests {
     fn check_constraint_unsatisfied() {
         let err = check_constraint("brain", ">=0.23.0, <0.24.0", "0.22.9").unwrap_err();
         assert!(err.contains("requires lastdb >=0.23.0"));
-        
+
         let err = check_constraint("brain", ">=0.23.0", "0.22.9").unwrap_err();
         assert!(err.contains("0.22.9"));
     }
