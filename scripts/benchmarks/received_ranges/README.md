@@ -55,6 +55,13 @@ The CI summary gives medians of per-run p50, p95, and p99 values.
 A latency increase remains advisory. Incomplete measurements fail.
 The existing `benchmark-complete` gate remains unchanged.
 
+Candidate discovery retains at most four source pages within one query.
+Each retained page contains at most 256 keys.
+A refill reuses future keys and reads only the missing part of a short page.
+Additional sources retain the ordinary bounded read path.
+Four concurrent source reads and the merged page add a fixed amount of temporary memory.
+The existing per-call key and byte work limits remain unchanged.
+
 Additional selectors cover source overlap, source-only ranges, offsets after duplicate removal, and cross-hash cursor ties.
 Empty keys, empty and inverted intervals, NUL bytes, and Unicode receive explicit selectors.
 Source-specific Delete, Purge, and local/received updates precede a graceful reopen.
