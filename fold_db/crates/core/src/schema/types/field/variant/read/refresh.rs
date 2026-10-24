@@ -56,15 +56,12 @@ impl FieldVariant {
                 include_tombstones,
             )
             .await?;
-        match narrowed {
-            Some((data, ranges)) => {
-                self.molecule = Some(data);
-                Ok(ranges)
-            }
-            _ => {
-                self.refresh_from_db(db_ops).await?;
-                Ok(MoleculeRangeForm::Storage)
-            }
+        if let Some((data, ranges)) = narrowed {
+            self.molecule = Some(data);
+            Ok(ranges)
+        } else {
+            self.refresh_from_db(db_ops).await?;
+            Ok(MoleculeRangeForm::Storage)
         }
     }
 }
