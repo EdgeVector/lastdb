@@ -238,14 +238,11 @@ slots they remove and release the records in the same batch as the tip deletes.
   `purge_capped_slots` in the status counts these slots.
 - The janitor drains the markers. It keeps a cursor over the directory of the slot,
   releases the records 32 for each batch, and deletes the marker with the last
-  batch. A drain releases only the records written before the erase. A marker lives
-  at most one retention window (the window of the node when the erase wrote it, or the
-  window of the janitor when that is longer). Every record of the slot has its own
-  queue entry, due one window after the record was written (the window of that time),
-  so the marker only speeds the release up. If the window was cut before the erase (from
-  120 s to 30 s, for example), the marker has the short window and can be deleted before
-  the janitor drained it: the records then end with their own entries, up to the old
-  window after their write, and not at once (`docs/lastdb-time-queue.md`).
+  batch. A drain releases only the records written before the erase.
+  The marker stays until that exact slot directory is complete.
+  A shorter retention window cannot discard unfinished erase work.
+  Each record also retains its own expiry queue entry.
+  The marker's older `window_nanos` field remains readable but supplies no completion proof.
 - A protein key move is not an erase and releases nothing.
 - The reads of an erase run inside the gate and share the 40,000 key budget. A slot
   whose earlier releases left more than that many deleted directory keys can make

@@ -36,23 +36,16 @@ impl AtomStore {
     /// A record entry releases one record. The caller passes record entries
     /// only: a drain marker needs no write gate, and the janitor drains it in
     /// its own batches (`steps.rs`). A marker that comes here is left alone.
-    /// `expired` names the markers that are too old to drain; the batch deletes
-    /// them (`steps.rs`, `split_due_rows`).
     pub(crate) async fn release_due_records(
         &self,
         due: &[String],
-        expired: &[String],
         now_nanos: u64,
     ) -> Result<ReleaseOutcome, SchemaError> {
-        if due.is_empty() && expired.is_empty() {
+        if due.is_empty() {
             return Ok(ReleaseOutcome::default());
         }
         self.in_background_scope(async {
-            let items = if due.is_empty() {
-                Vec::new()
-            } else {
-                self.read_due_items(due, now_nanos).await?
-            };
+            let items = self.read_due_items(due, now_nanos).await?;
             let mut outcome = ReleaseOutcome::default();
             let mut entries: Vec<RetentionEntry> = Vec::new();
             for item in items {
@@ -60,9 +53,8 @@ impl AtomStore {
                     entries.push(entry);
                 }
             }
-            let dead = expired.iter().map(|key| key.as_bytes().to_vec()).collect();
             outcome.skipped += self
-                .commit_releases(entries, dead, &mut outcome.released)
+                .commit_releases(entries, Vec::new(), &mut outcome.released)
                 .await?;
             Ok(outcome)
         })
