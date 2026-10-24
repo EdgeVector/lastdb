@@ -9,6 +9,7 @@ pub(super) fn read_records(
     builder: &mut HomeBuilder,
     descriptor: &HomeDescriptor,
     frontier: u64,
+    header_sha256: [u8; 32],
 ) -> Result<TransferReceipt> {
     let mut stream = DigestRead::new(input);
     let mut actual = TransferReceipt::default();
@@ -45,8 +46,8 @@ pub(super) fn read_records(
         writer.finish()?;
     }
     actual.record_sha256 = stream.finish();
-    let expected: TransferReceipt = wire::read_metadata(input)?;
-    if actual != expected {
+    let expected: wire::Footer = wire::read_metadata(input)?;
+    if expected.header_sha256 != header_sha256 || actual != expected.receipt {
         return Err(wire::refuse("complete source record digest differs"));
     }
     let mut trailing = [0];

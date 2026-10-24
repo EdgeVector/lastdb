@@ -51,14 +51,20 @@ pub fn export(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt
         receipt.include(&record)
     })?;
     receipt.record_sha256 = records.finish();
-    output.write_all(&[0])?;
-    wire::write_metadata(output, &receipt)?;
-    output.flush()?;
     // This offline operation must not silently select another source boundary.
     let after = home.read(wire::budget())?;
     if after.current() != &current {
         return Err(wire::refuse("source changed during export"));
     }
+    output.write_all(&[0])?;
+    wire::write_metadata(
+        output,
+        &wire::Footer {
+            header_sha256: header.digest()?,
+            receipt: receipt.clone(),
+        },
+    )?;
+    output.flush()?;
     Ok(receipt)
 }
 
@@ -75,7 +81,13 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
         header.frontier,
         header.required_features,
     )?;
-    let receipt = input::read_records(input, &mut builder, &descriptor, header.frontier)?;
+    let receipt = input::read_records(
+        input,
+        &mut builder,
+        &descriptor,
+        header.frontier,
+        header.digest()?,
+    )?;
     builder.finish()?;
     let target = DiskHome::open(root)?;
     let verified = export(&target, &mut std::io::sink())?;

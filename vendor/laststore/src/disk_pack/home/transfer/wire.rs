@@ -1,4 +1,5 @@
 use super::super::DiskHome;
+use super::TransferReceipt;
 use crate::disk_pack::maintenance::StoredRecord;
 use crate::disk_pack::{Current, MutationVersion, ReadBudget};
 use crate::Result;
@@ -24,6 +25,11 @@ pub(super) struct Header {
 }
 
 impl Header {
+    pub(super) fn digest(&self) -> Result<[u8; DIGEST_BYTES]> {
+        let bytes = serde_json::to_vec(self).map_err(|_| refuse("header encoding failed"))?;
+        Ok(Sha256::digest(bytes).into())
+    }
+
     pub(super) fn new(home: &DiskHome, current: &Current) -> Self {
         Self {
             protocol: "lastdb.native-record-transfer.v1".into(),
@@ -49,6 +55,13 @@ impl Header {
         }
         Ok(())
     }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Footer {
+    pub(super) header_sha256: [u8; DIGEST_BYTES],
+    pub(super) receipt: TransferReceipt,
 }
 
 #[derive(Deserialize, Serialize)]
