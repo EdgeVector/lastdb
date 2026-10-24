@@ -36,7 +36,7 @@ impl NamespacedStore for EncryptingNamespacedStore {
                 self.crypto.clone(),
             )))
         } else {
-            // Non-sensitive namespaces: pass through without encryption
+            // Other records retain their own content/key protection without a storage envelope.
             Ok(inner_store)
         }
     }

@@ -1,6 +1,5 @@
 //! Native logical-store construction and decrypt-integrity check.
 
-use super::assert_critical_namespaces_decryptable;
 use crate::crypto::E2eKeys;
 use crate::db_operations::DbOperations;
 use crate::error::{FoldDbError, FoldDbResult};
@@ -31,15 +30,4 @@ pub(super) async fn open_db_operations(
     )
     .await
     .map_err(|e| FoldDbError::Config(e.to_string()))
-}
-
-pub(super) async fn verify_boot_decrypt_integrity(
-    enc: &crate::storage::EncryptingNamespacedStore,
-) -> FoldDbResult<()> {
-    use crate::storage::traits::NamespacedStore;
-    let namespaces = enc.list_namespaces().await?;
-    if !namespaces.is_empty() {
-        assert_critical_namespaces_decryptable(enc).await?;
-    }
-    Ok(())
 }

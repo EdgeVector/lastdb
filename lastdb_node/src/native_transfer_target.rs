@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use fold_db::storage::disk_pack::prepare_restored_node;
+use fold_db::storage::disk_pack::{
+    convert_transferred_node, prepare_restored_node, validate_restored_node,
+};
 
 use crate::offline_home::{load_e2e_keys, preflight_stopped_home, refuse_primary};
 
@@ -42,8 +44,13 @@ pub fn prepare(source: &Path, target: &Path, allow_primary_source: bool) -> Resu
     let (keys, _) = load_e2e_keys(&source)?;
     let data = target.join("data");
     require_private_directory(&data)?;
-    let _target_lock = prepare_restored_node(&data, &keys.encryption_key())
+    convert_transferred_node(&data, &keys.encryption_key())
+        .map_err(|error| format!("transferred native target conversion failed: {error}"))?;
+    let target_lock = prepare_restored_node(&data, &keys.encryption_key())
         .map_err(|_| "transferred native target validation failed")?;
+    drop(target_lock);
+    let _validated = validate_restored_node(&data, &keys.encryption_key())
+        .map_err(|_| "transferred native account proof validation failed")?;
     let source_seed = lastdb_identity::load_seed(&source)?
         .ok_or_else(|| "source identity is absent".to_string())?;
     match lastdb_identity::load_seed(&target)? {

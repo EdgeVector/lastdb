@@ -127,22 +127,12 @@ impl FoldDB {
             Some(e2e_keys.index_key()),
             Some(e2e_keys.ope_key()),
         );
-        // Use the same at-rest encryption seam as the normal Mini factory.
-        // Without it TypedKvStore parses ciphertext as JSON:
-        // `Serialization error: expected value at line 1 column 1`.
+        // Restore uses the same fixed CAS-only wrapper as normal startup.
         let crypto: Arc<dyn crate::crypto::CryptoProvider> = Arc::new(
             crate::crypto::LocalCryptoProvider::from_key(e2e_keys.encryption_key()),
         );
         let store: Arc<dyn crate::storage::traits::NamespacedStore> = Arc::new(
-            crate::storage::EncryptingNamespacedStore::with_plaintext_namespaces(
-                store,
-                crypto,
-                crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES
-                    .iter()
-                    .copied()
-                    .map(str::to_string)
-                    .collect(),
-            ),
+            crate::storage::EncryptingNamespacedStore::new(store, crypto),
         );
         // Keyed atom reads require content encrypted with this account's E2E
         // key. Pass the same content key as the normal native constructor.

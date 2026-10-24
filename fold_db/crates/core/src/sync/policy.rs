@@ -70,7 +70,7 @@ pub(crate) fn is_sync_internal(name: &str) -> bool {
 }
 
 pub(crate) fn is_catalog_namespace(name: &str) -> bool {
-    crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES.contains(&name)
+    crate::storage::CATALOG_NAMESPACES.contains(&name)
 }
 
 /// Membership and schema authority need complete bodies after the snapshot.

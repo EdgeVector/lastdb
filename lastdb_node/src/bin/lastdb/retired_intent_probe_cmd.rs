@@ -40,14 +40,7 @@ impl ClosedCopy {
         let crypto: Arc<dyn CryptoProvider> =
             Arc::new(LocalCryptoProvider::from_key(keys.encryption_key()));
         let store: Arc<dyn NamespacedStore> =
-            Arc::new(EncryptingNamespacedStore::with_plaintext_namespaces(
-                raw,
-                Arc::clone(&crypto),
-                fold_db::storage::LASTSTORE_PLAINTEXT_NAMESPACES
-                    .iter()
-                    .map(|name| (*name).into())
-                    .collect(),
-            ));
+            Arc::new(EncryptingNamespacedStore::new(raw, Arc::clone(&crypto)));
         Ok(Self {
             home,
             directories,
