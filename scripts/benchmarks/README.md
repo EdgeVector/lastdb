@@ -20,7 +20,8 @@ Lightweight source, syntax, and format checks can run locally. Tests remain reti
 |---|---:|---:|
 | Seed records | 10,000 | 100,000 |
 | Read and concurrency requests per case | 256 | 2,048 |
-| Single and batch write requests per case | 32 | 128 |
+| Single-record insert/update requests per case | 256 | 512 |
+| 128-record insert requests | 32 | 128 |
 | 128-record update requests | 128 | 128 |
 | Complete base/candidate pairs | 2 | 3 |
 | Fields per record | 4 | 4 |
@@ -32,9 +33,11 @@ It measures 256 insert requests at each batch size, with three alternating pairs
 Each version supplies 768 requests per batch size. Updates and concurrency are excluded.
 All successful write samples retain `resident_stages_us` from each response.
 A missing field is null, not a measured zero.
-The standard recipe uses 128 calls only for the 128-record update case.
-Other case counts stay unchanged. The recipe records `batch_update_samples` explicitly.
-The extra update calls also change the home history before later concurrency cases.
+The recipe records `single_write_samples`, `write_samples` and `batch_update_samples` explicitly.
+Single-record cases previously had only 32 standard calls: p95 was the second-slowest request.
+The larger sample count gives that percentile more observations; it does not remove host or storage variability.
+The 128-record batch counts and all read/concurrency counts stay unchanged.
+The extra single-record calls change the home history before later cases.
 Compare both product revisions with this same driver. Do not compare this recipe with older run numbers.
 
 Each case uses actual product requests through the daemon's Unix socket:
@@ -54,6 +57,11 @@ Each read requires a complete result with valid generated values and a storage r
 Mixed clients retain equal call counts, so both kinds continue through the case, apart from the final calls.
 The raw samples record the client and its request number. The summary checks actual completed calls after the case.
 Completion windows require complete request-phase coverage. Larger cases can exceed the current request ring and leave these windows unavailable.
+The summary also partitions mixed reads by client request order: read-first clients' turn 0,
+write-first clients' turn 1, and later reads. Every sample stays in the original aggregate metrics
+and advisories. Per-group RPC, socket queue, storage percentiles and payload-fetch counts remain
+diagnostics; their percentiles cannot be subtracted or added. Missing receipt fields stay unreported.
+The artifact retains these partitions in `mixed-read-cohorts.json`. Group names do not prove cache state.
 The corrected mixed assignment changes the recipe. Compare product revisions with the same corrected driver; do not pool earlier mixed results.
 The cold boundary purges clean logical records after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.

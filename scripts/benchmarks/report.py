@@ -10,6 +10,7 @@ import statistics
 
 from node import save
 from phases import phase_lines
+from mixed_report import mixed_read_lines
 
 MEASURES = ("p50_ms", "p95_ms", "p99_ms", "requests_per_second", "records_per_second")
 
@@ -124,6 +125,7 @@ def render(output, manifest, comparison):
                   f"request rate {change['requests_per_second']:+.1f}%. This does not block merge.")
     lines.extend(resource_lines(output, manifest))
     lines.extend(mixed_lines(output, manifest))
+    lines.extend(mixed_read_lines(output, manifest))
     lines.extend(phase_lines(output, manifest))
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",
