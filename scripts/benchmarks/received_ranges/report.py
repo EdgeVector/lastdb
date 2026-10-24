@@ -69,8 +69,10 @@ def main():
         if not accepted:
             lines.append("The measurement manifest or job is incomplete. Combined latency conclusions remain unavailable.")
         lines.extend(["Exact builds: " + "; ".join(role + " `" + row["revision"] + "`" for role, row in manifest["binaries"].items()),
-            "", "One candidate-built seed helper supplies identical generated mutations to both query homes. Seed time is excluded.",
-            "Seed helper SHA256: `" + manifest["seed_helper"]["sha256"] + "`."])
+            "", "Each exact source supplies its own storage-format-compatible seed helper. Generated mutation inputs and final values must match. Seed time is excluded."])
+        helpers = manifest.get("seed_helpers", {"candidate": manifest.get("seed_helper", {})})
+        lines.extend(role + " seed helper SHA256: `" + helper.get("sha256", "unavailable") + "`."
+                     for role, helper in helpers.items())
         for mode in ("plain", "encrypted"):
             grouped = {role: [] for role in ("baseline", "candidate")}
             for entry in manifest["runs"]:

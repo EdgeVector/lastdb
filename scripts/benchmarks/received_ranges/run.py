@@ -52,6 +52,7 @@ def main():
         parser.add_argument("--" + role + "-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed-helper", type=Path, required=True)
+    parser.add_argument("--baseline-seed-helper", type=Path, required=True)
     args = parser.parse_args()
     if os.environ.get("GITHUB_ACTIONS") != "true":
         parser.error("Product operations run only on GitHub Actions; no local daemon or build")
@@ -61,7 +62,8 @@ def main():
     if args.output.is_relative_to(workspace) or not args.output.is_relative_to(temporary):
         parser.error("All generated output must stay outside Git under RUNNER_TEMP")
     args.output.mkdir(exist_ok=True)
-    helper = args.seed_helper.resolve(strict=True)
+    helpers = {"candidate": args.seed_helper.resolve(strict=True),
+               "baseline": args.baseline_seed_helper.resolve(strict=True)}
     manifest_path = args.output / "range-run.json"
     if manifest_path.exists():
         parser.error("Preserve the original range operation manifest")
@@ -80,8 +82,8 @@ def main():
     manifest = {"complete": False, "binaries": binaries, "runs": [],
         "host": {"platform": platform.platform(), "python": platform.python_version(),
                  "cpu_count": os.cpu_count(), "runner_image": os.environ.get("ImageVersion")},
-        "seed_helper": {"path": str(helper), "sha256": file_hash(helper),
-            "revision": args.candidate_revision, "scope": "One identical helper seeds both exact-source query daemons; seed time excluded"},
+        "seed_helpers": {role: {"path": str(helper), "sha256": file_hash(helper),
+            "revision": binaries[role]["revision"]} for role, helper in helpers.items()},
         "drivers": {str(path.relative_to(Path(__file__).parent.parent)): file_hash(path)
             for folder in (Path(__file__).parent, Path(__file__).parent.parent / "range_continuation")
             for path in sorted(folder.glob("*.py"))},
@@ -107,7 +109,7 @@ def main():
                 name = mode + "-" + str(pair) + "-" + role
                 print(json.dumps({"mode": mode, "pair": pair, "role": role}), flush=True)
                 result = measure(Path(binaries[role]["path"]), binaries[role]["revision"], mode, role,
-                                 args.output / name, helper)
+                                 args.output / name, helpers[role])
                 manifest["runs"].append({"directory": name, "mode": mode, "pair": pair,
                     "role": role, "complete": result["complete"], "error": result["error"]})
                 save(manifest_path, manifest)

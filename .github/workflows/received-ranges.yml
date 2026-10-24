@@ -124,11 +124,7 @@ jobs:
               cd "$version"
               export CARGO_TARGET_DIR="$target_dir"
               export FOLDDB_BUILD_VERSION_OVERRIDE="range-$revision"
-              if [ "$version" = candidate ]; then
-                cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin received_range_seed
-              else
-                cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
-              fi
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin received_range_seed
             ) 2>&1 | tee "$RANGE_OUTPUT/build-$version.log"
           done
 
@@ -144,6 +140,7 @@ jobs:
               --candidate "$RUNNER_TEMP/range-target-candidate/dev-release/lastdbd" \
               --baseline-revision "$BASELINE_SHA" --candidate-revision "$CANDIDATE_SHA" \
               --seed-helper "$RUNNER_TEMP/range-target-candidate/dev-release/received_range_seed" \
+              --baseline-seed-helper "$RUNNER_TEMP/range-target-baseline/dev-release/received_range_seed" \
               --output "$RANGE_OUTPUT" 2>&1 | tee "$RANGE_OUTPUT/measurement.log"
 
       - name: Publish complete or failed results

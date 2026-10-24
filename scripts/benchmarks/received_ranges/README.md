@@ -29,8 +29,9 @@ It does not edit snapshot bytes or contact a sender.
 The generated subscriptions contain no cloud grant or encryption secret.
 The homes have no cloud configuration or sync engine.
 
-One candidate-built helper writes identical generated mutation input into both homes.
-The manifest records the helper revision, executable SHA256, and input hashes.
+Each exact source supplies its own helper for its storage format.
+Both helpers receive identical generated mutations. The recipe checks the input hashes and final values before a comparison.
+The manifest records both helper revisions, executable SHA256 values, and input hashes.
 Seed time is excluded from all query latency results.
 The exact base and candidate daemons perform every measured read.
 One toolchain builds both daemons into separate fresh optimized targets.
@@ -116,5 +117,5 @@ The measurement step permits 55 minutes. The workflow permits 90 minutes.
 Actions command:
 
 ```text
-python3 candidate/scripts/benchmarks/received_ranges/run.py --baseline <base-daemon> --candidate <head-daemon> --seed-helper <head-helper> --baseline-revision <base-sha> --candidate-revision <head-sha> --output <RUNNER_TEMP/output>
+python3 candidate/scripts/benchmarks/received_ranges/run.py --baseline <base-daemon> --candidate <head-daemon> --seed-helper <head-helper> --baseline-seed-helper <base-helper> --baseline-revision <base-sha> --candidate-revision <head-sha> --output <RUNNER_TEMP/output>
 ```
