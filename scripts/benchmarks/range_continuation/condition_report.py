@@ -49,6 +49,8 @@ def condition_summary(grouped, mode):
         "Internal key requests are logical storage requests, not the native guard's examined-key count. Read bytes include OS-cache reads.",
         "Transient byte receipts omit returned values, captured field maps, warm caches, and allocator overhead. Process snapshots do not prove an in-flight peak.",
         "The API offset/limit and four duplicate-projection controls also match, with include_tombstones off/on for ordinary and conditional reads.",
+        "Every condition row retains its exact four-key envelope and both key coordinates. Its author is null or a projected metadata writer.",
+        "Nested bodies retain signed/unsigned integer boundaries, an integer above2^53, float types, and negative zero.",
         "Only the fixed128-key hash uses nested JSON bodies below9KiB. Original large-range bodies and eight timed selectors stay unchanged.",
         "Public Delete/Purge removes records; legacy body tombstones and concurrent mutations remain outside this recipe."])
     return lines

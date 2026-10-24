@@ -11,6 +11,7 @@ from node import file_hash, save
 from observations import observations
 from conditions import paired_conditions_match
 from condition_report import condition_summary
+from narrow_report import narrow_diagnostics, narrow_samples_complete
 
 
 def inventory(root):
@@ -47,6 +48,7 @@ def paired_inputs_match(grouped):
                 or len(first["narrow_samples"]) != 64 or len(last["narrow_samples"]) != 64
                 or [row["request_sha256"] for row in first["narrow_samples"]]
                 != [row["request_sha256"] for row in last["narrow_samples"]]
+                or not all(narrow_samples_complete(value) for value in (first, last))
                 or not paired_conditions_match(first, last)):
             return False
     return True
@@ -87,6 +89,7 @@ def main():
             lines.extend(["", "| Mode | Narrow requests/run | Base p50 / p95 / p99 ms | Candidate p50 / p95 / p99 ms | p95 change |",
                 "|---|---:|---|---|---:|", f"| {mode} | 64 | {text('baseline')} | {text('candidate')} | {change:+.1f}% |"])
             lines.extend(observations(grouped, mode))
+            lines.extend(narrow_diagnostics(grouped, mode))
             lines.extend(condition_summary(grouped, mode))
             if change > 20:
                 print("::notice::" + mode + " narrow-range p95 increased more than20%; advisory only")

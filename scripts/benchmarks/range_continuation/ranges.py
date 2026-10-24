@@ -95,6 +95,8 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False):
         samples.append({"request_id": receipt["request_id"], "elapsed_ms": receipt["elapsed_ms"],
                         "request_sha256": hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest(),
                         "records": count, "storage_read_receipt": receipt["storage_read_receipt"]})
+        if "process_counters" in receipt:
+            samples[-1]["process_counters"] = receipt["process_counters"]
         position += count
         if result.get("has_more") is False:
             if position != len(wanted):
