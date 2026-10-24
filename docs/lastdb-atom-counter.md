@@ -353,7 +353,7 @@ release the kept conflict records of the slots they remove. See
 
 - Every native write returns `durability: durable` after the complete disk commit and clean core publication.
   Create, Update, Delete, Purge, and replay share that boundary. There is no early memory ack or 500 ms collection timer.
-  The request commits its tips, counters, and bodies together.
+  Each native commit keeps the affected tips, counters, and bodies consistent.
 - A query by key sees the new committed value after the ack.
   `GET /api/atom/{id}` reads a body by identity, without a tip.
   It returns 404 after the commit removes that body's last counted reference.
