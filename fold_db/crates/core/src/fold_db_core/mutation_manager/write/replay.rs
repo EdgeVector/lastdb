@@ -147,7 +147,9 @@ impl MutationManager {
                 .winning_delete_barrier(&candidate.mk_key)
                 .await?
             {
-                if barrier.order_key() >= candidate.order_key() {
+                if barrier.covers_write_time(candidate.written_at)
+                    && barrier.order_key() >= candidate.order_key()
+                {
                     return Ok(Some(barrier));
                 }
             }

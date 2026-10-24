@@ -97,10 +97,17 @@ growth is linear). Compaction removed none of them. `purge` writes no barrier. B
 
 What `delete` buys: the barrier stops an older write from bringing the key back. A write that
 a peer made before the sweep and did not yet sync, and the replay of an older log, are the cases.
-With `purge` such a write is applied as a new write and the key can come back. A Range or
-HashRange key takes its age from the key, so the next pass erases it again. A Hash or Single key
-takes its age from the write-time index, and whether a replayed peer write gets a fresh index row
-is not verified.
+With `purge`, an older write can restore the key. A Range or HashRange key takes its age from the key.
+A Hash or Single key takes its age from the newest current tip's original write time.
+The writer reads the final tips by key inside the native write scope and records their clocks in the same commit.
+A replay that loses to a current tip cannot refresh that clock.
+A replay that restores an expired key keeps its old age, so the next pass can erase it again.
+
+A TTL `delete` barrier covers only writes before its signed age cutoff.
+Replay uses that cutoff with the original author order, as the normal tip reader does.
+A write at or after the cutoff remains eligible even when it predates the sweep's author clock.
+A Delete that spares any current field reports that key as spared.
+The key keeps its TTL entry and its LastSeek record; cleanup removes those entries only for erased keys.
 
 The default remains `purge`. No timer infers a maximum offline time for a device.
 The owner selects the replay cutoff explicitly.

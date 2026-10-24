@@ -130,19 +130,8 @@ impl MutationManager {
                 })?;
         }
 
-        if let Some((keys, written_at)) = &job.retention_write {
-            self.db_ops
-                .schemas()
-                .record_schema_retention_writes(&job.schema_name, keys, *written_at)
-                .await
-                .map_err(|error| {
-                    tracing::error!(
-                        error = %error,
-                        schema = %job.schema_name,
-                        "deferred resident-write retention store failed"
-                    );
-                    error
-                })?;
+        if let Some(keys) = &job.retention_write {
+            self.store_deferred_retention_ages(job, keys).await?;
         }
 
         if let Some(keys) = &job.retention_hash_partitions {
@@ -161,5 +150,35 @@ impl MutationManager {
         }
 
         Ok(())
+    }
+
+    async fn store_deferred_retention_ages(
+        &self,
+        job: &DeferredPersistJob,
+        keys: &[crate::schema::types::KeyValue],
+    ) -> Result<(), SchemaError> {
+        if self
+            .db_ops
+            .schemas()
+            .get_schema_retention_policy(&job.schema_name)
+            .await?
+            .is_none()
+        {
+            return Ok(());
+        }
+        // Read the final winners after the counted writer, inside this native
+        // scope. A losing replay must not refresh a key's age; a revived old
+        // Put must retain its original age. Include untouched fields too.
+        let clocks = crate::fold_db_core::purge::retention_tip_clocks(
+            &self.db_ops,
+            &self.schema_manager,
+            &job.schema_name,
+            keys,
+        )
+        .await?;
+        self.db_ops
+            .schemas()
+            .record_schema_retention_write_ages(&job.schema_name, &clocks)
+            .await
     }
 }
