@@ -54,21 +54,7 @@ impl ReleaseRegistryClient {
     /// Returns the transport or status failure.
     pub async fn get_channel(&self, app_id: &str, channel: &str) -> Result<ChannelRead, String> {
         let url = format!("{}/v2/apps/{app_id}/channels/{channel}", self.base_url);
-        // trace-egress: propagate (public app registry channel read)
-        let response = Self::client()?
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("GET {url} failed: {e}"))?;
-        let status = response.status().as_u16();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("GET {url}: body read failed: {e}"))?;
-        if status != 200 {
-            return Err(format!("GET {url} returned {status}: {body}"));
-        }
-        serde_json::from_str(&body).map_err(|e| format!("GET {url}: response does not parse: {e}"))
+        Self::get_json(&url).await
     }
 
     /// `GET /v2/releases/{release_id}` — anonymous.
@@ -77,21 +63,7 @@ impl ReleaseRegistryClient {
     /// Returns the transport or status failure.
     pub async fn get_release(&self, release_id: &str) -> Result<ReleaseRead, String> {
         let url = format!("{}/v2/releases/{release_id}", self.base_url);
-        // trace-egress: propagate (public app registry release read)
-        let response = Self::client()?
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("GET {url} failed: {e}"))?;
-        let status = response.status().as_u16();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| format!("GET {url}: body read failed: {e}"))?;
-        if status != 200 {
-            return Err(format!("GET {url} returned {status}: {body}"));
-        }
-        serde_json::from_str(&body).map_err(|e| format!("GET {url}: response does not parse: {e}"))
+        Self::get_json(&url).await
     }
 
     /// `GET /v2/apps/{app_id}` — anonymous.
@@ -100,9 +72,14 @@ impl ReleaseRegistryClient {
     /// Returns the transport or status failure.
     pub async fn get_app(&self, app_id: &str) -> Result<Value, String> {
         let url = format!("{}/v2/apps/{app_id}", self.base_url);
-        // trace-egress: propagate (public app registry app read)
+        Self::get_json(&url).await
+    }
+
+    /// Shared anonymous registry read; retain text-first errors for non-200 replies.
+    async fn get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T, String> {
+        // trace-egress: propagate (anonymous public app registry JSON read)
         let response = Self::client()?
-            .get(&url)
+            .get(url)
             .send()
             .await
             .map_err(|e| format!("GET {url} failed: {e}"))?;
