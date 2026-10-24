@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import statistics
 
+from advisories import confirm, lines as confirmation_lines, notices
 from node import save
 from phases import phase_lines
 
@@ -119,16 +120,13 @@ def render(output, manifest, comparison):
         latency = " / ".join(f"{candidate[name]:.3f}" for name in ("p50_ms", "p95_ms", "p99_ms"))
         lines.append(f"| {case} | {base['p95_ms']:.3f} | {latency} | {change['p95_ms']:+.1f}% | "
                      f"{candidate['requests_per_second']:.1f} | {change['requests_per_second']:+.1f}% | 0 |")
-        if change["p95_ms"] >= 20 or change["requests_per_second"] <= -20:
-            print(f"::warning title=Advisory performance change::{case}: p95 {change['p95_ms']:+.1f}%, "
-                  f"request rate {change['requests_per_second']:+.1f}%. This does not block merge.")
     lines.extend(resource_lines(output, manifest))
     lines.extend(mixed_lines(output, manifest))
     lines.extend(phase_lines(output, manifest))
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",
                   "The throughput includes the client cost. The memory measure excludes seed and startup.",
-                  "A 20% change emits an advisory notice. No slowdown causes a failed check.",
+                  "A 20% slowdown requires confirmation in a second complete comparison before a notice. No slowdown fails the check.",
                   "Raw samples, receipts, per-pair changes, resource measures, and build logs are in the run artifact.",
                   "Generated homes and identity files stay out of the artifact and leave the runner after shutdown."])
     return "\n".join(lines) + "\n"
@@ -138,6 +136,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--job-status", default="success")
+    parser.add_argument("--confirmation-status", required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     manifest_path = args.output / "benchmark.json"
@@ -147,7 +146,8 @@ def main():
             raise ValueError("The build or measurement did not complete successfully")
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
-        report = render(args.output, manifest, comparison)
+        decision = confirm(args.output, manifest, comparison, compare, "speed", args.confirmation_status)
+        report = render(args.output, manifest, comparison) + confirmation_lines(decision)
         complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB benchmarks — incomplete\n\n"
@@ -160,6 +160,8 @@ def main():
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
             stream.write(report)
     print(report)
+    if complete:
+        notices(decision)
     return 0 if complete else 1
 
 

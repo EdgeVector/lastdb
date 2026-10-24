@@ -166,15 +166,17 @@ Seed and startup stay outside the peak. The seeded warm records remain part of d
 The summary reports growth from the initial checkpoint and the slope through all checkpoints.
 Baseline and candidate results use medians across alternating pairs. Per-pair changes remain in the artifact.
 
-Resource regressions stay advisory. A notice requires both a 20% increase and an absolute excess:
+Resource regressions stay advisory. A suspected change requires both a 20% increase and an absolute excess:
 
 - Peak memory, final idle memory, or memory growth: at least 16 MiB more than the baseline.
 - Final compacted disk size or disk growth: at least 1 MiB more than the baseline.
 
 Zero or negative baseline growth uses zero for the percentage reference. The absolute excess still applies.
 Every change appears in the summary, even below the notice threshold.
+CI repeats the resource suite once when a measure crosses both limits.
+Only the same case and measure above both limits again produces a notice.
 Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
-The resource step has a 40-minute limit. The complete job has a 150-minute limit for larger nightly work.
+Each resource pass has a 40-minute limit. The complete job has a 270-minute limit for larger nightly work and confirmation.
 Raw results stay under `resource-growth/` in the existing CI artifact and expire after 14 days.
 The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
 Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
@@ -254,7 +256,20 @@ The driver stops each owned daemon and removes its generated home before it comp
 The artifact contains no generated identity or database home.
 
 CAUTION: Shared GitHub machines vary. A small change does not establish a product slowdown.
-The report shows every change. A p95 increase or request-rate decrease of 20% emits an advisory notice.
+The report shows every change. A p95 increase or request-rate decrease of 20% starts an automatic confirmation pass.
+CI repeats only the affected suite: speed, resource growth, or both. No suspect measure means no extra pass.
+Each suite repeats at most once. It keeps all cases and their order to preserve the prior work on each home.
+The repeat uses the same verified programs, source revisions, driver, worker counts, profile, and pair count.
+It adds no build or cache restore. Both versions use fresh generated homes on the same GitHub machine.
+Standard runs retain two alternating pairs in each pass. Nightly runs retain three pairs in each pass.
+Each speed pass has a 65-minute limit. A resource pass has a separate 40-minute limit.
+A warning requires the same case and measure across its original limit in both complete comparisons.
+A p95 change cannot confirm a request-rate change. One resource measure cannot confirm another.
+Unconfirmed changes appear as `Did not repeat; no warning` in the summary, with both base and candidate values.
+A new suspect in the repeat produces no warning because it lacks confirmation. CI does not repeat it again.
+Both passes retain their raw results and comparisons in the same artifact, under each suite's `confirmation/` directory.
+The artifact also retains `repeat-plan.json` and `advisory-confirmation.json` for the decision.
+An absent, failed, invalid, or mismatched required repeat means incomplete evidence and fails `benchmark-complete`.
 The notice does not change the exit status. No speed limit enters branch protection.
 
 Cold means a LastDB warm-set miss. The operating system file cache stays uncontrolled.
