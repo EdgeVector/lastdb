@@ -24,8 +24,9 @@ Cloud activation stays disabled.
 A snapshot restore requires an inactive native target.
 A serving process refuses it before any data change.
 This preserves the immutable replay floor and the logical memory state.
-The restore owns the existing preparation gate for its complete operation.
-Normal writes and cleanup wait while that owner works.
+The restore publishes its blocked state under the existing preparation gate.
+It releases that gate so the disk owner can flush each bounded batch.
+Normal writes and cleanup refuse the blocked state.
 Reads refuse an unverified root.
 The restore keeps its existing bounded durable batches.
 

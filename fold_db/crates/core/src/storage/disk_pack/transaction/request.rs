@@ -41,12 +41,7 @@ where
     let mut timing = super::super::timing::start();
     runtime.check_part_room()?;
     super::super::timing::mark(&mut timing, "part_room_us");
-    let gate =
-        if runtime.restore_validation_pending() && super::super::restore_safety::active(&runtime) {
-            None
-        } else {
-            Some(runtime.enter_prepare().await)
-        };
+    let gate = runtime.enter_prepare().await;
     runtime.require_restore_validated()?;
     super::super::timing::mark(&mut timing, "admission_us");
     let held_from = std::time::Instant::now();
