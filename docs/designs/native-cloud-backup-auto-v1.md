@@ -1,19 +1,26 @@
 # Automatic native cloud backup V1
 
-Status: proposed design only. Source basis: `191fed435e32289bf3cb1c943fae8f9c12e8d050`.
-This document changes no product behavior, release gate, account authority, or service.
-Implementation depends on the first approved fresh DEV backup and restore roundtrip.
-That result must include normal record reads, packed native files, and exact recovered file bytes.
+Status: implementation candidate. The source includes accepted main `228deab29918824e303a0ade419271379744cbb2`.
+Automatic backup still needs exact-source CI and normal DEV checks before completion.
+The approved manual DEV path completes two accepted backups and two offline restores.
+Normal reads return the exact records and both original and changed 100 MiB files.
+The first restored node also passes reads after restart and reuses the same file without a new payload.
+The second backup resumes its exact saved cut after a stop during upload.
+
+The native allocation comparison matches all allocation links and byte totals, with no reserved bytes.
+This result does not close historical grants or provider work, change Ready, or remove the permanent legacy Hold.
+The design adds no service or primary change.
 
 ## Current state
 
 The [native owner requests](../../lastdb_node/src/native_cloud_backup/model.rs#L8) support Start, Resume, Close, and Status.
-The [daemon background tasks](../../lastdb_node/src/main.rs#L175) include no automatic backup controller.
-The [worker result path](../../lastdb_node/src/native_cloud_backup/control.rs#L127) saves Waiting without an automatic retry.
+The daemon starts a default-off automatic controller after both sockets and the signal setup succeed.
+The worker saves typed pause state. Temporary control conflicts retry within the existing batch deadline.
 The existing job, capture, transfer, manifest, and acceptance contracts remain the backup contract.
+The manual DEV client is `15063b1c1226d52e2f9f62d85b38e21fa5b53f75`; its CI summaries hold the build record.
 This proposal covers personal native backup. It adds no device or org mutation replay.
 
-## Proposed normal commands
+## Normal commands
 
 Each command requires an explicit absolute home and uses that home's owner socket.
 
@@ -52,6 +59,9 @@ Keep this file outside the captured native root, so its own updates do not reque
 
 Use one short owner transition lock for consent changes and automatic job admission.
 Check enabled consent inside that lock before each automatic start or resume.
+An explicit On records the consent revision before its network checks and rechecks it before enable.
+Every Off and Close advances the revision, including when automatic mode is already off.
+Thus a delayed earlier On cannot undo a later Off or Close.
 Use the existing separate [worker permit and home lock](../../lastdb_node/src/native_cloud_backup/control.rs#L71) for active work.
 Auto-off does not wait for a cloud request. After its response, the controller admits no further invocation.
 Manual Start and Resume retain their existing explicit authorization and worker serialization.
@@ -81,6 +91,8 @@ It repeats that comparison after each wake and worker completion. A lost wake or
 When idle and dirty, it saves one request UUID before it calls the existing Start path.
 Reuse that UUID after an uncertain local admission or response; never generate a replacement retry identity.
 After restart, reconcile this saved UUID before the active selector; a crash can occur between the job-state and selector writes.
+Each completion binds its request, invocation token, process identity, and automatic consent revision.
+A completion from an older consent cannot restore an old pause or retry decision.
 If another request is active, wait. Never replace its selector.
 Clear the scheduled UUID only after terminal evidence and source cleanup reconcile.
 Keep at most one active job and one latest pending frontier. Do not keep one job per mutation.
@@ -107,8 +119,11 @@ Add a typed controller retry class. Do not parse the current human-readable `blo
 Waiting, transport failure, RetryLater, ProviderPending, and OutcomeUnknown retain and retry the exact saved job.
 Reuse the [current capped pause sequence](../../lastdb_node/src/native_cloud_backup/transfer.rs#L152): 1, 2, 4, 8, 16, then 30 seconds.
 Apply it between controller invocations; no wake from another local write bypasses an active retry delay.
+Temporary prepare and Resume errors retry within their batch deadline, with the same saved inputs and independent delays.
+Verified sibling results stay authoritative.
 The [15-minute transfer wait](../../lastdb_node/src/native_cloud_backup/transfer.rs#L8) remains nonterminal, with status-only polls after submission.
 An invocation may repeat one exact conditional upload and completion request to repair an uncertain prior submission.
+Temporary status errors use status-only retries within the verification deadline.
 
 Quota, disk, credential, integrity, unsupported-format, and missing-source refusals pause automatic retries with an explicit reason.
 After repair, explicit `auto on` retries the same active job before any new cut.
@@ -117,6 +132,10 @@ Close or reconcile an incompatible old job before new-scope work. Preserve all u
 Before every automatic Start or Resume, check consent, endpoint, native gate, account scope, generation, Ready, and open-for-writes state.
 A saved intent does not waive the [current context check](../../lastdb_node/src/native_cloud_backup/setup.rs#L25).
 Read context outside the short transition lock; then recheck the consent revision inside it before admission.
+Pass that exact client into the worker so a later credential or endpoint load cannot change the checked destination.
+New saved jobs bind that actual endpoint before their first effect.
+Automatic work refuses an unfinished older job whose endpoint is unknown.
+The owner can use explicit manual recovery to reconcile that job.
 The service remains authoritative for each effect.
 No automatic retention, deletion, quota debit, Ready update, or reserve release enters this stage.
 
@@ -136,7 +155,7 @@ A restored home stays off until explicit enrollment and `auto on`; it uses the e
 
 ## Sequence and completion conditions
 
-1. Complete and review the first fresh DEV manual backup and restore roundtrip before automatic source work.
+1. Complete and review the manual DEV backup and restore before automatic source work. This step is complete.
 2. Add the native boundary API, then the node consent/controller, commands, status, and shutdown seam.
 3. Use GitHub CI for type, lint, and build checks. Run no local Cargo, benchmarks, tests, or fixture harnesses.
 4. Use approved normal fresh DEV commands to change records and a real large localCAS file without a backup Start command.

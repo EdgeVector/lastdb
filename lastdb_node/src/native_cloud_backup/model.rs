@@ -56,6 +56,12 @@ pub(super) struct Saved {
     pub multi_file_pack_objects_verified: Option<u64>,
     pub retained_source_bytes: Option<u64>,
     pub blocked_reason: Option<String>,
+    #[serde(default)]
+    pub pause: Option<super::error::PauseState>,
+    #[serde(default)]
+    pub pause_consent_revision: Option<u64>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 impl Saved {
     pub fn locally_closed(&self) -> bool {
@@ -69,6 +75,30 @@ impl Saved {
             return Err(BackupError::Invalid);
         }
         self.validate_inventory()?;
+        if let Some(pause) = self.pause {
+            pause.validate()?;
+        }
+        if self
+            .pause_consent_revision
+            .is_some_and(|revision| revision == 0 || self.pause.is_none())
+        {
+            return Err(BackupError::Invalid);
+        }
+        if let Some(endpoint) = &self.endpoint {
+            let url = reqwest::Url::parse(endpoint).map_err(|_| BackupError::Invalid)?;
+            if endpoint.len() > 4096
+                || url.as_str() != endpoint
+                || url.scheme() != "https"
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+                || !url.path().ends_with("/api/cloud/native-backup/v1/")
+            {
+                return Err(BackupError::Invalid);
+            }
+        }
         self.recovery.validate_for(&CloudScope {
             account_id: self.account.clone(),
             account_generation: DecimalU64::new(0),

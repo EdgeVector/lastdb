@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, RwLock};
 mod backup;
 pub mod backup_capture;
 pub mod backup_manifest;
+mod boundary;
 mod cloud_work;
 pub mod file_dependencies;
 pub mod file_recovery;
@@ -37,6 +38,7 @@ mod view;
 mod write;
 pub(crate) use crate::resident::CoreMemorySource;
 pub use crate::resident::CoreMemoryValue;
+pub use boundary::CoreNativeBackupBoundary;
 pub use maintenance::{NativeMaintenanceOptions, NativeMaintenanceReport};
 pub use memory::{NativeMemoryPurgeReport, NativeMemoryStatus};
 pub use parts::NativePartsStatus;
@@ -64,6 +66,7 @@ pub struct PackRuntime {
     compaction_slots: Arc<tokio::sync::Semaphore>,
     queue: Mutex<queue::WriteQueue>,
     completed: tokio::sync::watch::Sender<u64>,
+    native_backup_boundary: tokio::sync::watch::Sender<CoreNativeBackupBoundary>,
     persist_metrics: Arc<PersistLaneMetrics>,
     core: Arc<Mutex<crate::resident::CoreWarmSet>>,
     schema_keys: schema_keys::SchemaKeys,
@@ -141,6 +144,11 @@ impl PackNamespacedStore {
         let read_lease = writer.read_lease();
         let capture_cleanup = writer.capture_cleanup();
         let current = writer.current().clone();
+        let native_backup_boundary = tokio::sync::watch::channel(CoreNativeBackupBoundary {
+            source_home: home.descriptor().identity,
+            frontier: current.frontier,
+        })
+        .0;
         let parts = parts::PartsLedger::from_env(writer.dependency_parts(), &current);
         let metrics = Arc::new(PersistLaneMetrics::new());
         Ok(Self {
@@ -158,6 +166,7 @@ impl PackNamespacedStore {
                 compaction_slots: Arc::new(tokio::sync::Semaphore::new(2)),
                 queue: Mutex::new(queue::WriteQueue::default()),
                 completed: tokio::sync::watch::channel(0).0,
+                native_backup_boundary,
                 persist_metrics: metrics,
                 core: Arc::new(Mutex::new(crate::resident::CoreWarmSet::default())),
                 schema_keys: schema_keys::SchemaKeys::new(),

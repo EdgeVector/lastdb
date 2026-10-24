@@ -11,6 +11,9 @@ mod setup;
 pub(super) use setup::{is_setup, setup};
 
 pub(super) fn run(home: &Path, action: NativeBackupCommand) -> Result<(), String> {
+    if let NativeBackupCommand::Auto { action } = action {
+        return automatic(home, action);
+    }
     let (request, json) = match action {
         NativeBackupCommand::Start { request_id, json } => {
             let id = Id::try_from(request_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))
@@ -31,6 +34,23 @@ pub(super) fn run(home: &Path, action: NativeBackupCommand) -> Result<(), String
         super::super::socket_client::post_json_admin(&socket, "/api/sync/native-backup", &body)?;
     let value = parse_json_response(&response, "native backup")?;
     print(&value, json)
+}
+
+fn automatic(home: &Path, action: NativeBackupAutoCommand) -> Result<(), String> {
+    use lastdb_node::native_cloud_backup::AutoRequest;
+    let (request, json) = match action {
+        NativeBackupAutoCommand::On { json } => (AutoRequest::On, json),
+        NativeBackupAutoCommand::Off { json } => (AutoRequest::Off, json),
+        NativeBackupAutoCommand::Status { json } => (AutoRequest::Status, json),
+    };
+    let body = serde_json::to_value(request)
+        .map_err(|_| "cannot encode automatic backup request".to_owned())?;
+    let response = super::super::socket_client::post_json_admin(
+        &home.join("data/folddb.sock"),
+        "/api/sync/native-backup",
+        &body,
+    )?;
+    print(&parse_json_response(&response, "automatic backup")?, json)
 }
 
 pub(super) fn print(value: &serde_json::Value, json: bool) -> Result<(), String> {

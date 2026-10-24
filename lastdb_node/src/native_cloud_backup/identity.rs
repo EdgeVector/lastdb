@@ -3,7 +3,6 @@ use cloud_backup_protocol::recovery::RecoveryProfile;
 use cloud_backup_protocol::{AccountId, CloudScope, DecimalU64, Digest, Id, RecoveryDescriptor};
 use fold_db::crypto::E2eKeys;
 use fold_db::storage::disk_pack::PackRuntime;
-use fold_db::sync::auth::native_backup::NativeBackupClient;
 use std::path::PathBuf;
 use std::sync::Arc;
 use zeroize::Zeroizing;
@@ -67,6 +66,9 @@ impl Source {
             multi_file_pack_objects_verified: Some(0),
             retained_source_bytes: None,
             blocked_reason: None,
+            pause: None,
+            pause_consent_revision: None,
+            endpoint: None,
         }
     }
     pub fn validate(&self, saved: &Saved) -> Result<()> {
@@ -78,9 +80,6 @@ impl Source {
             return Err(BackupError::Identity);
         }
         Ok(())
-    }
-    pub fn client(&self) -> Result<NativeBackupClient> {
-        crate::native_backup_access::client_from_home(&self.home).map_err(|_| BackupError::Identity)
     }
     pub fn coordinator_bytes(&self, store: &Store) -> Result<u64> {
         store

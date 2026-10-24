@@ -4,7 +4,7 @@ use super::*;
 
 #[path = "cloud/native_backup.rs"]
 mod native_backup;
-pub(crate) use native_backup::NativeBackupCommand;
+pub(crate) use native_backup::{NativeBackupAutoCommand, NativeBackupCommand};
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {

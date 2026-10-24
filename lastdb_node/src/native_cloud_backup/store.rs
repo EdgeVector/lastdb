@@ -182,6 +182,73 @@ pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
         .map(Some)
         .map_err(|_| BackupError::Invalid)
 }
+
+/// Fixed-size consent metadata must remain writable when a job fills its spool.
+/// This path never walks job directories or changes their receipt accounting.
+pub(super) fn write_automatic<T: Serialize>(home: &Path, value: &T) -> Result<()> {
+    let base = Store::base(home);
+    directory(&base)?;
+    write_fixed(&base.join("automatic.json"), value, 8192)
+}
+
+/// Only the controller's exact accepted-head proof may add endpoint provenance
+/// to an already terminal legacy job. This does not select or reopen that job.
+pub(super) fn write_completed_state(home: &Path, saved: &Saved) -> Result<()> {
+    saved.validate()?;
+    if saved.retained_source_bytes != Some(0) {
+        return Err(BackupError::Invalid);
+    }
+    let root = Store::base(home)
+        .join("jobs")
+        .join(saved.request_id.as_str());
+    write_fixed(&root.join("state.json"), saved, MAX_JSON as usize)
+}
+
+fn write_fixed<T: Serialize>(path: &Path, value: &T, max: usize) -> Result<()> {
+    let bytes = canonical_bytes(value)?;
+    if bytes.len() > max {
+        return Err(BackupError::Limit);
+    }
+    let _guard = WRITE.lock().map_err(|_| BackupError::Disk)?;
+    let base = path.parent().ok_or(BackupError::Disk)?;
+    let pending = path.with_extension("pending");
+    private_control(path)?;
+    private_control(&pending)?;
+    let _space = laststore::disk_pack::maintenance::reserve_space(
+        base,
+        &laststore::disk_pack::maintenance::SpacePolicy::default(),
+        2 * max as u64 + 65536,
+    )
+    .map_err(|_| BackupError::Disk)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&pending)?;
+    file.write_all(&bytes)?;
+    file.sync_all()?;
+    fs::rename(pending, path)?;
+    File::open(base)?.sync_all()?;
+    File::open(base.parent().ok_or(BackupError::Disk)?)?.sync_all()?;
+    Ok(())
+}
+fn private_control(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta)
+            if meta.is_file()
+                && meta.uid() == unsafe { libc::geteuid() }
+                && meta.mode() & 0o077 == 0
+                && meta.nlink() == 1 =>
+        {
+            Ok(())
+        }
+        Ok(_) => Err(BackupError::Invalid),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
 fn directory(path: &Path) -> Result<()> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => {

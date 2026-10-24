@@ -2,6 +2,11 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum NativeBackupCommand {
+    /// Set or read explicit automatic backup consent for this home.
+    Auto {
+        #[command(subcommand)]
+        action: NativeBackupAutoCommand,
+    },
     /// Create one fresh DEV identity without a daemon, store, or cloud request.
     Init {
         /// Absent absolute home; its real parent must already exist.
@@ -74,6 +79,25 @@ pub(crate) enum NativeBackupCommand {
         into: Option<PathBuf>,
         #[arg(long)]
         resume: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum NativeBackupAutoCommand {
+    /// Permit automatic backup for the current account and native home.
+    On {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop future automatic work without closing the saved backup job.
+    Off {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read local automatic backup state without a cloud request.
+    Status {
         #[arg(long)]
         json: bool,
     },

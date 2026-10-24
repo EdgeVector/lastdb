@@ -44,27 +44,46 @@ pub(crate) fn complete_shutdown_proof(
     Ok(())
 }
 
-/// Wait for the sampler and conflict-fold tasks, then for background writers.
+/// Settle every owned task, including after a sibling failure, before the flush.
 pub(crate) fn drain_background(
     runtime: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     sampler_task: tokio::task::JoinHandle<()>,
     home_fold_task: tokio::task::JoinHandle<()>,
+    native_backup_task: tokio::task::JoinHandle<()>,
 ) -> Result<(), String> {
     runtime.block_on(async {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
         let drain = async {
-            sampler_task
-                .await
-                .map_err(|error| format!("self-metrics task failed: {error}"))?;
-            home_fold_task
-                .await
-                .map_err(|error| format!("home conflict task failed: {error}"))?;
+            let (sampler, fold, controller, backup) = tokio::join!(
+                sampler_task,
+                home_fold_task,
+                native_backup_task,
+                host.native_backup.drain(deadline),
+            );
+            let mut errors = Vec::new();
+            for (name, result) in [
+                ("self-metrics", sampler),
+                ("home conflict", fold),
+                ("automatic backup", controller),
+            ] {
+                if let Err(error) = result {
+                    errors.push(format!("{name} task failed: {error}"));
+                }
+            }
+            if let Err(error) = backup {
+                errors.push(format!("native backup did not drain: {error}"));
+            }
             while host.background_writes_in_flight() {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
-            Ok::<(), String>(())
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors.join("; "))
+            }
         };
-        tokio::time::timeout(std::time::Duration::from_secs(180), drain)
+        tokio::time::timeout_at(deadline, drain)
             .await
             .map_err(|_| "background writers did not drain within 180 seconds".to_string())?
     })

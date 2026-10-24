@@ -20,34 +20,35 @@ impl NativeBackupClient {
         grant.validate()?;
         let url = urls::signed(grant.url.as_str(), true)?;
         let timeout = self.transfer_timeout(input.object.bytes.get(), grant.expires_ms.get())?;
-        tokio::time::timeout(timeout, self.put(input, url, source))
+        let deadline = tokio::time::Instant::now() + timeout;
+        let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
             .await
             .map_err(|_| NativeBackupError::Timeout)?
-    }
-
-    async fn put(
-        &self,
-        input: &TransferInput,
-        url: Url,
-        source: Box<dyn Read + Send>,
-    ) -> Result<UploadObservation> {
-        let permit = Arc::clone(&self.uploads)
-            .acquire_owned()
-            .await
             .map_err(|_| NativeBackupError::Task)?;
-        let (body, feeder, cancel) = feed::start(source, input, permit);
-        let response = self
-            .http
-            .put(url)
-            .header(reqwest::header::CONTENT_LENGTH, input.object.bytes.get())
-            .header(reqwest::header::IF_NONE_MATCH, UPLOAD_IF_NONE_MATCH)
-            .body(body)
-            .send()
-            .await;
-        let Ok(response) = response else {
-            cancel.stop();
-            let _ = feeder.await;
-            return Err(NativeBackupError::Transport);
+        let (body, mut feeder, cancel) = feed::start(source, input, permit);
+        // The deadline owns only the transport future. The feeder remains owned
+        // here so every timeout/error cancels and joins it before source release.
+        let response = tokio::time::timeout_at(
+            deadline,
+            self.http
+                .put(url)
+                .header(reqwest::header::CONTENT_LENGTH, input.object.bytes.get())
+                .header(reqwest::header::IF_NONE_MATCH, UPLOAD_IF_NONE_MATCH)
+                .body(body)
+                .send(),
+        )
+        .await;
+        let response = match response {
+            Ok(Ok(response)) => response,
+            result => {
+                cancel.stop();
+                let _ = feeder.await;
+                return Err(if result.is_err() {
+                    NativeBackupError::Timeout
+                } else {
+                    NativeBackupError::Transport
+                });
+            }
         };
         let status = response.status();
         drop(response);
@@ -60,7 +61,14 @@ impl NativeBackupClient {
                 Err(NativeBackupError::Http(status.as_u16()))
             };
         }
-        feeder.await.map_err(|_| NativeBackupError::Task)??;
+        match tokio::time::timeout_at(deadline, &mut feeder).await {
+            Ok(result) => result.map_err(|_| NativeBackupError::Task)??,
+            Err(_) => {
+                cancel.stop();
+                let _ = feeder.await;
+                return Err(NativeBackupError::Timeout);
+            }
+        }
         Ok(UploadObservation::HttpSuccess)
     }
 }

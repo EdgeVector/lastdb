@@ -27,31 +27,27 @@ where
     F: Fn(usize) -> Result<Box<dyn Read + Send>>,
 {
     work.check_close()?;
-    let request = TransferPrepareRequest {
-        version: Version,
-        items: inputs,
-    };
-    let response = work.client.prepare(&request).await?;
+    let deadline = tokio::time::Instant::now() + super::retry::CONTROL_WAIT;
+    let views = super::retry::prepare(work, &inputs, deadline).await?;
     let open = &open;
-    let futures = request.items.iter().zip(response.items).enumerate().map(
-        |(index, (input, result))| async move {
-            let transfer = match result {
-                TransferItemResult::Ok { transfer } => transfer,
-                TransferItemResult::Error { error, .. } => {
-                    return Err(super::NativeBackupError::Protocol(error).into())
-                }
-            };
-            submit(work, input, transfer, || open(index)).await
-        },
-    );
+    let futures =
+        inputs
+            .iter()
+            .zip(views)
+            .enumerate()
+            .map(|(index, (input, transfer))| async move {
+                submit(work, input, transfer, deadline, || open(index)).await
+            });
     // Settle every sibling before returning any error. A positive response is
     // still authoritative on retry, and normal failures release source readers.
     let results = futures::future::join_all(futures).await;
     let result = match results.into_iter().collect::<Result<Vec<_>>>() {
-        Ok(views) => wait(work, &request.items, views).await,
+        Ok(views) => wait(work, &inputs, views).await,
         Err(error) => Err(error),
     };
-    let _ = super::usage::refresh(work.store, work.client, &work.source.account).await;
+    if work.check_close().is_ok() {
+        let _ = super::usage::refresh(work.store, work.client, &work.source.account).await;
+    }
     result
 }
 
@@ -59,6 +55,7 @@ async fn submit<F>(
     work: &Work<'_>,
     input: &TransferInput,
     view: TransferView,
+    deadline: tokio::time::Instant,
     open: F,
 ) -> Result<TransferView>
 where
@@ -71,7 +68,7 @@ where
         TransferStatus::Rejected { .. } => return Err(BackupError::Source),
         TransferStatus::Pending { .. } => {}
     }
-    match work.client.resume(input).await? {
+    match super::retry::resume(work, input, deadline).await? {
         TransferResumeResult::Grant { response } => {
             work.check_close()?;
             // A lost PUT response is not negative evidence. Complete still
@@ -132,9 +129,23 @@ async fn wait(
         let response =
             tokio::time::timeout_at(deadline, work.client.transfer_status(&request, &pending))
                 .await
-                .map_err(|_| BackupError::Waiting)??;
-        for (position, result) in positions.into_iter().zip(response.items) {
-            views[position] = item(result)?;
+                .map_err(|_| BackupError::Waiting)?;
+        match response {
+            Ok(response) => {
+                for (position, result) in positions.into_iter().zip(response.items) {
+                    match item(result) {
+                        Ok(view) => views[position] = view,
+                        Err(error) if error.retryable() => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            Err(error) => {
+                let error = BackupError::from(error);
+                if !error.retryable() {
+                    return Err(error);
+                }
+            }
         }
         attempt = attempt.saturating_add(1);
     }
