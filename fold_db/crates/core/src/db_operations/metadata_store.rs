@@ -13,6 +13,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use uuid::Uuid;
 
+mod idempotency;
+
 use crate::schema::SchemaError;
 use crate::storage::traits::KvStore;
 use crate::storage::StorageError;
@@ -154,25 +156,23 @@ impl MetadataStore {
 
     // ===== Idempotency store =====
 
-    /// Retrieve an item from the idempotency store by key.
-    pub async fn get_idempotency_item<T: DeserializeOwned + Send + Sync>(
+    /// Batch-read the bounded retry cache, preserving input order and scope.
+    pub async fn get_idempotency_ids(
         &self,
-        key: &str,
-    ) -> Result<Option<T>, SchemaError> {
-        self.idempotency_store
-            .get_item::<T>(key)
+        keys: &[String],
+    ) -> Result<Vec<Option<String>>, SchemaError> {
+        idempotency::get_many(&self.idempotency_store, keys)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("Failed to get idempotency item: {e}")))
+            .map_err(Into::into)
     }
 
-    /// Batch store idempotency entries (`(key, uuid)` pairs).
+    /// Store retry receipts in 256 buckets, at most 32 entries and 8 KiB each.
     pub async fn batch_put_idempotency(
         &self,
         entries: Vec<(String, String)>,
     ) -> Result<(), SchemaError> {
-        self.idempotency_store
-            .batch_put_items(entries)
+        idempotency::put(&self.idempotency_store, entries)
             .await
-            .map_err(|e| SchemaError::InvalidData(format!("Idempotency store failed: {e}")))
+            .map_err(Into::into)
     }
 }

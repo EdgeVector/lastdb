@@ -18,20 +18,26 @@ impl MutationManager {
         let mut new_mutations: Vec<Mutation> = Vec::new();
         let mut new_hashes: Vec<String> = Vec::new();
 
-        for mutation in mutations {
-            let hash = mutation.content_hash();
-            // Scope idempotency by DB handle so the same content in personal vs
-            // org DB (or two org DBs) is not treated as a cross-DB duplicate.
-            let key = crate::schema::types::field::build_storage_key(
-                storage_prefix,
-                &format!("idem:{hash}"),
-            );
-            if let Ok(Some(cached_id)) = self
-                .db_ops
-                .metadata()
-                .get_idempotency_item::<String>(&key)
-                .await
-            {
+        let hashes: Vec<_> = mutations.iter().map(Mutation::content_hash).collect();
+        let keys: Vec<_> = hashes
+            .iter()
+            .map(|hash| {
+                crate::schema::types::field::build_storage_key(
+                    storage_prefix,
+                    &format!("idem:{hash}"),
+                )
+            })
+            .collect();
+        // The fingerprint includes the exact DB scope. All selected cache
+        // buckets are fetched together; a cache failure is a safe miss.
+        let cached = self
+            .db_ops
+            .metadata()
+            .get_idempotency_ids(&keys)
+            .await
+            .unwrap_or_else(|_| vec![None; mutations.len()]);
+        for ((mutation, hash), cached_id) in mutations.into_iter().zip(hashes).zip(cached) {
+            if let Some(cached_id) = cached_id {
                 tracing::debug!(
                     "Idempotency hit for mutation hash {}, returning cached id {}",
                     hash,
