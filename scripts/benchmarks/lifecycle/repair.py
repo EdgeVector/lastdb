@@ -1,6 +1,7 @@
 """Tom-approved one-time repair drill; this integration PR does not merge."""
 
 FIELDS = ["bucket", "id", "body"] + [f"field-{number:02}" for number in range(24)]
+SCOPE = "6e18c61c7416a50b7f221c4cf2f80b6e9a1f4459db974a30430a1c87e3df44ca"
 
 
 def seed(node):
@@ -40,6 +41,12 @@ def measure_repair(node, args, command, recount):
         sequence += 1
         return command(node, args.helper, [str(node.home), phase],
                        f"repair-{sequence:02}-{phase}")
+
+    second_scope = helper("repair-seed-scope")
+    repair_command = recount
+
+    def recount(node, cli, label, **settings):
+        return repair_command(node, cli, label, scope=SCOPE, **settings)
 
     damage = helper("repair-inject-repairable")
     if damage["original_digest"] == damage["damaged_digest"]:
@@ -87,4 +94,5 @@ def measure_repair(node, args, command, recount):
             "plan_writes_nothing": True, "repairs": repaired, "repeat_is_no_op": True,
             "restored_source_digest": damage["original_digest"], "refusals": refusals,
             "reopened_values_equal": True,
-            "scope": "Approved one-time generated damage; personal scope in both key modes"}
+            "second_scope": second_scope,
+            "scope": "Approved one-time generated damage; two populated storage scopes in both key modes"}

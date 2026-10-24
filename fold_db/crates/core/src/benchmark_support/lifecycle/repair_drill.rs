@@ -4,6 +4,7 @@
 use super::{Result, Value};
 use crate::db_operations::atom_store::{AtomStore, RangeWalk};
 use crate::fold_db_core::fold_db::FoldDB;
+use crate::schema::types::field::build_storage_key;
 use crate::storage::KvMutation;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -11,6 +12,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 const CHECKPOINT: &[u8] = b"lifecycle-ci:repair-checkpoint";
+const SCOPE: &str = "6e18c61c7416a50b7f221c4cf2f80b6e9a1f4459db974a30430a1c87e3df44ca";
 const PREFIXES: &[&str] = &["mk:", "mh:", "history\0", "mref:v1:", "atom:", "cas:"];
 type Rows = BTreeMap<Vec<u8>, Vec<u8>>;
 
@@ -29,6 +31,9 @@ struct Checkpoint {
 pub(super) async fn measure(db: &FoldDB, phase: &str) -> Result<Value> {
     let atoms = db.db_ops().atoms();
     let rows = inventory(atoms).await?;
+    if phase == "repair-seed-scope" {
+        return seed_scope(atoms, rows).await;
+    }
     if phase == "repair-inventory" {
         return Ok(json!({"digest":digest(&rows), "rows":rows.len()}));
     }
@@ -68,8 +73,12 @@ pub(super) async fn measure(db: &FoldDB, phase: &str) -> Result<Value> {
 
 async fn inventory(atoms: &AtomStore) -> Result<Rows> {
     let mut rows = Rows::new();
-    for prefix in PREFIXES {
-        let end = crate::schema::types::field::FilterUtils::create_prefix_end(prefix)?;
+    for prefix in [None, Some(SCOPE)].into_iter().flat_map(|scope| {
+        PREFIXES
+            .iter()
+            .map(move |prefix| build_storage_key(scope, prefix))
+    }) {
+        let end = crate::schema::types::field::FilterUtils::create_prefix_end(&prefix)?;
         let mut walk = RangeWalk::new(prefix.as_bytes(), end.as_bytes(), 256);
         for _ in 0..64 {
             if walk.done() {
@@ -107,8 +116,8 @@ fn operations(changes: &BTreeMap<Vec<u8>, Option<Vec<u8>>>) -> Vec<KvMutation> {
     changes
         .iter()
         .map(|(key, value)| match value {
-            Some(value) => KvMutation::put(key, value),
-            None => KvMutation::delete(key),
+            Some(value) => KvMutation::put(key.as_slice(), value.as_slice()),
+            None => KvMutation::delete(key.as_slice()),
         })
         .collect()
 }
@@ -144,9 +153,10 @@ fn shard(molecule: &str) -> u64 {
     }) % 4
 }
 
-fn header(rows: &Rows, wanted: u64) -> Result<(Vec<u8>, Value, String)> {
+fn header(rows: &Rows, wanted: u64, scope: Option<&str>) -> Result<(Vec<u8>, Value, String)> {
+    let prefix = build_storage_key(scope, "mh:");
     for (key, bytes) in rows {
-        let Some(molecule) = key.strip_prefix(b"mh:") else {
+        let Some(molecule) = key.strip_prefix(prefix.as_bytes()) else {
             continue;
         };
         let molecule = std::str::from_utf8(molecule)?;
@@ -166,16 +176,20 @@ fn corrupt_header(mut value: Value) -> Result<Vec<u8>> {
 }
 
 fn perturbations(rows: &Rows, case: &str) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>> {
-    let (dirty_key, dirty, _) = header(rows, 0)?;
-    let (key, value, molecule) = header(rows, 3)?;
+    let (dirty_key, dirty, _) = header(rows, 0, None)?;
+    let (key, value, molecule) = header(rows, 3, Some(SCOPE))?;
     // Every refusal also sees an independently repairable header in shard 0.
     // A later-shard refusal must leave that earlier repair unwritten.
     let mut changes = BTreeMap::from([(dirty_key, Some(corrupt_header(dirty)?))]);
     let token = format!("{:x}", Sha256::digest(molecule.as_bytes()));
-    let counter_key = format!("mref:v1:n:{token}").into_bytes();
+    let counter_key = build_storage_key(Some(SCOPE), &format!("mref:v1:n:{token}")).into_bytes();
     let edges: Vec<_> = rows
         .iter()
-        .filter(|(key, _)| key.starts_with(format!("mref:v1:e:{token}\0").as_bytes()))
+        .filter(|(key, _)| {
+            key.starts_with(
+                build_storage_key(Some(SCOPE), &format!("mref:v1:e:{token}\0")).as_bytes(),
+            )
+        })
         .collect();
     if edges.is_empty() {
         return Err("the selected live molecule lacks real binding records".into());
@@ -189,7 +203,10 @@ fn perturbations(rows: &Rows, case: &str) -> Result<BTreeMap<Vec<u8>, Option<Vec
                     &json!({"v":1,"bindings":800_001,"suspect":true}),
                 )?),
             );
-            let orphan = format!("mref:v1:n:{:x}", Sha256::digest(b"generated-orphan"));
+            let orphan = build_storage_key(
+                Some(SCOPE),
+                &format!("mref:v1:n:{:x}", Sha256::digest(b"generated-orphan")),
+            );
             if rows.contains_key(orphan.as_bytes()) {
                 return Err("the generated orphan identity already exists".into());
             }
@@ -222,7 +239,11 @@ fn perturbations(rows: &Rows, case: &str) -> Result<BTreeMap<Vec<u8>, Option<Vec
         "unreadable-tip" => {
             let tip = rows
                 .keys()
-                .find(|key| key.starts_with(format!("mk:{molecule}:").as_bytes()))
+                .find(|key| {
+                    key.starts_with(
+                        build_storage_key(Some(SCOPE), &format!("mk:{molecule}:")).as_bytes(),
+                    )
+                })
                 .ok_or("the selected live molecule lacks a tip")?;
             changes.insert(tip.clone(), Some(b"not-json".to_vec()));
         }
@@ -230,7 +251,7 @@ fn perturbations(rows: &Rows, case: &str) -> Result<BTreeMap<Vec<u8>, Option<Vec
             let record = rows
                 .keys()
                 .find(|key| {
-                    key.starts_with(b"history\0")
+                    key.starts_with(build_storage_key(Some(SCOPE), "history\0").as_bytes())
                         && key.windows(10).any(|part| part == b":conflict:")
                 })
                 .ok_or("the real replay workload lacks a conflict record")?;
@@ -239,4 +260,29 @@ fn perturbations(rows: &Rows, case: &str) -> Result<BTreeMap<Vec<u8>, Option<Vec
         _ => return Err("unknown generated repair damage".into()),
     }
     Ok(changes)
+}
+
+async fn seed_scope(atoms: &AtomStore, rows: Rows) -> Result<Value> {
+    let prefix = format!("{SCOPE}:");
+    if rows.keys().any(|key| key.starts_with(prefix.as_bytes())) {
+        return Err("the generated second scope already contains records".into());
+    }
+    // Copy only this generated home's actual protected records. This creates
+    // a second populated storage scope for cross-scope repair/refusal checks.
+    let changes = rows
+        .into_iter()
+        .map(|(key, value)| {
+            let mut scoped = prefix.as_bytes().to_vec();
+            scoped.extend(key);
+            (scoped, Some(value))
+        })
+        .collect();
+    let mut mutations = operations(&changes);
+    let count = mutations.len();
+    while !mutations.is_empty() {
+        let batch = mutations.split_off(mutations.len().saturating_sub(256));
+        atoms.raw().inner().batch_mutate(batch).await?;
+    }
+    atoms.flush().await?;
+    Ok(json!({"scope":SCOPE, "copied_generated_records":count}))
 }

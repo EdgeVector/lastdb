@@ -131,8 +131,10 @@ def retention(node):
     return hashed, ranged, young, values
 
 
-def recount(node, cli, label, execute=False, cutoff=None, success=True, shards=4):
+def recount(node, cli, label, execute=False, cutoff=None, success=True, shards=4, scope=None):
     arguments = ["--data-dir", str(node.home), "db", "recount", "--all-scopes", "--molecules", "--shards", str(shards), "--json"]
+    if scope is not None:
+        arguments.extend(["--scope", scope])
     if execute:
         arguments.append("--execute")
     if cutoff is not None:
