@@ -234,7 +234,6 @@ fn protect_paths(runtime: &PackRuntime, pending: &PendingBatch) -> StorageResult
             .take();
     }
     let paths = std::mem::take(&mut *pending.paths.lock().expect("native private paths"));
-    let absences = std::mem::take(&mut *pending.absences.lock().expect("native private absences"));
     let definitions = std::mem::take(
         &mut *pending
             .definitions
@@ -249,16 +248,12 @@ fn protect_paths(runtime: &PackRuntime, pending: &PendingBatch) -> StorageResult
         .expect("native model reservation")
         .clone();
     let publication = super::super::logical_paths::PathPublication { definitions, owner };
-    let protection = match super::super::logical_paths::PathProtection::reserve(
-        runtime,
-        &paths,
-        &absences,
-        publication,
-    ) {
-        Ok(protection) => protection,
-        Err(StorageError::WriteResourceLimit { .. }) => return Ok(()),
-        Err(error) => return Err(error),
-    };
+    let protection =
+        match super::super::logical_paths::PathProtection::reserve(runtime, &paths, publication) {
+            Ok(protection) => protection,
+            Err(StorageError::WriteResourceLimit { .. }) => return Ok(()),
+            Err(error) => return Err(error),
+        };
     *pending
         .path_protection
         .lock()

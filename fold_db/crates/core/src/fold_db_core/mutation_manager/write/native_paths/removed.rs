@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::schema::types::Schema;
-use crate::storage::disk_pack::logical_paths::LogicalPathAbsence;
+use crate::storage::disk_pack::logical_paths::LogicalPathRecord;
 
 impl MutationManager {
     pub(in crate::fold_db_core::mutation_manager) async fn stage_purge_core_paths(
@@ -152,7 +152,7 @@ impl MutationManager {
             }
             let sources = vec![crate::schema::types::field::build_storage_key(scope, &base)];
             for binding in &bindings[&molecule] {
-                absent.push(LogicalPathAbsence::new(
+                absent.push(LogicalPathRecord::absent(
                     LogicalPath {
                         scope: scope.map(str::to_owned),
                         schema: binding.schema.clone(),
@@ -166,7 +166,7 @@ impl MutationManager {
                 ));
             }
         }
-        match transaction::stage_absences(runtime, absent) {
+        match transaction::stage_paths(runtime, absent) {
             Err(crate::storage::StorageError::WriteResourceLimit { .. }) => {
                 Ok(transaction::require_durable(runtime)?)
             }
