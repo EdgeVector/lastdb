@@ -38,14 +38,19 @@ pub(crate) fn setup(source: Option<&Path>, action: NativeBackupCommand) -> Resul
         NativeBackupCommand::Connect {
             dev,
             invite_code_stdin,
+            restored,
             json,
         } => {
             if !dev {
                 return Err("native backup connect requires --dev".into());
             }
+            if restored && invite_code_stdin {
+                return Err("restored account reconnect does not accept a new invite".into());
+            }
             connect(
                 source.ok_or("native backup connect requires an explicit --data-dir")?,
                 invite_code_stdin,
+                restored,
                 json,
             )
         }
@@ -82,15 +87,22 @@ fn initialize(destination: &Path, phrase_path: &Path, json: bool) -> Result<(), 
     )
 }
 
-fn connect(home: &Path, invite_stdin: bool, json: bool) -> Result<(), String> {
-    let directory = files::PreparedHome::open(home)?;
+fn connect(home: &Path, invite_stdin: bool, restored: bool, json: bool) -> Result<(), String> {
+    let directory = if restored {
+        files::PreparedHome::open_restored(home)?
+    } else {
+        files::PreparedHome::open(home)?
+    };
     let seed = directory.seed()?;
     let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| "invalid native backup identity")?;
     let account = lastdb_identity::user_hash_from_pubkey(&pair.public_key_base64())?;
     let api_url = exemem_api_url_for(Environment::Dev);
+    if restored {
+        directory.device_id()?;
+    }
     if directory.finish_saved_credentials(api_url)? {
-        return connected(&account, home, false, json);
+        return connected(&account, home, false, restored, json);
     }
     let invite = invite_stdin.then(read_invite).transpose()?;
     let device_id = directory.device_id()?;
@@ -107,7 +119,10 @@ fn connect(home: &Path, invite_stdin: bool, json: bool) -> Result<(), String> {
         .map_err(|error| {
             format!("{error}; registration may have committed; retry only by an explicit request")
         })?;
-    if registered.user_hash != account || directory.seed()?.as_ref() != seed.as_ref() {
+    if registered.user_hash != account
+        || directory.seed()?.as_ref() != seed.as_ref()
+        || directory.device_id()? != device_id
+    {
         return Err("native enrollment identity changed; registration may have committed".into());
     }
     let credentials = zeroize::Zeroizing::new(
@@ -119,10 +134,49 @@ fn connect(home: &Path, invite_stdin: bool, json: bool) -> Result<(), String> {
     directory
         .save_credentials(&credentials)
         .map_err(|error| format!("{error}; registration may have committed; retain this home"))?;
-    connected(&account, home, true, json)
+    connected(&account, home, true, restored, json)
 }
 
-fn connected(account: &str, home: &Path, registered: bool, json: bool) -> Result<(), String> {
+fn validate_restored_credentials(
+    api_url: &str,
+    api_key: &str,
+    account: &str,
+) -> Result<(), String> {
+    use fold_db::sync::auth::{native_backup::NativeBackupClient, AuthClient, SyncAuth};
+    let http = fold_db::sync::build_shared_http_client()
+        .map_err(|_| "cannot construct restored credential transport")?;
+    let auth = AuthClient::new(
+        std::sync::Arc::new(http),
+        api_url.to_owned(),
+        SyncAuth::ApiKey(api_key.to_owned()),
+    )
+    .without_db_auto_claim();
+    let client = NativeBackupClient::from_auth(auth)
+        .map_err(|_| "invalid restored native account endpoint")?;
+    let account = cloud_backup_protocol::AccountId::try_from(account.to_owned())
+        .map_err(|_| "invalid restored account identity")?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "cannot construct restored credential validation runtime")?;
+    runtime
+        .block_on(client.context(
+            &cloud_backup_protocol::context::ContextReadRequest {
+                version: cloud_backup_protocol::Version,
+            },
+            &account,
+        ))
+        .map(|_| ())
+        .map_err(|_| "saved native credentials do not authorize the restored account".into())
+}
+
+fn connected(
+    account: &str,
+    home: &Path,
+    registered: bool,
+    restored: bool,
+    json: bool,
+) -> Result<(), String> {
     print(
         &serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": "dev",
@@ -130,6 +184,7 @@ fn connected(account: &str, home: &Path, registered: bool, json: bool) -> Result
             "cloud_sync_off": true, "local_store_opened": false,
             "registration_attempted": registered, "credentials_saved": true,
             "api_key_output": false, "legacy_recipient_enrolled": false,
+            "restored_home": restored, "automatic_backup_enabled": false,
         }),
         json,
     )
