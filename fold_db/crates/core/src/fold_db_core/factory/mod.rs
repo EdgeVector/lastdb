@@ -2,7 +2,7 @@
 //!
 //! Layout:
 //! - [`local`] — native local construction and at-rest encryption
-//! - [`boot`] — boot decrypt proof
+//! - [`boot`] — boot decryption error context
 //!
 //! [`create_fold_db`] uses the default local options.
 //! [`create_fold_db_with_options`] names the optional encryption and Search inputs.
@@ -30,8 +30,8 @@ pub use local::at_rest_provider_label;
 pub struct FoldDbOptions {
     /// Open without periodic writers. The offline owner retains the home lock.
     pub offline_maintenance: bool,
-    /// An embedded caller can supply an unlocked store keyring. Mini uses None
-    /// so its account E2E content key protects local data.
+    /// An embedded caller can supply a keyring for the CAS storage wrapper.
+    /// Mini uses None so that wrapper uses the account content key.
     pub at_rest_keyring: Option<Arc<Keyring>>,
     /// Explicit Search inbox for the node home. None uses the existing
     /// environment-based Search inbox resolution.

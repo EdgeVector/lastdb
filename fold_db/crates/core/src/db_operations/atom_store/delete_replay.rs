@@ -8,7 +8,7 @@ use crate::storage::{KvMutation, StorageError};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const CUTOFF_KEY: &str = "layout:v3:delete-replay-cutoff";
-pub(crate) const FENCED_KEY_FORMAT: &[u8] = b"5;delete-replay-cutoff=v1";
+pub(crate) const FENCED_KEY_FORMAT: &[u8] = b"6;delete-replay-cutoff=v1";
 
 #[derive(Serialize, Deserialize)]
 struct Cutoff {
@@ -80,9 +80,7 @@ impl AtomStore {
                 }
                 Ok(floor.minimum_written_at_nanos)
             }
-            (Some(marker), None) if marker == super::key_format::KEY_FORMAT || marker == b"4" => {
-                Ok(0)
-            }
+            (Some(marker), None) if marker == super::key_format::KEY_FORMAT => Ok(0),
             _ => Err(invalid("the floor and format marker disagree")),
         }
     }

@@ -40,7 +40,7 @@ pub(crate) const ENCRYPTED_PREFIX: &str = "ENC:";
 /// per-store drift that codec exists to prevent.
 pub(crate) const DEFLATED_PREFIX: &str = AT_REST_ENC_DEFLATE_PREFIX;
 
-/// A decorator that protects values that have no existing element-level seal.
+/// The storage envelope for local CAS blob records.
 ///
 /// This wraps any `KvStore` implementation, inserting an encryption layer
 /// between the `TypedKvStore` serialization boundary and the actual backend.
@@ -55,9 +55,9 @@ pub(crate) const DEFLATED_PREFIX: &str = AT_REST_ENC_DEFLATE_PREFIX;
 ///
 /// Keys are NOT encrypted — only values. This preserves indexing and scan_prefix.
 ///
-/// Atom bodies and CAS records with their existing inner protection write
-/// directly. Other values retain the outer envelope. Reads also open old
-/// outer-wrapped atoms and CAS records without rewriting them.
+/// Every new CAS record receives the envelope. Reads also accept the earlier
+/// direct account-v2 CAS form, which retains its authenticated file encryption.
+/// Other namespaces do not use this decorator.
 ///
 /// Write-side compression policy for one store instance.
 ///
@@ -87,7 +87,7 @@ impl KvCompressionPolicy {
 }
 
 pub struct EncryptingKvStore {
-    /// The namespace selects exact inner-protected record families and names
+    /// The namespace selects the earlier direct CAS record family and names
     /// discarded values in the log and counter.
     namespace: Arc<str>,
     inner: Arc<dyn KvStore>,
@@ -99,8 +99,7 @@ pub struct EncryptingKvStore {
 impl EncryptingKvStore {
     /// Create a new encrypting store wrapping the given inner store.
     ///
-    /// There is no plaintext migration mode. Only exact atom/CAS records with
-    /// inner protection may omit the namespace envelope.
+    /// New CAS writes always receive the namespace envelope.
     pub fn new(namespace: &str, inner: Arc<dyn KvStore>, crypto: Arc<dyn CryptoProvider>) -> Self {
         Self {
             namespace: Arc::from(namespace),
@@ -118,7 +117,7 @@ impl EncryptingKvStore {
 
     /// True when a stored value carries an at-rest envelope marker (`ENC:` /
     /// `ENZ:` / `ENB:`) — i.e. it was written through an encrypting layer.
-    /// Maintenance also preserves exact atom/CAS families with inner protection.
+    /// Maintenance also preserves the earlier direct CAS form.
     pub(crate) fn is_encrypted_value(value: &[u8]) -> bool {
         is_sealed_at_rest(value)
     }
@@ -173,11 +172,8 @@ impl EncryptingKvStore {
         Ok(sealed)
     }
 
-    /// Preserve an existing element seal; wrap only records that still need one.
+    /// Every new local CAS record receives the account storage envelope.
     async fn protect_value(&self, key: &[u8], value: Vec<u8>) -> StorageResult<Vec<u8>> {
-        if inner_protected::has_inner_protection(&self.namespace, key, &value) {
-            return Ok(value);
-        }
         self.seal_value(key, &value).await
     }
 
@@ -247,7 +243,7 @@ impl EncryptingKvStore {
             && !is_sealed_at_rest(&stored)
         {
             return Err(StorageError::EncryptionError(
-                "atom or file record lacks its required inner protection".into(),
+                "CAS record lacks its required file protection".into(),
             ));
         }
         let crypto = self.select_crypto(key);

@@ -12,6 +12,7 @@
 //!   codec for stores that bypass the namespaced encryption seam
 
 pub mod at_rest;
+pub(crate) mod content_key_proof;
 pub mod e2e;
 pub mod envelope;
 pub mod error;

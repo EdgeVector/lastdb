@@ -188,28 +188,15 @@ pub(crate) fn build_engine_with_auth(
     let sync_crypto: std::sync::Arc<dyn fold_db::crypto::CryptoProvider> = std::sync::Arc::new(
         fold_db::crypto::LocalCryptoProvider::from_key(e2e.encryption_key()),
     );
-    // Mutation-log replay must write through the local at-rest seam, exactly as
-    // the daemon wires it (`fold_db_core::factory::local::store_stack`: the
-    // engine receives `enc_store`, the cursor store stays raw). Handing the
-    // engine the bare LastStore made `stored_replay_value` fall through to its
-    // no-key branch and write logical bytes verbatim, so every replayed
-    // `main`/`metadata` row landed unsealed on disk while S0 chunks stayed
-    // sealed. Catalog namespaces stay plaintext by policy through the same
-    // allowlist the factory uses.
+    // Replay keeps direct atom/tip/control values and wraps only local CAS.
     let at_rest_crypto: std::sync::Arc<dyn fold_db::crypto::CryptoProvider> = std::sync::Arc::new(
         fold_db::crypto::LocalCryptoProvider::from_key(e2e.encryption_key()),
     );
-    let namespaced: std::sync::Arc<dyn fold_db::storage::NamespacedStore> = std::sync::Arc::new(
-        fold_db::storage::EncryptingNamespacedStore::with_plaintext_namespaces(
+    let namespaced: std::sync::Arc<dyn fold_db::storage::NamespacedStore> =
+        std::sync::Arc::new(fold_db::storage::EncryptingNamespacedStore::new(
             std::sync::Arc::clone(store) as _,
             at_rest_crypto,
-            fold_db::storage::LASTSTORE_PLAINTEXT_NAMESPACES
-                .iter()
-                .copied()
-                .map(str::to_string)
-                .collect(),
-        ),
-    );
+        ));
     let signer = std::sync::Arc::new(
         fold_db::security::Ed25519KeyPair::from_secret_key(&identity.seed)
             .map_err(|e| runtime_failure(format!("restore signer from identity seed: {e}")))?,

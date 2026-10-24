@@ -100,13 +100,5 @@ harness = false
 name = "query_path_bench"
 harness = false
 
-# At-rest-encryption bulk-scan overhead (Gap G1 slice d). Measures the per-row
-# AES-256-GCM decrypt cost on the schema-load-at-boot and lineage-style bulk
-# scan paths (encrypted vs. plaintext control on the same corpus). Run with
-# `cargo bench -p fold_db --bench encrypt_scan_bench`.
-[[bench]]
-name = "encrypt_scan_bench"
-harness = false
-
 [lints]
 workspace = true

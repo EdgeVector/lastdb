@@ -65,14 +65,7 @@ fn open_copy_store(copy_home: &Path) -> Result<EncryptingNamespacedStore, String
     );
     let crypto: Arc<dyn CryptoProvider> =
         Arc::new(LocalCryptoProvider::from_key(keys.encryption_key()));
-    Ok(EncryptingNamespacedStore::with_plaintext_namespaces(
-        base,
-        crypto,
-        fold_db::storage::LASTSTORE_PLAINTEXT_NAMESPACES
-            .iter()
-            .map(|name| (*name).to_string())
-            .collect(),
-    ))
+    Ok(EncryptingNamespacedStore::new(base, crypto))
 }
 
 /// Cloud auth client from the copy's paused cloud configuration.

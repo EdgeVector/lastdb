@@ -1,32 +1,10 @@
 use super::*;
 
 impl EncryptingNamespacedStore {
-    /// The reason `reap-unsealed` must refuse `collection`, if any.
-    ///
-    /// Three independent tests, any one of which is enough. They overlap on
-    /// purpose: the static list guards against a test-built seam whose
-    /// per-instance allowlist is empty, and the instance policy guards against
-    /// a namespace that a future allowlist edit makes plaintext without
-    /// touching the static list. A plaintext-by-policy namespace holds only
-    /// un-enveloped rows, so a reap there would empty the schema catalog.
+    /// Never erase direct atom, tip, or control records as unsealed residue.
     pub fn reap_unsealed_refusal(&self, collection: &str) -> Option<String> {
-        if collection == STRICT_MARKER_NAMESPACE {
-            return Some(format!(
-                "`{collection}` is the reserved at-rest marker namespace and is plaintext by policy"
-            ));
-        }
-        if LASTSTORE_PLAINTEXT_NAMESPACES.contains(&collection) {
-            return Some(format!(
-                "`{collection}` is on LASTSTORE_PLAINTEXT_NAMESPACES; every row there is \
-                 legitimately un-enveloped and removing them destroys the schema catalog"
-            ));
-        }
-        if !self.should_encrypt(collection) {
-            return Some(format!(
-                "`{collection}` is plaintext by this store's policy; there is no envelope to test"
-            ));
-        }
-        None
+        (!self.should_encrypt(collection))
+            .then(|| format!("`{collection}` has no storage wrapper; only cas_blobs may be reaped"))
     }
 
     pub(super) async fn reseal_at_rest_impl(

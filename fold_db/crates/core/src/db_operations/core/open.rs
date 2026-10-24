@@ -213,6 +213,7 @@ impl DbOperations {
             hash_key_codec,
             &molecule_keys,
             admit_meter_trust,
+            atom_content_key.or(molecule_wrap_key),
         )
         .await?;
         let public_key_store = PublicKeyStore::new(public_keys_typed);
@@ -243,6 +244,7 @@ impl DbOperations {
         hash_key_codec: crate::atom::MoleculeKeyCodec,
         molecule_keys: &MoleculeKeyStore,
         admit_meter_trust: bool,
+        proof_key: Option<[u8; 32]>,
     ) -> Result<AtomStore, crate::storage::StorageError> {
         // Fresh native construction records the selected current key layout.
         // Reopen requires that exact marker and refuses a different setting.
@@ -254,7 +256,7 @@ impl DbOperations {
         .with_namespaced_store(Arc::clone(store))
         .with_molecule_keys(molecule_keys.clone())
         .with_keep_small_persist(namespaces.keep_small);
-        Self::initialize_fresh_native_refs(store, &atom_store).await?;
+        Self::initialize_fresh_native_refs(store, &atom_store, proof_key).await?;
         // Fail-closed meter TRUST, not fail-closed availability. #2186 refused
         // boot on any hydrate error; on 2026-09-25 that made every new build
         // refuse the primary home because its keep_small group (1.08 GB of
@@ -283,17 +285,23 @@ impl DbOperations {
     async fn initialize_fresh_native_refs(
         store: &Arc<dyn NamespacedStore>,
         atoms: &AtomStore,
+        proof_key: Option<[u8; 32]>,
     ) -> Result<(), crate::storage::StorageError> {
         let Some(runtime) = store.disk_pack_runtime() else {
             return Ok(());
         };
         crate::storage::disk_pack::transaction::scope(Some(Arc::clone(&runtime)), async {
-            if runtime.fresh_initialization_pending()
-                && atoms.fresh_native_initialization_needed().await?
-            {
+            let fresh = runtime.fresh_initialization_pending()
+                && atoms.fresh_native_initialization_needed().await?;
+            if fresh {
                 atoms.initialize_key_format().await?;
             }
-            atoms.require_current_key_format().await
+            atoms.require_current_key_format().await?;
+            if let Some(key) = proof_key {
+                crate::crypto::content_key_proof::verify_or_establish(store.as_ref(), &key, fresh)
+                    .await?;
+            }
+            Ok::<(), crate::storage::StorageError>(())
         })
         .await?;
         runtime.finish_fresh_initialization().await
