@@ -71,19 +71,20 @@ impl HashRangeQueryProcessor {
                         .map(|key| (key.clone(), request.own_prefix.clone()))
                         .collect();
                     async move {
-                        self.retain_named_layout(
-                            schema,
-                            request.name,
-                            &mut values,
-                            &sources,
-                            request.include_tombstones,
-                        )
-                        .await?;
-                        Ok(values)
+                        let layout_values = self
+                            .retain_named_layout(
+                                schema,
+                                request.name,
+                                &mut values,
+                                &sources,
+                                request.include_tombstones,
+                            )
+                            .await?;
+                        Ok((values, layout_values))
                     }
                     .boxed()
                 };
-                let (values, had_spine) = field
+                let (values, layout_values, had_spine) = field
                     .resolve_named_window(
                         &self.db_ops,
                         filter,
@@ -93,6 +94,7 @@ impl HashRangeQueryProcessor {
                     )
                     .await?;
                 let mut selected = PrimarySelection::new(values, &request.own_prefix);
+                selected.layout_values = layout_values;
                 selected.had_spine = had_spine;
                 return Ok(selected);
             }
@@ -137,14 +139,15 @@ impl HashRangeQueryProcessor {
         self.merge_primary_namespaces(field, request, request.filter.clone(), &mut selected)
             .await?;
         if request.named_layout {
-            self.retain_named_layout(
-                schema,
-                request.name,
-                &mut selected.values,
-                &selected.sources,
-                request.include_tombstones,
-            )
-            .await?;
+            selected.layout_values = self
+                .retain_named_layout(
+                    schema,
+                    request.name,
+                    &mut selected.values,
+                    &selected.sources,
+                    request.include_tombstones,
+                )
+                .await?;
             selected
                 .sources
                 .retain(|key, _| selected.values.contains_key(key));

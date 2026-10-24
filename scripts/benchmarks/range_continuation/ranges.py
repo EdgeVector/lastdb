@@ -44,13 +44,18 @@ def selected(expected, request):
             if hashed == spec["hash"] and ranged.startswith(spec["prefix"])]
 
 
-def validate(result, expected, coordinates):
+def validate(result, expected, coordinates, projected_fields=None):
     records = result.get("results", [])
     actual = [(row["key"].get("hash"), row["key"].get("range")) for row in records]
     if actual != coordinates or result.get("returned_count") != len(coordinates):
         raise RuntimeError("The query page membership, order, or returned count differs")
     for coordinate, row in zip(coordinates, records):
-        if row["fields"] != expected[coordinate]:
+        wanted = expected[coordinate]
+        if projected_fields is not None:
+            # Current co-key responses also retain the declared primary hash
+            # field. Check that exact established shape on both binaries.
+            wanted = {name: wanted[name] for name in ["bucket", *projected_fields]}
+        if row["fields"] != wanted:
             raise RuntimeError("A generated query page returns stale or incorrect fields")
     if result.get("unresolved_rows") != 0:
         raise RuntimeError("A generated query page reports an unresolved record")
@@ -82,7 +87,7 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False):
         count = len(result.get("results", []))
         if count > request["limit"] or position + count > len(wanted):
             raise RuntimeError("The query page exceeds its selected interval")
-        validate(result, expected, wanted[position:position + count])
+        validate(result, expected, wanted[position:position + count], request.get("fields"))
         if receipt["storage_read_receipt"] is None:
             raise RuntimeError("A measured query lacks its storage read receipt")
         samples.append({"request_id": receipt["request_id"], "elapsed_ms": receipt["elapsed_ms"],

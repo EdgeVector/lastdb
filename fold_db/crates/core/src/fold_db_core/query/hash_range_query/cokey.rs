@@ -51,7 +51,7 @@ impl HashRangeQueryProcessor {
             });
         }
 
-        let (primary_name, primary_vals, page_keys, key_sources) = self
+        let (primary_name, primary_vals, page_keys, key_sources, layout_values) = self
             .resolve_cokey_primary_page(
                 schema,
                 key_selected,
@@ -66,6 +66,24 @@ impl HashRangeQueryProcessor {
             page_keys,
             key_sources,
         };
+        // Membership already resolved the range field through the selected
+        // source. Move it only when requested and complete for this final page.
+        let reused_field = schema
+            .key
+            .as_ref()
+            .and_then(|key| key.range_field.as_ref())
+            .filter(|range_field| {
+                *range_field != &primary_name
+                    && selected.contains(range_field)
+                    && !rows.page_keys.is_empty()
+                    && rows
+                        .page_keys
+                        .iter()
+                        .all(|key| layout_values.contains_key(key))
+            });
+        if let Some(range_field) = reused_field {
+            rows.fields.insert(range_field.clone(), layout_values);
+        }
         self.fill_cokey_projection(
             schema,
             &selected,
@@ -98,7 +116,7 @@ impl HashRangeQueryProcessor {
         }
         let secondary: Vec<String> = selected
             .iter()
-            .filter(|fname| fname.as_str() != primary_name)
+            .filter(|fname| fname.as_str() != primary_name && !rows.fields.contains_key(*fname))
             .cloned()
             .collect();
         for fname in &secondary {
