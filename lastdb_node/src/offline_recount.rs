@@ -116,7 +116,7 @@ async fn run_recount(
     all_scopes: bool,
 ) -> Result<RecountReport, String> {
     let (e2e, keypair) = load_e2e_keys(home)?;
-    let db = fold_db::fold_db_core::factory::create_fold_db(
+    let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
         &DatabaseConfig {
             path: store_root,
             engine: StorageEngine::Laststore,
@@ -124,6 +124,10 @@ async fn run_recount(
         },
         &e2e,
         keypair,
+        fold_db::fold_db_core::factory::FoldDbOptions {
+            offline_maintenance: true,
+            ..Default::default()
+        },
     )
     .await
     .map_err(|e| format!("create_fold_db: {e}"))?;

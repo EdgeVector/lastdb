@@ -83,6 +83,7 @@ impl Host {
             e2e_keys,
             Arc::clone(keypair),
             fold_db::fold_db_core::factory::FoldDbOptions {
+                offline_maintenance: false,
                 at_rest_keyring: None,
                 search_outbox_inbox: Some(search_outbox_inbox),
             },
