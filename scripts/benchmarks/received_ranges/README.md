@@ -95,6 +95,9 @@ A source-one Purge leaves the source-zero value at key 3.
 The condition comparison runs after those changes and a graceful reopen, before candidate-only preload.
 It uses the [shared condition method](../range_continuation/README.md#keyed-field-condition-comparison):
 eight cases, 32 warm requests per case, and one fresh-process request per case after separate restarts.
+Only this fixed hash uses nested JSON bodies below 9 KiB and 64-record seed batches.
+Four operational controls verify duplicate projection names with `include_tombstones` off and on.
+Each timed cell requires complete request ID coverage from the current request ring. The report includes core query and format phases.
 The exact same-home metadata reference uses the existing secondary reader.
 Both full CI summaries print to the job logs. The original four-field range timing selectors stay unchanged.
 

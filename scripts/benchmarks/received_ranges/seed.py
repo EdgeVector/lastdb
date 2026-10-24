@@ -75,7 +75,9 @@ class Seed:
                 for first in range(shift, shift + COUNT, 128):
                     self.batch(stream, source, [(HASH, key(number)) for number in range(first, first + 128)])
                 self.batch(stream, source, [(EDGE_HASH, value) for value in EDGE_KEYS])
-                self.batch(stream, source, [(CONDITION_HASH, key(number)) for number in range(CONDITION_COUNT)])
+                for first in range(0, CONDITION_COUNT, 64):
+                    self.batch(stream, source, [(CONDITION_HASH, key(number))
+                                               for number in range(first, first + 64)])
             local = [(HASH, key(number)) for number in range(0, TOTAL, 16) if not hidden(number)]
             local.extend((EDGE_HASH, value) for value in EDGE_KEYS[::2])
             local.extend((CONDITION_HASH, key(number)) for number in range(0, CONDITION_COUNT, 16))

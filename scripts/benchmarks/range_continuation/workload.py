@@ -49,7 +49,9 @@ class Workload:
         for first in range(0, COUNT, 128):
             self.mutate([("create", HASH, key(number), "seed") for number in range(first, first + 128)])
         self.mutate([("create", EDGE_HASH, ranged, "seed") for ranged in EDGE_KEYS])
-        self.mutate([("create", CONDITION_HASH, key(number), "seed") for number in range(CONDITION_COUNT)])
+        for first in range(0, CONDITION_COUNT, 64):
+            self.mutate([("create", CONDITION_HASH, key(number), "seed")
+                         for number in range(first, first + 64)])
         self.flush()
         self.node.stop()
         self.node.start()
