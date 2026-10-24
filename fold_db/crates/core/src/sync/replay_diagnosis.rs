@@ -41,6 +41,7 @@ pub enum ReplayCause {
     InvalidTransform,
     InvalidData,
     DeleteBarrierChanged,
+    DeleteReplayCutoff,
     PermissionDenied,
     CatalogMembershipDenied,
     TransportNotAttested,
@@ -59,6 +60,7 @@ pub enum ReplayCause {
     CaptureQueueFull,
     MaterializationFailed,
     MissingMutationApplier,
+    CounterWriterRequired,
     LegacyMoleculeDelete,
     RawDeleteBarrierPut,
     DeleteBarrierIdentityMismatch,
@@ -117,6 +119,7 @@ impl From<SchemaError> for MutationIntentReplayError {
             SchemaError::InvalidTransform(_) => ReplayCause::InvalidTransform,
             SchemaError::InvalidData(_) => ReplayCause::InvalidData,
             SchemaError::ReplayDeleteBarrierChanged => ReplayCause::DeleteBarrierChanged,
+            SchemaError::ReplayBeforeDeleteCutoff { .. } => ReplayCause::DeleteReplayCutoff,
             SchemaError::PermissionDenied(_) => ReplayCause::PermissionDenied,
             SchemaError::CatalogMembershipDenied { .. } => ReplayCause::CatalogMembershipDenied,
             SchemaError::TransportNotAttested { .. } => ReplayCause::TransportNotAttested,
@@ -155,6 +158,9 @@ impl SyncError {
         cause: ReplayCause,
     ) -> Self {
         let reason = match cause {
+            ReplayCause::CounterWriterRequired => {
+                "raw lifecycle records require complete mutations through the counter writer; restore a current snapshot"
+            }
             ReplayCause::LegacyMoleculeDelete => {
                 "legacy physical molecule Delete needs a safe recovery path"
             }

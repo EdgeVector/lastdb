@@ -8,15 +8,22 @@ use crate::schema::types::key_value::KeyValue;
 use super::{FieldKind, FieldVariant};
 
 impl FieldVariant {
+    /// Owned slot coordinates for persistence and cross-field plans.
+    #[must_use]
+    pub(crate) fn slot_coordinates(&self, key: &KeyValue) -> Option<(String, String)> {
+        self.slot_coordinates_ref(key)
+            .map(|(hash, range)| (hash.to_string(), range.to_string()))
+    }
+
     /// Select this field's slot components without an encoding change.
     /// API coordinates stay API coordinates; stored coordinates stay stored.
     #[must_use]
-    pub(crate) fn slot_coordinates(&self, kv: &KeyValue) -> Option<(String, String)> {
+    pub(super) fn slot_coordinates_ref<'a>(&self, kv: &'a KeyValue) -> Option<(&'a str, &'a str)> {
         match self.kind {
-            FieldKind::Single => Some((String::new(), String::new())),
-            FieldKind::Hash => kv.hash.clone().map(|h| (h, String::new())),
-            FieldKind::Range => kv.range.clone().map(|r| (String::new(), r)),
-            FieldKind::HashRange => kv.hash.clone().zip(kv.range.clone()),
+            FieldKind::Single => Some(("", "")),
+            FieldKind::Hash => kv.hash.as_deref().map(|hash| (hash, "")),
+            FieldKind::Range => kv.range.as_deref().map(|range| ("", range)),
+            FieldKind::HashRange => kv.hash.as_deref().zip(kv.range.as_deref()),
         }
     }
 
@@ -88,43 +95,19 @@ impl FieldVariant {
     /// Atom UUID currently at the molecule head for `kv`.
     #[must_use]
     pub fn current_atom_uuid(&self, kv: &KeyValue) -> Option<String> {
-        match (&self.kind, &self.molecule) {
-            (FieldKind::Single, Some(m)) => m.get_atom_uuid("", "").cloned(),
-            (FieldKind::Hash, Some(m)) => kv
-                .hash
-                .as_ref()
-                .and_then(|h| m.get_atom_uuid(h, "").cloned()),
-            (FieldKind::Range, Some(m)) => kv
-                .range
-                .as_ref()
-                .and_then(|r| m.get_atom_uuid("", r).cloned()),
-            (FieldKind::HashRange, Some(m)) => kv
-                .hash
-                .as_ref()
-                .zip(kv.range.as_ref())
-                .and_then(|(h, r)| m.get_atom_uuid(h, r).cloned()),
-            _ => None,
-        }
+        let molecule = self.molecule.as_ref()?;
+        let (hash, range) = self.slot_coordinates_ref(kv)?;
+        molecule.get_atom_uuid(hash, range).cloned()
     }
 
     /// Remove the entry for `kv` from the molecule. Returns true if something dropped.
     pub fn remove_key(&mut self, kv: &KeyValue) -> bool {
-        match (&self.kind, &mut self.molecule) {
-            (FieldKind::Single, Some(m)) => m.remove_atom_uuid("", "").is_some(),
-            (FieldKind::Hash, Some(m)) => match kv.hash.as_ref() {
-                Some(h) => m.remove_atom_uuid(h, "").is_some(),
-                None => false,
-            },
-            (FieldKind::Range, Some(m)) => match kv.range.as_ref() {
-                Some(r) => m.remove_atom_uuid("", r).is_some(),
-                None => false,
-            },
-            (FieldKind::HashRange, Some(m)) => match kv.hash.as_ref().zip(kv.range.as_ref()) {
-                Some((h, r)) => m.remove_atom_uuid(h, r).is_some(),
-                None => false,
-            },
-            _ => false,
-        }
+        let Some((hash, range)) = self.slot_coordinates_ref(kv) else {
+            return false;
+        };
+        self.molecule
+            .as_mut()
+            .is_some_and(|molecule| molecule.remove_atom_uuid(hash, range).is_some())
     }
 
     /// Derive the per-key change unit for a write at `key_value`.

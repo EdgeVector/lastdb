@@ -19,7 +19,7 @@ use crate::storage::{KvMutation, StorageError};
 pub(crate) const KEY_FORMAT: &[u8] = b"6";
 
 pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
-    value == KEY_FORMAT
+    value == KEY_FORMAT || value == super::delete_replay::FENCED_KEY_FORMAT
 }
 
 /// The backend permits these exact keys together while current creation is
@@ -95,12 +95,15 @@ impl AtomStore {
             .inner()
             .get(Self::CURRENT_KEY_FORMAT_KEY.as_bytes())
             .await?;
-        if stored.as_deref() != Some(KEY_FORMAT) {
+        if stored
+            .as_deref()
+            .is_none_or(|value| !is_supported_key_format(value))
+        {
             return Err(StorageError::InvalidOperation(
                 "this home does not use the CAS-only wrapper format; create a new empty home or convert it offline".into(),
             ));
         }
-        Ok(())
+        self.minimum_replay_time().await.map(|_| ())
     }
 }
 

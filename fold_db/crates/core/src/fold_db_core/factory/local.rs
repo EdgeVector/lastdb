@@ -49,14 +49,22 @@ pub(super) async fn create_local_fold_db(
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
     let base_store = open_store::open_primary_store(path)?;
+    let store_stack = store_stack::build_store_stack(
+        Arc::clone(&base_store),
+        e2e_keys,
+        options.at_rest_keyring.as_ref(),
+    );
+    crate::db_operations::atom_store::counter::restore_validation::validate_pending(
+        store_stack.store.as_ref(),
+    )
+    .await
+    .map_err(|error| FoldDbError::Config(error.to_string()))?;
     let config_store = NodeConfigStore::with_namespaced_store(
         Arc::clone(&base_store),
         Some(e2e_keys.encryption_key()),
     )
     .await
     .map_err(|e| FoldDbError::Config(format!("Failed to open config store: {e}")))?;
-    let store_stack =
-        store_stack::build_store_stack(base_store, e2e_keys, options.at_rest_keyring.as_ref());
     let db_ops = open_db_operations(store_stack.store, e2e_keys).await?;
     let fold_db = FoldDB::initialize_from_init(FoldDbInit {
         db_ops: Arc::new(db_ops),

@@ -7,9 +7,10 @@ schema that has a retention policy. The age rule is in
 selected, the two verbs, what each verb leaves on disk, how the sweep paces itself, the guard
 for rewritten keys, the measured cost, and the knobs.
 
-In short: the default verb is `purge`. It goes through the atom counter, so each body whose last
-reference goes is freed in the same batch as the tips (`docs/lastdb-atom-counter.md`). `delete` is
-opt-in because it leaves barrier rows that nothing prunes.
+The default verb is `purge`. It uses the atom counter.
+The same batch frees each body whose last reference goes.
+`delete` is opt-in because it leaves barrier rows.
+The owner can remove older barriers through an [explicit stopped-home replay cutoff](delete-replay-cutoff.md).
 
 ## Schema shape that a TTL needs
 
@@ -85,9 +86,10 @@ body delete.
 
 ## Why `purge` is the default
 
-`delete` leaves two `rdel:v2:` barrier rows for each field of each key (one for each spelling of the
-molecule key that a read accepts), about 1.6 KB each, and nothing prunes them. That is about 3,170 B for
-each key and field. A log that expires 100,000 records per day on a 3-field schema leaks about
+`delete` leaves `rdel:v2:` barrier rows for each removed molecule key.
+They remain until the owner selects an explicit replay cutoff and executes stopped-home cleanup.
+The older build below wrote two barriers for each key and field, about 3,170 B in total.
+A log that expires 100,000 records per day on a 3-field schema retained about
 28.6 GB of barriers in 30 days (measured on a build from before the counter work: 2,000 keys of 3
 fields gave 12,000 rows and about 19 MB, and a run of 400 keys gave the same bytes per key, so the
 growth is linear). Compaction removed none of them. `purge` writes no barrier. Both verbs also leave about 700 B for each key and field of `mgd:v1:` rows
@@ -100,8 +102,10 @@ HashRange key takes its age from the key, so the next pass erases it again. A Ha
 takes its age from the write-time index, and whether a replayed peer write gets a fresh index row
 is not verified.
 
-Condition to switch the default to `delete`: a prune horizon for the barriers that is safe for
-every peer. Today no code knows a maximum offline time for a device and no code prunes a barrier.
+The default remains `purge`. No timer infers a maximum offline time for a device.
+The owner selects the replay cutoff explicitly.
+After cleanup, an old or unclocked replay refuses and the peer needs a current snapshot.
+The [cleanup guide](delete-replay-cutoff.md) gives the peer upgrade order and the older-program refusal rule.
 
 ## Pacing
 
@@ -240,9 +244,12 @@ Limits:
 - `rdel:v2:` is a delete barrier. It holds the stamp of the delete. It makes a later local write,
   a peer write that is replayed, and an older tip from a restore lose against the delete when
   their clock is not newer (`atom/delete_barrier.rs`, `apply_gate.rs`, `sync/engine/replay`). Only
-  `delete` writes it. It writes one for each spelling of the molecule key that a read accepts
-  (`atom/molecule_key_codec.rs`), which is two on a molecule with a 32-byte digest id. Each
-  device builds its own barrier from the replayed erase (`sync/policy.rs`), and nothing removes it.
+  `delete` writes it. The current codec uses the caller's exact molecule identity and one key
+  (`atom/molecule_key_codec.rs`). It does not substitute hex or base64url spellings.
+  Earlier two-spelling measurements describe historical source. Each device builds its own
+  barrier from the replayed erase (`sync/policy.rs`).
+  Explicit stopped-home cleanup can remove barriers at or before its durable replay cutoff.
+  It does not remove historical backup bytes or advance the cutoff on a timer.
 - `lastdb db inventory` has no key class for either prefix, so it does not show them.
 
 ### Last writer wins

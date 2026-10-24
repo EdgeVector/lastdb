@@ -61,6 +61,11 @@ Each changed key removes its old payload references and adds its new payload ref
 An unchanged value causes no payload-map work when its search page receives a copy.
 The resolver reads payload block maps and part headers; it does not decode record bodies.
 
+Tree edits borrow complete inline keys from their checked immutable pages during validation and leaf merge.
+The key reader retains the same byte charges, digest checks, and overflow-key validation.
+Keys with overflow pages retain their bounded owned buffer. Borrowed keys leave scope before the page drops.
+The output pages, live counts, selected root, and durability barriers retain their existing rules.
+
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.
 It drops before final count changes and receipt output; no cache survives the commit or an error.

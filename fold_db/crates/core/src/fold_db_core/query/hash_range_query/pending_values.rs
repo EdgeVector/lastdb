@@ -54,8 +54,10 @@ impl HashRangeQueryProcessor {
                 fetch_field_atom_batches(&self.db_ops, prefix.as_deref(), &batches).await?;
             for ((batch, slots), mut values) in batches.into_iter().zip(batch_slots).zip(values) {
                 schema.runtime_fields[&batch.name].stamp_molecule_meta(&mut values);
-                for slot in slots {
-                    out[slot] = values.get(&pending[slot].1).cloned();
+                // The final field map keeps the last duplicate. Move its full
+                // value there instead of cloning it into every pending slot.
+                for slot in slots.into_iter().rev() {
+                    out[slot] = values.remove(&pending[slot].1);
                 }
             }
         }

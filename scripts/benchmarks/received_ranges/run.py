@@ -16,6 +16,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent / "range_continuation
 from node import Node, file_hash, save
 from workload import Workload
 from conditions import paired_conditions_match
+from narrow_report import narrow_samples_complete
 
 
 def interrupted(_signum, _frame):
@@ -93,6 +94,9 @@ def main():
             "narrow_page": 64, "narrow_requests": 64, "pairs_per_mode": 2,
             "conditions": {"hash": "condition-reuse", "maximum_keys": 128,
                 "declared_extra_fields": ["score", "optional", "never"], "cases": 8,
+                "body": "Nested JSON with eight1024-character payloads; below9KiB per body",
+                "seed_batch": 64, "operational_duplicate_projection_controls": 4,
+                "phases": "Current request ring; exact32/32 warm or1/1 fresh IDs; optional phase fields stay unreported",
                 "warm_requests_per_case": 32, "fresh_process_requests_per_case": 1,
                 "fresh_restarts_per_run": 8, "memory": "Per-cell process before/after; byte-buffer receipts exclude captured field maps"},
             "modes": ["plain", "encrypted"], "automatic_maintenance": False,
@@ -121,6 +125,7 @@ def main():
             if (first["ordered_mutation_sha256"] != last["ordered_mutation_sha256"]
                     or first["final_values_sha256"] != last["final_values_sha256"]
                     or len(first["narrow_samples"]) != 64 or len(last["narrow_samples"]) != 64
+                    or not all(narrow_samples_complete(value) for value in (first, last))
                     or [row["request_sha256"] for row in first["narrow_samples"]]
                     != [row["request_sha256"] for row in last["narrow_samples"]]
                     or not paired_conditions_match(first, last)):

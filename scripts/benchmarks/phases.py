@@ -1,9 +1,33 @@
 """Retain current request phases after a timed case, with exact coverage."""
 
 import gzip
+import http.client
 import json
+import time
 
 from node import save
+from tail_report import update_tail_lines
+
+
+def capture_native_boundary(node):
+    """Read cumulative maintenance counters outside the measured case."""
+    started = time.time_ns() // 1000
+    try:
+        response, _, _ = node.call("/api/db/native-status")
+        native = response.get("native_disk", {})
+        parts = native.get("parts")
+        if not isinstance(parts, dict):
+            return {"available": False, "reason": "native parts status is unreported",
+                    "started_unix_us": started, "ended_unix_us": time.time_ns() // 1000}
+        return {"available": True, "started_unix_us": started,
+                "ended_unix_us": time.time_ns() // 1000,
+                "parts": {name: value for name, value in parts.items()
+                          if name.startswith(("maintenance_", "reclaim_", "compaction_"))},
+                "generation": native.get("generation"),
+                "completed_sequence": native.get("completed_sequence")}
+    except (OSError, RuntimeError, ValueError, http.client.HTTPException) as failure:
+        return {"available": False, "reason": type(failure).__name__,
+                "started_unix_us": started, "ended_unix_us": time.time_ns() // 1000}
 
 
 def capture_phases(node, output, case, sequence, samples):
@@ -64,4 +88,4 @@ def phase_lines(output, manifest):
             server = operation.get("duration_ms", "unreported")
             lines.append(f"| {run['directory']} | {matched}/{len(writes)} | "
                          f"{sample['elapsed_ms']:.3f} | {server} | {detail} |")
-    return lines
+    return lines + update_tail_lines(output, manifest)

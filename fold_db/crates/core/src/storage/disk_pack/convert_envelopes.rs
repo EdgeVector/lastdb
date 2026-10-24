@@ -106,7 +106,7 @@ fn require_older_format(reader: &mut HomeRead, key: &[u8; 32]) -> StorageResult<
         )
         .map_err(map)?
         .ok_or_else(|| invalid("conversion format marker is missing"))?;
-    if stored == key_format::KEY_FORMAT {
+    if key_format::is_supported_key_format(&stored) {
         let stored = reader
             .get_bounded(proof::NAMESPACE, &native_routing::encode(proof::KEY), 8192)
             .map_err(map)?
@@ -121,6 +121,9 @@ fn require_older_format(reader: &mut HomeRead, key: &[u8; 32]) -> StorageResult<
     }
     let format = open_at_rest_bounded(key, &stored, 4096)
         .map_err(|_| invalid("conversion account key differs"))?;
+    if format == b"5;delete-replay-cutoff=v1" {
+        return Err(invalid("format-5 delete replay cutoff requires a floor-preserving converter; source and target remain inactive"));
+    }
     if format != b"4" && format != b"5" {
         return Err(invalid("unsupported conversion logical format"));
     }

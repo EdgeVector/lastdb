@@ -9,13 +9,16 @@ import threading
 import time
 
 from node import save
-from phases import capture_phases
+from phases import capture_native_boundary, capture_phases
+from range_continuation.process_counters import counter_delta, read_counters
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
 FIELDS = ["bucket", "id", "title", "body"]
 PROFILES = {
-    "standard": {"records": 10000, "samples": 256, "write_samples": 32, "pairs": 2},
-    "nightly": {"records": 100000, "samples": 2048, "write_samples": 128, "pairs": 3},
+    "standard": {"records": 10000, "samples": 256, "write_samples": 32,
+                 "batch_update_samples": 128, "pairs": 2},
+    "nightly": {"records": 100000, "samples": 2048, "write_samples": 128,
+                "batch_update_samples": 128, "pairs": 3},
     "batch-insert": {"records": 10000, "samples": 256, "write_samples": 256,
                      "pairs": 3, "insert_only": True},
 }
@@ -125,7 +128,10 @@ class Workload:
     def prepare(self, mode, batch, samples, clients):
         jobs = [[] for _ in range(clients)]
         for index in range(samples):
-            kind = "read" if mode in ("cold", "hot", "read") or (mode == "mixed" and index % 2 == 0) else "write"
+            client, turn = index % clients, index // clients
+            # Every client alternates; adjacent clients start with opposite kinds.
+            mixed_read = mode == "mixed" and (client + turn) % 2 == 0
+            kind = "read" if mode in ("cold", "hot", "read") or mixed_read else "write"
             if mode == "cold":
                 numbers = list(range(self.cold_next, self.cold_next + batch))
                 self.cold_next += batch
@@ -139,22 +145,28 @@ class Workload:
             body = (read_request(numbers) if kind == "read" else
                     write_request(numbers, f"{self.case}-{index}", mode == "insert"))
             request_id = f"bench-{len(self.metrics)}-{index:06d}"
-            jobs[index % clients].append((kind, numbers, body, request_id))
+            jobs[client].append((kind, numbers, body, request_id))
         return jobs
 
-    def worker(self, jobs, barrier, stopped, mode):
+    def worker(self, jobs, barrier, stopped, mode, client):
         samples = []
         barrier.wait(timeout=30)
-        for kind, numbers, body, request_id in jobs:
+        for turn, (kind, numbers, body, request_id) in enumerate(jobs):
             if stopped.is_set():
                 break
-            sample = {"kind": kind, "records": len(numbers),
+            sample = {"kind": kind, "records": len(numbers), "client": client, "client_request": turn,
                       "request_id": request_id,
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
                 path = "/api/query" if kind == "read" else "/api/mutations/batch"
+                observe = self.case == "update/128"
+                before = read_counters(self.node.process.pid) if observe else None
                 result, elapsed, receipt = self.node.call(
                     path, body, receipt=kind == "read", request_id=request_id)
+                if observe:
+                    after = read_counters(self.node.process.pid)
+                    sample.update(process_before=before, process_after=after,
+                                  process_delta=counter_delta(before, after))
                 sample.update(elapsed_ms=elapsed, read_receipt=receipt)
                 if kind == "read":
                     validate_read(result, numbers)
@@ -169,8 +181,9 @@ class Workload:
                         raise RuntimeError("The hot read did not report warm hits for the requested fields")
                 else:
                     self.validate_write(result, len(numbers))
-                    if self.recipe.get("insert_only"):
-                        sample["resident_stages_us"] = result["resident_stages_us"]
+                    # Preserve reported zeros, but never invent them when an
+                    # older response omits these existing diagnostic fields.
+                    sample["resident_stages_us"] = result.get("resident_stages_us")
             except Exception as failure:
                 sample["error"] = f"{type(failure).__name__}: {failure}"
                 stopped.set()
@@ -181,6 +194,7 @@ class Workload:
         self.case = name
         samples = samples or self.recipe["samples"]
         jobs = self.prepare(mode, batch, samples, clients)
+        native_before = capture_native_boundary(self.node) if name == "update/128" else None
         before = self.node.disk_bytes()
         sequence = len(self.metrics)
         barrier, stopped, monitor_stop = threading.Barrier(clients + 1), threading.Event(), threading.Event()
@@ -197,7 +211,8 @@ class Workload:
         monitor_thread.start()
         try:
             with ThreadPoolExecutor(max_workers=clients) as pool:
-                futures = [pool.submit(self.worker, items, barrier, stopped, mode) for items in jobs]
+                futures = [pool.submit(self.worker, items, barrier, stopped, mode, client)
+                           for client, items in enumerate(jobs)]
                 case_started_us = time.time_ns() // 1000
                 started = time.perf_counter()
                 barrier.wait(timeout=30)
@@ -213,6 +228,9 @@ class Workload:
                       sampled_peak_memory_bytes=max(memory, default=None),
                       disk_before_bytes=before, disk_after_bytes=self.node.disk_bytes())
         metric["disk_growth_bytes"] = metric["disk_after_bytes"] - before
+        if name == "update/128":
+            metric["native_before"] = native_before
+            metric["native_after"] = capture_native_boundary(self.node)
         # Capture after timed work and its resource observations. The diagnostic
         # call never enters latency, throughput, memory, or the disk-size window.
         if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:
@@ -229,6 +247,8 @@ class Workload:
         if metric["errors"] or len(rows) != samples:
             errors = [r["error"] for r in rows if "error" in r]
             raise RuntimeError(f"{name}: incomplete measurement: {errors[:3]}")
+        if name == "update/128" and metric["phase_coverage"]["complete"] is not True:
+            raise RuntimeError("The batch-update diagnostics lack complete exact request-ID phase coverage")
 
     def run(self):
         try:
@@ -246,7 +266,9 @@ class Workload:
             modes = ("insert",) if self.recipe.get("insert_only") else ("insert", "update")
             for mode in modes:
                 for batch in (1, 128):
-                    self.measure(f"{mode}/{batch}", mode, batch=batch, samples=self.recipe["write_samples"])
+                    count = (self.recipe["batch_update_samples"] if mode == "update" and batch == 128
+                             else self.recipe["write_samples"])
+                    self.measure(f"{mode}/{batch}", mode, batch=batch, samples=count)
             if not self.recipe.get("insert_only"):
                 for clients in (1, 4, 16, 32):
                     for mode in ("read", "write", "mixed"):

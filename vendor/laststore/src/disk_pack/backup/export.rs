@@ -11,7 +11,7 @@ use crate::disk_pack::lifetime::{
 use crate::disk_pack::{corrupt, Current, ReadBudget, PART_BYTES};
 use crate::Result;
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const MAX_FILES: usize = lastdb_storage_policy::native_v1::MAX_BACKUP_FILES;
@@ -151,6 +151,31 @@ pub struct SnapshotReader {
     remaining: u64,
     bytes: u64,
     _hold: GenerationHold,
+}
+
+impl SnapshotReader {
+    /// Select an offset within the same held immutable file without reading its prefix.
+    pub fn seek_to(&mut self, offset: u64) -> std::io::Result<()> {
+        if offset > self.bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "snapshot offset exceeds file",
+            ));
+        }
+        match &mut self.input {
+            Input::File(file) => {
+                if file.metadata()?.len() != self.bytes {
+                    return Err(std::io::Error::other("snapshot export file length changed"));
+                }
+                file.seek(SeekFrom::Start(offset))?;
+            }
+            Input::Memory(cursor) => {
+                cursor.seek(SeekFrom::Start(offset))?;
+            }
+        }
+        self.remaining = self.bytes - offset;
+        Ok(())
+    }
 }
 
 impl Read for SnapshotReader {

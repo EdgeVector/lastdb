@@ -5,9 +5,17 @@ use super::*;
 #[path = "cloud/native_backup.rs"]
 mod native_backup;
 pub(crate) use native_backup::{NativeBackupAutoCommand, NativeBackupCommand};
+#[path = "cloud/byte_backup.rs"]
+mod byte_backup;
+pub(crate) use byte_backup::ByteBackupCommand;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum CloudCommand {
+    /// Explicit V2 byte backup and source-free restore. Requires an absolute --data-dir.
+    BackupV2 {
+        #[command(subcommand)]
+        action: ByteBackupCommand,
+    },
     /// Run explicit native backup work, or discover and restore an accepted backup.
     Backup {
         #[command(subcommand)]

@@ -189,7 +189,9 @@ impl SyncEngine {
                     target: "fold_db::sync",
                     "bootstrap: restoring at_rest_enc snapshot into raw store"
                 );
-                snapshot.restore(self.cursor_store.as_ref()).await?
+                snapshot
+                    .restore_checked(self.cursor_store.as_ref(), self.store.as_ref())
+                    .await?
             } else {
                 snapshot.restore(self.store.as_ref()).await?
             }

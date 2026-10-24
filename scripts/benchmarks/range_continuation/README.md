@@ -73,6 +73,11 @@ The complete-read key limit stays unchanged.
 Both existing range recipes also use at most 128 keys under the named hash `condition-reuse`.
 The schema declares `score`, `optional`, and `never` in addition to the four original fields.
 Only this hash receives the extra field values. The original timed range projections stay four fields.
+Only this hash uses nested JSON bodies below 9 KiB. Each body contains eight 1,024-character payloads, arrays, and objects.
+The body also contains signed and unsigned 64-bit boundaries, an integer above 2^53, a negative integer, and float values.
+Every response preserves their exact values, integer or float types, and the sign of negative zero.
+These bodies expose the cost of a full value copy. The original large-range body sizes stay unchanged.
+The condition seed batches contain 64 records. A received seed line stays below its 1 MiB cap.
 Scores have repeated numeric values. The optional field has missing, null, numeric, and string values.
 The `never` field is always missing. Condition reads verify every live key under this hash.
 Local Delete/Purge and an update precede these reads. The received recipe also removes values from selected sources.
@@ -81,6 +86,8 @@ Eight cases use the ordinary keyed query API. They cover a predicate with and wi
 a primary-field condition, a captured empty field map, nullable absence, a numeric filter, and value order with a limit.
 A separate value-order case omits its sort field from the projection.
 An additional request verifies the API offset and limit after the condition stage.
+Four additional requests use duplicate projection names for ordinary and conditional reads, with `include_tombstones` off and on.
+These operational controls compare exact values and field metadata. They do not add timed cases or process restarts.
 No condition request uses a cursor or an unkeyed selector.
 Missing numeric values pass the numeric filter. Concrete null and string values fail it.
 Equal numeric scores use ascending range keys as their tie order.
@@ -90,11 +97,33 @@ Each case also has one request after its own process restart, with schema preloa
 The eight fresh-process requests do not establish a latency distribution. The OS file cache stays uncontrolled.
 Every returned value and each field's atom, molecule, writer, and source metadata must match the same-home reference.
 The reference uses all fields and only `predicate_limit`. Its pass A has no secondary condition field to reuse.
+The ordinary duplicate controls use a separate full-field reference. This reference preserves the ordinary primary-field metadata contract.
 The expected result includes the current primary hash helper. An omitted sort helper stays absent from fields and metadata.
+Every record retains exactly `key`, `fields`, `metadata`, and `author_pub_key`.
+The key retains both hash and range coordinates. The author names a writer from the original projected metadata map.
+The author is null when no field names a writer or the selected writer is empty.
+The check does not impose a new order on the original metadata map. Absent or empty writer coverage requires actual returned metadata.
 The report prints all condition latency and read-cost cells, plus process memory ranges, to the CI summary and logs.
+After each timed cell, the recipe reads the current request ring through `/api/status?recent=1`.
+It matches the exact request IDs and client name. Every warm cell requires 32 matches; every fresh-process cell requires one.
+The existing samples retain the server duration and reported `hydrate_atoms_us` and `hydrate_format_us` phases.
+The core query phase includes the value copy. The format phase measures the later response format work.
+These status calls stay outside the timed and memory windows. Absent phase fields remain unreported; the report does not use zero.
 The request counter does not measure the native guard's examined-key count.
 Transient byte receipts omit captured field maps. Process snapshots do not measure an in-flight peak or a total-memory cap.
 The public writer does not create legacy body tombstones. Empty-spine and legacy body-tombstone behavior remain source-review scope.
+
+## Narrow-request tail diagnostics
+
+All 64 narrow requests retain complete server phase records matched by request ID and client name.
+The ring read follows the narrow memory-after observation and stays outside the latency and memory windows.
+Each request also has bounded Linux process-counter observations before and after its HTTP timer.
+These observations occur inside the narrow memory window and change the gaps between requests.
+Compare the two product revisions with the same revised driver; old-driver absolute timings do not provide that control.
+The summary prints each run separately, plus its five slowest requests with their own phases, read receipts, and counter deltas.
+Missing counters and phases remain unreported. Host CPU and pressure values describe shared load and do not identify a cause alone.
+Process counter precision, identity checks, scheduler-stat availability, and observation duration stay explicit.
+No percentile is subtracted from another percentile. The current 256-entry ring must cover all 64 requests.
 
 ## Artifacts and limits
 

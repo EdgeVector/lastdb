@@ -5,7 +5,7 @@ import json
 
 from ranges import COUNT, EDGE_HASH, EDGE_KEYS, FIELDS, HASH, SCHEMA, fields, key, latency, prefix, query, validate, walk
 from condition_values import COUNT as CONDITION_COUNT, HASH as CONDITION_HASH, EXTRA_FIELDS, marker
-from conditions import Conditions
+from conditions import Conditions, capture_phases
 
 
 class Workload:
@@ -49,7 +49,9 @@ class Workload:
         for first in range(0, COUNT, 128):
             self.mutate([("create", HASH, key(number), "seed") for number in range(first, first + 128)])
         self.mutate([("create", EDGE_HASH, ranged, "seed") for ranged in EDGE_KEYS])
-        self.mutate([("create", CONDITION_HASH, key(number), "seed") for number in range(CONDITION_COUNT)])
+        for first in range(0, CONDITION_COUNT, 64):
+            self.mutate([("create", CONDITION_HASH, key(number), "seed")
+                         for number in range(first, first + 64)])
         self.flush()
         self.node.stop()
         self.node.start()
@@ -109,12 +111,17 @@ class Workload:
             "broad16384-hash"))
         memory_before = self.node.status("immediately-before-narrow-latency")
         measured = []
-        for ordinal in range(32):
-            first = ordinal * (COUNT - 128) // 31
-            value = walk(self.node, self.expected, query(HASH, key(first), key(first + 128), 64),
-                         "matched-narrow-" + str(ordinal))
-            measured.extend(value["samples"])
+        self.node.capture_process = True
+        try:
+            for ordinal in range(32):
+                first = ordinal * (COUNT - 128) // 31
+                value = walk(self.node, self.expected, query(HASH, key(first), key(first + 128), 64),
+                             "matched-narrow-" + str(ordinal))
+                measured.extend(value["samples"])
+        finally:
+            self.node.capture_process = False
         memory_after = self.node.status("immediately-after-narrow-latency")
+        narrow_coverage = capture_phases(self.node, measured, full_records=True)
         boundaries = self.edges()
         self.mutate([("delete", HASH, key(n), "removed") for n in (0, 255, 4095, 16000)]
                     + [("purge", HASH, key(n), "removed") for n in (64, 256, 8192, 16383)]
@@ -148,6 +155,7 @@ class Workload:
         return {"records_seeded": COUNT, "edge_records": len(EDGE_KEYS), "known_key_passes": known,
                 "broad": broad, "boundaries": boundaries, "narrow_latency": latency(measured),
                 "narrow_samples": measured, "reopened": reopened, "preload": preload,
+                "narrow_phase_coverage": narrow_coverage,
                 "narrow_memory_before": memory_before, "narrow_memory_after": memory_after,
                 "conditions": conditions,
                 "ordered_mutation_sha256": self.offered.hexdigest(),

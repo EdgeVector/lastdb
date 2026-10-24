@@ -48,6 +48,7 @@ pub fn encode_mutations(
             metadata: mutation.metadata.clone(),
             field_atom_uuids: field_atom_uuids_for(mutation),
             aggregate_set: mutation.aggregate_set.clone(),
+            erase_tips_before_nanos: mutation.erase_tips_before_nanos,
         })
         .collect()
 }
@@ -142,6 +143,7 @@ pub fn decode_mutations(envelopes: &[MutationEnvelope]) -> (Vec<Mutation>, Optio
             // Preserve the source time, including zero on unsigned input.
             // Every tip uses the same strict last-writer-wins comparison.
             mutation.imported_written_at = Some(envelope.written_at);
+            mutation.erase_tips_before_nanos = envelope.erase_tips_before_nanos;
             // Keep original UUID absence for source history. The replay UUID
             // below remains unchanged for the existing legacy LWW rules.
             mutation.replayed_source_mutation_uuid = Some(envelope.mutation_uuid.clone());

@@ -119,6 +119,7 @@ impl PackRuntime {
         }
         self.check_part_room()?;
         let gate = self.enter_write().await;
+        self.require_restore_validated()?;
         let runtime = Arc::clone(self);
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let result = runtime.commit(operations);

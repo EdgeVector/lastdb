@@ -21,6 +21,7 @@ Lightweight source, syntax, and format checks can run locally. Tests remain reti
 | Seed records | 10,000 | 100,000 |
 | Read and concurrency requests per case | 256 | 2,048 |
 | Single and batch write requests per case | 32 | 128 |
+| 128-record update requests | 128 | 128 |
 | Complete base/candidate pairs | 2 | 3 |
 | Fields per record | 4 | 4 |
 | Body bytes per record | 1,024 | 1,024 |
@@ -29,8 +30,12 @@ The manual comparison also offers `batch-insert` for a focused insert review.
 It keeps the standard 10,000 records and the same cold and hot read preparation.
 It measures 256 insert requests at each batch size, with three alternating pairs.
 Each version supplies 768 requests per batch size. Updates and concurrency are excluded.
-The raw write samples retain `resident_stages_us` from each response.
-The standard and nightly recipes, time limits, upload checks, and completion gate stay unchanged.
+All successful write samples retain `resident_stages_us` from each response.
+A missing field is null, not a measured zero.
+The standard recipe uses 128 calls only for the 128-record update case.
+Other case counts stay unchanged. The recipe records `batch_update_samples` explicitly.
+The extra update calls also change the home history before later concurrency cases.
+Compare both product revisions with this same driver. Do not compare this recipe with older run numbers.
 
 Each case uses actual product requests through the daemon's Unix socket:
 
@@ -41,9 +46,15 @@ Each case uses actual product requests through the daemon's Unix socket:
 - Insert cases use new keys. Update cases change existing values on the hot keys.
 - Concurrent reads, writes, and mixed work use 1, 4, 16, and 32 clients.
 - Mixed work has equal read and write request counts. Its report separates their response times.
+- Each mixed client alternates reads and writes. Adjacent clients start with opposite kinds.
+- The CI summary verifies each client's sequence and shows the first and last completion times for both kinds.
 - Mixed readers and writers use the same hot keys.
 
 Each read requires a complete result with valid generated values and a storage receipt.
+Mixed clients retain equal call counts, so both kinds continue through the case, apart from the final calls.
+The raw samples record the client and its request number. The summary checks actual completed calls after the case.
+Completion windows require complete request-phase coverage. Larger cases can exceed the current request ring and leave these windows unavailable.
+The corrected mixed assignment changes the recipe. Compare product revisions with the same corrected driver; do not pool earlier mixed results.
 The cold boundary purges clean logical records after the daemon restarts.
 Each cold read uses fresh keys and requires disk-read operations plus payload bytes in its receipt.
 Each hot read requires at least one warm hit per requested field and key.
@@ -89,6 +100,13 @@ PR candidate compilation overlaps the main cache producer before the baseline re
 On a miss, a PR waits up to ten minutes only while the exact baseline's main run can publish its cache.
 A missing producer, incompatible environment, failed lookup, expired wait, or rejected cache uses a fresh baseline build.
 No compiled target directory enters the cache.
+The runner checks free disk space before builds and again before measurements.
+It reserves 32 GiB for two fresh build trees, plus the selected corpus budget.
+Standard and batch-insert runs reserve 16 GiB for one generated home and output.
+Nightly runs reserve 48 GiB; the 100,000-record run 40082466885 reached 29.8 GiB.
+The driver removes each owned home before the next version starts.
+Cleanup runs only below the required budget. A second check rejects insufficient space after cleanup.
+The CI summary records free space before builds, before measurements, and after the run.
 The summary states the build mode, preparation time, producer run, source, and executable hash.
 The first main run fills the new cache. Native toolchain, compiler, source, or recipe changes require another build.
 Cache expiry or upload failure affects speed only; the source build remains available.
@@ -99,6 +117,61 @@ Old benchmark numbers and generated database homes never supply a new measuremen
 Both versions run on the current GitHub machine, even when the baseline program comes from the cache.
 The daemon uses its default storage, memory limits, and automatic maintenance settings.
 Cloud stays off because the generated home has no cloud configuration.
+
+## Disk and memory growth
+
+Each measured PR update, merge group, and main push also uses the short resource recipe.
+Nightly runs use the larger resource recipe. Documentation-only PRs still skip measurements.
+The resource run uses the same verified programs and new generated homes after the speed run.
+It adds no build. It requires a GitHub-hosted runner and cannot run on Tom's machine.
+
+| Resource recipe | Standard | Nightly |
+|---|---:|---:|
+| Seed records | 512 | 2,048 |
+| Rounds per case | 3 | 8 |
+| Complete base/candidate pairs | 2 | 3 |
+| Idle seconds per checkpoint | 1 | 3 |
+| Final records after inserts | 2,048 | 18,432 |
+
+Each run uses four fields and a 1,024-byte body per record.
+The cases run in this order on each fresh generated home:
+
+- `fixed-read` reads the same seeded keys each round. The record count stays fixed.
+- `fixed-update` replaces the title and body at every seeded key each round. The record count stays fixed.
+- `insert` adds one seed-sized set of new keys each round.
+
+Writes use durable batches of at most 128 records. Reads use at most 64 exact keys per call.
+Each write requires its complete durable ack and a keyed read of the new values.
+Each case records an initial checkpoint and one checkpoint after each round.
+A checkpoint requires a durable flush and an explicit full LastDB compaction with zero reclaim grace.
+The compaction receipt must confirm complete reclaim. These settings affect only the generated home.
+After compaction, keyed reads verify all known records and their latest values before the idle period.
+The normal daemon memory limits and automatic maintenance stay enabled.
+This recipe measures retained space after explicit compaction. It does not measure the default retention policy.
+
+The artifact retains disk bytes before and after compaction, bytes per live record, and every compaction receipt.
+It also retains daemon memory samples at 200 ms and memory samples through each idle period.
+Idle memory uses the median after compaction. The peak includes the case, compaction, and idle period.
+Seed and startup stay outside the peak. The seeded warm records remain part of daemon memory.
+The summary reports growth from the initial checkpoint and the slope through all checkpoints.
+Baseline and candidate results use medians across alternating pairs. Per-pair changes remain in the artifact.
+
+Resource regressions stay advisory. A notice requires both a 20% increase and an absolute excess:
+
+- Peak memory, final idle memory, or memory growth: at least 16 MiB more than the baseline.
+- Final compacted disk size or disk growth: at least 1 MiB more than the baseline.
+
+Zero or negative baseline growth uses zero for the percentage reference. The absolute excess still applies.
+Every change appears in the summary, even below the notice threshold.
+Resource regressions do not fail `benchmark-complete`. Missing samples, incomplete compaction, and failed uploads remain errors.
+The resource step has a 40-minute limit. The complete job has a 150-minute limit for larger nightly work.
+Raw results stay under `resource-growth/` in the existing CI artifact and expire after 14 days.
+The manual comparison accepts `resource_only` to measure either resource recipe without the ordinary speed cases.
+Automatic PR, merge group, main, and nightly runs always require both speed and resource measurements.
+
+CAUTION: A positive slope alone does not establish a memory leak or unwanted disk growth.
+Inserts increase the record count. Memory allocators can retain space, and automatic maintenance can change disk use.
+Disk size counts file lengths, excludes short-lived disk peaks, and does not measure allocated blocks.
 
 ## Request phases
 
@@ -116,6 +189,25 @@ The artifact states the exact coverage. An absent record or phase is unreported,
 The report lists the five largest reported phases for each slow call.
 Socket queue wait precedes server duration. Parent and child phases can overlap, so their values must not be added.
 These phases locate time in the request code. They do not prove a physical disk flush or storage correctness.
+
+The 128-record update case also retains native maintenance status before and after the case.
+Both status calls occur outside the latency, throughput, memory, and disk-size windows.
+These cumulative fields can show maintenance activity during the observation interval.
+They cannot locate that activity within a particular request.
+
+Each single-client 128-record update request retains bounded Linux counter observations before and after its RPC.
+The observations occur outside the response-time timer and keep each exact request ID.
+The samples retain both raw observations and their counter deltas, with missing values explicit.
+The observer interval also includes counter reads and response decode, so it differs from the RPC interval.
+Daemon CPU and I/O counters include all daemon threads and concurrent maintenance.
+Host CPU and pressure counters describe the whole CI machine, including other processes.
+Thread runqueue totals can overlap across CPUs. Do not subtract process CPU time from wall time to infer a wait.
+These observations affect throughput and can change the work schedule. Compare only runs from the same driver.
+
+The summary shows each update run's p50, p95, and p99, followed by its five slowest exact requests.
+Each slow request keeps its own RPC time, request phases, resident stages, and counter deltas together.
+No difference between unrelated percentiles supplies a stage duration.
+The `apply_us` request phase is residual batch time after named stages, not a direct CPU or disk measurement.
 
 ## PR 317 native diagnostics and read repeat
 
@@ -164,5 +256,6 @@ The workload uses a closed loop. It sends each client's next request after the p
 Memory samples occur every 200 ms during a case. They exclude seed and startup.
 Disk size counts file lengths, not allocated blocks. Background maintenance can change disk size during a sample.
 Files and directories removed before their size read contribute no bytes to that sample.
-The standard batch-write p99 uses only 32 samples per run. Read the raw samples before a speed decision.
+The standard insert and single-record update p99 use only 32 samples per run.
+The 128-record update p99 uses 128 samples per run. Read the raw samples before a speed decision.
 The workload has no cloud, external file blobs, or crash-recovery phase.

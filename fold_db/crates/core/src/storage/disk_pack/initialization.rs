@@ -13,7 +13,7 @@ pub(super) const NODE_BYTES: &[u8] = b"format=2\nhome=disk-pack\n";
 /// The stable node-marker inode serializes creation and remains locked for the
 /// runtime's lifetime. The directory marker authorizes only this new protocol.
 pub(super) struct NodeHome {
-    root: PathBuf,
+    pub(super) root: PathBuf,
     _lock: File,
     pub(super) initializing: bool,
 }

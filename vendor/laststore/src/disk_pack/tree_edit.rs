@@ -4,6 +4,7 @@ use super::sparse_pages::SparsePages;
 use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
 use super::{corrupt, key_layout, ReadCall, TreeRoot};
 use crate::Result;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -222,8 +223,11 @@ impl<P: TreePages> TreeEdit<P> {
         let mut updates = changes.iter().peekable();
         for index in 0..page.count() {
             let entry = page.entry(index);
-            let key = call.full_key(&self.root, entry)?;
-            while updates.peek().is_some_and(|(next, _)| *next < key) {
+            let key = call.key_bytes(&self.root, entry)?;
+            while updates
+                .peek()
+                .is_some_and(|(next, _)| next.as_slice() < key.as_ref())
+            {
                 let (key, value) = updates.next().expect("peeked change");
                 self.change_value(call, references, None, value)?;
                 entries.push((
@@ -232,7 +236,10 @@ impl<P: TreePages> TreeEdit<P> {
                 ));
             }
             let descriptor = entry[..key_layout::descriptor_bytes(entry)].to_vec();
-            let value = if updates.peek().is_some_and(|(next, _)| *next == key) {
+            let value = if updates
+                .peek()
+                .is_some_and(|(next, _)| next.as_slice() == key.as_ref())
+            {
                 let (_, value) = updates.next().expect("peeked replacement");
                 self.change_value(call, references, Some(key_layout::value(entry)), value)?;
                 *value
@@ -287,17 +294,17 @@ fn validate_page(call: &mut ReadCall, tree: &TreeRoot, page: &Page, path: &PathS
     {
         return Err(corrupt("tree edit level or occupancy"));
     }
-    let mut previous: Option<Vec<u8>> = None;
+    let mut previous: Option<Cow<'_, [u8]>> = None;
     let mut children = HashSet::new();
     if page.level() > 0 {
         children.insert(page.left());
     }
     for number in 0..page.count() {
         let entry = page.entry(number);
-        let key = call.full_key(tree, entry)?;
-        if previous.as_deref().is_some_and(|p| p >= key.as_slice())
-            || path.lower.as_deref().is_some_and(|p| p > key.as_slice())
-            || path.upper.as_deref().is_some_and(|p| p <= key.as_slice())
+        let key = call.key_bytes(tree, entry)?;
+        if previous.as_deref().is_some_and(|p| p >= key.as_ref())
+            || path.lower.as_deref().is_some_and(|p| p > key.as_ref())
+            || path.upper.as_deref().is_some_and(|p| p <= key.as_ref())
         {
             return Err(corrupt("tree edit key order or parent interval"));
         }

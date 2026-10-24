@@ -9,53 +9,26 @@ impl FieldVariant {
     pub fn write_mutation(&mut self, key_value: &KeyValue, ctx: WriteContext) -> bool {
         self.ensure_molecule(&ctx.schema_name, &ctx.field_name);
 
-        // Every field kind uses the same keyed molecule representation.
-        if let (
-            FieldKind::Single | FieldKind::Hash | FieldKind::Range | FieldKind::HashRange,
-            Some(molecule),
-        ) = (&self.kind, &mut self.molecule)
-        {
-            let Some((hash_key, range_key)) = Self::molecule_keys(&self.kind, key_value, &ctx)
-            else {
-                return false;
-            };
-            Self::write_tip(molecule, ctx, hash_key, range_key)
-        } else {
+        let Some((hash, range)) = self.slot_coordinates_ref(key_value) else {
+            if self.kind == FieldKind::HashRange {
+                tracing::warn!(
+                    "HashRange write_mutation: atom {} not indexed — hash={:?}, range={:?}. \
+                     Both hash and range keys are required for HashRange fields.",
+                    ctx.atom.uuid(),
+                    key_value.hash,
+                    key_value.range
+                );
+            }
+            return false;
+        };
+        let Some(molecule) = self.molecule.as_mut() else {
             tracing::error!(
                 kind = ?self.kind,
                 "write_mutation: field kind / molecule data mismatch"
             );
-            false
-        }
-    }
-
-    /// Map a field kind to its molecule `(hash, range)` key.
-    /// Single → ("",""); Hash → (h,""); Range → ("",r); HashRange → (h,r).
-    /// `None` means the key value lacks a part this kind requires.
-    fn molecule_keys(
-        kind: &FieldKind,
-        key_value: &KeyValue,
-        ctx: &WriteContext,
-    ) -> Option<(String, String)> {
-        match kind {
-            FieldKind::Single => Some((String::new(), String::new())),
-            FieldKind::Hash => key_value.hash.as_ref().map(|h| (h.clone(), String::new())),
-            FieldKind::Range => key_value.range.as_ref().map(|r| (String::new(), r.clone())),
-            FieldKind::HashRange => {
-                if let (Some(h), Some(r)) = (&key_value.hash, &key_value.range) {
-                    Some((h.clone(), r.clone()))
-                } else {
-                    tracing::warn!(
-                        "HashRange write_mutation: atom {} not indexed — hash={:?}, range={:?}. \
-                         Both hash and range keys are required for HashRange fields.",
-                        ctx.atom.uuid(),
-                        key_value.hash,
-                        key_value.range
-                    );
-                    None
-                }
-            }
-        }
+            return false;
+        };
+        Self::write_tip(molecule, ctx, hash.to_string(), range.to_string())
     }
 
     /// Set the tip for one molecule key from the write context, then its metadata.

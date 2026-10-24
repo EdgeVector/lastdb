@@ -43,12 +43,10 @@ impl FieldVariant {
             return Ok(());
         }
         if !matching {
-            let source = self.slot_coordinates(storage_key).map(|(hash, range)| {
+            let source = self.slot_coordinates_ref(storage_key).map(|(hash, range)| {
                 crate::schema::types::field::build_storage_key(
                     scope,
-                    &crate::atom::molecule_key_codec::hash_range_record_key(
-                        molecule, &hash, &range,
-                    ),
+                    &crate::atom::molecule_key_codec::hash_range_record_key(molecule, hash, range),
                 )
             });
             crate::storage::disk_pack::logical_paths::core_read::note_tip(

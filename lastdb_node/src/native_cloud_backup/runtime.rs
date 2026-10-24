@@ -100,14 +100,14 @@ impl BackupRuntime {
             .send_modify(|state| state.wake_revision = state.wake_revision.wrapping_add(1));
     }
     /// Called while the owner transition lock protects consent and admission.
-    pub(super) fn check_admission(&self) -> Result<()> {
+    pub(crate) fn check_admission(&self) -> Result<()> {
         if self.changed.borrow().shutting_down {
             Err(BackupError::Shutdown)
         } else {
             Ok(())
         }
     }
-    pub(super) fn start<F>(
+    pub(crate) fn start<F>(
         self: &Arc<Self>,
         request_id: Id,
         origin: RunOrigin,

@@ -1,4 +1,4 @@
-//! Declare gauge-only status records once, including their unit and window.
+//! Declare status gauges and optional trailing flags once, including metadata.
 //!
 //! The wire stays a bare u64 or null. Missing fields remain unavailable with
 //! their declared metadata, rather than becoming a measured zero.
@@ -10,16 +10,21 @@ macro_rules! gauge_health {
             $( $(#[$field_attr:meta])* $field_vis:vis $field:ident:
                 ($unit:expr, $window:expr) ),+ $(,)?
         }
+        $(flags {
+            $( $(#[$flag_attr:meta])* $flag_vis:vis $flag:ident ),+ $(,)?
+        })?
     ) => {
         $(#[$attr])*
         $vis struct $name {
             $( $(#[$field_attr])* $field_vis $field: $crate::ops::gauge::Gauge, )+
+            $( $( $(#[$flag_attr])* $flag_vis $flag: bool, )+ )?
         }
 
         impl Default for $name {
             fn default() -> Self {
                 Self {
                     $( $field: $crate::ops::gauge::Gauge::field_not_served($unit, $window), )+
+                    $( $( $flag: false, )+ )?
                 }
             }
         }
@@ -28,12 +33,13 @@ macro_rules! gauge_health {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 use serde::ser::SerializeStruct;
                 let mut state = serializer.serialize_struct(
-                    stringify!($name), [$(stringify!($field)),+].len(),
+                    stringify!($name), [$(stringify!($field),)+ $($(stringify!($flag),)+)?].len(),
                 )?;
                 $( state.serialize_field(
                     stringify!($field),
                     &$crate::ops::self_metrics::gauge_wire::wire_u64(&self.$field),
                 )?; )+
+                $( $( state.serialize_field(stringify!($flag), &self.$flag)?; )+ )?
                 state.end()
             }
         }
@@ -43,12 +49,14 @@ macro_rules! gauge_health {
                 #[derive(serde::Deserialize)]
                 struct Raw {
                     $( #[serde(default)] $field: Option<u64>, )+
+                    $( $( #[serde(default)] $flag: bool, )+ )?
                 }
                 let raw = <Raw as serde::Deserialize<'de>>::deserialize(deserializer)?;
                 Ok(Self {
                     $( $field: $crate::ops::self_metrics::gauge_wire::gauge_from_wire(
                         raw.$field, $unit, $window,
                     ), )+
+                    $( $( $flag: raw.$flag, )+ )?
                 })
             }
         }

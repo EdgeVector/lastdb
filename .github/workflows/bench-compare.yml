@@ -17,6 +17,14 @@ on:
         type: choice
         options: [standard, nightly, batch-insert]
         default: standard
+      resource_only:
+        description: Measure resource growth only with the selected profile
+        type: boolean
+        default: false
+      investigation:
+        description: Capture native phases in a separate generated-data pass
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -50,3 +58,5 @@ jobs:
       candidate: ${{ needs.plan.outputs.candidate }}
       driver: ${{ needs.plan.outputs.driver }}
       profile: ${{ inputs.profile }}
+      resource_only: ${{ inputs.resource_only }}
+      investigation: ${{ inputs.investigation }}

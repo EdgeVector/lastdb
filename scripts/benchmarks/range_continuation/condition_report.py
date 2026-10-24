@@ -2,6 +2,8 @@
 
 import statistics
 
+from ranges import latency
+
 
 def summarize(values, phase, label):
     cells = [next(cell for cell in value["conditions"]["cells"]
@@ -40,12 +42,52 @@ def condition_summary(grouped, mode):
                          + f" | {change:+.1f}% | " + " | ".join(costs) + " |")
             if change > 20:
                 print("::notice::" + mode + " " + phase + " " + label + " condition time increased more than20%; advisory only")
+        lines.extend(phase_summary(grouped, phase, labels))
     lines.extend(memory_summary(grouped))
     lines.extend(["", "Each warm cell has32 requests per run. Each fresh-process cell has one request after its own restart, eight restarts per run.",
         "Cells use medians of two per-run results. Fresh-process elapsed times do not establish a latency distribution or statistical significance.",
         "Internal key requests are logical storage requests, not the native guard's examined-key count. Read bytes include OS-cache reads.",
         "Transient byte receipts omit returned values, captured field maps, warm caches, and allocator overhead. Process snapshots do not prove an in-flight peak.",
-        "The API offset/limit control also matches. Public Delete/Purge removes records; legacy body tombstones and concurrent mutations remain outside this recipe."])
+        "The API offset/limit and four duplicate-projection controls also match, with include_tombstones off/on for ordinary and conditional reads.",
+        "Every condition row retains its exact four-key envelope and both key coordinates. Its author is null or a projected metadata writer.",
+        "Nested bodies retain signed/unsigned integer boundaries, an integer above2^53, float types, and negative zero.",
+        "Only the fixed128-key hash uses nested JSON bodies below9KiB. Original large-range bodies and eight timed selectors stay unchanged.",
+        "Public Delete/Purge removes records; legacy body tombstones and concurrent mutations remain outside this recipe."])
+    return lines
+
+
+def phase_summary(grouped, phase, labels):
+    names = ("p50_ms", "p95_ms", "p99_ms") if phase == "warm" else ("p50_ms",)
+    lines = ["", "Existing server phases: p50 / p95 / p99 ms" if phase == "warm"
+             else "Existing server phases: elapsed ms", "",
+        "| Case | Exact ID coverage/run | Server base/candidate | Core query base/candidate | Format base/candidate |",
+        "|---|---|---|---|---|"]
+    count = 32 if phase == "warm" else 1
+    for label in labels:
+        columns = []
+        for name in ("duration_ms", "hydrate_atoms_us", "hydrate_format_us"):
+            roles = []
+            for role in ("baseline", "candidate"):
+                values = grouped[role]
+                rows = []
+                for value in values:
+                    cell = next(cell for cell in value["conditions"]["cells"]
+                                if (cell["phase"], cell["label"]) == (phase, label))
+                    samples = []
+                    for sample in cell["samples"]:
+                        operation = sample["server_request_ops"]
+                        fields = operation if name == "duration_ms" else operation["phases"]
+                        if name in fields:
+                            samples.append({"elapsed_ms": fields[name] / (1 if name == "duration_ms" else 1000)})
+                    if len(samples) == len(cell["samples"]):
+                        rows.append(latency(samples))
+                roles.append(" / ".join(f"{statistics.median(row[field] for row in rows):.3f}"
+                    for field in names) if len(rows) == len(values) else "unreported")
+            columns.append(" ; ".join(roles))
+        lines.append("| " + label + f" | {count}/{count} | " + " | ".join(columns) + " |")
+    lines.extend(["", "Exact IDs match the current request ring after each cell, outside its latency and memory windows.",
+        "Core query is hydrate_atoms; format is hydrate_format. Missing phase fields remain unreported, not zero.",
+        "Server duration excludes socket queue wait. Phase totals are separate observations and must not be added to a parent phase."])
     return lines
 
 

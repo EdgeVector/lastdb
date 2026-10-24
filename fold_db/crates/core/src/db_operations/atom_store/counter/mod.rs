@@ -45,6 +45,7 @@ mod records;
 mod recount;
 mod refs;
 mod report;
+pub(crate) mod restore_validation;
 mod scan;
 mod verify;
 

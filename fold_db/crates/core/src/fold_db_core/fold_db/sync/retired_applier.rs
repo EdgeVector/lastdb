@@ -64,6 +64,7 @@ async fn preserve(
             "unsupported mixed, scoped, or aggregate retired envelope",
         ));
     }
+    manager.require_envelope_replay_cutoff(original).await?;
     // No permanent root write occurs until materialization and native signature
     // validation succeed. The shared fence prevents reclaim during those reads.
     let mut retention: crate::db_operations::atom_store::RetiredIntentRetentionGuard =
@@ -71,11 +72,15 @@ async fn preserve(
     let materialized = materializer(original.clone())
         .await
         .map_err(|_| refused("retired intent materialization failed"))?;
-    let (mutations, prefix) = crate::sync::mutation_intent::decode_mutations(&materialized);
+    let (mut mutations, prefix) = crate::sync::mutation_intent::decode_mutations(&materialized);
     if mutations.len() != original.len() || prefix.as_ref().is_some_and(|prefix| !prefix.is_empty())
     {
         return Err(refused("retired intent native decode differs"));
     }
+    for mutation in &mut mutations {
+        mutation.replay_cutoff_required = true;
+    }
+    manager.require_replay_cutoff(&mutations).await?;
     manager.validate_retired_replay_clocks(&mutations)?;
     let source_id = crate::db_operations::retired_intents::retired_intent_source_id(&source.record);
     let prepared = crate::db_operations::retired_intents::prepare_retired_intent(

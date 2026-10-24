@@ -1,6 +1,8 @@
 """Named keyed condition requests and their expected generated values."""
 
-from condition_values import COUNT, EXTRA_FIELDS, HASH
+import math
+
+from condition_values import COUNT, EXTRA_FIELDS, HASH, JSON_NUMBERS
 
 FIELDS = ["bucket", "id", "title", "body", *EXTRA_FIELDS]
 
@@ -50,19 +52,40 @@ def selected(expected, spec):
     return keys[:spec.get("predicate_limit", len(keys))]
 
 
-def validate(result, expected, spec, reference=None):
+def validate_envelope(row):
+    if (set(row) != {"key", "fields", "metadata", "author_pub_key"}
+            or set(row["key"]) != {"hash", "range"}):
+        raise RuntimeError("A condition row changes its four-key envelope or complete key coordinates")
+    writers = {value["writer_pubkey"] for value in row["metadata"].values()
+               if value.get("writer_pubkey")}
+    # The product chooses a writer from its original randomized metadata map,
+    # then filters an empty selection. Do not impose a new author tie order.
+    if not writers or any(value.get("writer_pubkey") == "" for value in row["metadata"].values()):
+        writers.add(None)
+    if row["author_pub_key"] not in writers:
+        raise RuntimeError("A condition row changes the author selected from its projected metadata")
+    if "body" in row["fields"]:
+        numbers = row["fields"]["body"]["numbers"]
+        if (set(numbers) != set(JSON_NUMBERS) or any(type(numbers[name]) is not type(value)
+                or numbers[name] != value for name, value in JSON_NUMBERS.items())
+                or math.copysign(1, numbers["negative_zero"]) != -1):
+            raise RuntimeError("A condition body changes an integer boundary, float type, or negative zero")
+
+
+def validate(result, expected, spec, reference=None, *, conditioned=True):
     keys = selected(expected, spec)
     wanted = keys[spec.get("offset", 0):spec.get("offset", 0) + spec["limit"]]
     rows = result.get("results", [])
     actual = [(row["key"].get("hash"), row["key"].get("range")) for row in rows]
     if (actual != wanted or result.get("returned_count") != len(wanted)
-            or result.get("total_count") != len(keys)
+            or result.get("total_count") != (len(keys) if conditioned else None)
             or result.get("has_more") != (spec.get("offset", 0) + len(wanted) < len(keys))
             or result.get("next_cursor") is not None
             or result.get("unresolved_rows") != 0 or result.get("tombstoned_rows") != 0):
         raise RuntimeError("A keyed condition response differs in membership, order, count, or offset/limit")
     fields = spec["fields"] or FIELDS
     for key, row in zip(wanted, rows):
+        validate_envelope(row)
         projected = {name: expected[key][name] for name in ["bucket", *fields] if name in expected[key]}
         if row["fields"] != projected or set(row["metadata"]) != set(projected):
             raise RuntimeError("A keyed condition response changes its exact projected fields or metadata fields")
