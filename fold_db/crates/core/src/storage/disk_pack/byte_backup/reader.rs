@@ -181,24 +181,15 @@ impl ByteBackupReader {
                 .source
                 .as_ref()
                 .ok_or_else(|| io::Error::other("stored source missing"))?;
-            let mut call = self
-                .inner
-                .home
-                .read(
-                    source,
-                    laststore::disk_pack::ReadBudget {
-                        pages: lastdb_storage_policy::backup_decode::NATIVE_STREAM_PAGES,
-                        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
-                        bytes:
-                            lastdb_storage_policy::backup_decode::NATIVE_STREAM_LOOKUP_READ_BYTES,
-                        keys: 1,
-                    },
-                )
-                .map_err(|_| io::Error::other("stored source held read"))?;
             let (collection, key) = self
                 .record_coordinate
                 .as_ref()
                 .ok_or_else(|| io::Error::other("stored source coordinate missing"))?;
+            let mut call = self
+                .inner
+                .home
+                .read(source, record_lookup_budget(collection, key)?)
+                .map_err(|_| io::Error::other("stored source held read"))?;
             let mut target = Cursor::new(&mut output[..count]);
             let copied = call
                 .copy_body_range_to(collection, key, offset..offset + count as u64, &mut target)
@@ -212,6 +203,35 @@ impl ByteBackupReader {
         }
     }
 }
+
+fn record_lookup_budget(
+    collection: &str,
+    key: &str,
+) -> io::Result<laststore::disk_pack::ReadBudget> {
+    let coordinate = collection
+        .len()
+        .checked_add(key.len())
+        .ok_or_else(|| io::Error::other("stored coordinate size overflow"))?
+        as u64;
+    let bytes = lastdb_storage_policy::BACKUP_RESOURCES.decoded_values_bytes;
+    let page = lastdb_storage_policy::native_v1::PAGE_BYTES as u64;
+    // Two pages per page-sized key span conservatively include overflow framing.
+    // The ordinary path allowance remains available for directory/locator pages.
+    let overflow = coordinate
+        .div_ceil(page)
+        .checked_mul(2)
+        .and_then(|pages| {
+            pages.checked_add(lastdb_storage_policy::backup_decode::NATIVE_STREAM_PAGES)
+        })
+        .ok_or_else(|| io::Error::other("stored coordinate page admission overflow"))?;
+    Ok(laststore::disk_pack::ReadBudget {
+        pages: overflow.min(bytes / page),
+        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
+        bytes,
+        keys: 1,
+    })
+}
+
 impl Read for ByteBackupReader {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let result = self.next(buffer);

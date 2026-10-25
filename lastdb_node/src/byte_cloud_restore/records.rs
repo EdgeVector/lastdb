@@ -10,7 +10,8 @@ use fold_db::storage::disk_pack::byte_backup::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
@@ -64,6 +65,7 @@ pub(super) async fn restore(
     if target.try_exists()? {
         verify_import(&target, profile)?;
         require_empty_physical(session)?;
+        private_import_directory(&target)?;
         fs::rename(&target, session.physical())?;
         File::open(session.root.join("home/data"))?.sync_all()?;
         File::open(&session.root)?.sync_all()?;
@@ -166,9 +168,8 @@ fn validate_ready(path: &Path, expected: &Ready) -> Result<()> {
 fn verify_import(physical: &Path, profile: &StoredRecordProfile) -> Result<()> {
     let home = laststore::disk_pack::home::DiskHome::open(physical)
         .map_err(|_| RestoreError::Invalid("rebuilt record home"))?;
-    let actual =
-        laststore::disk_pack::home::transfer::export_streaming(&home, &mut std::io::sink())
-            .map_err(|_| RestoreError::Invalid("rebuilt stored record verification"))?;
+    let actual = laststore::disk_pack::home::record_stream::export(&home, &mut std::io::sink())
+        .map_err(|_| RestoreError::Invalid("rebuilt stored record verification"))?;
     if actual != profile.receipt {
         return Err(RestoreError::Invalid("rebuilt stored record receipt"));
     }
@@ -181,6 +182,20 @@ fn require_empty_physical(session: &RestoreSession) -> Result<()> {
     if fs::read_dir(physical)?.next().transpose()?.is_some() {
         return Err(RestoreError::Invalid("record physical scaffold"));
     }
+    Ok(())
+}
+
+fn private_import_directory(path: &Path) -> Result<()> {
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(path)?;
+    let metadata = directory.metadata()?;
+    if !metadata.is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
+        return Err(RestoreError::Invalid("owned record import directory"));
+    }
+    directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+    directory.sync_all()?;
     Ok(())
 }
 

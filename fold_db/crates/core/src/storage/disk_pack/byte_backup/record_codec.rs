@@ -149,7 +149,8 @@ pub fn import_record_backup(
         ));
     }
     let mut stream = Cursor::new(actual).chain(input);
-    let receipt = transfer::import_streaming(root, &mut stream).map_err(super::super::map)?;
+    let receipt = laststore::disk_pack::home::record_stream::import(root, &mut stream)
+        .map_err(super::super::map)?;
     if receipt != profile.receipt {
         return Err(invalid("imported stored record closure differs"));
     }
