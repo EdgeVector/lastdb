@@ -4,7 +4,7 @@ use super::bloom::{key_hash, Filter};
 use super::codec::{corrupt, decode_block, BlockRecords};
 use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::RunRange;
-use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, TOP_COUNTER};
+use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER};
 use crate::frame::{decode_frame_bounded, min_encoded_len};
 use crate::Result;
 use std::fs::File;
@@ -37,8 +37,18 @@ impl IndexBlock {
 }
 
 impl RunReader {
-    /// Opens a run and checks its footer and top block.
+    /// Opens a run and checks its footer and top block. The file must be
+    /// named `<run id>.ldrun` for the run id its footer and blocks carry, so
+    /// a valid older run copied over another name does not open.
     pub fn open(path: &Path, data_key: &[u8; 32]) -> Result<Self> {
+        let named = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(RUN_SUFFIX))
+            .and_then(|stem| Uuid::parse_str(stem).ok());
+        let Some(named) = named else {
+            return Err(corrupt("run file name is not <run id>.ldrun"));
+        };
         let file = File::open(path)?;
         let len = file.metadata()?.len();
         if len < FOOTER_BYTES as u64 {
@@ -47,7 +57,14 @@ impl RunReader {
         let mut raw = [0u8; FOOTER_BYTES];
         file.read_exact_at(&mut raw, len - FOOTER_BYTES as u64)?;
         let footer = Footer::decode(&raw)?;
-        if footer.top_offset + u64::from(footer.top_len) + FOOTER_BYTES as u64 != len {
+        if footer.run_id != named {
+            return Err(corrupt("run file name and run id disagree"));
+        }
+        let end = footer
+            .top_offset
+            .checked_add(u64::from(footer.top_len))
+            .and_then(|end| end.checked_add(FOOTER_BYTES as u64));
+        if end != Some(len) {
             return Err(corrupt("top block is not before the footer"));
         }
         let mut reader = Self {

@@ -9,7 +9,7 @@ const MAGIC: [u8; 8] = *b"LDRUN\x01\0\0";
 const VERSION: u32 = 1;
 pub(super) const FOOTER_BYTES: usize = 64;
 /// Largest block entry count one index or top block may claim.
-const MAX_ENTRIES: usize = 1 << 24;
+const MAX_ENTRIES: usize = super::MAX_INDEX_ENTRIES;
 
 /// The fixed clear trailer of a run file. The top block repeats the counts,
 /// and the reader requires both copies to agree, so the clear copy cannot

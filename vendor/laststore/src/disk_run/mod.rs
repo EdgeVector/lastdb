@@ -47,6 +47,10 @@ pub const MAX_RUN_VALUE_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTE
 /// be larger, so every finished run opens.
 pub const MAX_TOP_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES;
 
+/// Largest entry count of one index or top block. The writer starts a new
+/// index block at this count, and a reader refuses a larger claim.
+pub const MAX_INDEX_ENTRIES: usize = 1 << 24;
+
 /// One record as a run stores it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {

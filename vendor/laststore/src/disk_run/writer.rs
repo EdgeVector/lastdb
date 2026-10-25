@@ -4,8 +4,8 @@ use super::bloom::{key_hash, put_filter};
 use super::codec::{corrupt, put_record, record_len};
 use super::footer::{put_refs, BlockRef, Footer, Top};
 use super::{
-    RunOptions, INDEX_COUNTER_BASE, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES, MAX_TOP_BYTES,
-    RUN_SUFFIX, TOP_COUNTER,
+    RunOptions, INDEX_COUNTER_BASE, MAX_INDEX_ENTRIES, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES,
+    MAX_TOP_BYTES, RUN_SUFFIX, TOP_COUNTER,
 };
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::frame::{encode_frame, FrameHeader};
@@ -35,7 +35,9 @@ pub struct RunSummary {
 
 /// Builds one run in a hidden temporary file, then makes it durable and
 /// renames it to `<run id>.ldrun`. A writer dropped before
-/// [`RunWriter::finish`] deletes its temporary file.
+/// [`RunWriter::finish`] deletes its temporary file. After a crash the
+/// `.<run id>.tmp` file stays; the owner of the run directory removes such
+/// files when it opens the directory.
 pub struct RunWriter {
     dir: PathBuf,
     tmp: PathBuf,
@@ -56,14 +58,17 @@ pub struct RunWriter {
     last_key: Option<Vec<u8>>,
     records: u64,
     max_payload: usize,
+    /// Set when a block write fails: the block's records are gone and the
+    /// file offset is unknown, so the writer refuses every later call.
+    failed: bool,
     finished: bool,
 }
 
 impl RunWriter {
     /// Starts a new run in `dir` with a fresh random run id.
     pub fn create(dir: &Path, data_key: &[u8; 32], options: RunOptions) -> Result<Self> {
-        if !(512..=MAX_RUN_VALUE_BYTES).contains(&options.block_bytes) || options.index_bytes < 512
-        {
+        let sizes = 512..=MAX_RUN_VALUE_BYTES;
+        if !sizes.contains(&options.block_bytes) || !sizes.contains(&options.index_bytes) {
             return Err(Error::Config("disk run: block sizes out of range".into()));
         }
         let run_id = Uuid::new_v4();
@@ -93,6 +98,7 @@ impl RunWriter {
             last_key: None,
             records: 0,
             max_payload: 0,
+            failed: false,
             finished: false,
         })
     }
@@ -110,6 +116,7 @@ impl RunWriter {
     /// Appends one record. `None` writes a tombstone. Keys must be strictly
     /// ascending across the whole run.
     pub fn push(&mut self, key: &[u8], value: Option<&[u8]>) -> Result<()> {
+        self.refuse_after_failure()?;
         if key.is_empty() || key.len() > MAX_RUN_KEY_BYTES {
             return Err(Error::Config("disk run: key size out of range".into()));
         }
@@ -143,7 +150,22 @@ impl RunWriter {
         Ok(())
     }
 
+    fn refuse_after_failure(&self) -> Result<()> {
+        if self.failed {
+            return Err(Error::WriteCapacity(
+                "disk run: an earlier block write failed; start a new run".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn write_frame(&mut self, counter: u64, payload: &[u8]) -> Result<(u64, u32)> {
+        let written = self.write_frame_once(counter, payload);
+        self.failed |= written.is_err();
+        written
+    }
+
+    fn write_frame_once(&mut self, counter: u64, payload: &[u8]) -> Result<(u64, u32)> {
         let header = FrameHeader {
             chunk_uuid: self.run_id,
             shard: 0,
@@ -173,7 +195,7 @@ impl RunWriter {
             len,
         });
         self.data_blocks += 1;
-        if self.index_bytes >= self.options.index_bytes {
+        if self.index_bytes >= self.options.index_bytes || self.index.len() >= MAX_INDEX_ENTRIES {
             self.flush_index()?;
         }
         Ok(())
@@ -203,8 +225,14 @@ impl RunWriter {
     }
 
     /// Writes the last blocks, the top block and the footer, makes the file
-    /// durable, and renames it into place. The run is complete or absent.
+    /// durable, and renames it into place.
+    ///
+    /// An error before the rename leaves no run. An error from the final
+    /// directory sync comes after the rename: the run file is complete but
+    /// its name may not be durable, so the caller must treat that run as
+    /// unknown rather than absent and must not publish it.
     pub fn finish(mut self) -> Result<RunSummary> {
+        self.refuse_after_failure()?;
         if !self.block.is_empty() {
             self.flush_block()?;
         }
@@ -222,8 +250,9 @@ impl RunWriter {
             indexes: std::mem::take(&mut self.top),
             last_key: self.last_key.clone().unwrap_or_default(),
         };
+        let top_entries = top.indexes.len();
         let top = top.encode();
-        if top.len() > MAX_TOP_BYTES {
+        if top.len() > MAX_TOP_BYTES || top_entries > MAX_INDEX_ENTRIES {
             return Err(Error::WriteCapacity(
                 "disk run: top block over its read limit; write smaller runs".into(),
             ));
