@@ -198,7 +198,8 @@ Retention repair can leave a valid queue entry with no slot or directory pointer
 The inventory preserves and counts that entry, reports an unresolved reference, and blocks its typed proposal.
 It never invents a coordinate or treats the repair representation as malformed data.
 History API coordinates are counted separately; they are not guessed to be storage coordinates.
-The complete captured metadata remains available to the later conversion planner.
+The report does not save the captured metadata.
+A future converter must capture it again from the same bound source publication.
 
 For supported molecules, proposed keys preserve exact scope and hash bytes.
 The inventory checks source range encoding, target scalar validation, collisions, and key byte limits.
