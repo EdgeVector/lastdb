@@ -1,7 +1,7 @@
 //! Reads records from one run file by key.
 
 use super::bloom::{key_hash, Filter};
-use super::codec::{corrupt, decode_block};
+use super::codec::{corrupt, decode_block, BlockRecords};
 use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::RunRange;
 use super::{Found, INDEX_COUNTER_BASE, TOP_COUNTER};
@@ -137,7 +137,7 @@ impl RunReader {
         })
     }
 
-    pub(super) fn read_data(&self, block: &BlockRef) -> Result<Vec<(Vec<u8>, Found)>> {
+    pub(super) fn read_data(&self, block: &BlockRef) -> Result<BlockRecords> {
         let payload = self.read_frame(block.offset, block.len, block.number, self.block_limit())?;
         let records = decode_block(&payload)?;
         if records.first().map(|(k, _)| k) != Some(&block.first_key) {
@@ -172,7 +172,7 @@ impl RunReader {
         order.sort_by(|a, b| keys[*a].cmp(keys[*b]));
         let mut out = vec![None; keys.len()];
         let mut index: Option<(usize, IndexBlock)> = None;
-        let mut data: Option<(u64, Vec<(Vec<u8>, Found)>)> = None;
+        let mut data: Option<(u64, BlockRecords)> = None;
         for slot in order {
             let key = keys[slot];
             let Some(number) = self.index_for(key) else {

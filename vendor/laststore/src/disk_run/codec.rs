@@ -107,8 +107,11 @@ pub(super) fn put_record(out: &mut Vec<u8>, prev: &[u8], key: &[u8], value: Opti
     }
 }
 
+/// Decoded records of one data block, in key order.
+pub(super) type BlockRecords = Vec<(Vec<u8>, Found)>;
+
 /// Decodes every record of one data block, in key order.
-pub(super) fn decode_block(payload: &[u8]) -> Result<Vec<(Vec<u8>, Found)>> {
+pub(super) fn decode_block(payload: &[u8]) -> Result<BlockRecords> {
     let mut records = Vec::new();
     let mut at = 0;
     let mut key = Vec::new();
