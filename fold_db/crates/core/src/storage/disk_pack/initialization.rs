@@ -265,11 +265,13 @@ impl PackRuntime {
                 return Err(refusal("current creation requires a snapshot reopen"));
             }
             if runtime.fresh_initialization_pending() {
-                runtime
-                    .node_home
-                    .as_ref()
-                    .ok_or_else(|| refusal("current creation has no held node owner"))?
-                    .complete()?;
+                match runtime.node_home.as_ref() {
+                    Some(home) => home.complete()?,
+                    None if runtime.is_disk_format_v2() => {
+                        super::run_node::complete_initialization(runtime.physical.path())?;
+                    }
+                    None => return Err(refusal("current creation has no held node owner")),
+                }
                 runtime.initializing.store(false, Ordering::Release);
             }
             Ok(())

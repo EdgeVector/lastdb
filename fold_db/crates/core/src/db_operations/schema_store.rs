@@ -23,6 +23,7 @@ pub struct SchemaDropReceipt {
 
 mod catalog_keys;
 mod claims_retention;
+mod lifecycle_ci_evidence;
 mod name_claims;
 mod native_memory;
 mod read;

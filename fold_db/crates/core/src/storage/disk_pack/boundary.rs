@@ -16,8 +16,8 @@ impl PackRuntime {
             StorageError::BackendError("native backup boundary view lock poisoned".into())
         })?;
         Ok(CoreNativeBackupBoundary {
-            source_home: self.home.descriptor().identity,
-            frontier: view.current.frontier,
+            source_home: self.home_identity(),
+            frontier: view.current.frontier(),
         })
     }
 

@@ -1,6 +1,6 @@
+use super::physical::{PhysicalRead, PhysicalRoot};
 use super::*;
 use budget::call_error;
-use laststore::disk_pack::home::HomeRead;
 
 mod atoms;
 mod budget;
@@ -12,7 +12,7 @@ mod raw;
 pub(crate) mod snapshots;
 
 pub(super) struct ReadContext {
-    pub(super) call: Arc<Mutex<HomeRead>>,
+    pub(super) call: Arc<Mutex<PhysicalRead>>,
     identity: uuid::Uuid,
     failure: Arc<Mutex<Option<ReadFailure>>>,
     pub(super) core_model: crate::resident::CoreModelSnapshot,
@@ -21,7 +21,7 @@ pub(super) struct ReadContext {
     pub(super) hidden_prefix: bool,
     snapshots: Arc<snapshots::ReadSnapshots>,
     pub(super) revision: u64,
-    current: Current,
+    current: PhysicalRoot,
     write_owner: Option<Arc<transaction::PendingBatch>>,
     _preload_charge: Option<Arc<crate::resident::core_keys::CoreKeyReservation>>,
     // Fields drop in declaration order. Drop captured model/source owners
@@ -43,7 +43,7 @@ tokio::task_local! {
 impl ReadContext {
     pub(super) fn captured(runtime: &PackRuntime) -> Option<Arc<Self>> {
         READ.try_with(Arc::clone).ok().filter(|context| {
-            context.identity == runtime.home.descriptor().identity
+            context.identity == runtime.home_identity()
                 && context
                     .validate_owner(transaction::PendingBatch::current(runtime).as_ref())
                     .is_ok()
@@ -72,19 +72,16 @@ impl ReadContext {
         } else {
             (Arc::new(Vec::new()), false)
         };
+        runtime.adopt_merged_root();
         // Keep the root selector locked until its file lifetime hold exists.
         // Runtime maintenance must replace this selector before reclaim.
         let view = runtime.view.read().expect("native complete read view");
-        let call = if write_owner.is_some() {
-            runtime
-                .home
-                .read_for_write_preparation(view.current.clone(), &runtime.read_lease)
+        let mode = if write_owner.is_some() {
+            super::physical::ReadMode::WritePreparation
         } else {
-            runtime
-                .home
-                .read_from_writer(view.current.clone(), budget(), &runtime.read_lease)
-        }
-        .map_err(map)?;
+            super::physical::ReadMode::Ordinary(budget())
+        };
+        let call = runtime.physical_read(&view.current, mode)?;
         let accepted = preparation;
         let core_model = runtime
             .core
@@ -102,7 +99,7 @@ impl ReadContext {
             revision,
             current,
             snapshots: Arc::new(snapshots::ReadSnapshots::default()),
-            identity: runtime.home.descriptor().identity,
+            identity: runtime.home_identity(),
             failure: Arc::new(Mutex::new(None)),
             core_holds: Arc::new(core_holds::CoreCallHolds::new(Arc::clone(&runtime.core))),
             write_owner,
@@ -113,7 +110,7 @@ impl ReadContext {
     pub(super) async fn current(runtime: &Arc<PackRuntime>) -> StorageResult<Arc<Self>> {
         runtime.require_restore_validated()?;
         if let Ok(context) = READ.try_with(Arc::clone) {
-            if context.identity == runtime.home.descriptor().identity {
+            if context.identity == runtime.home_identity() {
                 context.validate_owner(transaction::PendingBatch::current(runtime).as_ref())?;
                 let failure = ITEM
                     .try_with(Clone::clone)

@@ -42,6 +42,7 @@ mod filter;
 mod helpers;
 mod keep_small;
 pub(crate) mod key_format;
+mod lifecycle_ci_evidence;
 mod locks;
 mod molecule_bindings;
 mod molecule_counters;

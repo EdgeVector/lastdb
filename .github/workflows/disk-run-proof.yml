@@ -1,9 +1,10 @@
 name: Disk run proof
 
-# Disk format v2, phases V1 and V2 (docs/design-lastdb-disk-size-20261024.md in the
+# Disk format v2, phases V1, V2, and V2b (docs/design-lastdb-disk-size-20261024.md in the
 # EdgeVector workspace). Tom approved the plan on 2026-10-24: "Prove it works
 # and then I want to use it." The proof writes a synthetic seed through
 # laststore::disk_run, reads it back, and fails over 2x the logical bytes.
+# The V2b step runs the node store (fold_db disk_pack) on a synthetic v2 home.
 on:
   pull_request:
     paths:
@@ -12,6 +13,8 @@ on:
       - 'vendor/laststore/examples/disk_run_proof/**'
       - 'vendor/laststore/examples/run_home_proof/**'
       - 'vendor/laststore/Cargo.toml'
+      - 'fold_db/crates/core/src/storage/disk_pack/**'
+      - 'fold_db/crates/core/examples/disk_v2_node_proof.rs'
       - '.github/workflows/disk-run-proof.yml'
   workflow_dispatch:
 
@@ -30,7 +33,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CARGO_BUILD_JOBS: '3'
     steps:
@@ -61,6 +64,18 @@ jobs:
             echo "Source: $(git rev-parse HEAD)"
             cat "$RUNNER_TEMP/run-home-proof.txt"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Lint and run the node store proof (V2b)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked -p fold_db --example disk_v2_node_proof -- -D warnings
+          cargo run --locked --release -p fold_db --example disk_v2_node_proof \
+            | tee "$RUNNER_TEMP/node-v2-proof.txt"
+          {
+            echo '## Node store proof (V2b)'
+            echo "Source: $(git rev-parse HEAD)"
+            cat "$RUNNER_TEMP/node-v2-proof.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -68,5 +83,6 @@ jobs:
           path: |
             ${{ runner.temp }}/disk-run-proof.txt
             ${{ runner.temp }}/run-home-proof.txt
+            ${{ runner.temp }}/node-v2-proof.txt
           if-no-files-found: ignore
           retention-days: 14

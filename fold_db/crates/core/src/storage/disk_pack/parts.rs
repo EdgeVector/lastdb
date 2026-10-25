@@ -133,7 +133,7 @@ pub struct NativePartsStatus {
 }
 
 impl PartsLedger {
-    pub(super) fn from_env(opened: u64, root: &Current) -> Arc<Self> {
+    pub(super) fn from_env(opened: u64, generation: u64, frontier: u64) -> Arc<Self> {
         let ceiling = MAX_DEPENDENCY_PARTS * TRIGGER_CEILING_PERCENT / 100;
         let high_water = env_flag::var_parsed::<u64>("LASTDB_DEPENDENCY_HIGH_WATER")
             .filter(|mark| *mark > 0)
@@ -142,8 +142,8 @@ impl PartsLedger {
         Arc::new(Self {
             progress: Arc::default(),
             current: AtomicU64::new(opened),
-            generation: AtomicU64::new(root.generation),
-            frontier: AtomicU64::new(root.frontier),
+            generation: AtomicU64::new(generation),
+            frontier: AtomicU64::new(frontier),
             peak: AtomicU64::new(opened),
             baseline: AtomicU64::new(0),
             records: AtomicU64::new(0),
@@ -279,6 +279,14 @@ impl PartsLedger {
         self.failures.fetch_add(1, Relaxed);
         self.failing.store(true, Relaxed);
         *self.last_error.lock().expect("parts last error") = Some(error.to_string());
+    }
+
+    /// Record a v2 root, which has no dependency parts.
+    /// A commit and a merge adoption can race; the newer generation wins.
+    pub(super) fn observe_root(&self, generation: u64, frontier: u64) {
+        if self.generation.fetch_max(generation, Relaxed) <= generation {
+            self.frontier.store(frontier, Relaxed);
+        }
     }
 
     /// Generation and frontier of the last root this ledger saw.

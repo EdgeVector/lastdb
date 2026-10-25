@@ -164,6 +164,7 @@ impl PackRuntime {
     }
 
     async fn run_queue(self: Arc<Self>) {
+        super::lifecycle_ci_pause::before_publication(&self).await;
         // FIFO admits callers already waiting ahead of this worker. Later
         // arrivals cannot extend this commit. There is no collection timer.
         let preparation = Arc::clone(&self.prepare_gate).lock_owned().await;

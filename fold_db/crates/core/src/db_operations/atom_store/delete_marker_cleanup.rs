@@ -102,6 +102,7 @@ impl AtomStore {
         self.in_background_scope(async {
             let lock = self.generation_cleanup_lock(molecule, scope);
             let Ok(guard) = lock.try_write_owned() else {
+                crate::storage::disk_pack::lifecycle_ci_pause::note_cleanup_blocked(&runtime);
                 return Ok(
                     json!({"blocked": "generation_preparation", "complete": false,
                     "examined": 0, "eligible": 0, "deleted": 0, "next_cursor": after_key}),

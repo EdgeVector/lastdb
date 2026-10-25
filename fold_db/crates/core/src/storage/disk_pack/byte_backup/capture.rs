@@ -33,9 +33,10 @@ impl PackRuntime {
             if runtime.failed.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(invalid("byte capture requires complete writer recovery"));
             }
-            require_v1_cleanup(runtime.home.path())?;
-            let home = CaptureHome::Writer(Arc::clone(&runtime));
-            let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
+            runtime.v1()?;
+            require_v1_cleanup(runtime.physical.path())?;
+            let home = CaptureHome::writer(&runtime)?;
+            let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             if store.exists("job.json")? {
                 let old: State = store.read("job.json")?;
                 old.validate()?;
@@ -72,6 +73,7 @@ impl PackRuntime {
                 clear_previous(&store, &old)?;
             }
             let writer = runtime
+                .v1()?
                 .writer
                 .lock()
                 .map_err(|_| invalid("byte writer lock"))?;
@@ -103,8 +105,8 @@ impl PackRuntime {
         let runtime = Arc::clone(self);
         let key = zeroize::Zeroizing::new(*key);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
-            let home = CaptureHome::Writer(Arc::clone(&runtime));
-            let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
+            let home = CaptureHome::writer(&runtime)?;
+            let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             let state: State = store.read("job.json")?;
             state.validate()?;
             validate_cut(&home, &state)?;

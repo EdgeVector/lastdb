@@ -2,7 +2,7 @@
 
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
-use super::RunHome;
+use super::{RunHome, RunRoot};
 use crate::disk_pack::home::HomeMutation;
 use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter};
 use crate::{Error, Result};
@@ -24,8 +24,10 @@ pub const LAST_LEVEL_RATIO: u64 = 8;
 pub const MAX_MERGE_INPUTS: usize = 64;
 
 /// One published commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct RunCommit {
+    /// The state this commit installed.
+    pub root: RunRoot,
     /// Generation of the CURRENT this commit published.
     pub generation: u64,
     /// Complete commits, this one included.
@@ -37,8 +39,10 @@ pub struct RunCommit {
 }
 
 /// One published merge.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct RunMerge {
+    /// The state this merge installed; its frontier is unchanged.
+    pub root: RunRoot,
     /// Generation of the CURRENT this merge published.
     pub generation: u64,
     /// The level whose runs were merged.
@@ -113,6 +117,7 @@ impl RunHome {
         next.levels[0].insert(0, Arc::clone(&file));
         let installed = self.install_or_discard(next, &[file])?;
         Ok(RunCommit {
+            root: RunRoot(Arc::clone(&installed)),
             generation: installed.generation,
             frontier: installed.frontier,
             records,
@@ -130,6 +135,25 @@ impl RunHome {
             }
         }
         installed
+    }
+
+    /// Refuse a batch that [`RunHome::commit`] would refuse for its key
+    /// or value sizes, before any work. A writer calls it at admission, so
+    /// one oversized operation is refused alone and never fails a commit.
+    pub fn check_mutations(operations: &[HomeMutation]) -> Result<()> {
+        for operation in operations {
+            run_key(&operation.collection, operation.key.as_bytes())?;
+            if operation
+                .body
+                .as_ref()
+                .is_some_and(|body| body.len() > crate::disk_run::MAX_RUN_VALUE_BYTES)
+            {
+                return Err(Error::Config(
+                    "disk run home: value exceeds the run value limit".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Merge the first full level (at least [`MERGE_WIDTH`] runs) into one
@@ -206,6 +230,7 @@ impl RunHome {
             run.retire();
         }
         Ok(Some(RunMerge {
+            root: RunRoot(Arc::clone(&installed)),
             generation: installed.generation,
             level,
             inputs: inputs.len(),

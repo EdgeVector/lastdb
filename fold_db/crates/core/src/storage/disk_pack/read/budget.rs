@@ -16,8 +16,7 @@ impl ReadContext {
             items,
             examined_keys = costs.examined_keys,
             key_limit = limits.keys,
-            metadata_pages = costs.directory_pages + costs.locator_pages
-                + costs.overflow_pages + costs.map_pages,
+            metadata_pages = costs.metadata_pages,
             payload_blocks = costs.payload_blocks,
             charged_bytes = costs.budget_bytes,
             "native preparation cumulative read costs"
@@ -28,7 +27,7 @@ impl ReadContext {
     /// preparation call keeps one aggregate budget and never resets on error.
     pub(in crate::storage::disk_pack) fn account_memory_record(
         &self,
-        call: &mut HomeRead,
+        call: &mut PhysicalRead,
         key_bytes: usize,
         body_bytes: usize,
     ) -> StorageResult<()> {
@@ -46,7 +45,12 @@ impl ReadContext {
         result
     }
 
-    pub(super) fn require_room(&self, call: &HomeRead, keys: u64, bytes: u64) -> StorageResult<()> {
+    pub(super) fn require_room(
+        &self,
+        call: &PhysicalRead,
+        keys: u64,
+        bytes: u64,
+    ) -> StorageResult<()> {
         if let Some(error) = self.error() {
             return Err(error);
         }
@@ -72,14 +76,13 @@ impl ReadContext {
     }
 }
 
-pub(super) fn call_error(error: laststore::Error, call: &HomeRead) -> StorageError {
+pub(super) fn call_error(error: laststore::Error, call: &PhysicalRead) -> StorageError {
     if !matches!(error, laststore::Error::ReadBudgetExceeded) {
         return map(error);
     }
     let costs = call.costs();
     let limits = call.budget();
-    let pages =
-        costs.directory_pages + costs.locator_pages + costs.overflow_pages + costs.map_pages;
+    let pages = costs.metadata_pages;
     StorageError::ReadResourceLimit {
         detail: format!(
             "native call: examined_keys={}/{}, metadata_pages={}/{}, payload_blocks={}/{}, charged_bytes={}/{}",
@@ -102,7 +105,6 @@ impl PackRuntime {
         costs.examined_keys >= limits.keys / 2
             || costs.budget_bytes >= limits.bytes / 2
             || costs.payload_blocks >= limits.blocks / 2
-            || costs.directory_pages + costs.locator_pages + costs.overflow_pages + costs.map_pages
-                >= limits.pages / 2
+            || costs.metadata_pages >= limits.pages / 2
     }
 }
