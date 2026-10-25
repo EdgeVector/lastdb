@@ -124,6 +124,7 @@ impl SparsePages {
     fn sync_part(&mut self) -> Result<()> {
         self.reopen_part()?;
         if let Some(file) = self.file.take() {
+            let _timing = crate::commit_timing::stage("metadata_part_sync_us");
             durability::sync_dirty_file(&file)?;
         }
         Ok(())
@@ -131,6 +132,7 @@ impl SparsePages {
 
     pub(super) fn finish(mut self) -> Result<Vec<u32>> {
         self.sync_part()?;
+        let _timing = crate::commit_timing::stage("metadata_directory_sync_us");
         durability::sync_directory(&File::open(&self.directory)?)?;
         Ok(self.part_numbers)
     }

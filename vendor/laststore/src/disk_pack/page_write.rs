@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub(super) fn directory(path: &Path) -> Result<()> {
+    let _timing = crate::commit_timing::stage("metadata_namespace_create_us");
     fs::create_dir(path)?;
     durability::sync_directory(&File::open(path)?)?;
     if let Some(parent) = path.parent() {
@@ -98,6 +99,7 @@ impl PageWriter {
 
     fn sync_part(&mut self) -> Result<()> {
         if let Some(file) = self.file.take() {
+            let _timing = crate::commit_timing::stage("metadata_part_sync_us");
             durability::sync_dirty_file(&file)?;
         }
         Ok(())
@@ -105,12 +107,14 @@ impl PageWriter {
 
     pub(super) fn finish(mut self) -> Result<()> {
         self.sync_part()?;
+        let _timing = crate::commit_timing::stage("metadata_directory_sync_us");
         durability::sync_directory(&File::open(&self.directory)?)
     }
 
     /// Finalize private map headers before any root references them.
     /// No published metadata part is modified by this method.
     pub(super) fn finish_block_map(mut self, logical_bytes: u64, data_parts: u64) -> Result<()> {
+        let _timing = crate::commit_timing::stage("metadata_block_map_finish_us");
         drop(self.file.take());
         for part in 0..self.next.div_ceil(crate::disk_pack::PAGES_PER_PART) {
             let part_number = u32::try_from(part).map_err(|_| corrupt("map part exhaustion"))?;
@@ -145,8 +149,11 @@ impl PageWriter {
                 file.write_all(&bytes)?;
                 super::page_usage::map_rewritten(&bytes);
             }
-            durability::sync_dirty_file(&file)?;
+            crate::commit_timing::during("metadata_part_sync_us", || {
+                durability::sync_dirty_file(&file)
+            })?;
         }
+        let _directory_timing = crate::commit_timing::stage("metadata_directory_sync_us");
         durability::sync_directory(&File::open(&self.directory)?)
     }
 }
