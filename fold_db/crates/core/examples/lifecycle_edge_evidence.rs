@@ -1,5 +1,7 @@
 //! One-time approved generated-data evidence. Close this PR without merge.
 
+#![recursion_limit = "512"]
+
 use fold_db::benchmark_support::BenchmarkSchemaBuilder;
 use fold_db::lifecycle_ci_evidence::{inject_wrong_ages, open};
 use fold_db::schema::types::{field::HashRangeFilter, operations::Query, KeyValue, Mutation};
