@@ -107,12 +107,8 @@ impl FoldDB {
         .await
     }
 
-    /// Restore apply path: wrap an already-opened LastStore (S0 just installed)
-    /// with the serving MutationManager so [`SyncEngine::restore_mutation_log_after_s0`]
-    /// can call [`FoldDB::set_sync_engine`].
-    ///
-    /// Molecule-key encodings match Mini (`from_env_or_default` + identity E2E
-    /// index/ope keys). Capture is off: restore applies, it does not re-log.
+    /// Wrap an existing local restore store with normal key and native validation.
+    /// This local initializer cannot attach an engine or contact a cloud service.
     pub async fn for_restore(
         store: Arc<dyn crate::storage::traits::NamespacedStore>,
         db_path: &str,
@@ -158,7 +154,7 @@ impl FoldDB {
             })?;
         let restore_inbox =
             crate::db_operations::search_index::search_inbox_dir_for_home(restore_home);
-        let mut db = Self::initialize_from_init(FoldDbInit {
+        let db = Self::initialize_from_init(FoldDbInit {
             db_ops,
             signer,
             search_outbox_inbox: Some(restore_inbox),
@@ -166,7 +162,6 @@ impl FoldDB {
             offline_maintenance: true,
         })
         .await?;
-        db.preserve_retired_restore_intents = true;
         Ok(db)
     }
 
@@ -258,7 +253,6 @@ impl FoldDB {
             background_molecule_drain,
             sync_coordinator,
             mutation_log_capture,
-            preserve_retired_restore_intents: false,
             config_store: std::sync::RwLock::new(None),
         })
     }

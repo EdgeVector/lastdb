@@ -1,18 +1,8 @@
 use super::{BackupError, Result};
 use cloud_backup_protocol::jobs::{CloseReason, JobBeginInput, JobResult, JobStatus};
-use cloud_backup_protocol::publication::{AcceptedBackup, CommitInput};
+use cloud_backup_protocol::publication::{BackupHead, CommitInput};
 use cloud_backup_protocol::{AccountId, BackupJob, CloudScope, DecimalU64, Id, RecoveryDescriptor};
-use fold_db::storage::disk_pack::backup_capture::NativeBackupCaptureRequest;
 use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-pub enum NativeBackupRequest {
-    Start { request_id: Id },
-    Resume,
-    Close,
-    Status,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -33,7 +23,7 @@ pub enum Phase {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Saved {
+pub struct Saved {
     pub format: u8,
     pub request_id: Id,
     pub account: AccountId,
@@ -57,7 +47,7 @@ pub(super) struct Saved {
     pub retained_source_bytes: Option<u64>,
     pub blocked_reason: Option<String>,
     #[serde(default)]
-    pub pause: Option<super::error::PauseState>,
+    pub pause: Option<crate::backup_runtime::PauseState>,
     #[serde(default)]
     pub pause_consent_revision: Option<u64>,
     #[serde(default)]
@@ -174,26 +164,11 @@ pub(super) struct CloseIntent {
     pub reason: CloseReason,
 }
 
-#[derive(Serialize)]
-pub struct NativeBackupStatus {
-    pub enabled: bool,
-    pub running: bool,
-    pub job: Option<BackupJob>,
-    pub phase: Option<Phase>,
-    pub native_objects_verified: u64,
-    pub external_files_verified: u64,
-    pub manifest_pages_verified: u64,
-    /// Exact original native inventory, retained after terminal cleanup.
-    pub native_files: Option<u64>,
-    pub native_bytes: Option<u64>,
-    /// Verified transfer objects, counted during the normal saved-plan upload pass.
-    pub metadata_pack_objects_verified: Option<u64>,
-    /// MetadataPack objects containing at least two original native files.
-    pub multi_file_pack_objects_verified: Option<u64>,
-    pub retained_source_bytes: Option<u64>,
-    pub reserved_cloud_bytes: Option<u64>,
-    pub cloud_usage: Option<cloud_backup_protocol::usage::UsageReadResponse>,
-    pub cloud_usage_observed_at_ms: Option<u64>,
-    pub blocked_reason: Option<String>,
-    pub last_accepted_backup: Option<AcceptedBackup>,
+/// Frozen intent fields retained only to decode an existing retired job.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeBackupCaptureRequest {
+    pub job: BackupJob,
+    pub recovery: RecoveryDescriptor,
+    pub predecessor: Option<BackupHead>,
 }

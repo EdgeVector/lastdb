@@ -248,19 +248,13 @@ pub(super) fn op_kind_for_route(route: DataRoute) -> crate::request_telemetry::O
         }
         DataRoute::MoleculeHistory | DataRoute::AppChanges => OpKind::History,
         DataRoute::AtomContent => OpKind::Atom,
-        DataRoute::DeliverStage
-        | DataRoute::RecipientAddress
-        | DataRoute::DeliverSnapshot
-        | DataRoute::DeliverList
-        | DataRoute::DeliverApprove
-        | DataRoute::DeliverReject => OpKind::Deliver,
+        DataRoute::DeliverSnapshot | DataRoute::DeliverList | DataRoute::DeliverReject => {
+            OpKind::Deliver
+        }
         // Idle long-polls: wall time is mostly sleep, not DB work. Split so
         // `lastdb ops` does not rank them as opaque lastgit "other" latency.
         DataRoute::LocalWatch => OpKind::LocalWatch,
-        DataRoute::DbPutFileBlob
-        | DataRoute::DbPutBlobLocal
-        | DataRoute::DbFetchFileBlob
-        | DataRoute::DbForkFileBlob => OpKind::FileBlob,
+        DataRoute::DbPutBlobLocal | DataRoute::DbFetchFileBlob => OpKind::FileBlob,
         _ => OpKind::Other,
     }
 }
@@ -281,15 +275,6 @@ pub(super) fn schema_hint_for_route(route: DataRoute, req: &UdsRequest) -> Optio
         }
         DataRoute::MutationBatch => crate::request_telemetry::schema_from_batch_body(&req.body),
         DataRoute::QueryBatch => query_batch::schema_hint(&req.body),
-        DataRoute::DbForkFileBlob | DataRoute::DbPutFileBlob => {
-            serde_json::from_slice::<Value>(&req.body)
-                .ok()
-                .and_then(|body| {
-                    body.get("schema")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-        }
         DataRoute::GetSchema => {
             // /api/schema/{name} — single path segment only.
             path_tail(req.target.as_str(), "/api/schema/")

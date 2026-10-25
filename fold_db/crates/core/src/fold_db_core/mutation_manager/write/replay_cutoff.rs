@@ -3,28 +3,6 @@
 use super::*;
 
 impl MutationManager {
-    pub(crate) async fn require_envelope_replay_cutoff(
-        &self,
-        envelopes: &[crate::sync::log::MutationEnvelope],
-    ) -> Result<(), SchemaError> {
-        let cutoff_nanos = self.db_ops.atoms().minimum_replay_time().await?;
-        if cutoff_nanos > 0
-            && envelopes
-                .iter()
-                .any(|entry| entry.written_at <= cutoff_nanos)
-        {
-            return Err(SchemaError::ReplayBeforeDeleteCutoff { cutoff_nanos });
-        }
-        if envelopes.iter().any(|entry| {
-            entry.erase_tips_before_nanos.is_some() && entry.author_clock_signature_version == 0
-        }) {
-            return Err(SchemaError::InvalidData(
-                "a replayed TTL cutoff requires its author signature".into(),
-            ));
-        }
-        Ok(())
-    }
-
     pub(crate) async fn require_replay_cutoff(
         &self,
         mutations: &[Mutation],

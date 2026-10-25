@@ -8,6 +8,6 @@ pub fn client_from_home(home: &Path) -> Result<ByteBackupClient, String> {
 }
 
 pub(super) fn client_for_recovery(home: &Path) -> Result<ByteBackupClient, String> {
-    let auth = crate::native_backup_access::auth_for_recovery(home)?;
+    let auth = crate::backup_access::auth_for_recovery(home)?;
     ByteBackupClient::from_auth(auth).map_err(|error| error.to_string())
 }

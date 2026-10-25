@@ -378,14 +378,4 @@ impl MutationManager {
         // durable value.
         Ok(Some((reservation, state)))
     }
-
-    /// Observe replay clocks without changing the received signed values.
-    pub(super) fn observe_replayed_author_clocks(
-        &self,
-        mutations: &[Mutation],
-    ) -> Result<Option<(AuthorClockPersistReservation, MutationAuthorClockState)>, SchemaError>
-    {
-        let mut copies = mutations.to_vec();
-        self.prepare_mutation_author_clocks(&mut copies)
-    }
 }

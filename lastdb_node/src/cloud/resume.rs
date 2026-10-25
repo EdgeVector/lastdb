@@ -96,18 +96,14 @@ pub fn pause_cloud_sync_file(home: &Path) -> Result<bool, String> {
         if paused.exists() {
             return Ok(false); // already paused
         }
-        return Err(format!(
-            "neither {} nor {} present — run `lastdb connect` or `lastdb cloud setup-paid` first",
-            active.display(),
-            paused.display()
-        ));
+        return Err("no saved cloud credentials are present".into());
     }
     if paused.exists() {
-        // Prefer keeping the active credentials as the pause target; drop stale.
-        let _ = std::fs::remove_file(&paused);
+        return Err("both active and paused cloud credentials exist; refusing replacement".into());
     }
     std::fs::rename(&active, &paused)
         .map_err(|e| format!("rename {} → {}: {e}", active.display(), paused.display()))?;
+    sync_cloud_home_dir(home)?;
     Ok(true)
 }
 

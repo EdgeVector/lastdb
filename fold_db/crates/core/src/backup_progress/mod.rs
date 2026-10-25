@@ -338,37 +338,6 @@ impl BackupProgressTracker {
         self.sealed_base_abandoned = false;
     }
 
-    /// Restore a previously committed full-manifest publish from LastStore's
-    /// durable high-water marker.
-    ///
-    /// This deliberately accepts only manifest-commit evidence. Mutation-log
-    /// segment confirmation is not a snapshot base and must never call this.
-    pub(crate) fn restore_published_manifest(&mut self, committed_at_unix: Option<u64>) {
-        if !self.enabled {
-            return;
-        }
-        self.has_published = true;
-        self.last_publish_unix = committed_at_unix;
-        self.last_success_unix = committed_at_unix;
-    }
-
-    /// Restore an outstanding sealed-base abandon from the durable marker.
-    ///
-    /// Companion to [`Self::restore_published_manifest`], and the reason that
-    /// call alone was not enough: the marker's commit timestamp is positive
-    /// evidence only. A home whose held cut was later abandoned as
-    /// unpublishable still carries an old, real commit, so a restarted process
-    /// restored `has_published` and reported `complete: true` for a sealed base
-    /// that can no longer be published. The abandon has to be restored beside
-    /// it, or the degraded state does not survive a restart.
-    pub(crate) fn restore_sealed_base_abandoned(&mut self, reason: String) {
-        if !self.enabled {
-            return;
-        }
-        self.sealed_base_abandoned = true;
-        self.last_error = Some(reason);
-    }
-
     /// Observe one publish cycle that failed outright (no sample produced).
     ///
     /// Without this, a uploader whose every cycle errors leaves `last == None`

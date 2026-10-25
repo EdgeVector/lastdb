@@ -189,23 +189,6 @@ impl MutationManager {
         Ok(member_key)
     }
 
-    pub(in crate::fold_db_core::mutation_manager) fn preflight_replayed_aggregate_set(
-        &self,
-        mutations: &[Mutation],
-    ) -> Result<(), SchemaError> {
-        if mutations.len() != 1 {
-            return Err(SchemaError::InvalidData(
-                "aggregate replay must contain exactly one source mutation".into(),
-            ));
-        }
-        let source = &mutations[0];
-        let aggregate = source.aggregate_set.as_ref().ok_or_else(|| {
-            SchemaError::InvalidData("aggregate replay source has no aggregate_set".into())
-        })?;
-        self.validate_aggregate_contract(source, aggregate)?;
-        Ok(())
-    }
-
     pub(super) fn validate_enrolled_aggregate_schemas(
         &self,
         guard: &AggregateGuard,

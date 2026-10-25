@@ -51,16 +51,6 @@ pub fn cut_backup_manifest_with_cloud_presence(
     cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, false, false)
 }
 
-/// Normal publication may replace an atom ref with a verified strict append.
-/// The caller holds the normal serving fence and publication packing lock.
-pub(crate) fn cut_normal_backup_manifest_with_cloud_presence(
-    store: &LastStoreNamespacedStore,
-    previous_manifest: Option<&BackupManifest>,
-    cloud: Option<&CloudChunkPresence>,
-) -> StorageResult<BackupManifest> {
-    cut_backup_manifest_with_cloud_presence_inner(store, previous_manifest, cloud, false, true)
-}
-
 /// Refuse a backup-only cut if the snapshot left an unsealed capped group out.
 pub fn cut_backup_manifest_with_cloud_presence_strict(
     store: &LastStoreNamespacedStore,

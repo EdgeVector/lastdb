@@ -278,7 +278,6 @@ fn route_owner_prefixed(path: &str, method: &str) -> Option<ControlRoute> {
     if let Some(rest) = path.strip_prefix("/api/sharing/deliveries/") {
         let mut parts = rest.split('/');
         let route = match (parts.next(), parts.next(), parts.next()) {
-            (Some(id), Some("approve"), None) if !id.is_empty() => DataRoute::DeliverApprove,
             (Some(id), Some("reject"), None) if !id.is_empty() => DataRoute::DeliverReject,
             _ => return None,
         };

@@ -16,14 +16,6 @@ pub struct ShareTargetReadBinding {
     pub share_grant: Option<crate::sharing::types::ShareAccessGrant>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ShareReadNotice {
-    pub account: CloudAccount,
-    pub generation: u64,
-    pub data_generation: u64,
-    pub operation_id: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReceiverBinding {
     pub format_version: u32,
@@ -79,7 +71,7 @@ impl ReceiverBinding {
         Ok(())
     }
 
-    pub(crate) fn target(
+    pub fn target(
         &self,
         share_grant: Option<crate::sharing::types::ShareAccessGrant>,
     ) -> ShareTargetReadBinding {
@@ -123,7 +115,7 @@ pub(crate) fn receiver_prefix(
     Ok(format!("from:{sender}:cloud:{identity}"))
 }
 
-pub(crate) fn validate_grant(target: &crate::sync::SyncTarget) -> SyncResult<()> {
+pub fn validate_grant(target: &crate::sync::SyncTarget) -> SyncResult<()> {
     let grant = target
         .read_binding
         .as_ref()
@@ -190,7 +182,7 @@ pub(crate) fn held(message: &str) -> SyncError {
 }
 
 /// Every received record uses the same exact physical namespace as its seed.
-pub(crate) fn rewrite_key(key: &[u8], root: &str, receiver: &str) -> SyncResult<Vec<u8>> {
+pub fn rewrite_key(key: &[u8], root: &str, receiver: &str) -> SyncResult<Vec<u8>> {
     for native in ["", "emb:", "graveyard:emb:"] {
         let prefix = format!("{native}{root}:");
         if let Some(bare) = key.strip_prefix(prefix.as_bytes()) {

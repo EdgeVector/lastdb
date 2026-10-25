@@ -42,7 +42,7 @@ impl ByteBackupClient {
         request.validate()?;
         accepted.validate()?;
         if &request.job != accepted.job() {
-            return Err(NativeBackupError::Configuration("accepted selection"));
+            return Err(BackupTransportError::Configuration("accepted selection"));
         }
         let response: ReadGrantResponse = self.post("objects/read", request).await?;
         response.validate_for(request, accepted)?;

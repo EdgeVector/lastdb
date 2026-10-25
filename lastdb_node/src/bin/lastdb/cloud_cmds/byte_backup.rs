@@ -5,8 +5,11 @@ use lastdb_node::byte_cloud_backup::ByteBackupRequest;
 
 #[path = "byte_backup/offline.rs"]
 mod offline;
+#[path = "byte_backup/setup.rs"]
+mod setup;
 #[path = "byte_backup/standalone.rs"]
 mod standalone;
+pub(super) use setup::{is_setup, setup};
 
 pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> {
     let (request, json) = match action {
