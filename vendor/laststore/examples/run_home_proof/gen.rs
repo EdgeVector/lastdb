@@ -21,8 +21,13 @@ const WORDS: [&str; 16] = [
 pub struct Rng(u64);
 
 impl Rng {
+    /// Scramble the seed first: SplitMix64 states from nearby seeds are
+    /// shifted copies of one sequence, so batch n and n + 1 would repeat
+    /// each other's keys.
     pub fn new(seed: u64) -> Self {
-        Self(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1)
+        let mut rng = Self(seed);
+        let start = rng.next_u64();
+        Self(start)
     }
 
     pub fn next_u64(&mut self) -> u64 {
