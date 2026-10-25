@@ -234,11 +234,7 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
             RunHome::open(&node.join(CONVERTING), &keys[0]).map_err(map)?,
             RunHome::open(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
         ];
-        let stored: u64 = homes
-            .iter()
-            .flat_map(|home| home.status().levels)
-            .map(|level| level.1)
-            .sum();
+        let stored: u64 = homes.iter().map(|home| home.status().records()).sum();
         if stored != records {
             return Err(invalid(
                 "disk format conversion: the run homes hold a different record count",
