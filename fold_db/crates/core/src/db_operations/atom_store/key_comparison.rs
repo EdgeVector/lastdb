@@ -1,5 +1,6 @@
 use super::*;
 use crate::schema::types::key_comparison::KeyComparisonContext;
+use crate::schema::SchemaError;
 
 impl AtomStore {
     /// Capture actual molecule bindings and formats, not environment defaults.
