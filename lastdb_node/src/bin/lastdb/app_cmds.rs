@@ -18,6 +18,9 @@ pub(crate) use self::publish::*;
 #[path = "app_cmds/registry.rs"]
 mod registry;
 pub(crate) use self::registry::*;
+#[path = "app_cmds/local_install.rs"]
+mod local_install;
+pub(crate) use self::local_install::*;
 #[path = "app_cmds/release.rs"]
 mod release;
 pub(crate) use self::release::*;
@@ -91,6 +94,110 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
+fn handle_app_storage(
+    home: &Path,
+    json: bool,
+    reconcile: bool,
+    page_size: Option<u64>,
+) -> Result<(), String> {
+    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    app_storage(&socket, json, reconcile, page_size)
+}
+
+// lint:allow-ok thin wrapper unpacking AppCommand match arms
+#[allow(clippy::too_many_arguments)]
+fn handle_app_resolve(
+    home: &Path,
+    app_id: &str,
+    channel: Option<&str>,
+    index: Option<&str>,
+    trust_key: Option<&str>,
+    lastdb_version: Option<&str>,
+    json: bool,
+) -> Result<(), String> {
+    app_resolve(
+        home,
+        app_id,
+        channel,
+        index,
+        trust_key,
+        lastdb_version,
+        json,
+    )
+}
+
+// lint:allow-ok thin wrapper unpacking AppCommand match arms
+#[allow(clippy::too_many_arguments)]
+fn handle_app_install(
+    home: &Path,
+    app_ids: Vec<String>,
+    env: Option<String>,
+    schema_url: Option<String>,
+    channel: Option<String>,
+    index: Option<String>,
+    trust_key: Option<String>,
+    lastdb_version: Option<String>,
+    dir: Option<PathBuf>,
+    allow_sandbox: bool,
+    force: bool,
+    json: bool,
+    from: Option<String>,
+    rev: Option<String>,
+    dev: bool,
+) -> Result<(), String> {
+    app_install(
+        home,
+        app_ids,
+        RegistrySource {
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
+        },
+        dir,
+        allow_sandbox,
+        force,
+        json,
+        from,
+        rev,
+        dev,
+    )
+}
+
+// lint:allow-ok thin wrapper unpacking AppCommand match arms
+#[allow(clippy::too_many_arguments)]
+fn handle_app_upgrade(
+    home: &Path,
+    app_ids: Vec<String>,
+    env: Option<String>,
+    schema_url: Option<String>,
+    channel: Option<String>,
+    index: Option<String>,
+    trust_key: Option<String>,
+    lastdb_version: Option<String>,
+    dir: Option<PathBuf>,
+    allow_sandbox: bool,
+    json: bool,
+) -> Result<(), String> {
+    app_upgrade(
+        home,
+        app_ids,
+        RegistrySource {
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
+        },
+        dir,
+        allow_sandbox,
+        json,
+    )
+}
+
 /// Catalog subcommands of `lastdb app`: list, resolve, index, storage, info,
 /// install and upgrade.
 fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
@@ -110,7 +217,7 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             trust_key,
             lastdb_version,
             json,
-        } => app_resolve(
+        } => handle_app_resolve(
             home,
             &app_id,
             channel.as_deref(),
@@ -124,10 +231,7 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             json,
             reconcile,
             page_size,
-        } => {
-            let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-            app_storage(&socket, json, reconcile, page_size)
-        }
+        } => handle_app_storage(home, json, reconcile, page_size),
         AppCommand::Info {
             app_id,
             env,
@@ -148,21 +252,25 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             allow_sandbox,
             force,
             json,
-        } => app_install(
+            from,
+            rev,
+            dev,
+        } => handle_app_install(
             home,
             app_ids,
-            RegistrySource {
-                env,
-                schema_url,
-                channel,
-                index,
-                trust_key,
-                lastdb_version,
-            },
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
             dir,
             allow_sandbox,
             force,
             json,
+            from,
+            rev,
+            dev,
         ),
         AppCommand::Upgrade {
             app_ids,
@@ -175,17 +283,15 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             dir,
             allow_sandbox,
             json,
-        } => app_upgrade(
+        } => handle_app_upgrade(
             home,
             app_ids,
-            RegistrySource {
-                env,
-                schema_url,
-                channel,
-                index,
-                trust_key,
-                lastdb_version,
-            },
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
             dir,
             allow_sandbox,
             json,

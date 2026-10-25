@@ -46,14 +46,17 @@ fn fetch_signed_index(
 }
 
 /// `--dir` names one checkout, so it cannot apply to several apps.
-fn check_dir_matches_app_count(dir: &Option<PathBuf>, app_ids: &[String]) -> Result<(), String> {
+pub(super) fn check_dir_matches_app_count(
+    dir: &Option<PathBuf>,
+    app_ids: &[String],
+) -> Result<(), String> {
     if dir.is_some() && app_ids.len() != 1 {
         return Err("--dir applies to exactly one app".to_string());
     }
     Ok(())
 }
 
-fn short_sha(sha: &str) -> &str {
+pub(super) fn short_sha(sha: &str) -> &str {
     observability::truncate::truncate_on_char_boundary(sha, 12)
 }
 
@@ -187,6 +190,8 @@ pub(crate) fn app_info(
     Ok(())
 }
 
+// lint:allow-ok entry point from app_catalog_command for install with local source support
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_install(
     home: &Path,
     app_ids: Vec<String>,
@@ -195,7 +200,24 @@ pub(crate) fn app_install(
     allow_sandbox: bool,
     force: bool,
     json: bool,
+    from: Option<String>,
+    rev: Option<String>,
+    dev: bool,
 ) -> Result<(), String> {
+    if let Some(from_path) = from {
+        if !dev {
+            return Err("--from requires --dev".to_string());
+        }
+        let rev = rev.ok_or("--from requires --rev")?;
+        return app_install_local(home, &app_ids, &from_path, &rev, &dir, force, json, dev);
+    }
+    if rev.is_some() {
+        return Err("--rev requires --from".to_string());
+    }
+    if dev && from.is_none() {
+        return Err("--dev requires --from".to_string());
+    }
+
     let RegistrySource {
         env,
         schema_url,

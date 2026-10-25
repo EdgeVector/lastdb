@@ -103,6 +103,10 @@ test = false
 name = "received_range_seed"
 path = "src/bin/received_range_seed.rs"
 
+[[example]]
+name = "local_install_proof"
+path = "examples/local_install_proof.rs"
+
 [lib]
 test = false
 doctest = false
