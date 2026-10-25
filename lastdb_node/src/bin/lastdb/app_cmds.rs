@@ -94,26 +94,30 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
+// lint:allow-ok thin wrapper unpacking AppCommand match arms
+#[allow(clippy::too_many_arguments)]
 fn handle_app_resolve(
     home: &Path,
-    app_id: String,
-    channel: Option<String>,
-    index: Option<String>,
-    trust_key: Option<String>,
-    lastdb_version: Option<String>,
+    app_id: &str,
+    channel: Option<&str>,
+    index: Option<&str>,
+    trust_key: Option<&str>,
+    lastdb_version: Option<&str>,
     json: bool,
 ) -> Result<(), String> {
     app_resolve(
         home,
-        &app_id,
-        channel.as_deref(),
-        index.as_deref(),
-        trust_key.as_deref(),
-        lastdb_version.as_deref(),
+        app_id,
+        channel,
+        index,
+        trust_key,
+        lastdb_version,
         json,
     )
 }
 
+// lint:allow-ok thin wrapper unpacking AppCommand match arms
+#[allow(clippy::too_many_arguments)]
 fn handle_app_install(
     home: &Path,
     app_ids: Vec<String>,
@@ -152,6 +156,8 @@ fn handle_app_install(
     )
 }
 
+// lint:allow-ok thin wrapper unpacking AppCommand match arms
+#[allow(clippy::too_many_arguments)]
 fn handle_app_upgrade(
     home: &Path,
     app_ids: Vec<String>,
@@ -201,7 +207,15 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             trust_key,
             lastdb_version,
             json,
-        } => handle_app_resolve(home, app_id, channel, index, trust_key, lastdb_version, json),
+        } => handle_app_resolve(
+            home,
+            &app_id,
+            channel.as_deref(),
+            index.as_deref(),
+            trust_key.as_deref(),
+            lastdb_version.as_deref(),
+            json,
+        ),
         AppCommand::Index(cmd) => app_index_command(home, cmd),
         AppCommand::Storage {
             json,

@@ -231,14 +231,13 @@ fn resolve_full_sha(path: &std::path::Path, rev: &str) -> Result<String, String>
         .arg(path)
         .arg("rev-parse")
         .arg("--verify")
-        .arg(format!("{}^{{commit}}", rev))
+        .arg(format!("{rev}^{{commit}}"))
         .output()
         .map_err(|e| format!("failed to run git rev-parse: {e}"))?;
 
     if !output.status.success() {
         return Err(format!(
-            "git rev-parse --verify {}^{{commit}} failed: {}",
-            rev,
+            "git rev-parse --verify {rev}^{{commit}} failed: {}",
             String::from_utf8_lossy(&output.stderr)
         ));
     }

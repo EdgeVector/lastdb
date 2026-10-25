@@ -2,12 +2,14 @@
 
 use super::*;
 
+// lint:allow-ok extracted from app_catalog_command to satisfy file size limits
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn app_install_local(
     home: &std::path::Path,
     app_ids: &[String],
     from_path: &str,
     rev: &str,
-    dir: Option<std::path::PathBuf>,
+    dir: &Option<std::path::PathBuf>,
     force: bool,
     json: bool,
     is_dev: bool,
@@ -15,7 +17,7 @@ pub(crate) fn app_install_local(
     use lastdb_node::app_registry_index as registry_index;
     use lastdb_node::version;
 
-    check_dir_matches_app_count(&dir, app_ids)?;
+    check_dir_matches_app_count(dir, app_ids)?;
     let socket = lastdb_uds::uds::socket_path(&home.join("data"));
     let (node, node_source) = registry_index::running_lastdb_version(None, &socket);
     let versions = registry_index::ContractVersions {
