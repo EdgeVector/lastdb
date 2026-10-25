@@ -205,7 +205,9 @@ impl Manifest {
             counter: 0,
         };
         let frame = encode_frame(key, header, &payload)?;
-        let tmp = root.join(format!(".{CURRENT}.{}.tmp", header.chunk_uuid));
+        // Named by generation, not by the frame id: one owner stages each
+        // generation once, and open removes any leftover.
+        let tmp = root.join(format!(".{CURRENT}.{}.tmp", self.generation));
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
