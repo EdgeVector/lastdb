@@ -49,6 +49,14 @@ test = false
 name = "disk_run_proof"
 path = "examples/disk_run_proof/main.rs"
 
+# The same approval covers the V2 gate: commits, merges, held reads, crash
+# leftovers, and kill -9 recovery of laststore::disk_run::home. CI only.
+[[example]]
+bench = false
+test = false
+name = "run_home_proof"
+path = "examples/run_home_proof/main.rs"
+
 [[bin]]
 bench = false
 test = false
