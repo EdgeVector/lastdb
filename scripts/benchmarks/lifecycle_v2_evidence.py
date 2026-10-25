@@ -36,6 +36,10 @@ def erase_cases(node):
             "durability": "durable", "key_value": {"hash": f"live-{n:09d}"},
             "fields_and_values": {}} for n in numbers]}
         Workload.validate_write(node.call("/api/mutations/batch", body)[0], 64)
+    check_hash_deleted(node)
+
+
+def check_hash_deleted(node):
     # HashRangeKeys is for the old HashRange schema. Hash reads use the real
     # HashKey selector; all calls here are batched at the HTTP boundary.
     queries = [{"schema_name": LIVE, "fields": FIELDS,
@@ -109,6 +113,12 @@ def exercise(args):
         node.stop()
         node.start()
         validate_live(node)
+        check_hash_deleted(node)
+        check_removed(node, OLD, [(OLD_HASHES[n // 512], f"{1:020d}-{n:09d}") for n in range(8192)])
+        restarted_cleanup = [markers(node, molecule) for molecule in
+                             sorted(set(definition["field_molecule_uuids"].values()))]
+        if any(page["deleted"] for page in restarted_cleanup):
+            raise RuntimeError("Deleted markers returned after v2 restart")
         verify = verifier(node, args.output)
         merge_lines = [line for line in (args.output / "node.log").read_text().splitlines()
                        if "CI v2 run merge complete" in line]
@@ -116,7 +126,8 @@ def exercise(args):
             raise RuntimeError("No actual v2 background run merge completed")
         result.update(complete=True, expired_absent=8192, fresh_after_restart=4096,
                       deleted_absent=64, purged_absent=64, observed_peak_buffered_keys=peak, ttl=settled, cleanup=cleanup,
-                      compaction=compact, merge_events=merge_lines, verifier=verify)
+                      compaction=compact, restarted_cleanup=restarted_cleanup,
+                      merge_events=merge_lines, verifier=verify)
     except BaseException as failure:
         result["error"] = type(failure).__name__ + ": " + str(failure)
         raise

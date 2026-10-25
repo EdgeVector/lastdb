@@ -45,6 +45,7 @@ async fn exercise(format: u8) -> Result<Value> {
     let runtime = store.disk_pack_runtime().ok_or("native runtime missing")?;
     let merge_before = runtime.ci_run_status();
     let db = open(Arc::new(store.clone()), Arc::clone(&signer)).await?;
+    stage(format, "opened");
     let schema = BenchmarkSchemaBuilder::new(SCHEMA)
         .fields(&["id", "value"])
         .hash_key("id")
@@ -58,6 +59,7 @@ async fn exercise(format: u8) -> Result<Value> {
     db.db_ops()
         .set_schema_retention_policy(SCHEMA, SchemaRetentionPolicy::operator(3600, vec![]))
         .await?;
+    stage(format, "wrote_keys");
     let keys: Vec<_> = (0..32)
         .map(|n| KeyValue::new(Some(format!("key-{n:04}")), None))
         .collect();
@@ -69,6 +71,7 @@ async fn exercise(format: u8) -> Result<Value> {
         .schemas()
         .ci_check_ages(SCHEMA, &clocks, false)
         .await?;
+    stage(format, "wrong_ages_observed");
     let repaired = db.backfill_schema_retention_page(SCHEMA, None, 64).await?;
     if repaired["tracked"] != 32 || repaired["complete"] != true {
         return Err("incomplete age backfill".into());
@@ -84,17 +87,20 @@ async fn exercise(format: u8) -> Result<Value> {
         .ci_check_ages(SCHEMA, &clocks, true)
         .await?;
     check_values(&db).await?;
+    stage(format, "age_repair_repeat_values");
     let personal = db
         .db_ops()
         .atoms()
         .ci_generation_cleanup_evidence(None)
         .await?;
+    stage(format, "personal_generation_cleanup");
     let scope = "a".repeat(64);
     let scoped = db
         .db_ops()
         .atoms()
         .ci_generation_cleanup_evidence(Some(&scope))
         .await?;
+    stage(format, "scoped_generation_cleanup");
     let maintenance = maintenance(&runtime, format).await?;
     let merged = wait_for_merge(&runtime, format, &merge_before).await?;
     check_values(&db).await?;
@@ -228,4 +234,8 @@ async fn maintenance(
         serde_json::to_value(report)?
     };
     Ok(result)
+}
+
+fn stage(format: u8, name: &str) {
+    println!("{}", json!({"stage": name, "format": format}));
 }

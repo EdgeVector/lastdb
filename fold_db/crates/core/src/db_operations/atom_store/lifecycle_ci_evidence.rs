@@ -29,7 +29,10 @@ impl AtomStore {
             .as_ref()
             .and_then(|s| s.disk_pack_runtime())
             .ok_or_else(|| SchemaError::InvalidData("CI requires native home".into()))?;
-        let molecule = uuid::Uuid::new_v4().to_string();
+        let molecule = crate::atom::deterministic_molecule_uuid(
+            "ci-generated-lifecycle",
+            &uuid::Uuid::new_v4().to_string(),
+        );
         self.ci_seed_markers(&molecule, scope).await?;
         self.ci_prepared_contention(&runtime, &molecule, scope)
             .await?;
