@@ -48,11 +48,12 @@ pub(super) fn wants_new_run_node(path: &Path) -> StorageResult<bool> {
     }
 }
 
-/// The run home key: HKDF-SHA256 of the node encryption key.
-fn home_key(node_key: &[u8; 32]) -> [u8; 32] {
+/// The run home key: HKDF-SHA256 of the node encryption key. The copy is
+/// cleared when it drops.
+fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, node_key);
-    let mut key = [0u8; 32];
-    hkdf.expand(HOME_KEY_LABEL, &mut key)
+    let mut key = zeroize::Zeroizing::new([0u8; 32]);
+    hkdf.expand(HOME_KEY_LABEL, key.as_mut())
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     key
 }
@@ -103,10 +104,7 @@ impl PackNamespacedStore {
         let parts = parts::PartsLedger::from_env(0, root.generation(), root.frontier());
         let initializing = path.join(INTENT).try_exists()?;
         let store = Self::assemble(
-            physical::Physical::V2(physical::V2Home {
-                home,
-                merging: Arc::default(),
-            }),
+            physical::Physical::V2(physical::V2Home::new(home)),
             physical::PhysicalRoot::V2(root),
             native_backup_boundary,
             parts,

@@ -3,20 +3,35 @@ use super::*;
 pub(super) struct PreparedCommit {
     operations: Vec<HomeMutation>,
     batch_bytes: u64,
-    /// The v1 part and space quota; a v2 commit has none.
-    quota: Option<V1Quota>,
-}
-
-struct V1Quota {
-    reservation: laststore::disk_pack::home::MutationReservation,
+    /// The v1 part quota; a v2 commit has none.
+    reservation: Option<laststore::disk_pack::home::MutationReservation>,
     space: SpaceReservation,
 }
 
 impl PreparedCommit {
     pub(super) fn dependency_parts(&self) -> u64 {
-        self.quota
+        self.reservation
             .as_ref()
-            .map_or(0, |quota| quota.reservation.quote().dependency_parts())
+            .map_or(0, |reservation| reservation.quote().dependency_parts())
+    }
+
+    /// A v2 batch: its bytes with the accepted prefix, and the space that
+    /// `prepare_run` reserved for them.
+    pub(super) fn for_run(
+        operations: Vec<HomeMutation>,
+        batch_bytes: u64,
+        space: SpaceReservation,
+    ) -> Self {
+        Self {
+            operations,
+            batch_bytes,
+            reservation: None,
+            space,
+        }
+    }
+
+    pub(super) fn space(&self) -> &SpaceReservation {
+        &self.space
     }
 }
 
@@ -48,9 +63,11 @@ impl PreparedAppend {
             self.incoming.operations = std::mem::take(&mut previous.operations);
             // The write gate retains this exact prefix during preparation.
             // Transfer both quotas without changing their ledger totals.
-            if let (Some(incoming), Some(previous)) = (&mut self.incoming.quota, previous.quota) {
-                incoming.space.absorb(previous.space);
-                incoming.reservation.absorb(previous.reservation);
+            self.incoming.space.absorb(previous.space);
+            if let (Some(incoming), Some(previous)) =
+                (&mut self.incoming.reservation, previous.reservation)
+            {
+                incoming.absorb(previous);
             }
         }
         self.incoming
@@ -176,22 +193,14 @@ impl PackRuntime {
         }
         let v1 = match &self.physical {
             physical::Physical::V1(v1) => v1,
-            physical::Physical::V2(_) => {
-                let limit = self.batch_operation_limit();
-                let batch_bytes = prefix_batch_bytes(previous, &operations, limit)?;
-                return Ok(PreparedCommit {
-                    operations,
-                    batch_bytes,
-                    quota: None,
-                });
-            }
+            physical::Physical::V2(v2) => return self.prepare_run(v2, operations, previous),
         };
         let writer = v1.writer.lock().expect("native snapshot writer");
         let limit = writer.current().batch_operation_limit();
         let batch_bytes = prefix_batch_bytes(previous, &operations, limit)?;
-        let previous_quota = previous.and_then(|previous| previous.quota.as_ref());
-        let reservation = match previous_quota {
-            Some(previous) => writer.reserve_mutation_extension(&previous.reservation, &operations),
+        let previous_reservation = previous.and_then(|previous| previous.reservation.as_ref());
+        let reservation = match previous_reservation {
+            Some(previous) => writer.reserve_mutation_extension(previous, &operations),
             None => writer.reserve_mutation(&operations),
         }
         .map_err(|error| {
@@ -199,7 +208,7 @@ impl PackRuntime {
             map(error)
         })?;
         let physical_bytes = reservation.quote().physical_bytes();
-        let space = match previous_quota {
+        let space = match previous {
             Some(previous) => previous
                 .space
                 .reserve_extension(&self.space_policy, physical_bytes),
@@ -209,7 +218,8 @@ impl PackRuntime {
         Ok(PreparedCommit {
             operations,
             batch_bytes,
-            quota: Some(V1Quota { reservation, space }),
+            reservation: Some(reservation),
+            space,
         })
     }
 
@@ -241,7 +251,8 @@ impl PackRuntime {
         let PreparedCommit {
             operations,
             batch_bytes: _,
-            quota,
+            reservation,
+            space,
         } = prepared;
         // A direct durable publication consumes its bodies below. Keep only
         // membership coordinates; queued flushes already published them.
@@ -259,10 +270,11 @@ impl PackRuntime {
                 })
                 .collect()
         };
-        let (v1, V1Quota { reservation, space }) = match (&self.physical, quota) {
-            (physical::Physical::V1(v1), Some(quota)) => (v1, quota),
+        let (v1, reservation) = match (&self.physical, reservation) {
+            (physical::Physical::V1(v1), Some(reservation)) => (v1, reservation),
             (physical::Physical::V2(v2), None) if compaction.is_none() => {
-                return self.commit_run(v2, operations, hidden_changes, &key_changes, requests);
+                let changes = (hidden_changes, key_changes.as_slice());
+                return self.commit_run(v2, operations, space, changes, requests);
             }
             _ => {
                 return Err(StorageError::BackendError(
@@ -338,7 +350,7 @@ pub(super) struct WriteGuard {
     _publication: tokio::sync::OwnedMutexGuard<()>,
 }
 
-fn prefix_batch_bytes(
+pub(super) fn prefix_batch_bytes(
     previous: Option<&PreparedCommit>,
     incoming: &[HomeMutation],
     limit: usize,

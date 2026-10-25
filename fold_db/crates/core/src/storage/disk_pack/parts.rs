@@ -281,6 +281,12 @@ impl PartsLedger {
         *self.last_error.lock().expect("parts last error") = Some(error.to_string());
     }
 
+    /// Record a v2 root, which has no dependency parts.
+    pub(super) fn observe_root(&self, generation: u64, frontier: u64) {
+        self.generation.store(generation, Relaxed);
+        self.frontier.store(frontier, Relaxed);
+    }
+
     /// Generation and frontier of the last root this ledger saw.
     pub(super) fn root(&self) -> (u64, u64) {
         (self.generation.load(Relaxed), self.frontier.load(Relaxed))

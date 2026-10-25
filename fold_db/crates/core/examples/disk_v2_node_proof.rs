@@ -12,7 +12,7 @@ use fold_db::storage::traits::{KvStore, NamespacedStore};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const RECORDS: usize = 50_000;
 const BATCH: usize = 1_000;
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
     println!("node database operations: reopened on the v2 home");
     drop((shared, store));
 
-    let wrong = loop_open(&node, &[7u8; 32]).await;
+    let wrong = PackNamespacedStore::open_keyed(&node, Some(&[7u8; 32]));
     if wrong.is_ok() {
         return Err("a wrong node key opened the v2 home".into());
     }
@@ -178,28 +178,12 @@ async fn check(
     Ok(())
 }
 
-/// Reopen after the merge thread of the closed store releases the home.
+/// Reopen at once: the close stopped the merge thread and freed the home.
 async fn reopen(node: &Path, node_key: &[u8; 32]) -> Result<PackNamespacedStore> {
     let started = Instant::now();
-    let store = loop_open(node, node_key).await?;
+    let store = PackNamespacedStore::open_keyed(node, Some(node_key))?;
     println!("reopen: opened in {:.2} s", started.elapsed().as_secs_f64());
     Ok(store)
-}
-
-async fn loop_open(node: &Path, node_key: &[u8; 32]) -> Result<PackNamespacedStore> {
-    let deadline = Instant::now() + Duration::from_secs(120);
-    loop {
-        match PackNamespacedStore::open_keyed(node, Some(node_key)) {
-            Ok(store) => return Ok(store),
-            Err(error) if error.to_string().contains("another owner") => {
-                if Instant::now() > deadline {
-                    return Err(error.into());
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
 }
 
 /// File bytes under the node home. The home is a small fixed tree.

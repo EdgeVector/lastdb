@@ -137,6 +137,25 @@ impl RunHome {
         installed
     }
 
+    /// Refuse a batch that [`RunHome::commit`] would refuse for its key
+    /// or value sizes, before any work. A writer calls it at admission, so
+    /// one oversized operation is refused alone and never fails a commit.
+    pub fn check_mutations(operations: &[HomeMutation]) -> Result<()> {
+        for operation in operations {
+            run_key(&operation.collection, operation.key.as_bytes())?;
+            if operation
+                .body
+                .as_ref()
+                .is_some_and(|body| body.len() > crate::disk_run::MAX_RUN_VALUE_BYTES)
+            {
+                return Err(Error::Config(
+                    "disk run home: value exceeds the run value limit".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Merge the first full level (at least [`MERGE_WIDTH`] runs) into one
     /// run at the next level. Returns `None` when no level is full.
     ///

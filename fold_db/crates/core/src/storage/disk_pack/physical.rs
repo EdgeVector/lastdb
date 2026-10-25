@@ -25,11 +25,25 @@ pub(super) struct V1Home {
     pub(super) capture_cleanup: laststore::disk_pack::snapshot::CaptureCleanup,
 }
 
-/// The v2 run home and its background merge mark.
+/// The v2 run home and its background merge thread.
 pub(super) struct V2Home {
     pub(super) home: Arc<RunHome>,
     /// Set while a merge thread runs; at most one runs at a time.
     pub(super) merging: Arc<AtomicBool>,
+    /// Set when the node store closes; the thread stops after its step.
+    pub(super) stop: Arc<AtomicBool>,
+    pub(super) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+impl V2Home {
+    pub(super) fn new(home: Arc<RunHome>) -> Self {
+        Self {
+            home,
+            merging: Arc::default(),
+            stop: Arc::default(),
+            merger: Mutex::new(None),
+        }
+    }
 }
 
 pub(super) enum Physical {

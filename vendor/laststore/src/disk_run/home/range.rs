@@ -29,6 +29,9 @@ pub struct RunHashRange<'a> {
     costs: &'a mut RunReadCosts,
     budget: ReadBudget,
     exhausted: bool,
+    /// A record taken from `records` but not examined: the key budget was
+    /// out. The next page starts with it.
+    held: Option<(Vec<u8>, Found)>,
 }
 
 impl RunRead {
@@ -103,6 +106,7 @@ impl RunRead {
             costs,
             budget: *budget,
             exhausted: false,
+            held: None,
         })
     }
 }
@@ -159,18 +163,27 @@ impl RunHashRange<'_> {
                     break;
                 }
             }
+            let (key, found) = match self.held.take() {
+                Some(held) => held,
+                None => match self.records.next() {
+                    Some(next) => next?,
+                    None => {
+                        self.exhausted = true;
+                        break;
+                    }
+                },
+            };
+            // As in v1, a range that ends exactly at the key budget is
+            // exhausted, not over budget. A yielding page that has examined
+            // a key resumes after it.
             if self.costs.examined_keys >= self.budget.keys {
+                self.held = Some((key, found));
                 if yielding.is_some() && last.is_some() {
                     resume = last.take();
                     break;
                 }
                 return Err(Error::ReadBudgetExceeded);
             }
-            let Some(next) = self.records.next() else {
-                self.exhausted = true;
-                break;
-            };
-            let (key, found) = next?;
             self.costs.examined_keys += 1;
             let Found::Value(value) = found else {
                 last = yielding.map(|_| key);
