@@ -43,6 +43,10 @@ pub const MAX_RUN_KEY_BYTES: usize = 64 * 1024;
 /// of its own; this bound keeps one block inside the frame limit.
 pub const MAX_RUN_VALUE_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES / 2;
 
+/// Largest decoded top block. A writer refuses a run whose top block would
+/// be larger, so every finished run opens.
+pub const MAX_TOP_BYTES: usize = crate::frame::MAX_DECOMPRESSED_FRAME_BYTES;
+
 /// One record as a run stores it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {

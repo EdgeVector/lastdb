@@ -4,8 +4,8 @@ use super::bloom::{key_hash, Filter};
 use super::codec::{corrupt, decode_block, BlockRecords};
 use super::footer::{get_refs, BlockRef, Footer, Top, FOOTER_BYTES};
 use super::range::RunRange;
-use super::{Found, INDEX_COUNTER_BASE, TOP_COUNTER};
-use crate::frame::{decode_frame_bounded, MAX_DECOMPRESSED_FRAME_BYTES};
+use super::{Found, INDEX_COUNTER_BASE, MAX_TOP_BYTES, TOP_COUNTER};
+use crate::frame::{decode_frame_bounded, min_encoded_len};
 use crate::Result;
 use std::fs::File;
 use std::ops::Bound;
@@ -66,7 +66,7 @@ impl RunReader {
             footer.top_offset,
             footer.top_len,
             TOP_COUNTER,
-            MAX_DECOMPRESSED_FRAME_BYTES,
+            MAX_TOP_BYTES,
         )?;
         reader.top = Top::decode(&payload)?;
         if !reader.top.agrees_with(&footer) {
@@ -96,6 +96,12 @@ impl RunReader {
     }
 
     fn read_frame(&self, offset: u64, len: u32, counter: u64, max: usize) -> Result<Vec<u8>> {
+        // The clear footer and index entries name this length; bound it by
+        // the payload limit (plus the 8-byte zstd length and frame overhead)
+        // before allocating, since nothing is authenticated yet.
+        if len as usize > max.saturating_add(8 + min_encoded_len()) {
+            return Err(corrupt("stored block length over its limit"));
+        }
         let mut frame = vec![0u8; len as usize];
         self.file.read_exact_at(&mut frame, offset)?;
         let decoded = decode_frame_bounded(&self.data_key, &frame, max)?;

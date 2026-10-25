@@ -4,7 +4,8 @@ use super::bloom::{key_hash, put_filter};
 use super::codec::{corrupt, put_record, record_len};
 use super::footer::{put_refs, BlockRef, Footer, Top};
 use super::{
-    RunOptions, INDEX_COUNTER_BASE, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES, RUN_SUFFIX, TOP_COUNTER,
+    RunOptions, INDEX_COUNTER_BASE, MAX_RUN_KEY_BYTES, MAX_RUN_VALUE_BYTES, MAX_TOP_BYTES,
+    RUN_SUFFIX, TOP_COUNTER,
 };
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::frame::{encode_frame, FrameHeader};
@@ -221,7 +222,13 @@ impl RunWriter {
             indexes: std::mem::take(&mut self.top),
             last_key: self.last_key.clone().unwrap_or_default(),
         };
-        let (top_offset, top_len) = self.write_frame(TOP_COUNTER, &top.encode())?;
+        let top = top.encode();
+        if top.len() > MAX_TOP_BYTES {
+            return Err(Error::WriteCapacity(
+                "disk run: top block over its read limit; write smaller runs".into(),
+            ));
+        }
+        let (top_offset, top_len) = self.write_frame(TOP_COUNTER, &top)?;
         let footer = Footer {
             run_id: self.run_id,
             top_offset,
