@@ -105,7 +105,6 @@ impl<P: TreePages> TreeEdit<P> {
         if changes.is_empty() {
             return Ok(());
         }
-        self.pages.flush()?;
         parent_usage::started(self.root.kind, self.track_changes, changes.len());
         self.failed = true;
         let path = PathStep {
@@ -122,9 +121,6 @@ impl<P: TreePages> TreeEdit<P> {
             children = self.parents(height, &children, Origin::AddedLevel)?;
             height += 1;
         }
-        // Callers can read root() between edit batches, before finish_tree.
-        // Expose the new private pages before publishing that root in memory.
-        self.pages.flush()?;
         parent_usage::completed(self.root.kind, self.track_changes, self.root.height, height);
         self.root.page = children[0].number;
         self.root.height = height;
@@ -328,8 +324,7 @@ impl<P: TreePages> TreeEdit<P> {
     }
 
     /// Keep private pages available to other trees in the same object.
-    pub(super) fn finish_tree(mut self) -> Result<(TreeRoot, P, Changes)> {
-        self.pages.flush()?;
+    pub(super) fn finish_tree(self) -> Result<(TreeRoot, P, Changes)> {
         if self.failed {
             return Err(corrupt("refusing failed tree edit"));
         }

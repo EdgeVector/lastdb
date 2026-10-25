@@ -36,6 +36,7 @@ pub(super) fn digest(bytes: &[u8]) -> [u8; 32] {
 }
 
 pub(super) fn checksum(bytes: &[u8], at: usize) -> [u8; 32] {
+    let _timing = crate::commit_timing::stage("format_checksum_us");
     let mut hash = Sha256::new();
     hash.update(&bytes[..at]);
     hash.update([0; 32]);

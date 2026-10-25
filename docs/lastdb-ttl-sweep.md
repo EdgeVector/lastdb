@@ -371,11 +371,12 @@ It does not assign the whole shared commit cost to every request.
 An older baseline can omit these identifiers. Its native association remains unreported.
 The candidate requires complete native association. Missing fields never mean measured zero.
 
-Private v1 metadata writes use a bounded eight-page buffer per open allocator.
-Each edit exposes its bytes before another edit can read its returned root.
-Parking an allocator flushes the buffer and releases it with the file handle.
-Every completed part retains its file barrier; publication retains its directory and root barriers.
-CI compares this change with the same TTL workload. A speed gain requires completed measurements.
+Private v1 metadata writes use unbuffered private files.
+The same-runner before/after comparison found no material latency gain from an eight-page write buffer.
+That buffer was removed. Every completed part retains its file barrier and publication barriers.
+Opt-in diagnostics separate directory lookups, locator tree edits, and the final directory edit.
+Reference resolution and format checksum timings are nested within those phases.
+These intervals overlap. Do not add them or treat a diagnostic interval as a per-request disk wait.
 
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.
