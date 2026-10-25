@@ -32,40 +32,6 @@ impl FoldDB {
             .unwrap_or_default())
     }
 
-    /// Memory-first mutations: skip sync fsync on finalize by default;
-    /// periodic flusher + shutdown cover durability (sled-like cadence).
-    pub(super) fn start_background_flush(
-        db_ops: &Arc<DbOperations>,
-        offline_maintenance: bool,
-    ) -> super::super::mutation_flush::BackgroundFlushTask {
-        if offline_maintenance {
-            return super::super::mutation_flush::BackgroundFlushTask::disabled();
-        }
-        if db_ops.namespaced_store().disk_pack_runtime().is_some() {
-            info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
-            return super::super::mutation_flush::BackgroundFlushTask::disabled();
-        }
-        let flush_policy = super::super::mutation_flush::MutationFlushPolicy::from_env();
-        let background_ms = flush_policy
-            .background_interval
-            .map(|d| d.as_millis() as u64);
-        info!(
-            target: "fold_node::database",
-            sync_on_finalize = flush_policy.sync_on_finalize,
-            background_flush_ms = ?background_ms,
-            sync_flush_env = super::super::mutation_flush::MUTATION_SYNC_FLUSH_ENV,
-            background_env = super::super::mutation_flush::BACKGROUND_FLUSH_MS_ENV,
-            "mutation flush policy (memory-first by default; flush later)"
-        );
-        match flush_policy.background_interval {
-            Some(interval) => super::super::mutation_flush::BackgroundFlushTask::spawn(
-                Arc::clone(db_ops),
-                interval,
-            ),
-            None => super::super::mutation_flush::BackgroundFlushTask::disabled(),
-        }
-    }
-
     /// Log native memory admission.
     pub(super) fn log_resident_policy() {
         let resident_policy = crate::resident::ResidentPolicy::from_env();

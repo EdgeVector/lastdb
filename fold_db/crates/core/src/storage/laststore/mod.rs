@@ -114,13 +114,11 @@ pub(in crate::storage) fn reject_enc_on_plaintext_catalog(
 
 /// Env: defer the batch-transaction durability barrier (`1`/`true`/`yes`/`on`).
 ///
-/// The resident-primary write-ack gate. When set, `batch_put` / `batch_delete`
-/// apply their ops with [`LastStore::transaction_deferred`] instead of paying
-/// a sync-every-open-shard [`LastStore::flush`] per batch. Durability then
-/// rides the per-shard group-commit buffers and the background flusher
-/// (`crate::fold_db_core::mutation_flush`) — the same crash window that policy
-/// already documents for the ack path. Default off: every batch keeps today's
-/// per-transaction barrier.
+/// This legacy physical adapter is not a logical LastDB engine. When set,
+/// `batch_put` / `batch_delete` use [`LastStore::transaction_deferred`].
+/// Its caller must arrange an explicit durability barrier; no logical
+/// database background flusher services it. Default off: each batch retains
+/// its per-transaction barrier.
 pub const TXN_DEFERRED_FLUSH_ENV: &str = "LASTDB_TXN_DEFERRED_FLUSH";
 
 /// `LASTDB_TXN_DEFERRED_FLUSH` truthy → defer batch barriers.

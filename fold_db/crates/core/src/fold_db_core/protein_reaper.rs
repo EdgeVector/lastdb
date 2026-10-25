@@ -8,10 +8,8 @@
 //! future client-probe leak (like the historical one that left 30,311 orphan
 //! rows with no `molprot:` back-ref) grows forever instead of getting reaped.
 //!
-//! This gives the class a reaper the same way [`super::mutation_flush`] gives
-//! mutation durability a background flusher: an opt-in periodic task,
-//! env-configurable, disabled when unset or set to `0`, stopped explicitly on
-//! shutdown and on Drop so tests do not leak tasks.
+//! An opt-in periodic task, env-configurable and disabled when unset or set
+//! to `0`, reaps this class. Shutdown and Drop both stop the task.
 //!
 //! ## Env
 //!

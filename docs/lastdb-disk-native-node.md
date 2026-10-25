@@ -34,6 +34,9 @@ Those allowances do not define a whole-process memory maximum.
 
 Every native write waits for its complete disk commit and clean core publication before the ack.
 No native route returns an early memory ack.
+The obsolete periodic mutation flusher is removed; `LASTDB_BACKGROUND_FLUSH_MS`
+and `LASTDB_MUTATION_SYNC_FLUSH` no longer configure any runtime behavior.
+Explicit flush, accepted-mutation barriers, and the final shutdown barrier remain.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
 Native status exposes accepted and completed sequences and pending requests.
 The retained dirty-record fields remain zero for compatibility.
