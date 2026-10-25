@@ -40,7 +40,7 @@ def encoded(value):
 
 def read_request(numbers):
     return encoded({"schema_name": SCHEMA, "fields": FIELDS,
-                    "filter": {"HashRangeKeys": [[HASH, key(n)] for n in numbers]},
+                    "filter": {"HashRangeKeys": [[key(n), ""] for n in numbers]},
                     "limit": len(numbers)})
 
 
@@ -53,7 +53,7 @@ def write_request(numbers, revision, insert):
         mutations.append({"type": "mutation", "schema": SCHEMA,
                           "mutation_type": "create" if insert else "update",
                           "durability": "durable",
-                          "key_value": {"hash": HASH, "range": key(number)},
+                          "key_value": {"hash": key(number)},
                           "fields_and_values": value})
     return encoded({"mutations": mutations})
 
@@ -66,15 +66,15 @@ def validate_read(result, numbers):
     expected = {key(n): n for n in numbers}
     for record in records:
         coordinate, value = record["key"], record["fields"]
-        number = expected.get(coordinate["range"])
-        if coordinate["hash"] != HASH or coordinate["range"] in found or number is None:
+        number = expected.get(coordinate["hash"])
+        if coordinate.get("range") is not None or coordinate["hash"] in found or number is None:
             raise RuntimeError("A keyed read returned an unexpected or duplicate key")
         title = value["title"]
-        if (value["bucket"] != HASH or value["id"] != coordinate["range"]
+        if (value["bucket"] != HASH or value["id"] != coordinate["hash"]
                 or not title.startswith(f"record-{number}-")
                 or value["body"] != hashlib.shake_256(title.encode()).hexdigest(512)):
             raise RuntimeError("A keyed read returned an invalid generated record")
-        found[coordinate["range"]] = title
+        found[coordinate["hash"]] = title
     if set(found) != set(expected):
         raise RuntimeError("A keyed read returned different keys")
     return found
@@ -104,7 +104,7 @@ class Workload:
 
     def seed(self):
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-                  "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+                  "schema_type": "Hash", "key": {"hash_field": "id"},
                   "fields": FIELDS, "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
         for start in range(0, self.recipe["records"], 128):
@@ -311,7 +311,7 @@ class Workload:
             result, _, _ = self.node.call("/api/query", read_request(numbers))
             validate_read(result, numbers)
             for record in result["results"]:
-                number = int(record["key"]["range"].removeprefix("key-"))
+                number = int(record["key"]["hash"].removeprefix("key-"))
                 if number < self.recipe["records"] - 256 and record["fields"] != fields(number, "seed"):
                     raise RuntimeError("The upgrade changed an untouched product record")
         cache = native.get("retry_cache", {})
