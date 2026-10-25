@@ -29,7 +29,6 @@ use fold_db::access::{parse_db_locator, storage_prefix_for, AccessContext, DbLoc
 use fold_db::db_operations::{DbCatalogEntry, DbCatalogKeySelection};
 use fold_db::schema::schema_types::SchemaWithState;
 use fold_db::schema::types::declarative_schemas::{FieldMapper, SchemaSource};
-use fold_db::schema::types::operations::Operation;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, KeyConfig, Schema, SchemaType};
 use lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 use lastdb_uds::uds_router::DataRoute;
@@ -42,14 +41,11 @@ use serde_json::Value;
 // Framework-agnostic wire-shape contract + the shared handler bodies, consumed
 // verbatim by the full node's socket executor too so the two cannot drift.
 use lastdb_host::envelope::{content_free, envelope, json_ok};
-use lastdb_host::handlers::{
-    self, render, AppSearchParams, HistoryScope, MutationComponents, NativeSearchParams,
-};
+use lastdb_host::handlers::{self, render, AppSearchParams, HistoryScope, NativeSearchParams};
 use lastdb_host::reject::{Reject, RejectKind, WireKey};
 use lastdb_host::wire::{
-    body_object, first_missing_key, parse_batch_mutation_body, parse_min_score, parse_query_body,
+    body_object, parse_batch_mutation_body, parse_min_score, parse_mutation_body, parse_query_body,
     path_tail, percent_decode, query_flag, query_value, schema_name_from_target, QueryRequest,
-    MUTATION_REQUIRED_KEYS,
 };
 use lastdb_host::HostError;
 
@@ -192,6 +188,7 @@ mod dispatch;
 mod introspection_routes;
 mod liveness_molecule_route;
 mod liveness_routes;
+mod mutation_notifications;
 mod query_filters;
 mod query_mutation_routes;
 mod query_read_receipt;

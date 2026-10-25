@@ -51,23 +51,3 @@ pub fn pin_schema_service_environment_from_home(home: &Path) {
         );
     }
 }
-
-pub(super) fn write_cloud_sync_config_at(
-    home: &Path,
-    api_url: &str,
-    api_key: &str,
-    file_name: &str,
-) -> Result<(), String> {
-    require_cloud_activation_supported()?;
-    let path = home.join(file_name);
-    let body = serde_json::json!({ "api_url": api_url, "api_key": api_key });
-    let bytes =
-        serde_json::to_vec_pretty(&body).map_err(|e| format!("serialize cloud_sync: {e}"))?;
-    // Replace atomically-ish: write a temp then rename, keeping 0600 perms.
-    let tmp = home.join(".cloud_sync.json.tmp");
-    let _ = std::fs::remove_file(&tmp);
-    host::write_owner_only(&tmp, &bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
-    sync_cloud_home_dir(home)?;
-    Ok(())
-}

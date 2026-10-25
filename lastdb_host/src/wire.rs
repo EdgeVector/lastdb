@@ -22,6 +22,9 @@ use crate::envelope::content_free;
 use crate::handlers::MutationComponents;
 use crate::reject::{Reject, WireKey};
 
+mod mutation;
+pub use mutation::parse_mutation_body;
+
 /// Parse the request body as a JSON object. A non-object top-level JSON value
 /// (array, string, number) is rejected the same as malformed bytes — the data
 /// routes all expect an object.

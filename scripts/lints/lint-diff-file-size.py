@@ -39,16 +39,18 @@ def main():
     ap.add_argument("--ext", action="append", default=None, help="extension, repeatable (default .rs)")
     args = ap.parse_args()
     exts = tuple(args.ext or [".rs"])
+    head = git("rev-parse", "--verify", f"{args.head}^{{commit}}").strip()
+    base = git("merge-base", args.base, head).strip()
 
     # AMR: added, modified, renamed. A renamed file is compared with its old path.
-    rows = git("diff", "-M", "--name-status", "--diff-filter=AMR", f"{args.base}...{args.head}").splitlines()
+    rows = git("diff", "-M", "--name-status", "--diff-filter=AMR", base, head).splitlines()
     failures = []
     for row in rows:
         status, *paths = row.split("\t")
         status, path, old_path = status[0], paths[-1], paths[0]
         if not path.endswith(exts):
             continue
-        new = git("show", f"{args.head}:{path}")
+        new = git("show", f"{head}:{path}")
         if OVERRIDE in new:
             continue
         limit = args.max
@@ -58,7 +60,7 @@ def main():
         if status == "A":
             failures.append(f"{path}: new file has {after} lines, limit {limit}")
             continue
-        before = line_count(git("show", f"{args.base}:{old_path}"))
+        before = line_count(git("show", f"{base}:{old_path}"))
         if before <= limit:
             failures.append(f"{path}: grew {before} -> {after} lines, crossed limit {limit}")
         elif after - before > args.allow:

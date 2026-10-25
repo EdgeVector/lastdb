@@ -35,7 +35,7 @@ def git(*args):
 def changed_lines(base, head, old_path, path):
     """New-side line numbers the diff adds or changes."""
     lines = set()
-    for row in git("diff", "-M", "-U0", f"{base}...{head}", "--", old_path, path).splitlines():
+    for row in git("diff", "-M", "-U0", base, head, "--", old_path, path).splitlines():
         m = HUNK.match(row)
         if m:
             start = int(m.group(1))
@@ -74,19 +74,21 @@ def main():
     ap.add_argument("--allow", type=int, default=10, help="lines an already-too-long function may grow")
     args = ap.parse_args()
     parser = Parser(Language(ts_rust.language()))
+    head = git("rev-parse", "--verify", f"{args.head}^{{commit}}").strip()
+    base = git("merge-base", args.base, head).strip()
 
-    rows = git("diff", "-M", "--name-status", "--diff-filter=AMR", f"{args.base}...{args.head}").splitlines()
+    rows = git("diff", "-M", "--name-status", "--diff-filter=AMR", base, head).splitlines()
     failures = []
     for row in rows:
         status, *paths = row.split("\t")
         status, path, old_path = status[0], paths[-1], paths[0]
         if not path.endswith(".rs"):
             continue
-        src = git("show", f"{args.head}:{path}").encode()
-        touched = changed_lines(args.base, args.head, old_path, path)
+        src = git("show", f"{head}:{path}").encode()
+        touched = changed_lines(base, head, old_path, path)
         base_len = {}
         if status in ("M", "R"):
-            for name, s, e in functions(git("show", f"{args.base}:{old_path}").encode(), parser):
+            for name, s, e in functions(git("show", f"{base}:{old_path}").encode(), parser):
                 base_len[name] = max(base_len.get(name, 0), e - s + 1)
         text_lines = src.decode().splitlines()
         for name, start, end in functions(src, parser):

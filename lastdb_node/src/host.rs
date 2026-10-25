@@ -15,7 +15,6 @@
 //! separately; an old cloud configuration never attaches a background engine.
 
 use std::io::{self, IsTerminal};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -136,20 +135,6 @@ pub fn emit_fresh_recovery_phrase(mnemonic: &str) {
     } else {
         tracing::info!("fresh identity generated; recovery phrase redacted (test/CI/non-TTY)");
     }
-}
-
-/// Write `bytes` to `path` with owner-only permissions, refusing to clobber an
-/// existing file (two racing first boots must not silently overwrite the
-/// winner's identity).
-pub(crate) fn write_owner_only(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::io::Write as _;
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    f.write_all(bytes)?;
-    f.sync_all()
 }
 
 /// File under the node home recording the last boot failure message so

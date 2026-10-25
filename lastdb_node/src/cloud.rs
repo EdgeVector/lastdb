@@ -6,10 +6,6 @@ use fold_db::security::Ed25519KeyPair;
 
 use crate::host::{self, CLOUD_SYNC_CONFIG_FILE};
 
-fn require_cloud_activation_supported() -> Result<(), String> {
-    Err(fold_db::FoldDB::CLOUD_SYNC_DISABLED.into())
-}
-
 mod backup_markers;
 mod config;
 mod register;
