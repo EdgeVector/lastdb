@@ -11,6 +11,10 @@
 //! is complete before the marker appears, so a crash during creation leaves a
 //! home that open refuses as not empty; the owner deletes it and creates again.
 //!
+//! As in a v1 home, a new home holds an intent file until the node writes its
+//! key-format proofs. Until then the runtime admits only that first batch;
+//! a crash before it leaves the intent, and the next open retries it.
+//!
 //! The run home key derives from the node encryption key and is never written
 //! to a file.
 
@@ -20,6 +24,7 @@ use std::io::Write;
 
 pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\n";
 const RUN_DIR: &str = "disk-run";
+const INTENT: &str = "laststore-run-initializing";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 
 /// True when `path` holds a v2 node marker.
@@ -71,6 +76,8 @@ impl PackNamespacedStore {
                 "format v2 creation requires an empty node home".into(),
             ));
         }
+        drop(std::fs::File::create(path.join(INTENT))?);
+        std::fs::File::open(path)?.sync_all()?;
         drop(RunHome::create(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
         let staged = path.join(format!(".{NODE_MARKER}.tmp"));
         let mut file = std::fs::OpenOptions::new()
@@ -94,7 +101,8 @@ impl PackNamespacedStore {
         })
         .0;
         let parts = parts::PartsLedger::from_env(0, root.generation(), root.frontier());
-        Ok(Self::assemble(
+        let initializing = path.join(INTENT).try_exists()?;
+        let store = Self::assemble(
             physical::Physical::V2(physical::V2Home {
                 home,
                 merging: Arc::default(),
@@ -105,6 +113,25 @@ impl PackNamespacedStore {
             false,
             None,
             space::policy_from_env()?,
-        ))
+        );
+        store
+            .runtime
+            .initializing
+            .store(initializing, Ordering::Release);
+        Ok(store)
     }
+}
+
+/// Remove the creation intent of the v2 node home that holds `run_home`.
+pub(super) fn complete_initialization(run_home: &Path) -> StorageResult<()> {
+    let node = run_home.parent().ok_or_else(|| {
+        StorageError::InvalidOperation("a format v2 run home has no node home".into())
+    })?;
+    match std::fs::remove_file(node.join(INTENT)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    std::fs::File::open(node)?.sync_all()?;
+    Ok(())
 }
