@@ -195,7 +195,25 @@ pub(crate) fn app_install(
     allow_sandbox: bool,
     force: bool,
     json: bool,
+    from: Option<String>,
+    rev: Option<String>,
+    dev: bool,
 ) -> Result<(), String> {
+    if from.is_some() {
+        if !dev {
+            return Err("--from requires --dev".to_string());
+        }
+        let rev = rev.ok_or("--from requires --rev")?;
+        let from_path = from.as_ref().unwrap();
+        return app_install_local(home, &app_ids, from_path, &rev, dir, force, json, dev);
+    }
+    if rev.is_some() {
+        return Err("--rev requires --from".to_string());
+    }
+    if dev && from.is_none() {
+        return Err("--dev requires --from".to_string());
+    }
+
     let RegistrySource {
         env,
         schema_url,
@@ -348,6 +366,76 @@ pub(crate) fn app_upgrade(
             outcome.app_id, outcome.installed_version
         );
     }
+    Ok(())
+}
+
+fn app_install_local(
+    home: &Path,
+    app_ids: &[String],
+    from_path: &str,
+    rev: &str,
+    dir: Option<PathBuf>,
+    force: bool,
+    json: bool,
+    is_dev: bool,
+) -> Result<(), String> {
+    use lastdb_node::app_registry_index as registry_index;
+    use lastdb_node::version;
+
+    check_dir_matches_app_count(&dir, app_ids)?;
+    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    let (node, node_source) = registry_index::running_lastdb_version(None, &socket);
+    let versions = registry_index::ContractVersions {
+        api_version: version::CURRENT_API_VERSION,
+        min_supported_api_version: version::MIN_SUPPORTED_API_VERSION,
+        outbox_format_version: version::CURRENT_OUTBOX_FORMAT_VERSION,
+        min_supported_outbox_format_version: version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    };
+    let node_version = registry_index::NodeVersion {
+        version: &node,
+        source: node_source,
+    };
+
+    let path = PathBuf::from(from_path);
+    let canonical_path = path
+        .canonicalize()
+        .map_err(|e| format!("failed to resolve --from path '{}': {e}", path.display()))?;
+
+    let mut outcomes = Vec::new();
+    for app_id in app_ids {
+        let location = registry_index::IndexLocation::Local {
+            path: canonical_path.clone(),
+            rev: rev.to_string(),
+        };
+
+        let resolution =
+            registry_index::resolve_local(&location, app_id, &node_version, &versions, is_dev)?;
+
+        let install_dir = dir
+            .clone()
+            .unwrap_or_else(|| home.join("apps").join(app_id));
+
+        let outcome = registry_index::install_pinned(&resolution, &install_dir, force)?;
+
+        if !json {
+            println!(
+                "installed: {} {} @ {} (local, dev: {}, rev: {})",
+                outcome.app_id,
+                outcome.app_version,
+                short_sha(&outcome.sha),
+                is_dev,
+                rev
+            );
+            println!("  source: {}", outcome.source);
+            println!("  checkout: {}", outcome.checkout_path);
+        }
+        outcomes.push(outcome);
+    }
+
+    if json {
+        print_pretty_json(&outcomes);
+    }
+
     Ok(())
 }
 

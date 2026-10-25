@@ -148,6 +148,9 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             allow_sandbox,
             force,
             json,
+            from,
+            rev,
+            dev,
         } => app_install(
             home,
             app_ids,
@@ -163,6 +166,9 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             allow_sandbox,
             force,
             json,
+            from,
+            rev,
+            dev,
         ),
         AppCommand::Upgrade {
             app_ids,

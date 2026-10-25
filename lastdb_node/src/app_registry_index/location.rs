@@ -13,6 +13,8 @@ pub enum IndexLocation {
     Url(String),
     /// `<dir>/<channel>.json` on the local filesystem.
     Dir(PathBuf),
+    /// Local git repository or path for dev installs.
+    Local { path: PathBuf, rev: String },
 }
 
 impl IndexLocation {
@@ -47,6 +49,7 @@ impl IndexLocation {
         match self {
             Self::Url(base) => format!("{base}/{channel}.json"),
             Self::Dir(dir) => dir.join(format!("{channel}.json")).display().to_string(),
+            Self::Local { path, rev } => format!("{}@{}", path.display(), rev),
         }
     }
 
@@ -77,6 +80,9 @@ impl IndexLocation {
                 let sig = fetch_url(&client, &format!("{base}/{channel}.json.sig")).await?;
                 Ok((index, sig))
             }
+            Self::Local { .. } => Err(
+                "local install source does not fetch from an index (use resolve_local)".to_string(),
+            ),
         }
     }
 }

@@ -205,3 +205,163 @@ pub async fn fetch_verified(
     let (index_bytes, sig_bytes) = location.fetch(channel).await?;
     load_verified_index(trust, &index_bytes, &sig_bytes)
 }
+
+/// Find a manifest at the given path and its common variants.
+fn find_manifest(source: &std::path::Path, app_id: &str) -> Result<std::path::PathBuf, String> {
+    let candidates = [
+        source.join(app_id).join("lastdb-app.json"),
+        source.join("lastdb-app.json"),
+        source.join(format!("{app_id}.app.json")),
+    ];
+
+    for path in &candidates {
+        if path.exists() {
+            return Ok(path.clone());
+        }
+    }
+
+    Err(format!(
+        "manifest not found: tried {}/lastdb-app.json, lastdb-app.json, and {}.app.json",
+        app_id, app_id
+    ))
+}
+
+/// Resolve from a local git repository or path at a specific revision.
+///
+/// # Errors
+/// Git operations, manifest read, or contract version check failures.
+pub fn resolve_local(
+    location: &IndexLocation,
+    app_id: &str,
+    node_version: &NodeVersion<'_>,
+    versions: &ContractVersions,
+    is_dev: bool,
+) -> Result<Resolution, String> {
+    let (path, rev) = match location {
+        IndexLocation::Local { path, rev } => (path, rev),
+        _ => return Err("resolve_local requires IndexLocation::Local".to_string()),
+    };
+
+    let manifest_path = if path.is_dir() {
+        find_manifest(path, app_id)?
+    } else {
+        return Err(format!(
+            "--from path must be a directory: {}",
+            path.display()
+        ));
+    };
+
+    let relative_manifest = manifest_path
+        .strip_prefix(path)
+        .map_err(|_| "manifest is not inside the source directory".to_string())?;
+
+    let git_show_arg = format!("{}:{}", rev, relative_manifest.display());
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("show")
+        .arg(&git_show_arg)
+        .output()
+        .map_err(|e| format!("failed to run git show: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "git show {}:{} failed (is the rev valid?): {}",
+            rev,
+            relative_manifest.display(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let manifest_json: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| {
+        format!(
+            "failed to parse manifest at {}:{}: {e}",
+            rev,
+            relative_manifest.display()
+        )
+    })?;
+
+    if let Some(api_version_u64) = manifest_json
+        .get("api_version")
+        .and_then(serde_json::Value::as_u64)
+    {
+        let api_version = u32::try_from(api_version_u64).map_err(|_| {
+            format!("app '{app_id}' api_version {api_version_u64} is not a valid u32")
+        })?;
+        if api_version < versions.min_supported_api_version || api_version > versions.api_version {
+            return Err(format!(
+                "app '{app_id}' requires api_version {api_version}, but this node supports {}-{} (current: {})",
+                versions.min_supported_api_version,
+                versions.api_version,
+                versions.api_version
+            ));
+        }
+    }
+
+    if let Some(outbox_version_u64) = manifest_json
+        .get("outbox_format_version")
+        .and_then(serde_json::Value::as_u64)
+    {
+        let outbox_version = u32::try_from(outbox_version_u64).map_err(|_| {
+            format!("app '{app_id}' outbox_format_version {outbox_version_u64} is not a valid u32")
+        })?;
+        if outbox_version < versions.min_supported_outbox_format_version
+            || outbox_version > versions.outbox_format_version
+        {
+            return Err(format!(
+                "app '{app_id}' requires outbox_format_version {outbox_version}, but this node supports {}-{} (current: {})",
+                versions.min_supported_outbox_format_version,
+                versions.outbox_format_version,
+                versions.outbox_format_version
+            ));
+        }
+    }
+
+    let app_version = manifest_json
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("dev")
+        .to_string();
+
+    let source_url = if let Ok(remote_url) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("remote")
+        .arg("get-url")
+        .arg("origin")
+        .output()
+    {
+        if remote_url.status.success() {
+            String::from_utf8_lossy(&remote_url.stdout)
+                .trim()
+                .to_string()
+        } else {
+            format!("file://{}", path.display())
+        }
+    } else {
+        format!("file://{}", path.display())
+    };
+
+    Ok(Resolution {
+        app_id: app_id.to_string(),
+        channel: if is_dev {
+            "dev".to_string()
+        } else {
+            "local".to_string()
+        },
+        source: source_url,
+        lastdb_version: node_version.version.to_string(),
+        lastdb_version_source: node_version.source.to_string(),
+        app_version,
+        sha: rev.to_string(),
+        artifact: None,
+        proved_at: chrono::Utc::now().to_rfc3339(),
+        proof_run: "local-install".to_string(),
+        index: location.describe("local"),
+        trust: if is_dev {
+            "dev".to_string()
+        } else {
+            "local".to_string()
+        },
+    })
+}

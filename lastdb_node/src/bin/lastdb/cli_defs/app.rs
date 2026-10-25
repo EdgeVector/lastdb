@@ -266,6 +266,15 @@ pub(crate) enum AppCommand {
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
+        /// Local source: path or git URL to clone from (requires --dev).
+        #[arg(long)]
+        from: Option<String>,
+        /// Git revision to install (required with --from).
+        #[arg(long)]
+        rev: Option<String>,
+        /// Allow local/dev installs (required with --from).
+        #[arg(long)]
+        dev: bool,
     },
     /// Upgrade installed apps to the newest proved row for the running node.
     /// Legacy service path with `--env` / `--schema-url` (one app).
