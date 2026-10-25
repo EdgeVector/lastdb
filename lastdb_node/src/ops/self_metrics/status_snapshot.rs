@@ -129,10 +129,7 @@ pub struct StatusSnapshot {
     /// separate `backup-gc` dry-run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backup_storage: Option<BackupStorageHealth>,
-    /// Age of the last committed backup manifest, read from the durable marker.
-    ///
-    /// Always present — unlike `backup`, which is engine state and therefore
-    /// absent exactly when backup is switched off and nobody is watching.
+    /// Redacted explicit V2 job status; no legacy marker or automatic coverage claim.
     #[serde(default)]
     pub durability: DurabilityHealth,
     pub sampler: SamplerStatus,

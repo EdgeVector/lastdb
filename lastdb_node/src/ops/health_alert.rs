@@ -1,46 +1,7 @@
-//! One-shot health checker for proactive `lastdbd` Mini down alerts.
-//!
-//! The checker is intentionally read-only against the brain: it probes the owner
-//! socket `/health` and `/api/status`, persists its own transition state outside
-//! the DB, and optionally calls the Last Stack heartbeat helper so routine fleet
-//! monitoring can notice if the checker itself stops running. Neither probe
-//! reads a DB record, so "read-only against the brain" still holds.
-//!
-//! **Why there are two probes.** `/health` is deliberately answerable without
-//! node state, so it stays truthful when the internals are wedged — that is
-//! exactly why it carries no health fields. Measured 2026-10-04 on the primary:
-//! `alert-check` answered `ok` in 0.08 s while a real read took 23.5 s, because
-//! liveness was its only input. Meanwhile the node already computed
-//! `memory_budget.runtime_degraded`, `memory_budget.slowest_request_ms` (17826)
-//! and `durability.degraded=true` with `reasons=["backup_age_over_threshold"]`
-//! — a backup 3.5 days old against a 24 h threshold. The evidence was one GET
-//! away and nothing read it
-//! (papercut-lastdb-alert-check-reports-ok-on-a-node-serving-reads-in-23s-because-it-only-probes-liveness-20261004).
-//!
-//! `/api/status` is the node's own cheap health path (process vitals, sync,
-//! backup, QoS, scalars only — no forensic ring, no walks). Measured at 10-18 ms
-//! for 37 KB, so the check stays cheaper than what it checks.
-//!
-//! **What the degradation probe READS, which is not the same as what the
-//! payload carries.** The node publishes five independent "I am degraded"
-//! verdicts and [`probe_degradation`] consumes all five:
-//! `memory_budget` (`runtime_degraded`, `footprint_over_limit`,
-//! `deferred_lane_refuse_entries`, `slowest_request_ms` against the
-//! caller's budget, and a stale `governor_state` — see `governor_arm`),
-//! `durability.degraded`, `sync.sync_degraded`, and
-//! `integrity.unresolved_atom_skips`. The first shipped round read only the
-//! first two: the sentence above named `sync` as part of the payload and read
-//! as a statement about this checker, while nothing here touched it, so a
-//! 16.1 h mutation-log recovery point and 96 reads already served short were
-//! both invisible to the alarm and both printed on `lastdb status`
-//! (measured on the primary 2026-10-05T14:4xZ). Keep this list and the arms in
-//! [`probe_degradation`] in step; `tests::every_node_degradation_verdict_is_read`
-//! fails if a verdict goes unread.
-//!
-//! **A failed degradation probe is never `ok`.** Absent and healthy are
-//! different answers: if `/api/status` cannot be read or parsed, the verdict is
-//! [`Outcome::DegradationUnknown`], not [`Outcome::Healthy`]. A node too busy to
-//! answer its own status page is the case this checker exists to catch.
+//! Read-only Mini health checks through the owner socket.
+//! Liveness, memory pressure, integrity faults and blocked V2 work stay distinct.
+//! Unknown V2 freshness is never reported as healthy or as a missing cloud backup.
+//! The checker saves its own transition state outside the database.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -231,7 +192,16 @@ pub fn probe_degradation(socket: &Path, warn_ms: u64) -> Degradation {
     reasons.extend(reasons::sync_reason(status));
     reasons.extend(reasons::integrity_reason(status));
 
-    if reasons.is_empty() {
+    if reasons.is_empty()
+        && status
+            .get("durability")
+            .and_then(|health| health.get("degraded"))
+            .is_none_or(serde_json::Value::is_null)
+    {
+        Degradation::Unknown(
+            "V2 backup freshness is not measured; check the selected coordinator".into(),
+        )
+    } else if reasons.is_empty() {
         Degradation::Clean
     } else {
         Degradation::Degraded(reasons)

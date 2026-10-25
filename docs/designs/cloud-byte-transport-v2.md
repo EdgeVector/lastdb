@@ -195,6 +195,10 @@ Local cancellation uses a separate state and requires proof that Begin was not s
 The manual command is `lastdb --data-dir <absolute-home> cloud backup-v2`.
 The node requires `LASTDB_BYTE_BACKUP_V2_ENABLED=true` for new manual work.
 Status and exact close operations remain available without that flag.
+The node status reports V2 manual work and disables automatic backup claims.
+It reads only the local V2 coordinator and reports unknown freshness separately.
+A missing local receipt cannot prove that an external coordinator backup is absent.
+The health check keeps unknown freshness distinct from a healthy or failed backup.
 Start, resume, status, and close use the owner-only local socket route.
 The worker has a separate controller and participates in normal node shutdown.
 The V1 backup, restore, automatic controller, and legacy cloud activation commands are retired.
