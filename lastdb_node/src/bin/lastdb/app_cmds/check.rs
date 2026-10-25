@@ -221,18 +221,24 @@ pub(crate) fn resolve_by_proof(
     let (trust, trust_source) = registry_index::resolve_trust_key(trust_key)?;
     warn_trust_override(&trust_source);
     let (node, node_source) = registry_index::running_lastdb_version(lastdb_version, socket);
+    let versions = registry_index::ContractVersions {
+        api_version: version::CURRENT_API_VERSION,
+        min_supported_api_version: version::MIN_SUPPORTED_API_VERSION,
+        outbox_format_version: version::CURRENT_OUTBOX_FORMAT_VERSION,
+        min_supported_outbox_format_version: version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    };
+    let node_version = registry_index::NodeVersion {
+        version: &node,
+        source: node_source,
+    };
     block_on_app(registry_index::resolve(
         &location,
         channel,
         &trust,
         &trust_source,
         app_id,
-        &node,
-        node_source,
-        version::CURRENT_API_VERSION,
-        version::MIN_SUPPORTED_API_VERSION,
-        version::CURRENT_OUTBOX_FORMAT_VERSION,
-        version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+        &node_version,
+        &versions,
     ))
 }
 

@@ -1,11 +1,22 @@
 // Proof: Real published stable.json from homebrew-lastdb resolves correctly
 // Run with: cargo run --example real_index_resolve_proof
 
-use lastdb_node::app_registry_index::{load_verified_index, pick_row, resolve_trust_key};
+use lastdb_node::app_registry_index::{
+    load_verified_index, pick_row, resolve_trust_key, ContractVersions,
+};
 use lastdb_node::version::{
     CURRENT_API_VERSION, CURRENT_OUTBOX_FORMAT_VERSION, MIN_SUPPORTED_API_VERSION,
     MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
 };
+
+fn node_versions() -> ContractVersions {
+    ContractVersions {
+        api_version: CURRENT_API_VERSION,
+        min_supported_api_version: MIN_SUPPORTED_API_VERSION,
+        outbox_format_version: CURRENT_OUTBOX_FORMAT_VERSION,
+        min_supported_outbox_format_version: MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    }
+}
 
 const STABLE_INDEX_URL: &str =
     "https://raw.githubusercontent.com/EdgeVector/homebrew-lastdb/main/registry/stable.json";
@@ -41,7 +52,7 @@ fn main() {
             test_lastsecrets_resolve(&index);
         }
         Err(e) => {
-            println!("✗ Verification or parse failed: {}", e);
+            println!("✗ Verification or parse failed: {e}");
             std::process::exit(1);
         }
     }
@@ -72,42 +83,28 @@ fn test_brain_resolve(index: &lastdb_node::app_registry_index::RegistryIndex) {
     println!();
 
     let brain_app = index.apps.iter().find(|a| a.app_id == "brain");
-    match brain_app {
-        Some(app) => {
-            println!("Found brain app with {} compat rows", app.compat.len());
+    if let Some(app) = brain_app {
+        println!("Found brain app with {} compat rows", app.compat.len());
 
-            // Show first row details
-            if let Some(row) = app.compat.first() {
-                println!("  First row:");
-                println!("    app_version: {}", row.app_version);
-                println!("    lastdb_version: {}", row.lastdb_version);
-                println!("    api_version: {:?}", row.lastdb_api_version);
-                println!("    outbox_format_version: {:?}", row.outbox_format_version);
-            }
-            println!();
+        // Show first row details
+        if let Some(row) = app.compat.first() {
+            println!("  First row:");
+            println!("    app_version: {}", row.app_version);
+            println!("    lastdb_version: {}", row.lastdb_version);
+            println!("    api_version: {:?}", row.lastdb_api_version);
+            println!("    outbox_format_version: {:?}", row.outbox_format_version);
         }
-        None => {
-            println!("✗ brain app not found in index");
-            return;
-        }
+        println!();
+    } else {
+        println!("✗ brain app not found in index");
+        return;
     }
 
     // Try to resolve brain with a version from the index
     let test_version = "0.23.3-2127-gaf73aa569";
-    println!(
-        "Attempting to resolve brain with lastdb_version={}",
-        test_version
-    );
+    println!("Attempting to resolve brain with lastdb_version={test_version}");
 
-    match pick_row(
-        index,
-        "brain",
-        test_version,
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(index, "brain", test_version, &node_versions()) {
         Ok((app, row)) => {
             println!("✓ Successfully resolved:");
             println!("  app_id: {}", app.app_id);
@@ -116,7 +113,7 @@ fn test_brain_resolve(index: &lastdb_node::app_registry_index::RegistryIndex) {
             println!("  proved with: {}", row.lastdb_version);
         }
         Err(e) => {
-            println!("✗ Resolution failed: {}", e);
+            println!("✗ Resolution failed: {e}");
         }
     }
     println!();
@@ -129,45 +126,31 @@ fn test_lastsecrets_resolve(index: &lastdb_node::app_registry_index::RegistryInd
     println!();
 
     let lastsecrets_app = index.apps.iter().find(|a| a.app_id == "lastsecrets");
-    match lastsecrets_app {
-        Some(app) => {
-            println!(
-                "Found lastsecrets app with {} compat rows",
-                app.compat.len()
-            );
+    if let Some(app) = lastsecrets_app {
+        println!(
+            "Found lastsecrets app with {} compat rows",
+            app.compat.len()
+        );
 
-            // Show first row details
-            if let Some(row) = app.compat.first() {
-                println!("  First row:");
-                println!("    app_version: {}", row.app_version);
-                println!("    lastdb_version: {}", row.lastdb_version);
-                println!("    api_version: {:?}", row.lastdb_api_version);
-                println!("    outbox_format_version: {:?}", row.outbox_format_version);
-            }
-            println!();
+        // Show first row details
+        if let Some(row) = app.compat.first() {
+            println!("  First row:");
+            println!("    app_version: {}", row.app_version);
+            println!("    lastdb_version: {}", row.lastdb_version);
+            println!("    api_version: {:?}", row.lastdb_api_version);
+            println!("    outbox_format_version: {:?}", row.outbox_format_version);
         }
-        None => {
-            println!("✗ lastsecrets app not found in index");
-            return;
-        }
+        println!();
+    } else {
+        println!("✗ lastsecrets app not found in index");
+        return;
     }
 
     // Try to resolve lastsecrets with a version from the index
     let test_version = "0.23.3-2127-gaf73aa569";
-    println!(
-        "Attempting to resolve lastsecrets with lastdb_version={}",
-        test_version
-    );
+    println!("Attempting to resolve lastsecrets with lastdb_version={test_version}");
 
-    match pick_row(
-        index,
-        "lastsecrets",
-        test_version,
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(index, "lastsecrets", test_version, &node_versions()) {
         Ok((app, row)) => {
             println!("✓ Successfully resolved:");
             println!("  app_id: {}", app.app_id);
@@ -176,7 +159,7 @@ fn test_lastsecrets_resolve(index: &lastdb_node::app_registry_index::RegistryInd
             println!("  proved with: {}", row.lastdb_version);
         }
         Err(e) => {
-            println!("✗ Resolution failed: {}", e);
+            println!("✗ Resolution failed: {e}");
         }
     }
     println!();

@@ -7,6 +7,22 @@ use super::location::IndexLocation;
 use super::signing::{load_verified_index, CompatRow, IndexApp, RegistryIndex, TrustSource};
 use super::TRUST_KEY_ENV;
 
+/// Contract version ranges this node supports.
+#[derive(Debug, Clone, Copy)]
+pub struct ContractVersions {
+    pub api_version: u32,
+    pub min_supported_api_version: u32,
+    pub outbox_format_version: u32,
+    pub min_supported_outbox_format_version: u32,
+}
+
+/// The running LastDB version and how it was determined.
+#[derive(Debug, Clone)]
+pub struct NodeVersion<'a> {
+    pub version: &'a str,
+    pub source: &'a str,
+}
+
 /// What `lastdb app resolve` answers: the one proved row for this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Resolution {
@@ -40,10 +56,7 @@ pub fn pick_row<'a>(
     index: &'a RegistryIndex,
     app_id: &str,
     lastdb_version: &str,
-    node_api_version: u32,
-    node_min_supported_api_version: u32,
-    node_outbox_format_version: u32,
-    node_min_supported_outbox_format_version: u32,
+    versions: &ContractVersions,
 ) -> Result<(&'a IndexApp, &'a CompatRow), String> {
     let app = index
         .apps
@@ -60,13 +73,15 @@ pub fn pick_row<'a>(
 
         if has_contract_info {
             if let Some(api_version) = row.lastdb_api_version {
-                if api_version < node_min_supported_api_version || api_version > node_api_version {
+                if api_version < versions.min_supported_api_version
+                    || api_version > versions.api_version
+                {
                     continue;
                 }
             }
             if let Some(outbox_version) = row.outbox_format_version {
-                if outbox_version < node_min_supported_outbox_format_version
-                    || outbox_version > node_outbox_format_version
+                if outbox_version < versions.min_supported_outbox_format_version
+                    || outbox_version > versions.outbox_format_version
                 {
                     continue;
                 }
@@ -94,8 +109,14 @@ pub fn pick_row<'a>(
         version_details.dedup();
 
         return Err(format!(
-            "no {} row for app '{app_id}' is compatible with this node (lastdb {lastdb_version}, api_version {node_api_version}, outbox_format_version {node_outbox_format_version}, supports api {node_min_supported_api_version}-{node_api_version}, outbox {node_min_supported_outbox_format_version}-{node_outbox_format_version}); proved with: {}",
+            "no {} row for app '{app_id}' is compatible with this node (lastdb {lastdb_version}, api_version {}, outbox_format_version {}, supports api {}-{}, outbox {}-{}); proved with: {}",
             index.channel,
+            versions.api_version,
+            versions.outbox_format_version,
+            versions.min_supported_api_version,
+            versions.api_version,
+            versions.min_supported_outbox_format_version,
+            versions.outbox_format_version,
             if version_details.is_empty() {
                 "none".to_string()
             } else {
@@ -139,12 +160,8 @@ pub async fn resolve(
     trust: &VerifyingKey,
     trust_source: &TrustSource,
     app_id: &str,
-    lastdb_version: &str,
-    lastdb_version_source: &str,
-    node_api_version: u32,
-    node_min_supported_api_version: u32,
-    node_outbox_format_version: u32,
-    node_min_supported_outbox_format_version: u32,
+    node_version: &NodeVersion<'_>,
+    versions: &ContractVersions,
 ) -> Result<Resolution, String> {
     let (index_bytes, sig_bytes) = location.fetch(channel).await?;
     let index = load_verified_index(trust, &index_bytes, &sig_bytes)?;
@@ -155,21 +172,13 @@ pub async fn resolve(
             index.channel
         ));
     }
-    let (app, row) = pick_row(
-        &index,
-        app_id,
-        lastdb_version,
-        node_api_version,
-        node_min_supported_api_version,
-        node_outbox_format_version,
-        node_min_supported_outbox_format_version,
-    )?;
+    let (app, row) = pick_row(&index, app_id, node_version.version, versions)?;
     Ok(Resolution {
         app_id: app.app_id.clone(),
         channel: channel.to_string(),
         source: app.source.clone(),
-        lastdb_version: lastdb_version.to_string(),
-        lastdb_version_source: lastdb_version_source.to_string(),
+        lastdb_version: node_version.version.to_string(),
+        lastdb_version_source: node_version.source.to_string(),
         app_version: row.app_version.clone(),
         sha: row.sha.clone(),
         artifact: row.artifact.clone(),

@@ -2,25 +2,29 @@
 // Run with: cargo run --example contract_compat_proof
 
 use lastdb_node::app_registry_index::{
-    check_manifest_constraint, pick_row, CompatRow, IndexApp, RegistryIndex,
+    check_manifest_constraint, pick_row, CompatRow, ContractVersions, IndexApp, RegistryIndex,
 };
 use lastdb_node::version::{
     CURRENT_API_VERSION, CURRENT_OUTBOX_FORMAT_VERSION, MIN_SUPPORTED_API_VERSION,
     MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
 };
 use std::fs;
+use tempfile::TempDir;
+
+fn node_versions() -> ContractVersions {
+    ContractVersions {
+        api_version: CURRENT_API_VERSION,
+        min_supported_api_version: MIN_SUPPORTED_API_VERSION,
+        outbox_format_version: CURRENT_OUTBOX_FORMAT_VERSION,
+        min_supported_outbox_format_version: MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+    }
+}
 
 fn main() {
     println!("=== Contract Version Compatibility Proof ===");
     println!();
     println!(
-        "Node: api_version {} (supports {}-{}), outbox_format_version {} (supports {}-{})",
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION
+        "Node: api_version {CURRENT_API_VERSION} (supports {MIN_SUPPORTED_API_VERSION}-{CURRENT_API_VERSION}), outbox_format_version {CURRENT_OUTBOX_FORMAT_VERSION} (supports {MIN_SUPPORTED_OUTBOX_FORMAT_VERSION}-{CURRENT_OUTBOX_FORMAT_VERSION})"
     );
     println!();
 
@@ -67,15 +71,7 @@ fn test_compatible_api_version() {
     println!("Attempting to resolve with lastdb_version=0.24.0 (different from proved)");
     println!();
 
-    match pick_row(
-        &index,
-        "brain",
-        "0.24.0",
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(&index, "brain", "0.24.0", &node_versions()) {
         Ok((app, row)) => {
             println!("✓ Compatible! Resolved to:");
             println!("  app_id: {}", app.app_id);
@@ -85,7 +81,7 @@ fn test_compatible_api_version() {
             println!("  api_version: {}", row.lastdb_api_version.unwrap_or(0));
         }
         Err(e) => {
-            println!("✗ UNEXPECTED ERROR: {}", e);
+            println!("✗ UNEXPECTED ERROR: {e}");
         }
     }
     println!();
@@ -125,15 +121,7 @@ fn test_incompatible_api_version() {
     );
     println!();
 
-    match pick_row(
-        &index,
-        "oldapp",
-        "0.24.0",
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(&index, "oldapp", "0.24.0", &node_versions()) {
         Ok((_, row)) => {
             println!(
                 "✗ UNEXPECTED SUCCESS: resolved to version {}",
@@ -142,7 +130,7 @@ fn test_incompatible_api_version() {
         }
         Err(e) => {
             println!("✓ Rejected as expected:");
-            println!("  Error: {}", e);
+            println!("  Error: {e}");
         }
     }
     println!();
@@ -183,35 +171,19 @@ fn test_old_index_exact_match() {
     println!();
 
     println!("Attempting to resolve with exact version (0.23.0):");
-    match pick_row(
-        &index,
-        "legacy",
-        "0.23.0",
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(&index, "legacy", "0.23.0", &node_versions()) {
         Ok((_, row)) => {
             println!("✓ Resolved (exact match works):");
             println!("  app_version: {}", row.app_version);
         }
         Err(e) => {
-            println!("✗ UNEXPECTED ERROR: {}", e);
+            println!("✗ UNEXPECTED ERROR: {e}");
         }
     }
     println!();
 
     println!("Attempting to resolve with different version (0.24.0):");
-    match pick_row(
-        &index,
-        "legacy",
-        "0.24.0",
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(&index, "legacy", "0.24.0", &node_versions()) {
         Ok((_, row)) => {
             println!(
                 "✗ UNEXPECTED SUCCESS: resolved to version {}",
@@ -220,7 +192,7 @@ fn test_old_index_exact_match() {
         }
         Err(e) => {
             println!("✓ Rejected as expected (no contract info, no exact match):");
-            println!("  Error: {}", e);
+            println!("  Error: {e}");
         }
     }
     println!();
@@ -272,15 +244,7 @@ fn test_prefer_exact_version() {
     println!("Resolving with lastdb_version=0.24.0 (matches row 2 exactly):");
     println!();
 
-    match pick_row(
-        &index,
-        "brain",
-        "0.24.0",
-        CURRENT_API_VERSION,
-        MIN_SUPPORTED_API_VERSION,
-        CURRENT_OUTBOX_FORMAT_VERSION,
-        MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
-    ) {
+    match pick_row(&index, "brain", "0.24.0", &node_versions()) {
         Ok((_, row)) => {
             println!("✓ Resolved to:");
             println!("  app_version: {}", row.app_version);
@@ -296,7 +260,7 @@ fn test_prefer_exact_version() {
             }
         }
         Err(e) => {
-            println!("✗ UNEXPECTED ERROR: {}", e);
+            println!("✗ UNEXPECTED ERROR: {e}");
         }
     }
     println!();
@@ -308,10 +272,8 @@ fn test_manifest_multi_file_check() {
     println!("## Test 5: Multi-file manifest check (lastdb-app.json + folddb.toml)");
     println!();
 
-    let temp_dir =
-        std::env::temp_dir().join(format!("lastdb-manifest-test-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&temp_dir);
-    fs::create_dir_all(&temp_dir).expect("create temp dir");
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let temp_path = temp_dir.path();
 
     println!("Testing incompatible constraint in folddb.toml (plain lastdb-app.json doesn't stop the check):");
     println!();
@@ -327,7 +289,7 @@ fn test_manifest_multi_file_check() {
   "version": "1.0.0",
   "schemas": [{"name": "test/Record", "schema_type": "Hash", "fields": ["id"]}]
 }"#;
-    fs::write(temp_dir.join("lastdb-app.json"), plain_manifest).expect("write manifest");
+    fs::write(temp_path.join("lastdb-app.json"), plain_manifest).expect("write manifest");
 
     // Create folddb.toml with an incompatible constraint
     let incompatible_toml = r#"
@@ -336,9 +298,9 @@ name = "testapp"
 
 lastdb = ">=0.30.0"
 "#;
-    fs::write(temp_dir.join("folddb.toml"), incompatible_toml).expect("write toml");
+    fs::write(temp_path.join("folddb.toml"), incompatible_toml).expect("write toml");
 
-    match check_manifest_constraint(&temp_dir, "testapp", get_running_version()) {
+    match check_manifest_constraint(temp_path, "testapp", get_running_version()) {
         Ok(()) => {
             println!(
                 "✗ UNEXPECTED SUCCESS: should have rejected incompatible folddb.toml constraint"
@@ -346,7 +308,7 @@ lastdb = ">=0.30.0"
         }
         Err(e) => {
             println!("✓ Rejected as expected:");
-            println!("  Error: {}", e);
+            println!("  Error: {e}");
         }
     }
     println!();
@@ -364,18 +326,18 @@ name = "testapp"
 
 lastdb = ">=0.23.0, <0.30.0"
 "#;
-    fs::write(temp_dir.join("folddb.toml"), compatible_toml).expect("write toml");
+    fs::write(temp_path.join("folddb.toml"), compatible_toml).expect("write toml");
 
-    match check_manifest_constraint(&temp_dir, "testapp", get_running_version()) {
+    match check_manifest_constraint(temp_path, "testapp", get_running_version()) {
         Ok(()) => {
             println!("✓ Accepted compatible constraint");
         }
         Err(e) => {
-            println!("✗ UNEXPECTED ERROR: {}", e);
+            println!("✗ UNEXPECTED ERROR: {e}");
         }
     }
 
-    fs::remove_dir_all(&temp_dir).expect("cleanup temp dir");
+    // TempDir automatically cleans up when dropped
     println!();
     println!("---");
     println!();

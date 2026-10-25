@@ -164,7 +164,9 @@ pub fn check_manifest_constraint(
                 check_constraint(app_id, constraint_str, lastdb_version)?;
             }
 
-            if let Some(api_version_u64) = json.get("api_version").and_then(|v| v.as_u64()) {
+            if let Some(api_version_u64) =
+                json.get("api_version").and_then(serde_json::Value::as_u64)
+            {
                 has_constraint_or_version = true;
                 let api_version = u32::try_from(api_version_u64).map_err(|_| {
                     format!("app '{app_id}' api_version {api_version_u64} is not a valid u32")
@@ -181,8 +183,9 @@ pub fn check_manifest_constraint(
                 }
             }
 
-            if let Some(outbox_version_u64) =
-                json.get("outbox_format_version").and_then(|v| v.as_u64())
+            if let Some(outbox_version_u64) = json
+                .get("outbox_format_version")
+                .and_then(serde_json::Value::as_u64)
             {
                 has_constraint_or_version = true;
                 let outbox_version = u32::try_from(outbox_version_u64).map_err(|_| {
