@@ -110,9 +110,6 @@ mod db_catalog;
 mod db_maintenance;
 mod file_blob;
 mod file_blob_local;
-mod native_backup_routes;
-mod org_authority;
-mod org_sync;
 mod query_batch;
 mod schema_declare;
 use self::conflict_metadata::*;
@@ -120,8 +117,6 @@ use self::db_catalog::*;
 use self::db_maintenance::*;
 use self::file_blob::*;
 use self::file_blob_local::*;
-use self::org_authority::*;
-use self::org_sync::*;
 use self::query_batch::*;
 use self::schema_declare::*;
 

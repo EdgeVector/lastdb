@@ -1,67 +1,28 @@
-//! Target-scoped durable mutation log for cloud-sync pin mode + continuous
-//! mutation-log-first segment upload (Phase A single-writer scaffold; Phase B
-//! multi-writer concurrent streams).
-//!
-//! Pin mode freezes a sealed base set at F0 and sends post-F0 mutations to an
-//! append-only log for the active sync target. Continuous MutationLog capture
-//! reuses the same durable store without freeze. This module owns the local
-//! durable log, continuous segment seal/upload under `log/{writer_id}/{seq}`,
-//! published frontier F (per-writer vector + scalar max), and replay/status
-//! helpers. Snapshot publish orchestration for rare compact stays with the
-//! backup controller.
-//!
-//! Multi-writer (Phase B): each device/process has a stable `writer_id`
-//! (`SyncEngine::device_id`). Writers append anytime without a snapshot lock;
-//! sealed segments land under distinct `log/{writer_id}/` prefixes on the
-//! shared cloud plane. Local R/W never awaits upload.
-
-use super::super::org_sync::SyncTarget;
-use super::restore_progress::{self as progress, RestorePhase, RestoreProgress, TransferOperation};
-use super::*;
-use crate::clock::unix_millis;
+//! Read-only retained log authentication and metadata audit. No producer or cloud I/O.
+use crate::crypto::CryptoProvider;
 use crate::hex::sha256_hex;
-use crate::sync::snapshot_log::{Frontier, MutationLogSegmentId};
+use crate::sync::error::{SyncError, SyncResult};
+use crate::sync::log::{LogEntry, LogOp};
+use crate::sync::snapshot_log::MutationLogSegmentId;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-
-mod append;
-mod append_marker_records;
-use append_marker_records::{build_capture_marker_records, check_existing_capture_marker_receipt};
 mod audit;
-mod compaction;
-mod directory_replay;
-mod frontier;
 mod keys;
-mod local_cloud;
 mod model;
-mod offline_s0_marker;
-mod persist;
-mod pin_mode;
-mod replay;
-mod replay_scope;
-mod restore;
-mod restore_download;
 mod retired_source;
-mod schema_replay;
 mod seal;
-mod state;
-mod upload_cycle;
 mod wire;
-
-pub use audit::*;
-use compaction::*;
-use keys::*;
-use local_cloud::*;
-pub use model::*;
-pub use offline_s0_marker::*;
-pub use replay::*;
-pub use restore::*;
-pub(crate) use retired_source::ReplayEntryOutcome;
+pub use audit::{
+    audit_pin_log_plane, PinLogPlaneReport, PinLogWriterStat, PIN_LOG_OPERATOR_KEYS_PER_CALL,
+};
+use model::*;
+pub use model::{MutationLogSegment, PinLogRecord, PinLogTargetStatus, PIN_LOG_NAMESPACE};
+pub use replay::verify_retired_replay_source;
 pub use retired_source::{AuthenticatedReplayObject, RetiredReplaySource};
-pub use seal::*;
-pub(crate) use state::*;
-pub use upload_cycle::MutationLogDirectoryExport;
 use wire::*;
+mod replay;
+use keys::*;
+use seal::*;

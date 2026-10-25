@@ -29,7 +29,7 @@ struct Entry {
     refreshing: bool,
 }
 
-/// Per-collection disk-usage cache. One instance per [`super::SyncEngine`].
+/// Per-collection disk-usage cache. One instance per the retired engine.
 pub(crate) struct StatusDiskUsageCache {
     state: Mutex<HashMap<String, Entry>>,
     walks: AtomicU64,

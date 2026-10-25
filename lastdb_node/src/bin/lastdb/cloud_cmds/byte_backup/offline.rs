@@ -29,7 +29,7 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
         .build()
         .map_err(|_| "cannot construct V2 recovery runtime")?;
     runtime.block_on(async {
-        let account = lastdb_node::native_backup_access::account_from_phrase(&phrase)?;
+        let account = lastdb_node::backup_access::account_from_phrase(&phrase)?;
         let client = lastdb_node::byte_cloud_backup::client_from_home(home)?;
         let context = client
             .context(&ContextReadRequest {

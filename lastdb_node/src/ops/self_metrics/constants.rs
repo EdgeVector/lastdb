@@ -6,9 +6,6 @@ pub const REQUEST_OPS_ROLLUP_SCHEMA: &str = "lastdb_telemetry/RequestOpsRollup";
 pub const SELF_METRIC_SERIES: &str = "lastdbd-self";
 pub const REQUEST_OPS_ROLLUP_SERIES: &str = "request-ops";
 pub const DEFAULT_SAMPLE_INTERVAL: Duration = Duration::from_secs(60);
-/// Maximum wall time the background sampler waits for a fresh sync snapshot.
-/// `/api/status` never performs this collection; it reads the published value.
-pub(super) const SAMPLER_SYNC_SNAPSHOT_BUDGET: Duration = Duration::from_millis(250);
 /// How long a measured data-dir size is served before it is refreshed in the
 /// background. The walk is a display gauge, not a correctness input, so a
 /// minute of staleness is cheaper than re-walking the store per request.

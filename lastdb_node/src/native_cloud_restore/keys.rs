@@ -1,5 +1,4 @@
 use super::{RestoreError, Result};
-use cloud_backup_protocol::publication::AcceptedBackup;
 use fold_db::crypto::E2eKeys;
 use zeroize::Zeroizing;
 
@@ -11,11 +10,6 @@ pub struct RecoveryKeys {
 }
 
 impl RecoveryKeys {
-    pub fn from_phrase(phrase: &str, accepted: &AcceptedBackup) -> Result<Self> {
-        accepted.validate()?;
-        Self::from_account_phrase(phrase, &accepted.recovery.account_public_key)
-    }
-
     /// V2 keeps recovery identity in its client descriptor and authenticated root.
     pub fn from_account_phrase(
         phrase: &str,
@@ -38,11 +32,6 @@ impl RecoveryKeys {
             account_public_key: fold_db::hex::hex_lower(pair.public_key_bytes()),
         })
     }
-    pub(super) fn validate_for(&self, accepted: &AcceptedBackup) -> Result<()> {
-        accepted.validate()?;
-        self.validate_account(&accepted.recovery.account_public_key)
-    }
-
     pub(crate) fn validate_account(
         &self,
         account_public_key: &cloud_backup_protocol::Digest,

@@ -2,6 +2,33 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ByteBackupCommand {
+    /// Create one fresh DEV identity without a daemon, store, or cloud request.
+    Init {
+        /// Absent absolute home; its real parent must already exist.
+        #[arg(long)]
+        into: PathBuf,
+        /// New protected file at <into>/recovery-phrase.txt; never print the phrase.
+        #[arg(long)]
+        recovery_phrase_out: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Register this fresh identity for native backup; keep Cloud Sync Off.
+    Connect {
+        /// Use only the compiled DEV auth endpoint.
+        #[arg(long, required = true)]
+        dev: bool,
+        /// Read the first-account invite from bounded stdin, never from an argument.
+        #[arg(long)]
+        invite_code_stdin: bool,
+        /// Reconnect an inactive native restore without changing its identity or data.
+        /// Existing accounts need no new invitation. Backup remains off.
+        #[arg(long, conflicts_with = "invite_code_stdin")]
+        restored: bool,
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Upload from an existing home without a daemon or a local database writer.
     Standalone {
         #[arg(long)]

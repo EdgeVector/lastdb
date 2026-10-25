@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("the generated input must stay under RUNNER_TEMP".into());
     }
     let host = Host::boot(&home).await.map_err(std::io::Error::other)?;
-    if host.db.sync_engine().is_some() {
+    if host.db.is_sync_enabled() {
         return Err("the generated home must have no sync engine".into());
     }
     let result = populate(&host, &input).await;

@@ -5,9 +5,7 @@ use base64::Engine as _;
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde_json::Value;
 
-pub(super) fn verify(
-    request: &OrgAuthorityPublishRequest,
-) -> SyncResult<(CloudAccount, Vec<String>)> {
+pub fn verify(request: &OrgAuthorityPublishRequest) -> SyncResult<(CloudAccount, Vec<String>)> {
     let envelope = &request.org_authority;
     if serde_json::to_vec(envelope)?.len() > ORG_AUTHORITY_BODY_LIMIT
         || envelope.epochs.is_empty()
@@ -87,7 +85,7 @@ fn verify_epoch(epoch: &OrgAuthoritySignedPayload, key: &VerifyingKey) -> SyncRe
     Ok(payload)
 }
 
-pub(super) fn bind_tip(
+pub fn bind_tip(
     request: &OrgAuthorityPublishRequest,
     tip: &OrgAuthorityTip,
     hashes: &[String],

@@ -1,5 +1,3 @@
-//! Reuse normal object authentication and group assembly for exact recovery.
-
 use super::*;
 
 pub async fn verify_retired_replay_source(

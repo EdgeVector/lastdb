@@ -4,9 +4,6 @@
 //! product should ship a daemon plus a small control client, not the full
 //! server/UI/ingestion CLI graph.
 
-#[path = "lastdb/restore_failure.rs"]
-mod restore_failure;
-use restore_failure::*;
 #[path = "lastdb/app_cmds.rs"]
 mod app_cmds;
 use app_cmds::*;
@@ -19,8 +16,6 @@ mod liveness_molecule_print;
 #[path = "lastdb/schema_record_cmds.rs"]
 mod schema_record_cmds;
 use schema_record_cmds::*;
-#[path = "lastdb/backup_gc_compact_cmd.rs"]
-mod backup_gc_compact_cmd;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
 #[path = "lastdb/replay_schema_probe_cmd.rs"]
@@ -31,9 +26,6 @@ use record_get_cmds::*;
 #[path = "lastdb/db_cmds.rs"]
 mod db_cmds;
 use db_cmds::*;
-#[path = "lastdb/restore_cmds.rs"]
-mod restore_cmds;
-use restore_cmds::*;
 #[path = "lastdb/cloud_cmds.rs"]
 mod cloud_cmds;
 use cloud_cmds::*;
@@ -44,21 +36,11 @@ use status_ops_cmds::*;
 use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf}; // Path used by load_cloud_creds
-use std::process::Command as ProcessCommand;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use base64::Engine as _;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-
-#[path = "lastdb/cloud_rescue_publish.rs"]
-mod cloud_rescue_publish;
-
-#[path = "lastdb/cloud_primary_resume.rs"]
-mod cloud_primary_resume;
-
-#[path = "lastdb/restore_checkpoint.rs"]
-mod restore_checkpoint;
 
 #[path = "lastdb/cli_defs.rs"]
 mod cli_defs;
@@ -67,26 +49,8 @@ use cli_defs::*;
 fn main() {
     install_broken_pipe_exit_hook();
     let cli = Cli::parse();
-    if matches!(cli.command.as_ref(), Some(Command::Restore { .. })) {
-        // Restore replays authenticated historical writes in this one-shot process.
-        // Keep the absolute atom cap even when this host uses the 256 KiB default.
-        std::env::set_var(
-            fold_db::atom::MAX_ATOM_CONTENT_BYTES_ENV,
-            fold_db::atom::ABSOLUTE_MAX_ATOM_CONTENT_BYTES.to_string(),
-        );
-    }
-    let json_restore = matches!(
-        cli.command.as_ref(),
-        Some(Command::Restore { json: true, .. })
-    );
-    if let Err(e) = run(cli) {
-        // A valid `restore --json` command emits its bounded, allowlisted
-        // failure envelope at the restore boundary. Do not repeat the private
-        // diagnostic text here. Clap parse errors, panics, signals, and broken
-        // output remain outside that contract and still fail closed by exit.
-        if !json_restore {
-            eprintln!("error: {e}");
-        }
+    if let Err(error) = run(cli) {
+        eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
@@ -179,96 +143,6 @@ fn sampler_snapshot_age_line(last_sample_at: Option<u64>, now_secs: u64, socket:
     )
 }
 
-fn normalize_invite_code_input(input: &str) -> Result<String, String> {
-    let invite_code = input.trim();
-    if invite_code.is_empty() {
-        return Err("--invite-code-stdin received empty input".to_string());
-    }
-    Ok(invite_code.to_string())
-}
-
-fn read_invite_code_from_stdin() -> Result<String, String> {
-    let mut input = String::new();
-    std::io::stdin()
-        .read_to_string(&mut input)
-        .map_err(|e| format!("failed to read --invite-code-stdin: {e}"))?;
-    normalize_invite_code_input(&input)
-}
-
-fn require_no_existing_identity_home_override(override_present: bool) -> Result<(), String> {
-    if override_present {
-        return Err(
-            "LASTDB_HOME and FOLDDB_HOME must be unset for --use-existing-identity".to_string(),
-        );
-    }
-    Ok(())
-}
-
-fn validate_existing_identity_dev_connect(
-    data_dir: Option<&Path>,
-    env: Option<&str>,
-    api_url: Option<&str>,
-    invite_code: Option<&str>,
-    invite_code_stdin: bool,
-    force: bool,
-) -> Result<PathBuf, String> {
-    let data_dir = data_dir.ok_or_else(|| {
-        "--use-existing-identity requires an explicit root --data-dir".to_string()
-    })?;
-    if !data_dir.is_absolute() {
-        return Err("--use-existing-identity requires an absolute --data-dir path".to_string());
-    }
-    require_no_existing_identity_home_override(
-        lastdb_node::service_home::explicit_home_override_present(),
-    )?;
-    if env != Some("dev") {
-        return Err("--use-existing-identity requires explicit --env dev".to_string());
-    }
-    if api_url.is_some() {
-        return Err("--use-existing-identity does not accept --api-url".to_string());
-    }
-    if invite_code.is_some() {
-        return Err(
-            "--use-existing-identity accepts an invite only through --invite-code-stdin"
-                .to_string(),
-        );
-    }
-    if !invite_code_stdin {
-        return Err("--use-existing-identity requires --invite-code-stdin".to_string());
-    }
-    if force {
-        return Err("--use-existing-identity does not accept --force".to_string());
-    }
-
-    let home = lastdb_node::host::resolve_home(Some(data_dir.to_path_buf()))?;
-    lastdb_node::cloud::preflight_existing_identity_dev(&home)
-}
-
-fn prepare_existing_identity_dev_connect<F>(
-    data_dir: Option<&Path>,
-    env: Option<&str>,
-    api_url: Option<&str>,
-    invite_code: Option<&str>,
-    invite_code_stdin: bool,
-    force: bool,
-    read_invite: F,
-) -> Result<(PathBuf, String), String>
-where
-    F: FnOnce() -> Result<String, String>,
-{
-    let home = validate_existing_identity_dev_connect(
-        data_dir,
-        env,
-        api_url,
-        invite_code,
-        invite_code_stdin,
-        force,
-    )?;
-    // Do not consume the stdin invite until every option and filesystem guard
-    // accepts the target.
-    Ok((home, read_invite()?))
-}
-
 fn service_home_command(action: ServiceHomeCommand) -> Result<(), String> {
     let message = match action {
         ServiceHomeCommand::Set { home } => lastdb_node::service_home::set_configured_home(&home),
@@ -344,52 +218,7 @@ fn run(cli: Cli) -> Result<(), String> {
             execute,
             json,
         } => isolate_volume_command(cli.data_dir, &volume_name, skip_volume, execute, json),
-        Command::Connect {
-            env,
-            api_url,
-            invite_code,
-            invite_code_stdin,
-            force,
-            use_existing_identity,
-        } => connect_command(
-            cli.data_dir,
-            ConnectArgs {
-                env,
-                api_url,
-                invite_code,
-                invite_code_stdin,
-                force,
-                use_existing_identity,
-            },
-        ),
-        Command::Restore {
-            into,
-            env,
-            api_url,
-            json,
-            progress_json,
-            reuse_chunks_from,
-            remote_s0_only,
-            remote_latest,
-            db_hash,
-            manifest_sha256,
-        } => restore_dispatch_command(
-            cli.data_dir,
-            RestoreArgs {
-                into,
-                env,
-                api_url,
-                json,
-                progress_json,
-                reuse_chunks_from,
-                remote_s0_only,
-                remote_latest,
-                db_hash,
-                manifest_sha256,
-            },
-        ),
         Command::Cloud { action } => cloud_command(cli.data_dir, action),
-        Command::BackupGcCompact(args) => backup_gc_compact_cmd::command(cli.data_dir, &args),
         cmd @ (Command::Mutate { .. }
         | Command::List { .. }
         | Command::GetKeys { .. }

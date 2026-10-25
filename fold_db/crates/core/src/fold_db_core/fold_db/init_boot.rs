@@ -164,12 +164,7 @@ impl FoldDB {
         offline_maintenance: bool,
     ) -> SyncCoordinator {
         let coordinator = SyncCoordinator::new();
-        // Plane self-compaction is not a cloud feature. Start it here,
-        // so a node booted without `cloud_sync.json`
-        // reclaims `tips` / `atoms` / the capture-free planes on the same
-        // expected trigger a cloud-synced node does. When an engine is set
-        // later the cadence steps that engine's compactor instead, on the
-        // same packing lock.
+        // Local compaction starts independently of credentials or a cloud service.
         if !offline_maintenance {
             coordinator.start_automatic_plane_compaction(db_ops);
         }

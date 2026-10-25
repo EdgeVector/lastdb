@@ -50,30 +50,20 @@ pub(crate) fn drain_background(
     host: &Arc<Host>,
     sampler_task: tokio::task::JoinHandle<()>,
     home_fold_task: tokio::task::JoinHandle<()>,
-    native_backup_task: tokio::task::JoinHandle<()>,
 ) -> Result<(), String> {
     runtime.block_on(async {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
         let drain = async {
-            let (sampler, fold, controller, backup, byte_backup) = tokio::join!(
+            let (sampler, fold, byte_backup) = tokio::join!(
                 sampler_task,
                 home_fold_task,
-                native_backup_task,
-                host.native_backup.drain(deadline),
                 host.byte_backup.drain(deadline),
             );
             let mut errors = Vec::new();
-            for (name, result) in [
-                ("self-metrics", sampler),
-                ("home conflict", fold),
-                ("automatic backup", controller),
-            ] {
+            for (name, result) in [("self-metrics", sampler), ("home conflict", fold)] {
                 if let Err(error) = result {
                     errors.push(format!("{name} task failed: {error}"));
                 }
-            }
-            if let Err(error) = backup {
-                errors.push(format!("native backup did not drain: {error}"));
             }
             if let Err(error) = byte_backup {
                 errors.push(format!("byte backup did not drain: {error}"));
@@ -93,16 +83,10 @@ pub(crate) fn drain_background(
     })
 }
 
-/// Flush the local snapshot and the ordinary sync queues.
+/// Complete every local flush barrier after the writers drain.
 pub(crate) fn flush_database(runtime: &tokio::runtime::Runtime, host: &Host) -> Result<(), String> {
     runtime
-        .block_on(async {
-            if host.proof_replay_engine {
-                host.db.shutdown_local_only().await
-            } else {
-                host.db.shutdown().await
-            }
-        })
+        .block_on(host.db.shutdown())
         .map_err(|error| format!("FoldDB shutdown flush failed: {error}"))
 }
 

@@ -1,5 +1,4 @@
 use super::*;
-use tracing::Instrument;
 
 /// Compact request-ops offender lines for `lastdb status`.
 ///
@@ -355,53 +354,7 @@ pub(super) fn backup_storage_status_line(s: &BackupStorageHealth) -> String {
         format_bytes(reclaimable),
     );
     if reclaimable > 0 {
-        line.push_str(" (orphans; auto-GC after tip or `lastdb cloud backup-gc --execute`)");
+        line.push_str(" (historical cloud inventory)");
     }
     line
 }
-
-/// At most one in-flight list_objects for status footprint fill.
-pub(super) static BACKUP_STORAGE_REFRESHING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// Fire-and-forget: list + keep-set → cache on the sync engine.
-///
-/// Status never awaits this. Failures are silent (no keep-set / cloud down);
-/// GC paths still populate the cache on their own successful list.
-pub(super) fn schedule_backup_storage_refresh(host: &Host) {
-    let Some(engine) = host.db.sync_engine() else {
-        return;
-    };
-    if engine.backup_storage_footprint_snapshot().is_some() {
-        return;
-    }
-    if BACKUP_STORAGE_REFRESHING
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return;
-    }
-    let cache_path = crate::host::backup_manifest_cache_path(&host.home);
-    tokio::spawn(
-        async move {
-            let clear = || BACKUP_STORAGE_REFRESHING.store(false, Ordering::SeqCst);
-            let Ok(bytes) = tokio::fs::read(&cache_path).await else {
-                clear();
-                return;
-            };
-            let Ok(manifest) =
-                serde_json::from_slice::<fold_db::storage::laststore::BackupManifest>(&bytes)
-            else {
-                clear();
-                return;
-            };
-            let _ = engine
-                .refresh_backup_storage_footprint(std::slice::from_ref(&manifest))
-                .await;
-            clear();
-        }
-        .in_current_span(),
-    );
-}
-
-// lint:file-size-ok moved verbatim from self_metrics.rs; cohesive unit, split further in a later pass

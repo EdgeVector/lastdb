@@ -14,7 +14,7 @@ use fold_db::process_cpu::CpuProbe;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use fold_db::access::{AccessContext, CallerTransport};

@@ -83,27 +83,3 @@ pub struct BootstrapOutcome {
     /// namespace. Used to decide whether the embedding reloader should fire.
     pub embeddings_replayed: bool,
 }
-
-#[derive(Debug, Default)]
-pub(crate) struct UploadOutcome {
-    pub(crate) entries_uploaded: usize,
-    pub(crate) max_seq_uploaded: Option<u64>,
-    pub(crate) partial_error: Option<crate::sync::error::SyncError>,
-    pub(crate) transfer_bytes_uploaded: u64,
-    pub(crate) transfer_elapsed_secs: f64,
-}
-
-/// Outcome of a pre-upload snapshot decrypt-proof (see
-/// [`SyncEngine::try_decrypt_latest_snapshot`](crate::sync::engine::SyncEngine::try_decrypt_latest_snapshot)).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SnapshotDecryptProof {
-    /// `latest.enc` exists and opened with the current key.
-    Decrypted,
-    /// `latest.enc` exists but could not be opened as a proof object.
-    Undecryptable { reason: String },
-    /// No `latest.enc` snapshot present.
-    Absent,
-    /// Snapshot body exceeded `SyncConfig::max_download_entry_bytes` — refuse
-    /// to decrypt in-process for proof (memory-safety).
-    Oversized { bytes: usize, max: usize },
-}

@@ -14,29 +14,9 @@ pub enum BackupCapturePhase {
     },
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct NativeBackupCaptureStatus {
-    pub begin: JobBeginInput,
-    pub phase: BackupCapturePhase,
-    pub native_files: u64,
-    pub native_bytes: u64,
-    pub retained_source_bytes: Option<u64>,
-    pub source_available: bool,
-    pub source_error: Option<String>,
-    pub last_accepted_backup: Option<cloud_backup_protocol::publication::AcceptedBackup>,
-    pub spool_bytes: u64,
-    pub payload_spool_bytes: u64,
-    pub object_count: u64,
-    pub page_count: usize,
-    pub active_readers: usize,
-    pub complete_backup_eligible: bool,
-    pub file_dependencies: Option<super::BackupFileDependencyStatus>,
-    pub blocked_reason: &'static str,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ExportRecord {
+pub struct ExportRecord {
     pub format: u16,
     pub begin: JobBeginInput,
     pub reference_id: uuid::Uuid,
@@ -50,7 +30,7 @@ pub(super) struct ExportRecord {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PageDescriptor {
+pub struct PageDescriptor {
     pub page_index: u32,
     pub sha256: Digest,
     pub bytes: DecimalU64,
@@ -80,7 +60,7 @@ impl ExportRecord {
                 || page.files < page.objects
                 || page.files > 512
                 || page.bytes.get() == 0
-                || page.bytes.get() > super::store::PAGE_MAX
+                || page.bytes.get() > super::PAGE_MAX
             {
                 return Err(invalid("backup capture saved page bounds"));
             }
@@ -103,42 +83,5 @@ impl ExportRecord {
             _ => {}
         }
         Ok(())
-    }
-
-    pub fn require_ready(&self) -> StorageResult<()> {
-        if !matches!(self.phase, BackupCapturePhase::Ready) {
-            return Err(invalid(
-                "backup capture source is not ready or its job is terminal",
-            ));
-        }
-        Ok(())
-    }
-
-    pub fn status(&self, active_readers: usize) -> NativeBackupCaptureStatus {
-        let released = matches!(
-            self.phase,
-            BackupCapturePhase::Terminal {
-                source_released: true,
-                ..
-            }
-        );
-        NativeBackupCaptureStatus {
-            begin: self.begin.clone(),
-            phase: self.phase.clone(),
-            native_files: self.native_files,
-            native_bytes: self.native_bytes,
-            retained_source_bytes: if released { Some(0) } else { None },
-            source_available: false,
-            source_error: None,
-            last_accepted_backup: None,
-            spool_bytes: self.spool_bytes,
-            payload_spool_bytes: 0,
-            object_count: self.pages.iter().map(|page| page.objects).sum(),
-            page_count: self.pages.len(),
-            active_readers,
-            complete_backup_eligible: false,
-            file_dependencies: None,
-            blocked_reason: "backup file dependency completeness is uncertified",
-        }
     }
 }

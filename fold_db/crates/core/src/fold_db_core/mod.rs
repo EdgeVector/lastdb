@@ -8,7 +8,7 @@
 //! - [`purge`] — schema/data purge
 //! - [`orchestration`] — coordination helpers
 //! - [`pending_task_tracker`] — background task bookkeeping
-//! - [`sync_coordinator`] — cloud sync lifecycle (`cloud-sync` feature)
+//! - [`sync_coordinator`] — local automatic compaction lifecycle
 
 pub mod conflict_janitor;
 mod conflict_janitor_pace;

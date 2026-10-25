@@ -24,7 +24,7 @@ use crate::sharing::delivery_wire::{
     LASTDB_SLICE_PAYLOAD_VERSION,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// One schema leg of a (possibly multi-schema) query-defined slice.
 #[derive(Debug, Clone)]
@@ -310,81 +310,3 @@ pub async fn import_slice_via_mutations(
 
 mod file_recovery;
 pub use file_recovery::{resolve_file_bytes, resolve_file_bytes_kind};
-
-/// Resolve raw file bytes for a `$lastdb_file` pointer, fetching exactly that
-/// remote CAS object when the local CAS cache misses and the pointer carries
-/// file-blob access metadata.
-pub async fn resolve_file_bytes_on_demand(
-    db: &FoldDB,
-    sync_engine: &crate::sync::SyncEngine,
-    field_value: &Value,
-) -> Result<Option<Vec<u8>>, FoldDbError> {
-    if let Some(bytes) = resolve_file_bytes(db, field_value).await? {
-        return Ok(Some(bytes));
-    }
-    let admission = db.acquire_local_mutation_admission().await;
-    admission
-        .run(Box::pin(async {
-            let Some(access) = file_blob_access_from_atom_value(field_value)? else {
-                return Ok(None);
-            };
-            let Some(blob_ref) = blob_ref_from_atom_value(field_value) else {
-                return Ok(None);
-            };
-
-            let remote_ref = crate::sync::engine::FileBlobRef {
-                blob_ref: access.blob_ref.clone(),
-                file_hash: access.file_hash.clone(),
-                owner_scope: access.owner_scope.clone(),
-                cipher_suite: access.cipher_suite.clone(),
-                dek: access.dek.clone(),
-                encrypted_size_bytes: access.encrypted_size_bytes.unwrap_or_default(),
-            };
-            let Some(bytes) = sync_engine
-                .download_file_blob(&remote_ref)
-                .await
-                .map_err(|e| {
-                    FoldDbError::Other(format!(
-                        "on-demand file blob fetch failed for {}: {e}",
-                        access.file_hash
-                    ))
-                })?
-            else {
-                return Ok(None);
-            };
-
-            let name = field_value
-                .pointer(&format!(
-                    "/{}/name",
-                    crate::sharing::delivery_wire::LASTDB_FILE_KEY
-                ))
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let media_type = field_value
-                .pointer(&format!(
-                    "/{}/media_type",
-                    crate::sharing::delivery_wire::LASTDB_FILE_KEY
-                ))
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let blob = content_addressed_blob_with_access(&bytes, media_type, name, Some(access));
-            if blob.blob_ref != blob_ref {
-                return Err(FoldDbError::SecurityError(format!(
-                    "on-demand file blob hash {} does not match pointer {blob_ref}",
-                    blob.blob_ref
-                )));
-            }
-            blob_cas::put_blob_in_ops(db.db_ops(), &blob).await?;
-
-            let hash_prefix = remote_ref.file_hash.chars().take(12).collect::<String>();
-            tracing::info!(
-                target: "fold_db::sharing",
-                file_hash_prefix = %hash_prefix,
-                blob_ref = %remote_ref.blob_ref,
-                "fetched file blob on demand"
-            );
-
-            Ok(Some(bytes))
-        }))
-        .await
-}

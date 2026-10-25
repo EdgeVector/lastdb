@@ -4,14 +4,6 @@
 use super::*;
 
 pub(crate) const CAPTURE_REEXPORT_NAMESPACE: &str = "sync_capture_reexport";
-pub(super) const CAPTURE_REEXPORT_PAGE_SIZE: usize = 256;
-pub(super) const CAPTURE_REEXPORT_BATCH_SIZE: usize = 128;
-pub(super) const CAPTURE_REEXPORT_TICK_BUDGET: Duration = Duration::from_secs(20);
-pub(super) const CAPTURE_PRESENCE_MASK: u64 = 3;
-pub(super) const CAPTURE_PRESENCE_NONEMPTY: u64 = 1;
-pub(super) const CAPTURE_PRESENCE_EMPTY: u64 = 2;
-pub(super) static CAPTURE_REEXPORT_NONCE: AtomicU64 = AtomicU64::new(0);
-
 /// On-disk bytes above which the marker plane is self-compacted.
 ///
 /// Async capture can leave a large live marker backlog. The byte trigger

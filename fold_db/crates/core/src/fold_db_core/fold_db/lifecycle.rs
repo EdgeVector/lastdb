@@ -13,28 +13,6 @@ impl FoldDB {
     /// The limit matches the cold-cache model start limit.
     const SHUTDOWN_TASK_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-    /// Default upper bound on the final sync inside [`FoldDB::shutdown`].
-    ///
-    /// On 2026-09-24 a primary shutdown sat in the final sync (a cloud list
-    /// of 51,407 entries) for 17 minutes with the socket already closed, and
-    /// only a SIGKILL ended it. Sync is resumable: the local mutation log and
-    /// the cursors are durable, so the next boot continues the upload. A
-    /// stop must not wait on the network without a limit.
-    /// `LASTDB_SHUTDOWN_SYNC_TIMEOUT_SECS` overrides it.
-    const SHUTDOWN_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
-
-    fn shutdown_sync_timeout() -> std::time::Duration {
-        env_flag::var_parsed::<u64>("LASTDB_SHUTDOWN_SYNC_TIMEOUT_SECS")
-            .map_or(Self::SHUTDOWN_SYNC_TIMEOUT, std::time::Duration::from_secs)
-    }
-
-    /// Graceful async shutdown: flush sync, stop workers, drain persist lanes,
-    /// drain tracked tasks, and then flush storage.
-    ///
-    /// Search delivery for a request is part of its schema-lane envelope.
-    /// Other process tasks can still own storage handles. The task drain
-    /// prevents a caller from removing the data directory before they stop.
-    /// The final storage flush still runs after either drain times out.
     pub async fn shutdown(&self) -> Result<(), StorageError> {
         self.shutdown_with_task_drain_timeout(Self::SHUTDOWN_TASK_DRAIN_TIMEOUT, true)
             .await
@@ -173,7 +151,7 @@ impl FoldDB {
     async fn stop_sync_for_shutdown(
         &self,
         task_drain_timeout: std::time::Duration,
-        final_cloud_sync: bool,
+        _final_cloud_sync: bool,
     ) -> Vec<String> {
         let mut errors = Vec::new();
         if !self
@@ -196,25 +174,7 @@ impl FoldDB {
             errors.push(format!("local sync task did not stop: {error}"));
             return errors;
         }
-        if !final_cloud_sync {
-            return errors;
-        }
-        let sync_timeout = Self::shutdown_sync_timeout();
-        match tokio::time::timeout(sync_timeout, self.sync_coordinator.final_sync()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                tracing::warn!("sync flush on shutdown failed: {error}");
-                errors.push(format!("sync flush failed: {error}"));
-            }
-            Err(_) => {
-                tracing::error!(
-                    target: "fold_node::database",
-                    timeout_ms = u64::try_from(sync_timeout.as_millis()).unwrap_or(u64::MAX),
-                    "shutdown: final sync did not finish in time"
-                );
-                errors.push("final sync did not finish in time".to_string());
-            }
-        }
+
         errors
     }
 

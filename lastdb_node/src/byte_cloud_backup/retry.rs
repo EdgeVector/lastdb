@@ -1,7 +1,7 @@
 //! One finite budget for an exact, validated V2 control request. Never wraps PUT.
 use super::{transfer, BackupError, Result};
 use cloud_backup_protocol::{ErrorCode, ProtocolError};
-use fold_db::sync::auth::byte_backup::NativeBackupError;
+use fold_db::sync::auth::byte_backup::BackupTransportError;
 use std::future::Future;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -15,7 +15,7 @@ pub(super) fn temporary_protocol(error: &ProtocolError) -> bool {
 }
 
 pub(super) fn temporary(error: &BackupError) -> bool {
-    matches!(error, BackupError::Cloud(NativeBackupError::Protocol(error)) if temporary_protocol(error))
+    matches!(error, BackupError::Cloud(BackupTransportError::Protocol(error)) if temporary_protocol(error))
 }
 
 pub(super) async fn control<T, F, Fut>(

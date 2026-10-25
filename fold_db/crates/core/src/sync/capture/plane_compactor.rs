@@ -1,7 +1,7 @@
 //! Plane self-compaction, independent of cloud sync.
 //!
 //! Every automatic byte-return sweep in this file used to be a
-//! [`crate::sync::engine::SyncEngine`] method reachable only from
+//! the retired engine method reachable only from
 //! `SyncEngine::do_sync`. A node booted without `cloud_sync.json` has no
 //! engine, so it ran none of them: `tips` and `atoms` grew, and the only
 //! byte-return path was an operator typing
@@ -41,8 +41,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 /// The photograph packing lock. A held cut skips every rewrite in this module.
-pub(crate) type BackupPublishTargetSlot =
-    Arc<Mutex<Option<crate::sync::engine::backup_uploader::BackupPublishTarget>>>;
+pub(crate) type BackupPublishTargetSlot = Arc<Mutex<Option<()>>>;
 
 /// Every automatic plane sweep, and the state each one's trigger needs.
 ///
@@ -58,7 +57,7 @@ pub(crate) struct PlaneCompactor {
     pub(crate) cloud_sync_disabled_at: Arc<Mutex<Option<u64>>>,
     /// Unix seconds of the last on-disk size probe of the marker plane. Rate
     /// limits the stat walk in
-    /// [`SyncEngine::maybe_compact_capture_reexport_plane`]; `0` means never.
+    /// the retired engine; `0` means never.
     pub(crate) capture_reexport_last_probe_unix_s: AtomicU64,
     /// Size the marker plane must exceed before the next self-compaction. Rises
     /// to twice the post-compaction size so a plane whose live set is
@@ -269,10 +268,7 @@ impl PlaneCompactor {
     /// check-then-act race where a cut begins after an `is_some()` probe.
     pub(crate) async fn lock_backup_publish_target(
         &self,
-    ) -> tokio::sync::MutexGuard<
-        '_,
-        Option<crate::sync::engine::backup_uploader::BackupPublishTarget>,
-    > {
+    ) -> tokio::sync::MutexGuard<'_, Option<()>> {
         self.backup_publish_target.lock().await
     }
 

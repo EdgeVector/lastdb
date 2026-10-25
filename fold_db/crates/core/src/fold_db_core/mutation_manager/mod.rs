@@ -157,7 +157,6 @@ pub struct MutationManager {
     /// a plain mutex is cheaper than the atomics a hot-path counter would need.
     purge_stats: Arc<PurgeLedger>,
     /// Sync engine used by administrative capture status and direct callers.
-    capture_engine: std::sync::RwLock<Option<std::sync::Arc<crate::sync::SyncEngine>>>,
     /// Bounded post-ack capture queue shared with the serving store wrapper.
     ///
     /// Arc so the persist-lane surface sees `set_capture_router` after
@@ -228,7 +227,6 @@ impl MutationManager {
             author_clock_state: std::sync::Mutex::new(author_clock_state),
             author_clock_persist: Some(author_clock_persist),
             purge_stats,
-            capture_engine: std::sync::RwLock::new(None),
             capture_router,
             persist_lanes,
         }
@@ -268,7 +266,6 @@ impl MutationManager {
             ),
             author_clock_persist: None,
             purge_stats,
-            capture_engine: std::sync::RwLock::new(None),
             capture_router,
             persist_lanes: Arc::new(crate::resident::PersistLaneSet::disabled()),
         }
@@ -286,41 +283,10 @@ impl MutationManager {
         self.persist_lanes.pressure()
     }
 
-    /// Wire the serving mutation-log engine (called from FoldDB::set_sync_engine).
-    pub(crate) fn set_capture_engine(&self, engine: std::sync::Arc<crate::sync::SyncEngine>) {
-        self.set_capture_engine_metadata(std::sync::Arc::clone(&engine));
-        let mut router = self
-            .capture_router
-            .write()
-            .expect("capture router lock poisoned");
-        if let Some(router) = router.as_ref() {
-            router.set_engine(engine);
-        } else {
-            let created =
-                std::sync::Arc::new(crate::sync::capture::MutationLogCaptureRouter::default());
-            created.set_engine(engine);
-            *router = Some(created);
-        }
-    }
-
-    /// Record the capture engine before the router admits work.
-    pub(crate) fn set_capture_engine_metadata(
-        &self,
-        engine: std::sync::Arc<crate::sync::SyncEngine>,
-    ) {
-        *self
-            .capture_engine
-            .write()
-            .expect("capture engine lock poisoned") = Some(engine);
-    }
-
     pub(crate) fn set_capture_router(
         &self,
         router: std::sync::Arc<crate::sync::capture::MutationLogCaptureRouter>,
     ) {
-        if let Some(engine) = self.capture_engine() {
-            router.set_engine(engine);
-        }
         *self
             .capture_router
             .write()
@@ -341,13 +307,6 @@ impl MutationManager {
             Some(router) => router.wait_for_completion(timeout).await,
             None => true,
         }
-    }
-
-    pub(crate) fn capture_engine(&self) -> Option<std::sync::Arc<crate::sync::SyncEngine>> {
-        self.capture_engine
-            .read()
-            .expect("capture engine lock poisoned")
-            .clone()
     }
 
     /// Admit one deferred persist of `bytes`, or refuse.

@@ -192,7 +192,10 @@ The node requires `LASTDB_BYTE_BACKUP_V2_ENABLED=true` for new manual work.
 Status and exact close operations remain available without that flag.
 Start, resume, status, and close use the owner-only local socket route.
 The worker has a separate controller and participates in normal node shutdown.
-The automatic V1 controller does not select V2.
+The V1 backup, restore, automatic controller, and legacy cloud activation commands are retired.
+Fresh DEV setup uses cloud backup-v2 init and cloud backup-v2 connect.
+Restored DEV setup uses cloud backup-v2 connect --dev --restored.
+These commands keep credentials paused and preserve the existing identity and file formats.
 
 Each exact control request permits six attempts within one 30-second monotonic deadline.
 Only validated ProviderPending, RetryLater, and OutcomeUnknown errors permit a retry.

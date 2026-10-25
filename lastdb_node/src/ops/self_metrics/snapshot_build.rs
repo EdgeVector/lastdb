@@ -20,10 +20,10 @@ pub(super) async fn build_snapshot(
         RequestPhase::StatusRequestOps,
         request_ops_started.elapsed(),
     );
-    publish_sync_foreground_pressure(host, cpu_percent, &qos, &request_ops);
     let sync = timed_sync_health(host, refresh_sync).await;
-    let (backup, backup_storage) = backup_health(host);
-    let durability = durability_health(host, sampled_at, backup.as_ref());
+    // Retired cloud engines do not provide progress or provider inventory gauges.
+    let (backup, backup_storage) = (None, None);
+    let durability = durability_health(host, sampled_at);
     let dirs = DirReport::measure(host);
     let footprint = current_phys_footprint();
     let runtime_memory = footprint.map(|footprint| observe_runtime_memory(host, footprint));
@@ -84,7 +84,7 @@ pub(super) async fn build_snapshot(
         build: BuildHealth::current(),
         integrity: integrity_health(host),
         molecule_edges: configured_molecule_edge_health(host),
-        file_blob: file_blob_health(host).await,
+        file_blob: FileBlobHealth::default(),
         purge_stats: host.db.mutation_manager().purge_stats_snapshot(),
         local_retention: host
             .self_metrics
@@ -161,51 +161,14 @@ async fn timed_sync_health(host: &Host, refresh_sync: bool) -> SyncHealth {
     sync
 }
 
-/// Backup progress and the cached storage footprint, with the phase timing.
-fn backup_health(host: &Host) -> (Option<BackupProgressHealth>, Option<BackupStorageHealth>) {
-    let backup_started = Instant::now();
-    let backup = host
-        .db
-        .sync_engine()
-        .map(|engine| BackupProgressHealth::from(engine.backup_progress_snapshot()));
-    // Cheap cache read only — list_objects lives on GC / background refresh.
-    let backup_storage = host
-        .db
-        .sync_engine()
-        .and_then(|engine| engine.backup_storage_footprint_snapshot())
-        .map(BackupStorageHealth::from);
-    // Kick a single background list when the cache is empty and sync is up so
-    // the next status poll can print the storage line without blocking this one.
-    if backup_storage.is_none() {
-        schedule_backup_storage_refresh(host);
-    }
-    request_phases::add_phase(RequestPhase::StatusBackup, backup_started.elapsed());
-    (backup, backup_storage)
-}
-
-fn durability_health(
-    host: &Host,
-    sampled_at: u64,
-    backup: Option<&BackupProgressHealth>,
-) -> DurabilityHealth {
-    // Read off the durable marker, not the engine: this must answer even when
-    // `sync_engine()` is None, which is the case the alarm exists for.
+fn durability_health(host: &Host, sampled_at: u64) -> DurabilityHealth {
+    // Preserve historical backup-marker evidence independently of cloud retirement.
     let durability_started = Instant::now();
-    let mut durability_health = fold_db::backup_durability::evaluate_store(
+    let durability_health = fold_db::backup_durability::evaluate_store(
         &host.data_dir,
         sampled_at,
         fold_db::backup_durability::max_backup_age_secs_from_env(),
     );
-    // The age check above is deliberately engine-free (it must answer when
-    // backup is switched off). Fold in the one terminal fact only the running
-    // uploader knows, so a home that provably cannot publish says so at cut
-    // time instead of waiting out the 24-hour threshold.
-    if let Some(backup) = backup {
-        fold_db::backup_durability::apply_cut_unbackable(
-            &mut durability_health,
-            wire_u64(&backup.chunks_unbackable_manifest).unwrap_or(0),
-        );
-    }
     let durability = DurabilityHealth::from(durability_health);
     request_phases::add_phase(RequestPhase::StatusDurability, durability_started.elapsed());
     durability
@@ -219,21 +182,6 @@ fn integrity_health(host: &Host) -> IntegrityHealth {
         Some(damage.rows),
         damage.capped,
     )
-}
-
-async fn file_blob_health(host: &Host) -> FileBlobHealth {
-    match host.db.sync_engine() {
-        // Read straight off the engine rather than through `sync_status()`:
-        // the durability counters are independent of every other sync
-        // field, and recomputing a whole status snapshot to reach four
-        // atomics would put real work on the status path.
-        //
-        // No engine means no cloud plane, so there is nothing to have lost
-        // — but "not served" is still the honest answer, not a measured
-        // zero, and `FileBlobHealth::default()` is exactly that.
-        Some(engine) => engine.file_blob_durability().await.into(),
-        None => FileBlobHealth::default(),
-    }
 }
 
 /// Memory budget plus the read-cost row it reads. Also stamps the persist-lane
@@ -285,47 +233,4 @@ pub(super) fn persist_lane_row_is_visible(
         || row.unhealthy_lanes > 0
         || row.quarantined > 0
         || row.breaker_trips > 0
-}
-
-pub(super) fn publish_sync_foreground_pressure(
-    host: &Host,
-    cpu_percent: Option<f64>,
-    qos: &QosHealth,
-    request_ops: &crate::request_telemetry::RequestTelemetrySnapshot,
-) {
-    let Some(engine) = host.db.sync_engine() else {
-        return;
-    };
-    let foreground_busy_ms = foreground_busy_p95_ms_from_env();
-    let foreground_p95_ms = request_ops
-        .app_verb
-        .iter()
-        .filter_map(|aggregate| aggregate.p95_ms)
-        .max();
-    engine.set_foreground_pressure_sample(fold_db::sync::ForegroundPressure {
-        source: "lastdbd_status_sampler".to_string(),
-        foreground_p95_ms,
-        foreground_busy_ms,
-        qos_total_in_use: gauge_or_zero_usize(&qos.total_in_use),
-        qos_total_permits: gauge_or_zero_usize(&qos.total_permits),
-        qos_interactive_shed_delta: qos_interactive_shed_delta(gauge_or_zero(
-            &qos.interactive_sheds,
-        )),
-        cpu_percent,
-    });
-}
-
-pub(super) fn foreground_busy_p95_ms_from_env() -> u64 {
-    env_flag::var_or("LASTDB_SYNC_FOREGROUND_BUSY_P95_MS", 1_000).clamp(50, 60_000)
-}
-
-pub(super) fn qos_interactive_shed_delta(current: u64) -> u64 {
-    static PREV_INTERACTIVE_SHEDS: OnceLock<Mutex<u64>> = OnceLock::new();
-    let state = PREV_INTERACTIVE_SHEDS.get_or_init(|| Mutex::new(current));
-    let Ok(mut previous) = state.lock() else {
-        return 0;
-    };
-    let delta = current.saturating_sub(*previous);
-    *previous = current;
-    delta
 }

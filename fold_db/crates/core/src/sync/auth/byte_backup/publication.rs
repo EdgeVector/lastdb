@@ -29,7 +29,7 @@ impl ByteBackupClient {
         request.validate()?;
         let response: HeadReadResult = match self.post("heads/read", request).await {
             Ok(response) => response,
-            Err(NativeBackupError::Protocol(error))
+            Err(BackupTransportError::Protocol(error))
                 if error.code == ErrorCode::NotFound && error.field.as_str() == "stream" =>
             {
                 HeadReadResult::Error { error }

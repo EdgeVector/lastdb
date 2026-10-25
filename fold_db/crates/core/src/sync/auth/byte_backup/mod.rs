@@ -9,9 +9,8 @@ mod jobs;
 mod publication;
 mod transfer;
 
-pub use super::native_backup::{NativeBackupError, UploadObservation};
-pub type Result<T> = std::result::Result<T, NativeBackupError>;
-pub type ObjectStream = std::pin::Pin<Box<dyn tokio::io::AsyncRead + Send>>;
+pub use super::backup_transport::{BackupTransportError, ObjectStream, UploadObservation};
+pub type Result<T> = std::result::Result<T, BackupTransportError>;
 
 #[derive(Clone)]
 pub struct ByteBackupClient {
