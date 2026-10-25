@@ -27,7 +27,7 @@ use fold_db::db_operations::HomeConflictAnnotation;
 use fold_db::error::FoldDbError;
 use fold_db::request_phases::{self, RequestPhase};
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
-use fold_db::schema::types::operations::{Query, QueryOrderBy, SortOrder};
+use fold_db::schema::types::operations::{Query, SortOrder};
 use fold_db::schema::types::{KeyValue, Schema, SchemaError};
 use fold_db::schema::SchemaState;
 use futures::StreamExt;
