@@ -40,37 +40,30 @@ pub(super) async fn execute_query_route(
     .await
 }
 
-/// Record the parse phase and answer a rejection, so a refused mutation is
-/// visible to both instruments that went blind on this route.
-///
-/// `request_ops` previously showed a rejected mutation as `duration_ms=0`,
-/// `schema=-`, and **no** `parse` phase at all — the signature that made 3,473
-/// failing kanban mutations (26% of the route) undiagnosable: there was no way
-/// to tell a request that died at body read from one that never arrived. The
-/// phase is added on every exit, and the refusal is logged from static bytes
-/// only, so a 4xx storm leaves a trace without echoing a caller byte (**I4**).
-pub(super) fn reject_mutation(reject: Reject, parse_started: std::time::Instant) -> UdsResponse {
-    fold_db::request_phases::add_phase(
-        fold_db::request_phases::RequestPhase::Parse,
-        parse_started.elapsed(),
-    );
-    tracing::warn!(
-        target: "fold_node::http",
-        route = "/api/mutation",
-        kind = reject.kind().as_str(),
-        "mutation request refused on shape"
-    );
-    reject.response()
-}
-
 pub(super) async fn execute_mutation_route(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let components = match parse_mutation_components(req) {
+    let parse_started = std::time::Instant::now();
+    let parsed = parse_mutation_body(&req.body);
+    // Every exit records one complete parse phase. A refusal logs fixed bytes
+    // only, so malformed caller data never enters the log or response (I4).
+    fold_db::request_phases::add_phase(
+        fold_db::request_phases::RequestPhase::Parse,
+        parse_started.elapsed(),
+    );
+    let components = match parsed {
         Ok(components) => components,
-        Err(rejection) => return rejection,
+        Err(reject) => {
+            tracing::warn!(
+                target: "fold_node::http",
+                route = "/api/mutation",
+                kind = reject.kind().as_str(),
+                "mutation request refused on shape"
+            );
+            return reject.response();
+        }
     };
     let hint = MutationWatchHint::from(&components);
     let change_feed_reservation = match host.change_feed_queue.try_reserve() {
@@ -117,61 +110,6 @@ pub(super) async fn execute_mutation_route(
         response_started.elapsed(),
     );
     response
-}
-
-/// Decode a `/api/mutation` body into the mutation components, or the
-/// rejection response to send back.
-fn parse_mutation_components(req: &UdsRequest) -> Result<MutationComponents, UdsResponse> {
-    let parse_started = std::time::Instant::now();
-    // The rendered response from `body_object` is discarded and rebuilt via
-    // `reject_mutation`, so the phase and log line land on this path too.
-    let Ok(mut obj) = body_object(req) else {
-        return Err(reject_mutation(Reject::malformed_body(), parse_started));
-    };
-    // Name the absent key before serde collapses it into an undifferentiated
-    // failure. Without this an internally-tagged `Operation` reports a missing
-    // `type` and a missing `mutation_type` identically, and the route answered
-    // both with the same 11 bytes.
-    if let Some(key) = first_missing_key(&obj, MUTATION_REQUIRED_KEYS) {
-        return Err(reject_mutation(Reject::missing(key), parse_started));
-    }
-    // `aggregate_set` is a mutation sidecar, not an ordinary `Operation`
-    // field. Remove and decode it first so the strict operation grammar stays
-    // unchanged for every other route.
-    let Ok(aggregate_set) = take_aggregate_set(&mut obj) else {
-        return Err(reject_mutation(
-            Reject::new(RejectKind::InvalidValue),
-            parse_started,
-        ));
-    };
-    let parsed = serde_json::from_value::<Operation>(Value::Object(obj));
-    fold_db::request_phases::add_phase(
-        fold_db::request_phases::RequestPhase::Parse,
-        parse_started.elapsed(),
-    );
-    let operation = match parsed {
-        Ok(operation) => operation,
-        Err(err) => {
-            // Every required key is present, so this is either a value outside
-            // its grammar or a key this node does not know — the version-skew
-            // signal a newer client needs to branch on. Neither the offending
-            // value nor the unknown key is echoed (I4).
-            let reject = Reject::from_serde_error(&err, None);
-            tracing::warn!(
-                target: "fold_node::http",
-                route = "/api/mutation",
-                kind = reject.kind().as_str(),
-                "mutation request refused on shape"
-            );
-            return Err(reject.response());
-        }
-    };
-
-    Ok(MutationComponents::from_operation(
-        operation,
-        None,
-        aggregate_set,
-    ))
 }
 
 /// `GET /api/local-watch?after_seq=0&timeout_ms=0[&schema=App/Event][&hash=H][&start=R][&end=R]`
