@@ -391,6 +391,12 @@ These numeric timings use the existing diagnostic opt-in. Every I/O call, check,
 Checksums and full-page output remain unchanged. This is diagnosis; no new wait reduction is established.
 These intervals overlap. Do not add them or treat a diagnostic interval as a per-request disk wait.
 
+The next candidate removes one heap allocation for each existing key descriptor in a leaf edit.
+It borrows the checked input page's descriptor bytes until that leaf's output completes.
+Inserted keys retain owned descriptors. The output separator still owns its descriptor.
+The same split rules, bytes, checksums, full-page writes, and durability barriers remain.
+The opt-in `metadata_borrowed_descriptors` count reports this path. A latency gain requires fresh CI measurements.
+
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.
 
