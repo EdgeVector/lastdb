@@ -216,26 +216,6 @@ pub enum DataRoute {
     /// `POST /api/storage/home/reconcile` — process one bounded page of the
     /// configured home inventory and persist its resume cursor. OWNER only.
     HomeStorageReconcile,
-    /// `POST /api/org/sync/register` — register an org cloud-sync target
-    /// (org_hash + E2E key). OWNER socket only.
-    OrgSyncRegister,
-    /// `POST /api/org/authority/publish` — signed epoch authority relay. OWNER only.
-    OrgAuthorityPublish,
-    /// `POST /api/org/authority/status` — minimal authenticated cloud tip. OWNER only.
-    OrgAuthorityStatus,
-    /// `GET /api/org/sync/targets` — list registered org cloud-sync targets.
-    /// OWNER socket only.
-    OrgSyncTargets,
-    /// `POST /api/org/sync/deactivate` — disarm registered org cloud-sync
-    /// targets by `org_hash` and/or `slug` (local registry only; no cloud
-    /// call). `dry_run` lists without writing. OWNER socket only.
-    OrgSyncDeactivate,
-    /// `POST /api/org/sync/grant-member` — owner grants another principal
-    /// writer/reader on the org cloud head (Exemem registry). OWNER only.
-    OrgSyncGrantMember,
-    /// `POST /api/org/sync/revoke-member` — owner kicks or principal leaves
-    /// the org cloud head (Exemem registry). OWNER only.
-    OrgSyncRevokeMember,
     /// `GET /api/db/catalog` — point-get one `(db_locator, schema_name)`
     /// membership row. OWNER socket only. Never enumerates the catalog.
     DbCatalogGet,
@@ -249,40 +229,12 @@ pub enum DataRoute {
     /// the source instance_id and grants target-domain key wraps.
     /// OWNER socket only.
     DbCatalogShare,
-    /// `POST /api/sync/heal-staging` — live cloud snapshot + clear upload
-    /// staging (OWNER only). Never stops Mini; concurrent local R/W continue.
-    SyncHealStaging,
-    /// `POST /api/sync/laststore-snapshot` — LastStore manifest/chunk backup
-    /// snapshot commit (OWNER only). Uploads missing chunks + manifest, CASes
-    /// backup/latest, then advances local backup state.
-    SyncLastStoreSnapshot,
-    /// `POST /api/sync/backup-gc` — product-path orphan sweep of unreferenced
-    /// cloud backup chunks (OWNER only). Body: `{ dry_run?: bool }`.
-    SyncBackupGc,
-    /// `POST /api/sync/prefix-inventory` — read-only R2 prefix/category size
-    /// breakdown for the connected cloud account (OWNER only). No body. Never
-    /// deletes and never fetches an object body.
-    SyncPrefixInventory,
     /// `POST /api/sync/cloud-off` — intentional Cloud Sync pause: stamp grace
     /// clock on the live engine + rename `cloud_sync.json` → `.paused` for
     /// durable reboot intent. OWNER only. Local R/W never blocked.
     SyncCloudOff,
-    /// `POST /api/sync/cloud-on` — restore `cloud_sync.json` if paused, then
-    /// re-enable live engine (pull→snapshot when past grace). OWNER only.
-    SyncCloudOn,
-    /// `POST /api/sync/native-backup` — explicit owner native backup work or status.
-    SyncNativeBackup,
     /// `POST /api/sync/byte-backup-v2` — explicit owner byte backup work or status.
     SyncByteBackupV2,
-    /// `POST /api/sync/cloud-resume-primary` — durable owner job or status.
-    SyncCloudResumePrimary,
-    /// `POST /api/sync/quarantine-replay-blocker` — clear the exact active
-    /// `replay_blocker` (target+seq required). Corrupt entries delete the cloud
-    /// object; apply-failed pins skip locally without deleting. OWNER only.
-    SyncQuarantineReplayBlocker,
-    /// `POST /api/sync/backup-concurrency` — get, set, or clear the live
-    /// sealed-home backup PUT concurrency override. OWNER only.
-    SyncBackupConcurrency,
     /// `GET /api/db/inventory` — live main-tree key-class + per-schema atom/history
     /// byte breakdown. OWNER socket only.
     ///
@@ -378,16 +330,6 @@ pub enum DataRoute {
     /// durable published-F high-water marks. Never deletes. Body:
     /// `{ max_keys?: usize, after_key?: string }`.
     DbPinLogAudit,
-    /// `POST /api/db/export-mutation-log` — proof tooling. Seal this home's
-    /// pending mutation-log records and write the segments to a local
-    /// directory. Refuses unless the daemon booted with the local proof engine
-    /// on a synthetic home (`LASTDB_PROOF_REPLAY=1` plus a `.synthetic-home`
-    /// marker). Body: `{ dir: string }`.
-    DbExportMutationLog,
-    /// `POST /api/db/replay-mutation-log` — proof tooling. Apply the sealed
-    /// segments in a local directory through the live peer-apply path. Same
-    /// refusal rules as [`Self::DbExportMutationLog`]. Body: `{ dir: string }`.
-    DbReplayMutationLog,
     /// `POST /api/db/molecule-keys` — list one molecule's live `mk:` storage
     /// keys (decoded hash/range + collision flag). Read-only.
     DbMoleculeKeys,
@@ -403,27 +345,13 @@ pub enum DataRoute {
     /// Owner only. Body: `{ schema, api_hash, execute?: bool }`.
     DbRepairHashRangeKeyFields,
     /// `POST /api/db/fetch-file-blob` — explicitly fetch exactly one
-    /// `$lastdb_file` pointer's remote CAS object and cache it locally.
+    /// `$lastdb_file` pointer from the local store, with byte verification.
     /// Body: `{ "pointer": <field value> }`.
     DbFetchFileBlob,
-    /// `POST /api/db/fork-file-blob` — copy a shared `$lastdb_file` pointer's
-    /// bytes into the caller's personal blob scope and rewrite the local field.
-    /// Body includes `{ schema, field, key, pointer }`.
-    DbForkFileBlob,
-    /// `POST /api/db/file-blob` — upload one personal file blob through the
-    /// native file-blob plane and persist the returned `$lastdb_file` pointer
-    /// into the requested schema field. OWNER socket only.
-    DbPutFileBlob,
     /// `POST /api/db/put-blob-local` — store one blob in the local `cas_blobs`
     /// plane and return its `$lastdb_file` pointer. No sync engine, no record
     /// written. Raw `application/octet-stream` or JSON `{ bytes_b64 }`. OWNER only.
     DbPutBlobLocal,
-    /// `POST /api/sharing/deliver` — stage a consent-gated snapshot delivery.
-    /// OWNER socket only; no network until approve.
-    DeliverStage,
-    /// `POST /api/sharing/recipient` — enroll a new address and return its signed announcement.
-    /// OWNER socket only; never claims an existing caller-selected UUID.
-    RecipientAddress,
     /// `POST /api/sharing/snapshot` — materialize + seal a query snapshot and
     /// return `snapshot_key = sha256(canonical_query || recipient)` + sealed
     /// blob (no messaging append; object-store publishers overwrite by key).
@@ -432,9 +360,6 @@ pub enum DataRoute {
     /// `GET /api/sharing/deliveries` — list staged deliveries awaiting approve.
     /// OWNER socket only.
     DeliverList,
-    /// `POST /api/sharing/deliveries/{id}/approve` — seal + send via Exemem.
-    /// OWNER socket only.
-    DeliverApprove,
     /// `POST /api/sharing/deliveries/{id}/reject` — discard staged delivery.
     /// OWNER socket only.
     DeliverReject,

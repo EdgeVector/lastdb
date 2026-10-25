@@ -213,17 +213,6 @@ impl AtomStore {
             .retain(|_, barrier| !mutation_uuids.contains(&barrier.mutation_uuid.as_str()));
     }
 
-    pub(crate) async fn winning_delete_barrier(
-        &self,
-        mk_key: &str,
-    ) -> Result<Option<crate::atom::delete_barrier::DeleteBarrier>, crate::schema::SchemaError>
-    {
-        Ok(self
-            .winning_delete_barriers(&[mk_key.to_owned()])
-            .await?
-            .remove(mk_key))
-    }
-
     /// Serialize source changes and reclaim checks for blob targets.
     pub(crate) async fn lock_liveness_blobs(
         &self,

@@ -128,22 +128,6 @@ impl AtomStore {
             .clone()
     }
 
-    /// Record the sync device id of this node, when a sync engine attaches.
-    /// The id goes through the same bound as the id of a peer, so a long or
-    /// odd id of this node becomes the same token on both sides of a compare.
-    /// An empty id stays empty: the node then writes tips with no device.
-    pub(crate) fn set_local_origin_device(&self, device_id: &str) {
-        let bounded = if device_id.is_empty() {
-            String::new()
-        } else {
-            crate::atom::bounded_origin_device(device_id).into_owned()
-        };
-        *self
-            .local_origin_device
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = bounded;
-    }
-
     /// The number of record calls that wrote conflict rows so far. Read it
     /// before a scan of the conflict rows, and give it to
     /// `stamp_conflict_index` after the scan.

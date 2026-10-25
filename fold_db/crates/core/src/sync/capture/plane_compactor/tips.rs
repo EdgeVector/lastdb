@@ -254,7 +254,7 @@ impl PlaneCompactor {
     }
 
     /// Shared body of every churn-plane size probe. See
-    /// [`SyncEngine::bloated_capture_reexport_bytes`] for the contract; the
+    /// the retired engine for the contract; the
     /// only per-plane state is the four atomics in [`ChurnPlaneTrigger`].
     ///
     /// Used only by the marker-queue plane (`sync_capture_reexport`), which

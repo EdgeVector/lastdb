@@ -52,8 +52,8 @@ impl PlaneCompactor {
     ///
     /// # Where this is called from
     ///
-    /// Called from [`SyncEngine::do_sync`] on every cycle, not only from
-    /// [`SyncEngine::run_capture_tick`]. That tick is gated behind
+    /// Called from the retired engine on every cycle, not only from
+    /// the retired engine. That tick is gated behind
     /// `config.legacy_personal_cloud_sync`, which is **false** on a LastStore
     /// backup home — the shape every current node runs. Measured on the primary
     /// 2026-08-17 after this reclaim shipped and installed: 180 log lines of

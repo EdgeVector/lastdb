@@ -1,6 +1,6 @@
 //! Replay exact durable terminal authority before any credential or cloud request.
 use super::*;
-use crate::native_cloud_backup::InvocationOutcome;
+use crate::backup_runtime::InvocationOutcome;
 use std::fs::File;
 use std::sync::Arc;
 

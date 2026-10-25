@@ -3,7 +3,7 @@
 use super::*;
 
 /// The Exemem environment this home is connected to, from the `api_url`
-/// that `lastdb connect --env <e>` persisted in `cloud_sync.json` (or the
+/// that explicit backup enrollment saved in the credential file (or the
 /// paused copy). `None` when the home has no cloud connection or points at
 /// a custom URL.
 pub fn home_cloud_environment(home: &Path) -> Option<folddb_profile::endpoints::Environment> {
@@ -50,16 +50,6 @@ pub fn pin_schema_service_environment_from_home(home: &Path) {
             "schema service environment follows the home cloud environment"
         );
     }
-}
-
-/// Persist the L2 cloud-sync intent: `<home>/cloud_sync.json`, owner-only.
-///
-/// Written with explicit `json!` (not `CloudSyncConfig` serialization —
-/// its `api_key` field is `skip_serializing`, by design for the full node's
-/// node_config.json; here the file IS the per-device credential store, the
-/// minimal daemon's analogue of `credentials.json`).
-pub fn write_cloud_sync_config(home: &Path, api_url: &str, api_key: &str) -> Result<(), String> {
-    write_cloud_sync_config_at(home, api_url, api_key, CLOUD_SYNC_CONFIG_FILE)
 }
 
 pub(super) fn write_cloud_sync_config_at(

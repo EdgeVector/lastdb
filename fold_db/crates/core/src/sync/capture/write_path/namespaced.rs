@@ -23,15 +23,7 @@ impl NamespacedStore for MutationLogCaptureNamespacedStore {
     }
 
     async fn open_namespace(&self, name: &str) -> StorageResult<Arc<dyn KvStore>> {
-        let inner = self.inner.open_namespace(name).await?;
-        if policy::capture_should_skip_namespace(name) {
-            return Ok(inner);
-        }
-        Ok(Arc::new(MutationLogCaptureKvStore {
-            inner,
-            router: Arc::clone(&self.router),
-            namespace: name.to_string(),
-        }))
+        self.inner.open_namespace(name).await
     }
 
     async fn list_namespaces(&self) -> StorageResult<Vec<String>> {

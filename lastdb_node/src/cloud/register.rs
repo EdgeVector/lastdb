@@ -33,16 +33,6 @@ pub struct Registered {
     pub user_hash: String,
 }
 
-/// The public result of the explicit copied-identity DEV registration path.
-///
-/// This type deliberately contains no credential material. The CLI can report
-/// the destination and account identity without gaining access to the minted
-/// API key or session token.
-pub struct ExistingIdentityDevConnectReport {
-    pub api_url: String,
-    pub user_hash: String,
-}
-
 /// An owned register request. Do not derive `Debug`: the JSON body contains
 /// the one-use invite supplied on stdin.
 pub(super) struct SignedRegisterRequest {

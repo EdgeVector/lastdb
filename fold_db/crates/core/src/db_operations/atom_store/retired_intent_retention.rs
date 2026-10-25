@@ -7,21 +7,13 @@ use crate::sync::log::MutationEnvelope;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
-use tokio::sync::{OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
+use tokio::sync::OwnedRwLockReadGuard;
 
 mod dependencies;
 mod storage;
 
 /// This namespace uses the normal encryption wrapper and default backup role.
 pub(crate) const RETIRED_INTENT_RETENTION_NAMESPACE: &str = "retired_intent_retention";
-
-/// Keep this guard through the outcome's durable write and exact readback.
-pub(crate) struct RetiredIntentRetentionGuard {
-    store: AtomStore,
-    _reclaim: OwnedRwLockWriteGuard<()>,
-    _blobs: Vec<OwnedMutexGuard<()>>,
-    attempted: bool,
-}
 
 /// Fixed proof facts only; identities and values stay inside the native caller.
 pub(crate) struct RetiredIntentRetentionProof {
@@ -75,24 +67,6 @@ impl AtomStore {
             .await
     }
 
-    /// Fence reclaim before materialization and signature preflight. No roots write.
-    pub(crate) async fn retired_intent_retention_guard(
-        &self,
-    ) -> Result<RetiredIntentRetentionGuard, SchemaError> {
-        if self.namespaced_store.is_none() {
-            return Err(refused("retired intent retention requires a native store"));
-        }
-        let reclaim = Arc::clone(&self.retired_intent_retention_gate)
-            .write_owned()
-            .await;
-        Ok(RetiredIntentRetentionGuard {
-            store: self.clone(),
-            _reclaim: reclaim,
-            _blobs: Vec::new(),
-            attempted: false,
-        })
-    }
-
     /// Verify exact durable roots and local dependencies; never write or heal.
     pub(crate) async fn verify_retired_intent_retention(
         &self,
@@ -119,32 +93,6 @@ impl AtomStore {
                 .sum(),
             blob_roots: roots.blobs.len() as u64,
         })
-    }
-}
-
-impl RetiredIntentRetentionGuard {
-    /// Call once after signature and aggregate preflight; hold through outcome readback.
-    /// File-pointer roots retain the local file bytes, not only their atom body.
-    pub(crate) async fn retain(
-        &mut self,
-        source_id: &str,
-        envelopes: &[MutationEnvelope],
-    ) -> Result<(), SchemaError> {
-        if self.attempted {
-            return Err(refused("retired intent retention attempt already started"));
-        }
-        self.attempted = true;
-        if !source_id_valid(source_id) || envelopes.is_empty() {
-            return Err(refused("retired intent retention source is invalid"));
-        }
-        let mut roots = dependency_roots(source_id, envelopes);
-        self.store
-            .add_referenced_atom_blobs(&mut roots, envelopes)
-            .await?;
-        let blob_ids: Vec<String> = roots.blobs.iter().cloned().collect();
-        self._blobs = self.store.lock_liveness_blobs(&blob_ids).await;
-        self.store.require_retired_blob_presence(&blob_ids).await?;
-        self.store.commit_retired_source_roots(&roots).await
     }
 }
 

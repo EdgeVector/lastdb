@@ -8,15 +8,11 @@
 //! documented single-key-root path in fold_db core.
 //!
 //! **Portable same-key (Tom 2026-07-18):** Mini personal-data at-rest always
-//! uses that E2E content key — never a per-install keyring store DEK. Cloud
-//! outer seal uses the same content key. Host always passes
+//! uses that E2E content key — never a per-install keyring store DEK. Host passes
 //! `at_rest_keyring: None` (`design-portable-same-key-at-rest-cloud`).
 //!
-//! Cloud sync ships in the binary but stays DORMANT until configured: when
-//! `<home>/cloud_sync.json` deserializes into a
-//! [`CloudSyncConfig`](fold_db::storage::config::CloudSyncConfig) the factory
-//! layers encrypted S3 sync on, exactly as the full node does; when the file
-//! is absent the daemon runs local-only and makes no outbound connections.
+//! Storage boot is local-only. Explicit byte backups read protected credentials
+//! separately; an old cloud configuration never attaches a background engine.
 
 use std::io::{self, IsTerminal};
 use std::os::unix::fs::OpenOptionsExt;
@@ -26,7 +22,7 @@ use std::sync::{Arc, OnceLock};
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
-use fold_db::storage::config::{CloudSyncConfig, DatabaseConfig, StorageEngine};
+use fold_db::storage::config::{DatabaseConfig, StorageEngine};
 
 /// File name of the identity seed under the node home (32 raw bytes, `0o600`).
 /// Canonical definition lives in `lastdb_identity`, the identity crate shared
@@ -34,33 +30,8 @@ use fold_db::storage::config::{CloudSyncConfig, DatabaseConfig, StorageEngine};
 /// SAME node home.
 pub use lastdb_identity::IDENTITY_KEY_FILE;
 
-/// File name of the opt-in cloud-sync configuration under the node home.
-/// Absent file → sync dormant, zero outbound network activity.
+/// Historical credential file name, also read by explicit backup enrollment.
 pub const CLOUD_SYNC_CONFIG_FILE: &str = "cloud_sync.json";
-
-/// Per-home opt-in for the owner route that arms org cloud heads.
-/// The personal cloud backup uses `cloud_sync.json` and does not depend on this file.
-pub const ORG_SYNC_REGISTRATION_POLICY_FILE: &str = "org_sync_registration.json";
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OrgSyncRegistrationPolicy {
-    allow_registration: bool,
-}
-
-/// Read the org registration policy on each request, so DEV can opt in without
-/// a daemon restart. Missing or invalid policy never grants registration.
-pub fn org_sync_registration_allowed(home: &Path) -> Result<bool, String> {
-    let path = home.join(ORG_SYNC_REGISTRATION_POLICY_FILE);
-    let raw = match std::fs::read(&path) {
-        Ok(raw) => raw,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(format!("cannot read {}: {e}", path.display())),
-    };
-    let policy: OrgSyncRegistrationPolicy =
-        serde_json::from_slice(&raw).map_err(|e| format!("invalid {}: {e}", path.display()))?;
-    Ok(policy.allow_registration)
-}
 
 /// The booted minimal host: the core database plus the node identity.
 pub struct Host {
@@ -76,7 +47,7 @@ pub struct Host {
     /// worst-offender ranking on `/api/status` and `lastdb ops`.
     pub request_telemetry: Arc<crate::request_telemetry::Runtime>,
     /// The live core database (query executor, mutation manager, schema
-    /// manager, native index; encrypted sync layered on when configured).
+    /// manager and native index).
     pub db: Arc<FoldDB>,
     /// QoS admission gate: bounds concurrent bulk-lane operations (large blob
     /// reads/writes, e.g. a lastgit pack clone+push loop) so they cannot starve
@@ -103,11 +74,7 @@ pub struct Host {
     /// threads while [`Self::qos`] still reports the node idle. Sized to half
     /// the worker pool by [`Host::attach_uds_workers`].
     pub watch_gate: Arc<crate::watch_gate::WatchGate>,
-    /// One owner resume job can run while the durable marker keeps cloud Off.
-    pub(crate) primary_resume_job_running: Arc<std::sync::atomic::AtomicBool>,
-    /// This host owns backup admission, worker completion and shutdown pause.
-    pub native_backup: Arc<crate::native_cloud_backup::BackupRuntime>,
-    /// Separately versioned manual byte backup admission and shutdown pause.
+    /// Explicit byte backup admission, worker completion and shutdown pause.
     pub byte_backup: Arc<crate::byte_cloud_backup::BackupRuntime>,
     /// This process's own boot identity (pid/build/start_ts/restart_cause),
     /// set once right after the session ledger records this session's start.
@@ -116,9 +83,6 @@ pub struct Host {
     /// append a newer row there
     /// (papercut-lastdb-primary-boot-identity-stale-phantom-pid-20260927).
     pub own_boot_identity: OnceLock<crate::session_ledger::SessionRecord>,
-    /// True when this boot built the local proof engine for a synthetic home
-    /// (see [`crate::proof_replay`]). Never true on a cloud or primary home.
-    pub proof_replay_engine: bool,
 }
 
 /// Derive the canonical user hash from a base64 Ed25519 public key. Canonical
@@ -257,21 +221,6 @@ pub fn mark_never_indexed(home: &Path) {
 #[cfg(not(target_os = "macos"))]
 pub fn mark_never_indexed(_home: &Path) {}
 
-/// Read the opt-in cloud-sync configuration, if present.
-fn load_cloud_sync(home: &Path) -> Result<Option<CloudSyncConfig>, String> {
-    load_cloud_sync_path(&home.join(CLOUD_SYNC_CONFIG_FILE))
-}
-
-fn load_cloud_sync_path(path: &Path) -> Result<Option<CloudSyncConfig>, String> {
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = std::fs::read(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
-    let config: CloudSyncConfig = serde_json::from_slice(&raw)
-        .map_err(|e| format!("{} is not a valid cloud-sync config: {e}", path.display()))?;
-    Ok(Some(config))
-}
-
 /// The layout descriptor LastStore writes into its root on first open.
 /// Present even for a restored-but-still-empty home, which is why it is checked
 /// before the collection walk.
@@ -396,18 +345,6 @@ fn write_codec_format_requirement(home: &Path) {
     }
 }
 
-/// Where the backup keep set is mirrored: the manifest a publish committed.
-///
-/// `lastdb cloud backup-gc` diffs the cloud listing against this file and
-/// refuses when it is absent, so every writer and reader must agree on one
-/// location. Callers used to spell the name inline in three places.
-pub fn backup_manifest_cache_path(home: &std::path::Path) -> PathBuf {
-    home.join(BACKUP_MANIFEST_CACHE_FILE)
-}
-
-/// File name of the keep set. See [`backup_manifest_cache_path`].
-pub const BACKUP_MANIFEST_CACHE_FILE: &str = "laststore_backup_manifest.json";
-
 /// Marker file indicating this home supports ENB and ENZ codec formats.
 pub const CODEC_FORMAT_REQUIREMENT_FILE: &str = "lastdb-codec-enb-enz-supported-v1";
 
@@ -436,31 +373,16 @@ impl Host {
 
         let (keypair, e2e_keys, _) = Self::load_boot_identity(home)?;
 
-        let cloud_sync = load_cloud_sync(home)?;
-        let sync_configured = cloud_sync.is_some();
-
         let db = Self::open_boot_db(
             home,
             &data_path,
             existing_store,
             &keypair,
             &e2e_keys,
-            cloud_sync,
             search_outbox_inbox,
         )
         .await?;
-        // No cloud config, yet an engine: only the local proof engine does that.
-        let proof_replay_engine = !sync_configured && db.sync_engine().is_some();
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
-        // Mirror the keep set wherever a cut publishes, not only on the
-        // operator snapshot route. `lastdb cloud backup-gc` refuses without
-        // this file, and the operator route can only write it if a caller runs
-        // that verb in the window right after a drain lands — a window nothing
-        // schedules and, on a home whose cut takes hours, one that was missed
-        // for weeks while the cloud namespace accumulated orphans.
-        if let Some(engine) = db.sync_engine() {
-            engine.set_backup_manifest_cache_path(backup_manifest_cache_path(home));
-        }
         clear_last_boot_error(home);
         write_codec_format_requirement(home);
         // Mini always boots with content-key at-rest (see module docs).
@@ -468,7 +390,7 @@ impl Host {
         tracing::info!(
             target: "lastdbd::boot",
             user_hash = %user_hash,
-            cloud_sync = sync_configured,
+            cloud_sync = false,
             at_rest_provider = %at_rest_provider,
             "minimal host booted"
         );
@@ -495,11 +417,8 @@ impl Host {
             ),
             change_feed_queue,
             watch_gate: crate::watch_gate::WatchGate::shared_from_env(),
-            primary_resume_job_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            native_backup: Arc::new(crate::native_cloud_backup::BackupRuntime::new()),
             byte_backup: Arc::new(crate::byte_cloud_backup::BackupRuntime::new()),
             own_boot_identity: OnceLock::new(),
-            proof_replay_engine,
         })
     }
 

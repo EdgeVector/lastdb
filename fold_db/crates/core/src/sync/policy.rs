@@ -2,7 +2,7 @@
 
 /// Node-local or derived namespaces omitted from logical capture and snapshots.
 /// Reference directories are deliberately absent: current backups retain them.
-pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
+pub const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
     "lineage_forward",
     "lineage_reverse",
     "attribution_ledger",
@@ -20,17 +20,17 @@ pub(crate) const CAPTURE_SKIP_NAMESPACES: &[&str] = &[
 /// contract. Atoms and proteins are primary values. The one exception is the
 /// atom counter record (`atom:{uuid}\0c`), which `capture_should_skip_key`
 /// skips by its tag, because the planner rebuilds it on every node.
-pub(crate) const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
+pub const CAPTURE_SKIP_MAIN_KEY_PREFIXES: &[&str] = &[
     "mref:v1:", "bref:v3:", "mk:", "rdel:v2:", "mgp:v1:", "mgr:v1:", "mgd:v1:", "mh:", "crq:",
     "crb:", "crs:",
 ];
 
 /// Physical collections whose current keys are omitted from mutation capture.
 /// Full backups retain every current reference directory and completeness key.
-pub(crate) const CAPTURE_SKIP_BY_KEY_PREFIX_PLANES: &[(&str, &str)] =
+pub const CAPTURE_SKIP_BY_KEY_PREFIX_PLANES: &[(&str, &str)] =
     &[("molecule_ref_edges", "mref:v1:")];
 
-pub(crate) fn compaction_is_capture_free(collection: &str) -> bool {
+pub fn compaction_is_capture_free(collection: &str) -> bool {
     capture_should_skip_namespace(collection)
         || CAPTURE_SKIP_BY_KEY_PREFIX_PLANES
             .iter()
@@ -40,13 +40,13 @@ pub(crate) fn compaction_is_capture_free(collection: &str) -> bool {
 }
 
 /// These current collections suppress logical capture during physical rewrite.
-pub(crate) const CAPTURE_NEUTRAL_BY_SUPPRESSION: &[&str] = &["tips", "atoms"];
+pub const CAPTURE_NEUTRAL_BY_SUPPRESSION: &[&str] = &["tips", "atoms"];
 
-pub(crate) fn compaction_is_capture_neutral_by_suppression(collection: &str) -> bool {
+pub fn compaction_is_capture_neutral_by_suppression(collection: &str) -> bool {
     CAPTURE_NEUTRAL_BY_SUPPRESSION.contains(&collection)
 }
 
-pub(crate) const SYNC_INTERNAL_NAMESPACES: &[&str] = &[
+pub const SYNC_INTERNAL_NAMESPACES: &[&str] = &[
     "sync_outbox",
     "sync_capture",
     "sync_capture_reexport",
@@ -61,29 +61,25 @@ pub(crate) const SYNC_INTERNAL_NAMESPACES: &[&str] = &[
     "__at_rest_strict_markers",
 ];
 
-pub(crate) fn is_capture_skip(name: &str) -> bool {
+pub fn is_capture_skip(name: &str) -> bool {
     CAPTURE_SKIP_NAMESPACES.contains(&name)
 }
 
-pub(crate) fn is_sync_internal(name: &str) -> bool {
+pub fn is_sync_internal(name: &str) -> bool {
     SYNC_INTERNAL_NAMESPACES.contains(&name)
 }
 
-pub(crate) fn is_catalog_namespace(name: &str) -> bool {
-    crate::storage::LASTSTORE_PLAINTEXT_NAMESPACES.contains(&name)
-}
-
 /// Membership and schema authority need complete bodies after the snapshot.
-pub(crate) fn leftover_capture_is_applyable(namespace: &str, key: &[u8]) -> bool {
+pub fn leftover_capture_is_applyable(namespace: &str, key: &[u8]) -> bool {
     namespace == "db_catalog"
         || crate::db_operations::schema_store::SchemaStore::is_replay_authority_key(namespace, key)
 }
 
-pub(crate) fn capture_should_skip_namespace(name: &str) -> bool {
+pub fn capture_should_skip_namespace(name: &str) -> bool {
     is_capture_skip(name) || is_sync_internal(name)
 }
 
-pub(crate) fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
+pub fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
     if namespace == "main"
         && key == crate::storage::disk_pack::restore_safety::PENDING_KEY.as_bytes()
     {
@@ -123,6 +119,6 @@ fn namespace_is_physical_home_of_skipped_prefix(namespace: &str, prefix: &str) -
     }
 }
 
-pub(crate) fn snapshot_should_skip_namespace(name: &str) -> bool {
+pub fn snapshot_should_skip_namespace(name: &str) -> bool {
     capture_should_skip_namespace(name)
 }

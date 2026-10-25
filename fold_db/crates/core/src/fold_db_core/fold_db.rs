@@ -17,7 +17,6 @@ mod catalog_gc;
 mod catalog_membership;
 mod catalog_share;
 mod conflict_metadata;
-mod file_blobs;
 mod hashrange_key_repair;
 mod init;
 mod init_boot;
@@ -31,10 +30,7 @@ mod sync;
 
 pub use catalog_gc::CatalogDeleteReclaimResult;
 pub use catalog_share::DbSchemaShareResult;
-pub use file_blobs::{
-    PersonalFileBlobFork, PersonalFileBlobForkResult, PersonalFileBlobWrite,
-    PersonalFileBlobWriteResult,
-};
+
 pub use hashrange_key_repair::HashRangeKeyFieldRepairReport;
 pub use init::FoldDbInit;
 pub use local_file_blobs::LocalFileBlobPut;
@@ -67,7 +63,6 @@ pub struct FoldDB {
     /// stores even while Cloud Sync is off so live enable can start capture.
     mutation_log_capture: Option<Arc<crate::sync::capture::MutationLogCaptureRouter>>,
     /// Exclusive one-shot restore policy; never enabled by a serving factory.
-    preserve_retired_restore_intents: bool,
     /// Optional configuration store for runtime node config.
     /// Uses RwLock for interior mutability so FoldDB doesn't need &mut self.
     config_store: std::sync::RwLock<Option<crate::storage::NodeConfigStore>>,

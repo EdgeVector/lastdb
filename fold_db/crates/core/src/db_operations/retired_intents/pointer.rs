@@ -31,29 +31,6 @@ pub(super) async fn read_pointer(kv: &Arc<dyn KvStore>) -> Result<Option<String>
     Ok(Some(pointer.source_id))
 }
 
-pub(super) async fn commit_last_preserved(
-    store: &Arc<dyn NamespacedStore>,
-    kv: &Arc<dyn KvStore>,
-    source_id: &[u8],
-) -> Result<(), SchemaError> {
-    read_last_preserved_retired_source_id(store).await?;
-    let source_id = std::str::from_utf8(source_id)
-        .map_err(|_| refused("retired pointer identity is invalid"))?
-        .to_string();
-    if !exact_id(&source_id) {
-        return Err(refused("retired pointer identity is invalid"));
-    }
-    let value = serde_json::to_vec(&LastPreservedPointer {
-        version: 1,
-        source_id,
-    })
-    .map_err(|_| refused("retired pointer serialization failed"))?;
-    let items = [(POINTER_KEY.to_vec(), value)];
-    kv.batch_put(items.to_vec()).await.map_err(storage_error)?;
-    flush_keys(store, kv, RETIRED_INTENT_NAMESPACE, &items).await?;
-    verify_exact(kv, &items).await
-}
-
 /// Private ID for the native RAM-pipe reader, not public progress or logs.
 pub async fn read_last_preserved_retired_source_id(
     store: &Arc<dyn NamespacedStore>,

@@ -100,12 +100,6 @@ mach2 = "0.4"
 [[bin]]
 bench = false
 test = false
-name = "csync_e2e_write"
-path = "src/bin/csync_e2e_write.rs"
-
-[[bin]]
-bench = false
-test = false
 name = "received_range_seed"
 path = "src/bin/received_range_seed.rs"
 

@@ -1,7 +1,7 @@
 //! `lastdbd` — the LastDB Mini semantic daemon.
 //!
 //! Boots the core database (schema declare/query/mutate, app-identity
-//! surface, cloud sync when configured) and serves the owner Unix socket at
+//! surface, explicit byte backups) and serves the owner Unix socket at
 //! `<home>/data/folddb.sock` — the same socket, route allowlist, and wire
 //! shapes fbrain/fkanban already speak to the full desktop node. No desktop
 //! UI, no ingestion, no people-discovery: this crate has no `fold_db_node`
@@ -89,7 +89,6 @@ struct ShutdownInputs<'a> {
     full_accept: std::thread::JoinHandle<Result<(), String>>,
     sampler_task: tokio::task::JoinHandle<()>,
     home_fold_task: tokio::task::JoinHandle<()>,
-    native_backup_task: tokio::task::JoinHandle<()>,
 }
 
 /// The accept loop returned (a graceful SIGTERM/SIGINT shutdown): stop the
@@ -110,7 +109,6 @@ fn drain_and_prove_shutdown(
         full_accept,
         sampler_task,
         home_fold_task,
-        native_backup_task,
     } = inputs;
     let mut shutdown_errors = Vec::new();
     if let Err(error) = accept_result {
@@ -118,7 +116,6 @@ fn drain_and_prove_shutdown(
     }
 
     shutdown::record_shutdown_intent(session_ledger.is_some(), home, pid, &mut shutdown_errors);
-    host.native_backup.begin_shutdown();
     host.byte_backup.begin_shutdown();
     host.db.request_background_stop();
 
@@ -130,13 +127,7 @@ fn drain_and_prove_shutdown(
     if let Err(error) = worker_pool.close_and_drain(shutdown::shutdown_handler_drain_timeout()) {
         shutdown_errors.push(format!("request handlers did not drain: {error}"));
     }
-    if let Err(error) = shutdown::drain_background(
-        runtime,
-        host,
-        sampler_task,
-        home_fold_task,
-        native_backup_task,
-    ) {
+    if let Err(error) = shutdown::drain_background(runtime, host, sampler_task, home_fold_task) {
         shutdown_errors.push(error);
     }
 
@@ -257,8 +248,7 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
     let full_socket =
         UdsSocket::bind_at(full_socket_path.unwrap_or_else(|| data_dir.join("folddb-full.sock")))
             .map_err(|e| note_fatal(format!("failed to bind full-surface socket: {e}")))?;
-    let (sampler_task, home_fold_task, native_backup_task) =
-        background::spawn(&runtime, &host, &shutdown_flag);
+    let (sampler_task, home_fold_task) = background::spawn(&runtime, &host, &shutdown_flag);
 
     let full_accept = spawn_full_surface_accept(&server, full_socket, owner_uid, &shutdown_flag);
 
@@ -276,7 +266,6 @@ fn serve_node(run: NodeRun) -> Result<(), String> {
             full_accept,
             sampler_task,
             home_fold_task,
-            native_backup_task,
         },
         accept_result,
     );

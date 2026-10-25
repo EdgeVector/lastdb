@@ -1,5 +1,9 @@
 # Automatic native cloud backup V1
 
+This design is historical. The V1 client commands and automatic controller are retired.
+Use the explicit V2 backup commands in [the byte transport design](cloud-byte-transport-v2.md).
+Existing records and physical source holds remain unchanged.
+
 Status: implementation candidate. The source includes accepted main `228deab29918824e303a0ade419271379744cbb2`.
 Automatic backup still needs exact-source CI and normal DEV checks before completion.
 The approved manual DEV path completes two accepted backups and two offline restores.

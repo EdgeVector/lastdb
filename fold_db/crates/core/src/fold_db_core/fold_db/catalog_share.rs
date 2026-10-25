@@ -58,7 +58,7 @@ impl FoldDB {
         target_domain_wrap_key: &[u8; 32],
     ) -> FoldDbResult<DbSchemaShareResult> {
         let ShareTarget {
-            source_parsed,
+            source_parsed: _source_parsed,
             source_canonical,
             target_canonical,
             target_entry,
@@ -94,18 +94,8 @@ impl FoldDB {
             .grant_schema_domain(&schema, target_access_domain, target_domain_wrap_key)
             .await?;
 
-        let republished_rows = if source_parsed == DbLocator::Personal {
-            self.attach_shared_instance_to_org_targets(
-                &target_canonical,
-                schema_name,
-                target_entry.instance_id.as_deref(),
-            )
-            .await?;
-            self.republish_personal_schema_to_org_targets(schema_name)
-                .await?
-        } else {
-            0
-        };
+        // Cloud target republish is retired; local key grants and catalog binding remain.
+        let republished_rows = 0;
         self.db_ops()
             .atoms()
             .bind_catalog_molecules(

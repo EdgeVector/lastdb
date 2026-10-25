@@ -1,5 +1,5 @@
 //! Offline native inventory proof. No user query or native record rewrite occurs.
-use super::{RestoreError, RestoreSession, Result, VerifiedNativeContext};
+use super::{RestoreError, Result, VerifiedNativeContext};
 use cloud_backup_protocol::Digest;
 use fold_db::storage::disk_pack::{file_dependencies as directory, file_recovery};
 use lastdb_storage_policy::backup_decode::{
@@ -20,10 +20,6 @@ pub(super) fn admit_count(external_count: u64) -> Result<()> {
         return Err(RestoreError::Limit("file coverage identity memory"));
     }
     Ok(())
-}
-
-pub(super) fn verify(session: &RestoreSession, key: &[u8; 32], external_count: u64) -> Result<u64> {
-    verify_context(&session.verified_context(), key, external_count)
 }
 
 pub(super) fn verify_context(
@@ -109,10 +105,6 @@ pub(super) fn verify_context(
         return Err(RestoreError::Invalid("exact external file coverage"));
     }
     Ok(atoms)
-}
-
-pub(super) fn verify_metadata(session: &RestoreSession, key: &[u8; 32]) -> Result<()> {
-    verify_metadata_context(&session.verified_context(), key)
 }
 
 pub(super) fn verify_metadata_context(

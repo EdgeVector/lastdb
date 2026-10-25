@@ -65,12 +65,6 @@ pub(super) async fn dispatch_maintenance_repair(
         DataRoute::DbPinLogAudit => {
             heap_route!(execute_db_pin_log_audit_route, req, ctx, host).await
         }
-        DataRoute::DbExportMutationLog => {
-            heap_route!(execute_db_export_mutation_log_route, req, ctx, host).await
-        }
-        DataRoute::DbReplayMutationLog => {
-            heap_route!(execute_db_replay_mutation_log_route, req, ctx, host).await
-        }
         DataRoute::DbMoleculeKeys => {
             heap_route!(execute_db_molecule_keys_route, req, ctx, host).await
         }
@@ -98,12 +92,6 @@ pub(super) async fn dispatch_blob_identity(
     Some(match route {
         DataRoute::DbFetchFileBlob => {
             heap_route!(execute_db_fetch_file_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbForkFileBlob => {
-            heap_route!(execute_db_fork_file_blob_route, req, ctx, host).await
-        }
-        DataRoute::DbPutFileBlob => {
-            heap_route!(execute_db_put_file_blob_route, req, ctx, host).await
         }
         DataRoute::DbPutBlobLocal => {
             heap_route!(execute_db_put_blob_local_route, req, ctx, host).await

@@ -71,13 +71,6 @@ pub(super) async fn execute_db_clear_history_route(
     }
 }
 
-/// Policy bit surfaced on every compact JSON report, including dry-run.
-/// True means `--execute` will pause Cloud Sync when it is on. Distinct from
-/// `paused`, which is what this invocation actually did.
-pub(super) fn compact_json_isolation_needed(collection: &str) -> bool {
-    fold_db::storage::laststore::compact_requires_cloud_isolation(collection)
-}
-
 /// `POST /api/db/compact` — compact one allowlisted LastStore collection,
 /// or every allowlisted collection when `all` is true / `collection` is omitted.
 /// The all-walk skips `COMPACT_NAMED_ONLY` planes (`cas_blobs`); name one to run it.
@@ -87,9 +80,7 @@ pub(super) fn compact_json_isolation_needed(collection: &str) -> bool {
 /// { "collection": "schemas", "dry_run": true }
 /// { "all": true, "dry_run": true }
 /// ```
-/// Defaults: dry_run=true. Atom execute records the retired chunk shas so the
-/// next manifest cut can cover the keep-set shrink with a signed receipt.
-/// Execute skips while a backup cut is held (photograph packing lock).
+/// Defaults: dry_run=true. Native storage retains its normal compaction guards.
 pub(super) async fn execute_db_compact_route(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -285,48 +276,23 @@ pub(super) async fn execute_db_compact_walk(
     walk_all: bool,
     dry_run: bool,
 ) -> UdsResponse {
-    // Captured user-state planes rewrite live rows. If Cloud Sync is on,
-    // pause it once for the whole walk and restore afterwards. Dry-run and
-    // capture-free-only walks never touch cloud. A crash mid-compact leaves
-    // sync paused (safer than capturing the rewrite).
-    let isolation_needed = collections
-        .iter()
-        .any(|collection| compact_json_isolation_needed(collection));
-    let isolate = !dry_run && isolation_needed;
-    let file_state_before = crate::cloud::cloud_sync_file_state(&host.home);
-    let mut cloud_paused = false;
-    if isolate && file_state_before == "on" {
-        if let Err(e) = pause_cloud_for_compact(host).await {
-            return error_response(500, &e, ctx);
-        }
-        cloud_paused = true;
-    }
-
-    // Cloud Off retires the backup target and takes this same packing lock.
-    // Keep pause/resume outside the lock; protect the entire physical walk so
-    // no new cut can start between collections. Recheck after the pause to
-    // cover a target acquired since the route's early refusal check.
+    // Local compaction never changes protected cloud credentials or resumes an engine.
     let compact = || compact_collections(host, &collections, dry_run);
     let result = if dry_run {
         Some(compact().await)
     } else {
         host.db.run_unless_backup_publish_target_held(compact).await
     };
-
-    let (cloud_restored, cloud_restore_error) = if cloud_paused {
-        restore_cloud_after_compact(host).await
-    } else {
-        (false, None)
-    };
-
+    let file_state = crate::cloud::cloud_sync_file_state(&host.home);
     let cloud = serde_json::json!({
-        "isolation_needed": isolation_needed,
-        "was_enabled": file_state_before == "on",
-        "paused": cloud_paused,
-        "restored": cloud_restored,
-        "file_state_before": file_state_before,
-        "file_state_after": crate::cloud::cloud_sync_file_state(&host.home),
-        "restore_error": cloud_restore_error,
+        "isolation_needed": false,
+        "was_enabled": false,
+        "paused": false,
+        "restored": false,
+        "file_state_before": file_state,
+        "file_state_after": file_state,
+        "restore_error": null,
+        "legacy_cloud_retired": true,
     });
 
     let Some((mut reports, first_error)) = result else {
@@ -364,20 +330,6 @@ pub(super) async fn execute_db_compact_walk(
     ))
 }
 
-/// Pause Cloud Sync for a compact walk. The live engine pause is best effort;
-/// the durable file pause must succeed.
-async fn pause_cloud_for_compact(host: &Host) -> Result<(), String> {
-    if let Err(e) = host.db.set_cloud_sync_disabled_live(true).await {
-        tracing::warn!(
-            error = %e,
-            "compact: live engine pause failed; continuing with durable file pause"
-        );
-    }
-    crate::cloud::pause_cloud_sync_file(&host.home)
-        .map(|_| ())
-        .map_err(|e| format!("compact: cloud pause failed: {e}"))
-}
-
 /// Compact each collection in order. Stops at the first failure and returns
 /// the reports gathered so far with that error.
 async fn compact_collections(
@@ -397,30 +349,3 @@ async fn compact_collections(
     }
     (reports, None)
 }
-
-/// Resume Cloud Sync after a compact walk. Returns whether the file state was
-/// restored and, when anything stayed degraded, the operator-facing reason.
-async fn restore_cloud_after_compact(host: &Host) -> (bool, Option<String>) {
-    if let Err(error) = host.db.require_cloud_sync_supported() {
-        return (false, Some(error));
-    }
-    match crate::cloud::resume_cloud_sync_file(&host.home) {
-        Ok(_) => match host.db.reenable_cloud_sync_live().await {
-            Ok(_) => (true, None),
-            Err(e) => (
-                true,
-                Some(format!(
-                    "file restored but live engine not re-enabled ({e}); \
-                     restart lastdbd or run `lastdb cloud on`"
-                )),
-            ),
-        },
-        Err(e) => (
-            false,
-            Some(format!(
-                "cloud left paused ({e}). Run `lastdb cloud on` to restore."
-            )),
-        ),
-    }
-}
-// lint:file-size-ok moved verbatim from exec.rs; cohesive unit, split further in a later pass

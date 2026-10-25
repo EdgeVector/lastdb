@@ -2,9 +2,10 @@ use super::*;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct StageBody {
-    pub(super) recipient_pubkey: String,
-    #[serde(default)]
-    pub(super) recipient_display_name: Option<String>,
+    #[serde(rename = "recipient_pubkey")]
+    pub(super) _recipient_pubkey: String,
+    #[serde(default, rename = "recipient_display_name")]
+    pub(super) _recipient_display_name: Option<String>,
     /// X25519 messaging public key (base64). Required for Mini approve-send.
     pub(super) messaging_public_key: String,
     /// Messaging pseudonym UUID. Required for Mini approve-send.

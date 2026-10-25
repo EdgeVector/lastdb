@@ -52,31 +52,19 @@ impl Host {
         Ok((keypair, e2e_keys, freshly_generated))
     }
 
-    /// Open native local storage. The factory refuses configured cloud sync.
+    /// Open native local storage without a legacy cloud or replay engine.
     pub(super) async fn open_boot_db(
         home: &Path,
         data_path: &Path,
         existing_store: bool,
         keypair: &Arc<Ed25519KeyPair>,
         e2e_keys: &E2eKeys,
-        cloud_sync: Option<CloudSyncConfig>,
         search_outbox_inbox: PathBuf,
     ) -> Result<Arc<FoldDB>, String> {
-        // The disabled local proof route refuses before database construction.
-        if cloud_sync.is_none() && crate::proof_replay::boot_engine_requested(home) {
-            return Self::open_proof_boot_db(
-                home,
-                data_path,
-                existing_store,
-                keypair,
-                e2e_keys,
-                search_outbox_inbox,
-            );
-        }
         let config = DatabaseConfig {
             path: data_path.to_path_buf(),
             engine: StorageEngine::Laststore,
-            cloud_sync,
+            cloud_sync: None,
         };
         fold_db::fold_db_core::factory::create_fold_db_with_options(
             &config,
@@ -89,32 +77,6 @@ impl Host {
             },
         )
         .await
-        .map_err(|e| map_and_record_boot_error(home, existing_store, e))
-    }
-
-    /// Refuse the disabled local proof engine after the proof guard.
-    pub(super) fn open_proof_boot_db(
-        home: &Path,
-        data_path: &Path,
-        existing_store: bool,
-        keypair: &Arc<Ed25519KeyPair>,
-        e2e_keys: &E2eKeys,
-        search_outbox_inbox: PathBuf,
-    ) -> Result<Arc<FoldDB>, String> {
-        let storage_engine = StorageEngine::from_env()
-            .map_err(|e| map_and_record_boot_error(home, existing_store, e))?
-            .unwrap_or(StorageEngine::Laststore);
-        let config = DatabaseConfig {
-            path: data_path.to_path_buf(),
-            engine: storage_engine,
-            cloud_sync: None,
-        };
-        fold_db::fold_db_core::factory::create_fold_db_with_local_proof_engine(
-            &config,
-            e2e_keys,
-            Arc::clone(keypair),
-            Some(search_outbox_inbox),
-        )
         .map_err(|e| map_and_record_boot_error(home, existing_store, e))
     }
 }

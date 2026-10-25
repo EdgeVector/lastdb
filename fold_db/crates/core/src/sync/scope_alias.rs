@@ -149,7 +149,7 @@ pub async fn rebind_entry(
     }
 }
 
-pub(crate) async fn wire_entry(
+pub async fn wire_entry(
     store: &dyn NamespacedStore,
     target: &str,
     entry: &mut LogEntry,

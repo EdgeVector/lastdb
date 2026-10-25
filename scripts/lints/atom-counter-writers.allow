@@ -117,7 +117,6 @@ fold_db/crates/core/src/sync/engine/transfer/s3_io/cursor.rs|save_download_curso
 
 fold_db/crates/core/src/sync/snapshot/restore_scan.rs|restore_namespace|T C B N|snapshot restore replaces a namespace row by row
 
-lastdb_node/src/bin/csync_e2e_write.rs|main|T B|cloud sync end-to-end proof tool; it opens an exclusive synthetic home
 lastdb_node/src/bin/received_range_seed.rs|activate_generated_receivers|-|CI-only generated share_subscriptions controls in an isolated owned home; mutation manager owns all tip, atom, and counter writes
 
 lastdb_node/src/bin/lastdb_storage_recovery_rollback_proof.rs|scenario_basic_write_read|-|storage recovery proof tool; it writes its own test keys to a store it creates
