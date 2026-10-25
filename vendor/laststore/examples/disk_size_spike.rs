@@ -539,7 +539,8 @@ fn build_stream(options: &StreamOptions) -> Stream {
     let mut content_atoms: Vec<[u8; 32]> = Vec::new();
     for (schema, shape) in SHAPES.iter().enumerate() {
         let base = molecule_base;
-        molecule_base += shape.fields * 2;
+        // Up to three tips per atom, each in its own molecule, so no key repeats.
+        molecule_base += shape.fields * 3;
         if options.proteins && shape.replaced_by_protein {
             continue;
         }
@@ -588,7 +589,7 @@ fn build_stream(options: &StreamOptions) -> Stream {
                     Range::Slug => Some(format!("reference#{}", slugs[record % slugs.len()])),
                 };
                 items.push(Item::Tip {
-                    molecule: base + field * 2 + t as u32 % 2,
+                    molecule: base + field * 3 + t as u32,
                     hash,
                     range,
                     atom: id,
@@ -1426,6 +1427,12 @@ fn main() -> Result<()> {
         proteins.atoms,
         proteins.logical_atom_bytes as f64 / MIB,
     );
+    let replaced: Vec<&str> = SHAPES
+        .iter()
+        .filter(|shape| shape.replaced_by_protein)
+        .map(|shape| shape.name)
+        .collect();
+    println!("protein members replace: {}", replaced.join(", "));
     let mut rows = Vec::new();
     let v1 = [
         (
