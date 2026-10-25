@@ -40,19 +40,21 @@ impl TreeCursor {
             .as_ref()
             .map_or(0, |key| key.capacity() as u64);
         let mut keys = Vec::new();
-        for bound in [&self.lower, &self.upper].into_iter().chain(
-            self.branches
-                .iter()
-                .flat_map(|branch| [&branch.lower, &branch.upper]),
-        ) {
-            if let Some(key) = bound {
-                let identity = Arc::as_ptr(key);
-                if !keys.contains(&identity) {
-                    keys.push(identity);
-                    bytes = bytes
-                        .checked_add(key.capacity() as u64)
-                        .ok_or_else(super::resource)?;
-                }
+        for key in [&self.lower, &self.upper]
+            .into_iter()
+            .chain(
+                self.branches
+                    .iter()
+                    .flat_map(|branch| [&branch.lower, &branch.upper]),
+            )
+            .flatten()
+        {
+            let identity = Arc::as_ptr(key);
+            if !keys.contains(&identity) {
+                keys.push(identity);
+                bytes = bytes
+                    .checked_add(key.capacity() as u64)
+                    .ok_or_else(super::resource)?;
             }
         }
         let mut pages = Vec::new();

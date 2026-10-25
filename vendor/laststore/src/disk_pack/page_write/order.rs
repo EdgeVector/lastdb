@@ -70,7 +70,7 @@ impl PageWriter {
             return Err(corrupt("private key overflow address"));
         }
         let wanted = number / PAGES_PER_PART;
-        if part.as_ref().is_none_or(|(index, _)| *index != wanted) {
+        if part.as_ref().map_or(true, |(index, _)| *index != wanted) {
             let path = self.directory.join(format!("part-{wanted:08x}"));
             let file = File::open(path)?;
             let pages = (self.next - wanted * PAGES_PER_PART).min(PAGES_PER_PART);
