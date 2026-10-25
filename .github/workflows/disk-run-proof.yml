@@ -17,6 +17,7 @@ on:
       - 'fold_db/crates/core/src/storage/disk_pack/**'
       - 'fold_db/crates/core/examples/disk_v2_node_proof.rs'
       - 'fold_db/crates/core/examples/disk_v2_convert_proof.rs'
+      - 'fold_db/crates/core/examples/disk_v2_convert_proof/**'
       - '.github/workflows/disk-run-proof.yml'
   workflow_dispatch:
 
