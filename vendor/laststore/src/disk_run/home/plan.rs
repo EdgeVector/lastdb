@@ -15,11 +15,19 @@
 //!   runs stay until the last step.
 //!
 //! The bound, in record bytes (keys and values before compression), with L
-//! the live bytes: outside a base merge the stale bytes are at most a
-//! quarter of the total, so the home holds at most 4/3 L. A base merge adds
-//! at most its merging runs (1/8 of the total when it starts) and two base
-//! runs of 1/64 of the base each, so the peak is about 1.5 L. Each trigger
+//! the live bytes: outside a base merge the stale bytes are at most an
+//! eighth of the total, so the home holds at most 8/7 L. A base merge adds
+//! at most its merging runs (1/16 of the total when it starts) and two base
+//! runs of 1/64 of the base each, so the peak is about 1.25 L. Each trigger
 //! needs [`MIN_BASE_MERGE_BYTES`], so a small home can hold that much more.
+//!
+//! The shares serve the 2x limit of a node over its logical atom bytes, not
+//! only over the live bytes of its home: with small atoms a node's
+//! compressed records take about 1.45 bytes per logical atom byte (the disk
+//! v2 node proof), which leaves the merges about 0.38 L. With a quarter and
+//! an eighth that proof peaked at 2.03x to 2.12x of the atom bytes during
+//! writes. Base merges now start about twice as often, and each one
+//! rewrites the base.
 //!
 //! The stale bytes are counted, not estimated, so the bound holds for any
 //! value sizes. Each tiered run knows the record bytes of the older versions
@@ -37,18 +45,20 @@ use std::ops::Bound;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// A base merge starts when the tiered runs hold more than 1/8 of the
+/// A base merge starts when the tiered runs hold more than 1/16 of the
 /// record bytes.
-pub const TIER_SHARE: u64 = 8;
-/// A base merge starts when the stale bytes are more than 1/4 of the record
+pub const TIER_SHARE: u64 = 16;
+/// A base merge starts when the stale bytes are more than 1/8 of the record
 /// bytes.
-pub const STALE_SHARE: u64 = 4;
+pub const STALE_SHARE: u64 = 8;
 /// Neither trigger fires below this many bytes.
 pub const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
 /// A base run holds about 1/64 of the base, inside the bounds below. With
-/// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB.
+/// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB. The
+/// minimum keeps the two base runs of a step near 1/32 of a base of 16 MiB
+/// or more; at 1 MiB they were about 1/12 of a 24 MiB base.
 const BASE_PIECES: u64 = 64;
-const MIN_PIECE_BYTES: u64 = 1 << 20;
+const MIN_PIECE_BYTES: u64 = 256 << 10;
 const MAX_PIECE_BYTES: u64 = 1 << 30;
 /// Keys of one batch lookup when a run's hidden bytes are counted.
 const COUNT_KEYS: usize = 4096;
