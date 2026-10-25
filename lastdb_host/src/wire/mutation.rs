@@ -19,9 +19,8 @@ use super::{first_missing_key, MUTATION_REQUIRED_KEYS};
 /// # Errors
 /// Returns the existing typed rejection for an invalid mutation body.
 pub fn parse_mutation_body(body: &[u8]) -> Result<MutationComponents, Reject> {
-    let mut obj = match serde_json::from_slice::<Value>(body) {
-        Ok(Value::Object(obj)) => obj,
-        Ok(_) | Err(_) => return Err(Reject::malformed_body()),
+    let Ok(Value::Object(mut obj)) = serde_json::from_slice::<Value>(body) else {
+        return Err(Reject::malformed_body());
     };
     if let Some(key) = first_missing_key(&obj, MUTATION_REQUIRED_KEYS) {
         return Err(Reject::missing(key));
