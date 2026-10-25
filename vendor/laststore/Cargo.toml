@@ -41,6 +41,14 @@ test = false
 name = "extended_keys_proof"
 path = "examples/extended_keys_proof.rs"
 
+# Design spike for docs/design-lastdb-disk-size-20261024. CI only; it measures
+# bytes on disk for a synthetic brain-shaped seed. It is not a test.
+[[example]]
+bench = false
+test = false
+name = "disk_size_spike"
+path = "examples/disk_size_spike.rs"
+
 [[bin]]
 bench = false
 test = false

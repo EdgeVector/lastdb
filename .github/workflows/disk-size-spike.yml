@@ -1,0 +1,68 @@
+name: Disk size spike
+
+# Design spike for the 2x disk size goal (spike/disk-size-2x). It writes a
+# synthetic brain-shaped seed in the v1 native format and in v2 candidates,
+# reads each one back, and reports bytes on disk. It opens no user data.
+on:
+  pull_request:
+    paths:
+      - 'vendor/laststore/examples/disk_size_spike.rs'
+      - 'vendor/laststore/Cargo.toml'
+      - '.github/workflows/disk-size-spike.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: disk-size-spike-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  disk-size-spike:
+    name: Disk size spike
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select Rust toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: disk-size-spike
+      - name: Run the spike
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h "$RUNNER_TEMP"
+          cargo run --locked --release -p laststore --example disk_size_spike \
+            | tee "$RUNNER_TEMP/disk-size-spike.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/disk-size-spike-source.txt"
+          sha256sum "$RUNNER_TEMP/disk-size-spike.txt" > "$RUNNER_TEMP/disk-size-spike.sha256"
+          {
+            echo '### Disk size spike'
+            echo "Source: $(git rev-parse HEAD)"
+            echo
+            grep -E '^(seed:|\||Average|Primary)' "$RUNNER_TEMP/disk-size-spike.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        id: spike
+        with:
+          name: disk-size-spike-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/disk-size-spike.txt
+            ${{ runner.temp }}/disk-size-spike.sha256
+            ${{ runner.temp }}/disk-size-spike-source.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Record artifact location and retention
+        env:
+          ARTIFACT_URL: ${{ steps.spike.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.spike.outputs.artifact-digest }}
+        run: |
+          echo "Artifact: $ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Artifact SHA-256: $ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Retention: 14 days from upload.' >> "$GITHUB_STEP_SUMMARY"
