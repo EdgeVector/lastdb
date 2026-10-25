@@ -92,6 +92,26 @@ pub fn batch(n: u64, ops: usize) -> Vec<HomeMutation> {
     out
 }
 
+/// Batch `n` of the overwrite-heavy phase: every operation hits one of
+/// 20,000 tip keys, so most writes replace a value or delete it (10%).
+pub fn overwrite_batch(n: u64, ops: usize) -> Vec<HomeMutation> {
+    let mut rng = Rng::new(n ^ 0x5eed_0f0f);
+    (0..ops)
+        .map(|_| {
+            let key = tip_key(rng.below(5), rng.below(TIP_RANGES));
+            let body = match rng.below(10) {
+                0 => None,
+                _ => Some(value(&mut rng, n)),
+            };
+            HomeMutation {
+                collection: "tips".to_string(),
+                key,
+                body,
+            }
+        })
+        .collect()
+}
+
 /// Apply a batch to the model in order; a later operation wins.
 pub fn apply(model: &mut Model, operations: &[HomeMutation]) {
     for op in operations {

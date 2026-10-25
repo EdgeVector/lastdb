@@ -30,7 +30,7 @@ mod manifest;
 mod range;
 mod read;
 
-pub use commit::{RunCommit, RunMerge, MERGE_WIDTH};
+pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MERGE_WIDTH};
 pub use range::{RunHashRange, RunRangePage};
 pub use read::{RunRead, RunReadCosts};
 
@@ -72,40 +72,52 @@ pub struct RunHome {
     identity: Uuid,
     options: RunOptions,
     current: RwLock<Arc<Manifest>>,
+    /// Serializes commits from the run write to the publish, so commits
+    /// publish in call order.
+    commit: Mutex<()>,
     /// Serializes CURRENT publication.
     publish: Mutex<()>,
     /// Serializes merges, so a merge's inputs stay in CURRENT until it ends.
     merge: Mutex<()>,
     /// Set when a publish fails after its rename: the durable state is unknown.
     poisoned: AtomicBool,
-    _lock: File,
+    /// The owner lock. Each read holds a clone, so no other owner can open
+    /// the home and remove runs while a read still names them.
+    lock: Arc<File>,
 }
 
 impl RunHome {
     /// Create a new empty home in `root`, which must be absent or empty.
+    ///
+    /// The home is built in a hidden sibling directory and renamed into
+    /// place, so a crash leaves either no home or a complete one.
     pub fn create(root: &Path, key: &[u8; 32]) -> Result<Self> {
         if root.try_exists()? && fs::read_dir(root)?.next().is_some() {
             return Err(Error::Config(
                 "disk run home: create needs an absent or empty directory".into(),
             ));
         }
-        fs::create_dir_all(root.join(RUNS))?;
-        let identity = Uuid::new_v4();
-        let mut descriptor = [0u8; DESCRIPTOR_BYTES];
-        descriptor[..8].copy_from_slice(DESCRIPTOR_MAGIC);
-        descriptor[8..12].copy_from_slice(&1u32.to_le_bytes());
-        descriptor[16..32].copy_from_slice(identity.as_bytes());
-        let crc = crc32fast::hash(&descriptor[..60]);
-        descriptor[60..].copy_from_slice(&crc.to_le_bytes());
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(root.join(RUN_HOME_MARKER))?;
-        file.write_all(&descriptor)?;
-        sync_dirty_file(&file)?;
-        Manifest::empty(identity).publish(root, key)?;
-        sync_directory(&File::open(root.join(RUNS))?)?;
+        let name = root
+            .file_name()
+            .ok_or_else(|| Error::Config("disk run home: root has no name".into()))?;
+        let parent = match root.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        let staging = parent.join(format!(
+            ".{}.create-{}",
+            name.to_string_lossy(),
+            Uuid::new_v4()
+        ));
+        fs::create_dir(&staging)?;
+        let built = build_empty(&staging, key).and_then(|()| {
+            fs::rename(&staging, root)?;
+            sync_directory(&File::open(parent)?)
+        });
+        if let Err(error) = built {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
         Self::open(root, key)
     }
 
@@ -120,8 +132,15 @@ impl RunHome {
             .write(true)
             .mode(0o600)
             .open(root.join("LOCK"))?;
-        rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
-            .map_err(|_| Error::Config("disk run home: another owner holds the home".into()))?;
+        match rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => {}
+            Err(error) if error == rustix::io::Errno::WOULDBLOCK => {
+                return Err(Error::Config(
+                    "disk run home: another owner holds the home".into(),
+                ))
+            }
+            Err(error) => return Err(std::io::Error::from(error).into()),
+        }
         let manifest = Manifest::load(&root, key, identity)?;
         let runs = root.join(RUNS);
         remove_leftovers(&root, &runs, &manifest)?;
@@ -132,10 +151,11 @@ impl RunHome {
             identity,
             options: RunOptions::default(),
             current: RwLock::new(Arc::new(manifest)),
+            commit: Mutex::new(()),
             publish: Mutex::new(()),
             merge: Mutex::new(()),
             poisoned: AtomicBool::new(false),
-            _lock: lock,
+            lock: Arc::new(lock),
         })
     }
 
@@ -186,9 +206,11 @@ impl RunHome {
     }
 
     /// Publish `next` as CURRENT and make it the readable state.
-    /// The caller holds the publish lock.
+    /// The caller holds the publish lock. An error before the rename leaves
+    /// the old CURRENT in force; an error after it poisons the home.
     fn install(&self, next: Manifest) -> Result<Arc<Manifest>> {
-        if let Err(error) = next.publish(&self.root, &self.key) {
+        let staged = next.stage(&self.root, &self.key)?;
+        if let Err(error) = Manifest::replace(&self.root, &staged) {
             // The rename may or may not have happened: stop all writes.
             self.poisoned.store(true, Ordering::Release);
             return Err(error);
@@ -197,6 +219,28 @@ impl RunHome {
         *self.current.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&next);
         Ok(next)
     }
+}
+
+/// Write the descriptor and the first CURRENT of an empty home in `dir`.
+fn build_empty(dir: &Path, key: &[u8; 32]) -> Result<()> {
+    fs::create_dir(dir.join(RUNS))?;
+    let identity = Uuid::new_v4();
+    let mut descriptor = [0u8; DESCRIPTOR_BYTES];
+    descriptor[..8].copy_from_slice(DESCRIPTOR_MAGIC);
+    descriptor[8..12].copy_from_slice(&1u32.to_le_bytes());
+    descriptor[16..32].copy_from_slice(identity.as_bytes());
+    let crc = crc32fast::hash(&descriptor[..60]);
+    descriptor[60..].copy_from_slice(&crc.to_le_bytes());
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dir.join(RUN_HOME_MARKER))?;
+    file.write_all(&descriptor)?;
+    sync_dirty_file(&file)?;
+    let staged = Manifest::empty(identity).stage(dir, key)?;
+    Manifest::replace(dir, &staged)?;
+    sync_directory(&File::open(dir.join(RUNS))?)
 }
 
 fn read_descriptor(root: &Path) -> Result<Uuid> {

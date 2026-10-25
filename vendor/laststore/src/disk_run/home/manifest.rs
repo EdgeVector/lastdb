@@ -24,7 +24,7 @@ pub(super) const RUNS: &str = "runs";
 /// Most levels one CURRENT may name.
 pub(super) const MAX_LEVELS: usize = 32;
 /// Most runs one level may hold. Merges keep levels far below this.
-const MAX_LEVEL_RUNS: usize = 4096;
+pub(super) const MAX_LEVEL_RUNS: usize = 4096;
 /// Largest CURRENT file a reader accepts.
 const MAX_CURRENT_BYTES: usize = 64 * 1024 * 1024;
 
@@ -184,19 +184,27 @@ impl Manifest {
         })
     }
 
-    /// Write this manifest as CURRENT: a temporary file, a file sync, a
-    /// rename, then a directory sync.
+    /// Seal this manifest into a synced temporary file in `root`.
     ///
-    /// An error before the rename leaves the old CURRENT. An error after it
-    /// leaves the new state unknown; the caller must stop writing.
-    pub(super) fn publish(&self, root: &Path, key: &[u8; 32]) -> Result<()> {
+    /// It refuses a manifest that [`Manifest::load`] would refuse, so a
+    /// published CURRENT always opens. An error leaves the old CURRENT.
+    pub(super) fn stage(&self, root: &Path, key: &[u8; 32]) -> Result<PathBuf> {
+        let payload = self.encode();
+        if self.levels.len() > MAX_LEVELS
+            || self.levels.iter().any(|level| level.len() > MAX_LEVEL_RUNS)
+            || payload.len() > MAX_CURRENT_BYTES - min_encoded_len()
+        {
+            return Err(Error::WriteCapacity(
+                "disk run home: CURRENT would exceed its open limits; merge first".into(),
+            ));
+        }
         let header = FrameHeader {
             chunk_uuid: Uuid::new_v4(),
             shard: 0,
             start_csn: 0,
             counter: 0,
         };
-        let frame = encode_frame(key, header, &self.encode())?;
+        let frame = encode_frame(key, header, &payload)?;
         let tmp = root.join(format!(".{CURRENT}.{}.tmp", header.chunk_uuid));
         let mut file = OpenOptions::new()
             .write(true)
@@ -211,7 +219,13 @@ impl Manifest {
             let _ = fs::remove_file(&tmp);
             return Err(error);
         }
-        fs::rename(&tmp, root.join(CURRENT))?;
+        Ok(tmp)
+    }
+
+    /// Rename a staged CURRENT into place and sync the directory. After an
+    /// error here the durable CURRENT is unknown; the caller must stop.
+    pub(super) fn replace(root: &Path, staged: &Path) -> Result<()> {
+        fs::rename(staged, root.join(CURRENT))?;
         sync_directory(&File::open(root)?)
     }
 

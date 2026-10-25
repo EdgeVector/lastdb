@@ -1,7 +1,7 @@
 //! Commits (one level-0 run each) and level merges.
 
 use super::keys::run_key;
-use super::manifest::{RunFile, RunMeta, MAX_LEVELS};
+use super::manifest::{Manifest, RunFile, RunMeta, MAX_LEVELS};
 use super::RunHome;
 use crate::disk_pack::home::HomeMutation;
 use crate::disk_run::{merge_runs, RunReader, RunSummary, RunWriter};
@@ -12,6 +12,12 @@ use uuid::Uuid;
 
 /// A level with this many runs is merged into one run on the next level.
 pub const MERGE_WIDTH: usize = 8;
+
+/// A merge into the deepest level also rewrites that level's runs when they
+/// hold at most this many times the input bytes. The output then replaces
+/// the whole deepest level, so tombstones and old versions go away, and the
+/// write cost of each merge stays bounded.
+pub const LAST_LEVEL_RATIO: u64 = 8;
 
 /// One published commit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +74,7 @@ impl RunHome {
     /// returns.
     pub fn commit(&self, operations: Vec<HomeMutation>) -> Result<RunCommit> {
         self.refuse_if_poisoned()?;
+        let _commit = self.commit.lock().unwrap_or_else(|e| e.into_inner());
         if operations.is_empty() {
             return Err(Error::Config("disk run home: empty commit".into()));
         }
@@ -97,8 +104,9 @@ impl RunHome {
         if next.levels.is_empty() {
             next.levels.push(Vec::new());
         }
-        next.levels[0].insert(0, RunFile::new(&self.runs, run));
-        let installed = self.install(next)?;
+        let file = RunFile::new(&self.runs, run);
+        next.levels[0].insert(0, Arc::clone(&file));
+        let installed = self.install_or_discard(next, &[file])?;
         Ok(RunCommit {
             generation: installed.generation,
             frontier: installed.frontier,
@@ -107,8 +115,25 @@ impl RunHome {
         })
     }
 
+    /// Publish `next`; when the publish fails before its rename, delete
+    /// the new run files that only `next` names.
+    fn install_or_discard(&self, next: Manifest, fresh: &[Arc<RunFile>]) -> Result<Arc<Manifest>> {
+        let installed = self.install(next);
+        if installed.is_err() && !self.is_poisoned() {
+            for run in fresh {
+                run.retire();
+            }
+        }
+        installed
+    }
+
     /// Merge the first full level (at least [`MERGE_WIDTH`] runs) into one
     /// run at the next level. Returns `None` when no level is full.
+    ///
+    /// When the next level is the deepest one and holds at most
+    /// [`LAST_LEVEL_RATIO`] times the input bytes, its runs join the merge
+    /// and the output replaces them. Tombstones are dropped when the output
+    /// is the whole deepest level.
     ///
     /// Commits continue during the merge; only the final publish waits for
     /// a commit's publish. Reads that hold an older CURRENT keep the input
@@ -125,22 +150,26 @@ impl RunHome {
                 "disk run home: no level is left for a merge".into(),
             ));
         }
-        let inputs: Vec<Arc<RunFile>> = held.levels[level].clone();
-        // Only merges add runs below level 0, and merges run one at a time,
-        // so this stays true until the publish below.
-        let deepest = held.levels.iter().skip(level + 1).all(|l| l.is_empty());
-        drop(held);
-        let readers = inputs
-            .iter()
-            .map(|run| RunReader::open(&run.path, &self.key))
-            .collect::<Result<Vec<_>>>()?;
-        let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
-        let sources = readers.iter().map(|reader| reader.iter()).collect();
-        let written = merge_runs(sources, &mut writer, !deepest)?;
-        let output = match written {
-            0 => None,
-            _ => Some(meta(writer.finish()?)?),
+        // Only merges change levels below level 0, and merges run one at a
+        // time, so these facts stay true until the publish below.
+        let mut inputs: Vec<Arc<RunFile>> = held.levels[level].clone();
+        let target_is_deepest = held.levels.iter().skip(level + 2).all(|l| l.is_empty());
+        let target: &[Arc<RunFile>] = match held.levels.get(level + 1) {
+            Some(runs) => runs,
+            None => &[],
         };
+        let input_bytes: u64 = inputs.iter().map(|run| run.meta.file_bytes).sum();
+        let target_bytes: u64 = target.iter().map(|run| run.meta.file_bytes).sum();
+        let absorb = target_is_deepest
+            && !target.is_empty()
+            && target_bytes <= input_bytes.saturating_mul(LAST_LEVEL_RATIO);
+        if absorb {
+            // Older than every input, so after them in newest-first order.
+            inputs.extend(target.iter().cloned());
+        }
+        let drop_tombstones = target_is_deepest && (absorb || target.is_empty());
+        drop(held);
+        let output = self.write_merge(&inputs, !drop_tombstones)?;
         let (records, run_bytes) = output
             .as_ref()
             .map_or((0, 0), |run| (run.records, run.file_bytes));
@@ -149,18 +178,23 @@ impl RunHome {
         let mut next = (*self.held()).clone();
         next.generation = next.generation.checked_add(1).ok_or_else(overflow)?;
         let merged: HashSet<Uuid> = inputs.iter().map(|run| run.meta.run_id).collect();
-        next.levels[level].retain(|run| !merged.contains(&run.meta.run_id));
+        for runs in next.levels.iter_mut().skip(level).take(2) {
+            runs.retain(|run| !merged.contains(&run.meta.run_id));
+        }
+        let mut fresh = Vec::new();
         if let Some(run) = output {
             if next.levels.len() <= level + 1 {
                 next.levels.push(Vec::new());
             }
-            // Every input is newer than every run already on the next level.
-            next.levels[level + 1].insert(0, RunFile::new(&self.runs, run));
+            // Every input is newer than every run left on the next level.
+            let file = RunFile::new(&self.runs, run);
+            next.levels[level + 1].insert(0, Arc::clone(&file));
+            fresh.push(file);
         }
         while next.levels.last().is_some_and(|l| l.is_empty()) {
             next.levels.pop();
         }
-        let installed = self.install(next)?;
+        let installed = self.install_or_discard(next, &fresh)?;
         for run in &inputs {
             run.retire();
         }
@@ -170,8 +204,27 @@ impl RunHome {
             inputs: inputs.len(),
             records,
             run_bytes,
-            dropped_tombstones: deepest,
+            dropped_tombstones: drop_tombstones,
         }))
+    }
+
+    /// Merge `inputs` (newest first) into one new durable run, or `None`
+    /// when nothing is left to write.
+    fn write_merge(
+        &self,
+        inputs: &[Arc<RunFile>],
+        keep_tombstones: bool,
+    ) -> Result<Option<RunMeta>> {
+        let readers = inputs
+            .iter()
+            .map(|run| RunReader::open(&run.path, &self.key))
+            .collect::<Result<Vec<_>>>()?;
+        let mut writer = RunWriter::create(&self.runs, &self.key, self.options)?;
+        let sources = readers.iter().map(|reader| reader.iter()).collect();
+        match merge_runs(sources, &mut writer, keep_tombstones)? {
+            0 => Ok(None),
+            _ => Ok(Some(meta(writer.finish()?)?)),
+        }
     }
 }
 
