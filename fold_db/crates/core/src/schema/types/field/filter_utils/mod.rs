@@ -75,14 +75,12 @@ impl FilterUtils {
 }
 
 mod fetch;
-mod hash;
 mod hash_range;
-mod range;
+mod one_d;
 mod storage_bounds;
 
 pub use fetch::{fetch_atoms_with_key_metadata_async_with_prefix, KeyedAtomMatch};
 pub(crate) use fetch::{fetch_field_atom_batches, field_value_from_atom, FieldAtomBatch};
-pub use hash::apply_hash_filter;
 pub use hash_range::apply_hash_range_filter;
-pub use range::apply_range_filter;
+pub use one_d::{apply_hash_filter, apply_range_filter};
 pub use storage_bounds::filter_range_bounds_for_apply;
