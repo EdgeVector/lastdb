@@ -266,7 +266,7 @@ pub(crate) enum AppCommand {
         /// Emit raw JSON only.
         #[arg(long)]
         json: bool,
-        /// Local source: path or git URL to clone from (requires --dev).
+        /// Local source: path to a git repository (requires --dev).
         #[arg(long)]
         from: Option<String>,
         /// Git revision to install (required with --from).
