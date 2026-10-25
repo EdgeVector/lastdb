@@ -144,7 +144,8 @@ def main():
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
                                          "native_report.py", "report.py", "artifact.py", "build.py",
-                                         "growth.py", "growth_report.py", "advisories.py", "confirm.py", "tail_report.py",
+                                         "growth.py", "growth_report.py", "tail_report.py", "mixed_report.py",
+                                         "advisories.py", "confirm.py",
                                          "range_continuation/process_counters.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):

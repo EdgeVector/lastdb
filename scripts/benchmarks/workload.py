@@ -15,11 +15,11 @@ from range_continuation.process_counters import counter_delta, read_counters
 SCHEMA, HASH = "GitHubBenchmark", "generated"
 FIELDS = ["bucket", "id", "title", "body"]
 PROFILES = {
-    "standard": {"records": 10000, "samples": 256, "write_samples": 32,
+    "standard": {"records": 10000, "samples": 256, "single_write_samples": 256, "write_samples": 32,
                  "batch_update_samples": 128, "pairs": 2},
-    "nightly": {"records": 100000, "samples": 2048, "write_samples": 128,
+    "nightly": {"records": 100000, "samples": 2048, "single_write_samples": 512, "write_samples": 128,
                 "batch_update_samples": 128, "pairs": 3},
-    "batch-insert": {"records": 10000, "samples": 256, "write_samples": 256,
+    "batch-insert": {"records": 10000, "samples": 256, "single_write_samples": 256, "write_samples": 256,
                      "pairs": 3, "insert_only": True},
 }
 
@@ -77,6 +77,7 @@ def validate_read(result, numbers):
         found[coordinate["range"]] = title
     if set(found) != set(expected):
         raise RuntimeError("A keyed read returned different keys")
+    return found
 
 
 def describe(samples, elapsed):
@@ -181,7 +182,11 @@ class Workload:
                                   process_delta=counter_delta(before, after))
                 sample.update(elapsed_ms=elapsed, read_receipt=receipt)
                 if kind == "read":
-                    validate_read(result, numbers)
+                    titles = validate_read(result, numbers)
+                    if mode == "mixed":
+                        sample["read_current_case_records"] = sum(
+                            titles[key(number)].startswith(f"record-{number}-{self.case}-")
+                            for number in numbers)
                     if not receipt:
                         raise RuntimeError("The read lacks its storage receipt")
                     # Native unknown-path fallbacks do not increment the old
@@ -282,8 +287,9 @@ class Workload:
             modes = ("insert",) if self.recipe.get("insert_only") else ("insert", "update")
             for mode in modes:
                 for batch in (1, 128):
-                    count = (self.recipe["batch_update_samples"] if mode == "update" and batch == 128
-                             else self.recipe["write_samples"])
+                    count = (self.recipe["single_write_samples"] if batch == 1 else
+                             self.recipe["batch_update_samples"] if mode == "update" else
+                             self.recipe["write_samples"])
                     self.measure(f"{mode}/{batch}", mode, batch=batch, samples=count)
             if not self.recipe.get("insert_only"):
                 for clients in (1, 4, 16, 32):

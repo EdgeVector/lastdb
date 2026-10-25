@@ -11,6 +11,7 @@ import statistics
 from advisories import confirm, lines as confirmation_lines, notices
 from node import save
 from phases import phase_lines
+from mixed_report import mixed_read_lines
 
 MEASURES = ("p50_ms", "p95_ms", "p99_ms", "requests_per_second", "records_per_second")
 
@@ -122,6 +123,7 @@ def render(output, manifest, comparison):
                      f"{candidate['requests_per_second']:.1f} | {change['requests_per_second']:+.1f}% | 0 |")
     lines.extend(resource_lines(output, manifest))
     lines.extend(mixed_lines(output, manifest))
+    lines.extend(mixed_read_lines(output, manifest))
     lines.extend(phase_lines(output, manifest))
     if manifest["recipe"].get("seed_with_baseline"):
         lines.extend(["", "## Actual baseline-home upgrade", "",
