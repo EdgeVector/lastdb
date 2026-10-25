@@ -1,25 +1,5 @@
 use super::*;
-
-pub(super) fn take_aggregate_set(
-    obj: &mut serde_json::Map<String, Value>,
-) -> Result<Option<fold_db::schema::types::AggregateSet>, ()> {
-    match obj.remove("aggregate_set") {
-        Some(value) => serde_json::from_value(value).map(Some).map_err(|_| ()),
-        None => Ok(None),
-    }
-}
-
-pub(super) fn parse_aggregate_finalize(
-    body: &[u8],
-) -> Result<fold_db::schema::types::AggregateFinalize, ()> {
-    serde_json::from_slice(body).map_err(|_| ())
-}
-
-pub(super) fn parse_aggregate_repair(
-    body: &[u8],
-) -> Result<fold_db::schema::types::AggregateRepair, ()> {
-    serde_json::from_slice(body).map_err(|_| ())
-}
+use fold_db::schema::types::{AggregateFinalize, AggregateRepair};
 
 pub(super) async fn execute_aggregate_repair_route(
     req: &UdsRequest,
@@ -27,7 +7,7 @@ pub(super) async fn execute_aggregate_repair_route(
     host: &Host,
 ) -> UdsResponse {
     let parse_started = std::time::Instant::now();
-    let Ok(repair) = parse_aggregate_repair(&req.body) else {
+    let Ok(repair) = serde_json::from_slice::<AggregateRepair>(&req.body) else {
         fold_db::request_phases::add_phase(
             fold_db::request_phases::RequestPhase::Parse,
             parse_started.elapsed(),
@@ -56,7 +36,7 @@ pub(super) async fn execute_aggregate_finalize_route(
     host: &Host,
 ) -> UdsResponse {
     let parse_started = std::time::Instant::now();
-    let Ok(finalize) = parse_aggregate_finalize(&req.body) else {
+    let Ok(finalize) = serde_json::from_slice::<AggregateFinalize>(&req.body) else {
         fold_db::request_phases::add_phase(
             fold_db::request_phases::RequestPhase::Parse,
             parse_started.elapsed(),
