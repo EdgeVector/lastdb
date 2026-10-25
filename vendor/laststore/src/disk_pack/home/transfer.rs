@@ -115,13 +115,14 @@ pub fn export(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt
 /// transfer never publishes CURRENT and cannot serve as an active database.
 /// This initial protocol requires a fresh target for a retry; it does not resume.
 pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
-    import_with_verifier(root, input, export)
+    import_with_verifier(root, input, export, |_| {})
 }
 
 pub(super) fn import_with_verifier(
     root: &Path,
     input: &mut dyn Read,
     verify: fn(&DiskHome, &mut dyn Write) -> Result<TransferReceipt>,
+    configure: fn(&mut HomeBuilder),
 ) -> Result<TransferReceipt> {
     let header: Header = wire::read_metadata(input)?;
     header.validate()?;
@@ -132,6 +133,7 @@ pub(super) fn import_with_verifier(
         header.frontier,
         header.required_features,
     )?;
+    configure(&mut builder);
     let receipt = input::read_records(
         input,
         &mut builder,

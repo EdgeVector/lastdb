@@ -21,7 +21,22 @@ impl<'a> RecordBody<'a> {
         key: &str,
         location: Location,
     ) -> Result<Self> {
-        Self::open_with_retained(call, collection, key, location, None)
+        let (mut stream, body_bytes) = Self::start(call, key.len(), location, None)?;
+        let mut prefix = vec![0; 96 + key.len()];
+        stream.read_exact(&mut prefix)?;
+        if prefix[..96]
+            != record_header(
+                collection,
+                key,
+                body_bytes,
+                stream.location.version,
+                stream.call.current.required_features,
+            )?
+            || prefix[96..] != *key.as_bytes()
+        {
+            return Err(corrupt("compaction record identity or mutation version"));
+        }
+        Ok(stream)
     }
 
     pub(super) fn open_with_retained(
@@ -31,9 +46,23 @@ impl<'a> RecordBody<'a> {
         location: Location,
         retained: Option<u64>,
     ) -> Result<Self> {
+        if retained.is_none() {
+            return Self::open(call, collection, key, location);
+        }
+        let (mut stream, body_bytes) = Self::start(call, key.len(), location, retained)?;
+        stream.verify_bounded_prefix(collection, key, body_bytes)?;
+        Ok(stream)
+    }
+
+    fn start(
+        call: &'a mut ReadCall,
+        key_bytes: usize,
+        location: Location,
+        retained: Option<u64>,
+    ) -> Result<(Self, u64)> {
         let body_bytes = location
             .record_bytes
-            .checked_sub(96 + key.len() as u64)
+            .checked_sub(96 + key_bytes as u64)
             .ok_or_else(|| corrupt("compaction record is shorter than its key"))?;
         let end = location
             .first_block
@@ -48,7 +77,7 @@ impl<'a> RecordBody<'a> {
             return Err(corrupt("compaction record outside its object"));
         }
         let retained = retained.map(|bytes| (call.budget, bytes));
-        let mut stream = Self {
+        let stream = Self {
             call,
             location,
             position: 0,
@@ -56,27 +85,36 @@ impl<'a> RecordBody<'a> {
             block: None,
             retained,
         };
+        Ok((stream, body_bytes))
+    }
+
+    fn verify_bounded_prefix(
+        &mut self,
+        collection: &str,
+        key: &str,
+        body_bytes: u64,
+    ) -> Result<()> {
         let mut header = [0; 96];
-        stream.read_exact(&mut header)?;
+        self.read_exact(&mut header)?;
         if header
             != record_header(
                 collection,
                 key,
                 body_bytes,
-                stream.location.version,
-                stream.call.current.required_features,
+                self.location.version,
+                self.call.current.required_features,
             )?
         {
             return Err(corrupt("compaction record identity or mutation version"));
         }
         let mut prefix = [0; 65536];
         for expected in key.as_bytes().chunks(prefix.len()) {
-            stream.read_exact(&mut prefix[..expected.len()])?;
+            self.read_exact(&mut prefix[..expected.len()])?;
             if prefix[..expected.len()] != *expected {
                 return Err(corrupt("compaction record complete key differs"));
             }
         }
-        Ok(stream)
+        Ok(())
     }
 
     pub(super) fn body_bytes(&self) -> u64 {

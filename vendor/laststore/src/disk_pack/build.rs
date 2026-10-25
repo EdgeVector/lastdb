@@ -27,6 +27,7 @@ pub struct ArtifactBuilder {
     dependencies: Dependencies,
     pub(super) required_features: u64,
     home_digest: [u8; 32],
+    bounded_key_order: bool,
 }
 
 /// Streaming writer for strictly ordered full keys in one collection and group.
@@ -105,6 +106,7 @@ impl ArtifactBuilder {
             key_codec,
             failed: false,
             dependencies: Dependencies::new(),
+            bounded_key_order: false,
             home_digest: match native {
                 Some(descriptor) => super::bytes::digest(&descriptor.encode()?),
                 None => [0; 32],
@@ -140,7 +142,8 @@ impl ArtifactBuilder {
             .as_mut()
             .expect("created forest")
             .tree()?
-            .for_features(self.required_features);
+            .for_features(self.required_features)
+            .with_bounded_key_order(self.bounded_key_order);
         self.failed = false;
         Ok(GroupWriter {
             owner: self,
@@ -149,6 +152,10 @@ impl ArtifactBuilder {
             locator: Some(locator),
             finished: false,
         })
+    }
+
+    pub(super) fn use_bounded_key_order(&mut self) {
+        self.bounded_key_order = true;
     }
 
     /// Finish all dependencies and publish the initial CURRENT with file and directory barriers.

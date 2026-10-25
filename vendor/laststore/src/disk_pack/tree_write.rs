@@ -10,6 +10,7 @@ pub(super) struct TreeWriter {
     object: Uuid,
     kind: TreeKind,
     key_limit: usize,
+    bounded_key_order: bool,
     last_key: Option<Vec<u8>>,
     leaf: Vec<LeafEntry>,
     levels: Vec<Vec<Child>>,
@@ -49,6 +50,7 @@ impl TreeWriter {
             object,
             kind,
             key_limit: super::LEGACY_STORAGE_KEY_BYTES,
+            bounded_key_order: false,
             last_key: None,
             leaf: Vec::new(),
             levels: vec![Vec::new()],
@@ -60,10 +62,18 @@ impl TreeWriter {
         self
     }
 
+    pub(super) fn with_bounded_key_order(mut self, enabled: bool) -> Self {
+        self.bounded_key_order = enabled;
+        self
+    }
+
     pub(super) fn add(&mut self, key: &[u8], value: [u8; 128]) -> Result<()> {
         if key.len() > self.key_limit
             || match self.last_key.as_deref() {
-                Some(previous) => self.pages.compare_key(previous, key)? != Ordering::Less,
+                Some(previous) if self.bounded_key_order => {
+                    self.pages.compare_key(previous, key)? != Ordering::Less
+                }
+                Some(previous) => previous >= key,
                 None => false,
             }
         {
@@ -86,10 +96,13 @@ impl TreeWriter {
         {
             self.flush_leaf()?;
         }
-        // The descriptor already owns the inline prefix and overflow address.
-        // Keep it instead of retaining another complete extended key.
-        self.last_key = Some(descriptor.clone());
         self.leaf.push((descriptor, value));
+        self.last_key = Some(if self.bounded_key_order {
+            // Only bounded backup import reads overflow pages for key order.
+            self.leaf.last().expect("added leaf key").0.clone()
+        } else {
+            key.to_vec()
+        });
         if self.kind == TreeKind::Directory && self.leaf.len() == LEAF_ENTRIES {
             self.flush_leaf()?;
         }

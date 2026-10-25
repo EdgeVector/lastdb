@@ -79,8 +79,11 @@ fn visit(
             if location.version.batch > current.frontier {
                 return Err(corrupt("visit record beyond selected frontier"));
             }
-            let retained =
-                directory.retained_bytes()? + directory_bytes + cursor.retained_bytes()?;
+            let retained = if maximum.is_none() {
+                directory.retained_bytes()? + directory_bytes + cursor.retained_bytes()?
+            } else {
+                0
+            };
             let active = retained + key_bytes.capacity() as u64;
             let key =
                 std::str::from_utf8(&key_bytes).map_err(|_| corrupt("visit key is not UTF-8"))?;

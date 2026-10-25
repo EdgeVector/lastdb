@@ -1,6 +1,6 @@
 //! Modern bounded record export, separate from the portable transfer wire codec.
 use super::transfer::{self, TransferHeader, TransferReceipt};
-use super::DiskHome;
+use super::{DiskHome, HomeBuilder};
 use crate::disk_pack::{Current, ReadBudget};
 use crate::Result;
 use sha2::{Digest, Sha256};
@@ -40,7 +40,7 @@ pub fn export(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt
 /// Import and verify all stored records under the central backup memory policy.
 /// This retains the existing transfer bytes and accepts no partial target.
 pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
-    transfer::import_with_verifier(root, input, export)
+    transfer::import_with_verifier(root, input, export, HomeBuilder::use_bounded_key_order)
 }
 
 fn selected_current(home: &DiskHome) -> Result<Current> {
