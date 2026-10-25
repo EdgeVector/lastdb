@@ -32,12 +32,12 @@ struct PathStep {
 struct ValidatedPage<'a>(&'a Page);
 
 impl ValidatedPage<'_> {
-    fn key_bytes<'a>(
-        &'a self,
+    fn key_bytes(
+        &self,
         call: &mut ReadCall,
         tree: &TreeRoot,
         index: usize,
-    ) -> Result<Cow<'a, [u8]>> {
+    ) -> Result<Cow<'_, [u8]>> {
         let entry = self.0.entry(index);
         if key_layout::overflow(entry) != 0 {
             return super::mutation_key::key_bytes(call, tree, entry);
