@@ -15,6 +15,11 @@ pub struct RunRangePage {
     pub records: Vec<(String, Vec<u8>)>,
     /// True when the range has no more records.
     pub exhausted: bool,
+    /// Set only by [`RunHashRange::next_page_yielding`]: the call stopped
+    /// before the page was full because its key budget ran out or was about
+    /// to. Every key up to and including this storage key was examined; the
+    /// next call continues above it.
+    pub resume: Option<String>,
 }
 
 /// An in-process cursor over one range of the held CURRENT.
@@ -24,6 +29,9 @@ pub struct RunHashRange<'a> {
     costs: &'a mut RunReadCosts,
     budget: ReadBudget,
     exhausted: bool,
+    /// A record taken from `records` but not examined: the key budget was
+    /// out. The next page starts with it.
+    held: Option<(Vec<u8>, Found)>,
 }
 
 impl RunRead {
@@ -98,26 +106,87 @@ impl RunRead {
             costs,
             budget: *budget,
             exhausted: false,
+            held: None,
         })
     }
 }
 
 impl RunHashRange<'_> {
+    /// Charge a selected pending-write value to this range's call budget.
+    pub fn account_memory_record(&mut self, key_bytes: usize, body_bytes: usize) -> Result<()> {
+        if self.costs.examined_keys >= self.budget.keys {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        let bytes = self
+            .costs
+            .budget_bytes
+            .saturating_add(key_bytes.saturating_add(body_bytes) as u64);
+        if bytes > self.budget.bytes {
+            return Err(Error::ReadBudgetExceeded);
+        }
+        self.costs.examined_keys += 1;
+        self.costs.budget_bytes = bytes;
+        Ok(())
+    }
+
     /// Up to `limit` live records. Each examined record, tombstones
     /// included, counts against the call's key budget.
     pub fn next_page(&mut self, limit: usize) -> Result<RunRangePage> {
+        self.page(limit, None)
+    }
+
+    /// Like [`Self::next_page`], but a key budget that runs out once a key
+    /// was examined ends the page with `resume` instead of an error. The
+    /// page stops early while the call still has `keys_per_row` keys for
+    /// each of the `held_rows` rows the caller holds and each row of this
+    /// page. A budget failure before any key was examined is still an error.
+    pub fn next_page_yielding(
+        &mut self,
+        limit: usize,
+        held_rows: usize,
+        keys_per_row: usize,
+    ) -> Result<RunRangePage> {
+        self.page(limit, Some((held_rows, keys_per_row)))
+    }
+
+    fn page(&mut self, limit: usize, yielding: Option<(usize, usize)>) -> Result<RunRangePage> {
         let mut records = Vec::new();
+        let mut last: Option<Vec<u8>> = None;
+        let mut resume = None;
         while !self.exhausted && records.len() < limit {
-            let Some(next) = self.records.next() else {
-                self.exhausted = true;
-                break;
+            if let Some((held, keys_per_row)) = yielding {
+                let rows = held + records.len();
+                let needed = keys_per_row.saturating_mul(rows).saturating_add(16) as u64;
+                let low = self.costs.examined_keys.saturating_add(needed) > self.budget.keys;
+                if rows > 0 && keys_per_row > 0 && low && last.is_some() {
+                    resume = last.take();
+                    break;
+                }
+            }
+            let (key, found) = match self.held.take() {
+                Some(held) => held,
+                None => match self.records.next() {
+                    Some(next) => next?,
+                    None => {
+                        self.exhausted = true;
+                        break;
+                    }
+                },
             };
-            let (key, found) = next?;
+            // As in v1, a range that ends exactly at the key budget is
+            // exhausted, not over budget. A yielding page that has examined
+            // a key resumes after it.
             if self.costs.examined_keys >= self.budget.keys {
+                self.held = Some((key, found));
+                if yielding.is_some() && last.is_some() {
+                    resume = last.take();
+                    break;
+                }
                 return Err(Error::ReadBudgetExceeded);
             }
             self.costs.examined_keys += 1;
             let Found::Value(value) = found else {
+                last = yielding.map(|_| key);
                 continue;
             };
             let bytes = self
@@ -129,10 +198,16 @@ impl RunHashRange<'_> {
             }
             self.costs.budget_bytes = bytes;
             records.push((storage_key(&self.collection, &key)?, value));
+            last = yielding.map(|_| key);
         }
+        let resume = match resume {
+            Some(key) => Some(storage_key(&self.collection, &key)?),
+            None => None,
+        };
         Ok(RunRangePage {
             records,
             exhausted: self.exhausted,
+            resume,
         })
     }
 }

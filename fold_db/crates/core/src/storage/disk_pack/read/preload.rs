@@ -7,19 +7,15 @@ impl ReadContext {
         base: &Arc<Self>,
         charge: &Arc<crate::resident::core_keys::CoreKeyReservation>,
     ) -> StorageResult<PackReadScope> {
-        let call = runtime
-            .home
-            .read_from_writer(
-                base.current.clone(),
-                ReadBudget {
-                    pages: 2048,
-                    blocks: 4096,
-                    bytes: 16 * 1024 * 1024,
-                    keys: 4096,
-                },
-                &runtime.read_lease,
-            )
-            .map_err(map)?;
+        let call = runtime.physical_read(
+            &base.current,
+            super::physical::ReadMode::Ordinary(ReadBudget {
+                pages: 2048,
+                blocks: 4096,
+                bytes: 16 * 1024 * 1024,
+                keys: 4096,
+            }),
+        )?;
         Ok(PackReadScope {
             context: Arc::new(Self {
                 call: Arc::new(Mutex::new(call)),

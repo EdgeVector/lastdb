@@ -35,13 +35,13 @@ pub struct NativeDiskStatus {
 
 #[derive(Clone)]
 pub(super) struct NativeReadView {
-    pub(super) current: Current,
+    pub(super) current: physical::PhysicalRoot,
     pub(super) revision: u64,
 }
 
 impl PackRuntime {
     pub fn native_home_id(&self) -> uuid::Uuid {
-        self.home.descriptor().identity
+        self.home_identity()
     }
 
     /// The same failure mark that refuses new record reads and writes.
@@ -63,7 +63,7 @@ impl PackRuntime {
         // not wait behind it, so it reports the last root the ledger saw.
         let view = self.view.try_read().ok();
         let (generation, frontier) = if let Some(view) = view.as_deref() {
-            (view.current.generation, view.current.frontier)
+            (view.current.generation(), view.current.frontier())
         } else {
             let (generation, frontier) = self.parts.root();
             (generation, frontier)
@@ -110,7 +110,7 @@ impl PackRuntime {
     /// Old calls retain their typed values; the flush log is not their read state.
     pub(super) fn install_committed(
         &self,
-        current: Current,
+        current: physical::PhysicalRoot,
         hidden_changes: &[(String, String)],
         key_changes: &[(String, String, bool)],
         requests: &[Arc<transaction::PendingBatch>],
@@ -141,7 +141,7 @@ impl PackRuntime {
                 protection.publish_clean()?;
             }
         }
-        let frontier = current.frontier;
+        let frontier = current.frontier();
         view.current = current;
         drop(view);
         self.publish_native_backup_boundary(frontier);
