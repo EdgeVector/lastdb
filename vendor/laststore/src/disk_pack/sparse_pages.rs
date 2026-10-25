@@ -160,6 +160,7 @@ impl TreePages for SparsePages {
             .as_mut()
             .expect("private metadata part")
             .write_all(&bytes)?;
+        super::page_usage::written(&bytes);
         self.written_pages += 1;
         self.next += 1;
         if self.next % crate::disk_pack::PAGES_PER_PART == 0 {

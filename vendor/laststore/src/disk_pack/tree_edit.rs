@@ -135,6 +135,13 @@ impl<P: TreePages> TreeEdit<P> {
         let page = call.tree_page(&self.root, path.number)?;
         validate_page(call, &self.root, &page, &path)?;
         if self.track_changes {
+            super::page_usage::input(
+                page.kind(),
+                page.payload().len(),
+                page.count(),
+                path.is_root,
+                page.generation() == call.current.generation,
+            );
             self.changes.observe_page(
                 self.root.kind,
                 self.root.object,
@@ -228,6 +235,7 @@ impl<P: TreePages> TreeEdit<P> {
     ) -> Result<Vec<Child>> {
         let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
         let mut updates = changes.iter().peekable();
+        let mut middle_insert = false;
         for index in 0..page.count() {
             let entry = page.entry(index);
             let key = super::mutation_key::key_bytes(call, &self.root, entry)?;
@@ -236,6 +244,7 @@ impl<P: TreePages> TreeEdit<P> {
                 .is_some_and(|(next, _)| next.as_slice() < key.as_ref())
             {
                 let (key, value) = updates.next().expect("peeked change");
+                middle_insert = true;
                 self.change_value(call, references, None, value)?;
                 entries.push((
                     tree_output::key_descriptor(
@@ -272,7 +281,13 @@ impl<P: TreePages> TreeEdit<P> {
                 *value,
             ));
         }
-        super::tree_partition::leaves(self.root.kind, &entries)?
+        let ranges = super::tree_partition::leaves(self.root.kind, &entries, middle_insert)?;
+        super::page_usage::split(
+            self.root.kind == super::TreeKind::Locator,
+            ranges.len(),
+            middle_insert,
+        );
+        ranges
             .into_iter()
             .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))
             .collect()

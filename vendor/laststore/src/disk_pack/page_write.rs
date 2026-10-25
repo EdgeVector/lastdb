@@ -87,6 +87,7 @@ impl PageWriter {
             .as_mut()
             .expect("open metadata part")
             .write_all(&bytes)?;
+        super::page_usage::written(&bytes);
         let number = self.next;
         self.next = self
             .next
@@ -142,6 +143,7 @@ impl PageWriter {
                 bytes[80..112].copy_from_slice(&sum);
                 file.seek(SeekFrom::Start(position))?;
                 file.write_all(&bytes)?;
+                super::page_usage::map_rewritten(&bytes);
             }
             durability::sync_dirty_file(&file)?;
         }
