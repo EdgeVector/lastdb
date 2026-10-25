@@ -74,7 +74,7 @@ impl PackRuntime {
     fn read_chunk(
         &self,
         context: &ReadContext,
-        call: &mut HomeRead,
+        call: &mut PhysicalRead,
         coordinates: &[(String, String)],
         pending: Option<&Arc<transaction::PendingBatch>>,
     ) -> StorageResult<Vec<Option<Vec<u8>>>> {

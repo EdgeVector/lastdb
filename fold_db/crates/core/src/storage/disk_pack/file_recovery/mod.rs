@@ -220,11 +220,11 @@ impl PackRuntime {
         access: &FileBlobAccess,
     ) -> StorageResult<Option<Vec<u8>>> {
         let root = self
-            .home
+            .physical
             .path()
             .parent()
             .ok_or_else(|| invalid("node root"))?;
-        let home_id = Id::try_from(self.home.descriptor().identity.to_string())
+        let home_id = Id::try_from(self.home_identity().to_string())
             .map_err(|_| invalid("native home identity"))?;
         resolve_entry(
             root,

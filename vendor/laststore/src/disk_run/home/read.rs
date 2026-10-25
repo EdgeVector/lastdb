@@ -22,6 +22,25 @@ pub struct RunReadCosts {
     pub runs_opened: u64,
 }
 
+/// One published state of a home: a handle to the CURRENT that a commit or
+/// a merge installed. A holder can read exactly that state later, and the
+/// state's run files stay on disk while any handle or read holds it.
+#[derive(Debug, Clone)]
+pub struct RunRoot(pub(super) Arc<Manifest>);
+
+impl RunRoot {
+    /// CURRENT generation of this state.
+    pub fn generation(&self) -> u64 {
+        self.0.generation
+    }
+
+    /// Complete commits in this state. A merge changes the generation but
+    /// not the frontier, and two roots with one frontier hold the same data.
+    pub fn frontier(&self) -> u64 {
+        self.0.frontier
+    }
+}
+
 /// One read call. It holds one CURRENT from start to end, so every get,
 /// batch, and range in the call sees the same complete commit boundary.
 ///
@@ -39,9 +58,19 @@ pub struct RunRead {
 }
 
 impl RunHome {
+    /// The state that the latest publish installed.
+    pub fn current_root(&self) -> RunRoot {
+        RunRoot(self.held())
+    }
+
     /// Capture the current CURRENT and one budget for a whole read call.
     pub fn read(&self, budget: ReadBudget) -> RunRead {
-        let manifest = self.held();
+        self.read_root(&self.current_root(), budget)
+    }
+
+    /// One read call against exactly `root`, even when newer states exist.
+    pub fn read_root(&self, root: &RunRoot, budget: ReadBudget) -> RunRead {
+        let manifest = Arc::clone(&root.0);
         let runs = manifest
             .newest_first()
             .map(|run| (Arc::clone(run), None))

@@ -17,7 +17,7 @@ fn context(runtime: Option<Arc<PackRuntime>>) -> Option<Arc<ReadContext>> {
         }
         READ.try_with(Arc::clone)
             .ok()
-            .filter(|context| context.identity == runtime.home.descriptor().identity)
+            .filter(|context| context.identity == runtime.home_identity())
     })
 }
 

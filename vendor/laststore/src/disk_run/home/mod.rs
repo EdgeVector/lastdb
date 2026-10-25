@@ -32,7 +32,7 @@ mod read;
 
 pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MAX_MERGE_INPUTS, MERGE_WIDTH};
 pub use range::{RunHashRange, RunRangePage};
-pub use read::{RunRead, RunReadCosts};
+pub use read::{RunRead, RunReadCosts, RunRoot};
 
 use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};

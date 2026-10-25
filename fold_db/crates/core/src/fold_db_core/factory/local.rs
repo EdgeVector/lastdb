@@ -48,7 +48,7 @@ pub(super) async fn create_local_fold_db(
     options: FoldDbOptions,
 ) -> FoldDbResult<Arc<FoldDB>> {
     let store_stack = store_stack::build_store_stack(
-        open_store::open_primary_store(path)?,
+        open_store::open_primary_store(path, &e2e_keys.encryption_key())?,
         e2e_keys,
         options.at_rest_keyring.as_ref(),
     );

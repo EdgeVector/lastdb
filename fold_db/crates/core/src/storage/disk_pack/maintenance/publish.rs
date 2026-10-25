@@ -96,12 +96,13 @@ impl PackRuntime {
         let runtime = Arc::clone(self);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
             output.clear_merge_capture();
-            runtime.capture_cleanup.release_idle();
+            runtime.physical.release_idle();
             let capturing = std::time::Instant::now();
             // A client can own the gate before its blocking commit takes the
             // writer mutex. Capture after that already reserved publication.
             let boundary = runtime.write_gate.blocking_lock();
             let (cut, retired) = runtime
+                .v1()?
                 .writer
                 .lock()
                 .expect("native snapshot writer")
@@ -171,7 +172,7 @@ impl PackRuntime {
         {
             return Ok(Attempt::Queue(target));
         }
-        let mut writer = self.writer.lock().expect("native snapshot writer");
+        let mut writer = self.v1()?.writer.lock().expect("native snapshot writer");
         let mut receipt = match writer.try_finish_pack(output, staged) {
             Ok(Some(receipt)) => receipt,
             Ok(None) => return Ok(Attempt::Changed),
@@ -186,9 +187,9 @@ impl PackRuntime {
         };
         receipt.publication_retries = retry;
         let mut view = self.view.write().expect("native complete read view");
-        view.current = writer.current().clone();
+        let current = writer.current().clone();
+        view.current = crate::storage::disk_pack::physical::PhysicalRoot::V1(current.clone());
         let plan = writer.capture_reclaim().map_err(map)?;
-        let current = view.current.clone();
         drop(view);
         let pack_millis = receipt.copy_millis.saturating_add(millis_since(started));
         self.parts.record_run(
@@ -219,7 +220,7 @@ impl PackRuntime {
         }
         // Commit installs its view before it releases this mutex. Accepted work
         // keeps this durable root, so capture does not flush the queue.
-        let writer = self.writer.lock().expect("native snapshot writer");
+        let writer = self.v1()?.writer.lock().expect("native snapshot writer");
         let current = writer.current().clone();
         let plan = writer.capture_reclaim().map_err(map)?;
         Ok((MaintenanceReceipt::default(), 0, plan, current))

@@ -16,6 +16,7 @@ impl PackRuntime {
                 ));
             }
             runtime
+                .v1()?
                 .writer
                 .lock()
                 .expect("native snapshot writer")
@@ -39,6 +40,7 @@ impl PackRuntime {
             let (next, changed) =
                 super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
                     let cut = runtime
+                        .v1()?
                         .writer
                         .lock()
                         .expect("native snapshot writer")
