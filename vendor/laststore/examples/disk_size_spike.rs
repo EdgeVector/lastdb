@@ -1752,8 +1752,9 @@ fn main() -> Result<()> {
     for (n, (name, options)) in v1.iter().enumerate() {
         // The home builder creates this directory itself.
         let root = scratch.0.join(format!("v1-{n}"));
+        // No progress line here: CodeQL follows ids the v1 reader decodes
+        // (disk_pack::bytes::uuid_at) into the measure; the table prints it.
         let measure = write_v1(&root, &today, options)?;
-        println!("{name}: {:.1} MiB", measure.allocated as f64 / MIB);
         rows.push(Row {
             name: name.to_string(),
             logical: today.logical_atom_bytes,
