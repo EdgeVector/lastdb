@@ -46,7 +46,7 @@ pub struct SyncHealth {
     pub cloud_sync_disabled_at: Gauge,
     /// Configured temporary-off grace window in seconds (default 3600).
     pub sync_off_grace_secs: Gauge,
-    /// Continuous mutation-log plane active (CaptureMode::MutationLog).
+    /// Retained continuous mutation-log plane activity flag.
     pub mutation_log_active: Option<bool>,
     /// Writer/device id for the local continuous mutation-log stream.
     pub mutation_log_writer_id: Option<String>,

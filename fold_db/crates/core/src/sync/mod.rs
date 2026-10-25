@@ -22,8 +22,8 @@ pub use crate::SyncConflict;
 pub use auth::AuthRefreshCallback;
 pub use engine::{
     BackupUploadConcurrencyStatus, BootstrapOutcome, CloudSyncReenableOutcome, ForegroundPressure,
-    PurgeOutcome, ReplayBlockerQuarantineOutcome, SyncBackupBlocker, SyncConfig, SyncReplayBlocker,
-    SyncState, SyncStatus,
+    PurgeOutcome, ReplayBlockerQuarantineOutcome, SyncBackupBlocker, SyncReplayBlocker, SyncState,
+    SyncStatus,
 };
 pub use error::{SyncError, SyncResult};
 pub use org_sync::{
