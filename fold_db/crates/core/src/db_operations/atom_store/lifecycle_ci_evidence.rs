@@ -55,7 +55,7 @@ impl AtomStore {
         })
         .await?;
         let active = self
-            .cleanup_delete_markers_page(&molecule, scope, None, 16, true)
+            .ci_cleanup_ready(&molecule, scope, None, 16, true)
             .await?;
         require(
             active["blocked"] == "active_generation" && active["deleted"] == 0,
@@ -79,15 +79,20 @@ impl AtomStore {
         let mut deleted = 0;
         for _ in 0..5 {
             let preview = self
-                .cleanup_delete_markers_page(&molecule, scope, cursor.as_deref(), 16, false)
+                .ci_cleanup_ready(&molecule, scope, cursor.as_deref(), 16, false)
                 .await?;
             let page = self
-                .cleanup_delete_markers_page(&molecule, scope, cursor.as_deref(), 16, true)
+                .ci_cleanup_ready(&molecule, scope, cursor.as_deref(), 16, true)
                 .await?;
+            println!(
+                "{}",
+                json!({"stage": "marker_page", "scope": scope, "preview": preview, "execute": page})
+            );
             require(
                 page["blocked"].is_null()
                     && preview["deleted"] == 0
-                    && page["deleted"] == preview["eligible"],
+                    && page["deleted"] == preview["eligible"]
+                    && page["next_cursor"] == preview["next_cursor"],
                 "marker page differs from preview",
             )?;
             deleted += page["deleted"].as_u64().unwrap_or(0);
@@ -98,7 +103,7 @@ impl AtomStore {
         }
         require(deleted == 40, "marker continuation lost generated keys")?;
         let repeat = self
-            .cleanup_delete_markers_page(&molecule, scope, None, 16, true)
+            .ci_cleanup_ready(&molecule, scope, None, 16, true)
             .await?;
         require(
             repeat["complete"] == true && repeat["deleted"] == 0,
@@ -107,6 +112,34 @@ impl AtomStore {
         Ok(json!({"scope": scope, "prepared_publication_guard": true,
             "cleanup_retry_before_acceptance": true, "private_stage_rolled_back": true,
             "active_generation": active, "deleted": deleted, "repeat": repeat}))
+    }
+
+    /// Client retry after a complete blocked reply, never a wait inside native admission.
+    async fn ci_cleanup_ready(
+        &self,
+        molecule: &str,
+        scope: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+        execute: bool,
+    ) -> Result<Value> {
+        for attempt in 0..200 {
+            let mut page = self
+                .cleanup_delete_markers_page(molecule, scope, after, limit, execute)
+                .await?;
+            if page["blocked"] != "generation_preparation" {
+                page["ci_guard_retries"] = json!(attempt);
+                return Ok(page);
+            }
+            require(
+                page["deleted"] == 0 && page["next_cursor"] == json!(after),
+                "blocked marker request changed data or cursor",
+            )?;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Err(SchemaError::InvalidData(
+            "generation guard stays busy after publication".into(),
+        ))
     }
 
     async fn ci_seed_markers(&self, molecule: &str, scope: Option<&str>) -> Result<()> {

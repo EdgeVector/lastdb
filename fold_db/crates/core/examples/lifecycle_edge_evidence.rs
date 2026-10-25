@@ -192,7 +192,10 @@ async fn reopen(home: &Path, key: &[u8; 32]) -> Result<PackNamespacedStore> {
     for _ in 0..100 {
         match PackNamespacedStore::open_keyed(home, Some(key)) {
             Ok(store) => return Ok(store),
-            Err(error) if error.to_string().contains("another owner") => {
+            Err(error)
+                if (error.to_string().contains("another owner")
+                    || error.to_string().contains("another node owner")) =>
+            {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
             Err(error) => return Err(error.into()),
