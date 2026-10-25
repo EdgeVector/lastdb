@@ -3,7 +3,7 @@
 //! ```text
 //! <root>/laststore-run-home-v2   64 B clear descriptor: magic, home id, CRC
 //! <root>/LOCK                    exclusive owner lock (flock)
-//! <root>/CURRENT                 sealed list of runs by level + frontier
+//! <root>/CURRENT                 sealed list of runs + frontier
 //! <root>/runs/<run id>.ldrun     immutable run files
 //! ```
 //!
@@ -12,10 +12,13 @@
 //! CURRENT for its whole call and searches the runs newest first, so it
 //! sees one complete commit boundary and never a part of a commit.
 //!
-//! [`RunHome::merge_step`] merges the runs of a full level (eight runs) into
-//! one run on the next level. A merge into the deepest level drops
-//! tombstones. A read that holds an older CURRENT keeps the merged runs
-//! alive; the last holder deletes their files.
+//! The runs are tiered levels, then the runs of a base merge in progress,
+//! then the base: the oldest data, each live key once, in key order.
+//! [`RunHome::merge_step`] merges a full level (eight runs) into one run on
+//! the next level, and moves the oldest tiered runs into the base when they
+//! or the stale versions grow past a fixed share of the home. The `plan`
+//! module states the size bound. A read that holds an older CURRENT keeps
+//! the merged runs alive; the last holder deletes their files.
 //!
 //! After a crash, the owner deletes temporary files and run files that
 //! CURRENT does not name when it opens the home. Nothing is replayed: the
@@ -27,11 +30,13 @@
 mod commit;
 mod keys;
 mod manifest;
+mod plan;
 mod range;
 mod read;
 mod read_only;
 
-pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use commit::{MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
+pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};
 pub use range::{RunHashRange, RunRangePage};
 pub use read::{RunRead, RunReadCosts, RunRoot};
 
@@ -39,7 +44,7 @@ use super::codec::corrupt;
 use super::{RunOptions, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
-use manifest::{Manifest, RUNS};
+use manifest::{Manifest, RunFile, RUNS};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -61,8 +66,46 @@ pub struct RunHomeStatus {
     pub generation: u64,
     /// Complete commits.
     pub frontier: u64,
-    /// For each level: runs, records (tombstones included), file bytes.
+    /// For each tiered level: runs, records (tombstones included), file bytes.
     pub levels: Vec<(usize, u64, u64)>,
+    /// The runs of a base merge in progress: runs, records, file bytes.
+    pub merging: (usize, u64, u64),
+    /// The base: runs, records, file bytes.
+    pub base: (usize, u64, u64),
+    /// Key and value bytes of every run before compression.
+    pub record_bytes: u64,
+    /// Older versions that newer tiered records hide, and the tiered
+    /// tombstones, in record bytes; `None` while a new run is not counted.
+    pub stale_bytes: Option<u64>,
+}
+
+impl RunHomeStatus {
+    fn parts(&self) -> impl Iterator<Item = &(usize, u64, u64)> {
+        self.levels.iter().chain([&self.merging, &self.base])
+    }
+
+    /// Runs that CURRENT names.
+    pub fn runs(&self) -> usize {
+        self.parts().map(|part| part.0).sum()
+    }
+
+    /// Records of every run, tombstones and hidden versions included.
+    pub fn records(&self) -> u64 {
+        self.parts().map(|part| part.1).sum()
+    }
+
+    /// File bytes of every run.
+    pub fn file_bytes(&self) -> u64 {
+        self.parts().map(|part| part.2).sum()
+    }
+}
+
+fn totals(runs: &[Arc<RunFile>]) -> (usize, u64, u64) {
+    (
+        runs.len(),
+        runs.iter().map(|run| run.meta.records).sum(),
+        runs.iter().map(|run| run.meta.file_bytes).sum(),
+    )
 }
 
 /// An open v2 home. One process owns it; reads and writes share it.
@@ -78,7 +121,8 @@ pub struct RunHome {
     commit: Mutex<()>,
     /// Serializes CURRENT publication.
     publish: Mutex<()>,
-    /// Serializes merges, so a merge's inputs stay in CURRENT until it ends.
+    /// Serializes merge steps and hidden byte counts, so a step's inputs
+    /// stay in CURRENT until it ends.
     merge: Mutex<()>,
     /// Set when a publish fails after its rename: the durable state is unknown.
     poisoned: AtomicBool,
@@ -184,15 +228,20 @@ impl RunHome {
         RunHomeStatus {
             generation: current.generation,
             frontier: current.frontier,
-            levels: current
-                .levels
-                .iter()
-                .map(|level| {
-                    let records: u64 = level.iter().map(|run| run.meta.records).sum();
-                    let bytes: u64 = level.iter().map(|run| run.meta.file_bytes).sum();
-                    (level.len(), records, bytes)
+            levels: current.levels.iter().map(|level| totals(level)).collect(),
+            merging: totals(&current.merging),
+            base: totals(&current.base),
+            record_bytes: current
+                .newest_first()
+                .map(|run| run.meta.record_bytes)
+                .sum(),
+            stale_bytes: current
+                .tiered()
+                .map(|run| {
+                    run.hidden()
+                        .map(|hidden| hidden.saturating_add(run.meta.tombstone_bytes))
                 })
-                .collect(),
+                .sum(),
         }
     }
 

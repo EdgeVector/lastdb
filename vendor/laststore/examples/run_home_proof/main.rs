@@ -1,12 +1,15 @@
-//! Run home proof (design-lastdb-disk-size-20261024, phase V2). CI only.
+//! Run home proof (design-lastdb-disk-size-20261024, phases V2 and V1c).
+//! CI only.
 //!
 //! Drives `laststore::disk_run::home::RunHome` with deterministic synthetic
 //! commits: commit + merge, reads by key, batch and range against a model,
 //! a read that holds an old CURRENT across merges, crash leftovers, kill -9
-//! of a writing child process, the owner lock, and a wrong key. It fails when
-//! the disk size is over 2x the live logical bytes. No primary or user data
-//! is opened.
+//! of a writing child process, the owner lock, and a wrong key. The bound
+//! phases sample the disk size during commits and merges with values that do
+//! not compress. It fails when the disk size is over 2x the live logical
+//! bytes. No primary or user data is opened.
 
+mod bound;
 mod crash;
 mod gen;
 
@@ -24,7 +27,7 @@ pub(crate) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const BATCHES: u64 = 200;
 const BATCH_OPS: usize = 1000;
-const MIB: f64 = 1024.0 * 1024.0;
+pub(crate) const MIB: f64 = 1024.0 * 1024.0;
 
 fn main() -> Result<()> {
     if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true") {
@@ -88,17 +91,18 @@ fn run(scratch: &Path) -> Result<()> {
     let checked = check_all(&home, &model)?;
     let ranges = check_ranges(&home, &model)?;
     if dropped == 0 {
-        return Err("no merge dropped tombstones".into());
+        return Err("no base merge step ran".into());
     }
     let (overwrites, overwrite_ratio) = check_overwrites(scratch, &key)?;
     commit_us.sort_unstable();
     println!("| Check | Result |");
     println!("|---|---|");
     println!(
-        "| Commit + merge | {BATCHES} commits of {BATCH_OPS} ops in {write_secs:.1} s; commit p50 {} us, p99 {} us; {merges} merges ({dropped} dropped tombstones); levels {:?} |",
+        "| Commit + merge | {BATCHES} commits of {BATCH_OPS} ops in {write_secs:.1} s; commit p50 {} us, p99 {} us; {merges} merges ({dropped} base steps); tiered levels {:?}, base {} runs |",
         commit_us[commit_us.len() / 2],
         commit_us[commit_us.len() * 99 / 100],
-        status.levels.iter().map(|l| l.0).collect::<Vec<_>>()
+        status.levels.iter().map(|l| l.0).collect::<Vec<_>>(),
+        status.base.0
     );
     println!(
         "| Size | {:.1} MiB on disk for {:.1} MiB live logical bytes: {ratio:.2}x |",
@@ -118,9 +122,11 @@ fn run(scratch: &Path) -> Result<()> {
         "| Owner lock and key | {} |",
         check_lock_and_key(&dir, &key)?
     );
-    for (name, ratio) in [("mixed", ratio), ("overwrite-heavy", overwrite_ratio)] {
-        if ratio > 2.0 {
-            return Err(format!("{name} disk size {ratio:.2}x is over the 2x target").into());
+    let mut ratios = vec![("mixed", ratio), ("overwrite-heavy", overwrite_ratio)];
+    ratios.extend(bound::phases(scratch, &key)?);
+    for (name, ratio) in ratios {
+        if ratio > bound::LIMIT {
+            return Err(format!("{name} disk size {ratio:.2}x is over the 2x limit").into());
         }
     }
     Ok(())
@@ -145,11 +151,13 @@ fn check_overwrites(scratch: &Path, key: &[u8; 32]) -> Result<(String, f64)> {
     let checked = check_all(&home, &model)?;
     let disk = dir_bytes(&dir)?;
     let ratio = disk as f64 / logical_bytes(&model) as f64;
-    let levels: Vec<usize> = home.status().levels.iter().map(|l| l.0).collect();
+    let status = home.status();
+    let levels: Vec<usize> = status.levels.iter().map(|l| l.0).collect();
     Ok((
         format!(
-            "400 commits over 20,000 keys: {:.1} MiB on disk, {ratio:.2}x of live bytes at the end, worst {worst:.2}x at a 50-commit check; levels {levels:?}; {checked} keys equal",
-            disk as f64 / MIB
+            "400 commits over 20,000 keys: {:.1} MiB on disk, {ratio:.2}x of live bytes at the end, worst {worst:.2}x at a 50-commit check; tiered levels {levels:?}, base {} runs; {checked} keys equal",
+            disk as f64 / MIB,
+            status.base.0
         ),
         ratio.max(worst),
     ))
@@ -245,7 +253,7 @@ fn check_held(dir: &Path, home: &RunHome, held: (RunRead, Model)) -> Result<Stri
             return Err(format!("held read changed at {collection}/{key:?}").into());
         }
     }
-    let in_current: usize = home.status().levels.iter().map(|l| l.0).sum();
+    let in_current = home.status().runs();
     let (with_held, _) = run_files(dir)?;
     let generation = read.generation();
     drop(read);
@@ -275,7 +283,7 @@ fn check_leftovers(dir: &Path, key: &[u8; 32], model: &Model) -> Result<String> 
     fs::write(dir.join(".CURRENT.partial.tmp"), b"partial")?;
     let home = RunHome::open(dir, key)?;
     let (named, leftovers) = run_files(dir)?;
-    let in_current: usize = home.status().levels.iter().map(|l| l.0).sum();
+    let in_current = home.status().runs();
     if named != in_current || leftovers != 0 || dir.join(".CURRENT.partial.tmp").exists() {
         return Err("reopen kept a leftover file".into());
     }
@@ -325,7 +333,7 @@ pub(crate) fn run_files(dir: &Path) -> Result<(usize, usize)> {
     Ok((runs, temporary))
 }
 
-fn dir_bytes(dir: &Path) -> Result<u64> {
+pub(crate) fn dir_bytes(dir: &Path) -> Result<u64> {
     let mut total = 0;
     for path in [dir.to_path_buf(), dir.join("runs")] {
         for entry in fs::read_dir(path)? {

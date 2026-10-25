@@ -75,7 +75,7 @@ pub fn kill_nine(scratch: &Path, key: &[u8; 32]) -> Result<String> {
             return Err(format!("acked {acked} commits but reopened at {frontier}").into());
         }
         let (named, leftovers) = run_files(&dir)?;
-        let in_current: usize = home.status().levels.iter().map(|l| l.0).sum();
+        let in_current = home.status().runs();
         if named != in_current || leftovers != 0 {
             return Err(format!(
                 "after reopen: {named} run files, {in_current} in CURRENT, {leftovers} temporary"

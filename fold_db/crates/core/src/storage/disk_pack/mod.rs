@@ -71,7 +71,8 @@ const NAMESPACES: &str = "namespaces\0";
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
     physical: physical::Physical,
-    view: RwLock<view::NativeReadView>,
+    /// Shared with the v2 merge thread, which installs merged roots.
+    view: Arc<RwLock<view::NativeReadView>>,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     restore_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
@@ -216,10 +217,10 @@ impl PackNamespacedStore {
         Self {
             runtime: Arc::new(PackRuntime {
                 physical,
-                view: RwLock::new(view::NativeReadView {
+                view: Arc::new(RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,
-                }),
+                })),
                 prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
                 restore_gate: Arc::new(tokio::sync::Mutex::new(())),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),

@@ -29,7 +29,7 @@ mod range;
 mod reader;
 mod writer;
 
-pub use merge::{merge_runs, MergeIter};
+pub use merge::{merge_runs, MergeIter, MergeSource, RunSequence};
 pub use range::RunRange;
 pub use reader::RunReader;
 pub use writer::{RunSummary, RunWriter};

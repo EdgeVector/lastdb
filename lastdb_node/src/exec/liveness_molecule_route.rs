@@ -10,12 +10,9 @@ pub(super) async fn explain_molecules(
     ctx: &AccessContext,
     storage_prefix: Option<&str>,
     id: &str,
-    mut ids: Vec<String>,
+    ids: Vec<String>,
 ) -> UdsResponse {
-    if !id.is_empty() {
-        ids.insert(0, id.to_string());
-    }
-    ids.truncate(10_000);
+    let ids = super::liveness_routes::target_ids(id, ids);
     let atoms = host.db.db_ops().atoms();
     let result = async {
         let read = async {
