@@ -21,9 +21,9 @@ pub struct Bootstrap {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LegacyDescriptor {
-    format_id: Text<{ cloud_backup_protocol::v2::limits::MAX_FORMAT_ID_BYTES }>,
+    format_id: Text<128>,
     format_version: DecimalU64,
-    public_bootstrap: Text<{ cloud_backup_protocol::v2::limits::MAX_BOOTSTRAP_BYTES }>,
+    public_bootstrap: Text<{ 16 * 1024 }>,
 }
 impl Bootstrap {
     pub fn descriptor(&self) -> StorageResult<ClientDescriptor> {

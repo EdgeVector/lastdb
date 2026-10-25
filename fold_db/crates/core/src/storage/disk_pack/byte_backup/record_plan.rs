@@ -14,7 +14,7 @@ use laststore::disk_pack::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
