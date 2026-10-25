@@ -175,12 +175,12 @@ impl PackNamespacedStore {
             current.generation,
             current.frontier,
         );
-        let physical = physical::Physical::V1(physical::V1Home {
+        let physical = physical::Physical::V1(Box::new(physical::V1Home {
             home,
             writer: Mutex::new(writer),
             read_lease,
             capture_cleanup,
-        });
+        }));
         Ok(Self::assemble(
             physical,
             physical::PhysicalRoot::V1(current),

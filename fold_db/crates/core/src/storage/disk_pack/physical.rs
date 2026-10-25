@@ -33,7 +33,7 @@ pub(super) struct V2Home {
 }
 
 pub(super) enum Physical {
-    V1(V1Home),
+    V1(Box<V1Home>),
     V2(V2Home),
 }
 
@@ -133,7 +133,7 @@ pub(super) enum ReadMode {
 
 /// One read call against one held root of either format.
 pub(super) enum PhysicalRead {
-    V1(laststore::disk_pack::home::HomeRead),
+    V1(Box<laststore::disk_pack::home::HomeRead>),
     V2(RunRead),
 }
 
@@ -299,7 +299,7 @@ impl PackRuntime {
     /// The v1 pack home, or a refusal for work that does not exist in format v2.
     pub(super) fn v1(&self) -> StorageResult<&V1Home> {
         match &self.physical {
-            Physical::V1(v1) => Ok(v1),
+            Physical::V1(v1) => Ok(v1.as_ref()),
             Physical::V2(_) => Err(not_in_v2()),
         }
     }
@@ -315,12 +315,12 @@ impl PackRuntime {
             (Physical::V1(v1), PhysicalRoot::V1(current), ReadMode::WritePreparation) => v1
                 .home
                 .read_for_write_preparation(current.clone(), &v1.read_lease)
-                .map(PhysicalRead::V1)
+                .map(|read| PhysicalRead::V1(Box::new(read)))
                 .map_err(map),
             (Physical::V1(v1), PhysicalRoot::V1(current), ReadMode::Ordinary(limits)) => v1
                 .home
                 .read_from_writer(current.clone(), limits, &v1.read_lease)
-                .map(PhysicalRead::V1)
+                .map(|read| PhysicalRead::V1(Box::new(read)))
                 .map_err(map),
             (Physical::V2(v2), PhysicalRoot::V2(root), mode) => {
                 let limits = match mode {
