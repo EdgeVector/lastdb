@@ -235,8 +235,8 @@ pub struct ResidentCommitReceipt {
     pub cloud: Option<CloudMutationReceipt>,
     /// Stage times for this commit.
     pub stages: ResidentCommitStages,
-    /// Fanout slots of partitions this batch wrote. The server fills this.
-    /// The client does not recompute the hash. It is not the flush set.
+    /// Legacy fanout slots, retained for receipt compatibility. Native writes
+    /// leave this empty; their durability belongs to the native commit queue.
     pub touched_group_ids: Vec<crate::durable_flush::TouchedGroupId>,
 }
 

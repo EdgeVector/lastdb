@@ -173,8 +173,6 @@ impl LastStoreKvStore {
         T: Send + 'static,
         F: FnOnce() -> StorageResult<T> + Send + 'static,
     {
-        // Task-locals die across this hop. Capture the batch log on the caller.
-        let batch_log = crate::durable_flush::current();
         let can_block = tokio::runtime::Handle::try_current().is_ok_and(|handle| {
             matches!(
                 handle.runtime_flavor(),
@@ -189,21 +187,14 @@ impl LastStoreKvStore {
                 if let Some(queued) = queued {
                     laststore::record_queue_wait(queued.elapsed());
                 }
-                laststore::with_admit_code(admit, || {
-                    let ((result, activity), placed) =
-                        laststore::observe_placed_writes(|| laststore::observe_read_activity(work));
-                    (result, activity, placed)
-                })
+                laststore::with_admit_code(admit, || laststore::observe_read_activity(work))
             })
         };
-        let (result, activity, placed) = if can_block {
+        let (result, activity) = if can_block {
             tokio::task::block_in_place(observed_work)
         } else {
             tokio::task::spawn_blocking(observed_work).await?
         };
-        if let Some(log) = batch_log {
-            log.record(placed);
-        }
         // Restore attribution in the caller's task-local scope after the
         // synchronous storage call. A store-wide delta would charge peers.
         crate::request_phases::add_counter(
