@@ -45,7 +45,7 @@ use lastdb_host::handlers::{self, render, AppSearchParams, HistoryScope, NativeS
 use lastdb_host::reject::{Reject, RejectKind, WireKey};
 use lastdb_host::wire::{
     body_object, parse_batch_mutation_body, parse_min_score, parse_mutation_body, parse_query_body,
-    path_tail, percent_decode, query_flag, query_value, schema_name_from_target, QueryRequest,
+    path_tail, query_flag, query_value, schema_name_from_target, QueryRequest,
 };
 use lastdb_host::HostError;
 
@@ -150,7 +150,7 @@ macro_rules! heap_route_ctx_host {
         fn start<'a>(ctx: &'a AccessContext, host: &'a Host) -> ErasedRoute<'a> {
             Box::pin(async move { $f(ctx, host).await })
         }
-        start($ctx, $host)
+        start($ctx, host)
     }};
 }
 
