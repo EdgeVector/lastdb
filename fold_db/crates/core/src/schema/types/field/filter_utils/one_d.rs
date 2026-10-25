@@ -10,22 +10,6 @@ use std::ops::Bound::{Excluded, Included, Unbounded};
 
 type Matches = HashMap<KeyValue, String>;
 
-enum Selection {
-    Key(String),
-    Keys(Vec<(String, String)>),
-    Page {
-        offset: usize,
-        limit: usize,
-        after: Option<String>,
-    },
-    Prefix(String),
-    Between {
-        start: String,
-        end: String,
-    },
-    Empty,
-}
-
 /// Apply hash-only semantics; slots are `(hash, "")`.
 pub fn apply_hash_filter(
     molecule: &MoleculeHashRange,
@@ -43,65 +27,52 @@ pub fn apply_range_filter(
 }
 
 /// Project selectors without widening unsupported or misrouted filters.
-fn selection(filter: HashRangeFilter, slot: OneDSlot) -> Selection {
-    use HashRangeFilter::*;
-    match (slot, filter) {
-        (_, SampleN(n)) => Selection::Page {
-            offset: 0,
-            limit: n.min(SAMPLE_PEEK_CAP),
-            after: None,
-        },
-        (_, Page { offset, limit }) => Selection::Page {
-            offset,
-            limit,
-            after: None,
-        },
-        (_, PageAfter { after, limit }) => Selection::Page {
-            offset: 0,
-            limit,
-            after: Some(
-                match slot {
-                    OneDSlot::Hash => after.hash,
-                    OneDSlot::Range => after.range,
-                }
-                .unwrap_or_default(),
-            ),
-        },
-        (_, HashKey(key)) | (OneDSlot::Range, RangeKey(key)) => Selection::Key(key),
-        (
-            OneDSlot::Hash,
-            HashRangeKey { hash, .. } | HashRangePrefix { hash, .. } | HashRangeRange { hash, .. },
-        ) => Selection::Key(hash),
-        (OneDSlot::Range, HashRangeKey { range, .. }) => Selection::Key(range),
-        (_, HashRangeKeys(keys)) => Selection::Keys(keys),
-        (OneDSlot::Range, RangePrefix(prefix) | HashRangePrefix { prefix, .. }) => {
-            Selection::Prefix(prefix)
-        }
-        (OneDSlot::Hash, HashRange { start, end })
-        | (OneDSlot::Range, RangeRange { start, end } | HashRangeRange { start, end, .. }) => {
-            Selection::Between { start, end }
-        }
-        // Patterns are unsupported in both modes. A range selector cannot
-        // select a hash field; a hash interval cannot select a range field.
-        (_, HashPattern(_) | RangePattern(_) | HashRangePattern { .. })
-        | (OneDSlot::Hash, RangeKey(_) | RangePrefix(_) | RangeRange { .. })
-        | (OneDSlot::Range, HashRange { .. }) => Selection::Empty,
-    }
-}
-
 fn apply_one_d(
     molecule: &MoleculeHashRange,
     filter: Option<HashRangeFilter>,
     slot: OneDSlot,
 ) -> HashRangeFilterResult {
-    let filter = filter.unwrap_or(HashRangeFilter::Page {
+    use HashRangeFilter::*;
+    let filter = filter.unwrap_or(Page {
         offset: 0,
         limit: DEFAULT_UNFILTERED_PAGE_LIMIT,
     });
     let mut matches = HashMap::new();
-    match selection(filter, slot) {
-        Selection::Key(key) => lookup(&mut matches, molecule, key, slot),
-        Selection::Keys(keys) => {
+    match (slot, filter) {
+        (_, SampleN(n)) => page(
+            &mut matches,
+            molecule,
+            slot,
+            0,
+            n.min(SAMPLE_PEEK_CAP),
+            None,
+        ),
+        (_, Page { offset, limit }) => page(&mut matches, molecule, slot, offset, limit, None),
+        (_, PageAfter { after, limit }) => {
+            let after = match slot {
+                OneDSlot::Hash => after.hash,
+                OneDSlot::Range => after.range,
+            };
+            page(
+                &mut matches,
+                molecule,
+                slot,
+                0,
+                limit,
+                Some(after.unwrap_or_default()),
+            );
+        }
+        (_, HashKey(key))
+        | (OneDSlot::Range, RangeKey(key) | HashRangeKey { range: key, .. })
+        | (
+            OneDSlot::Hash,
+            HashRangeKey { hash: key, .. }
+            | HashRangePrefix { hash: key, .. }
+            | HashRangeRange { hash: key, .. },
+        ) => {
+            lookup(&mut matches, molecule, key, slot);
+        }
+        (_, HashRangeKeys(keys)) => {
             for (hash, range) in keys {
                 let key = match slot {
                     OneDSlot::Hash => hash,
@@ -110,63 +81,75 @@ fn apply_one_d(
                 lookup(&mut matches, molecule, key, slot);
             }
         }
-        Selection::Page {
-            offset,
-            limit,
-            after,
-        } => extend(
-            &mut matches,
-            all_atoms(molecule, slot)
-                .into_iter()
-                .filter(|(key, _)| after.as_ref().is_none_or(|after| key > after))
-                .skip(offset)
-                .take(limit),
-            slot,
-        ),
-        Selection::Prefix(prefix) => {
-            if prefix.is_empty() {
-                extend(&mut matches, all_atoms(molecule, slot), slot);
-            } else if let Some(entries) = molecule.atom_entries_for_hash("") {
+        (OneDSlot::Range, RangePrefix(prefix) | HashRangePrefix { prefix, .. }) => {
+            extend(&mut matches, range_prefix(molecule, &prefix), slot);
+        }
+        (OneDSlot::Hash, HashRange { start, end }) => {
+            if start <= end {
                 extend(
                     &mut matches,
-                    entries
-                        .range::<str, _>((Included(prefix.as_str()), Unbounded))
-                        .take_while(|(key, _)| key.starts_with(&prefix))
-                        .map(|(key, entry)| (key.clone(), entry.atom_uuid.clone())),
+                    all_atoms(molecule, slot)
+                        .into_iter()
+                        .filter(|(key, _)| key >= &start && key < &end),
                     slot,
                 );
             }
         }
-        Selection::Between { start, end } => {
+        (OneDSlot::Range, RangeRange { start, end } | HashRangeRange { start, end, .. }) => {
             if start <= end {
-                match slot {
-                    OneDSlot::Hash => extend(
+                if let Some(entries) = molecule.atom_entries_for_hash("") {
+                    extend(
                         &mut matches,
-                        all_atoms(molecule, slot)
-                            .into_iter()
-                            .filter(|(key, _)| key >= &start && key < &end),
+                        entries
+                            .range::<str, _>((Included(start.as_str()), Excluded(end.as_str())))
+                            .map(|(key, entry)| (key.clone(), entry.atom_uuid.clone())),
                         slot,
-                    ),
-                    OneDSlot::Range => {
-                        if let Some(entries) = molecule.atom_entries_for_hash("") {
-                            extend(
-                                &mut matches,
-                                entries
-                                    .range::<str, _>((
-                                        Included(start.as_str()),
-                                        Excluded(end.as_str()),
-                                    ))
-                                    .map(|(key, entry)| (key.clone(), entry.atom_uuid.clone())),
-                                slot,
-                            );
-                        }
-                    }
+                    );
                 }
             }
         }
-        Selection::Empty => {}
+        // Patterns are unsupported in both modes. A range selector cannot
+        // select a hash field; a hash interval cannot select a range field.
+        (_, HashPattern(_) | RangePattern(_) | HashRangePattern { .. })
+        | (OneDSlot::Hash, RangeKey(_) | RangePrefix(_) | RangeRange { .. })
+        | (OneDSlot::Range, HashRange { .. }) => {}
     }
     HashRangeFilterResult::new(matches)
+}
+
+fn page(
+    matches: &mut Matches,
+    molecule: &MoleculeHashRange,
+    slot: OneDSlot,
+    offset: usize,
+    limit: usize,
+    after: Option<String>,
+) {
+    extend(
+        matches,
+        all_atoms(molecule, slot)
+            .into_iter()
+            .filter(|(key, _)| after.as_ref().is_none_or(|after| key > after))
+            .skip(offset)
+            .take(limit),
+        slot,
+    );
+}
+
+fn range_prefix(molecule: &MoleculeHashRange, prefix: &str) -> Vec<(String, String)> {
+    if prefix.is_empty() {
+        return all_atoms(molecule, OneDSlot::Range);
+    }
+    molecule
+        .atom_entries_for_hash("")
+        .map(|entries| {
+            entries
+                .range::<str, _>((Included(prefix), Unbounded))
+                .take_while(|(key, _)| key.starts_with(prefix))
+                .map(|(key, entry)| (key.clone(), entry.atom_uuid.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn projected_key(key: String, slot: OneDSlot) -> KeyValue {
