@@ -4,7 +4,10 @@
 The home has the shape of the primary (seed.py). In case "format-1" the
 program that runs the primary writes the seed: node format 1, key format 5,
 and an outer envelope on each record. In case "format-2" the candidate writes
-it as a v1 home of node format 2. In each case:
+it as a v1 home of node format 2. These two cases run with the engine
+settings of the primary job, so the records have the envelope forms of the
+primary (compressed and raw). Case "format-1-defaults" repeats format-1 with
+the default settings. In each case:
 
 1. the seed program writes the seed, and every key reads back as the model
    expects;
@@ -41,8 +44,30 @@ READ_KEYS = 100
 START_SECONDS = 1800
 SERIES_POINTS = 400
 NODE_MARKER = "laststore-pack-node-v1"
-V1_MARKERS = {"format-1": b"format=1\nhome=disk-pack\n",
-              "format-2": b"format=2\nhome=disk-pack\n"}
+FORMAT_1 = b"format=1\nhome=disk-pack\n"
+FORMAT_2 = b"format=2\nhome=disk-pack\n"
+# The settings of the primary's launchd job that both programs read: the
+# envelope forms at rest (the KV seam compresses and writes binary
+# envelopes), the atom size limit, the memory budget, and the admin timeout.
+# Neither program reads the other LASTDB_* settings of the job.
+PRIMARY_SETTINGS = {
+    "LASTDB_ENGINE": "laststore",
+    "LASTDB_KV_AT_REST_COMPRESS": "1",
+    "LASTDB_KV_AT_REST_RAW": "1",
+    "LASTDB_AT_REST_RAW": "1",
+    "LASTDB_MAX_ATOM_CONTENT_BYTES": "524288",
+    "LASTDB_HASH_GROUP_WARM_BYTES": "4294967296",
+    "LASTDB_RESIDENT_MAX_DEFERRED_BYTES": "67108864",
+    "LASTDB_RSS_BUDGET_MULTIPLIER": "1.75",
+    "LASTDBD_RSS_LIMIT_MB": "16384",
+    "LASTDB_UDS_ADMIN_TIMEOUT_SECS": "3600",
+}
+# Case: (the program that writes the seed, its node marker, the engine settings).
+CASES = {
+    "format-1": ("primary", FORMAT_1, PRIMARY_SETTINGS),
+    "format-2": ("candidate", FORMAT_2, PRIMARY_SETTINGS),
+    "format-1-defaults": ("primary", FORMAT_1, {}),
+}
 RUN_NODE = b"format=3\nhome=disk-run\ncas=disk-cas\n"
 KEPT = "data-disk-format-v1"
 CONVERTED = "disk format conversion to v2 complete"
@@ -112,9 +137,11 @@ def settle(data, seconds=180):
 class Case:
     def __init__(self, name, seeder, candidate, output, number):
         self.name, self.seeder, self.candidate = name, seeder, candidate
+        _, self.v1_marker, self.settings = CASES[name]
         self.folder = output / name
         self.folder.mkdir(parents=True)
-        self.node = Node(seeder[0], seeder[1], self.folder, start_seconds=START_SECONDS)
+        self.node = Node(seeder[0], seeder[1], self.folder, environment=dict(self.settings),
+                         start_seconds=START_SECONDS)
         self.data, self.kept = self.node.home / "data", self.node.home / KEPT
         self.sampler = Sampler(self.data)
         self.seed = Seed(number)
@@ -133,7 +160,8 @@ class Case:
             except Exception as failure:
                 self.failures.append(f"cleanup: {type(failure).__name__}: {failure}")
         report = {"case": self.name, "seed_program": self.seeder[1],
-                  "candidate": self.candidate[1], "seed": self.seed.counts,
+                  "candidate": self.candidate[1], "settings": self.settings,
+                  "seed": self.seed.counts,
                   "phases": self.phases, "failures": self.failures,
                   "sampler_errors": self.sampler.errors[:20]}
         save(self.folder / "report.json", report)
@@ -144,8 +172,9 @@ class Case:
         self.convert()
         self.write_v2()
         kept = listing(self.kept)
-        self.reopen("open again with LASTDB_DISK_FORMAT=2", {"LASTDB_DISK_FORMAT": "2"})
-        self.reopen("open again without LASTDB_DISK_FORMAT", {})
+        self.reopen("open again with LASTDB_DISK_FORMAT=2",
+                    {**self.settings, "LASTDB_DISK_FORMAT": "2"})
+        self.reopen("open again without LASTDB_DISK_FORMAT", dict(self.settings))
         if listing(self.kept) != kept:
             self.failures.append("the kept v1 folder changed after the conversion")
 
@@ -158,7 +187,7 @@ class Case:
         reads = self.reads()
         self.node.stop()
         marker = (self.data / NODE_MARKER).read_bytes()
-        if marker != V1_MARKERS[self.name]:
+        if marker != self.v1_marker:
             raise ProofError(f"the seed home has the node marker {marker!r}")
         self.phases.append({"name": f"seed (v1, {self.seeder[1][:12]})", "gated": False,
                             "writes": writes, "logical": logical, "reads": reads,
@@ -166,7 +195,7 @@ class Case:
 
     def convert(self):
         self.node.binary, self.node.revision = self.candidate
-        self.node.environment = {"LASTDB_DISK_FORMAT": "2"}
+        self.node.environment = {**self.settings, "LASTDB_DISK_FORMAT": "2"}
         log_start = log_size(self.folder / "node.log")
         self.sampler.begin("conversion")
         started = time.monotonic()
@@ -191,7 +220,7 @@ class Case:
         marker = (self.data / NODE_MARKER).read_bytes()
         if marker != RUN_NODE:
             raise ProofError(f"after the conversion the node marker is {marker!r}")
-        if (self.kept / NODE_MARKER).read_bytes() != V1_MARKERS[self.name]:
+        if (self.kept / NODE_MARKER).read_bytes() != self.v1_marker:
             raise ProofError("the kept folder lacks the v1 node marker")
         for name in ("disk-pack", "laststore-layout-v1"):
             if (self.data / name).exists() or not (self.kept / name).exists():
@@ -354,8 +383,9 @@ def summary(reports, primary, candidate):
     for report in reports:
         verdict = "FAIL" if report["failures"] else "PASS"
         counts = report["seed"]
+        settings = "the primary job" if report["settings"] else "the defaults"
         lines += [f"### {report['case']}: {verdict}", "",
-                  f"Seed program `{report['seed_program'][:12]}`. Mutations: "
+                  f"Seed program `{report['seed_program'][:12]}`, engine settings of {settings}. Mutations: "
                   f"{counts['creates']:,} creates, {counts['updates']:,} updates, "
                   f"{counts['deletes']:,} deletes, {counts['field_values']:,} field values.", "",
                   "| Phase | Logical atoms | Node folder at end | Peak v2 / logical | Samples | Keys read |",
@@ -398,14 +428,14 @@ def main():
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--candidate-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--case", choices=sorted(V1_MARKERS), action="append")
+    parser.add_argument("--case", choices=list(CASES), action="append")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     candidate = (args.candidate.resolve(strict=True), args.candidate_revision)
     primary = (args.primary.resolve(strict=True), args.primary_revision)
     reports = []
-    for number, name in enumerate(args.case or sorted(V1_MARKERS), start=1):
-        seeder = primary if name == "format-1" else candidate
+    for number, name in enumerate(args.case or list(CASES), start=1):
+        seeder = primary if CASES[name][0] == "primary" else candidate
         reports.append(Case(name, seeder, candidate, args.output, number).execute())
     save(args.output / "node-proof.json", {"limit": LIMIT, "profile": PROFILE,
                                            "reports": reports})
