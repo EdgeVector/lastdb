@@ -17,10 +17,13 @@
 
 use crate::crypto::E2eKeys;
 
+pub mod conversion;
+pub mod storage_profile;
+
 /// Chokepoint: API HashKey/RangeKey → storage segments.
 ///
 /// Free `hash_range_*` builders below take **storage-form** segments.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MoleculeKeyCodec {
     hash_encoding: HashKeyEncoding,
     range_encoding: RangeKeyEncoding,
@@ -28,6 +31,15 @@ pub struct MoleculeKeyCodec {
     index_key: Option<[u8; 32]>,
     /// Required when range encoding is OPE.
     ope_key: Option<[u8; 32]>,
+}
+
+impl std::fmt::Debug for MoleculeKeyCodec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MoleculeKeyCodec")
+            .field("hash_encoding", &self.hash_encoding)
+            .field("range_encoding", &self.range_encoding)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for MoleculeKeyCodec {
@@ -182,6 +194,10 @@ pub enum MoleculeKeyCodecError {
     MissingIndexKey,
     /// OPE encoding requested but no E2E ope key is configured.
     MissingOpeKey,
+    /// An explicitly selected range profile rejects the coordinate or token.
+    InvalidRange(String),
+    /// A conversion must respect the caller's physical key byte limit.
+    RangeKeyTooLarge,
 }
 
 impl std::fmt::Display for MoleculeKeyCodecError {
@@ -195,6 +211,8 @@ impl std::fmt::Display for MoleculeKeyCodecError {
                 f,
                 "range_key_encoding requires E2E ope_key (set encoding=plain or provide ope key)"
             ),
+            Self::InvalidRange(reason) => write!(f, "invalid range key: {reason}"),
+            Self::RangeKeyTooLarge => write!(f, "range key exceeds the conversion byte limit"),
         }
     }
 }

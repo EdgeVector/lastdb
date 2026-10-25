@@ -79,7 +79,7 @@ impl CanonicalRange<'_> {
     }
 }
 
-fn ordered_type(field_type: &FieldValueType) -> Result<&FieldValueType, String> {
+pub(crate) fn ordered_type(field_type: &FieldValueType) -> Result<&FieldValueType, String> {
     if let FieldValueType::OneOf(variants) = field_type {
         let mut non_null = variants.iter().filter(|v| **v != FieldValueType::Null);
         let first = non_null.next().ok_or("a required key cannot be null")?;
