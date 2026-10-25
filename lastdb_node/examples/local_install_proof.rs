@@ -11,7 +11,8 @@ use std::process::Command;
 fn main() -> Result<(), String> {
     println!("=== Local Install Source Proof ===\n");
 
-    let temp_dir = tempfile::TempDir::new().map_err(|e| format!("failed to create temp dir: {e}"))?;
+    let temp_dir =
+        tempfile::TempDir::new().map_err(|e| format!("failed to create temp dir: {e}"))?;
     let repo_path = temp_dir.path().join("test-app");
     let install_dir = temp_dir.path().join("installed");
 
@@ -41,7 +42,10 @@ fn main() -> Result<(), String> {
     .map_err(|e| format!("failed to write manifest: {e}"))?;
 
     git(&repo_path, &["add", "test-local-app.app.json"])?;
-    git(&repo_path, &["commit", "-m", "Initial commit with manifest"])?;
+    git(
+        &repo_path,
+        &["commit", "-m", "Initial commit with manifest"],
+    )?;
 
     let rev_output = Command::new("git")
         .arg("-C")
@@ -55,10 +59,15 @@ fn main() -> Result<(), String> {
         return Err("git rev-parse HEAD failed".to_string());
     }
 
-    let rev = String::from_utf8_lossy(&rev_output.stdout).trim().to_string();
+    let rev = String::from_utf8_lossy(&rev_output.stdout)
+        .trim()
+        .to_string();
     println!("2. Committed manifest at rev: {}\n", &rev[..12]);
 
-    git(&repo_path, &["commit", "--allow-empty", "-m", "Second commit"])?;
+    git(
+        &repo_path,
+        &["commit", "--allow-empty", "-m", "Second commit"],
+    )?;
 
     println!(
         "3. Running: lastdb app install test-local-app --from {} --rev {} --dev --dir {} --force",
@@ -101,8 +110,8 @@ fn main() -> Result<(), String> {
         return Err(format!("receipt not found at {}", receipt_path.display()));
     }
 
-    let receipt_contents = fs::read_to_string(&receipt_path)
-        .map_err(|e| format!("failed to read receipt: {e}"))?;
+    let receipt_contents =
+        fs::read_to_string(&receipt_path).map_err(|e| format!("failed to read receipt: {e}"))?;
     let receipt: serde_json::Value = serde_json::from_str(&receipt_contents)
         .map_err(|e| format!("failed to parse receipt: {e}"))?;
 
@@ -151,7 +160,11 @@ fn main() -> Result<(), String> {
     println!("Checkout HEAD: {}", &checkout_rev[..12]);
 
     println!("\n=== PROOF COMPLETE ===");
-    println!("✓ Local install from {} at rev {} succeeded", repo_path.display(), &rev[..12]);
+    println!(
+        "✓ Local install from {} at rev {} succeeded",
+        repo_path.display(),
+        &rev[..12]
+    );
     println!("✓ Receipt written with correct metadata");
     println!("✓ Checkout at correct revision");
     println!("✓ Manifest readable in checkout");
@@ -179,8 +192,8 @@ fn git(repo: &std::path::Path, args: &[&str]) -> Result<(), String> {
 }
 
 fn find_lastdb_binary() -> Result<PathBuf, String> {
-    let workspace_root = std::env::current_dir()
-        .map_err(|e| format!("failed to get current dir: {e}"))?;
+    let workspace_root =
+        std::env::current_dir().map_err(|e| format!("failed to get current dir: {e}"))?;
 
     let candidates = [
         workspace_root.join("target/debug/lastdb"),

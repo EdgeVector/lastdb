@@ -18,6 +18,9 @@ pub(crate) use self::publish::*;
 #[path = "app_cmds/registry.rs"]
 mod registry;
 pub(crate) use self::registry::*;
+#[path = "app_cmds/local_install.rs"]
+mod local_install;
+pub(crate) use self::local_install::*;
 #[path = "app_cmds/release.rs"]
 mod release;
 pub(crate) use self::release::*;
