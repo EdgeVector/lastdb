@@ -292,7 +292,9 @@ fn native_layout_status_line(store_root: &Path) -> Result<Option<String>, String
 
     let fence = match std::fs::File::open(store_root.join("laststore-layout-v1")) {
         Ok(file) => file,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(run_layout_status_line(store_root));
+        }
         Err(error) => return Err(error.to_string()),
     };
     let mut bytes = Vec::new();
@@ -311,6 +313,15 @@ fn native_layout_status_line(store_root: &Path) -> Result<Option<String>, String
         "Layout: native packed storage key=hash-prefix epoch={} groups=1024 fanout={}",
         descriptor.layout_epoch, descriptor.hash_fanout
     )))
+}
+
+/// A disk format v2 home has no layout file; its node marker names the run home.
+fn run_layout_status_line(store_root: &Path) -> Option<String> {
+    let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
+    (marker == b"format=3\nhome=disk-run\n").then(|| {
+        "Layout: disk format v2 run home (one sorted run file per commit, merged in the background)"
+            .to_string()
+    })
 }
 
 #[path = "status_ops_cmds/ops_rollup.rs"]

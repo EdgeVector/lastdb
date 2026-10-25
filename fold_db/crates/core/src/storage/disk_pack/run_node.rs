@@ -7,7 +7,8 @@
 //!
 //! Creation is explicit in this release: [`PackNamespacedStore::create_run`],
 //! or `LASTDB_DISK_FORMAT=2` when a node opens an absent or empty home. An
-//! empty home that opens without either still becomes a v1 home. The run home
+//! empty home that opens without either still becomes a v1 home. The same
+//! setting converts an existing v1 home once (see `convert_v2`). The run home
 //! is complete before the marker appears, so a crash during creation leaves a
 //! home that open refuses as not empty; the owner deletes it and creates again.
 //!
@@ -23,7 +24,7 @@ use laststore::disk_run::home::RunHome;
 use std::io::Write;
 
 pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\n";
-const RUN_DIR: &str = "disk-run";
+pub(super) const RUN_DIR: &str = "disk-run";
 const INTENT: &str = "laststore-run-initializing";
 const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 
@@ -53,7 +54,7 @@ pub(super) fn wants_new_run_node(path: &Path) -> StorageResult<bool> {
 
 /// The run home key: HKDF-SHA256 of the node encryption key. The copy is
 /// cleared when it drops.
-fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
+pub(super) fn home_key(node_key: &[u8; 32]) -> zeroize::Zeroizing<[u8; 32]> {
     let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, node_key);
     let mut key = zeroize::Zeroizing::new([0u8; 32]);
     hkdf.expand(HOME_KEY_LABEL, key.as_mut())

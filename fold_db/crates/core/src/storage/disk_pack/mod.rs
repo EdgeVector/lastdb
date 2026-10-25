@@ -16,10 +16,12 @@ mod boundary;
 pub mod byte_backup;
 mod cloud_work;
 mod convert_envelopes;
+mod convert_v2;
 pub mod file_dependencies;
 pub mod file_recovery;
 pub use cloud_work::NativeCloudWorkGuard;
 pub use convert_envelopes::convert_transferred_node;
+pub use convert_v2::{kept_v1_path, DiskConversionReport};
 mod initialization;
 mod kv;
 pub(crate) mod logical_paths;
@@ -131,10 +133,14 @@ impl PackNamespacedStore {
     }
 
     /// Open a node store with the node encryption key. A v2 run home needs
-    /// the key: its home key derives from it. A v1 home ignores it.
+    /// the key: its home key derives from it. With the key and
+    /// `LASTDB_DISK_FORMAT=2`, a v1 home is converted to v2 once first.
     pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         let space_policy = space::policy_from_env()?;
+        if let Some(node_key) = node_key {
+            convert_v2::resume_or_convert(path, node_key)?;
+        }
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
         }
