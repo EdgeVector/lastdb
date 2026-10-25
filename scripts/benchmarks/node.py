@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import time
@@ -162,8 +163,11 @@ class Node:
         return None
 
     def disk_bytes(self):
+        return self.disk_usage()["logical_bytes"]
+
+    def disk_usage(self):
         # Bound the generated-home walk by depth, entry count, and elapsed time.
-        stack, entries, size = [(self.home, 0)], 0, 0
+        stack, entries, logical, allocated = [(self.home, 0)], 0, 0, 0
         deadline = time.monotonic() + 15
         while stack:
             parent, depth = stack.pop()
@@ -178,14 +182,18 @@ class Node:
                 entries += 1
                 if entries > 1_000_000 or time.monotonic() > deadline:
                     raise RuntimeError("The owned-home size check exceeded its bound")
-                if path.is_symlink():
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    # The product maintenance worker can reclaim a file.
+                    continue
+                if stat.S_ISLNK(info.st_mode):
                     raise RuntimeError("A generated home contains an unexpected symlink")
-                if path.is_dir():
+                if stat.S_ISDIR(info.st_mode):
                     stack.append((path, depth + 1))
                 else:
-                    try:
-                        size += path.stat().st_size
-                    except FileNotFoundError:
-                        # The product maintenance worker can reclaim a file.
-                        continue
-        return size
+                    if not hasattr(info, "st_blocks"):
+                        raise RuntimeError("The generated-home filesystem lacks allocated block counts")
+                    logical += info.st_size
+                    allocated += info.st_blocks * 512
+        return {"logical_bytes": logical, "allocated_bytes": allocated}

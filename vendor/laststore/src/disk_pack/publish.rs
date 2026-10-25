@@ -244,6 +244,7 @@ impl<'a> Publisher<'a> {
         mut mutations: Vec<PreparedMutation>,
         references: &mut ReferenceCache,
     ) -> Result<()> {
+        crate::commit_timing::count("publisher_batch_calls", 1);
         self.mutations += mutations.len() as u64;
         // Physical sort preserves the original operation version for repeated keys.
         mutations.sort_by(|a, b| {

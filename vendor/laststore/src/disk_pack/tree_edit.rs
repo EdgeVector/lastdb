@@ -1,5 +1,6 @@
 use super::live_parts::{Changes, ReferenceCache};
 use super::page::Page;
+use super::parent_usage::{self, Origin};
 use super::sparse_pages::SparsePages;
 use super::tree_output::{self, Child, Descriptor, LeafEntry, TreePages};
 use super::{corrupt, key_layout, ReadCall, TreeRoot};
@@ -104,6 +105,7 @@ impl<P: TreePages> TreeEdit<P> {
         if changes.is_empty() {
             return Ok(());
         }
+        parent_usage::started(self.root.kind, self.track_changes, changes.len());
         self.failed = true;
         let path = PathStep {
             number: self.root.page,
@@ -116,9 +118,10 @@ impl<P: TreePages> TreeEdit<P> {
         let mut children = self.edit(call, references, path, changes)?;
         let mut height = self.root.height;
         while children.len() > 1 {
-            children = self.parents(height, &children)?;
+            children = self.parents(height, &children, Origin::AddedLevel)?;
             height += 1;
         }
+        parent_usage::completed(self.root.kind, self.track_changes, self.root.height, height);
         self.root.page = children[0].number;
         self.root.height = height;
         self.failed = false;
@@ -134,6 +137,13 @@ impl<P: TreePages> TreeEdit<P> {
     ) -> Result<Vec<Child>> {
         let page = call.tree_page(&self.root, path.number)?;
         validate_page(call, &self.root, &page, &path)?;
+        parent_usage::input(
+            self.root.kind,
+            &page,
+            path.is_root,
+            call.current.generation,
+            self.track_changes,
+        );
         if self.track_changes {
             super::page_usage::input(
                 page.kind(),
@@ -209,11 +219,11 @@ impl<P: TreePages> TreeEdit<P> {
         if first != changes.len() {
             return Err(corrupt("tree changes outside parent interval"));
         }
-        self.parents(path.level, &out)
+        self.parents(path.level, &out, Origin::from_root(path.is_root))
     }
 
-    fn parents(&mut self, level: u8, children: &[Child]) -> Result<Vec<Child>> {
-        super::tree_partition::parents(self.root.kind, children)?
+    fn parents(&mut self, level: u8, children: &[Child], origin: Origin) -> Result<Vec<Child>> {
+        let output: Vec<Child> = super::tree_partition::parents(self.root.kind, children)?
             .into_iter()
             .map(|range| {
                 tree_output::parent(
@@ -223,7 +233,9 @@ impl<P: TreePages> TreeEdit<P> {
                     &children[range],
                 )
             })
-            .collect()
+            .collect::<Result<_>>()?;
+        parent_usage::output(self.root.kind, self.track_changes, origin, output.len());
+        Ok(output)
     }
 
     fn edit_leaf(
@@ -300,6 +312,7 @@ impl<P: TreePages> TreeEdit<P> {
         old: Option<&[u8]>,
         new: &[u8; 128],
     ) -> Result<()> {
+        parent_usage::value(self.root.kind, old, new);
         if self.track_changes && self.root.kind == super::TreeKind::Locator {
             if let Some(old) = old {
                 self.changes.observe_location(old, &call.current, -1)?;

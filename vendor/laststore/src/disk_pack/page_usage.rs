@@ -68,6 +68,7 @@ pub(crate) fn initial_counts() -> BTreeMap<&'static str, u64> {
     counts.insert("snapshot_invalid_usage_pages", 0);
     counts.insert("locator_leaf_balanced_splits", 0);
     counts.extend(SPLITS.iter().flatten().map(|&name| (name, 0)));
+    counts.extend(super::parent_usage::initial_counts());
     counts
 }
 
