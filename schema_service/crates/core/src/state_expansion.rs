@@ -219,6 +219,7 @@ impl SchemaServiceState {
 
         Self::stamp_predecessor_mappers(schema, &existing_fields, old_name);
         merge_existing_metadata(schema, existing);
+        self.apply_canonical_types(schema)?;
 
         // Recompute identity hash with merged fields.
         // The expanded schema is a NEW schema — its name is the identity hash
@@ -239,8 +240,7 @@ impl SchemaServiceState {
         // Fails if classification cannot be determined (no ANTHROPIC_API_KEY for new fields).
         self.register_canonical_fields(schema).await?;
 
-        // Propagate canonical field types, classifications, and interest categories to the expanded schema
-        self.apply_canonical_types(schema);
+        // Propagate classifications and interest categories for the new fields.
         self.apply_canonical_classifications(schema);
         self.apply_canonical_interest_categories(schema);
 

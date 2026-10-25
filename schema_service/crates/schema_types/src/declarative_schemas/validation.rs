@@ -1,6 +1,12 @@
 use super::DeclarativeSchemaDefinition;
 
 impl DeclarativeSchemaDefinition {
+    /// Shared admission checks for wire and programmatic definitions.
+    pub fn validate_definition(&self) -> Result<(), String> {
+        self.validate_field_names()?;
+        self.validate_key_field_types()
+    }
+
     /// Reject the removed internal record field in schemas and mutations.
     pub fn validate_field_name(name: &str) -> Result<(), String> {
         if matches!(name, "\u{1f}record" | "__record") {

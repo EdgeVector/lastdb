@@ -3,6 +3,7 @@ impl SchemaServiceState {
     /// Reject proposals whose shape would break identity hashing or the
     /// descriptive_name / field registries. Pure: reads the proposal only.
     pub(super) fn validate_proposal_shape(schema: &Schema) -> FoldDbResult<()> {
+        schema.validate_definition().map_err(FoldDbError::Config)?;
         Self::validate_descriptive_name(schema)?;
         Self::validate_field_names(schema)
     }
