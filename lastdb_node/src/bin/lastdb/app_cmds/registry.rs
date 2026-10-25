@@ -98,18 +98,26 @@ pub(crate) fn app_list(
             index.generated_at
         );
     } else {
+        use lastdb_node::version;
         let socket = lastdb_uds::uds::socket_path(&home.join("data"));
         let (node, _) = registry_index::running_lastdb_version(None, &socket);
+        let versions = registry_index::ContractVersions {
+            api_version: version::CURRENT_API_VERSION,
+            min_supported_api_version: version::MIN_SUPPORTED_API_VERSION,
+            outbox_format_version: version::CURRENT_OUTBOX_FORMAT_VERSION,
+            min_supported_outbox_format_version: version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
+        };
         println!(
             "# {} index · {} · node {node}",
             index.channel,
             location.describe(&channel)
         );
         for app in &index.apps {
-            let proved_here = registry_index::pick_row(&index, &app.app_id, &node).map_or_else(
-                |_| "no row for this node".to_string(),
-                |(_, row)| format!("{} @ {}", row.app_version, short_sha(&row.sha)),
-            );
+            let proved_here = registry_index::pick_row(&index, &app.app_id, &node, &versions)
+                .map_or_else(
+                    |_| "no row for this node".to_string(),
+                    |(_, row)| format!("{} @ {}", row.app_version, short_sha(&row.sha)),
+                );
             println!(
                 "{}\t{}\t{} rows\t{}",
                 app.app_id,

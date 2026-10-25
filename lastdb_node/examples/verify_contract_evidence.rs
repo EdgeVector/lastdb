@@ -50,7 +50,7 @@ fn test_real_manifests() {
             );
         }
         Err(e) => {
-            println!("✗ {}", e);
+            println!("✗ {e}");
             return;
         }
     }
@@ -85,7 +85,7 @@ fn test_real_manifests() {
             );
         }
         Err(e) => {
-            println!("ERR: {}", e);
+            println!("ERR: {e}");
         }
     }
     println!();
@@ -116,7 +116,7 @@ fn test_contract_surfaces_validation() {
             println!("  contract_surfaces: {:?}", manifest.contract_surfaces);
         }
         Err(e) => {
-            println!("ERR: {}", e);
+            println!("ERR: {e}");
         }
     }
     println!();
@@ -154,7 +154,7 @@ fn test_contract_surfaces_validation() {
         }
         Err(e) => {
             println!("REJECTED");
-            println!("  Error: {}", e);
+            println!("  Error: {e}");
         }
     }
 
@@ -191,7 +191,7 @@ fn test_index_batch_parsing() {
             println!("  changes: {} item(s)", batch.changes.len());
         }
         Err(e) => {
-            println!("ERR: {}", e);
+            println!("ERR: {e}");
             return;
         }
     }
@@ -222,7 +222,7 @@ fn test_index_batch_parsing() {
             println!("  change kind: {:?}", batch.changes[0].kind);
         }
         Err(e) => {
-            println!("ERR: {}", e);
+            println!("ERR: {e}");
         }
     }
     println!();
@@ -239,7 +239,7 @@ fn test_index_batch_parsing() {
                 println!("  format_version: SKIPPED (skip_serializing_if when == 1)");
             }
         }
-        Err(e) => println!("ERR: {}", e),
+        Err(e) => println!("ERR: {e}"),
     }
     println!();
 }
