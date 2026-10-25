@@ -96,16 +96,21 @@ def exercise(args):
             raise RuntimeError("TTL did not complete with a bounded expired-key page")
         validate_live(node)
         check_removed(node, OLD, [(OLD_HASHES[n // 512], f"{1:020d}-{n:09d}") for n in range(8192)])
+        result.update(expired_absent=8192, fresh_before_restart=4096,
+                      observed_peak_buffered_keys=peak, ttl=settled)
         erase_cases(node)
+        result.update(deleted_absent=64, purged_absent=64)
         node.stop()
         node.environment["LASTDB_TTL_SWEEP"] = "0"
         node.start()
         definition = node.call(f"/api/schema/{OLD}")[0]["schema"]
         cleanup = [markers(node, molecule) for molecule in sorted(set(definition["field_molecule_uuids"].values()))]
+        result["cleanup"] = cleanup
         try:
             node.call("/api/db/compact", {"dry_run": False, "full_copy": True})
         except RuntimeError as error:
-            if "this operation is not in format v2" not in str(error):
+            if ("HTTP 400:" not in str(error) or
+                    "format v2 uses background run merges; explicit pack compaction is unavailable" not in str(error)):
                 raise
             compact = {"v1_compaction_refused": str(error)}
         else:

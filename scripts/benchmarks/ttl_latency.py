@@ -91,14 +91,17 @@ def writes(node, clients, output, diagnostic=False):
     width = 64 if diagnostic else CALLS
     rows, coverage = [], []
     first, started = time.time(), time.perf_counter()
+    first_us = time.time_ns() // 1000
     for sequence, start in enumerate(range(0, CALLS, width)):
         wave = write_wave(node, clients, jobs[start:start + width])
         elapsed, last = time.perf_counter() - started, time.time()
+        last_us = time.time_ns() // 1000
         coverage.append(capture_phases(node, output, f"ttl-write/{clients}", sequence, wave))
         rows.extend(wave)
     metric = describe(rows, elapsed)
     metric.update(clients=clients, batch_records=BATCH, first_unix=first, last_unix=last,
-                  diagnostic=diagnostic, diagnostic_wave_calls=width if diagnostic else None)
+                  diagnostic=diagnostic, diagnostic_wave_calls=width if diagnostic else None,
+                  case_started_unix_us=first_us, case_ended_unix_us=last_us)
     metric["phase_coverage"] = {"requests": len(rows),
         "matched": sum(c["matched"] for c in coverage),
         "with_phases": sum(c["with_phases"] for c in coverage),
@@ -137,7 +140,7 @@ def validate_live(node):
 
 def measure(binary, revision, output, state, clients, maintenance, diagnostic=False):
     output.mkdir()
-    node = Node(binary, revision, output, environment={"LASTDB_TTL_SWEEP": "0",
+    node = Node(binary, revision, output, native_timing=diagnostic, environment={"LASTDB_TTL_SWEEP": "0",
                 "LASTDB_SELF_METRICS_SAMPLE_SECS": "1"})
     result, compact = {"complete": False}, None
     try:
@@ -240,7 +243,7 @@ def main():
                 "expired_hashes": len(OLD_HASHES), "expired_records_per_hash": 512,
                 "sampler_seconds": 1, "ttl_pacing": "product defaults", "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name) for name in
-                            ("ttl_latency.py", "ttl_maintenance.py", "ttl_profile.py", "node.py", "phases.py", "workload.py")},
+                            ("ttl_latency.py", "ttl_maintenance.py", "ttl_profile.py", "native_phases.py", "node.py", "phases.py", "workload.py")},
                 "binaries": {}}
     for label in ("baseline", "candidate"):
         manifest["binaries"][label] = {"revision": getattr(args, f"{label}_revision"),

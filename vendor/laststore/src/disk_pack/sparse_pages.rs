@@ -3,7 +3,7 @@ use super::tree_output::TreePages;
 use super::{corrupt, TreeKind, TreeRoot};
 use crate::{durability, Result};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -15,7 +15,7 @@ pub(super) struct SparsePages {
     kind: TreeKind,
     generation: u64,
     next: u64,
-    file: Option<File>,
+    file: Option<BufWriter<File>>,
     pub(super) written_pages: u64,
     part_numbers: Vec<u32>,
 }
@@ -58,9 +58,12 @@ impl SparsePages {
     }
 
     /// Close the private descriptor between trees; finish still owns its barrier.
-    pub(super) fn park(&mut self) {
+    pub(super) fn park(&mut self) -> Result<()> {
         crate::commit_timing::count("metadata_writer_parks", u64::from(self.file.is_some()));
-        drop(self.file.take());
+        if let Some(mut file) = self.file.take() {
+            file.flush()?;
+        }
+        Ok(())
     }
 
     fn reopen_part(&mut self) -> Result<()> {
@@ -74,7 +77,7 @@ impl SparsePages {
             {
                 return Err(corrupt("private shared metadata part length changed"));
             }
-            self.file = Some(file);
+            self.file = Some(buffer(file));
             crate::commit_timing::count("metadata_writer_reopens", 1);
         }
         Ok(())
@@ -98,7 +101,7 @@ impl SparsePages {
             let path = self.directory.join(format!("part-{part:08x}"));
             match self.protection.create_new(&path) {
                 Ok(file) => {
-                    self.file = Some(file);
+                    self.file = Some(buffer(file));
                     self.next = u64::from(part) * crate::disk_pack::PAGES_PER_PART;
                     self.part_numbers.push(part);
                     return Ok(());
@@ -123,8 +126,9 @@ impl SparsePages {
 
     fn sync_part(&mut self) -> Result<()> {
         self.reopen_part()?;
-        if let Some(file) = self.file.take() {
-            durability::sync_dirty_file(&file)?;
+        if let Some(mut file) = self.file.take() {
+            file.flush()?;
+            durability::sync_dirty_file(file.get_ref())?;
         }
         Ok(())
     }
@@ -136,7 +140,21 @@ impl SparsePages {
     }
 }
 
+/// One active private metadata allocator batches eight pages. Parking flushes
+/// it before the descriptor closes; each part still receives its durable barrier.
+/// Parked allocators retain no buffer, and published files are never modified.
+fn buffer(file: File) -> BufWriter<File> {
+    BufWriter::with_capacity(8 * super::PAGE_BYTES, file)
+}
+
 impl TreePages for SparsePages {
+    fn flush(&mut self) -> Result<()> {
+        if let Some(file) = self.file.as_mut() {
+            file.flush()?;
+        }
+        Ok(())
+    }
+
     fn reserve(&mut self, count: usize) -> Result<u64> {
         if !(1..=crate::disk_pack::PAGES_PER_PART as usize).contains(&count) {
             return Err(corrupt("invalid contiguous metadata reservation"));
