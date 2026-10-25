@@ -26,7 +26,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '3'
       CARGO_PROFILE_DEV_RELEASE_DEBUG: '0'
-      PRODUCT_SHA: d57c63f859a63cd184055b3fab5095f1a534b6f6
+      PRODUCT_SHA: 9641fa93a0783f4781d26c7f52239962b7e7a5d7
       V2_SHA: 9b744e16fe270c64b35d14c7afdb69d7d4b93f12
     steps:
       - uses: actions/checkout@v5

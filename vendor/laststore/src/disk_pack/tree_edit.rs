@@ -122,6 +122,9 @@ impl<P: TreePages> TreeEdit<P> {
             children = self.parents(height, &children, Origin::AddedLevel)?;
             height += 1;
         }
+        // Callers can read root() between edit batches, before finish_tree.
+        // Expose the new private pages before publishing that root in memory.
+        self.pages.flush()?;
         parent_usage::completed(self.root.kind, self.track_changes, self.root.height, height);
         self.root.page = children[0].number;
         self.root.height = height;
