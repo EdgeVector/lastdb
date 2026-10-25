@@ -2,29 +2,31 @@
 //!
 //! The owner asks for it with `LASTDB_DISK_FORMAT=2` when a node with the
 //! node key opens a v1 home. The conversion copies each stored record of the
-//! current v1 generation into a new run home, closes the run home, opens it
+//! current v1 generation into new run homes (the CAS files apart), closes them, opens them
 //! again, and compares each record with the v1 source. Only then does the
 //! node home switch:
 //!
 //! ```text
 //! <node>/laststore-disk-convert.lock    held for the whole conversion; never moves
-//! <node>/disk-run.converting/           the new run home while it is built and checked
+//! <node>/disk-run.converting/           the new run homes while they are built and checked
+//! <node>/disk-cas.converting/            (records, and the CAS files apart)
 //! <node>/laststore-disk-convert-v2      the switch intent, written before the first move
 //! <node>-disk-format-v1/                the v1 files, kept until the owner deletes them
-//! <node>/disk-run/                      the run home after the switch
-//! <node>/laststore-pack-node-v1         "format=3\nhome=disk-run\n", written last
+//! <node>/disk-run/, <node>/disk-cas/    the run homes after the switch
+//! <node>/laststore-pack-node-v1         the v2 marker, written last
 //! ```
 //!
 //! The switch moves the v1 marker first, so every crash state inside the
 //! switch has the intent file. The v2 marker is the commit point; the intent
 //! goes after it. A keyed open that finds the intent and no v2 marker rolls
-//! the switch back: it removes the partial run home, moves the kept v1 files
+//! the switch back: it removes the partial run homes, moves the kept v1 files
 //! back with the marker last, and the node is v1 again (and converts again
 //! when the owner still asks). Without the intent nothing is rolled back or
 //! deleted. The conversion does not change a v1 record; it opens the v1
 //! writer as a normal v1 open does.
 
-use super::run_node::{home_key, RUN_DIR, RUN_NODE_BYTES};
+use super::physical::CAS_COLLECTION;
+use super::run_node::{cas_key, home_key, CAS_DIR, RUN_DIR, RUN_NODE_BYTES};
 use super::*;
 use laststore::disk_pack::maintenance::visit_generation;
 use laststore::disk_run::home::RunHome;
@@ -34,6 +36,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 const CONVERTING: &str = "disk-run.converting";
+const CAS_CONVERTING: &str = "disk-cas.converting";
+/// Each run home being built, with its final name.
+const BUILDS: [(&str, &str); 2] = [(CONVERTING, RUN_DIR), (CAS_CONVERTING, CAS_DIR)];
 const LOCK: &str = "laststore-disk-convert.lock";
 const INTENT: &str = "laststore-disk-convert-v2";
 const INTENT_BYTES: &[u8] = b"switch=v1-to-v2\n";
@@ -79,7 +84,10 @@ pub(super) fn resume_or_convert(
     let kept = kept_v1_path(node)?;
     if node.join(INTENT).try_exists()? {
         let _lock = take_lock(node)?;
-        resume(node, &kept)?;
+        // Another opener can finish the resume before this one has the lock.
+        if node.join(INTENT).try_exists()? {
+            resume(node, &kept)?;
+        }
     }
     let asked = std::env::var("LASTDB_DISK_FORMAT").as_deref() == Ok("2");
     let marker = match std::fs::read(node.join(NODE_MARKER)) {
@@ -105,10 +113,23 @@ pub(super) fn resume_or_convert(
             kept.display()
         )));
     }
+    if node.join("native-file-recovery-v1").try_exists()? {
+        return Err(invalid(
+            "disk format conversion does not move native file recovery state yet; \
+             the home stays v1",
+        ));
+    }
+    same_volume(node)?;
     let lock = take_lock(node)?;
-    let report = convert(node, node_key, &kept)?;
+    let converted = convert(node, node_key, &kept);
+    if converted.is_err() && !node.join(INTENT).try_exists()? {
+        // Failed before the switch: v1 is complete; remove the partial copy.
+        if let Err(error) = remove_partial_builds(node) {
+            tracing::warn!(target: "lastdb::disk_convert", %error, "partial v2 copy not removed");
+        }
+    }
     drop(lock);
-    Ok(Some(report))
+    converted.map(Some)
 }
 
 /// One exclusive lock that does not move during the switch. A second opener
@@ -128,6 +149,21 @@ fn take_lock(node: &Path) -> StorageResult<File> {
     Ok(lock)
 }
 
+/// The kept folder is made beside the node folder and the switch renames
+/// into it, so both must be on one volume.
+fn same_volume(node: &Path) -> StorageResult<()> {
+    use std::os::unix::fs::MetadataExt;
+    let parent = node
+        .parent()
+        .ok_or_else(|| invalid("a node home path has no parent"))?;
+    if std::fs::metadata(node)?.dev() != std::fs::metadata(parent)?.dev() {
+        return Err(invalid(
+            "disk format conversion needs the node home and its parent folder on one volume",
+        ));
+    }
+    Ok(())
+}
+
 fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskConversionReport> {
     let started = Instant::now();
     // The v1 owner lock: a normal v1 open is refused during the copy.
@@ -140,6 +176,15 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
             "another node owner holds the home or its lock failed: {error}"
         ))
     })?;
+    let mut fence = Vec::new();
+    File::open(node.join("laststore-layout-v1"))?
+        .take(laststore::disk_pack::home::LEGACY_FENCE_BYTES.len() as u64 + 1)
+        .read_to_end(&mut fence)?;
+    if fence != laststore::disk_pack::home::LEGACY_FENCE_BYTES {
+        return Err(invalid(
+            "disk format conversion found an unknown v1 layout file",
+        ));
+    }
     remove_partial_builds(node)?;
     let v1_root = node.join("disk-pack");
     let source = DiskHome::open(&v1_root).map_err(map)?;
@@ -156,23 +201,35 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
              and atom records; this home lacks one of them",
         ));
     }
-    let key = home_key(node_key);
+    let keys = [home_key(node_key), cas_key(node_key)];
     let (records, logical_bytes) = {
-        let run = RunHome::create(&node.join(CONVERTING), &key).map_err(map)?;
-        let copied = copy(&source, &current, &run)?;
-        while run.merge_step().map_err(map)?.is_some() {}
+        let homes = [
+            RunHome::create(&node.join(CONVERTING), &keys[0]).map_err(map)?,
+            RunHome::create(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
+        ];
+        let copied = copy(&source, &current, &homes)?;
+        for home in &homes {
+            while home.merge_step().map_err(map)?.is_some() {}
+        }
         copied
     };
-    // Compare with a new open: the files and the derived key, not memory.
+    // Compare with a new open: the files and the derived keys, not memory.
     let verified = {
-        let run = RunHome::open(&node.join(CONVERTING), &key).map_err(map)?;
-        let stored: u64 = run.status().levels.iter().map(|level| level.1).sum();
+        let homes = [
+            RunHome::open(&node.join(CONVERTING), &keys[0]).map_err(map)?,
+            RunHome::open(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
+        ];
+        let stored: u64 = homes
+            .iter()
+            .flat_map(|home| home.status().levels)
+            .map(|level| level.1)
+            .sum();
         if stored != records {
             return Err(invalid(
-                "disk format conversion: the run home holds a different record count",
+                "disk format conversion: the run homes hold a different record count",
             ));
         }
-        verify(&source, &current, &run)?
+        verify(&source, &current, &homes)?
     };
     if verified != records {
         return Err(invalid(
@@ -181,7 +238,8 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
     }
     drop(writer);
     let v1_disk_bytes = directory_bytes(&v1_root, 8)?;
-    let v2_disk_bytes = directory_bytes(&node.join(CONVERTING), 8)?;
+    let v2_disk_bytes = directory_bytes(&node.join(CONVERTING), 8)?
+        + directory_bytes(&node.join(CAS_CONVERTING), 8)?;
     switch(node, kept)?;
     drop(v1_lock);
     let report = DiskConversionReport {
@@ -205,16 +263,18 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
     Ok(report)
 }
 
-/// Remove what an earlier conversion left before its switch: the run home
-/// being built and the temporary folders of its creation. No v1 file is
+/// Remove what an earlier conversion left before its switch: the run homes
+/// being built and the temporary folders of their creation. No v1 file is
 /// among them.
 fn remove_partial_builds(node: &Path) -> StorageResult<()> {
-    let temporary = format!(".{CONVERTING}.create-");
     for entry in std::fs::read_dir(node)? {
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if (name == CONVERTING || name.starts_with(&temporary)) && entry.file_type()?.is_dir() {
+        let partial = BUILDS
+            .iter()
+            .any(|(build, _)| name == *build || name.starts_with(&format!(".{build}.create-")));
+        if partial && entry.file_type()?.is_dir() {
             std::fs::remove_dir_all(entry.path())?;
         }
     }
@@ -223,14 +283,14 @@ fn remove_partial_builds(node: &Path) -> StorageResult<()> {
 
 /// Copy each stored record of `current`. Tombstones are not copied: an
 /// absent key in a new home reads the same.
-fn copy(source: &DiskHome, current: &Current, run: &RunHome) -> StorageResult<(u64, u64)> {
-    let mut batch = Vec::new();
-    let mut batch_bytes = 0usize;
+fn copy(source: &DiskHome, current: &Current, homes: &[RunHome; 2]) -> StorageResult<(u64, u64)> {
+    let mut batches: [Vec<HomeMutation>; 2] = Default::default();
+    let mut batch_bytes = [0usize; 2];
     let mut records = 0u64;
     let mut logical = 0u64;
-    let commit = |batch: Vec<HomeMutation>| -> laststore::Result<()> {
+    let commit = |slot: usize, batch: Vec<HomeMutation>| -> laststore::Result<()> {
         RunHome::check_mutations(&batch)?;
-        run.commit(batch).map(drop)
+        homes[slot].commit(batch).map(drop)
     };
     visit_generation(source.path(), current, |record| {
         let Some(body) = record.body else {
@@ -238,35 +298,39 @@ fn copy(source: &DiskHome, current: &Current, run: &RunHome) -> StorageResult<(u
         };
         let value = read_body(body, record.body_bytes)?;
         let size = record.collection.len() + record.key.len() + value.len();
-        batch_bytes += size;
+        let slot = slot(record.collection);
+        batch_bytes[slot] += size;
         logical += size as u64;
         records += 1;
-        batch.push(HomeMutation {
+        batches[slot].push(HomeMutation {
             collection: record.collection.into(),
             key: record.key.into(),
             body: Some(value),
         });
-        if batch.len() >= BATCH_RECORDS || batch_bytes >= BATCH_BYTES {
-            commit(std::mem::take(&mut batch))?;
-            batch_bytes = 0;
+        if batches[slot].len() >= BATCH_RECORDS || batch_bytes[slot] >= BATCH_BYTES {
+            commit(slot, std::mem::take(&mut batches[slot]))?;
+            batch_bytes[slot] = 0;
         }
         Ok(())
     })
     .map_err(map)?;
-    if !batch.is_empty() {
-        commit(batch).map_err(map)?;
+    for (slot, batch) in batches.into_iter().enumerate() {
+        if !batch.is_empty() {
+            commit(slot, batch).map_err(map)?;
+        }
     }
     Ok((records, logical))
 }
 
-/// Read every v1 record again and compare it with the run home in batches.
-fn verify(source: &DiskHome, current: &Current, run: &RunHome) -> StorageResult<u64> {
-    let mut pending: Vec<((String, String), Vec<u8>)> = Vec::new();
-    let mut pending_bytes = 0usize;
+/// Read every v1 record again and compare it with the run homes in batches.
+fn verify(source: &DiskHome, current: &Current, homes: &[RunHome; 2]) -> StorageResult<u64> {
+    type Pending = Vec<((String, String), Vec<u8>)>;
+    let mut pending: [Pending; 2] = Default::default();
+    let mut pending_bytes = [0usize; 2];
     let mut verified = 0u64;
-    let check = |pending: Vec<((String, String), Vec<u8>)>| -> laststore::Result<u64> {
+    let check = |slot: usize, pending: Pending| -> laststore::Result<u64> {
         let (coordinates, expected): (Vec<_>, Vec<_>) = pending.into_iter().unzip();
-        let found = run.read(unlimited()).get_many(&coordinates)?;
+        let found = homes[slot].read(unlimited()).get_many(&coordinates)?;
         for ((coordinate, expected), found) in coordinates.iter().zip(&expected).zip(found) {
             if found?.as_deref() != Some(expected.as_slice()) {
                 return Err(laststore::Error::Config(format!(
@@ -282,19 +346,27 @@ fn verify(source: &DiskHome, current: &Current, run: &RunHome) -> StorageResult<
             return Ok(());
         };
         let value = read_body(body, record.body_bytes)?;
-        pending_bytes += value.len();
-        pending.push(((record.collection.into(), record.key.into()), value));
-        if pending.len() >= VERIFY_RECORDS || pending_bytes >= BATCH_BYTES {
-            verified += check(std::mem::take(&mut pending))?;
-            pending_bytes = 0;
+        let slot = slot(record.collection);
+        pending_bytes[slot] += value.len();
+        pending[slot].push(((record.collection.into(), record.key.into()), value));
+        if pending[slot].len() >= VERIFY_RECORDS || pending_bytes[slot] >= BATCH_BYTES {
+            verified += check(slot, std::mem::take(&mut pending[slot]))?;
+            pending_bytes[slot] = 0;
         }
         Ok(())
     })
     .map_err(map)?;
-    if !pending.is_empty() {
-        verified += check(pending).map_err(map)?;
+    for (slot, rest) in pending.into_iter().enumerate() {
+        if !rest.is_empty() {
+            verified += check(slot, rest).map_err(map)?;
+        }
     }
     Ok(verified)
+}
+
+/// The run home of a collection: 0 for the records, 1 for the CAS files.
+fn slot(collection: &str) -> usize {
+    usize::from(collection == CAS_COLLECTION)
 }
 
 fn read_body(body: &mut dyn Read, size: u64) -> laststore::Result<Vec<u8>> {
@@ -324,7 +396,7 @@ fn unlimited() -> ReadBudget {
 }
 
 /// Write the intent, move the v1 files to the kept folder (marker first),
-/// put the run home in place, write the v2 marker, then remove the intent.
+/// put the run homes in place, write the v2 marker, then remove the intent.
 fn switch(node: &Path, kept: &Path) -> StorageResult<()> {
     write_durable(&node.join(INTENT), INTENT_BYTES)?;
     sync_dir(node)?;
@@ -335,7 +407,9 @@ fn switch(node: &Path, kept: &Path) -> StorageResult<()> {
         sync_dir(kept)?;
         sync_dir(node)?;
     }
-    std::fs::rename(node.join(CONVERTING), node.join(RUN_DIR))?;
+    for (build, home) in BUILDS {
+        std::fs::rename(node.join(build), node.join(home))?;
+    }
     sync_dir(node)?;
     let staged = node.join(format!(".{NODE_MARKER}.tmp"));
     remove_if_present(&staged)?;
@@ -348,7 +422,7 @@ fn switch(node: &Path, kept: &Path) -> StorageResult<()> {
 
 /// The caller holds the conversion lock and found the intent. With the v2
 /// marker the switch is complete and only the intent goes. Without it, put
-/// the v1 home back: the partial run home goes first, then the kept files
+/// the v1 home back: the partial run homes go first, then the kept files
 /// come back with the marker last.
 fn resume(node: &Path, kept: &Path) -> StorageResult<()> {
     let marker = match std::fs::read(node.join(NODE_MARKER)) {
@@ -370,7 +444,7 @@ fn resume(node: &Path, kept: &Path) -> StorageResult<()> {
             )));
         }
     }
-    for name in [RUN_DIR, CONVERTING] {
+    for name in [RUN_DIR, CAS_DIR, CONVERTING, CAS_CONVERTING] {
         let partial = node.join(name);
         if partial.try_exists()? {
             std::fs::remove_dir_all(&partial)?;

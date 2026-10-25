@@ -4,8 +4,13 @@
 //! state. A merge publishes a root with the same frontier, so it holds the
 //! same data; reads adopt it the next time they capture a root, and the
 //! merged input files go when the last read of the older root ends.
+//!
+//! The CAS files have their own run home. A commit that holds CAS changes
+//! writes up to three runs in this order: new CAS files, then the other
+//! records, then CAS deletes. A crash between them can leave a CAS file that
+//! nothing references, but never a reference to a CAS file that is not there.
 
-use super::physical::{Physical, PhysicalRoot, V2Home};
+use super::physical::{Physical, PhysicalRoot, V2Home, CAS_COLLECTION};
 use super::*;
 use laststore::disk_run::home::RunHome;
 
@@ -55,22 +60,22 @@ impl PackRuntime {
         (hidden_changes, key_changes): Changes<'_>,
         requests: &[Arc<transaction::PendingBatch>],
     ) -> StorageResult<()> {
-        let commit = match v2.home.commit(operations) {
-            Ok(commit) => commit,
-            Err(error) => {
-                self.failed.store(true, Ordering::Release);
-                *self.failed_write.lock().expect("native failed write owner") = Some(space);
-                return Err(map(error));
-            }
-        };
+        if let Err(error) = commit_split(v2, operations) {
+            self.failed.store(true, Ordering::Release);
+            *self.failed_write.lock().expect("native failed write owner") = Some(space);
+            return Err(map(error));
+        }
+        // The current roots hold this commit; a merge root holds the same data.
+        let root = v2.current_root();
         let _timing = laststore::commit_timing::stage("memory_publication_us");
+        let (generation, frontier) = (root.generation(), root.frontier());
         self.install_committed(
-            PhysicalRoot::V2(commit.root),
+            PhysicalRoot::V2(root),
             hidden_changes,
             key_changes,
             requests,
         )?;
-        self.parts.observe_root(commit.generation, commit.frontier);
+        self.parts.observe_root(generation, frontier);
         drop(space);
         self.failed.store(false, Ordering::Release);
         start_merges(v2);
@@ -83,7 +88,7 @@ impl PackRuntime {
         let Physical::V2(v2) = &self.physical else {
             return;
         };
-        let latest = v2.home.current_root();
+        let latest = v2.current_root();
         let Ok(mut view) = self.view.try_write() else {
             return;
         };
@@ -95,6 +100,29 @@ impl PackRuntime {
             }
         }
     }
+}
+
+/// Commit one batch across the main and CAS homes in the safe order. For a
+/// CAS key named twice in the batch, the later operation wins, as in one
+/// run home commit.
+fn commit_split(v2: &V2Home, operations: Vec<HomeMutation>) -> laststore::Result<()> {
+    if !operations.iter().any(|op| op.collection == CAS_COLLECTION) {
+        return v2.home.commit(operations).map(drop);
+    }
+    let (cas, main): (Vec<_>, Vec<_>) = operations
+        .into_iter()
+        .partition(|op| op.collection == CAS_COLLECTION);
+    let mut last = std::collections::BTreeMap::new();
+    for op in cas {
+        last.insert(op.key.clone(), op);
+    }
+    let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
+    for (home, batch) in [(&v2.cas, puts), (&v2.home, main), (&v2.cas, deletes)] {
+        if !batch.is_empty() {
+            home.commit(batch)?;
+        }
+    }
+    Ok(())
 }
 
 /// Run merge steps on one background thread until no level is full. The
@@ -110,13 +138,13 @@ fn start_merges(v2: &V2Home) {
     if waiting || v2.merging.swap(true, Ordering::AcqRel) {
         return;
     }
-    let home = Arc::downgrade(&v2.home);
+    let homes = [Arc::downgrade(&v2.home), Arc::downgrade(&v2.cas)];
     let merging = Arc::clone(&v2.merging);
     let stop = Arc::clone(&v2.stop);
     let retry_after = Arc::clone(&v2.retry_after);
     let spawned = std::thread::Builder::new()
         .name("lastdb-run-merge".into())
-        .spawn(move || merge_until_settled(&home, &merging, &stop, &retry_after));
+        .spawn(move || merge_until_settled(&homes, &merging, &stop, &retry_after));
     match spawned {
         Ok(handle) => {
             let mut merger = v2.merger.lock().expect("disk run merge thread");
@@ -137,37 +165,47 @@ fn start_merges(v2: &V2Home) {
 const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn merge_until_settled(
-    home: &std::sync::Weak<RunHome>,
+    homes: &[std::sync::Weak<RunHome>],
     merging: &AtomicBool,
     stop: &AtomicBool,
     retry_after: &Mutex<Option<std::time::Instant>>,
 ) {
     loop {
-        while !stop.load(Ordering::Acquire) {
-            let Some(home) = home.upgrade() else { break };
-            match home.merge_step() {
-                Ok(Some(_)) => {}
-                Ok(None) => break,
-                Err(error) => {
-                    // A failed merge leaves its inputs in force; a poisoned
-                    // home refuses the next commit, which fails the runtime.
-                    tracing::warn!(%error, "disk run merge failed");
-                    *retry_after.lock().expect("disk run merge retry") =
-                        Some(std::time::Instant::now() + MERGE_RETRY);
-                    merging.store(false, Ordering::Release);
-                    return;
+        'steps: while !stop.load(Ordering::Acquire) {
+            let mut merged = false;
+            for home in homes {
+                let Some(home) = home.upgrade() else {
+                    break 'steps;
+                };
+                match home.merge_step() {
+                    Ok(Some(_)) => merged = true,
+                    Ok(None) => {}
+                    Err(error) => {
+                        // A failed merge leaves its inputs in force; a poisoned
+                        // home refuses the next commit, which fails the runtime.
+                        tracing::warn!(%error, "disk run merge failed");
+                        *retry_after.lock().expect("disk run merge retry") =
+                            Some(std::time::Instant::now() + MERGE_RETRY);
+                        merging.store(false, Ordering::Release);
+                        return;
+                    }
                 }
+            }
+            if !merged {
+                break;
             }
         }
         merging.store(false, Ordering::Release);
         // A commit between the last step and the clear saw the mark set and
         // started no thread. Take the mark again when a level became full.
         let full = !stop.load(Ordering::Acquire)
-            && home.upgrade().is_some_and(|home| {
-                home.status()
-                    .levels
-                    .iter()
-                    .any(|(runs, _, _)| *runs >= laststore::disk_run::home::MERGE_WIDTH)
+            && homes.iter().any(|home| {
+                home.upgrade().is_some_and(|home| {
+                    home.status()
+                        .levels
+                        .iter()
+                        .any(|(runs, _, _)| *runs >= laststore::disk_run::home::MERGE_WIDTH)
+                })
             });
         if !full || merging.swap(true, Ordering::AcqRel) {
             return;

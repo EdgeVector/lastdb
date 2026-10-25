@@ -318,8 +318,9 @@ fn native_layout_status_line(store_root: &Path) -> Result<Option<String>, String
 /// A disk format v2 home has no layout file; its node marker names the run home.
 fn run_layout_status_line(store_root: &Path) -> Option<String> {
     let marker = std::fs::read(store_root.join("laststore-pack-node-v1")).ok()?;
-    (marker == b"format=3\nhome=disk-run\n").then(|| {
-        "Layout: disk format v2 run home (one sorted run file per commit, merged in the background)"
+    (marker == b"format=3\nhome=disk-run\ncas=disk-cas\n").then(|| {
+        "Layout: disk format v2 run homes (disk-run for records, disk-cas for CAS files; \
+         one sorted run file per commit, merged in the background)"
             .to_string()
     })
 }
