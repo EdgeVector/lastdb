@@ -6,6 +6,8 @@
 //! `DiskHome` writer) and in candidate v2 layouts, reads every candidate back,
 //! and prints bytes on disk divided by logical atom bytes. No primary or user
 //! data is opened. The goal is a ratio of at most 2.0.
+//!
+//! lint:file-size-ok one self-contained CI design spike, removed when Tom decides the v2 format.
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -1117,6 +1119,7 @@ fn v2_items(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
 }
 
 fn write_v2(root: &Path, stream: &Stream, options: V2Options) -> Result<Measure> {
+    // lint:fn-size-ok spike driver kept linear so the measured steps read in order.
     let start = Instant::now();
     fs::DirBuilder::new().mode(0o700).create(root)?;
     let records = v2_items(stream);
@@ -1411,6 +1414,7 @@ fn clww_key_bytes(stream: &Stream) -> (f64, f64) {
 }
 
 fn main() -> Result<()> {
+    // lint:fn-size-ok spike driver kept linear so the measured steps read in order.
     let scratch = Scratch::new()?;
     let today = build_stream(&StreamOptions { proteins: false });
     let proteins = build_stream(&StreamOptions { proteins: true });
