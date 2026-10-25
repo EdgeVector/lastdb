@@ -68,7 +68,7 @@ fn visit(
             )?;
         }
         let mut cursor = TreeCursor::seek(&mut call, entry.locator.clone(), b"")?;
-        while let Some((key, value)) = cursor.next(&mut call)? {
+        while let Some((key_bytes, value)) = cursor.next(&mut call)? {
             count = count
                 .checked_add(1)
                 .ok_or_else(crate::disk_pack::resource)?;
@@ -81,8 +81,9 @@ fn visit(
             }
             let retained =
                 directory.retained_bytes()? + directory_bytes + cursor.retained_bytes()?;
-            let active = retained + key.capacity() as u64;
-            let key = std::str::from_utf8(&key).map_err(|_| corrupt("visit key is not UTF-8"))?;
+            let active = retained + key_bytes.capacity() as u64;
+            let key =
+                std::str::from_utf8(&key_bytes).map_err(|_| corrupt("visit key is not UTF-8"))?;
             let version = location.version;
             if location.source == Source::Tombstone {
                 visitor(StoredRecord {
@@ -94,7 +95,7 @@ fn visit(
                     body: None,
                 })?;
             } else {
-                let mut body = RecordBody::open(
+                let mut body = RecordBody::open_with_retained(
                     &mut call,
                     &collection,
                     key,
@@ -115,8 +116,12 @@ fn visit(
                     ));
                 }
             }
+            drop(key_bytes);
             call = selected_call(root, current, maximum, retained)?;
         }
+        drop(cursor);
+        drop(collection);
+        drop(key);
         if maximum.is_none() {
             call = selected_call(root, current, maximum, directory.retained_bytes()?)?;
         }

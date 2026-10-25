@@ -20,6 +20,15 @@ impl<'a> RecordBody<'a> {
         collection: &str,
         key: &str,
         location: Location,
+    ) -> Result<Self> {
+        Self::open_with_retained(call, collection, key, location, None)
+    }
+
+    pub(super) fn open_with_retained(
+        call: &'a mut ReadCall,
+        collection: &str,
+        key: &str,
+        location: Location,
         retained: Option<u64>,
     ) -> Result<Self> {
         let body_bytes = location
