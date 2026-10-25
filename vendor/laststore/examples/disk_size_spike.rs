@@ -12,6 +12,7 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use laststore::disk_pack::home::{DiskHome, HomeBuilder, HomeDescriptor, HomeMutation};
+use laststore::disk_pack::maintenance::SpacePolicy;
 use laststore::disk_pack::ReadBudget;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -703,20 +704,30 @@ fn ope_v1(molecule: u32, range: &str) -> String {
 
 struct Sealer {
     cipher: Aes256Gcm,
+    nonce_prefix: [u8; 4],
     counter: u64,
 }
 
 impl Sealer {
+    /// A fresh random key and nonce prefix for each run (OS random source).
     fn new() -> Self {
+        let mut key = [0u8; 32];
+        key[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        key[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        let mut nonce_prefix = [0u8; 4];
+        nonce_prefix.copy_from_slice(&uuid::Uuid::new_v4().as_bytes()[..4]);
         Self {
-            cipher: Aes256Gcm::new_from_slice(&[7u8; 32]).expect("key"),
+            cipher: Aes256Gcm::new_from_slice(&key).expect("key"),
+            nonce_prefix,
             counter: 0,
         }
     }
-    /// Returns nonce (12) + ciphertext + tag (16).
+    /// Returns nonce (12) + ciphertext + tag (16). The nonce is the random
+    /// prefix plus a counter, so it never repeats under one key.
     fn seal(&mut self, plaintext: &[u8]) -> Vec<u8> {
         self.counter += 1;
         let mut nonce = [0u8; 12];
+        nonce[..4].copy_from_slice(&self.nonce_prefix);
         nonce[4..].copy_from_slice(&self.counter.to_be_bytes());
         let ct = self
             .cipher
@@ -755,6 +766,9 @@ struct V1Options {
     implied_counter: bool,
     /// One idempotency row per 500 mutations; keep the last 10,000 events.
     bounded_bookkeeping: bool,
+    /// Keys in one commit. The node flushes every 500 ms; a bulk import of
+    /// 163,585 mutations in about a minute is about 10,000 keys per flush.
+    commit_keys: usize,
 }
 
 fn v1_collection(item: &Item) -> &'static str {
@@ -892,7 +906,7 @@ fn write_v1(root: &Path, stream: &Stream, options: &V1Options) -> Result<Measure
     let mut sealer = Sealer::new();
     let items = v1_items(stream, options);
     let mut sample = Vec::new();
-    let mut batch = Vec::with_capacity(4096);
+    let mut batch = Vec::with_capacity(options.commit_keys);
     for (n, item) in items.iter().enumerate() {
         let collection = v1_collection(item).to_string();
         let key = v1_key(item, options);
@@ -909,7 +923,7 @@ fn write_v1(root: &Path, stream: &Stream, options: &V1Options) -> Result<Measure
             key,
             body: Some(body),
         });
-        if batch.len() == 4096 {
+        if batch.len() == options.commit_keys {
             commit(&home, std::mem::take(&mut batch))?;
         }
     }
@@ -917,7 +931,36 @@ fn write_v1(root: &Path, stream: &Stream, options: &V1Options) -> Result<Measure
         commit(&home, batch)?;
     }
     let write_secs = start.elapsed().as_secs_f64();
-    // Read back a sample through the real reader.
+    let verified = verify_v1(&home, &sample)?;
+    let written = measure_dir(root)?;
+    // Copy the live records into new parts, then return every file that no
+    // generation needs. Grace 0: this home has no reader but this call.
+    let policy = SpacePolicy {
+        grace_ms: 0,
+        reclaim_generations: 1_000_000,
+        ..SpacePolicy::default()
+    };
+    let mut snapshot = home.snapshot()?;
+    let compacted = snapshot.compact(&policy)?;
+    for _ in 0..8 {
+        snapshot.reclaim(&policy)?;
+    }
+    snapshot.reclaim_orphans(&policy)?;
+    drop(snapshot);
+    let after = verify_v1(&home, &sample)?;
+    drop(home);
+    let mut measure = measure_dir(root)?;
+    measure.before_compaction = Some(written.allocated);
+    measure.write_secs = write_secs;
+    measure.keys = items.len() as u64;
+    measure.verified = format!(
+        "{verified} sampled keys equal; {after} after compaction ({} records copied)",
+        compacted.records_copied
+    );
+    Ok(measure)
+}
+
+fn verify_v1(home: &DiskHome, sample: &[(String, String, Vec<u8>)]) -> Result<usize> {
     let selected = home.read(ReadBudget {
         pages: 4096,
         blocks: 16384,
@@ -940,12 +983,7 @@ fn write_v1(root: &Path, stream: &Stream, options: &V1Options) -> Result<Measure
             verified += 1;
         }
     }
-    drop(home);
-    let mut measure = measure_dir(root)?;
-    measure.write_secs = write_secs;
-    measure.keys = items.len() as u64;
-    measure.verified = format!("{verified} sampled keys equal");
-    Ok(measure)
+    Ok(verified)
 }
 
 fn commit(home: &DiskHome, operations: Vec<HomeMutation>) -> Result<()> {
@@ -1059,19 +1097,34 @@ struct BlockRef {
     len: u32,
 }
 
+/// Level 0 stores the block without compression (zstd itself reads 0 as 3).
 fn write_sealed(file: &mut fs::File, sealer: &mut Sealer, raw: &[u8], level: i32) -> Result<u32> {
-    let compressed = zstd::bulk::compress(raw, level)?;
+    let compressed = if level > 0 {
+        zstd::bulk::compress(raw, level)?
+    } else {
+        raw.to_vec()
+    };
     let sealed = sealer.seal(&compressed);
     file.write_all(&(sealed.len() as u32).to_le_bytes())?;
     file.write_all(&sealed)?;
     Ok(sealed.len() as u32 + 4)
 }
 
-fn read_sealed(bytes: &[u8], offset: u64, sealer: &Sealer, cap: usize) -> Result<Vec<u8>> {
+fn read_sealed(
+    bytes: &[u8],
+    offset: u64,
+    sealer: &Sealer,
+    cap: usize,
+    compressed: bool,
+) -> Result<Vec<u8>> {
     let at = offset as usize;
     let len = u32::from_le_bytes(bytes[at..at + 4].try_into()?) as usize;
-    let compressed = sealer.open(&bytes[at + 4..at + 4 + len]);
-    Ok(zstd::bulk::decompress(&compressed, cap)?)
+    let opened = sealer.open(&bytes[at + 4..at + 4 + len]);
+    if compressed {
+        Ok(zstd::bulk::decompress(&opened, cap)?)
+    } else {
+        Ok(opened)
+    }
 }
 
 /// Decode one block: (key, value) pairs.
@@ -1095,13 +1148,19 @@ fn decode_block(raw: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
 }
 
 fn v2_items(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut records = v2_records_in_write_order(stream);
+    records.sort_by(|a, b| a.0.cmp(&b.0));
+    records
+}
+
+fn v2_records_in_write_order(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
     let events = stream
         .items
         .iter()
         .filter(|i| matches!(i, Item::Event { .. }))
         .count() as u64;
     let mut idem = 0u64;
-    let mut records: Vec<_> = stream
+    stream
         .items
         .iter()
         .filter(|item| match item {
@@ -1114,9 +1173,7 @@ fn v2_items(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
             _ => true,
         })
         .map(|item| (v2_key(item), v2_value(item)))
-        .collect();
-    records.sort_by(|a, b| a.0.cmp(&b.0));
-    records
+        .collect()
 }
 
 fn write_v2(root: &Path, stream: &Stream, options: V2Options) -> Result<Measure> {
@@ -1255,7 +1312,13 @@ fn verify_v2(
     let cap = options.block_bytes * 2 + 64 * 1024;
     let mut n = 0;
     for block in blocks {
-        for (key, value) in decode_block(&read_sealed(&pack, block.offset, sealer, cap)?) {
+        for (key, value) in decode_block(&read_sealed(
+            &pack,
+            block.offset,
+            sealer,
+            cap,
+            options.zstd_level > 0,
+        )?) {
             if records[n].0 != key || records[n].1 != value {
                 return Err(format!("v2 full read differs at record {n}").into());
             }
@@ -1299,13 +1362,25 @@ fn verify_v2(
             }
             let (block, slot) = location.ok_or("dense locator lost a key")?;
             let decoded = block_cache.entry(block).or_insert_with(|| {
-                decode_block(&read_sealed(&pack, blocks[block].offset, sealer, cap).expect("block"))
+                decode_block(
+                    &read_sealed(
+                        &pack,
+                        blocks[block].offset,
+                        sealer,
+                        cap,
+                        options.zstd_level > 0,
+                    )
+                    .expect("block"),
+                )
             });
             decoded.get(slot).map(|(_, v)| v.clone())
         } else {
             let b = blocks.partition_point(|blk| blk.first_key.as_slice() <= key.as_slice()) - 1;
             let decoded = block_cache.entry(b).or_insert_with(|| {
-                decode_block(&read_sealed(&pack, blocks[b].offset, sealer, cap).expect("block"))
+                decode_block(
+                    &read_sealed(&pack, blocks[b].offset, sealer, cap, options.zstd_level > 0)
+                        .expect("block"),
+                )
             });
             decoded
                 .iter()
@@ -1326,6 +1401,155 @@ fn verify_v2(
 }
 
 // ---------------------------------------------------------------------------
+// v2 incremental: the write path, not a bulk build. Each flush writes one
+// sorted run (blocks + sealed index + footer). When `fanin` runs exist, they
+// merge into one. The final merge leaves one run. The peak and the bytes
+// written show the cost of merges.
+
+/// Write one sorted run file; return its size in bytes.
+fn write_run(
+    path: &Path,
+    records: &[(Vec<u8>, Vec<u8>)],
+    options: V2Options,
+    sealer: &mut Sealer,
+) -> Result<u64> {
+    let mut file = fs::File::create(path)?;
+    let mut index = Vec::new();
+    let mut raw = Vec::with_capacity(options.block_bytes + 4096);
+    let mut prev: &[u8] = &[];
+    let mut first: &[u8] = &[];
+    let mut index_prev: Vec<u8> = Vec::new();
+    let mut offset = 0u64;
+    for (n, (key, value)) in records.iter().enumerate() {
+        if raw.is_empty() {
+            first = key.as_slice();
+            prev = &[];
+        }
+        let shared = shared_prefix(prev, key);
+        varint(&mut raw, shared as u64);
+        varint(&mut raw, (key.len() - shared) as u64);
+        raw.extend_from_slice(&key[shared..]);
+        varint(&mut raw, value.len() as u64);
+        raw.extend_from_slice(value);
+        prev = key.as_slice();
+        if raw.len() >= options.block_bytes || n + 1 == records.len() {
+            let len = write_sealed(&mut file, sealer, &raw, options.zstd_level)?;
+            let shared = shared_prefix(&index_prev, first);
+            varint(&mut index, shared as u64);
+            varint(&mut index, (first.len() - shared) as u64);
+            index.extend_from_slice(&first[shared..]);
+            varint(&mut index, offset);
+            varint(&mut index, u64::from(len));
+            index_prev = first.to_vec();
+            offset += u64::from(len);
+            raw.clear();
+        }
+    }
+    let sealed = sealer.seal(&zstd::bulk::compress(&index, 3)?);
+    file.write_all(&sealed)?;
+    file.write_all(&offset.to_le_bytes())?;
+    file.sync_all()?;
+    Ok(offset + sealed.len() as u64 + 8)
+}
+
+/// Read a whole run file back through its own index.
+fn read_run(path: &Path, options: V2Options, sealer: &Sealer) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let bytes = fs::read(path)?;
+    let footer = bytes.len() - 8;
+    let index_at = u64::from_le_bytes(bytes[footer..].try_into()?) as usize;
+    let index = zstd::bulk::decompress(&sealer.open(&bytes[index_at..footer]), 64 << 20)?;
+    let mut out = Vec::new();
+    let mut at = 0;
+    let cap = options.block_bytes * 2 + 64 * 1024;
+    while at < index.len() {
+        let _shared = read_varint(&index, &mut at);
+        let suffix = read_varint(&index, &mut at) as usize;
+        at += suffix;
+        let offset = read_varint(&index, &mut at);
+        let _len = read_varint(&index, &mut at);
+        out.extend(decode_block(&read_sealed(
+            &bytes,
+            offset,
+            sealer,
+            cap,
+            options.zstd_level > 0,
+        )?));
+    }
+    Ok(out)
+}
+
+fn write_v2_incremental(
+    root: &Path,
+    stream: &Stream,
+    options: V2Options,
+    run_keys: usize,
+    fanin: usize,
+) -> Result<Measure> {
+    let start = Instant::now();
+    fs::DirBuilder::new().mode(0o700).create(root)?;
+    let records = v2_records_in_write_order(stream);
+    let mut sealer = Sealer::new();
+    let mut runs: Vec<(PathBuf, Vec<(Vec<u8>, Vec<u8>)>)> = Vec::new();
+    let mut written = 0u64;
+    let mut peak = 0u64;
+    let mut next = 0usize;
+    let merge = |runs: &mut Vec<(PathBuf, Vec<(Vec<u8>, Vec<u8>)>)>,
+                 sealer: &mut Sealer,
+                 next: &mut usize|
+     -> Result<u64> {
+        let mut all: Vec<_> = runs
+            .drain(..)
+            .flat_map(|(path, run)| {
+                let _ = fs::remove_file(&path);
+                run
+            })
+            .collect();
+        all.sort_by(|a, b| a.0.cmp(&b.0));
+        let path = root.join(format!("run-{next:06}"));
+        *next += 1;
+        let bytes = write_run(&path, &all, options, sealer)?;
+        runs.push((path, all));
+        Ok(bytes)
+    };
+    for chunk in records.chunks(run_keys) {
+        let mut run = chunk.to_vec();
+        run.sort_by(|a, b| a.0.cmp(&b.0));
+        let path = root.join(format!("run-{next:06}"));
+        next += 1;
+        written += write_run(&path, &run, options, &mut sealer)?;
+        runs.push((path, run));
+        peak = peak.max(measure_dir(root)?.allocated);
+        if runs.len() >= fanin {
+            // Old runs are deleted only after the merged run is complete.
+            written += merge(&mut runs, &mut sealer, &mut next)?;
+            peak = peak.max(measure_dir(root)?.allocated);
+        }
+    }
+    if runs.len() > 1 {
+        written += merge(&mut runs, &mut sealer, &mut next)?;
+    }
+    let write_secs = start.elapsed().as_secs_f64();
+    let mut expected = records;
+    expected.sort_by(|a, b| a.0.cmp(&b.0));
+    let found = read_run(&runs[0].0, options, &sealer)?;
+    if found != expected {
+        return Err("v2 incremental read-back differs".into());
+    }
+    let mut measure = measure_dir(root)?;
+    measure.before_compaction = Some(peak);
+    measure.write_secs = write_secs;
+    measure.keys = expected.len() as u64;
+    measure.verified = format!(
+        "all {} records equal; peak {:.1} MiB; written {:.1} MiB ({:.1}x the final)",
+        expected.len(),
+        peak as f64 / MIB,
+        written as f64 / MIB,
+        written as f64 / measure.allocated as f64,
+    );
+    Ok(measure)
+}
+
+// ---------------------------------------------------------------------------
 // Measurement and report.
 
 #[derive(Default)]
@@ -1336,6 +1560,8 @@ struct Measure {
     keys: u64,
     write_secs: f64,
     verified: String,
+    /// v1: bytes before compaction and reclaim. v2 incremental: peak bytes.
+    before_compaction: Option<u64>,
 }
 
 fn measure_dir(root: &Path) -> Result<Measure> {
@@ -1352,12 +1578,15 @@ fn measure_dir(root: &Path) -> Result<Measure> {
                 measure.apparent += meta.len();
                 measure.allocated += meta.blocks() * 512;
                 let rel = entry.path().strip_prefix(root)?.to_path_buf();
-                let top = rel
-                    .components()
-                    .next()
-                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                *parts.entry(top).or_default() += meta.blocks() * 512;
+                // Fixed labels only: part file names are random identifiers.
+                let top = match rel.components().next().map(|c| c.as_os_str()) {
+                    Some(name) if name == "locator" => "locator",
+                    Some(name) if name == "packs" || name == "pack" => "packs",
+                    Some(name) if name == "directory" => "directory",
+                    Some(name) if name == "generations" => "generations",
+                    _ => "other",
+                };
+                *parts.entry(top.to_string()).or_default() += meta.blocks() * 512;
             }
         }
     }
@@ -1384,7 +1613,7 @@ impl Scratch {
             return Err("this spike runs only in GitHub Actions".into());
         }
         let parent = fs::canonicalize(std::env::var("RUNNER_TEMP")?)?;
-        let path = parent.join(format!("disk-size-spike-{}", uuid::Uuid::new_v4()));
+        let path = parent.join(format!("disk-size-spike-{}", std::process::id()));
         fs::DirBuilder::new().mode(0o700).create(&path)?;
         Ok(Self(path))
     }
@@ -1434,51 +1663,38 @@ fn main() -> Result<()> {
         .collect();
     println!("protein members replace: {}", replaced.join(", "));
     let mut rows = Vec::new();
+    let v1_variant =
+        |raw_seal, raw_range, implied_counter, bounded_bookkeeping, commit_keys| V1Options {
+            raw_seal,
+            raw_range,
+            implied_counter,
+            bounded_bookkeeping,
+            commit_keys,
+        };
     let v1 = [
         (
-            "A v1 today",
-            V1Options {
-                raw_seal: false,
-                raw_range: false,
-                implied_counter: false,
-                bounded_bookkeeping: false,
-            },
+            "A v1 today, 4,096-key commits",
+            v1_variant(false, false, false, false, 4096),
+        ),
+        (
+            "A2 v1 today, 16,384-key commits",
+            v1_variant(false, false, false, false, 16_384),
         ),
         (
             "B v1 + ENB binary seal",
-            V1Options {
-                raw_seal: true,
-                raw_range: false,
-                implied_counter: false,
-                bounded_bookkeeping: false,
-            },
+            v1_variant(true, false, false, false, 16_384),
         ),
         (
             "C v1 + B + bounded idem/event",
-            V1Options {
-                raw_seal: true,
-                raw_range: false,
-                implied_counter: false,
-                bounded_bookkeeping: true,
-            },
+            v1_variant(true, false, false, true, 16_384),
         ),
         (
             "D v1 + C + raw range",
-            V1Options {
-                raw_seal: true,
-                raw_range: true,
-                implied_counter: false,
-                bounded_bookkeeping: true,
-            },
+            v1_variant(true, true, false, true, 16_384),
         ),
         (
             "E v1 + D + implied counter",
-            V1Options {
-                raw_seal: true,
-                raw_range: true,
-                implied_counter: true,
-                bounded_bookkeeping: true,
-            },
+            v1_variant(true, true, true, true, 16_384),
         ),
     ];
     for (n, (name, options)) in v1.iter().enumerate() {
@@ -1493,59 +1709,55 @@ fn main() -> Result<()> {
         });
         fs::remove_dir_all(&root)?;
     }
+    let v2_variant = |block_kib: usize, zstd_level, dense_locator| V2Options {
+        block_bytes: block_kib * 1024,
+        zstd_level,
+        dense_locator,
+    };
     let v2 = [
         (
-            "F v2 dense locator, 16 KiB blocks, zstd 3",
-            V2Options {
-                block_bytes: 16 * 1024,
-                zstd_level: 3,
-                dense_locator: true,
-            },
+            "F v2 dense locator, 16 KiB, zstd 3",
+            v2_variant(16, 3, true),
             false,
         ),
         (
-            "G v2 sparse index, 16 KiB blocks, zstd 3",
-            V2Options {
-                block_bytes: 16 * 1024,
-                zstd_level: 3,
-                dense_locator: false,
-            },
+            "G v2 sparse index, 16 KiB, zstd 3",
+            v2_variant(16, 3, false),
             false,
         ),
         (
-            "H v2 sparse index, 64 KiB blocks, zstd 3",
-            V2Options {
-                block_bytes: 64 * 1024,
-                zstd_level: 3,
-                dense_locator: false,
-            },
+            "H v2 sparse index, 64 KiB, zstd 3",
+            v2_variant(64, 3, false),
             false,
         ),
         (
-            "I v2 sparse index, 64 KiB blocks, zstd 9",
-            V2Options {
-                block_bytes: 64 * 1024,
-                zstd_level: 9,
-                dense_locator: false,
-            },
+            "I v2 sparse index, 64 KiB, zstd 9",
+            v2_variant(64, 9, false),
             false,
         ),
         (
             "J v2 sparse 16 KiB + brain proteins",
-            V2Options {
-                block_bytes: 16 * 1024,
-                zstd_level: 3,
-                dense_locator: false,
-            },
+            v2_variant(16, 3, false),
             true,
         ),
         (
             "K v2 dense 16 KiB + brain proteins",
-            V2Options {
-                block_bytes: 16 * 1024,
-                zstd_level: 3,
-                dense_locator: true,
-            },
+            v2_variant(16, 3, true),
+            true,
+        ),
+        (
+            "L v2 dense 16 KiB, NO compression",
+            v2_variant(16, 0, true),
+            false,
+        ),
+        (
+            "M v2 sparse 16 KiB, NO compression",
+            v2_variant(16, 0, false),
+            false,
+        ),
+        (
+            "N v2 dense 16 KiB, NO compression + proteins",
+            v2_variant(16, 0, true),
             true,
         ),
     ];
@@ -1561,11 +1773,32 @@ fn main() -> Result<()> {
         });
         fs::remove_dir_all(&root)?;
     }
+    let incremental = [
+        (
+            "O v2 incremental, 10,000-key runs, merge at 8, zstd 3",
+            v2_variant(16, 3, false),
+        ),
+        (
+            "P v2 incremental, 10,000-key runs, merge at 8, NO compression",
+            v2_variant(16, 0, false),
+        ),
+    ];
+    for (n, (name, options)) in incremental.iter().enumerate() {
+        let root = scratch.0.join(format!("v2i-{n}"));
+        let measure = write_v2_incremental(&root, &today, *options, 10_000, 8)?;
+        println!("{name}: {:.1} MiB", measure.allocated as f64 / MIB);
+        rows.push(Row {
+            name: name.to_string(),
+            logical: today.logical_atom_bytes,
+            measure,
+        });
+        fs::remove_dir_all(&root)?;
+    }
     let (ope_key, clww_key) = clww_key_bytes(&today);
     let base = today.logical_atom_bytes as f64;
     println!();
-    println!("| Variant | Disk MiB | Ratio to 84 MiB seed | Ratio to own atoms | Stored keys | Largest parts | Write s | Read-back |");
-    println!("|---|---|---|---|---|---|---|---|");
+    println!("| Variant | Disk MiB | Ratio to 84 MiB seed | Ratio to own atoms | Before compaction or peak MiB | Stored keys | Largest parts | Write s | Read-back |");
+    println!("|---|---|---|---|---|---|---|---|---|");
     for row in &rows {
         let parts: Vec<String> = row
             .measure
@@ -1575,11 +1808,14 @@ fn main() -> Result<()> {
             .map(|(p, b)| format!("{p} {:.0}", *b as f64 / MIB))
             .collect();
         println!(
-            "| {} | {:.1} | {:.2}x | {:.2}x | {} | {} | {:.1} | {} |",
+            "| {} | {:.1} | {:.2}x | {:.2}x | {} | {} | {} | {:.1} | {} |",
             row.name,
             row.measure.allocated as f64 / MIB,
             row.measure.allocated as f64 / base,
             row.measure.allocated as f64 / row.logical as f64,
+            row.measure
+                .before_compaction
+                .map_or("-".to_string(), |b| format!("{:.1}", b as f64 / MIB)),
             row.measure.keys,
             parts.join(", "),
             row.measure.write_secs,
