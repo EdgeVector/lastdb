@@ -21,6 +21,10 @@ on:
         description: Measure resource growth only with the selected profile
         type: boolean
         default: false
+      ttl_active:
+        description: Also measure generated writes with TTL policies, sweep and full compaction
+        type: boolean
+        default: false
       investigation:
         description: Capture native phases in a separate generated-data pass
         type: boolean
@@ -69,6 +73,7 @@ jobs:
       driver: ${{ needs.plan.outputs.driver }}
       profile: ${{ inputs.profile }}
       resource_only: ${{ inputs.resource_only }}
+      ttl_active: ${{ inputs.ttl_active }}
       investigation: ${{ inputs.investigation }}
       baseline_workers: ${{ inputs.baseline_workers }}
       candidate_workers: ${{ inputs.candidate_workers }}

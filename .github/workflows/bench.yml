@@ -57,6 +57,7 @@ jobs:
       profile: ${{ github.event_name == 'schedule' && 'nightly' || 'standard' }}
       investigation: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 317 }}
       legacy_cache_upgrade: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 363 }}
+      ttl_active: ${{ github.event_name == 'pull_request' && github.head_ref == 'direct/lifecycle-age-marker-ttl-latency-20261025' }}
 
   benchmark-complete:
     name: benchmark-complete

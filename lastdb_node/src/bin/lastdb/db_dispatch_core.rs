@@ -67,6 +67,21 @@ pub(super) fn db_inspect_command(
 /// Dispatch the space reclaim, GC and compaction verbs.
 pub(super) fn db_reclaim_command(socket: &Path, action: DbReclaimCommand) -> Result<(), String> {
     match action {
+        DbReclaimCommand::CleanupDeleteMarkers {
+            molecule,
+            scope,
+            after_key,
+            max_keys,
+            execute,
+            json,
+        } => db_cleanup_delete_markers(
+            socket,
+            &serde_json::json!({
+                "molecule": molecule, "scope": scope, "after_key": after_key,
+                "limit": max_keys, "execute": execute, "cleanup_delete_markers": true,
+            }),
+            json,
+        ),
         DbReclaimCommand::Compact {
             collection,
             all,

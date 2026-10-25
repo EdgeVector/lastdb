@@ -27,12 +27,25 @@ has the right shape (`docs/app-manifest-retention.md`).
   The backfill keeps the original Hash tip ages and registers untouched HashRange hashes.
   Retired Single/Range layouts do not support this backfill.
 
+CAUTION: Backfill can make an existing record expire at once.
+The owner must use `--confirm-expire-existing`.
+For Hash records, each page reads the current tips and writes their original clocks through the normal age writer.
+This also corrects an existing age that an older program recorded from replay arrival time.
+The page can move that incorrect age backwards. A newer current tip still keeps its actual newer age.
+The native write scope covers the tip reads and age changes. A repeat page uses the current tips again.
+The same batch removes the old forward age entry and replaces the reverse age entry.
+HashRange backfill registers hashes; the range key still defines the age.
+
 ## What a pass does
 
 1. The sampler tick starts at most one pass. A pass skips while a backup cut is held or local
    writes are paused.
 2. The pass lists the expired keys of each schema once, hash by hash and oldest first inside a
    hash. The store keeps the rows of one hash in one group, so one batch touches few groups.
+   Range discovery reads 256 keys per request through the normal keyed page reader.
+   An exclusive key cursor advances across each page, including keys without a valid age.
+   Only an empty page ends discovery. A large expired hash does not require one unbounded read.
+   The next pass starts from the oldest remaining key; no offset survives an erase.
 3. The pass erases in rounds. Each round takes one batch from each schema that still has keys,
    in schema name order. A large backlog in one schema cannot starve the others.
 4. Before each batch the sweep re-checks its keys, inside the batch admission:
@@ -213,9 +226,9 @@ the largest batch, no failure).
 
 ## The write-time guard (Hash and Single schemas)
 
-The re-check in step 4 reads the write-time index. A write reaches that index after the client
-gets its ack, in the persist lane of the schema. A rewrite that was acked and not yet indexed
-reads as old, so without a guard the erase would remove it.
+The re-check in step 4 reads the stored age for the key.
+A native write records the final tips' original clocks in the same durable commit, before its ack.
+The erase still checks the tips because a write can occur after selection and before admission.
 
 The sweep sends the cutoff of the batch with each erase of a Hash or Single key. Each verb
 compares the write time of the tip itself with the cutoff:
@@ -227,18 +240,11 @@ compares the write time of the tip itself with the cutoff:
   the tip lock spares a tip written at or after the cutoff. It works for each field, so a rewrite
   of one field spares only that field.
 
-Limits:
-
-- A spared key keeps its age row only if the row is newer than the cutoff. A key whose tip clock
-  is at or after the cutoff, and whose age row is old, is listed and spared again by each pass.
-  A peer write that carries a clock ahead of this node does this.
-- The cutoff is not part of the captured mutation. A peer and a cloud restore replay a plain
-  erase that is stamped at the time of the sweep. On a node with sync on, a spared key stays here,
-  and a peer that replays the erase can remove its copy. The two devices can then differ.
-- A key written only through another name of the same schema (the catalog hash name) has no age
-  row, so the sweep never lists it.
-- Range and HashRange keys take their age from the key. A rewrite does not change it, so they
-  need no guard.
+The signed TTL Delete mutation includes its cutoff. Replay preserves that cutoff.
+If the Delete spares any current field, the key keeps its TTL and LastSeek entries.
+Both installed names of an app schema use the same retention anchor.
+Range and HashRange keys take their age from the key. A rewrite does not change it.
+An old incorrect Hash age needs explicit backfill or a later nonduplicate write.
 
 ## Records that stay after a TTL erase
 
@@ -246,8 +252,9 @@ Limits:
   slot of an immutable base generation of the molecule that the delete removed from the live rows
   (`db_operations/atom_store/molecules/delete.rs`, `generation/slots.rs`). The read looks at it
   only for a molecule that has an active generation (`generation/merge.rs`). Both verbs write it,
-  because both use the same slot removal. It is local to the device (`sync/policy.rs`), and
-  nothing removes it.
+  because both use the same slot removal. It is local to the device (`sync/policy.rs`).
+  A whole-molecule drain removes its markers. The owner can also remove redundant markers
+  from a molecule with no active generation through bounded cleanup pages (below).
 - `rdel:v2:` is a delete barrier. It holds the stamp of the delete. It makes a later local write,
   a peer write that is replayed, and an older tip from a restore lose against the delete when
   their clock is not newer (`atom/delete_barrier.rs`, `apply_gate.rs`, `sync/engine/replay`). Only
@@ -257,15 +264,45 @@ Limits:
   barrier from the replayed erase (`sync/policy.rs`).
   Explicit stopped-home cleanup can remove barriers at or before its durable replay cutoff.
   It does not remove historical backup bytes or advance the cutoff on a timer.
-- `lastdb db inventory` has no key class for either prefix, so it does not show them.
+- `lastdb db inventory` classifies generation delete markers and delete barriers separately.
+
+### Bounded cleanup of redundant delete markers
+
+Use `lastdb db cleanup-delete-markers --molecule <identity> --json` to preview one page.
+Add `--scope <scope>` for a scoped molecule. Omit it for the personal molecule.
+Add `--execute` to delete the eligible markers in that page.
+Use the returned `next_cursor` as `--after-key` for the next page.
+The cursor is opaque text and remains valid after its key is deleted.
+An empty page returns `complete: true`. A short nonempty page still needs another call.
+`--max-keys` defaults to 128 and accepts 1 to 256.
+
+The command uses the owner socket and native storage.
+Each call needs its own native request scope; cleanup refuses an inherited write scope.
+It changes no tips, atom counters, atom bodies, conflict records, or Delete barriers.
+It returns `blocked: active_generation` while an immutable generation remains selected.
+It returns `blocked: generation_preparation` while a generation cut remains in flight.
+These responses retain every marker and do not claim completion.
+A shared lock covers each generation from its first source read through activation and reclamation.
+Cleanup tries the exclusive lock for that molecule after native admission. It never waits for that lock.
+Generation preparation also tries its shared lock without a wait.
+If cleanup still holds that lock, the complete write refuses with a retryable HTTP 503.
+The native request drops its private stages and releases admission before it returns that error.
+The client can retry after cleanup commits. No write waits for cleanup while it holds native admission.
+Normal keyed writes take no additional lock.
+Cleanup checks the generation pointer and deletes one page within the native write scope.
+A future generation therefore reads the state after cleanup, or keeps cleanup blocked until its activation ends.
+Each page commits before the response. Cancellation or restart can repeat the page safely.
+Concurrent erases can add markers before the cursor. A new pass can collect those markers.
+Compaction can then reclaim the removed metadata bytes.
+This is explicit owner maintenance; it adds no automatic cleanup pass.
 
 ### Last writer wins
 
-An erase is ordered by write clock like any other write. A TTL `delete` is stamped at the time of
-the sweep. It beats every write with an older clock, including a peer rewrite that is not yet
-synced. That write is lost on both devices. A `purge` has no barrier: an older write that arrives
-later is applied. In both cases a peer rewrite that is not yet synced can be lost or can
-bring the key back. No test with two devices exists for this.
+An ordinary Delete uses its author order. A TTL Delete also carries its signed age cutoff.
+A write at or after that cutoff remains eligible even if its author clock predates the sweep.
+A purge writes no barrier. An older Put can restore the key.
+Its original tip clock remains the TTL age, so an expired restored key can expire again.
+Core replay evidence does not establish two-device service behavior or cloud readiness.
 
 ## Knobs
 

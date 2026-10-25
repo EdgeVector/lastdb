@@ -37,7 +37,6 @@ use tracing::Instrument;
 
 use fold_db::access::{AccessContext, CallerTransport};
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::operations::Query;
 use fold_db::schema::types::schema::DeclarativeSchemaType;
 use fold_db::schema::types::{DeclarativeSchemaDefinition, KeyValue};
 use fold_db::schema::SchemaRetentionPolicy;
@@ -45,6 +44,7 @@ use fold_db::schema::SchemaRetentionPolicy;
 use crate::host::Host;
 
 mod backlog;
+mod discovery;
 mod erase;
 mod pace;
 mod send;
@@ -195,7 +195,7 @@ async fn sweep_ttl_inner(host: &Host, shutdown: &AtomicBool) -> Result<erase::Pa
             totals.cut = true;
             return Ok(totals);
         }
-        match list_expired(host, &schema_name, policy, now).await {
+        match list_expired(host, &schema_name, policy, now, shutdown).await {
             Ok(listed) => backlogs.extend(listed),
             Err(error) => {
                 tracing::warn!(
@@ -218,6 +218,7 @@ async fn list_expired(
     schema_name: &str,
     policy: SchemaRetentionPolicy,
     now: u64,
+    shutdown: &AtomicBool,
 ) -> Result<Option<Backlog>, String> {
     let Some(schema) = host
         .db
@@ -265,6 +266,7 @@ async fn list_expired(
                 &range_field,
                 &hash_partitions,
                 cutoff,
+                shutdown,
             )
             .await?
         }
@@ -288,6 +290,7 @@ async fn query_expired_keys(
     range_field: &str,
     hash_partitions: &[String],
     cutoff: u64,
+    shutdown: &AtomicBool,
 ) -> Result<Vec<KeyValue>, String> {
     // The read starts at the lowest dated key, so a key below it (for example
     // one that starts with `-` or `/`) is never selected.
@@ -310,22 +313,17 @@ async fn query_expired_keys(
     };
     let mut keys = Vec::new();
     for filter in filters {
-        let query = Query::new_with_filter(
-            schema_name.to_string(),
-            vec![range_field.to_string()],
-            Some(filter),
-        );
-        let rows = host
-            .db
-            .query_executor()
-            .query_with_access(query, &owner_context(host))
-            .await
-            .map_err(|e| e.to_string())?;
         keys.extend(
-            rows.get(range_field)
-                .into_iter()
-                .flat_map(|field| field.keys().cloned())
-                .filter(|key| key_is_expired(key, &schema.schema_type, cutoff)),
+            discovery::expired_range_keys(
+                host,
+                schema_name,
+                range_field,
+                &filter,
+                &schema.schema_type,
+                cutoff,
+                shutdown,
+            )
+            .await?,
         );
     }
     keys.sort_by(partition_then_age);

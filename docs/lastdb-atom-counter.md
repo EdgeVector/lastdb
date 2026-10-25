@@ -632,8 +632,9 @@ that does not parse gives the default.
 
 ## Known limits
 
-- Cloud sync replay and restore write rows that bypass the planner. Cloud sync is off in
-  this build. `verify-refs` finds the damage and `recount` repairs it.
+- Logical replay uses the counter writer. Raw lifecycle-row replay refuses before its cursor advances.
+  Native restore keeps its target blocked until the restored records and counts validate.
+  Cloud activation remains disabled; these guards do not establish cloud readiness.
 - A lost body (a tip names an atom that has no body) is found and never repaired.
 - The drain does not repair counter faults. The offline `db recount --molecules` option
   repairs molecule headers and binding counters from complete, readable source records.
@@ -644,10 +645,13 @@ that does not parse gives the default.
 - A request that mixes creates or updates with deletes or purges runs the writes first
   and the erasures after, as two batches. A delete and a write of the same key in one
   request leave the key deleted.
-- The batches of the janitor, the dwell pass and the drain seal the write queue, so a
-  writer that meets one waits for its flush. The janitor and the dwell pass pace by the
-  time writers wait. The drain and the TTL sweep pace by the wall time of a batch.
-  A batch that does not seal the queue would need a change in the storage path.
+- Maintenance batches require a durable commit. A foreground writer can wait for that commit.
+  Unreserved background batches can share the
+  current commit window. Maintenance pacing uses its measured writer wait.
+  See [TTL pacing and its limits](lastdb-ttl-sweep.md#pacing).
+- Delete markers can remain in a long-lived molecule. The owner can use
+  [bounded cleanup](lastdb-ttl-sweep.md#bounded-cleanup-of-redundant-delete-markers)
+  when that molecule has no active or prepared immutable generation.
 
 Limits of each part are on its page: `docs/lastdb-molecule-counters.md`,
 `docs/lastdb-molecule-drain.md`, `docs/lastdb-blob-counter.md`,

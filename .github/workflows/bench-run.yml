@@ -24,6 +24,9 @@ on:
       legacy_cache_upgrade:
         type: boolean
         default: false
+      ttl_active:
+        type: boolean
+        default: false
       baseline_workers:
         type: string
         default: "0"
@@ -304,6 +307,21 @@ jobs:
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile standard --pairs 1 --native-timing --output "$BENCH_OUTPUT/native-diagnostics"
+
+      - name: Measure writes with active TTL and full compaction
+        if: inputs.ttl_active && !inputs.resource_only
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+          DRIVER_SHA: ${{ inputs.driver }}
+        run: |
+          timeout --signal=TERM --kill-after=120s 90m \
+            python3 driver/scripts/benchmarks/ttl_latency.py \
+              --baseline "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --candidate "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --driver-revision "$DRIVER_SHA" --output "$BENCH_OUTPUT/ttl-active"
 
       - name: Record remaining runner space
         if: always()

@@ -4,6 +4,23 @@ use super::*;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum DbReclaimCommand {
+    /// Preview one bounded page of redundant generation delete markers.
+    /// Active generations and in-flight generation preparations stay protected.
+    CleanupDeleteMarkers {
+        #[arg(long)]
+        molecule: String,
+        #[arg(long)]
+        scope: Option<String>,
+        /// Opaque exclusive cursor from the previous page, including a deleted key.
+        #[arg(long)]
+        after_key: Option<String>,
+        #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u16).range(1..=256))]
+        max_keys: u16,
+        #[arg(long)]
+        execute: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Pack the native home and reclaim the files that no generation needs.
     ///
     /// Without `--execute`, show a preview report and change nothing.

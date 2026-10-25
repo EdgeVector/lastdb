@@ -33,6 +33,7 @@ mod conflict_record;
 mod construct;
 pub(crate) mod counter;
 mod delete_barriers;
+mod delete_marker_cleanup;
 mod delete_replay;
 pub use delete_replay::DeletePruneReport;
 mod erase_meters;
@@ -135,6 +136,9 @@ async fn lock_target_stripes(
 
 type ExactTipLocks =
     Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
+type GenerationCleanupLocks = Arc<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::RwLock<()>>>>,
+>;
 
 /// Domain store for atoms, molecules, mutation events, and sync conflicts.
 ///
@@ -184,6 +188,8 @@ pub struct AtomStore {
     /// the two cannot deadlock.
     molecule_commit_locks:
         Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
+    /// Per-molecule generation cuts exclude marker cleanup until activation ends.
+    generation_cleanup_locks: GenerationCleanupLocks,
     /// Exact durable-tip locks. These make the read/compare/put winner rule
     /// atomic per `mk:` row without coupling writes to different slots.
     tip_commit_locks: ExactTipLocks,

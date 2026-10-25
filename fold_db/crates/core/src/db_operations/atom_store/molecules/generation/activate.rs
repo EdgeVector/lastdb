@@ -10,6 +10,14 @@ impl AtomStore {
         molecule_uuid: &str,
         storage_prefix: Option<&str>,
     ) -> Result<PreparedMoleculeGeneration, SchemaError> {
+        let cleanup_guard = std::sync::Arc::new(
+            self.generation_cleanup_lock(molecule_uuid, storage_prefix)
+                .try_read_owned()
+                .map_err(|_| SchemaError::WriteResourceLimit {
+                    detail: "delete_marker_cleanup_busy: retry the complete write after marker cleanup commits".into(),
+                })?,
+        );
+        self.retain_generation_cleanup_guard(std::sync::Arc::clone(&cleanup_guard))?;
         let generation = uuid::Uuid::new_v4().simple().to_string();
         let live_prefix = build_storage_key(
             storage_prefix,
@@ -45,6 +53,7 @@ impl AtomStore {
         let previous_generation = current.as_ref().map(|value| value.generation.clone());
         let reclaim_generation = current.and_then(|value| value.previous_generation);
         Ok(PreparedMoleculeGeneration {
+            _cleanup_guard: cleanup_guard,
             generation,
             observed,
             previous_generation,
