@@ -23,6 +23,7 @@
 mod bloom;
 mod codec;
 mod footer;
+pub mod home;
 mod merge;
 mod range;
 mod reader;
