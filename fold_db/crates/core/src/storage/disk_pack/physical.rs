@@ -189,7 +189,7 @@ pub(super) enum ReadMode {
 /// One read call against one held root of either format.
 pub(super) enum PhysicalRead {
     V1(Box<laststore::disk_pack::home::HomeRead>),
-    V2(V2Read),
+    V2(Box<V2Read>),
 }
 
 /// One v2 read call: the main home and the CAS home at one held root.
@@ -219,6 +219,7 @@ impl V2Read {
             .iter()
             .enumerate()
             .partition(|(_, (collection, _))| collection == CAS_COLLECTION);
+        let limit = self.main.budget();
         let mut out: Vec<Option<laststore::Result<Option<Vec<u8>>>>> =
             (0..coordinates.len()).map(|_| None).collect();
         for (read, part) in [(&mut self.main, main), (&mut self.cas, cas)] {
@@ -229,6 +230,13 @@ impl V2Read {
             for ((slot, _), found) in part.iter().zip(read.get_many(&wanted)?) {
                 out[*slot] = Some(found);
             }
+        }
+        // Each home enforces its own limit; the call as a whole has one.
+        let (main, cas) = (self.main.costs(), self.cas.costs());
+        if main.examined_keys + cas.examined_keys > limit.keys
+            || main.budget_bytes + cas.budget_bytes > limit.bytes
+        {
+            return Err(laststore::Error::ReadBudgetExceeded);
         }
         Ok(out
             .into_iter()
@@ -432,10 +440,10 @@ impl PackRuntime {
                         ..budget()
                     },
                 };
-                Ok(PhysicalRead::V2(V2Read {
+                Ok(PhysicalRead::V2(Box::new(V2Read {
                     main: v2.home.read_root(&root.main, limits),
                     cas: v2.cas.read_root(&root.cas, limits),
-                }))
+                })))
             }
             _ => Err(StorageError::BackendError(
                 "native root and physical home use different formats".into(),

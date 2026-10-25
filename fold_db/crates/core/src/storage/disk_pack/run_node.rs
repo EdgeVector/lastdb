@@ -28,6 +28,9 @@ use laststore::disk_run::home::RunHome;
 use std::io::Write;
 
 pub(super) const RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\ncas=disk-cas\n";
+/// The marker of a v2 home from before the CAS run home. No such home has
+/// user data; it is refused with a clear message.
+pub(super) const EARLY_RUN_NODE_BYTES: &[u8] = b"format=3\nhome=disk-run\n";
 pub(super) const RUN_DIR: &str = "disk-run";
 pub(super) const CAS_DIR: &str = "disk-cas";
 const INTENT: &str = "laststore-run-initializing";
@@ -41,6 +44,12 @@ pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
     };
+    if marker.as_deref() == Some(EARLY_RUN_NODE_BYTES) {
+        return Err(StorageError::InvalidOperation(
+            "this format v2 home is from before the CAS run home (disk-cas); create it again"
+                .into(),
+        ));
+    }
     Ok(marker.as_deref() == Some(RUN_NODE_BYTES))
 }
 

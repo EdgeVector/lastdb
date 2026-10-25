@@ -88,6 +88,8 @@ pub(super) fn resume_or_convert(
         if node.join(INTENT).try_exists()? {
             resume(node, &kept)?;
         }
+        drop(_lock);
+        remove_lock_in_v1(node)?;
     }
     let asked = std::env::var("LASTDB_DISK_FORMAT").as_deref() == Ok("2");
     let marker = match std::fs::read(node.join(NODE_MARKER)) {
@@ -121,6 +123,10 @@ pub(super) fn resume_or_convert(
     }
     same_volume(node)?;
     let lock = take_lock(node)?;
+    // Another opener can have converted the home before this one had the lock.
+    if std::fs::read(node.join(NODE_MARKER)).ok().as_deref() != Some(initialization::NODE_BYTES) {
+        return Ok(None);
+    }
     let converted = convert(node, node_key, &kept);
     if converted.is_err() && !node.join(INTENT).try_exists()? {
         // Failed before the switch: v1 is complete; remove the partial copy.
@@ -129,6 +135,9 @@ pub(super) fn resume_or_convert(
         }
     }
     drop(lock);
+    if converted.is_err() {
+        remove_lock_in_v1(node)?;
+    }
     converted.map(Some)
 }
 
@@ -147,6 +156,15 @@ fn take_lock(node: &Path) -> StorageResult<File> {
         ))
     })?;
     Ok(lock)
+}
+
+/// A v1 home keeps no conversion lock file: other v1 tools refuse a file
+/// they do not know. A v2 home keeps it.
+fn remove_lock_in_v1(node: &Path) -> StorageResult<()> {
+    if std::fs::read(node.join(NODE_MARKER)).ok().as_deref() == Some(initialization::NODE_BYTES) {
+        remove_if_present(&node.join(LOCK))?;
+    }
+    Ok(())
 }
 
 /// The kept folder is made beside the node folder and the switch renames

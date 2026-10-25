@@ -117,9 +117,17 @@ fn commit_split(v2: &V2Home, operations: Vec<HomeMutation>) -> laststore::Result
         last.insert(op.key.clone(), op);
     }
     let (puts, deletes): (Vec<_>, Vec<_>) = last.into_values().partition(|op| op.body.is_some());
-    for (home, batch) in [(&v2.cas, puts), (&v2.home, main), (&v2.cas, deletes)] {
+    for (home, batch) in [(&v2.cas, puts), (&v2.home, main)] {
         if !batch.is_empty() {
             home.commit(batch)?;
+        }
+    }
+    // The other records are durable now, so the commit has succeeded. A
+    // failed CAS delete leaves files that nothing references; a poisoned
+    // CAS home refuses the next CAS commit.
+    if !deletes.is_empty() {
+        if let Err(error) = v2.cas.commit(deletes) {
+            tracing::warn!(%error, "disk run CAS delete failed after its commit; unreferenced CAS files remain");
         }
     }
     Ok(())
