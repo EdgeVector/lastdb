@@ -3,7 +3,7 @@ use super::tree_output::TreePages;
 use super::{corrupt, TreeKind, TreeRoot};
 use crate::{durability, Result};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -155,12 +155,20 @@ impl TreePages for SparsePages {
     fn append(&mut self, fields: PageFields, payload: &[u8]) -> Result<u64> {
         self.reserve(1)?;
         let number = self.next;
+        let prefix = super::HEADER_BYTES + payload.len();
+        let sparse = self.kind == TreeKind::Locator
+            && fields.kind == super::packed_page::INTERNAL
+            && prefix <= super::PAGE_BYTES / 4;
         let bytes = encode_page(self.object, self.generation, number, fields, payload)?;
-        self.file
-            .as_mut()
-            .expect("private metadata part")
-            .write_all(&bytes)?;
-        super::page_usage::written(&bytes, bytes.len());
+        let file = self.file.as_mut().expect("private metadata part");
+        let requested = if sparse {
+            append_parent(file, &bytes[..prefix], number)?;
+            prefix
+        } else {
+            file.write_all(&bytes)?;
+            bytes.len()
+        };
+        super::page_usage::written(&bytes, requested);
         self.written_pages += 1;
         self.next += 1;
         if self.next % crate::disk_pack::PAGES_PER_PART == 0 {
@@ -168,4 +176,18 @@ impl TreePages for SparsePages {
         }
         Ok(number)
     }
+}
+
+/// Only a fresh private page may omit its encoded zero tail. Preserve its full
+/// logical image and restore the cursor for both fresh and append-mode handles.
+fn append_parent(file: &mut File, prefix: &[u8], number: u64) -> Result<()> {
+    let start = number % crate::disk_pack::PAGES_PER_PART * super::PAGE_BYTES as u64;
+    if file.seek(SeekFrom::End(0))? != start {
+        return Err(corrupt("private parent append length changed"));
+    }
+    file.write_all(prefix)?;
+    let end = start + super::PAGE_BYTES as u64;
+    file.set_len(end)?;
+    file.seek(SeekFrom::Start(end))?;
+    Ok(())
 }

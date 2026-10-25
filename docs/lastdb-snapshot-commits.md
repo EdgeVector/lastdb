@@ -82,6 +82,14 @@ When such an edit produces two locator leaves and a tail below 25% payload fulln
 Pure tail inserts retain the current append layout. Directory splits and splits with three or more leaves retain their current rules.
 The change uses the existing entries and two output pages. It adds no page format, buffer, cache, or memory allowance.
 
+An incremental locator-parent append can omit a zero tail when its header and payload fit within 4,096 bytes.
+The writer checks the private file length, writes the encoded prefix, and extends the file to the same 16,384-byte boundary.
+It then restores the cursor before the next append. File extension supplies the same zeros covered by the full-page checksum.
+Page counts, logical file lengths, validation, reservations, and existing file barriers retain their current rules.
+Fuller parents, other page types, and the bulk writer keep the full-page write.
+Isolated counters report requested append bytes and omitted zeros. These counters exclude filesystem metadata and device write traffic.
+Allocated file blocks require a separate filesystem measurement. Full-copy compaction and cloud copies can materialize the zero tails again.
+
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.
 It drops before final count changes and receipt output; no cache survives the commit or an error.
