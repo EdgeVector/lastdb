@@ -102,15 +102,21 @@ impl PackRuntime {
 /// the thread and waits for its current step, so the home and its owner lock
 /// are free when the close returns.
 fn start_merges(v2: &V2Home) {
-    if v2.merging.swap(true, Ordering::AcqRel) {
+    let waiting = v2
+        .retry_after
+        .lock()
+        .expect("disk run merge retry")
+        .is_some_and(|at| std::time::Instant::now() < at);
+    if waiting || v2.merging.swap(true, Ordering::AcqRel) {
         return;
     }
     let home = Arc::downgrade(&v2.home);
     let merging = Arc::clone(&v2.merging);
     let stop = Arc::clone(&v2.stop);
+    let retry_after = Arc::clone(&v2.retry_after);
     let spawned = std::thread::Builder::new()
         .name("lastdb-run-merge".into())
-        .spawn(move || merge_until_settled(&home, &merging, &stop));
+        .spawn(move || merge_until_settled(&home, &merging, &stop, &retry_after));
     match spawned {
         Ok(handle) => {
             let mut merger = v2.merger.lock().expect("disk run merge thread");
@@ -126,7 +132,16 @@ fn start_merges(v2: &V2Home) {
     }
 }
 
-fn merge_until_settled(home: &std::sync::Weak<RunHome>, merging: &AtomicBool, stop: &AtomicBool) {
+/// The wait before a new merge thread after a failed merge, so a merge that
+/// fails each time (a full disk) does not start a thread on each commit.
+const MERGE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn merge_until_settled(
+    home: &std::sync::Weak<RunHome>,
+    merging: &AtomicBool,
+    stop: &AtomicBool,
+    retry_after: &Mutex<Option<std::time::Instant>>,
+) {
     loop {
         while !stop.load(Ordering::Acquire) {
             let Some(home) = home.upgrade() else { break };
@@ -137,6 +152,8 @@ fn merge_until_settled(home: &std::sync::Weak<RunHome>, merging: &AtomicBool, st
                     // A failed merge leaves its inputs in force; a poisoned
                     // home refuses the next commit, which fails the runtime.
                     tracing::warn!(%error, "disk run merge failed");
+                    *retry_after.lock().expect("disk run merge retry") =
+                        Some(std::time::Instant::now() + MERGE_RETRY);
                     merging.store(false, Ordering::Release);
                     return;
                 }

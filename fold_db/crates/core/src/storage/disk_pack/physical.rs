@@ -33,6 +33,8 @@ pub(super) struct V2Home {
     /// Set when the node store closes; the thread stops after its step.
     pub(super) stop: Arc<AtomicBool>,
     pub(super) merger: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// After a failed merge, no new merge thread starts before this time.
+    pub(super) retry_after: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl V2Home {
@@ -42,6 +44,7 @@ impl V2Home {
             merging: Arc::default(),
             stop: Arc::default(),
             merger: Mutex::new(None),
+            retry_after: Arc::default(),
         }
     }
 }

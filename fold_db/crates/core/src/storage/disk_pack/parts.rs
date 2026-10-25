@@ -282,9 +282,11 @@ impl PartsLedger {
     }
 
     /// Record a v2 root, which has no dependency parts.
+    /// A commit and a merge adoption can race; the newer generation wins.
     pub(super) fn observe_root(&self, generation: u64, frontier: u64) {
-        self.generation.store(generation, Relaxed);
-        self.frontier.store(frontier, Relaxed);
+        if self.generation.fetch_max(generation, Relaxed) <= generation {
+            self.frontier.store(frontier, Relaxed);
+        }
     }
 
     /// Generation and frontier of the last root this ledger saw.
