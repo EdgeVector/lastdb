@@ -711,13 +711,17 @@ struct Sealer {
 impl Sealer {
     /// A fresh random key and nonce prefix for each run (OS random source).
     fn new() -> Self {
-        let key: Vec<u8> = uuid::Uuid::new_v4()
-            .as_bytes()
-            .iter()
-            .chain(uuid::Uuid::new_v4().as_bytes())
-            .copied()
-            .collect();
-        let nonce_prefix = uuid::Uuid::new_v4().as_bytes()[..4].to_vec();
+        // Read the key material straight from the kernel random device; the
+        // spike runs only on Linux CI runners.
+        let mut random = Vec::with_capacity(36);
+        fs::File::open("/dev/urandom")
+            .and_then(|file| {
+                std::io::Read::read_to_end(&mut std::io::Read::take(file, 36), &mut random)
+            })
+            .expect("random");
+        assert_eq!(random.len(), 36, "short random read");
+        let nonce_prefix = random.split_off(32);
+        let key = random;
         Self {
             cipher: Aes256Gcm::new_from_slice(&key).expect("key"),
             nonce_prefix,
