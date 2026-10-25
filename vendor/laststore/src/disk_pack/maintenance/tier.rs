@@ -144,7 +144,7 @@ impl<'a> TierCopy<'a> {
             2
         };
         if let Some(pages) = self.pages.get_mut(&(kind, tree.object)) {
-            pages.park();
+            pages.park()?;
         }
         Ok(output)
     }

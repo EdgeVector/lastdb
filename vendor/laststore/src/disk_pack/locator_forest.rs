@@ -288,7 +288,7 @@ impl LocatorChanges {
                 .open_object
                 .and_then(|object| self.edited.get_mut(&object))
             {
-                pages.park();
+                pages.park()?;
             }
             self.open_object = Some(tree.object);
         }

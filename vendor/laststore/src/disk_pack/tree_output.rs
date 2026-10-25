@@ -9,6 +9,11 @@ pub(super) type LeafEntry = (Descriptor, [u8; 128]);
 pub(super) trait TreePages {
     fn reserve(&mut self, count: usize) -> Result<u64>;
     fn append(&mut self, fields: PageFields, payload: &[u8]) -> Result<u64>;
+    /// Make buffered private bytes readable before another edit uses its root.
+    /// Unbuffered allocators already expose every completed append.
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl TreePages for PageWriter {
