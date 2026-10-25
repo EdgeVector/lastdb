@@ -704,18 +704,20 @@ fn ope_v1(molecule: u32, range: &str) -> String {
 
 struct Sealer {
     cipher: Aes256Gcm,
-    nonce_prefix: [u8; 4],
+    nonce_prefix: Vec<u8>,
     counter: u64,
 }
 
 impl Sealer {
     /// A fresh random key and nonce prefix for each run (OS random source).
     fn new() -> Self {
-        let mut key = [0u8; 32];
-        key[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-        key[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-        let mut nonce_prefix = [0u8; 4];
-        nonce_prefix.copy_from_slice(&uuid::Uuid::new_v4().as_bytes()[..4]);
+        let key: Vec<u8> = uuid::Uuid::new_v4()
+            .as_bytes()
+            .iter()
+            .chain(uuid::Uuid::new_v4().as_bytes())
+            .copied()
+            .collect();
+        let nonce_prefix = uuid::Uuid::new_v4().as_bytes()[..4].to_vec();
         Self {
             cipher: Aes256Gcm::new_from_slice(&key).expect("key"),
             nonce_prefix,
@@ -726,9 +728,8 @@ impl Sealer {
     /// prefix plus a counter, so it never repeats under one key.
     fn seal(&mut self, plaintext: &[u8]) -> Vec<u8> {
         self.counter += 1;
-        let mut nonce = [0u8; 12];
-        nonce[..4].copy_from_slice(&self.nonce_prefix);
-        nonce[4..].copy_from_slice(&self.counter.to_be_bytes());
+        let mut nonce = self.nonce_prefix.clone();
+        nonce.extend_from_slice(&self.counter.to_be_bytes());
         let ct = self
             .cipher
             .encrypt(Nonce::from_slice(&nonce), plaintext)
@@ -1496,20 +1497,24 @@ fn write_v2_incremental(
     let merge = |runs: &mut Vec<(PathBuf, Vec<(Vec<u8>, Vec<u8>)>)>,
                  sealer: &mut Sealer,
                  next: &mut usize|
-     -> Result<u64> {
-        let mut all: Vec<_> = runs
-            .drain(..)
-            .flat_map(|(path, run)| {
-                let _ = fs::remove_file(&path);
-                run
-            })
+     -> Result<(u64, u64)> {
+        let old: Vec<_> = runs.drain(..).collect();
+        let mut all: Vec<_> = old
+            .iter()
+            .flat_map(|(_, run)| run.iter().cloned())
             .collect();
         all.sort_by(|a, b| a.0.cmp(&b.0));
         let path = root.join(format!("run-{next:06}"));
         *next += 1;
         let bytes = write_run(&path, &all, options, sealer)?;
+        // The old runs and the merged run are all on disk here: the peak.
+        let peak = measure_dir(root)?.allocated;
+        // Old runs are deleted only after the merged run is complete.
+        for (old_path, _) in &old {
+            fs::remove_file(old_path)?;
+        }
         runs.push((path, all));
-        Ok(bytes)
+        Ok((bytes, peak))
     };
     for chunk in records.chunks(run_keys) {
         let mut run = chunk.to_vec();
@@ -1520,13 +1525,15 @@ fn write_v2_incremental(
         runs.push((path, run));
         peak = peak.max(measure_dir(root)?.allocated);
         if runs.len() >= fanin {
-            // Old runs are deleted only after the merged run is complete.
-            written += merge(&mut runs, &mut sealer, &mut next)?;
-            peak = peak.max(measure_dir(root)?.allocated);
+            let (bytes, merge_peak) = merge(&mut runs, &mut sealer, &mut next)?;
+            written += bytes;
+            peak = peak.max(merge_peak);
         }
     }
     if runs.len() > 1 {
-        written += merge(&mut runs, &mut sealer, &mut next)?;
+        let (bytes, merge_peak) = merge(&mut runs, &mut sealer, &mut next)?;
+        written += bytes;
+        peak = peak.max(merge_peak);
     }
     let write_secs = start.elapsed().as_secs_f64();
     let mut expected = records;
@@ -1584,6 +1591,7 @@ fn measure_dir(root: &Path) -> Result<Measure> {
                     Some(name) if name == "packs" || name == "pack" => "packs",
                     Some(name) if name == "directory" => "directory",
                     Some(name) if name == "generations" => "generations",
+                    Some(name) if name.to_string_lossy().starts_with("run-") => "runs",
                     _ => "other",
                 };
                 *parts.entry(top.to_string()).or_default() += meta.blocks() * 512;
