@@ -177,6 +177,9 @@ The inventory captures all metadata collections that the native namespace direct
 It excludes atom bodies/counters and CAS bytes from the in-memory metadata set.
 The packed visitor consumes excluded payloads without their retention in memory.
 It streams the complete held generation; the capture limits count selected metadata only.
+Run-file reads use bounded calls and resume strictly after the last examined key at the same fixed root.
+Tombstones do not consume a cumulative allowance for live metadata.
+The namespace directory uses the same continuation rule.
 The report binds the source publications and captured metadata with SHA-256 fingerprints.
 These fingerprints identify a snapshot. They are not authentication or permission tokens.
 

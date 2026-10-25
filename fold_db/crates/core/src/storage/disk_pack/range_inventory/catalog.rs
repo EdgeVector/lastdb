@@ -71,7 +71,7 @@ impl Catalog {
                     crate::crypto::at_rest::open_at_rest_bounded(
                         key,
                         &record.value,
-                        4 * 1024 * 1024,
+                        limits.max_metadata_bytes as u64,
                     )
                     .map(zeroize::Zeroizing::new)
                 })

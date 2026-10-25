@@ -55,7 +55,7 @@ impl RunRead {
             Some(end) => Some(run_key(collection, format!("{prefix}{end}").as_bytes())?),
             None => prefix_end(&base),
         };
-        self.range_between(collection, lower, upper)
+        self.range_between(collection, lower, upper, false)
     }
 
     /// Internal metadata range over one collection, `[start, end)` in
@@ -70,7 +70,21 @@ impl RunRead {
         self.charge((collection.len() + start.len() + end.len()) as u64)?;
         let lower = run_key(collection, start)?;
         let upper = run_key(collection, end)?;
-        self.range_between(collection, lower, Some(upper))
+        self.range_between(collection, lower, Some(upper), false)
+    }
+
+    /// Continue an administrative range strictly above one complete storage
+    /// key. No sentinel is appended, so a maximum-length key remains valid.
+    pub fn administrative_range_after(
+        &mut self,
+        collection: &str,
+        after: &[u8],
+        end: &[u8],
+    ) -> Result<RunHashRange<'_>> {
+        self.charge((collection.len() + after.len() + end.len()) as u64)?;
+        let lower = run_key(collection, after)?;
+        let upper = run_key(collection, end)?;
+        self.range_between(collection, lower, Some(upper), true)
     }
 
     fn range_between(
@@ -78,6 +92,7 @@ impl RunRead {
         collection: &str,
         lower: Vec<u8>,
         upper: Option<Vec<u8>>,
+        exclusive: bool,
     ) -> Result<RunHashRange<'_>> {
         for slot in 0..self.runs.len() {
             if self.runs[slot].0.meta.overlaps(&lower, upper.as_deref()) {
@@ -94,11 +109,16 @@ impl RunRead {
             Some(upper) => Bound::Excluded(upper.as_slice()),
             None => Bound::Unbounded,
         };
+        let lower_bound = if exclusive {
+            Bound::Excluded(lower.as_slice())
+        } else {
+            Bound::Included(lower.as_slice())
+        };
         let sources = runs
             .iter()
             .filter(|(file, _)| file.meta.overlaps(&lower, upper.as_deref()))
             .filter_map(|(_, reader)| reader.as_ref())
-            .map(|reader| reader.range(Bound::Included(lower.as_slice()), upper_bound))
+            .map(|reader| reader.range(lower_bound, upper_bound))
             .collect();
         Ok(RunHashRange {
             records: MergeIter::new(sources),

@@ -1,12 +1,9 @@
-use super::source::{budget, Source};
+use super::source::Source;
 use super::{invalid, InventoryLimits, MetadataRecord, StorageResult};
 use crate::storage::disk_pack::map;
 use laststore::disk_pack::maintenance::visit_generation_streaming;
 use std::collections::BTreeSet;
 use std::io::Read;
-
-const PAGE: usize = 128;
-const MAX_RECORD: usize = 4 * 1024 * 1024;
 
 fn selected(collection: &str) -> bool {
     // Atom bodies/counters and CAS payloads cannot define molecule coordinates.
@@ -30,13 +27,15 @@ pub(super) fn collect(
                     std::io::copy(body, &mut std::io::sink())?;
                     return Ok(());
                 }
-                if record.body_bytes > MAX_RECORD as u64 {
+                let remaining = body_limit(&records, bytes, limits, record.collection, record.key)
+                    .map_err(|error| laststore::Error::Config(error.to_string()))?;
+                if record.body_bytes > remaining as u64 {
                     return Err(laststore::Error::Config(
                         "range inventory metadata record exceeds its bound".into(),
                     ));
                 }
                 let mut value = Vec::new();
-                body.take(MAX_RECORD as u64 + 1).read_to_end(&mut value)?;
+                body.take(record.body_bytes).read_to_end(&mut value)?;
                 if value.len() as u64 != record.body_bytes {
                     return Err(laststore::Error::Config(
                         "range inventory metadata record is incomplete".into(),
@@ -56,22 +55,9 @@ pub(super) fn collect(
         }
         Source::Runs { main, .. } => {
             for collection in collections(main, limits)? {
-                let mut read = main.fork(budget(
-                    limits.max_metadata_bytes.saturating_mul(2),
-                    limits.max_records.saturating_mul(8),
-                ));
-                let mut cursor = read
-                    .administrative_range(&collection, b"", &[255])
-                    .map_err(map)?;
-                loop {
-                    let page = cursor.next_page(PAGE).map_err(map)?;
-                    for (key, value) in page.records {
-                        push(&mut records, &mut bytes, limits, &collection, &key, value)?;
-                    }
-                    if page.exhausted {
-                        break;
-                    }
-                }
+                super::run_pages::visit(main, &collection, b"", &[255], limits, |key, value| {
+                    push(&mut records, &mut bytes, limits, &collection, &key, value)
+                })?;
             }
         }
     }
@@ -83,13 +69,6 @@ fn collections(
     main: &laststore::disk_run::home::RunRead,
     limits: InventoryLimits,
 ) -> StorageResult<BTreeSet<String>> {
-    let mut registry = main.fork(budget(
-        limits.max_metadata_bytes,
-        limits.max_records.saturating_mul(8),
-    ));
-    let mut cursor = registry
-        .administrative_range("__native_home", b"namespaces\0", b"namespaces\x01")
-        .map_err(map)?;
     let mut names: BTreeSet<String> = [
         "tips",
         "indexes",
@@ -102,10 +81,16 @@ fn collections(
     .into_iter()
     .map(str::to_owned)
     .collect();
-    loop {
-        let page = cursor.next_page(PAGE).map_err(map)?;
-        for (key, value) in page.records {
-            if value != [1] || names.len() >= 10000 {
+    let mut registry_entries = 0;
+    super::run_pages::visit(
+        main,
+        "__native_home",
+        b"namespaces\0",
+        b"namespaces\x01",
+        limits,
+        |key, value| {
+            registry_entries += 1;
+            if value != [1] || registry_entries > 10000 {
                 return Err(invalid(
                     "source namespace registry is invalid or exceeds its bound",
                 ));
@@ -116,11 +101,9 @@ fn collections(
             if selected(name) && name != "main" {
                 names.insert(name.to_owned());
             }
-        }
-        if page.exhausted {
-            break;
-        }
-    }
+            Ok(())
+        },
+    )?;
     Ok(names)
 }
 
@@ -135,24 +118,36 @@ fn push(
     if matches!(collection, "field_tips" | "blob_ref_edges") {
         return Err(invalid("source contains a retired physical metadata alias"));
     }
-    let next = bytes
-        .checked_add(collection.len())
-        .and_then(|n| n.checked_add(key.len()))
-        .and_then(|n| n.checked_add(value.len()));
-    if records.len() >= limits.max_records
-        || key.len() > limits.max_key_bytes
-        || value.len() > MAX_RECORD
-        || next.is_none_or(|n| n > limits.max_metadata_bytes)
-    {
+    if value.len() > body_limit(records, *bytes, limits, collection, key)? {
         return Err(invalid(
             "source metadata inventory exceeds its count or byte limit",
         ));
     }
-    *bytes = next.expect("checked above");
+    *bytes += collection.len() + key.len() + value.len();
     records.push(MetadataRecord {
         collection: collection.into(),
         key: key.into(),
         value,
     });
     Ok(())
+}
+
+fn body_limit(
+    records: &[MetadataRecord],
+    bytes: usize,
+    limits: InventoryLimits,
+    collection: &str,
+    key: &str,
+) -> StorageResult<usize> {
+    if records.len() >= limits.max_records || key.len() > limits.max_key_bytes {
+        return Err(invalid(
+            "source metadata inventory exceeds its count or key limit",
+        ));
+    }
+    limits
+        .max_metadata_bytes
+        .checked_sub(bytes)
+        .and_then(|available| available.checked_sub(collection.len()))
+        .and_then(|available| available.checked_sub(key.len()))
+        .ok_or_else(|| invalid("source metadata inventory exceeds its byte limit"))
 }
