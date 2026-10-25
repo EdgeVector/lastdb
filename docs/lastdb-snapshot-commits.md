@@ -71,6 +71,12 @@ Each hash group retains its own page buffers, validation records, and read budge
 Each file handle reuse checks the current file length, including private files that grow during the batch.
 The handles close before the final directory edit or on an error. No handle survives the batch.
 
+Isolated native diagnostics record payload bytes, entry counts, and four fullness bands for each page type.
+They separate tracked root-leaf inputs, non-root leaf inputs, new output pages, and private block-map header rewrites.
+Every capture includes explicit zero counters. Payload fullness uses 16,256 bytes; complete page fullness includes the 128-byte header in 16,384 bytes.
+The counters cover the measured publication, including private output. They do not count every live page in the selected snapshot.
+Split counters identify leaves with a new key before an existing key. These counters do not change the split rule or page format.
+
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.
 It drops before final count changes and receipt output; no cache survives the commit or an error.
