@@ -93,10 +93,7 @@ fn observe_history(
     limits: InventoryLimits,
 ) -> StorageResult<()> {
     let event: MutationEvent = super::logical::decode(&record.value)?;
-    let molecule = crate::kind_partition::rest_of(bare, "history")
-        .and_then(|rest| rest.split_once(':'))
-        .map(|(molecule, _)| molecule)
-        .ok_or_else(|| invalid("a history key is invalid"))?;
+    let molecule = history_molecule(bare)?;
     if molecule != event.molecule_uuid {
         return Err(invalid("a history event has a different molecule identity"));
     }
@@ -132,6 +129,18 @@ fn observe_retention(
             if entry.version != 1 || expected != &record.key {
                 return Err(invalid("a retained record key differs from its pointer"));
             }
+            // Retention repair can recover a queue entry without its original
+            // slot directory. Preserve that metadata; never invent a coordinate.
+            if family == "crq" && entry.slot.is_empty() && entry.dir.is_empty() {
+                let molecule = history_molecule(current_keys::source_key(&entry.history)?)?;
+                let report = &mut catalog.molecule(molecule, limits)?.report;
+                report.retained_key_references += 1;
+                report.unresolved_retained_references += 1;
+                report
+                    .blockers
+                    .push("a repaired retained record has no recoverable slot coordinate".into());
+                return Ok(());
+            }
             entry.slot
         }
         QueueValue::Drain(marker) => {
@@ -146,6 +155,13 @@ fn observe_retention(
         .report
         .retained_key_references += 1;
     Ok(())
+}
+
+fn history_molecule(key: &str) -> StorageResult<&str> {
+    crate::kind_partition::rest_of(key, "history")
+        .and_then(|rest| rest.split_once(':'))
+        .map(|(molecule, _)| molecule)
+        .ok_or_else(|| invalid("a history key is invalid"))
 }
 
 fn slot_parts<'a>(

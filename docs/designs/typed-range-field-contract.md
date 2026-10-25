@@ -190,6 +190,9 @@ The inventory includes direct tips, every stored generation, sparse generation d
 It resolves current generation winners with the normal reader's functions.
 It also captures history, conflict, retention, catalog, idempotency, and other control records in the metadata fingerprint and family counts.
 Explicit Delete references and retention/drain slot pointers join the distinct key set, even without a live tip.
+Retention repair can leave a valid queue entry with no slot or directory pointer.
+The inventory preserves and counts that entry, reports an unresolved reference, and blocks its typed proposal.
+It never invents a coordinate or treats the repair representation as malformed data.
 History API coordinates are counted separately; they are not guessed to be storage coordinates.
 The complete captured metadata remains available to the later conversion planner.
 
