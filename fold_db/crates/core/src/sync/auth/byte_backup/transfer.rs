@@ -45,6 +45,24 @@ impl ByteBackupClient {
         source: Box<dyn Read + Send>,
     ) -> Result<UploadObservation> {
         response.validate_for(input)?;
+        if response.grant.transfer_mode
+            == Some(cloud_backup_protocol::v2::transfer::TransferMode::MultipartPart)
+        {
+            return self
+                .transport
+                .upload_part(
+                    StoredObject {
+                        sha256: &input.object.sha256,
+                        bytes: input.object.bytes.get(),
+                    },
+                    TemporaryGrant {
+                        url: response.grant.url.as_str(),
+                        expires_ms: response.grant.expires_ms.get(),
+                    },
+                    source,
+                )
+                .await;
+        }
         self.transport
             .upload(
                 StoredObject {

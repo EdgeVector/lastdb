@@ -8,9 +8,11 @@ use super::{
 use cloud_backup_protocol::v2::context::ContextReadRequest;
 use cloud_backup_protocol::v2::jobs::{CloseReason, JobCloseRequest, JobResult, JobStatus};
 use cloud_backup_protocol::v2::publication::{HeadReadRequest, HeadReadResult};
-use cloud_backup_protocol::v2::{AcceptedBackup, Begin, Job, Stream, Version};
+use cloud_backup_protocol::v2::{
+    AcceptedBackup, Begin, ClientDescriptor, Destination, Job, Stream, Version,
+};
 use cloud_backup_protocol::{ErrorCode, Id};
-use fold_db::storage::disk_pack::byte_backup::{Bootstrap, ByteBackupCapture};
+use fold_db::storage::disk_pack::byte_backup::ByteBackupCapture;
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
 use std::sync::atomic::AtomicBool;
 
@@ -91,6 +93,7 @@ async fn setup(
     let context_request = ContextReadRequest {
         version: Version::V2,
         account_id: source.account.clone(),
+        required_destinations: vec![Destination::R2, Destination::B2],
     };
     let context = retry::control("context_read", pause, || async {
         Ok(client.context(&context_request).await?)
@@ -158,10 +161,8 @@ async fn setup(
             stream,
             commit_id: saved.request_id.clone(),
         },
-        descriptor: Bootstrap {
-            recovery: source.recovery.clone(),
-        }
-        .descriptor()?,
+        descriptor: ClientDescriptor::empty(),
+        required_destinations: vec![Destination::R2, Destination::B2],
         predecessor,
     };
     begin.validate()?;
@@ -200,6 +201,9 @@ async fn drive(
     }
     saved.phase = Phase::Uploading;
     store.save(saved)?;
+    let parallelism = capture
+        .recommended_parallelism()?
+        .min(cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS);
     let mut next = 0;
     while next < capture.object_count()? {
         publication::check_work(store, saved, pause)?;
@@ -207,9 +211,7 @@ async fn drive(
             store.bytes() + lastdb_storage_policy::backup_decode::JSON_PAGE_RESERVE_BYTES,
         )?;
         let mut batch = Vec::new();
-        while next < capture.object_count()?
-            && batch.len() < cloud_backup_protocol::v2::limits::MAX_BATCH_ITEMS
-        {
+        while next < capture.object_count()? && batch.len() < parallelism {
             let object = capture.object(next)?;
             if object.receipt.is_none() {
                 batch.push((next, object.input));

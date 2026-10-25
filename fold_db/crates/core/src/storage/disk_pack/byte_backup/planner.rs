@@ -14,7 +14,7 @@ use sha2::{Digest as _, Sha256};
 use std::io::Read;
 
 mod large;
-mod metadata;
+pub(super) mod metadata;
 /// Client chunk policy. This is not a V2 wire or native-file length limit.
 pub(super) const OBJECT_BYTES: u64 = lastdb_storage_policy::backup_transport::OBJECT_CHUNK_BYTES;
 const SMALL_FILE_BYTES: u64 = lastdb_storage_policy::backup_transport::SMALL_NATIVE_FILE_BYTES;
@@ -128,6 +128,7 @@ fn group(
         Object {
             sha256: hex(hash.finalize().into())?,
             bytes: DecimalU64::new(bytes),
+            destination: None,
         },
     )?;
     let receipt = expected_receipt(&input)?;
@@ -141,9 +142,16 @@ fn group(
         metadata_pack: members[0].bytes < SMALL_FILE_BYTES,
         ciphertext: None,
         receipt: None,
+        record_segments: Vec::new(),
+        client_stream: None,
     })
 }
-fn input(inner: &Inner, state: &State, index: u64, object: Object) -> StorageResult<TransferInput> {
+pub(super) fn input(
+    inner: &Inner,
+    state: &State,
+    index: u64,
+    object: Object,
+) -> StorageResult<TransferInput> {
     if index >= super::model::MAX_OBJECTS {
         return Err(invalid("byte source object count bound"));
     }
@@ -164,7 +172,7 @@ fn input(inner: &Inner, state: &State, index: u64, object: Object) -> StorageRes
     input.validate().map_err(protocol)?;
     Ok(input)
 }
-fn save(
+pub(super) fn save(
     inner: &Inner,
     state: &mut State,
     index: u64,
@@ -180,6 +188,8 @@ fn save(
             || prior.native_files != object.native_files
             || prior.metadata_pack != object.metadata_pack
             || prior.ciphertext != object.ciphertext
+            || prior.record_segments != object.record_segments
+            || prior.client_stream != object.client_stream
         {
             return Err(invalid("byte frozen object plan differs"));
         }

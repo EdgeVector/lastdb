@@ -35,6 +35,7 @@ pub(super) fn run(home: &Path, action: ByteBackupCommand) -> Result<(), String> 
             .context(&ContextReadRequest {
                 version: Version::V2,
                 account_id: account,
+                required_destinations: Vec::new(),
             })
             .await
             .map_err(|e| e.to_string())?;
@@ -158,10 +159,14 @@ async fn restore(
     if session.accepted().job().stream.scope.account_id != scope.account_id {
         return Err("V2 restore account differs".into());
     }
-    let bootstrap =
-        Bootstrap::from_descriptor(session.accepted().descriptor()).map_err(|e| e.to_string())?;
-    let keys = RecoveryKeys::from_account_phrase(phrase, &bootstrap.recovery.account_public_key)
-        .map_err(|e| e.to_string())?;
+    let keys = if session.accepted().descriptor().as_value().is_null() {
+        RecoveryKeys::from_scope_phrase(phrase, &scope.account_id)
+    } else {
+        let bootstrap = Bootstrap::from_descriptor(session.accepted().descriptor())
+            .map_err(|e| e.to_string())?;
+        RecoveryKeys::from_account_phrase(phrase, &bootstrap.recovery.account_public_key)
+    }
+    .map_err(|e| e.to_string())?;
     eprintln!("V2 restore session: {}", session.path().display());
     let report = session.restore(client, &keys).await.map_err(|e| {
         format!(

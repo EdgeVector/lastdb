@@ -14,11 +14,13 @@ pub(super) async fn restore(
     keys: &RecoveryKeys,
 ) -> Result<RestoreReport> {
     let accepted = session.accepted();
-    let bootstrap = Bootstrap::from_descriptor(accepted.descriptor()).map_err(codec_error)?;
-    bootstrap
-        .recovery
-        .validate_for(&accepted.job().stream.scope)?;
-    keys.validate_account(&bootstrap.recovery.account_public_key)?;
+    if !accepted.descriptor().as_value().is_null() {
+        let bootstrap = Bootstrap::from_descriptor(accepted.descriptor()).map_err(codec_error)?;
+        bootstrap
+            .recovery
+            .validate_for(&accepted.job().stream.scope)?;
+        keys.validate_account(&bootstrap.recovery.account_public_key)?;
+    }
     let mut inventory = Inventory::load(session, client).await?;
     let grant = download::one(
         session,
@@ -39,6 +41,17 @@ pub(super) async fn restore(
         &accepted.begin,
     )
     .map_err(codec_error)?;
+    root.recovery.validate_for(&accepted.job().stream.scope)?;
+    keys.validate_account(&root.recovery.account_public_key)?;
+    if root.records.is_some()
+        && inventory
+            .receipt(&accepted.root_receipt_id)?
+            .object
+            .destination
+            != Some(cloud_backup_protocol::v2::Destination::R2)
+    {
+        return Err(RestoreError::Invalid("stored record root destination"));
+    }
     let context = VerifiedNativeContext {
         root: &session.root,
         destination: &session.selection.destination,
@@ -50,6 +63,9 @@ pub(super) async fn restore(
     };
     if let Some(report) = context.published()? {
         return Ok(report);
+    }
+    if root.records.is_some() {
+        return super::records::restore(session, client, keys, &root, inventory).await;
     }
     dependencies::prepare(&context, &root.recovery.account_public_key)?;
     let totals = restore_pages(session, client, keys, &root, &mut inventory).await?;

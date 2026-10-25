@@ -6,7 +6,7 @@ use super::{
 use laststore::disk_pack::backup::export::SnapshotReader;
 use sha2::{Digest as _, Sha256};
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Cursor, Read};
 use std::path::Path;
 use std::sync::{atomic::Ordering, Arc};
 
@@ -45,6 +45,7 @@ impl ByteBackupCapture {
             object,
             payload,
             reader: None,
+            record_coordinate: None,
             position: 0,
             remaining: 0,
             bytes: 0,
@@ -60,6 +61,7 @@ pub struct ByteBackupReader {
     object: ObjectRecord,
     payload: Option<File>,
     reader: Option<SnapshotReader>,
+    record_coordinate: Option<(String, String)>,
     position: usize,
     remaining: u64,
     bytes: u64,
@@ -98,6 +100,8 @@ impl ByteBackupReader {
             .min(lastdb_storage_policy::BACKUP_RESOURCES.stream_buffer_bytes as usize);
         let count = if let Some(payload) = &mut self.payload {
             payload.read(&mut buffer[..maximum])?
+        } else if !self.object.record_segments.is_empty() {
+            self.record_bytes(&mut buffer[..maximum])?
         } else {
             loop {
                 if self.position == self.object.segments.len() {
@@ -144,6 +148,69 @@ impl ByteBackupReader {
         }
         Ok(count)
     }
+    fn record_bytes(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        loop {
+            let Some(part) = self.object.record_segments.get(self.position) else {
+                return Ok(0);
+            };
+            if self.record_coordinate.is_none() {
+                let coordinate = part
+                    .coordinate
+                    .load(&self.inner)
+                    .map_err(|_| io::Error::other("stored source coordinate read"))?;
+                let destination = if coordinate.0 == "cas_blobs" {
+                    cloud_backup_protocol::v2::Destination::B2
+                } else {
+                    cloud_backup_protocol::v2::Destination::R2
+                };
+                if self.object.input.object.destination != Some(destination) {
+                    return Err(io::Error::other("stored source destination differs"));
+                }
+                self.record_coordinate = Some(coordinate);
+                self.remaining = part.bytes;
+            }
+            if self.remaining == 0 {
+                self.record_coordinate = None;
+                self.position += 1;
+                continue;
+            }
+            let count = self.remaining.min(output.len() as u64) as usize;
+            let offset = part.offset + part.bytes - self.remaining;
+            let source = self
+                .inner
+                .source
+                .as_ref()
+                .ok_or_else(|| io::Error::other("stored source missing"))?;
+            let mut call = self
+                .inner
+                .home
+                .read(
+                    source,
+                    laststore::disk_pack::ReadBudget {
+                        pages: lastdb_storage_policy::backup_decode::NATIVE_STREAM_PAGES,
+                        blocks: lastdb_storage_policy::backup_decode::NATIVE_STREAM_BLOCKS,
+                        bytes:
+                            lastdb_storage_policy::backup_decode::NATIVE_STREAM_LOOKUP_READ_BYTES,
+                        keys: 1,
+                    },
+                )
+                .map_err(|_| io::Error::other("stored source held read"))?;
+            let (collection, key) = self
+                .record_coordinate
+                .as_ref()
+                .ok_or_else(|| io::Error::other("stored source coordinate missing"))?;
+            let mut target = Cursor::new(&mut output[..count]);
+            let copied = call
+                .copy_body_range_to(collection, key, offset..offset + count as u64, &mut target)
+                .map_err(|_| io::Error::other("stored source range verification"))?
+                .ok_or_else(|| io::Error::other("stored source body missing"))?;
+            if copied.body_bytes != count as u64 || target.position() != count as u64 {
+                return Err(io::Error::other("stored source range length"));
+            }
+            self.remaining -= count as u64;
+            return Ok(count);
+        }
+    }
 }
 impl Read for ByteBackupReader {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
@@ -158,6 +225,7 @@ impl Drop for ByteBackupReader {
     fn drop(&mut self) {
         self.reader = None;
         self.payload = None;
+        self.record_coordinate = None;
         self.inner.readers.fetch_sub(1, Ordering::AcqRel);
     }
 }

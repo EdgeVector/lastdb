@@ -50,6 +50,7 @@ pub(super) async fn revalidate(
         let request = ContextReadRequest {
             version: Version::V2,
             account_id: source.account.clone(),
+            required_destinations: begin.required_destinations.clone(),
         };
         let context = retry::control("standalone_context", pause, || async {
             Ok(client.context(&request).await?)

@@ -6,6 +6,10 @@ mod download;
 mod inventory;
 mod local;
 mod native;
+mod record_bridge;
+mod record_plan;
+mod record_stream;
+mod records;
 mod session;
 mod spool;
 

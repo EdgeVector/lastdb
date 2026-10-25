@@ -41,6 +41,7 @@ pub(super) fn plan(
             Object {
                 sha256: hex(hash.finalize().into())?,
                 bytes: DecimalU64::new(length),
+                destination: None,
             },
         )?;
         extents.push(ClientExtent {
@@ -77,6 +78,8 @@ pub(super) fn plan(
                 metadata_pack: false,
                 ciphertext: None,
                 receipt: None,
+                record_segments: Vec::new(),
+                client_stream: None,
             },
         )?;
         *index += 1;

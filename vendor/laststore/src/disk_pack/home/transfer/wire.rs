@@ -22,9 +22,9 @@ pub(super) fn record_metadata_max(features: u64) -> usize {
     6 * (key + 65_531) + 1024
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Header {
+pub struct Header {
     protocol: String,
     source_home: [u8; 16],
     source_generation: u64,
@@ -37,12 +37,28 @@ pub(super) struct Header {
 }
 
 impl Header {
-    pub(super) fn digest(&self) -> Result<[u8; DIGEST_BYTES]> {
+    pub fn source_home_id(&self) -> [u8; 16] {
+        self.source_home
+    }
+
+    pub fn source_generation(&self) -> u64 {
+        self.source_generation
+    }
+
+    pub fn required_features(&self) -> u64 {
+        self.required_features
+    }
+
+    pub fn frontier(&self) -> u64 {
+        self.frontier
+    }
+
+    pub fn digest(&self) -> Result<[u8; DIGEST_BYTES]> {
         let bytes = serde_json::to_vec(self).map_err(|_| refuse("header encoding failed"))?;
         Ok(Sha256::digest(bytes).into())
     }
 
-    pub(super) fn new(home: &DiskHome, current: &Current) -> Self {
+    pub fn new(home: &DiskHome, current: &Current) -> Self {
         Self {
             protocol: "lastdb.native-record-transfer.v1".into(),
             source_home: *home.descriptor().identity.as_bytes(),
@@ -56,7 +72,7 @@ impl Header {
         }
     }
 
-    pub(super) fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         if self.protocol != "lastdb.native-record-transfer.v1"
             || self.source_home == [0; 16]
             || self.source_generation == 0
@@ -76,9 +92,9 @@ pub(super) struct Footer {
     pub(super) receipt: TransferReceipt,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Record {
+pub struct Record {
     pub(super) collection: String,
     pub(super) group: u16,
     pub(super) key: String,
@@ -89,7 +105,27 @@ pub(super) struct Record {
 }
 
 impl Record {
-    pub(super) fn from_stored(record: &StoredRecord<'_>) -> Self {
+    pub fn collection(&self) -> &str {
+        &self.collection
+    }
+
+    pub fn group(&self) -> u16 {
+        self.group
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub fn body_bytes(&self) -> u64 {
+        self.body_bytes
+    }
+
+    pub fn deleted(&self) -> bool {
+        self.deleted
+    }
+
+    pub fn from_stored(record: &StoredRecord<'_>) -> Self {
         Self {
             collection: record.collection.into(),
             group: record.group,
@@ -101,7 +137,7 @@ impl Record {
         }
     }
 
-    pub(super) fn version(&self, frontier: u64) -> Result<MutationVersion> {
+    pub fn version(&self, frontier: u64) -> Result<MutationVersion> {
         if self.batch > frontier
             || (self.deleted && self.body_bytes != 0)
             || self.body_bytes > lastdb_storage_policy::native_v1::RECORD_BODY_MAX_BYTES
@@ -137,12 +173,12 @@ pub(super) fn write_metadata_bounded<T: Serialize>(
     value: &T,
     maximum: usize,
 ) -> Result<()> {
-    let bytes = serde_json::to_vec(value).map_err(|_| refuse("metadata encoding failed"))?;
-    if bytes.len() > maximum {
-        return Err(refuse("metadata exceeds protocol bound"));
-    }
-    output.write_all(&(bytes.len() as u32).to_le_bytes())?;
-    output.write_all(&bytes)?;
+    let mut count = MetadataCount { bytes: 0, maximum };
+    serde_json::to_writer(&mut count, value)
+        .map_err(|_| refuse("metadata exceeds protocol bound"))?;
+    let bytes = u32::try_from(count.bytes).map_err(|_| refuse("metadata length overflow"))?;
+    output.write_all(&bytes.to_le_bytes())?;
+    serde_json::to_writer(output, value).map_err(|_| refuse("metadata encoding failed"))?;
     Ok(())
 }
 
@@ -157,13 +193,61 @@ fn read_metadata_bounded<T: DeserializeOwned>(input: &mut dyn Read, maximum: usi
     if size == 0 || size > maximum {
         return Err(refuse("metadata exceeds protocol bound"));
     }
-    let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(size)
-        .map_err(|_| refuse("metadata allocation refused"))?;
-    bytes.resize(size, 0);
-    input.read_exact(&mut bytes)?;
-    serde_json::from_slice(&bytes).map_err(|_| refuse("invalid transfer metadata"))
+    let mut bounded = input.take(size as u64);
+    let value =
+        serde_json::from_reader(&mut bounded).map_err(|_| refuse("invalid transfer metadata"))?;
+    if bounded.limit() != 0 {
+        return Err(refuse("truncated transfer metadata"));
+    }
+    Ok(value)
+}
+
+struct MetadataCount {
+    bytes: usize,
+    maximum: usize,
+}
+impl Write for MetadataCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .checked_add(bytes.len())
+            .filter(|total| *total <= self.maximum)
+            .ok_or_else(|| std::io::Error::other("transfer metadata bound"))?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Borrow the original key while serializing; an escaped key need not coexist
+/// with a second complete key or an encoded JSON buffer.
+pub(super) fn write_stored_prefix(
+    output: &mut dyn Write,
+    stored: &StoredRecord<'_>,
+    features: u64,
+) -> Result<()> {
+    #[derive(Serialize)]
+    struct Borrowed<'a> {
+        collection: &'a str,
+        group: u16,
+        key: &'a str,
+        batch: u64,
+        operation: u32,
+        body_bytes: u64,
+        deleted: bool,
+    }
+    let record = Borrowed {
+        collection: stored.collection,
+        group: stored.group,
+        key: stored.key,
+        batch: stored.version.batch,
+        operation: stored.version.operation,
+        body_bytes: stored.body_bytes,
+        deleted: stored.body.is_none(),
+    };
+    output.write_all(&[1])?;
+    write_metadata_bounded(output, &record, record_metadata_max(features))
 }
 
 pub(super) struct DigestWrite<'a> {

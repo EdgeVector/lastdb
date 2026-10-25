@@ -13,7 +13,46 @@ use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::Path;
+pub use wire::{Header as TransferHeader, Record as TransferRecord};
 use wire::{Header, Record, DIGEST_BYTES};
+
+/// Encode the existing transfer header without exposing native physical files.
+pub fn write_header(output: &mut dyn Write, header: &TransferHeader) -> Result<()> {
+    header.validate()?;
+    wire::write_metadata(output, header)
+}
+
+/// Encode one existing transfer record prefix. Its opaque body follows directly.
+pub fn record_prefix(record: &TransferRecord, features: u64) -> Result<Vec<u8>> {
+    let mut bytes = vec![1];
+    wire::write_metadata_bounded(&mut bytes, record, wire::record_metadata_max(features))?;
+    Ok(bytes)
+}
+
+/// Stream an administrative record's existing prefix without copying its key.
+pub fn write_stored_record_prefix(
+    output: &mut dyn Write,
+    record: &crate::disk_pack::maintenance::StoredRecord<'_>,
+    features: u64,
+) -> Result<()> {
+    wire::write_stored_prefix(output, record, features)
+}
+
+/// Complete the existing transfer stream with its exact body-inclusive receipt.
+pub fn write_footer(
+    output: &mut dyn Write,
+    header: &TransferHeader,
+    receipt: &TransferReceipt,
+) -> Result<()> {
+    output.write_all(&[0])?;
+    wire::write_metadata(
+        output,
+        &wire::Footer {
+            header_sha256: header.digest()?,
+            receipt: receipt.clone(),
+        },
+    )
+}
 
 /// Complete stream verification. It contains no keys, values, or secret material.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]

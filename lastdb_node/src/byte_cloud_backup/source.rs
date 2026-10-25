@@ -82,11 +82,21 @@ impl Source {
             return Err(BackupError::Identity);
         }
         if let Some(begin) = &saved.begin {
-            let descriptor = fold_db::storage::disk_pack::byte_backup::Bootstrap {
-                recovery: self.recovery.clone(),
-            }
-            .descriptor()?;
-            if begin.descriptor != descriptor {
+            let valid = if begin.descriptor.as_value().is_null() {
+                begin.required_destinations
+                    == [
+                        cloud_backup_protocol::v2::Destination::R2,
+                        cloud_backup_protocol::v2::Destination::B2,
+                    ]
+            } else {
+                begin.required_destinations.is_empty()
+                    && fold_db::storage::disk_pack::byte_backup::Bootstrap::from_descriptor(
+                        &begin.descriptor,
+                    )?
+                    .recovery
+                        == self.recovery
+            };
+            if !valid {
                 return Err(BackupError::Identity);
             }
         }
@@ -126,15 +136,28 @@ impl Source {
         &self,
         begin: cloud_backup_protocol::v2::Begin,
     ) -> Result<ByteBackupCapture> {
+        let records = begin.descriptor.as_value().is_null();
         Ok(match &self.backend {
             Backend::Live(runtime) => {
-                runtime
-                    .prepare_byte_backup_capture(begin, &self.key)
-                    .await?
+                if records {
+                    runtime
+                        .prepare_record_backup_capture(begin, &self.key, self.recovery.clone())
+                        .await?
+                } else {
+                    runtime
+                        .prepare_byte_backup_capture(begin, &self.key)
+                        .await?
+                }
             }
             Backend::Standalone { source, identity } => {
                 identity.check()?;
-                let capture = source.prepare(begin, &self.key).await?;
+                let capture = if records {
+                    source
+                        .prepare_record_backup_capture(begin, &self.key, self.recovery.clone())
+                        .await?
+                } else {
+                    source.prepare(begin, &self.key).await?
+                };
                 identity.check()?;
                 capture
             }
