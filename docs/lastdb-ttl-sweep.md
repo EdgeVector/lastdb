@@ -374,6 +374,10 @@ The candidate requires complete native association. Missing fields never mean me
 Private v1 metadata writes use unbuffered private files.
 The same-runner before/after comparison found no material latency gain from an eight-page write buffer.
 That buffer was removed. Every completed part retains its file barrier and publication barriers.
+Private metadata appends write the header and used payload, then extend only the zero tail.
+The logical page bytes and checksum remain identical. A nonzero tail or changed EOF is refused.
+The complete file still receives its original durability barrier before publication.
+Opt-in counters report explicit write bytes and zero-filled extension bytes separately.
 Opt-in diagnostics separate directory lookups, locator tree edits, and the final directory edit.
 Reference resolution and format checksum timings are nested within those phases.
 These intervals overlap. Do not add them or treat a diagnostic interval as a per-request disk wait.

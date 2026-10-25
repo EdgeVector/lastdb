@@ -83,10 +83,7 @@ impl PageWriter {
             );
         }
         let bytes = encode_page(self.object, self.generation, self.next, fields, payload)?;
-        self.file
-            .as_mut()
-            .expect("open metadata part")
-            .write_all(&bytes)?;
+        append_page(self.file.as_mut().expect("open metadata part"), &bytes)?;
         super::page_usage::written(&bytes);
         let number = self.next;
         self.next = self
@@ -149,6 +146,36 @@ impl PageWriter {
         }
         durability::sync_directory(&File::open(&self.directory)?)
     }
+}
+
+/// Append the same full page bytes without issuing writes for its zero tail.
+/// EOF extension reads as zeros; the caller still syncs the complete private
+/// file before publication. Refuse any nonzero omitted byte or changed length.
+pub(super) fn append_page(file: &mut File, bytes: &[u8]) -> Result<()> {
+    if bytes.len() != PAGE_BYTES {
+        return Err(corrupt("private metadata page length"));
+    }
+    let used = HEADER_BYTES
+        .checked_add(u32_at(bytes, 48) as usize)
+        .filter(|used| *used <= PAGE_BYTES)
+        .ok_or_else(|| corrupt("private metadata payload length"))?;
+    zero(&bytes[used..])?;
+    let offset = u64_at(bytes, 40) % super::PAGES_PER_PART * PAGE_BYTES as u64;
+    if file.seek(SeekFrom::End(0))? != offset {
+        return Err(corrupt("private metadata append offset changed"));
+    }
+    file.write_all(&bytes[..used])?;
+    if used < PAGE_BYTES {
+        let end = offset + PAGE_BYTES as u64;
+        file.set_len(end)?;
+        file.seek(SeekFrom::Start(end))?;
+    }
+    crate::commit_timing::count("metadata_append_written_bytes", used as u64);
+    crate::commit_timing::count(
+        "metadata_append_zero_extended_bytes",
+        (PAGE_BYTES - used) as u64,
+    );
+    Ok(())
 }
 
 pub(super) fn encode_page(

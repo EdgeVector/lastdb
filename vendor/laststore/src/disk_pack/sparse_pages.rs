@@ -1,9 +1,8 @@
-use super::page_write::{encode_page, PageFields};
+use super::page_write::{append_page, encode_page, PageFields};
 use super::tree_output::TreePages;
 use super::{corrupt, TreeKind, TreeRoot};
 use crate::{durability, Result};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -156,10 +155,7 @@ impl TreePages for SparsePages {
         self.reserve(1)?;
         let number = self.next;
         let bytes = encode_page(self.object, self.generation, number, fields, payload)?;
-        self.file
-            .as_mut()
-            .expect("private metadata part")
-            .write_all(&bytes)?;
+        append_page(self.file.as_mut().expect("private metadata part"), &bytes)?;
         super::page_usage::written(&bytes);
         self.written_pages += 1;
         self.next += 1;
