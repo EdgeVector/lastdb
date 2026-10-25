@@ -19,16 +19,6 @@ impl FoldDB {
             .map_err(|e| StorageError::BackendError(e.to_string()))
     }
 
-    /// Returns a clone of the config store, if available.
-    pub fn config_store(&self) -> Option<crate::storage::NodeConfigStore> {
-        self.config_store.read().unwrap().clone()
-    }
-
-    /// Set the config store (called by the factory).
-    pub fn set_config_store(&self, store: crate::storage::NodeConfigStore) {
-        *self.config_store.write().unwrap() = Some(store);
-    }
-
     /// Returns a reference to the database operations Arc
     pub fn db_ops(&self) -> &Arc<DbOperations> {
         &self.db_ops
