@@ -1,0 +1,57 @@
+name: Disk run proof
+
+# Disk format v2, phase V1 (docs/design-lastdb-disk-size-20261024.md in the
+# EdgeVector workspace). Tom approved the plan on 2026-10-24: "Prove it works
+# and then I want to use it." The proof writes a synthetic seed through
+# laststore::disk_run, reads it back, and fails over 2x the logical bytes.
+on:
+  pull_request:
+    paths:
+      - 'vendor/laststore/src/disk_run/**'
+      - 'vendor/laststore/src/frame.rs'
+      - 'vendor/laststore/examples/disk_run_proof/**'
+      - 'vendor/laststore/Cargo.toml'
+      - '.github/workflows/disk-run-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: disk-run-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: Disk run proof (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '3'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Lint and run the disk run proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked -p laststore --example disk_run_proof -- -D warnings
+          cargo run --locked --release -p laststore --example disk_run_proof \
+            | tee "$RUNNER_TEMP/disk-run-proof.txt"
+          {
+            echo '## Disk run proof'
+            echo "Source: $(git rev-parse HEAD)"
+            cat "$RUNNER_TEMP/disk-run-proof.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: disk-run-proof-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/disk-run-proof.txt
+          if-no-files-found: ignore
+          retention-days: 14

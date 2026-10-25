@@ -25,6 +25,7 @@
 
 pub mod commit_timing;
 pub mod disk_pack;
+pub mod disk_run;
 mod durability;
 mod error;
 pub mod frame;

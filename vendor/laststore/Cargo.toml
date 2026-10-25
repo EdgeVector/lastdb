@@ -41,6 +41,14 @@ test = false
 name = "extended_keys_proof"
 path = "examples/extended_keys_proof.rs"
 
+# Tom approved the disk format v2 plan on 2026-10-24 ("Prove it works and
+# then I want to use it"). This CI-only proof is its V1 read-back gate.
+[[example]]
+bench = false
+test = false
+name = "disk_run_proof"
+path = "examples/disk_run_proof/main.rs"
+
 [[bin]]
 bench = false
 test = false
