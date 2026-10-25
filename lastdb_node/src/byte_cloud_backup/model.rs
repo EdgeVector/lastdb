@@ -84,7 +84,8 @@ impl Saved {
                 return Err(BackupError::Invalid);
             }
             if let Some(root) = &binding.native_root {
-                root.validate()?;
+                fold_db::storage::disk_pack::byte_backup::validate_client_native_root(root)
+                    .map_err(|_| BackupError::Invalid)?;
                 if root.home_id != self.source_home {
                     return Err(BackupError::Identity);
                 }
