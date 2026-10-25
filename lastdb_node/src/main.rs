@@ -293,10 +293,9 @@ fn main() -> Result<(), String> {
 
     let cli = Cli::parse();
 
-    let command = cli.command;
     let socket_path = cli.socket_path;
     let full_socket_path = cli.full_socket_path;
-    if let Some(Command::ServiceHome { action }) = &command {
+    if let Some(Command::ServiceHome { action }) = &cli.command {
         println!("{}", lastdbd::cli::run_service_home(action)?);
         return Ok(());
     }
@@ -322,19 +321,7 @@ fn main() -> Result<(), String> {
     // runtime; it collects at request end via `collect_finished_request_heap`.
     let runtime = build_runtime()?;
 
-    if let Some(Command::Connect {
-        env,
-        api_url,
-        invite_code,
-        force,
-    }) = command
-    {
-        let url = lastdbd::cli::connect_api_url(api_url, env.as_deref())?;
-        return runtime.block_on(cloud::connect(&home, &url, invite_code.as_deref(), force));
-    }
-
-    // Schema resolve/register must go to the same environment the home syncs
-    // to (papercut-lastdbd-connect-env-dev-still-uses-prod-schema-service).
+    // Schema resolve/register follows the home's saved backup environment.
     cloud::pin_schema_service_environment_from_home(&home);
 
     // A Rust panic => a durable local crash report. Under `panic = "abort"` the
