@@ -228,18 +228,16 @@ pub(super) fn validate_conversion(
                 .max_key_bytes
                 .checked_sub(prefix)
                 .ok_or_else(|| invalid("a key exceeds its byte limit"))?;
-            match target.encode_range(&report.molecule, &api, bound) {
-                Ok(range) => format!(
-                    "{scope}{}",
-                    hash_range_record_key(&report.molecule, &hash, &range)
-                ),
-                Err(_) => {
-                    report.blockers.push(
-                        "a range cannot use the proposed profile within the key byte limit".into(),
-                    );
-                    continue;
-                }
-            }
+            let Ok(range) = target.encode_range(&report.molecule, &api, bound) else {
+                report.blockers.push(
+                    "a range cannot use the proposed profile within the key byte limit".into(),
+                );
+                continue;
+            };
+            format!(
+                "{scope}{}",
+                hash_range_record_key(&report.molecule, &hash, &range)
+            )
         };
         bytes = bytes
             .checked_add(next.len() as u64)

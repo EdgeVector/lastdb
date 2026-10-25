@@ -13,8 +13,14 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 pub(super) enum Source {
-    Packed { home: DiskHome, reader: HomeRead },
-    Runs { main: RunRead, _cas: RunRead },
+    Packed {
+        home: DiskHome,
+        reader: Box<HomeRead>,
+    },
+    Runs {
+        main: RunRead,
+        _cas: RunRead,
+    },
 }
 
 pub(super) struct FrozenSource {
@@ -81,7 +87,10 @@ impl FrozenSource {
             )?);
             let home = DiskHome::open(&root.join("disk-pack")).map_err(map)?;
             let reader = home.read(budget(8 * 1024 * 1024, 8)).map_err(map)?;
-            Source::Packed { home, reader }
+            Source::Packed {
+                home,
+                reader: Box::new(reader),
+            }
         } else {
             return Err(invalid("source native format is unsupported"));
         };

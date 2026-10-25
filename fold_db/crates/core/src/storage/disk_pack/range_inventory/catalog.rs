@@ -117,7 +117,7 @@ impl Catalog {
                                 entry.report.proposed_profile = None;
                             }
                             None if entry.range_profiles.len() == 1 => {
-                                entry.report.proposed_profile = Some(*profile)
+                                entry.report.proposed_profile = Some(*profile);
                             }
                             _ => {}
                         }
