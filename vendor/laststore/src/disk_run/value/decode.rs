@@ -154,7 +154,12 @@ impl<'a> Decoder<'a> {
     /// Quoted lowercase hex of `bytes`, with a hyphen before each byte
     /// index in `hyphens`.
     fn hex(&mut self, bytes: &[u8], hyphens: &[usize]) -> Result<()> {
-        self.room(bytes.len().saturating_mul(2).saturating_add(hyphens.len() + 2))?;
+        self.room(
+            bytes
+                .len()
+                .saturating_mul(2)
+                .saturating_add(hyphens.len() + 2),
+        )?;
         self.out.push(b'"');
         for (at, &byte) in bytes.iter().enumerate() {
             if hyphens.contains(&at) {

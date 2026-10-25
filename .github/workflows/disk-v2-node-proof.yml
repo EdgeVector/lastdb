@@ -66,8 +66,8 @@ jobs:
           set -euo pipefail
           df -h "$RUNNER_TEMP" /tmp
           echo "free=$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print int($4 / 1048576)}')" >> "$GITHUB_OUTPUT"
-      # Two builds share one target folder, so the second build reuses the
-      # dependencies of the first. Each build needs space for its own crates.
+      # Each build removes its target folder after the copy, so the runner
+      # holds one target folder at a time.
       - name: Reclaim disk space for two builds
         if: runner.os == 'Linux' && steps.space.outputs.free < 40
         uses: jlumbroso/free-disk-space@v1.3.1
@@ -85,6 +85,10 @@ jobs:
         with:
           path: ${{ runner.temp }}/programs/primary
           key: disk-v2-primary-lastdbd-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.PRIMARY_SHA }}
+      # Each build has its own target folder. The metadata hash of a workspace
+      # crate does not include the checkout folder, and cargo judges a path
+      # crate fresh from the file times in its dep-info, so in a shared folder
+      # the second build reused crates compiled from the first checkout.
       - name: Build the candidate
         shell: bash
         working-directory: candidate
@@ -92,10 +96,11 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           rustc --version
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE_SHA" CARGO_TARGET_DIR="$RUNNER_TEMP/target" \
+          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$CANDIDATE_SHA" CARGO_TARGET_DIR="$RUNNER_TEMP/target-candidate" \
             cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
           mkdir -p "$RUNNER_TEMP/programs/candidate"
-          cp "$RUNNER_TEMP/target/dev-release/lastdbd" "$RUNNER_TEMP/programs/candidate/lastdbd"
+          cp "$RUNNER_TEMP/target-candidate/dev-release/lastdbd" "$RUNNER_TEMP/programs/candidate/lastdbd"
+          rm -rf "$RUNNER_TEMP/target-candidate"
           "$RUNNER_TEMP/programs/candidate/lastdbd" --version
       - name: Build the program that runs the primary
         if: steps.primary-cache.outputs.cache-hit != 'true'
@@ -104,10 +109,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PRIMARY_SHA"
-          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$PRIMARY_SHA" CARGO_TARGET_DIR="$RUNNER_TEMP/target" \
+          FOLDDB_BUILD_VERSION_OVERRIDE="bench-$PRIMARY_SHA" CARGO_TARGET_DIR="$RUNNER_TEMP/target-primary" \
             cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd
           mkdir -p "$RUNNER_TEMP/programs/primary"
-          cp "$RUNNER_TEMP/target/dev-release/lastdbd" "$RUNNER_TEMP/programs/primary/lastdbd"
+          cp "$RUNNER_TEMP/target-primary/dev-release/lastdbd" "$RUNNER_TEMP/programs/primary/lastdbd"
+          rm -rf "$RUNNER_TEMP/target-primary"
       - name: Save the program that runs the primary
         if: steps.primary-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -120,7 +126,6 @@ jobs:
         run: |
           set -euo pipefail
           "$RUNNER_TEMP/programs/primary/lastdbd" --version | grep -F "bench-$PRIMARY_SHA"
-          rm -rf "$RUNNER_TEMP/target"
           df -h "$RUNNER_TEMP" /tmp
           python3 candidate/scripts/disk_v2/node_proof.py \
             --primary "$RUNNER_TEMP/programs/primary/lastdbd" --primary-revision "$PRIMARY_SHA" \

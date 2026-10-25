@@ -92,6 +92,10 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let day_of_year = day_of_era - (365 * of_era + of_era / 4 - of_era / 100);
     let shifted = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * shifted + 2) / 5 + 1;
-    let month = if shifted < 10 { shifted + 3 } else { shifted - 9 };
+    let month = if shifted < 10 {
+        shifted + 3
+    } else {
+        shifted - 9
+    };
     (of_era + era * 400 + i64::from(month <= 2), month, day)
 }
