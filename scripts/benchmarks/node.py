@@ -67,8 +67,13 @@ class Node:
             raw = response.read()
             elapsed = (time.perf_counter_ns() - started) / 1e6
             cost = response.getheader("x-lastdb-read-receipt")
-            result = json.loads(raw)
-            if response.status != 200 or result.get("ok") is False:
+            if response.status != 200:
+                raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise RuntimeError(f"{path}: HTTP {response.status} returned non-JSON: {raw[:600]!r}") from error
+            if result.get("ok") is False:
                 raise RuntimeError(f"{path}: HTTP {response.status}: {raw[:600]!r}")
             return result.get("data", result), elapsed, json.loads(cost) if cost else None
         finally:

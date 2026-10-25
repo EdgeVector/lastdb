@@ -44,7 +44,7 @@ def seed(node, state):
                       "schema_type": kind, "key": keys, "fields": FIELDS,
                       "field_descriptions": {f: f"{schema} TTL latency {f}" for f in FIELDS}}
         node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": definition})
-    definitions = {schema: node.call(f"/api/schemas/{schema}")[0]["schema"] for schema in (LIVE, OLD)}
+    definitions = {schema: node.call(f"/api/schema/{schema}")[0]["schema"] for schema in (LIVE, OLD)}
     identities = {schema: set(definition["field_hashes"].values())
                   for schema, definition in definitions.items()}
     if (any(len(values) != len(FIELDS) for values in identities.values())

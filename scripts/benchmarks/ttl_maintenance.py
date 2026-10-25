@@ -59,7 +59,7 @@ def maintain(node, output, live, old, expected_live):
     node.environment["LASTDB_TTL_SWEEP"] = "0"
     node.start()
     ages = backfill(node, live, expected_live, output)
-    definition = node.call(f"/api/schemas/{old}")[0]["schema"]
+    definition = node.call(f"/api/schema/{old}")[0]["schema"]
     molecules = definition["field_molecule_uuids"]
     if not molecules or len(molecules) != 4:
         raise RuntimeError("The generated schema lacks its four persisted molecule identities")
