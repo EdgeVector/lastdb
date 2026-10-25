@@ -66,11 +66,11 @@ pub(crate) fn schema_identity(schema: &Schema) -> StorageResult<String> {
         .map_err(|error| serialization(&error))
 }
 
+/// One final path effect: a present slot or confirmed absence.
 #[derive(Clone)]
 pub(crate) struct LogicalPathRecord {
     pub path: LogicalPath,
-    pub slot: CoreWarmSlot,
-    pub bytes: usize,
+    slot: Option<CoreWarmSlot>,
     sources: Vec<String>,
     coordinates: Vec<(String, String)>,
     complete: bool,
@@ -91,17 +91,28 @@ impl LogicalPathRecord {
         let bytes = body::encoded_len(atom.as_ref())?;
         Ok(Self {
             path,
-            slot: CoreWarmSlot {
+            slot: Some(CoreWarmSlot {
                 entry,
                 metadata,
                 atom,
                 bytes,
-            },
-            bytes,
+            }),
             sources: Vec::new(),
             coordinates: Vec::new(),
             complete: false,
         })
+    }
+
+    /// A complete resolver proved that this logical path has no visible tip.
+    pub(crate) fn absent(path: LogicalPath, sources: Vec<String>) -> Self {
+        Self {
+            path,
+            slot: None,
+            sources: Vec::new(),
+            coordinates: Vec::new(),
+            complete: false,
+        }
+        .with_sources(sources)
     }
 
     pub(crate) fn with_sources(mut self, sources: Vec<String>) -> Self {
@@ -117,7 +128,7 @@ impl LogicalPathRecord {
     pub(crate) fn retained_bytes(&self) -> usize {
         let path = self.path.id().map_or(1024, |id| id.len());
         dependency_bytes(&self.sources, &self.coordinates)
-            .saturating_add(self.bytes)
+            .saturating_add(self.slot.as_ref().map_or(0, |slot| slot.bytes))
             .saturating_add(path.saturating_mul(3))
     }
 
@@ -138,7 +149,9 @@ impl LogicalPathRecord {
                 None => Some(source.as_str()),
             };
             let Some(base) = base else { continue };
-            if crate::atom::atom_key_codec::body_uuid_of(base) == Some(self.path.atom.as_str()) {
+            if self.slot.is_some()
+                && crate::atom::atom_key_codec::body_uuid_of(base) == Some(self.path.atom.as_str())
+            {
                 let collection = crate::storage::laststore::native_routing::collection_for_key(
                     source.as_bytes(),
                 );
@@ -151,70 +164,13 @@ impl LogicalPathRecord {
                 candidates.push(base.to_owned());
             }
         }
-        let complete = body && !candidates.is_empty();
+        let complete = (self.slot.is_none() || body) && !candidates.is_empty();
         sources.extend(dependencies::tip_sources(
             scope,
             &self.path.molecule,
             &candidates,
         ));
         (complete, sources)
-    }
-}
-
-/// A complete resolver proved that this logical path has no visible tip.
-#[derive(Clone)]
-pub(crate) struct LogicalPathAbsence {
-    pub path: LogicalPath,
-    sources: Vec<String>,
-    coordinates: Vec<(String, String)>,
-    complete: bool,
-}
-
-impl LogicalPathAbsence {
-    pub(crate) fn new(path: LogicalPath, sources: Vec<String>) -> Self {
-        let mut absence = Self {
-            path,
-            sources,
-            coordinates: Vec::new(),
-            complete: false,
-        };
-        (absence.complete, absence.coordinates) = absence.compute_dependencies();
-        absence
-    }
-
-    pub(crate) fn bytes(&self) -> usize {
-        let path = self.path.id().map_or(1024, |id| id.len());
-        dependency_bytes(&self.sources, &self.coordinates).saturating_add(path.saturating_mul(3))
-    }
-
-    pub(crate) fn source_coordinates(&self) -> &[(String, String)] {
-        &self.coordinates
-    }
-
-    fn source_dependencies(&self) -> (bool, Vec<(String, String)>) {
-        (self.complete, self.coordinates.clone())
-    }
-
-    fn compute_dependencies(&self) -> (bool, Vec<(String, String)>) {
-        let scope = self.path.scope.as_deref();
-        let candidates: Vec<_> = self
-            .sources
-            .iter()
-            .filter_map(|source| {
-                let bare = match scope {
-                    Some(scope) => source.strip_prefix(scope)?.strip_prefix(':')?,
-                    None => source.as_str(),
-                };
-                crate::atom::molecule_key_codec::molecule_uuid_from_storage_key(bare)
-                    .is_some()
-                    .then(|| bare.to_owned())
-            })
-            .collect();
-        let complete = !candidates.is_empty();
-        (
-            complete,
-            dependencies::tip_sources(scope, &self.path.molecule, &candidates),
-        )
     }
 }
 

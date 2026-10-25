@@ -32,12 +32,12 @@ pub use install::{
 };
 pub use location::{validate_channel, IndexLocation};
 pub use node_version::running_lastdb_version;
-pub use resolve::{fetch_verified, pick_row, resolve, Resolution};
+pub use resolve::{fetch_verified, pick_row, resolve, ContractVersions, NodeVersion, Resolution};
 pub use signing::{
     load_verified_index, parse_index, resolve_trust_key, sign_index_bytes, verify_index_bytes,
     CompatRow, IndexApp, IndexSignature, RegistryIndex, TrustSource,
 };
-pub use version_constraint::{check_constraint, Constraint, Version};
+pub use version_constraint::{check_constraint, check_manifest_constraint, Constraint, Version};
 
 /// The index grammar this binary reads and writes.
 pub const INDEX_VERSION: u32 = 1;

@@ -8,7 +8,7 @@ mod empty;
 pub(crate) mod publication;
 mod request;
 mod resources;
-pub(crate) use effects::{stage_absences, stage_core_memory, stage_paths};
+pub(crate) use effects::{stage_core_memory, stage_paths};
 pub(crate) use request::{background_scope, request_scope};
 pub(crate) use resources::with_resource;
 type AfterCommit = std::pin::Pin<Box<dyn std::future::Future<Output = StorageResult<()>> + Send>>;
@@ -40,7 +40,6 @@ pub(super) struct PendingBatch {
     durable_only: AtomicBool,
     flush_blocked_us: std::sync::atomic::AtomicU64,
     paths: Mutex<Vec<super::logical_paths::LogicalPathRecord>>,
-    absences: Mutex<Vec<super::logical_paths::LogicalPathAbsence>>,
     definitions: Mutex<BTreeMap<(usize, String), crate::resident::PreparedCoreMemory>>,
     pub(super) path_protection: Mutex<Option<Arc<super::logical_paths::PathProtection>>>,
     source_receipts: Mutex<Option<Arc<Mutex<super::logical_paths::source::Sources>>>>,
@@ -66,7 +65,6 @@ impl PendingBatch {
             durable_only: AtomicBool::new(false),
             flush_blocked_us: std::sync::atomic::AtomicU64::new(0),
             paths: Mutex::new(Vec::new()),
-            absences: Mutex::new(Vec::new()),
             definitions: Mutex::new(BTreeMap::new()),
             path_protection: Mutex::new(None),
             source_receipts: Mutex::new(None),
@@ -240,17 +238,9 @@ impl PendingBatch {
             .fold(0u64, |sum, record| {
                 sum.saturating_add(record.retained_bytes() as u64)
             });
-        let absences = self
-            .absences
-            .lock()
-            .expect("native private absences")
-            .iter()
-            .fold(0u64, |sum, record| {
-                sum.saturating_add(record.bytes() as u64)
-            });
         stored
             .saturating_mul(4)
-            .saturating_add(paths.saturating_add(absences).saturating_mul(2))
+            .saturating_add(paths.saturating_mul(2))
     }
 
     pub(super) fn finish_publications(&self) -> StorageResult<()> {

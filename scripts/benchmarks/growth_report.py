@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import statistics
 
+from advisories import confirm, lines as confirmation_lines, notices
 from growth import CASES, slope
 from node import save
 
@@ -127,11 +128,6 @@ def render(manifest, comparison):
                      f"{change(item['changes_percent']['compacted_disk_bytes'])} | "
                      f"{pair(item, 'compacted_disk_bytes_per_record', 1)} | "
                      f"{pair(item, 'disk_growth_bytes')} | {pair(item, 'disk_growth_bytes_per_round')} |")
-        for name in item["advisories"]:
-            base, candidate = item["baseline"][name], item["candidate"][name]
-            notice = f"{case}: {name}, {base / 2**20:.2f} → {candidate / 2**20:.2f} MiB"
-            lines.append(f"\nAdvisory: {notice}.")
-            print(f"::warning title=Advisory resource growth::{notice}. This does not block merge.")
     lines.extend(["", "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
                   "Each checkpoint requires a durable flush, full compaction, and complete reclaim with zero grace.",
                   f"Idle memory is the median over {recipe['idle_seconds']} seconds after compaction.",
@@ -139,6 +135,7 @@ def render(manifest, comparison):
                   "Disk sizes count file lengths across the generated home. Allocated blocks and short-lived disk peaks are unmeasured.",
                   "Automatic maintenance stays enabled. Explicit compaction measures retained space, not normal retention policy.",
                   "A notice requires at least 20% more resource use and an excess of 16 MiB memory or 1 MiB disk.",
+                  "The same case and measure must cross both limits again in a second complete comparison before a notice.",
                   "Zero or negative baseline growth uses zero as its percentage reference; the absolute excess still applies.",
                   "All changes remain visible. Resource regressions never fail the check. Missing or invalid measurements do.",
                   "CAUTION: Shared machines and memory allocators vary. A positive slope alone does not establish a leak.",
@@ -150,6 +147,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--job-status", required=True)
+    parser.add_argument("--confirmation-status", required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     try:
@@ -158,7 +156,8 @@ def main():
             raise ValueError("The resource growth measurement did not complete")
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
-        report, complete = render(manifest, comparison), True
+        decision = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
+        report, complete = render(manifest, comparison) + confirmation_lines(decision), True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB disk and memory growth — incomplete\n\n"
                   f"{type(failure).__name__}: {failure}\n\n"
@@ -169,6 +168,8 @@ def main():
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as stream:
             stream.write(report)
     print(report)
+    if complete:
+        notices(decision)
     return 0 if complete else 1
 
 

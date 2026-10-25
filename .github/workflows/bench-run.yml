@@ -39,7 +39,7 @@ jobs:
   measure:
     name: Reads, durable writes, and concurrency (advisory)
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 270
     env:
       CARGO_BUILD_JOBS: "4"
       CARGO_TERM_COLOR: always
@@ -231,6 +231,13 @@ jobs:
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --output "$BENCH_OUTPUT" "${args[@]}"
 
+      - name: Repeat speed measurements only when an advisory limit is crossed
+        if: ${{ !inputs.resource_only }}
+        id: speed-confirmation
+        run: |
+          timeout --signal=TERM --kill-after=120s 65m \
+            python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT"
+
       - name: Measure an actual upgrade with old retry records
         if: inputs.legacy_cache_upgrade && !inputs.resource_only
         id: legacy-upgrade
@@ -249,6 +256,13 @@ jobs:
               --profile standard --pairs 1 --seed-with-baseline --minimum-retired 10000 \
               --output "$BENCH_OUTPUT/legacy-cache-upgrade"
 
+      - name: Repeat the upgrade comparison only when an advisory limit is crossed
+        if: inputs.legacy_cache_upgrade && !inputs.resource_only
+        id: legacy-confirmation
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/confirm.py --kind speed --output "$BENCH_OUTPUT/legacy-cache-upgrade"
+
       - name: Measure disk and memory growth in fresh generated homes
         id: growth
         env:
@@ -266,6 +280,12 @@ jobs:
               --candidate-workers "$BENCH_CANDIDATE_WORKERS" \
               --driver-revision "$DRIVER_SHA" \
               --profile "$BENCH_PROFILE" --growth-only --output "$BENCH_OUTPUT/resource-growth"
+
+      - name: Repeat resource measurements only when an advisory limit is crossed
+        id: growth-confirmation
+        run: |
+          timeout --signal=TERM --kill-after=120s 40m \
+            python3 driver/scripts/benchmarks/confirm.py --kind growth --output "$BENCH_OUTPUT/resource-growth"
 
       - name: Capture native phases in separate generated homes
         if: inputs.investigation
@@ -293,15 +313,20 @@ jobs:
         if: ${{ always() && !inputs.resource_only }}
         env:
           MEASUREMENT_OUTCOME: ${{ steps.measurement.outcome }}
-        run: python3 driver/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" --job-status "$MEASUREMENT_OUTCOME"
+          CONFIRMATION_OUTCOME: ${{ steps.speed-confirmation.outcome }}
+        run: |
+          python3 driver/scripts/benchmarks/report.py --output "$BENCH_OUTPUT" \
+            --job-status "$MEASUREMENT_OUTCOME" --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Publish the old retry-record upgrade measurement
         if: always() && inputs.legacy_cache_upgrade && !inputs.resource_only
         env:
           UPGRADE_OUTCOME: ${{ steps.legacy-upgrade.outcome }}
+          CONFIRMATION_OUTCOME: ${{ steps.legacy-confirmation.outcome }}
         run: |
           python3 driver/scripts/benchmarks/report.py \
-            --output "$BENCH_OUTPUT/legacy-cache-upgrade" --job-status "$UPGRADE_OUTCOME"
+            --output "$BENCH_OUTPUT/legacy-cache-upgrade" --job-status "$UPGRADE_OUTCOME" \
+            --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Publish separate native diagnostic summary
         if: always() && inputs.investigation
@@ -311,9 +336,11 @@ jobs:
         if: always()
         env:
           GROWTH_OUTCOME: ${{ steps.growth.outcome }}
+          CONFIRMATION_OUTCOME: ${{ steps.growth-confirmation.outcome }}
         run: |
           python3 driver/scripts/benchmarks/growth_report.py \
-            --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME"
+            --output "$BENCH_OUTPUT/resource-growth" --job-status "$GROWTH_OUTCOME" \
+            --confirmation-status "$CONFIRMATION_OUTCOME"
 
       - name: Upload measurements and build receipts
         id: upload
