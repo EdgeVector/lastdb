@@ -150,7 +150,7 @@ macro_rules! heap_route_ctx_host {
         fn start<'a>(ctx: &'a AccessContext, host: &'a Host) -> ErasedRoute<'a> {
             Box::pin(async move { $f(ctx, host).await })
         }
-        start($ctx, host)
+        start($ctx, $host)
     }};
 }
 
