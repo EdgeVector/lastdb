@@ -166,8 +166,9 @@ fn validate_ready(path: &Path, expected: &Ready) -> Result<()> {
 fn verify_import(physical: &Path, profile: &StoredRecordProfile) -> Result<()> {
     let home = laststore::disk_pack::home::DiskHome::open(physical)
         .map_err(|_| RestoreError::Invalid("rebuilt record home"))?;
-    let actual = laststore::disk_pack::home::transfer::export(&home, &mut std::io::sink())
-        .map_err(|_| RestoreError::Invalid("rebuilt stored record verification"))?;
+    let actual =
+        laststore::disk_pack::home::transfer::export_streaming(&home, &mut std::io::sink())
+            .map_err(|_| RestoreError::Invalid("rebuilt stored record verification"))?;
     if actual != profile.receipt {
         return Err(RestoreError::Invalid("rebuilt stored record receipt"));
     }

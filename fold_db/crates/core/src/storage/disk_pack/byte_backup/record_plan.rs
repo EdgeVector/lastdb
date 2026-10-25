@@ -102,7 +102,7 @@ pub(super) fn build(inner: &Inner, state: &mut State, key: &[u8; 32]) -> Storage
         &header,
     )
     .map_err(super::super::map)?;
-    maintenance::visit_generation(inner.home.home().path(), source.current(), |record| {
+    maintenance::visit_generation_streaming(inner.home.home().path(), source.current(), |record| {
         export
             .record(record)
             .map_err(|error| laststore::Error::Config(error.to_string()))

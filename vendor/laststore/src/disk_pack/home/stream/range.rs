@@ -67,14 +67,12 @@ fn copy(
         call.current.required_features,
     )?;
     let mut seen = 0usize;
-    span(call, location, 0..prefix, |bytes| {
+    // The native header binds the complete key digest and mutation version.
+    // Initial complete-record export certifies the immutable key/body bytes;
+    // later ranges need only this header plus the selected checked blocks.
+    span(call, location, 0..header.len() as u64, |bytes| {
         for byte in bytes {
-            let expected = if seen < header.len() {
-                header[seen]
-            } else {
-                key.as_bytes()[seen - header.len()]
-            };
-            if *byte != expected {
+            if *byte != header[seen] {
                 return Err(corrupt("body range key or mutation version differs"));
             }
             seen += 1;

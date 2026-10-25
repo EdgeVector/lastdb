@@ -111,10 +111,52 @@ pub fn export(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt
     Ok(receipt)
 }
 
+/// Export every stored record under the central backup memory allowance.
+/// The caller keeps the source quiescent; no logical record-count cap applies.
+pub fn export_streaming(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt> {
+    let selected = home.read(wire::budget())?;
+    let current = selected.current().clone();
+    let header = Header::new(home, &current);
+    write_header(output, &header)?;
+    let mut records = wire::DigestWrite::new(output);
+    let mut receipt = TransferReceipt::default();
+    crate::disk_pack::maintenance::visit_generation_streaming(home.path(), &current, |stored| {
+        wire::write_stored_prefix(&mut records, &stored, current.required_features)?;
+        let deleted = stored.body.is_none();
+        if let Some(body) = stored.body {
+            if std::io::copy(body, &mut records)? != stored.body_bytes {
+                return Err(wire::refuse("source body length differs"));
+            }
+        }
+        receipt.include_body(deleted, stored.body_bytes)
+    })?;
+    receipt.record_sha256 = records.finish();
+    if home.read(wire::budget())?.current() != &current {
+        return Err(wire::refuse("source changed during export"));
+    }
+    write_footer(output, &header, &receipt)?;
+    output.flush()?;
+    Ok(receipt)
+}
+
 /// Import a complete stream into a nonexistent physical target. An incomplete
 /// transfer never publishes CURRENT and cannot serve as an active database.
 /// This initial protocol requires a fresh target for a retry; it does not resume.
 pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
+    import_with_export(root, input, false)
+}
+
+/// Import and verify all stored records under the central backup memory policy.
+/// This retains the existing transfer bytes and accepts no partial target.
+pub fn import_streaming(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
+    import_with_export(root, input, true)
+}
+
+fn import_with_export(
+    root: &Path,
+    input: &mut dyn Read,
+    streaming: bool,
+) -> Result<TransferReceipt> {
     let header: Header = wire::read_metadata(input)?;
     header.validate()?;
     let descriptor = super::HomeDescriptor::new(header.hash_fanout, header.layout_epoch)?;
@@ -134,7 +176,11 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
     )?;
     builder.finish()?;
     let target = DiskHome::open(root)?;
-    let verified = export(&target, &mut std::io::sink())?;
+    let verified = if streaming {
+        export_streaming(&target, &mut std::io::sink())?
+    } else {
+        export(&target, &mut std::io::sink())?
+    };
     if verified != receipt {
         return Err(wire::refuse("complete target record digest differs"));
     }
@@ -143,7 +189,11 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
 
 impl TransferReceipt {
     fn include(&mut self, record: &Record) -> Result<()> {
-        if record.deleted {
+        self.include_body(record.deleted, record.body_bytes)
+    }
+
+    fn include_body(&mut self, deleted: bool, body_bytes: u64) -> Result<()> {
+        if deleted {
             self.tombstones = self
                 .tombstones
                 .checked_add(1)
@@ -156,7 +206,7 @@ impl TransferReceipt {
         }
         self.body_bytes = self
             .body_bytes
-            .checked_add(record.body_bytes)
+            .checked_add(body_bytes)
             .ok_or_else(|| wire::refuse("body byte count overflow"))?;
         Ok(())
     }

@@ -79,8 +79,9 @@ impl HomeRead {
     }
 
     /// Copy one bounded range from an exact held stored body. Native block and
-    /// key/version checks remain mandatory; the returned digest covers only the
-    /// selected range. A complete-body owner must separately certify closure.
+    /// header key-digest/version checks remain mandatory; the returned digest
+    /// covers only the selected range. A complete-record owner must separately
+    /// certify the immutable key and body closure before this range export.
     pub fn copy_body_range_to(
         &mut self,
         collection: &str,

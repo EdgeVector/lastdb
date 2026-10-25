@@ -1,5 +1,5 @@
 use crate::disk_pack::record::record_header;
-use crate::disk_pack::{artifact, corrupt, Location, ReadCall, BLOCK_BYTES};
+use crate::disk_pack::{artifact, corrupt, Location, ReadBudget, ReadCall, BLOCK_BYTES};
 use crate::Result;
 use sha2::{Digest, Sha256};
 use std::io::{self, Read};
@@ -11,6 +11,7 @@ pub(super) struct RecordBody<'a> {
     position: u64,
     hash: Sha256,
     block: Option<u64>,
+    retained: Option<(ReadBudget, u64)>,
 }
 
 impl<'a> RecordBody<'a> {
@@ -19,6 +20,7 @@ impl<'a> RecordBody<'a> {
         collection: &str,
         key: &str,
         location: Location,
+        retained: Option<u64>,
     ) -> Result<Self> {
         let body_bytes = location
             .record_bytes
@@ -36,16 +38,18 @@ impl<'a> RecordBody<'a> {
         {
             return Err(corrupt("compaction record outside its object"));
         }
+        let retained = retained.map(|bytes| (call.budget, bytes));
         let mut stream = Self {
             call,
             location,
             position: 0,
             hash: Sha256::new(),
             block: None,
+            retained,
         };
-        let mut prefix = vec![0; 96 + key.len()];
-        stream.read_exact(&mut prefix)?;
-        if prefix[..96]
+        let mut header = [0; 96];
+        stream.read_exact(&mut header)?;
+        if header
             != record_header(
                 collection,
                 key,
@@ -53,9 +57,15 @@ impl<'a> RecordBody<'a> {
                 stream.location.version,
                 stream.call.current.required_features,
             )?
-            || prefix[96..] != *key.as_bytes()
         {
             return Err(corrupt("compaction record identity or mutation version"));
+        }
+        let mut prefix = [0; 65536];
+        for expected in key.as_bytes().chunks(prefix.len()) {
+            stream.read_exact(&mut prefix[..expected.len()])?;
+            if prefix[..expected.len()] != *expected {
+                return Err(corrupt("compaction record complete key differs"));
+            }
         }
         Ok(stream)
     }
@@ -78,6 +88,12 @@ impl Read for RecordBody<'_> {
         // caller's bounded caches and metadata checks.
         if self.block.is_some_and(|previous| previous != ordinal) {
             *self.call = artifact::metadata_call(&self.call.root, self.call.current.clone());
+            if let Some((budget, retained)) = self.retained {
+                self.call.budget = budget;
+                self.call
+                    .charge(retained)
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+            }
         }
         self.block = Some(ordinal);
         let block = self

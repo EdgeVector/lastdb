@@ -24,6 +24,7 @@ pub(super) fn record_metadata_max(features: u64) -> usize {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
+/// Client-owned identity and feature boundary of one native record transfer.
 pub struct Header {
     protocol: String,
     source_home: [u8; 16],
@@ -37,27 +38,33 @@ pub struct Header {
 }
 
 impl Header {
+    /// Return the original native home identity.
     pub fn source_home_id(&self) -> [u8; 16] {
         self.source_home
     }
 
+    /// Return the exact original generation selected for export.
     pub fn source_generation(&self) -> u64 {
         self.source_generation
     }
 
+    /// Return the native feature bits required by the exported records.
     pub fn required_features(&self) -> u64 {
         self.required_features
     }
 
+    /// Return the mutation frontier selected for export.
     pub fn frontier(&self) -> u64 {
         self.frontier
     }
 
+    /// Hash the unchanged JSON header representation used by the footer.
     pub fn digest(&self) -> Result<[u8; DIGEST_BYTES]> {
         let bytes = serde_json::to_vec(self).map_err(|_| refuse("header encoding failed"))?;
         Ok(Sha256::digest(bytes).into())
     }
 
+    /// Describe an exact generation from its owning native home.
     pub fn new(home: &DiskHome, current: &Current) -> Self {
         Self {
             protocol: "lastdb.native-record-transfer.v1".into(),
@@ -72,6 +79,7 @@ impl Header {
         }
     }
 
+    /// Reject unsupported transfer identity and codec fields.
     pub fn validate(&self) -> Result<()> {
         if self.protocol != "lastdb.native-record-transfer.v1"
             || self.source_home == [0; 16]
@@ -94,6 +102,7 @@ pub(super) struct Footer {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
+/// Existing transfer metadata for one stored native record or tombstone.
 pub struct Record {
     pub(super) collection: String,
     pub(super) group: u16,
@@ -105,26 +114,32 @@ pub struct Record {
 }
 
 impl Record {
+    /// Return the exact stored collection identity.
     pub fn collection(&self) -> &str {
         &self.collection
     }
 
+    /// Return the original physical hash group.
     pub fn group(&self) -> u16 {
         self.group
     }
 
+    /// Return the complete encoded storage key.
     pub fn key(&self) -> &str {
         &self.key
     }
 
+    /// Return the opaque stored body length without native record framing.
     pub fn body_bytes(&self) -> u64 {
         self.body_bytes
     }
 
+    /// Report whether this record is a versioned tombstone.
     pub fn deleted(&self) -> bool {
         self.deleted
     }
 
+    /// Copy the metadata of one administrative stored-record visitor result.
     pub fn from_stored(record: &StoredRecord<'_>) -> Self {
         Self {
             collection: record.collection.into(),
@@ -137,6 +152,7 @@ impl Record {
         }
     }
 
+    /// Validate the record against the selected frontier and return its version.
     pub fn version(&self, frontier: u64) -> Result<MutationVersion> {
         if self.batch > frontier
             || (self.deleted && self.body_bytes != 0)

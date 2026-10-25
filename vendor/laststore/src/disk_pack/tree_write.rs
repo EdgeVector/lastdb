@@ -2,7 +2,7 @@ use super::page_write::PageWriter;
 use super::tree_output::{self, Child, LeafEntry};
 use super::{corrupt, TreeKind, TreeRoot, LEAF_ENTRIES};
 use crate::Result;
-use std::path::Path;
+use std::{cmp::Ordering, path::Path};
 use uuid::Uuid;
 
 pub(super) struct TreeWriter {
@@ -62,10 +62,10 @@ impl TreeWriter {
 
     pub(super) fn add(&mut self, key: &[u8], value: [u8; 128]) -> Result<()> {
         if key.len() > self.key_limit
-            || self
-                .last_key
-                .as_deref()
-                .is_some_and(|previous| previous >= key)
+            || match self.last_key.as_deref() {
+                Some(previous) => self.pages.compare_key(previous, key)? != Ordering::Less,
+                None => false,
+            }
         {
             return Err(corrupt(
                 "tree input keys must be strictly ordered and representable",
@@ -86,8 +86,10 @@ impl TreeWriter {
         {
             self.flush_leaf()?;
         }
+        // The descriptor already owns the inline prefix and overflow address.
+        // Keep it instead of retaining another complete extended key.
+        self.last_key = Some(descriptor.clone());
         self.leaf.push((descriptor, value));
-        self.last_key = Some(key.to_vec());
         if self.kind == TreeKind::Directory && self.leaf.len() == LEAF_ENTRIES {
             self.flush_leaf()?;
         }
