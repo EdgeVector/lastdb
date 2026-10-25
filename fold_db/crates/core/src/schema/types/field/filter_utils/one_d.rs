@@ -59,7 +59,7 @@ fn apply_one_d(
                 slot,
                 0,
                 limit,
-                Some(after.unwrap_or_default()),
+                Some(after.as_deref().unwrap_or("")),
             );
         }
         (_, HashKey(key))
@@ -123,13 +123,13 @@ fn page(
     slot: OneDSlot,
     offset: usize,
     limit: usize,
-    after: Option<String>,
+    after: Option<&str>,
 ) {
     extend(
         matches,
         all_atoms(molecule, slot)
             .into_iter()
-            .filter(|(key, _)| after.as_ref().is_none_or(|after| key > after))
+            .filter(|(key, _)| after.is_none_or(|after| key.as_str() > after))
             .skip(offset)
             .take(limit),
         slot,
