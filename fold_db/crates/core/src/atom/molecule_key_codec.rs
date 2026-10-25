@@ -84,6 +84,26 @@ impl MoleculeKeyCodec {
         self.range_encoding
     }
 
+    /// Public format identity only; no encryption key material enters a cursor.
+    #[must_use]
+    pub fn comparison_format(&self) -> &'static str {
+        match (self.hash_encoding, self.range_encoding) {
+            (HashKeyEncoding::Plain, RangeKeyEncoding::Plain) => "plain/plain:utf8-v1",
+            (HashKeyEncoding::Plain, RangeKeyEncoding::OpeV1) => "plain/ope-v1:utf8-v1",
+            (HashKeyEncoding::BlindV1, RangeKeyEncoding::Plain) => "blind-v1/plain:utf8-v1",
+            (HashKeyEncoding::BlindV1, RangeKeyEncoding::OpeV1) => "blind-v1/ope-v1:utf8-v1",
+        }
+    }
+
+    #[must_use]
+    pub fn key_order(&self) -> schema_types::key_comparison::KeyOrderVersion {
+        match self.range_encoding {
+            RangeKeyEncoding::Plain | RangeKeyEncoding::OpeV1 => {
+                schema_types::key_comparison::KeyOrderVersion::LegacyUtf8V1
+            }
+        }
+    }
+
     /// Map API HashKey to storage-form hash segment.
     ///
     /// Empty API hash (range-only / Single slots) is never blinded.

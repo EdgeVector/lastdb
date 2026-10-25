@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import re
 import statistics
 
 from condition_values import extend
@@ -63,7 +64,20 @@ def validate(result, expected, coordinates, projected_fields=None):
         raise RuntimeError("A generated query page reports an unresolved record")
 
 
-def walk(node, expected, request, label, baseline=False, *, reopened=False):
+def validate_cursor(cursor, previous, coordinate):
+    if not isinstance(cursor, dict) or set(cursor) - {"hash", "range", "comparison"}:
+        raise RuntimeError("A range cursor has an unsupported wire shape")
+    if {name: cursor.get(name) for name in ("hash", "range")} != {
+            "hash": coordinate[0], "range": coordinate[1]}:
+        raise RuntimeError("The range cursor differs from the last returned API key")
+    tag = cursor.get("comparison")
+    if "comparison" in cursor and (not isinstance(tag, str) or not re.fullmatch(r"qc1:[0-9a-f]{64}", tag)):
+        raise RuntimeError("The range cursor has an invalid comparison identifier")
+    if previous and previous.get("comparison") is not None and previous["comparison"] != tag:
+        raise RuntimeError("The range comparison identifier changed during continuation")
+
+
+def walk(node, expected, request, label, baseline=False, *, reopened=False, legacy_cursor=False):
     wanted = selected(expected, request)
     offset = request.get("offset", 0)
     cursor = request.get("cursor")
@@ -107,10 +121,12 @@ def walk(node, expected, request, label, baseline=False, *, reopened=False):
         following = result.get("next_cursor")
         if not count or not following or following == cursor:
             raise RuntimeError("The exclusive range cursor cannot advance")
-        if following != {"hash": wanted[position - 1][0], "range": wanted[position - 1][1]}:
-            raise RuntimeError("The range cursor differs from the last returned API key")
+        validate_cursor(following, cursor, wanted[position - 1])
         cursor = following
-        request = {**request, "cursor": following}
+        # Matched latency uses the same supported legacy request on both binaries.
+        # Broad operations echo the full cursor, including its comparison identity.
+        wire_cursor = {name: following[name] for name in ("hash", "range")} if legacy_cursor else following
+        request = {**request, "cursor": wire_cursor}
         request.pop("offset", None)
     else:
         raise RuntimeError("The generated cursor walk exceeds its finite page bound")

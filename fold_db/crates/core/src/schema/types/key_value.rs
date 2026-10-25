@@ -85,6 +85,12 @@ impl KeyValue {
     /// plaintext.
     #[must_use]
     pub fn cmp_page_order(&self, other: &Self) -> std::cmp::Ordering {
+        super::key_comparison::KeyComparisonContext::compare_current_keys(self, other)
+    }
+
+    /// Compare raw storage coordinates without a schema's API comparison context.
+    #[must_use]
+    pub fn cmp_storage_order(&self, other: &Self) -> std::cmp::Ordering {
         self.range
             .as_deref()
             .unwrap_or("")

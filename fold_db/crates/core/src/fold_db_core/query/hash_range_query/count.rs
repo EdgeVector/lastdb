@@ -31,8 +31,12 @@ impl HashRangeQueryProcessor {
         filter: Option<&HashRangeFilter>,
     ) -> Result<usize, SchemaError> {
         Self::require_supported_query(schema, filter)?;
-        self.current_query_scope(self.count_rows_captured(schema, fields, filter).boxed())
-            .await
+        let comparison = self.db_ops.atoms().key_comparison_context(schema).await?;
+        self.current_query_scope(
+            comparison,
+            self.count_rows_captured(schema, fields, filter).boxed(),
+        )
+        .await
     }
 
     async fn count_rows_captured(

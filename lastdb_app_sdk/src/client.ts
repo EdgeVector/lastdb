@@ -65,7 +65,7 @@ import {
   AutoIdentityResult,
   ChangesOptions,
   ChangesResult,
-  KeyValue,
+  QueryCursor,
   ListOptions,
   ListResult,
   LoadedSchema,
@@ -798,7 +798,7 @@ export class LastDbClient {
     let schema = '';
     let lastPage: QueryPage | null = null;
     let offset = 0;
-    let cursor: KeyValue | null = null;
+    let cursor: QueryCursor | null = null;
     let truncatedByMaxRows = false;
 
     for (;;) {

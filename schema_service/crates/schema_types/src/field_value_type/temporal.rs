@@ -7,16 +7,26 @@ pub(super) fn validate_date(value: &Value) -> Result<(), String> {
     let text = value
         .as_str()
         .ok_or_else(|| super::type_err("Date", value))?;
-    if !date_shape(text.as_bytes()) || NaiveDate::parse_from_str(text, "%Y-%m-%d").is_err() {
-        return Err("expected Date in YYYY-MM-DD form with a valid calendar date".into());
-    }
-    Ok(())
+    date_day(text).map(|_| ())
 }
 
 pub(super) fn validate_datetime(value: &Value) -> Result<(), String> {
     let text = value
         .as_str()
         .ok_or_else(|| super::type_err("DateTime", value))?;
+    datetime_nanos(text).map(|_| ())
+}
+
+pub(crate) fn date_day(text: &str) -> Result<i32, String> {
+    if !date_shape(text.as_bytes()) {
+        return Err("expected Date in YYYY-MM-DD form with a valid calendar date".into());
+    }
+    NaiveDate::parse_from_str(text, "%Y-%m-%d")
+        .map(|date| date.num_days_from_ce())
+        .map_err(|_| "expected Date in YYYY-MM-DD form with a valid calendar date".into())
+}
+
+pub(crate) fn datetime_nanos(text: &str) -> Result<i128, String> {
     let invalid = || {
         "expected DateTime in RFC 3339 form with an offset, years 0000..9999, \
          at most nine fractional digits, and no leap second"
@@ -29,7 +39,7 @@ pub(super) fn validate_datetime(value: &Value) -> Result<(), String> {
     if instant.nanosecond() >= 1_000_000_000 || !(0..=9999).contains(&instant.to_utc().year()) {
         return Err(invalid());
     }
-    Ok(())
+    Ok(i128::from(instant.timestamp()) * 1_000_000_000 + i128::from(instant.nanosecond()))
 }
 
 fn date_shape(bytes: &[u8]) -> bool {

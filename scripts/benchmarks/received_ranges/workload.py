@@ -90,7 +90,7 @@ class Workload:
                 if first + 128 > 24000:
                     first = 23000
                 value = walk(self.node, self.seed.expected(), query(key(first), key(first + 128), 64),
-                             "matched-narrow-" + str(ordinal))
+                             "matched-narrow-" + str(ordinal), legacy_cursor=True)
                 measured.extend(value["samples"])
         finally:
             self.node.capture_process = False
