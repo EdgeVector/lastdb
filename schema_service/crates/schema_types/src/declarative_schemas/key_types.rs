@@ -38,6 +38,12 @@ fn temporal_at_path(field_type: &FieldValueType, child: Option<&str>) -> bool {
             .iter()
             .any(|variant| temporal_at_path(variant, child)),
         (FieldValueType::Object(fields), Some(path)) => temporal_in_object(fields, path),
+        (FieldValueType::Map(value_type), Some(path)) => {
+            temporal_at_path(value_type, None)
+                || path
+                    .split_once('.')
+                    .is_some_and(|(_, child)| temporal_at_path(value_type, Some(child)))
+        }
         _ => false,
     }
 }

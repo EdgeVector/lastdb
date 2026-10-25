@@ -327,15 +327,14 @@ impl SchemaServiceState {
     }
 
     /// Populate a schema's `field_types` map from the canonical field registry.
-    /// Called after canonicalization to propagate types from the registry to the schema.
-    pub(super) fn apply_canonical_types(&self, schema: &mut Schema) {
-        let Ok(fields) = self.canonical_fields.read() else {
-            return;
-        };
+    /// Validate the resulting definition before persistence or publication.
+    pub(super) fn apply_canonical_types(&self, schema: &mut Schema) -> FoldDbResult<()> {
+        let fields = read_lock(&self.canonical_fields, "canonical_fields")?;
         let field_names: Vec<String> = schema.fields.clone().unwrap_or_default();
         Self::apply_canonical_field_map(&fields, &field_names, &mut schema.field_types, |c| {
             (c.field_type != FieldValueType::Any).then(|| c.field_type.clone())
         });
+        schema.validate_definition().map_err(FoldDbError::Config)
     }
 
     /// Populate a schema's `field_data_classifications` map from the canonical field registry.

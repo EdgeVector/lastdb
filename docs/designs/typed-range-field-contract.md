@@ -38,9 +38,10 @@ No field changes type because its value looks like a date.
 CAUTION: This package does not enable date keys or typed range comparisons.
 
 Schema admission refuses `Date` and `DateTime` in either key field.
-The refusal also covers nested key paths and any temporal branch of a union.
+The refusal also covers nested object or map keys and any temporal branch of a union.
 An unrelated date field does not prevent a string field from serving as the key.
 Wire schema loads, runtime field creation, schema-service proposals, and direct schema writes use the same check.
+The schema service resolves canonical types and checks the result before a new schema or expansion reaches storage or memory.
 This refusal prevents an explicit date type from silently using the current string order.
 
 ## Compatibility and size
