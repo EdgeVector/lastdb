@@ -70,7 +70,7 @@ impl PackRuntime {
             .read()
             .expect("native complete read view")
             .current
-            .required_features
+            .required_features()
             & laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
             != 0
     }
@@ -97,6 +97,8 @@ impl PackRuntime {
         options: NativeMaintenanceOptions,
         keep_pack_on_reclaim_error: bool,
     ) -> StorageResult<NativeMaintenanceReport> {
+        // Format v2 merges runs after commits; it has no pack maintenance.
+        self.v1()?;
         let runtime = Arc::clone(self);
         let copying = !options.dry_run && !options.reclaim_only;
         let permit = if copying {
@@ -125,7 +127,7 @@ impl PackRuntime {
                             runtime.parts.record_failure(error);
                         })?;
                     let published = runtime.publish_native_pack(output).await;
-                    runtime.capture_cleanup.release_idle();
+                    runtime.physical.release_idle();
                     published.inspect_err(|error| {
                         runtime.parts.record_failure(error);
                     })?
@@ -165,7 +167,7 @@ impl PackRuntime {
 
     fn maintenance_usage(&self, options: NativeMaintenanceOptions) -> StorageResult<SpaceUsage> {
         if options.report_usage {
-            space_usage(self.home.path(), self.space_policy.max_files).map_err(map)
+            space_usage(self.physical.path(), self.space_policy.max_files).map_err(map)
         } else {
             Ok(SpaceUsage::default())
         }

@@ -6,11 +6,12 @@ import os
 from pathlib import Path
 import statistics
 
+from native_phases import correlate
 from node import save
 from workload import describe
 
 
-def phase_summary(directory):
+def phase_summary(directory, require_native):
     with gzip.open(directory / "samples.jsonl.gz", "rt") as stream:
         rows = [json.loads(line) for line in stream]
     names = sorted({name for row in rows for name in row["server_request_ops"]["phases"]})
@@ -27,6 +28,22 @@ def phase_summary(directory):
                 "p95_ms": describe([{"elapsed_ms": value / 1000, "records": 0} for value in reported], 1)["p95_ms"]
                 if reported else None}
     summary["slowest_calls"] = sorted(rows, key=lambda row: row["elapsed_ms"], reverse=True)[:8]
+    marker = "LASTDB_SNAPSHOT_TIMING "
+    events = [json.loads(line.split(marker, 1)[1])
+              for line in (directory / "node.log").read_text().splitlines() if marker in line]
+    metric = json.loads((directory / "metrics.json").read_text())
+    trace_ids = {row["server_request_ops"].get("native_trace_id") for row in rows}
+    if trace_ids == {None} and not require_native:
+        summary["native"] = {"available": False,
+            "reason": "Selected baseline predates opaque native trace identifiers; "
+                      "native events include maintenance and cannot be assigned to foreground calls."}
+    else:
+        if None in trace_ids or len(trace_ids) != 512:
+            raise RuntimeError("TTL diagnostic lacks unique native traces for all successful calls")
+        summary["native"] = {"available": True,
+            **correlate("ttl-profile", rows, metric, events, trace_ids=trace_ids)}
+        if summary["native"]["scopes"] != 512:
+            raise RuntimeError("TTL diagnostic lacks one native scope per successful call")
     save(directory / "phase-summary.json", summary)
     return summary
 
@@ -37,7 +54,12 @@ def profile(args, measure):
     manifest = {"complete": False, "runs": [], "calls": 512, "wave_calls": 64,
         "limit": "Separate diagnostic windows; status capture gaps affect maintenance exposure. "
                  "Use the uninterrupted cases for latency/throughput comparisons. "
-                 "Phase totals can overlap. Missing fields are unreported, never zero."}
+                 "Phase totals can overlap. Missing fields are unreported, never zero. "
+                 "Native instrumentation is enabled only in diagnostics. Native request scopes join "
+                 "distinct physical commits by sequence and enclosed time, with complete case coverage. "
+                 "A shared physical commit is counted once; its cost is not assigned to every call. "
+                 "Candidate native coverage is mandatory. A baseline that predates trace identifiers "
+                 "retains complete RPC phases and raw native events, with native association explicitly unreported."}
     lines = ["", "## Active TTL request phases", "", manifest["limit"], "",
              "| Source | State | Clients | Exact phase matches | Largest reported stage p95 ms |",
              "|---|---|---:|---:|---|"]
@@ -49,12 +71,26 @@ def profile(args, measure):
                 print(json.dumps({"diagnostic": name}), flush=True)
                 result = measure(getattr(args, label), getattr(args, f"{label}_revision"),
                                  root / name, state, clients, False, diagnostic=True)
-                summary = phase_summary(root / name)
+                summary = phase_summary(root / name, require_native=label == "candidate")
                 stages = sorted(summary["resident_stages_us"].items(),
                                 key=lambda item: item[1]["p95_ms"] or 0, reverse=True)[:5]
                 detail = ", ".join(f"{name}={value['p95_ms']:.3f}" for name, value in stages)
                 lines.append(f"| {label} | {state} | {clients} | "
                              f"{result['phase_coverage']['matched']}/512 | {detail} |")
+                native = summary["native"]
+                if native["available"]:
+                    scope = sorted(native["scope_phases_us"].items(),
+                                   key=lambda item: item[1]["mean"], reverse=True)[:5]
+                    physical = sorted(native["physical_phases_us"].items(),
+                                      key=lambda item: item[1]["mean"], reverse=True)[:5]
+                    lines.extend(["", f"{label}/{state}/{clients}: {native['scopes']} native scopes, "
+                        f"{native['distinct_physical_commits']} distinct physical commits. "
+                        "Native scope means (ms): " + ", ".join(f"{name}={value['mean']/1000:.3f}" for name, value in scope)
+                        + ". Physical commit means (ms): "
+                        + ", ".join(f"{name}={value['mean']/1000:.3f}" for name, value in physical), ""])
+                else:
+                    lines.extend(["", f"{label}/{state}/{clients}: native association unreported. "
+                                  + native["reason"], ""])
                 manifest["runs"].append({"source": label, "state": state, "clients": clients,
                                           "directory": name, "result": result, "phases": summary})
                 save(root / "profile.json", manifest)

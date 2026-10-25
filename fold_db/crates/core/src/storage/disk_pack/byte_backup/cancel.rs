@@ -21,15 +21,15 @@ impl PackRuntime {
         let key = zeroize::Zeroizing::new(*key);
         super::super::super::laststore::LastStoreKvStore::run_blocking(move || {
             if !runtime
-                .home
+                .physical
                 .path()
                 .join("cloud-byte-source-v2")
                 .try_exists()?
             {
                 return Ok(());
             }
-            let home = CaptureHome::Writer(Arc::clone(&runtime));
-            let store = Store::open(runtime.home.path(), &runtime.space_policy)?;
+            let home = CaptureHome::writer(&runtime)?;
+            let store = Store::open(runtime.physical.path(), &runtime.space_policy)?;
             if !store.exists("job.json")? {
                 return Ok(());
             }

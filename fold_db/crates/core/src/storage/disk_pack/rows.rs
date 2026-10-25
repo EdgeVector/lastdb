@@ -1,7 +1,7 @@
 use super::super::laststore::{native_routing, LastStoreKvStore};
+use super::physical::{PhysicalCursor, PhysicalRead};
 use super::*;
-use laststore::disk_pack::home::HomeRead;
-use laststore::disk_pack::{HashRangeCursor, RangeBounds};
+use laststore::disk_pack::RangeBounds;
 use std::collections::VecDeque;
 
 pub(super) type NativeRows = Vec<(String, Vec<u8>)>;
@@ -169,11 +169,11 @@ fn text_upper(prefix: &str) -> Option<String> {
 }
 
 pub(super) fn cursor<'a>(
-    call: &'a mut HomeRead,
+    call: &'a mut PhysicalRead,
     collection: &str,
     start: &[u8],
     end: &[u8],
-) -> StorageResult<HashRangeCursor<'a>> {
+) -> StorageResult<PhysicalCursor<'a>> {
     if let Ok(start_text) = std::str::from_utf8(start) {
         if let Some(at) = start_text.find('\0').filter(|at| *at > 0) {
             let prefix = &start_text[..at + 1];

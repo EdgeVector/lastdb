@@ -3,13 +3,35 @@ use super::*;
 pub(super) struct PreparedCommit {
     operations: Vec<HomeMutation>,
     batch_bytes: u64,
-    reservation: laststore::disk_pack::home::MutationReservation,
+    /// The v1 part quota; a v2 commit has none.
+    reservation: Option<laststore::disk_pack::home::MutationReservation>,
     space: SpaceReservation,
 }
 
 impl PreparedCommit {
     pub(super) fn dependency_parts(&self) -> u64 {
-        self.reservation.quote().dependency_parts()
+        self.reservation
+            .as_ref()
+            .map_or(0, |reservation| reservation.quote().dependency_parts())
+    }
+
+    /// A v2 batch: its bytes with the accepted prefix, and the space that
+    /// `prepare_run` reserved for them.
+    pub(super) fn for_run(
+        operations: Vec<HomeMutation>,
+        batch_bytes: u64,
+        space: SpaceReservation,
+    ) -> Self {
+        Self {
+            operations,
+            batch_bytes,
+            reservation: None,
+            space,
+        }
+    }
+
+    pub(super) fn space(&self) -> &SpaceReservation {
+        &self.space
     }
 }
 
@@ -42,7 +64,11 @@ impl PreparedAppend {
             // The write gate retains this exact prefix during preparation.
             // Transfer both quotas without changing their ledger totals.
             self.incoming.space.absorb(previous.space);
-            self.incoming.reservation.absorb(previous.reservation);
+            if let (Some(incoming), Some(previous)) =
+                (&mut self.incoming.reservation, previous.reservation)
+            {
+                incoming.absorb(previous);
+            }
         }
         self.incoming
     }
@@ -75,7 +101,7 @@ impl PackRuntime {
                 .read()
                 .expect("native complete write view")
                 .current
-                .required_features
+                .required_features()
                 & feature
                 == feature
     }
@@ -85,8 +111,8 @@ impl PackRuntime {
         let target_sequence = self.flush_prefix().await?;
         let view = self.view.read().expect("native durable flush view");
         Ok(NativeFlushReceipt {
-            generation: view.current.generation,
-            frontier: view.current.frontier,
+            generation: view.current.generation(),
+            frontier: view.current.frontier(),
             target_sequence,
             completed_sequence: *self.completed.borrow(),
         })
@@ -124,7 +150,7 @@ impl PackRuntime {
         super::super::laststore::LastStoreKvStore::run_blocking(move || {
             let result = runtime.commit(operations);
             drop(gate);
-            runtime.capture_cleanup.release_idle();
+            runtime.physical.release_idle();
             result
         })
         .await
@@ -165,11 +191,16 @@ impl PackRuntime {
                 "native writer requires a snapshot reopen after a failed publication".into(),
             ));
         }
-        let writer = self.writer.lock().expect("native snapshot writer");
+        let v1 = match &self.physical {
+            physical::Physical::V1(v1) => v1,
+            physical::Physical::V2(v2) => return self.prepare_run(v2, operations, previous),
+        };
+        let writer = v1.writer.lock().expect("native snapshot writer");
         let limit = writer.current().batch_operation_limit();
         let batch_bytes = prefix_batch_bytes(previous, &operations, limit)?;
-        let reservation = match previous {
-            Some(previous) => writer.reserve_mutation_extension(&previous.reservation, &operations),
+        let previous_reservation = previous.and_then(|previous| previous.reservation.as_ref());
+        let reservation = match previous_reservation {
+            Some(previous) => writer.reserve_mutation_extension(previous, &operations),
             None => writer.reserve_mutation(&operations),
         }
         .map_err(|error| {
@@ -187,7 +218,7 @@ impl PackRuntime {
         Ok(PreparedCommit {
             operations,
             batch_bytes,
-            reservation,
+            reservation: Some(reservation),
             space,
         })
     }
@@ -239,7 +270,19 @@ impl PackRuntime {
                 })
                 .collect()
         };
-        let mut writer = self.writer.lock().expect("native snapshot writer");
+        let (v1, reservation) = match (&self.physical, reservation) {
+            (physical::Physical::V1(v1), Some(reservation)) => (v1, reservation),
+            (physical::Physical::V2(v2), None) if compaction.is_none() => {
+                let changes = (hidden_changes, key_changes.as_slice());
+                return self.commit_run(v2, operations, space, changes, requests);
+            }
+            _ => {
+                return Err(StorageError::BackendError(
+                    "native commit quota does not match the physical home".into(),
+                ))
+            }
+        };
+        let mut writer = v1.writer.lock().expect("native snapshot writer");
         let started = std::time::Instant::now();
         let (result, receipt) = match compaction {
             Some(handoff) => handoff.commit(&mut writer, operations, reservation),
@@ -258,7 +301,12 @@ impl PackRuntime {
             }
         };
         let _timing = laststore::commit_timing::stage("memory_publication_us");
-        self.install_committed(publication.current, hidden_changes, &key_changes, requests)?;
+        self.install_committed(
+            physical::PhysicalRoot::V1(publication.current),
+            hidden_changes,
+            &key_changes,
+            requests,
+        )?;
         if let (Some(handoff), Some(receipt)) = (compaction, receipt) {
             handoff.record(self.finish_merged_pack(&writer, receipt, started));
         }
@@ -302,7 +350,7 @@ pub(super) struct WriteGuard {
     _publication: tokio::sync::OwnedMutexGuard<()>,
 }
 
-fn prefix_batch_bytes(
+pub(super) fn prefix_batch_bytes(
     previous: Option<&PreparedCommit>,
     incoming: &[HomeMutation],
     limit: usize,

@@ -20,7 +20,7 @@ pub(super) fn capture(runtime: &PackRuntime) -> Vec<Resource> {
         .try_with(|resources| {
             resources
                 .iter()
-                .filter(|resource| resource.identity == runtime.home.descriptor().identity)
+                .filter(|resource| resource.identity == runtime.home_identity())
                 .map(|resource| Arc::clone(&resource.value))
                 .collect()
         })
@@ -52,7 +52,7 @@ where
     }
     let mut resources = RESOURCES.try_with(Clone::clone).unwrap_or_default();
     resources.push(ScopedResource {
-        identity: runtime.home.descriptor().identity,
+        identity: runtime.home_identity(),
         value,
     });
     RESOURCES.scope(resources, future).await

@@ -27,12 +27,15 @@ mod maintenance;
 mod memory;
 mod namespace_delete;
 mod parts;
+mod physical;
 mod queue;
 mod read;
 mod restore;
 pub(crate) mod restore_safety;
 mod rows;
 mod rows_yielding;
+mod run_commit;
+mod run_node;
 pub(crate) mod schema_keys;
 mod space;
 mod timing;
@@ -61,11 +64,8 @@ const NAMESPACES: &str = "namespaces\0";
 /// Shared native home, complete published root, and exclusive snapshot writer.
 /// Only the complete root advances the readable frontier and write protection.
 pub struct PackRuntime {
-    home: Arc<DiskHome>,
+    physical: physical::Physical,
     view: RwLock<view::NativeReadView>,
-    writer: Mutex<HomeSnapshot>,
-    read_lease: laststore::disk_pack::lifetime::WriterReadLease,
-    capture_cleanup: laststore::disk_pack::snapshot::CaptureCleanup,
     prepare_gate: Arc<tokio::sync::Mutex<()>>,
     restore_gate: Arc<tokio::sync::Mutex<()>>,
     write_gate: Arc<tokio::sync::Mutex<()>>,
@@ -127,10 +127,22 @@ impl PackNamespacedStore {
     /// Open a native node store, or create the native format in an empty home.
     /// The caller must reject cloud sync until its native transfer gate is wired.
     pub fn open(path: &Path) -> StorageResult<Self> {
+        Self::open_keyed(path, None)
+    }
+
+    /// Open a node store with the node encryption key. A v2 run home needs
+    /// the key: its home key derives from it. A v1 home ignores it.
+    pub fn open_keyed(path: &Path, node_key: Option<&[u8; 32]>) -> StorageResult<Self> {
         crate::db_operations::AtomStore::validate_boot_key_encoding_settings()?;
         let space_policy = space::policy_from_env()?;
         if path.join("laststore-pack-home-v1").try_exists()? {
             return Self::open_home(path);
+        }
+        if run_node::is_run_node(path)? {
+            return Self::open_run(path, node_key);
+        }
+        if run_node::wants_new_run_node(path)? {
+            return Self::create_run(path, run_node::require_key(node_key)?);
         }
         let node_home = initialization::NodeHome::open(path, &space_policy)?;
         Self::open_physical(&path.join("disk-pack"), Some(node_home))
@@ -158,18 +170,46 @@ impl PackNamespacedStore {
             frontier: current.frontier,
         })
         .0;
-        let parts = parts::PartsLedger::from_env(writer.dependency_parts(), &current);
+        let parts = parts::PartsLedger::from_env(
+            writer.dependency_parts(),
+            current.generation,
+            current.frontier,
+        );
+        let physical = physical::Physical::V1(Box::new(physical::V1Home {
+            home,
+            writer: Mutex::new(writer),
+            read_lease,
+            capture_cleanup,
+        }));
+        Ok(Self::assemble(
+            physical,
+            physical::PhysicalRoot::V1(current),
+            native_backup_boundary,
+            parts,
+            restore_blocked,
+            node_home,
+            space_policy,
+        ))
+    }
+
+    /// One runtime over an opened physical home and its published root.
+    fn assemble(
+        physical: physical::Physical,
+        current: physical::PhysicalRoot,
+        native_backup_boundary: tokio::sync::watch::Sender<CoreNativeBackupBoundary>,
+        parts: Arc<parts::PartsLedger>,
+        restore_blocked: bool,
+        node_home: Option<initialization::NodeHome>,
+        space_policy: laststore::disk_pack::maintenance::SpacePolicy,
+    ) -> Self {
         let metrics = Arc::new(PersistLaneMetrics::new());
-        Ok(Self {
+        Self {
             runtime: Arc::new(PackRuntime {
-                home,
+                physical,
                 view: RwLock::new(view::NativeReadView {
                     current,
                     revision: 0,
                 }),
-                writer: Mutex::new(writer),
-                read_lease,
-                capture_cleanup,
                 prepare_gate: Arc::new(tokio::sync::Mutex::new(())),
                 restore_gate: Arc::new(tokio::sync::Mutex::new(())),
                 write_gate: Arc::new(tokio::sync::Mutex::new(())),
@@ -191,7 +231,7 @@ impl PackNamespacedStore {
                 space_policy,
                 parts,
             }),
-        })
+        }
     }
 }
 

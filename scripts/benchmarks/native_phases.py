@@ -36,13 +36,16 @@ def slow_requests(rows, scopes, commits):
     return selected
 
 
-def correlate(case, rows, metric, events):
+def correlate(case, rows, metric, events, trace_ids=None):
     first, last = metric["case_started_unix_us"], metric["case_ended_unix_us"]
-    scopes = [event for event in events if event["kind"] == "scope" and not event["background"]
+    scopes = [event for event in events if event["kind"] == "scope"
+              and (not event["background"] if trace_ids is None else event.get("trace_id") in trace_ids)
               and first <= event["started_us"] <= event["ended_us"] <= last]
     expected = sum(row["kind"] == "write" for row in rows)
     if len(scopes) != expected or len({event["sequence"] for event in scopes}) != expected:
         raise ValueError(f"{case}: native scope count differs from actual successful write calls")
+    if trace_ids is not None and {scope.get("trace_id") for scope in scopes} != trace_ids:
+        raise ValueError(f"{case}: native trace identifiers differ from successful request samples")
     commits = [event for event in events if event["kind"] == "commit" and event["ok"]
                and first <= event["started_us"] <= event["ended_us"] <= last]
     used = {}
@@ -67,7 +70,25 @@ def correlate(case, rows, metric, events):
             "physical_counts": averages(physical, "counts"),
             "slowest_scopes": sorted(scopes, key=lambda event: event["total_us"], reverse=True)[:4],
             "slowest_physical_commits": sorted(physical, key=lambda event: event["total_us"], reverse=True)[:4],
-            "slowest_requests": slow_requests(rows, scopes, physical) if case in ("update/1", "update/128") else []}
+            "slowest_requests": traced_requests(rows, scopes, physical) if trace_ids is not None else
+                slow_requests(rows, scopes, physical) if case in ("update/1", "update/128") else []}
+
+
+def traced_requests(rows, scopes, commits):
+    by_trace = {scope["trace_id"]: scope for scope in scopes}
+    selected = []
+    for row in sorted(rows, key=lambda item: item["elapsed_ms"], reverse=True)[:8]:
+        scope = by_trace[row["server_request_ops"]["native_trace_id"]]
+        physical = [commit for commit in commits
+                    if commit["first_sequence"] <= scope["sequence"] <= commit["sequence"]
+                    and scope["started_us"] <= commit["started_us"] <= commit["ended_us"] <= scope["ended_us"]]
+        if len(physical) != 1:
+            raise ValueError("A traced request lacks one unambiguous physical commit")
+        selected.append({"request_id": row["request_id"], "elapsed_ms": row["elapsed_ms"],
+            "resident_stages_us": row.get("resident_stages_us"),
+            "server_request_ops": row["server_request_ops"], "scope": scope,
+            "physical_commit": physical[0]})
+    return selected
 
 
 def collect_native_phases(output):

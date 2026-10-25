@@ -348,3 +348,25 @@ on a quiet host and up to 7.8 s on a busy one.
 A pass that ends with keys left writes one `ttl sweep pass ended with listed keys left over`
 line. The next pass lists those keys again. `settled` in the `Local retention:` line stays false
 until a pass finishes its backlog.
+
+## Active-TTL latency diagnostics
+
+The CI comparison uses 512 durable calls per case, with eight records per call.
+One and four clients send the same request size and total work.
+The four states are no policy, age tracking, active TTL, and active TTL with full compaction.
+The uninterrupted cases supply the latency and throughput comparison.
+
+Separate diagnostic cases fetch the request ring after each 64-call wave.
+Each case requires all 512 exact request records and their reported resident stages.
+The diagnostic gaps and native instrumentation can change maintenance exposure.
+Their throughput does not replace the uninterrupted comparison.
+
+Native timing adds an opaque process-local identifier when its existing opt-in flag is on.
+The request record and native scope carry that identifier; no caller value enters the native log.
+The scope then joins its physical commit by sequence and enclosed time.
+This separates request queue time, native admission, private preparation, and durable completion.
+A physical commit can contain foreground writes and TTL work. The report counts that commit once.
+It does not assign the whole shared commit cost to every request.
+
+An older baseline can omit these identifiers. Its native association remains unreported.
+The candidate requires complete native association. Missing fields never mean measured zero.
