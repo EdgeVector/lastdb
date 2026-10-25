@@ -5,23 +5,16 @@
 //! from it at a specific commit, and verifying the receipt.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn main() -> Result<(), String> {
-    println!("=== Local Install Source Proof ===\n");
-
-    let temp_dir =
-        tempfile::TempDir::new().map_err(|e| format!("failed to create temp dir: {e}"))?;
-    let repo_path = temp_dir.path().join("test-app");
-    let install_dir = temp_dir.path().join("installed");
-
+fn setup_test_repo(repo_path: &Path) -> Result<String, String> {
     println!("1. Creating test repository at {}", repo_path.display());
-    fs::create_dir(&repo_path).map_err(|e| format!("failed to create repo dir: {e}"))?;
+    fs::create_dir(repo_path).map_err(|e| format!("failed to create repo dir: {e}"))?;
 
-    git(&repo_path, &["init"])?;
-    git(&repo_path, &["config", "user.name", "Test User"])?;
-    git(&repo_path, &["config", "user.email", "test@example.com"])?;
+    git(repo_path, &["init"])?;
+    git(repo_path, &["config", "user.name", "Test User"])?;
+    git(repo_path, &["config", "user.email", "test@example.com"])?;
 
     let manifest = serde_json::json!({
         "app_id": "test-local-app",
@@ -41,15 +34,12 @@ fn main() -> Result<(), String> {
     )
     .map_err(|e| format!("failed to write manifest: {e}"))?;
 
-    git(&repo_path, &["add", "test-local-app.app.json"])?;
-    git(
-        &repo_path,
-        &["commit", "-m", "Initial commit with manifest"],
-    )?;
+    git(repo_path, &["add", "test-local-app.app.json"])?;
+    git(repo_path, &["commit", "-m", "Initial commit with manifest"])?;
 
     let rev_output = Command::new("git")
         .arg("-C")
-        .arg(&repo_path)
+        .arg(repo_path)
         .arg("rev-parse")
         .arg("HEAD")
         .output()
@@ -65,10 +55,19 @@ fn main() -> Result<(), String> {
     println!("2. Committed manifest at rev: {}\n", &rev[..12]);
 
     git(
-        &repo_path,
+        repo_path,
         &["commit", "--allow-empty", "-m", "Second commit"],
     )?;
 
+    Ok(rev)
+}
+
+fn run_install(
+    repo_path: &Path,
+    rev: &str,
+    install_dir: &Path,
+    temp_dir: &Path,
+) -> Result<(), String> {
     println!(
         "3. Running: lastdb app install test-local-app --from {} --rev {} --dev --dir {} --force",
         repo_path.display(),
@@ -82,14 +81,14 @@ fn main() -> Result<(), String> {
         .arg("install")
         .arg("test-local-app")
         .arg("--from")
-        .arg(&repo_path)
+        .arg(repo_path)
         .arg("--rev")
-        .arg(&rev)
+        .arg(rev)
         .arg("--dev")
         .arg("--dir")
-        .arg(&install_dir)
+        .arg(install_dir)
         .arg("--force")
-        .env("LASTDB_HOME", temp_dir.path())
+        .env("LASTDB_HOME", temp_dir)
         .output()
         .map_err(|e| format!("failed to run lastdb app install: {e}"))?;
 
@@ -104,6 +103,10 @@ fn main() -> Result<(), String> {
     println!("\nInstall output:");
     println!("{}", String::from_utf8_lossy(&install_output.stdout));
 
+    Ok(())
+}
+
+fn verify_receipt(install_dir: &Path, rev: &str) -> Result<(), String> {
     println!("\n4. Verifying install receipt...");
     let receipt_path = install_dir.join("lastdb-app-install.json");
     if !receipt_path.exists() {
@@ -123,6 +126,10 @@ fn main() -> Result<(), String> {
     assert!(receipt["sha"].as_str().unwrap().starts_with(&rev[..7]));
     assert_eq!(receipt["channel"], "dev");
 
+    Ok(())
+}
+
+fn verify_checkout(install_dir: &Path, rev: &str) -> Result<(), String> {
     println!("\n5. Verifying checkout...");
     let checkout_path = install_dir.join("source");
     if !checkout_path.exists() {
@@ -158,6 +165,25 @@ fn main() -> Result<(), String> {
     }
 
     println!("Checkout HEAD: {}", &checkout_rev[..12]);
+
+    Ok(())
+}
+
+fn main() -> Result<(), String> {
+    println!("=== Local Install Source Proof ===\n");
+
+    let temp_dir =
+        tempfile::TempDir::new().map_err(|e| format!("failed to create temp dir: {e}"))?;
+    let repo_path = temp_dir.path().join("test-app");
+    let install_dir = temp_dir.path().join("installed");
+
+    let rev = setup_test_repo(&repo_path)?;
+
+    run_install(&repo_path, &rev, &install_dir, temp_dir.path())?;
+
+    verify_receipt(&install_dir, &rev)?;
+
+    verify_checkout(&install_dir, &rev)?;
 
     println!("\n=== PROOF COMPLETE ===");
     println!(

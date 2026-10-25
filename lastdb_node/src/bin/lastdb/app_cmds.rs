@@ -94,6 +94,74 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
+fn handle_app_install(
+    home: &Path,
+    app_ids: Vec<String>,
+    env: Option<String>,
+    schema_url: Option<String>,
+    channel: Option<String>,
+    index: Option<String>,
+    trust_key: Option<String>,
+    lastdb_version: Option<String>,
+    dir: Option<PathBuf>,
+    allow_sandbox: bool,
+    force: bool,
+    json: bool,
+    from: Option<String>,
+    rev: Option<String>,
+    dev: bool,
+) -> Result<(), String> {
+    app_install(
+        home,
+        app_ids,
+        RegistrySource {
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
+        },
+        dir,
+        allow_sandbox,
+        force,
+        json,
+        from,
+        rev,
+        dev,
+    )
+}
+
+fn handle_app_upgrade(
+    home: &Path,
+    app_ids: Vec<String>,
+    env: Option<String>,
+    schema_url: Option<String>,
+    channel: Option<String>,
+    index: Option<String>,
+    trust_key: Option<String>,
+    lastdb_version: Option<String>,
+    dir: Option<PathBuf>,
+    allow_sandbox: bool,
+    json: bool,
+) -> Result<(), String> {
+    app_upgrade(
+        home,
+        app_ids,
+        RegistrySource {
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
+        },
+        dir,
+        allow_sandbox,
+        json,
+    )
+}
+
 /// Catalog subcommands of `lastdb app`: list, resolve, index, storage, info,
 /// install and upgrade.
 fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
@@ -154,17 +222,15 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             from,
             rev,
             dev,
-        } => app_install(
+        } => handle_app_install(
             home,
             app_ids,
-            RegistrySource {
-                env,
-                schema_url,
-                channel,
-                index,
-                trust_key,
-                lastdb_version,
-            },
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
             dir,
             allow_sandbox,
             force,
@@ -184,17 +250,15 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             dir,
             allow_sandbox,
             json,
-        } => app_upgrade(
+        } => handle_app_upgrade(
             home,
             app_ids,
-            RegistrySource {
-                env,
-                schema_url,
-                channel,
-                index,
-                trust_key,
-                lastdb_version,
-            },
+            env,
+            schema_url,
+            channel,
+            index,
+            trust_key,
+            lastdb_version,
             dir,
             allow_sandbox,
             json,
