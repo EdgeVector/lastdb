@@ -67,12 +67,21 @@ pub(crate) fn initial_counts() -> BTreeMap<&'static str, u64> {
     counts.insert("snapshot_touched_groups", 0);
     counts.insert("snapshot_invalid_usage_pages", 0);
     counts.insert("locator_leaf_balanced_splits", 0);
+    for name in [
+        "page_output_requested_write_bytes",
+        "locator_parent_requested_write_bytes",
+        "locator_parent_omitted_zero_bytes",
+        "locator_parent_sparse_writes",
+    ] {
+        counts.insert(name, 0);
+    }
     counts.extend(SPLITS.iter().flatten().map(|&name| (name, 0)));
     counts
 }
 
-/// Call only after a complete encoded page reaches its private output file.
-pub(crate) fn written(bytes: &[u8]) {
+/// Record the complete logical image after its private append and length extension.
+/// Requested bytes exclude implicit zero tails and filesystem metadata work.
+pub(crate) fn written(bytes: &[u8], requested_bytes: usize) {
     if !timing::enabled() {
         return;
     }
@@ -86,6 +95,21 @@ pub(crate) fn written(bytes: &[u8]) {
         _ => return,
     };
     image(&WRITTEN[class], bytes);
+    timing::count("page_output_requested_write_bytes", requested_bytes as u64);
+    if class == 1 {
+        timing::count(
+            "locator_parent_requested_write_bytes",
+            requested_bytes as u64,
+        );
+        timing::count(
+            "locator_parent_omitted_zero_bytes",
+            (bytes.len() - requested_bytes) as u64,
+        );
+        timing::count(
+            "locator_parent_sparse_writes",
+            u64::from(requested_bytes < bytes.len()),
+        );
+    }
 }
 
 /// Header finalization writes an existing private map page, not a new allocation.

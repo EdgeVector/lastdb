@@ -87,7 +87,7 @@ impl PageWriter {
             .as_mut()
             .expect("open metadata part")
             .write_all(&bytes)?;
-        super::page_usage::written(&bytes);
+        super::page_usage::written(&bytes, bytes.len());
         let number = self.next;
         self.next = self
             .next

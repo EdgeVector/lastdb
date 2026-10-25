@@ -23,6 +23,7 @@ def condition_summary(grouped, mode):
     lines = ["", "### Keyed conditions: " + mode, "",
         "All values and per-field atom, molecule, writer, and source metadata match the same-home reference.",
         "The primary-only pass A reference uses the existing secondary reader. Conditions verify every generated condition key."]
+    lines.extend(run_sources(grouped))
     labels = [cell["label"] for cell in grouped["baseline"][0]["conditions"]["cells"] if cell["phase"] == "warm"]
     for phase in ("warm", "fresh-process"):
         count = 32 if phase == "warm" else 1
@@ -43,6 +44,7 @@ def condition_summary(grouped, mode):
             if change > 20:
                 print("::notice::" + mode + " " + phase + " " + label + " condition time increased more than20%; advisory only")
         lines.extend(phase_summary(grouped, phase, labels))
+        lines.extend(pair_latency(grouped, phase, labels))
     lines.extend(memory_summary(grouped))
     lines.extend(["", "Each warm cell has32 requests per run. Each fresh-process cell has one request after its own restart, eight restarts per run.",
         "Cells use medians of two per-run results. Fresh-process elapsed times do not establish a latency distribution or statistical significance.",
@@ -53,6 +55,38 @@ def condition_summary(grouped, mode):
         "Nested bodies retain signed/unsigned integer boundaries, an integer above2^53, float types, and negative zero.",
         "Only the fixed128-key hash uses nested JSON bodies below9KiB. Original large-range bodies and eight timed selectors stay unchanged.",
         "Public Delete/Purge removes records; legacy body tombstones and concurrent mutations remain outside this recipe."])
+    return lines
+
+
+def run_sources(grouped):
+    runs = {role: {value["pair"]: value for value in values} for role, values in grouped.items()}
+    lines = ["", "Condition source revisions by independent pair:", "",
+        "| Pair | Baseline source | Candidate source |", "|---|---|---|"]
+    for pair in sorted(runs["baseline"]):
+        sources = ["`" + runs[role][pair]["revision"] + "`" for role in ("baseline", "candidate")]
+        lines.append("| " + str(pair) + " | " + " | ".join(sources) + " |")
+    return lines
+
+
+def pair_latency(grouped, phase, labels):
+    runs = {role: {value["pair"]: value for value in values} for role, values in grouped.items()}
+    names = ("p50_ms", "p95_ms", "p99_ms") if phase == "warm" else ("p50_ms",)
+    statistic = "p95_ms" if phase == "warm" else "p50_ms"
+    timing = "p50 / p95 / p99 ms" if phase == "warm" else "elapsed ms"
+    lines = ["", "Condition HTTP latency by pair; each source retains its own run statistic.", "",
+        "| Case | Pair | Requests/run | Base " + timing + " | Candidate " + timing + " | Change |",
+        "|---|---:|---:|---|---|---:|"]
+    for label in labels:
+        for pair in sorted(runs["baseline"]):
+            cells = {role: next(cell for cell in runs[role][pair]["conditions"]["cells"]
+                if (cell["phase"], cell["label"]) == (phase, label)) for role in ("baseline", "candidate")}
+            rows = {role: cell["latency"] for role, cell in cells.items()}
+            change = (rows["candidate"][statistic] / rows["baseline"][statistic] - 1) * 100
+            elapsed = [" / ".join(f"{rows[role][name]:.3f}" for name in names)
+                       for role in ("baseline", "candidate")]
+            lines.append("| " + label + " | " + str(pair) + " | " + str(len(cells["baseline"]["samples"]))
+                         + " | " + " | ".join(elapsed) + f" | {change:+.1f}% |")
+    lines.extend(["", "Pair rows do not pool requests or change the aggregate advisory policy."])
     return lines
 
 

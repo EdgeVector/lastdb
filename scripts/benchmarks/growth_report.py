@@ -15,6 +15,9 @@ from node import save
 MEASURES = ("peak_memory_bytes", "idle_memory_bytes", "memory_growth_bytes",
             "memory_growth_bytes_per_round", "disk_before_compaction_bytes", "compacted_disk_bytes",
             "disk_growth_bytes", "disk_growth_bytes_per_round", "compacted_disk_bytes_per_record")
+ALLOCATED_MEASURES = ("allocated_disk_before_compaction_bytes", "compacted_allocated_disk_bytes",
+                      "allocated_disk_growth_bytes", "allocated_disk_growth_bytes_per_round",
+                      "compacted_allocated_disk_bytes_per_record")
 PERCENT = 20
 MEMORY_FLOOR = 16 * 2**20
 DISK_FLOOR = 2**20
@@ -48,10 +51,27 @@ def validate(case, result, recipe):
                          ("disk_growth_bytes_per_round", "compacted_disk_bytes")):
         if metrics[name] != slope(points, source):
             raise ValueError(f"{case}: invalid growth slope")
+    allocated = ALLOCATED_MEASURES[:2]
+    if any(name in metrics for name in ALLOCATED_MEASURES) or any(
+            name in point for point in points for name in allocated):
+        if any(name not in metrics for name in ALLOCATED_MEASURES) or any(
+                name not in point for point in points for name in allocated):
+            raise ValueError(f"{case}: incomplete allocated disk samples")
+        if any(not math.isfinite(point[name]) or point[name] < 0 for point in points for name in allocated):
+            raise ValueError(f"{case}: invalid allocated disk samples")
+        if any(not math.isfinite(metrics[name]) for name in ALLOCATED_MEASURES):
+            raise ValueError(f"{case}: nonfinite allocated disk result")
+        expected = {name: points[-1][name] for name in allocated}
+        source = "compacted_allocated_disk_bytes"
+        expected.update(allocated_disk_growth_bytes=points[-1][source] - points[0][source],
+                        allocated_disk_growth_bytes_per_round=slope(points, source),
+                        compacted_allocated_disk_bytes_per_record=points[-1][source] / metrics["live_records"])
+        if any(metrics[name] != value for name, value in expected.items()):
+            raise ValueError(f"{case}: invalid allocated disk result")
 
 
 def percent(base, candidate):
-    return 100 * (candidate / base - 1) if base > 0 else None
+    return 100 * (candidate / base - 1) if base is not None and candidate is not None and base > 0 else None
 
 
 def advisory(base, candidate, floor):
@@ -77,18 +97,20 @@ def compare(output, manifest):
     if any(set(v) != pairs for v in values.values()):
         raise ValueError("The growth measurements lack a complete pair")
     comparison = {}
+    measures = (*MEASURES, *ALLOCATED_MEASURES)
     for case in CASES:
         item = {}
         for label, runs in values.items():
             samples = [runs[pair][case]["metrics"] for pair in sorted(pairs)]
             item[label] = {name: statistics.median(s[name] for s in samples)
-                           for name in (*MEASURES, "live_records")}
+                           if all(s.get(name) is not None for s in samples) else None
+                           for name in (*measures, "live_records")}
         base, candidate = item["baseline"], item["candidate"]
-        item["changes_percent"] = {name: percent(base[name], candidate[name]) for name in MEASURES}
+        item["changes_percent"] = {name: percent(base[name], candidate[name]) for name in measures}
         item["paired_changes_percent"] = {
-            name: [percent(values["baseline"][p][case]["metrics"][name],
-                           values["candidate"][p][case]["metrics"][name]) for p in sorted(pairs)]
-            for name in MEASURES}
+            name: [percent(values["baseline"][p][case]["metrics"].get(name),
+                           values["candidate"][p][case]["metrics"].get(name)) for p in sorted(pairs)]
+            for name in measures}
         item["advisories"] = [name for name, floor in (
             ("peak_memory_bytes", MEMORY_FLOOR), ("idle_memory_bytes", MEMORY_FLOOR),
             ("memory_growth_bytes", MEMORY_FLOOR), ("compacted_disk_bytes", DISK_FLOOR),
@@ -115,7 +137,8 @@ def render(manifest, comparison):
              "|---|---:|---:|---:|---:|---:|---:|"]
 
     def pair(item, name, divisor=2**20):
-        return " → ".join(f"{item[label][name] / divisor:.2f}" for label in ("baseline", "candidate"))
+        return " → ".join("unreported" if item[label].get(name) is None else f"{item[label][name] / divisor:.2f}"
+                          for label in ("baseline", "candidate"))
 
     for case, item in comparison.items():
         lines.append(f"| {case} | {int(item['candidate']['live_records'])} | {pair(item, 'peak_memory_bytes')} | "
@@ -128,11 +151,23 @@ def render(manifest, comparison):
                      f"{change(item['changes_percent']['compacted_disk_bytes'])} | "
                      f"{pair(item, 'compacted_disk_bytes_per_record', 1)} | "
                      f"{pair(item, 'disk_growth_bytes')} | {pair(item, 'disk_growth_bytes_per_round')} |")
+    lines.extend(["", "| Case | Allocated before MiB | Allocated after MiB | Allocated change | Allocated bytes/live record | Allocated growth MiB | Allocated MiB/round |",
+                  "|---|---:|---:|---:|---:|---:|---:|"])
+    for case, item in comparison.items():
+        name = "compacted_allocated_disk_bytes"
+        delta = change(item["changes_percent"].get(name)) if all(
+            item[label].get(name) is not None for label in ("baseline", "candidate")) else "unreported"
+        lines.append(f"| {case} | {pair(item, 'allocated_disk_before_compaction_bytes')} | "
+                     f"{pair(item, name)} | {delta} | {pair(item, 'compacted_allocated_disk_bytes_per_record', 1)} | "
+                     f"{pair(item, 'allocated_disk_growth_bytes')} | {pair(item, 'allocated_disk_growth_bytes_per_round')} |")
     lines.extend(["", "Fixed-read and fixed-update keep the record count constant. Inserts add one seed-sized batch per round.",
                   "Each checkpoint requires a durable flush, full compaction, and complete reclaim with zero grace.",
                   f"Idle memory is the median over {recipe['idle_seconds']} seconds after compaction.",
                   "Memory peaks include work, compaction, and idle time. Seed and process startup stay outside the peak.",
-                  "Disk sizes count file lengths across the generated home. Allocated blocks and short-lived disk peaks are unmeasured.",
+                  "The first disk section counts file lengths across the generated home.",
+                  "Allocated disk size sums each file's st_blocks × 512 bytes during the same bounded walk at each checkpoint.",
+                  "Allocated sizes do not measure unique shared blocks or device writes. Short-lived disk peaks are unmeasured.",
+                  "Older artifacts without allocated samples show unreported. Allocated measures do not change the advisory policy.",
                   "Automatic maintenance stays enabled. Explicit compaction measures retained space, not normal retention policy.",
                   "A notice requires at least 20% more resource use and an excess of 16 MiB memory or 1 MiB disk.",
                   "The same case and measure must cross both limits again in a second complete comparison before a notice.",

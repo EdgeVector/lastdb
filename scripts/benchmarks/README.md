@@ -195,7 +195,8 @@ Automatic PR, merge group, main, and nightly runs always require both speed and 
 
 CAUTION: A positive slope alone does not establish a memory leak or unwanted disk growth.
 Inserts increase the record count. Memory allocators can retain space, and automatic maintenance can change disk use.
-Disk size counts file lengths, excludes short-lived disk peaks, and does not measure allocated blocks.
+Growth checkpoints report file lengths and allocated blocks (`st_blocks × 512`) from the same bounded generated-home walk.
+The report separates allocated space before and after compaction. These checkpoints exclude short-lived disk peaks and device write traffic.
 
 ## Request phases
 
@@ -250,6 +251,10 @@ The scope count must equal the actual successful write-call count for that case.
 Missing or ambiguous evidence fails the diagnostic capture.
 Each physical commit enters the totals once, even when it serves several requests.
 The artifact retains request counts, phase coverage, physical counts, and the slowest native records.
+Page-output counters report requested write bytes alongside the complete logical page images.
+Locator-parent counters separate requested bytes, omitted zero tails, and sparse appends.
+These counters cover the six measured tree, overflow, and map append classes. They exclude map header rewrites, receipts, payload frames, and filesystem metadata work.
+Missing counters from older programs stay unreported. Requested bytes are not device write traffic.
 Missing phase fields stay unreported. Parent and child phase totals can overlap.
 The physical request count can include background work. It is not an exclusive cost for each client call.
 
