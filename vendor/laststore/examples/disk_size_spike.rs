@@ -1008,10 +1008,12 @@ struct V2Options {
     block_bytes: usize,
     zstd_level: i32,
     dense_locator: bool,
+    /// Keep today's OPE hex range encoding in tip keys (decision C30 / T3).
+    ope_range: bool,
 }
 
 /// Sort key = collection byte, group (2 B), stored key. 1,024 groups (C11).
-fn v2_key(item: &Item) -> Vec<u8> {
+fn v2_key(item: &Item, ope_range: bool) -> Vec<u8> {
     let mut key = Vec::with_capacity(48);
     let (class, prefix_len) = match item {
         Item::Body { id, .. } => {
@@ -1033,7 +1035,11 @@ fn v2_key(item: &Item) -> Vec<u8> {
             key.extend_from_slice(hash);
             let prefix = key.len();
             if let Some(range) = range {
-                key.extend_from_slice(range.as_bytes());
+                if ope_range {
+                    key.extend_from_slice(ope_v1(*molecule, range).as_bytes());
+                } else {
+                    key.extend_from_slice(range.as_bytes());
+                }
             }
             (2, prefix)
         }
@@ -1152,13 +1158,13 @@ fn decode_block(raw: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
     out
 }
 
-fn v2_items(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
-    let mut records = v2_records_in_write_order(stream);
+fn v2_items(stream: &Stream, ope_range: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut records = v2_records_in_write_order(stream, ope_range);
     records.sort_by(|a, b| a.0.cmp(&b.0));
     records
 }
 
-fn v2_records_in_write_order(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
+fn v2_records_in_write_order(stream: &Stream, ope_range: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
     let events = stream
         .items
         .iter()
@@ -1177,7 +1183,7 @@ fn v2_records_in_write_order(stream: &Stream) -> Vec<(Vec<u8>, Vec<u8>)> {
             Item::Event { seq, .. } => *seq + 10_000 >= events,
             _ => true,
         })
-        .map(|item| (v2_key(item), v2_value(item)))
+        .map(|item| (v2_key(item, ope_range), v2_value(item)))
         .collect()
 }
 
@@ -1185,7 +1191,7 @@ fn write_v2(root: &Path, stream: &Stream, options: V2Options) -> Result<Measure>
     // lint:fn-size-ok spike driver kept linear so the measured steps read in order.
     let start = Instant::now();
     fs::DirBuilder::new().mode(0o700).create(root)?;
-    let records = v2_items(stream);
+    let records = v2_items(stream, options.ope_range);
     let mut sealer = Sealer::new();
     let mut pack = fs::File::create(root.join("pack"))?;
     let mut blocks: Vec<BlockRef> = Vec::new();
@@ -1492,7 +1498,7 @@ fn write_v2_incremental(
 ) -> Result<Measure> {
     let start = Instant::now();
     fs::DirBuilder::new().mode(0o700).create(root)?;
-    let records = v2_records_in_write_order(stream);
+    let records = v2_records_in_write_order(stream, options.ope_range);
     let mut sealer = Sealer::new();
     let mut runs: Vec<(PathBuf, Vec<(Vec<u8>, Vec<u8>)>)> = Vec::new();
     let mut written = 0u64;
@@ -1725,6 +1731,11 @@ fn main() -> Result<()> {
         block_bytes: block_kib * 1024,
         zstd_level,
         dense_locator,
+        ope_range: false,
+    };
+    let with_ope = |options: V2Options| V2Options {
+        ope_range: true,
+        ..options
     };
     let v2 = [
         (
@@ -1771,6 +1782,16 @@ fn main() -> Result<()> {
             "N v2 dense 16 KiB, NO compression + proteins",
             v2_variant(16, 0, true),
             true,
+        ),
+        (
+            "Q v2 sparse 16 KiB, zstd 3, today's OPE range",
+            with_ope(v2_variant(16, 3, false)),
+            false,
+        ),
+        (
+            "R v2 sparse 16 KiB, NO compression, today's OPE range",
+            with_ope(v2_variant(16, 0, false)),
+            false,
         ),
     ];
     for (n, (name, options, with_proteins)) in v2.iter().enumerate() {
