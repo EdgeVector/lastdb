@@ -34,6 +34,13 @@ test = false
 name = "basic"
 path = "examples/basic.rs"
 
+# Tom's 2026-10-24 exception permits this one CI-only native storage proof.
+[[example]]
+bench = false
+test = false
+name = "extended_keys_proof"
+path = "examples/extended_keys_proof.rs"
+
 [[bin]]
 bench = false
 test = false

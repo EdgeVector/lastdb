@@ -40,14 +40,15 @@ impl HomeDescriptor {
 
     /// Quote a complete native batch without copying or retaining its bodies.
     pub fn quote(&self, operations: &[HomeMutation]) -> Result<SnapshotQuote> {
-        self.quote_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+        self.quote_with_features(operations, 0)
     }
 
-    pub(super) fn quote_with_limit(
+    pub(super) fn quote_with_features(
         &self,
         operations: &[HomeMutation],
-        operation_limit: usize,
+        features: u64,
     ) -> Result<SnapshotQuote> {
+        let operation_limit = crate::disk_pack::current::batch_operation_limit(features);
         if operations.is_empty() || operations.len() > operation_limit {
             return Err(crate::Error::Config(format!(
                 "native batch requires 1..{operation_limit} operations"
@@ -64,7 +65,7 @@ impl HomeDescriptor {
                 operation.body.as_ref().map(|body| body.len() as u64),
             )?);
         }
-        SnapshotQuote::from_iter_with_limit(shapes, operation_limit)
+        SnapshotQuote::from_iter_with_features(shapes, features)
     }
 }
 

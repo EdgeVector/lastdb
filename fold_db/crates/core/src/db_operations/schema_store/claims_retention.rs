@@ -119,7 +119,19 @@ impl SchemaStore {
         keys: &[KeyValue],
         written_at: u64,
     ) -> Result<(), SchemaError> {
-        if keys.is_empty() {
+        let ages: Vec<_> = keys.iter().cloned().map(|key| (key, written_at)).collect();
+        self.record_schema_retention_write_ages(schema_name, &ages)
+            .await
+    }
+
+    /// Record the original clocks of the current tips, not replay arrival time.
+    /// The caller holds the native write scope across the tip reads and writes.
+    pub(crate) async fn record_schema_retention_write_ages(
+        &self,
+        schema_name: &str,
+        ages: &[(KeyValue, u64)],
+    ) -> Result<(), SchemaError> {
+        if ages.is_empty() {
             return Ok(());
         }
         let anchor = self.retention_anchor(schema_name).await?;
@@ -132,9 +144,15 @@ impl SchemaStore {
         {
             return Ok(());
         }
-        let mut unique = keys.to_vec();
+        let mut clocks = std::collections::HashMap::<KeyValue, u64>::new();
+        for (key, written_at) in ages {
+            clocks
+                .entry(key.clone())
+                .and_modify(|old| *old = (*old).max(*written_at))
+                .or_insert(*written_at);
+        }
+        let mut unique: Vec<_> = clocks.keys().cloned().collect();
         unique.sort_by(KeyValue::cmp_page_order);
-        unique.dedup();
         let latest_keys: Vec<_> = unique
             .iter()
             .map(|key| retention_age_latest_key(schema_name, key))
@@ -146,6 +164,7 @@ impl SchemaStore {
         let mut puts = Vec::with_capacity(unique.len() * 2);
         let mut stale = Vec::new();
         for ((key, latest_key), old) in unique.iter().zip(latest_keys).zip(previous) {
+            let written_at = clocks[key];
             let entry = SchemaRetentionAgeEntry {
                 key: key.clone(),
                 written_at,

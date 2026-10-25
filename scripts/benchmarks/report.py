@@ -123,6 +123,17 @@ def render(output, manifest, comparison):
     lines.extend(resource_lines(output, manifest))
     lines.extend(mixed_lines(output, manifest))
     lines.extend(phase_lines(output, manifest))
+    if manifest["recipe"].get("seed_with_baseline"):
+        lines.extend(["", "## Actual baseline-home upgrade", "",
+                      "The baseline daemon creates every seed record. The measured program reopens that same owned home.",
+                      "| Run | Old receipts retired | Known keys read after upgrade | Same value on repeat |",
+                      "|---|---:|---:|---|"])
+        for run in manifest["runs"]:
+            if run["label"] != "candidate":
+                continue
+            result = json.loads((output / run["directory"] / "upgrade-complete.json").read_text())
+            lines.append(f"| {run['directory']} | {result['retry_cache'].get('legacy_retired', 'unavailable')} | "
+                         f"{result['known_keys_read']} | {result['repeat_value_unchanged']} |")
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",
                   "The throughput includes the client cost. The memory measure excludes seed and startup.",

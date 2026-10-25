@@ -201,12 +201,9 @@ fn into_native_job(
     let retention_hash_partitions = delta
         .tracks_retention_hash_partitions
         .then(|| delta.mutation_key_values.clone());
-    let retention_write = delta.tracks_retention_age.then(|| {
-        (
-            delta.mutation_key_values,
-            crate::clock::unix_millis() / 1000,
-        )
-    });
+    let retention_write = delta
+        .tracks_retention_age
+        .then_some(delta.mutation_key_values);
     DeferredPersistJob {
         deferred_atoms: delta.deferred_atoms,
         storage_prefix,

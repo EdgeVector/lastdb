@@ -38,10 +38,8 @@ impl HomeSnapshot {
         let (parts, bytes) = if delta.mutations.is_empty() {
             (0, 0)
         } else {
-            let quote = MutationQuote::locator_delta(
-                &delta.mutations,
-                self.current().batch_operation_limit(),
-            )?;
+            let quote =
+                MutationQuote::locator_delta(&delta.mutations, self.current().required_features)?;
             (quote.dependency_parts(), quote.physical_bytes())
         };
         // A delta can import payloads and block maps from the latest source.

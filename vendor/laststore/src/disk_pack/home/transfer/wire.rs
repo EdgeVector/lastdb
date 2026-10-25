@@ -10,6 +10,18 @@ use std::io::{Read, Write};
 pub(super) const DIGEST_BYTES: usize = 32;
 const METADATA_MAX: usize = 300_000;
 
+// Wire feature 1024 selects a 32 MiB key; collection framing stays at 65,531.
+// Keep these wire constants independent of the linked source reader version.
+pub(super) fn record_metadata_max(features: u64) -> usize {
+    let key = if features & 1024 != 0 {
+        32 * 1024 * 1024
+    } else {
+        65_535
+    };
+    // JSON can escape each input byte as six bytes. Other fields are bounded.
+    6 * (key + 65_531) + 1024
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Header {
@@ -117,8 +129,16 @@ pub(super) fn budget() -> ReadBudget {
 }
 
 pub(super) fn write_metadata<T: Serialize>(output: &mut dyn Write, value: &T) -> Result<()> {
+    write_metadata_bounded(output, value, METADATA_MAX)
+}
+
+pub(super) fn write_metadata_bounded<T: Serialize>(
+    output: &mut dyn Write,
+    value: &T,
+    maximum: usize,
+) -> Result<()> {
     let bytes = serde_json::to_vec(value).map_err(|_| refuse("metadata encoding failed"))?;
-    if bytes.len() > METADATA_MAX {
+    if bytes.len() > maximum {
         return Err(refuse("metadata exceeds protocol bound"));
     }
     output.write_all(&(bytes.len() as u32).to_le_bytes())?;
@@ -127,13 +147,21 @@ pub(super) fn write_metadata<T: Serialize>(output: &mut dyn Write, value: &T) ->
 }
 
 pub(super) fn read_metadata<T: DeserializeOwned>(input: &mut dyn Read) -> Result<T> {
+    read_metadata_bounded(input, METADATA_MAX)
+}
+
+fn read_metadata_bounded<T: DeserializeOwned>(input: &mut dyn Read, maximum: usize) -> Result<T> {
     let mut size = [0; 4];
     input.read_exact(&mut size)?;
     let size = u32::from_le_bytes(size) as usize;
-    if size == 0 || size > METADATA_MAX {
+    if size == 0 || size > maximum {
         return Err(refuse("metadata exceeds protocol bound"));
     }
-    let mut bytes = vec![0; size];
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(size)
+        .map_err(|_| refuse("metadata allocation refused"))?;
+    bytes.resize(size, 0);
     input.read_exact(&mut bytes)?;
     serde_json::from_slice(&bytes).map_err(|_| refuse("invalid transfer metadata"))
 }
@@ -181,14 +209,14 @@ impl<'a> DigestRead<'a> {
         }
     }
 
-    pub(super) fn next_record(&mut self) -> Result<Option<Record>> {
+    pub(super) fn next_record(&mut self, maximum: usize) -> Result<Option<Record>> {
         let mut tag = [0];
         self.inner.read_exact(&mut tag)?;
         match tag[0] {
             0 => Ok(None),
             1 => {
                 self.digest.update(tag);
-                read_metadata(self).map(Some)
+                read_metadata_bounded(self, maximum).map(Some)
             }
             _ => Err(refuse("invalid frame tag")),
         }

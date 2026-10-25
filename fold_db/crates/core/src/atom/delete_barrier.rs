@@ -70,7 +70,7 @@ impl DeleteBarrier {
 
     /// True when a tip written at `written_at` is inside what this barrier may
     /// erase. A tip at or after `tip_before_nanos` is outside it.
-    fn covers_write_time(&self, written_at: u64) -> bool {
+    pub(crate) fn covers_write_time(&self, written_at: u64) -> bool {
         self.tip_before_nanos.is_none_or(|limit| written_at < limit)
     }
 

@@ -47,7 +47,7 @@ WRITE = re.compile(
 )
 RAW = re.compile(
     r"\.raw\(\)|\bmain_store\b|\bopen_namespace\s*\(|\brestore_batch_put\s*\(|"
-    r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_physical_paged)\s*\("
+    r"\.scan_(?:prefix|prefix_keys|prefix_paged|range|range_paged|range_yielding|range_physical_paged)\s*\("
 )
 FAMILIES = {
     "T": re.compile(

@@ -58,7 +58,7 @@ impl HomeSnapshot {
             .check_dependency_capacity(reservation.quote.dependency_parts())?;
         let actual = self
             .descriptor
-            .quote_mutation_with_limit(operations, self.current().batch_operation_limit())?;
+            .quote_mutation_with_features(operations, self.current().required_features)?;
         if actual.map_pages() > reservation.quote.map_pages()
             || actual.dependency_parts() > reservation.quote.dependency_parts()
             || actual.physical_bytes() > reservation.quote.physical_bytes()
@@ -75,7 +75,7 @@ impl HomeSnapshot {
     pub fn reserve_mutation(&self, operations: &[HomeMutation]) -> Result<MutationReservation> {
         let quote = self
             .descriptor
-            .quote_mutation_with_limit(operations, self.current().batch_operation_limit())?;
+            .quote_mutation_with_features(operations, self.current().required_features)?;
         self.writer
             .check_dependency_capacity(quote.dependency_parts())?;
         let payload = self.writer.reserve_quote(quote.payload())?;
@@ -104,7 +104,9 @@ impl HomeSnapshot {
             ));
         }
         let limit = self.current().batch_operation_limit();
-        let incoming = self.descriptor.quote_mutation_with_limit(incoming, limit)?;
+        let incoming = self
+            .descriptor
+            .quote_mutation_with_features(incoming, self.current().required_features)?;
         let quote = previous.quote.extended(incoming, limit)?;
         self.writer
             .check_dependency_capacity(quote.dependency_parts())?;

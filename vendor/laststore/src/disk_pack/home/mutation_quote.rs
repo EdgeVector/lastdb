@@ -20,9 +20,9 @@ pub struct MutationQuote {
 impl MutationQuote {
     pub(in crate::disk_pack) fn locator_delta(
         operations: &[crate::disk_pack::snapshot::PreparedMutation],
-        operation_limit: usize,
+        features: u64,
     ) -> Result<Self> {
-        let payload = SnapshotQuote::from_iter_with_limit(
+        let payload = SnapshotQuote::from_iter_with_features(
             operations.iter().map(|operation| {
                 crate::disk_pack::snapshot::SnapshotMutationShape::new(
                     operation.collection.len(),
@@ -31,7 +31,7 @@ impl MutationQuote {
                     None,
                 )
             }),
-            operation_limit,
+            features,
         )?;
         let mut groups = BTreeMap::<(&str, u16), BTreeMap<&str, ()>>::new();
         for operation in operations {
@@ -78,15 +78,15 @@ impl MutationQuote {
 impl HomeDescriptor {
     /// Quote the complete staged store batch before its snapshot commit.
     pub fn quote_mutation(&self, operations: &[HomeMutation]) -> Result<MutationQuote> {
-        self.quote_mutation_with_limit(operations, crate::disk_pack::LEGACY_BATCH_OPERATIONS)
+        self.quote_mutation_with_features(operations, 0)
     }
 
-    pub(super) fn quote_mutation_with_limit(
+    pub(super) fn quote_mutation_with_features(
         &self,
         operations: &[HomeMutation],
-        operation_limit: usize,
+        features: u64,
     ) -> Result<MutationQuote> {
-        let payload = self.quote_with_limit(operations, operation_limit)?;
+        let payload = self.quote_with_features(operations, features)?;
         let mut groups = BTreeMap::<(&str, u16), BTreeMap<&str, ()>>::new();
         for operation in operations {
             groups
@@ -106,14 +106,14 @@ fn quote_maps(
     let mut dependency_parts = 0u64;
     let mut directory_pages = 0u64;
     for ((collection, _), keys) in groups {
-        // Eight levels, two outputs at each split, and at most five
-        // overflow pages per new key. Existing descriptors are reused.
+        // Eight levels and two outputs at each split, plus the complete
+        // feature-bound overflow chain. Existing descriptors are reused.
         let locator_pages = keys.keys().try_fold(0u64, |pages, key| {
             add(pages, 16 + locator_overflow(key.len()))
         })?;
         // A new group can also require its initial empty locator part.
         map_pages = add(map_pages, add(locator_pages, 1)?)?;
-        // Contiguous overflow chains can leave four unused page positions.
+        // Retain the conservative allowance from contiguous legacy chains.
         dependency_parts = add(
             dependency_parts,
             locator_pages.div_ceil(crate::disk_pack::PAGES_PER_PART - 4) + 1,

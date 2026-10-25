@@ -14,7 +14,7 @@ impl HashScope {
     /// `prefix` ends at the first NUL separator, after the complete encoded hash.
     /// The caller supplies every configured group for that hash, at most sixteen.
     pub fn new(collection: String, prefix: String, mut groups: Vec<u16>) -> Result<Self> {
-        if collection.len() > super::KEY_BYTES - 4
+        if collection.len() > super::key_limits::COLLECTION_BYTES
             || prefix.len() > super::KEY_BYTES
             || prefix.find('\0') != prefix.len().checked_sub(1)
             || prefix.len() < 2
@@ -100,13 +100,13 @@ impl ReadCall {
             .prefix
             .len()
             .checked_add(bounds.start.len())
-            .filter(|length| *length <= super::KEY_BYTES)
+            .filter(|length| *length <= self.current.storage_key_byte_limit())
             .ok_or_else(|| corrupt("range start exceeds key limit"))?;
         let end_bytes = scope
             .prefix
             .len()
             .checked_add(bounds.end.as_ref().map_or(0, String::len))
-            .filter(|length| *length <= super::KEY_BYTES)
+            .filter(|length| *length <= self.current.storage_key_byte_limit())
             .ok_or_else(|| corrupt("range end exceeds key limit"))?;
         self.charge((start_bytes + end_bytes + scope.collection.len()) as u64)?;
         let start = format!("{}{}", scope.prefix, bounds.start).into_bytes();
@@ -117,7 +117,10 @@ impl ReadCall {
             *end.last_mut().expect("nonempty scope") = 1;
             end
         };
-        if start.len() > super::KEY_BYTES || end.len() > super::KEY_BYTES || start > end {
+        if start.len() > self.current.storage_key_byte_limit()
+            || end.len() > self.current.storage_key_byte_limit()
+            || start > end
+        {
             return Err(crate::Error::Config(
                 "disk-pack encoded range bounds are invalid".into(),
             ));
@@ -132,8 +135,8 @@ impl ReadCall {
         end: Vec<u8>,
         source_groups: &[u16],
     ) -> Result<HashRangeCursor<'_>> {
-        if start.len() > super::KEY_BYTES
-            || end.len() > super::KEY_BYTES
+        if start.len() > self.current.storage_key_byte_limit()
+            || end.len() > self.current.storage_key_byte_limit()
             || source_groups.is_empty()
             || source_groups.len() > 1024
             || source_groups.iter().any(|group| *group >= 1024)

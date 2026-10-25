@@ -199,6 +199,7 @@ mod dispatch;
 mod introspection_routes;
 mod liveness_molecule_route;
 mod liveness_routes;
+mod mutation_notifications;
 mod query_filters;
 mod query_mutation_routes;
 mod query_read_receipt;

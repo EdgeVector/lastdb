@@ -49,14 +49,15 @@ impl ReferenceCache {
 }
 
 /// A pending extent has at most u32::MAX blocks; an overflow chain has at most
-/// five pages. This ceiling exceeds every valid pending ledger plus every page
+/// the feature-bound maximum pages. This ceiling exceeds every valid pending ledger plus every page
 /// of 65536 private parts. It therefore adds no post-ack resource restriction.
-const MAX_PUBLICATION_WORK: u64 = MAX_REFERENCE_CHANGES as u64 * (u32::MAX as u64 + 5)
+const MAX_PUBLICATION_WORK: u64 = MAX_REFERENCE_CHANGES as u64
+    * (u32::MAX as u64 + super::key_limits::MAX_OVERFLOW_PAGES)
     + MAX_DEPENDENCIES as u64 * super::PAGES_PER_PART;
 /// A complete snapshot has at most 65536 parts of 512 pages each.
 /// Even ignoring packed-page offsets, a locator leaf fits at most 97 values
 /// (40 descriptor bytes plus 128 value bytes); any page fits at most 409 keys.
-/// Charge a maximal u32 block extent per value, five overflow pages per key,
+/// Charge a maximal u32 block extent per value, maximal overflow pages per key,
 /// each key visit, and the page itself. This loose bound remains below u64::MAX
 /// for graphs created by valid writers: nonempty tree pages have one selected
 /// path, while directory entries may share only the empty allocator template.
@@ -65,7 +66,7 @@ const MAX_PUBLICATION_WORK: u64 = MAX_REFERENCE_CHANGES as u64 * (u32::MAX as u6
 const MAX_SEED_WORK: u64 = MAX_DEPENDENCIES as u64
     * super::PAGES_PER_PART
     * ((super::PAGE_BYTES / (40 + 128)) as u64 * u32::MAX as u64
-        + (super::PAGE_BYTES / 40) as u64 * 6
+        + (super::PAGE_BYTES / 40) as u64 * (1 + super::key_limits::MAX_OVERFLOW_PAGES)
         + 2);
 
 #[derive(Default)]

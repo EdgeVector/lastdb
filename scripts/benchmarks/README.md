@@ -260,6 +260,7 @@ The report shows every change. A p95 increase or request-rate decrease of 20% st
 CI repeats only the affected suite: speed, resource growth, or both. No suspect measure means no extra pass.
 Each suite repeats at most once. It keeps all cases and their order to preserve the prior work on each home.
 The repeat uses the same verified programs, source revisions, driver, worker counts, profile, and pair count.
+An upgrade comparison also keeps its baseline seed program and minimum retired-record count.
 It adds no build or cache restore. Both versions use fresh generated homes on the same GitHub machine.
 Standard runs retain two alternating pairs in each pass. Nightly runs retain three pairs in each pass.
 Each speed pass has a 65-minute limit. A resource pass has a separate 40-minute limit.

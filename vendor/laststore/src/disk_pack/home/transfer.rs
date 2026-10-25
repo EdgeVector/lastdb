@@ -41,7 +41,11 @@ pub fn export(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt
     visit_generation(home.path(), &current, |stored| {
         records.write_all(&[1])?;
         let record = Record::from_stored(&stored);
-        wire::write_metadata(&mut records, &record)?;
+        wire::write_metadata_bounded(
+            &mut records,
+            &record,
+            wire::record_metadata_max(current.required_features),
+        )?;
         if let Some(body) = stored.body {
             let copied = std::io::copy(body, &mut records)?;
             if copied != record.body_bytes {
@@ -87,6 +91,7 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
         &descriptor,
         header.frontier,
         header.digest()?,
+        header.required_features,
     )?;
     builder.finish()?;
     let target = DiskHome::open(root)?;

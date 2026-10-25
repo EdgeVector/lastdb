@@ -1,6 +1,6 @@
 use super::page_write::PageWriter;
 use super::tree_output::{self, Child, LeafEntry};
-use super::{corrupt, TreeKind, TreeRoot, KEY_BYTES, LEAF_ENTRIES};
+use super::{corrupt, TreeKind, TreeRoot, LEAF_ENTRIES};
 use crate::Result;
 use std::path::Path;
 use uuid::Uuid;
@@ -9,6 +9,7 @@ pub(super) struct TreeWriter {
     pages: PageWriter,
     object: Uuid,
     kind: TreeKind,
+    key_limit: usize,
     last_key: Option<Vec<u8>>,
     leaf: Vec<LeafEntry>,
     levels: Vec<Vec<Child>>,
@@ -47,14 +48,20 @@ impl TreeWriter {
             pages,
             object,
             kind,
+            key_limit: super::LEGACY_STORAGE_KEY_BYTES,
             last_key: None,
             leaf: Vec::new(),
             levels: vec![Vec::new()],
         })
     }
 
+    pub(super) fn for_features(mut self, features: u64) -> Self {
+        self.key_limit = super::key_limits::key_byte_limit(features);
+        self
+    }
+
     pub(super) fn add(&mut self, key: &[u8], value: [u8; 128]) -> Result<()> {
-        if key.len() > KEY_BYTES
+        if key.len() > self.key_limit
             || self
                 .last_key
                 .as_deref()
@@ -64,7 +71,8 @@ impl TreeWriter {
                 "tree input keys must be strictly ordered and representable",
             ));
         }
-        let descriptor = tree_output::key_descriptor(&mut self.pages, self.kind, key)?;
+        let descriptor =
+            tree_output::key_descriptor(&mut self.pages, self.kind, key, self.key_limit)?;
         if self.kind == TreeKind::Locator
             && !self.leaf.is_empty()
             && self

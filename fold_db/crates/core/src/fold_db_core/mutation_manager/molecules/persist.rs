@@ -22,7 +22,7 @@ pub(crate) struct DeferredPersistJob {
     /// Idempotency decisions for this schema group. They become visible only
     /// after the data stages ahead of them succeed on the same lane.
     pub idempotency_entries: Vec<(String, String)>,
-    pub retention_write: Option<(Vec<crate::schema::types::KeyValue>, u64)>,
+    pub retention_write: Option<Vec<crate::schema::types::KeyValue>>,
     pub retention_hash_partitions: Option<Vec<crate::schema::types::KeyValue>>,
     pub schema_name: String,
     /// Protein sibling tips staged in the same native transaction as the source.

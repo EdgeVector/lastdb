@@ -17,13 +17,17 @@ The installed primary CLI and daemon both report `0.23.4-pre.0-331-g0a9d8cf48`.
 That source precedes the OPE candidate.
 This observation identifies the installed pair; it does not establish the primary's stored encoding settings.
 The final preflight must read those settings through a supported product operation.
+The read-only product status on 2026-10-24 reports 31 logical keys and cloud sync off.
+Treat the primary as nonempty; the reset notice does not authorize a reset or data loss.
 
 [PR 365](https://github.com/EdgeVector/lastdb/pull/365) closed without merge after CI confirmed its extra suffix leakage.
 The replacement source uses independent 128-bit CLWW output blocks and excludes the PRF maximum before bit addition.
 It also supplies scoped molecule grants and authenticated original-range protection.
 Those APIs remain disconnected from the serving format.
-Tom authorized the single CI-only crypto proof through "Do all of these"; other tests remain retired.
-The replacement's exact instantiation still requires independent review and its own CI results.
+Tom explicitly approved the single CI-only crypto proof: "Allow this CI-only exception".
+[PR 371](https://github.com/EdgeVector/lastdb/pull/371) merged after the proof, required CI, and benchmark completion passed.
+Independent automated review reported no major issue; it is not a professional audit.
+Other tests remain retired. Native activation remains gated.
 
 After adoption:
 

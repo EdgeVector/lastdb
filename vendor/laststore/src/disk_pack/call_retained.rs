@@ -18,7 +18,7 @@ impl ReadCall {
         budget: ReadBudget,
         lease: &WriterReadLease,
     ) -> Result<Self> {
-        budget.validate()?;
+        budget.validate_for_features(reference.current().required_features)?;
         if root != reference.home_path() {
             return Err(corrupt("durable reference belongs to another root"));
         }

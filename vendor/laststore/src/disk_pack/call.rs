@@ -1,5 +1,5 @@
 use super::page::{Page, PageAddress};
-use super::{corrupt, resource, Current, DirectoryEntry, Location, Source, KEY_BYTES};
+use super::{corrupt, resource, Current, DirectoryEntry, Location, Source};
 use crate::read_receipt::TemporaryBytes;
 use crate::read_receipt_io::{self as measured, ReadClass};
 use crate::Result;
@@ -18,28 +18,6 @@ pub struct ReadBudget {
     pub bytes: u64,
     /// Maximum exact keys or range entries examined.
     pub keys: u64,
-}
-
-impl ReadBudget {
-    /// Check positive limits and the artifact reader's aggregate safety ceilings.
-    pub fn validate(self) -> Result<()> {
-        if self.pages == 0
-            || self.blocks == 0
-            || self.bytes == 0
-            || self.keys == 0
-            || self.pages > 4096
-            || self.blocks > lastdb_storage_policy::native_read::EAGER_BLOCKS
-            || self.bytes > lastdb_storage_policy::native_read::EAGER_WORK_BYTES
-            || self.keys > 10_000
-        {
-            return Err(crate::Error::Config(format!(
-                "disk-pack read budget requires 1..4096 pages, 1..{} blocks, 1..{} bytes, and 1..10000 keys",
-                lastdb_storage_policy::native_read::EAGER_BLOCKS,
-                lastdb_storage_policy::native_read::EAGER_WORK_BYTES,
-            )));
-        }
-        Ok(())
-    }
 }
 
 /// Costs specific to bounded disk-pack reads; ordinary I/O also enters DiskReadReceipt.
@@ -112,7 +90,7 @@ impl ReadCall {
         budget: ReadBudget,
         lease: &super::lifetime::WriterReadLease,
     ) -> Result<Self> {
-        budget.validate()?;
+        budget.validate_for_features(current.required_features)?;
         Self::from_writer_budget(root, current, descriptor, budget, lease)
     }
 
@@ -123,7 +101,7 @@ impl ReadCall {
         lease: &super::lifetime::WriterReadLease,
     ) -> Result<Self> {
         let budget = ReadBudget {
-            pages: 4096,
+            pages: ReadBudget::for_current(&current).pages,
             blocks: lastdb_storage_policy::native_read::EAGER_BLOCKS,
             bytes: lastdb_storage_policy::native_read::EAGER_WORK_BYTES,
             keys: 40_000,
@@ -163,7 +141,7 @@ impl ReadCall {
         descriptor: super::home::HomeDescriptor,
         budget: ReadBudget,
     ) -> Result<Self> {
-        budget.validate()?;
+        budget.validate_for_features(current.required_features)?;
         current.encode()?;
         descriptor.check_current(&current)?;
         if budget.bytes < 4352 {
@@ -197,7 +175,8 @@ impl ReadCall {
         key_codec: u16,
         budget: ReadBudget,
     ) -> Result<Self> {
-        budget.validate()?;
+        // Reject impossible dimensions before the bounded CURRENT capture.
+        budget.validate_for_features(super::FEATURE_EXTENDED_KEYS)?;
         let native = measured::try_exists(root.join(super::home::MARKER))?;
         let initial_bytes = if native {
             12_288
@@ -208,6 +187,7 @@ impl ReadCall {
             return Err(resource());
         }
         let (current, hold) = super::lifetime::GenerationHold::capture(root)?;
+        budget.validate_for_features(current.required_features)?;
         if current.placement_codec != placement_codec || current.key_codec != key_codec {
             return Err(corrupt("CURRENT codec differs from held home descriptor"));
         }
@@ -269,7 +249,7 @@ impl ReadCall {
         key: &str,
     ) -> Result<Option<Location>> {
         self.examine()?;
-        if key.len() > KEY_BYTES {
+        if key.len() > self.current.storage_key_byte_limit() {
             return Err(corrupt("storage key exceeds format limit"));
         }
         let directory_key = Self::directory_key(collection, group)?;
@@ -310,7 +290,7 @@ impl ReadCall {
     }
 
     pub(super) fn directory_key(collection: &str, group: u16) -> Result<Vec<u8>> {
-        if collection.len() > KEY_BYTES - 4 || group >= 1024 {
+        if collection.len() > super::key_limits::COLLECTION_BYTES || group >= 1024 {
             return Err(corrupt("directory coordinate exceeds format limit"));
         }
         let mut key = Vec::new();
