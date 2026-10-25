@@ -22,7 +22,8 @@ impl BatchState {
 }
 
 impl MutationManager {
-    pub(super) async fn write_create_update_batch_in_log(
+    /// Prepare one native Create/Update batch and await its durable commit.
+    pub(in crate::fold_db_core::mutation_manager) async fn write_create_update_batch_async(
         &self,
         mutations: Vec<Mutation>,
         storage_prefix: Option<&str>,
@@ -158,7 +159,7 @@ impl MutationManager {
             durability: Self::commit_durability(force_durable),
             cloud: None,
             stages,
-            touched_group_ids: crate::durable_flush::current_touched_groups(),
+            touched_group_ids: Vec::new(),
         }
     }
 
@@ -185,41 +186,5 @@ impl MutationManager {
             }
         }
         operations
-    }
-
-    /// Pipeline for Create / Update mutations. Hard-erasure verbs
-    /// (`Purge` / `Delete`) are split off in the public entrypoint above
-    /// before reaching this method so the existing flow (atom creation,
-    /// molecule advancement, inline indexing, trigger dispatch) never
-    /// sees them.
-    pub(in crate::fold_db_core::mutation_manager) async fn write_create_update_batch_async(
-        &self,
-        mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-        require_durable: bool,
-        author_clock_barrier: Option<super::super::author_clock::AuthorClockPersistBarrier>,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        // One log for the request and the persist lane. A nested call keeps it.
-        if crate::durable_flush::current().is_some() {
-            return self
-                .write_create_update_batch_in_log(
-                    mutations,
-                    storage_prefix,
-                    require_durable,
-                    author_clock_barrier,
-                )
-                .await;
-        }
-        let log = crate::durable_flush::BatchPlacementLog::shared();
-        crate::durable_flush::scope(
-            log,
-            self.write_create_update_batch_in_log(
-                mutations,
-                storage_prefix,
-                require_durable,
-                author_clock_barrier,
-            ),
-        )
-        .await
     }
 }

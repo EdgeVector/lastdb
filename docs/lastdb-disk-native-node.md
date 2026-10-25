@@ -34,6 +34,9 @@ Those allowances do not define a whole-process memory maximum.
 
 Every native write waits for its complete disk commit and clean core publication before the ack.
 No native route returns an early memory ack.
+Logical requests no longer carry the legacy LastStore placement log across task
+scopes and blocking calls. The serialized `touched_group_ids` field remains empty
+for native writes. Local file-blob puts retain their explicit store flush.
 When a complete value cannot enter the warm set, the commit clears affected records; a later read fetches them from disk.
 Native status exposes accepted and completed sequences and pending requests.
 The retained dirty-record fields remain zero for compatibility.

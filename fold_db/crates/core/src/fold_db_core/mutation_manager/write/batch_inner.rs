@@ -79,7 +79,6 @@ impl MutationManager {
             let mut receipt = ResidentCommitReceipt::empty();
             receipt.operations.deleted = erased;
             receipt.durability = ResidentDurability::Durable;
-            receipt.touched_group_ids = crate::durable_flush::current_touched_groups();
             return Ok(receipt);
         }
         if has_erasures {

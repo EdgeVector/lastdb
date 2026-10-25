@@ -199,14 +199,7 @@ async fn persist_author_clock(
         })
         .await;
     }
-    if let Some(group) = db_ops.namespace_row_group("metadata", state_key) {
-        db_ops.metadata().put_typed(state_key, state).await?;
-        // Preserve the namespaced durability and allocation high-water barrier
-        // without flushing unrelated groups or advancing their durable token.
-        db_ops.flush_dirty_scope(&[group]).await
-    } else {
-        db_ops.metadata().put_typed_durable(state_key, state).await
-    }
+    db_ops.metadata().put_typed_durable(state_key, state).await
 }
 
 async fn run_author_clock_persist_queue(
