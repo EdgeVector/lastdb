@@ -1,8 +1,8 @@
 //! Install-owned schema resolver wiring for Mini schema resolution.
 //!
 //! Loads optional `{home}/schema_resolver.json` (+ env overrides), builds a
-//! [`LocalFirstSchemaResolver`] in LiveOnly mode. Pack-backed modes are still
-//! parsed for compatibility, but Mini no longer ships an in-process embedder.
+//! [`LocalFirstSchemaResolver`] in LiveOnly mode. Legacy pack settings remain
+//! decodable, but Mini has no local embedder and never selects a pack mode.
 
 use std::fs;
 use std::future::Future;
@@ -18,13 +18,10 @@ use schema_service_client::{
     LocalFirstSchemaResolver, NoopPackStore, SchemaServiceClient, SharedSurfacePublishRequest,
     SharedSurfacePublishResult,
 };
-use schema_service_core::{
-    schema_resolver_enforce_gate_failures, schema_resolver_enforce_gate_pass,
-    SchemaResolverEnforceGateReport,
-};
+use schema_service_core::SchemaResolverEnforceGateReport;
 
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::warn;
 
 /// File name under the node home.
 pub const SCHEMA_RESOLVER_CONFIG_FILE: &str = "schema_resolver.json";
@@ -82,6 +79,9 @@ where
 }
 
 /// Install-owned Mini resolver config (JSON on disk + env overlays).
+///
+/// Only `request_timeout_seconds` configures live calls. Legacy pack fields
+/// remain decodable; enabled/mode/kill-switch settings govern warnings only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct MiniSchemaResolverConfig {
@@ -235,40 +235,20 @@ impl MiniSchemaResolverConfig {
         }
     }
 
-    /// Resolve the effective facade mode after kill-switch / enforce gates.
-    pub fn effective_mode(&self) -> LocalFirstMode {
-        if self.kill_switch || !self.enabled {
-            return LocalFirstMode::LiveOnly;
-        }
-        match self.mode.trim().to_ascii_lowercase().as_str() {
-            "shadow" => LocalFirstMode::Shadow,
-            "enforce_existing_only" | "enforce" => {
-                if self.allow_enforce && schema_resolver_enforce_gate_pass(&self.enforce_gate) {
-                    LocalFirstMode::EnforceExistingOnly
-                } else {
-                    let reason = if self.allow_enforce {
-                        schema_resolver_enforce_gate_failures(&self.enforce_gate).join(",")
-                    } else {
-                        "allow_enforce=false".to_string()
-                    };
-                    warn!(
-                        target: "lastdb_node::schema_resolver",
-                        %reason,
-                        "enforce mode requested but gate is not eligible; clamping to shadow"
-                    );
-                    LocalFirstMode::Shadow
-                }
-            }
-            _ => LocalFirstMode::LiveOnly,
-        }
-    }
-
-    pub fn pack_wiring_ready(&self) -> bool {
-        self.enabled
+    /// Legacy pack configuration cannot change Mini's live-only execution.
+    fn warn_unsupported_pack_mode(&self) {
+        if self.enabled
             && !self.kill_switch
-            && !self.base_url.trim().is_empty()
-            && !self.trusted_keys.is_empty()
-            && !self.expected_embedder_id.trim().is_empty()
+            && matches!(
+                self.mode.trim().to_ascii_lowercase().as_str(),
+                "shadow" | "enforce_existing_only" | "enforce"
+            )
+        {
+            warn!(
+                target: "lastdb_node::schema_resolver",
+                "schema resolver pack mode is unsupported in Mini; using LiveOnly"
+            );
+        }
     }
 }
 
@@ -280,25 +260,30 @@ fn parse_bool(s: &str) -> Option<bool> {
 // Public entries: direct declare and publish/attach with wired facade
 // ---------------------------------------------------------------------------
 
-/// Resolve a direct Mini declare through the install-owned local-first facade.
+/// Resolve a direct Mini declare through the live service facade.
 ///
-/// LiveOnly preserves the historical service resolve path. Shadow and
-/// EnforceExistingOnly use the same resolver pack/runtime wiring as
-/// shared-surface publish/attach, so direct declare cannot bypass the pack
-/// policy when `enforce_existing_only` is enabled.
+/// Retains proposal validation and result remapping; legacy pack settings
+/// cannot activate local resolution in Mini.
 pub async fn resolve_direct_declare_with_host_config(
     home: &Path,
     schema_service_url: &str,
     proposal_id: String,
     proposal: SchemaResolveProposal,
 ) -> Result<SchemaResolveResult, String> {
-    let items = resolve_facade_with_host_config(
-        home,
-        schema_service_url,
-        vec![FacadeProposal {
-            proposal_id,
-            proposal,
-        }],
+    let cfg = MiniSchemaResolverConfig::load_for_home(home);
+    cfg.warn_unsupported_pack_mode();
+    let request_timeout = owner_socket_schema_service_timeout(&cfg);
+    let items = with_owner_socket_schema_service_timeout(
+        request_timeout,
+        "live schema resolve",
+        resolve_live_only(
+            schema_service_url,
+            vec![FacadeProposal {
+                proposal_id,
+                proposal,
+            }],
+            request_timeout,
+        ),
     )
     .await?;
     items
@@ -308,121 +293,25 @@ pub async fn resolve_direct_declare_with_host_config(
         .ok_or_else(|| "schema resolver returned empty direct-declare batch".to_string())
 }
 
-async fn resolve_facade_with_host_config(
-    home: &Path,
-    schema_service_url: &str,
-    proposals: Vec<FacadeProposal>,
-) -> Result<Vec<FacadeResolveItem>, String> {
-    let cfg = MiniSchemaResolverConfig::load_for_home(home);
-    let mut mode = cfg.effective_mode();
-    let request_timeout = owner_socket_schema_service_timeout(&cfg);
-
-    // Pack-backed modes need wiring plus a local proposal embedder. Mini no
-    // longer ships that in-process FastEmbed path, so configured pack modes
-    // clamp to LiveOnly.
-    let want_pack = matches!(
-        mode,
-        LocalFirstMode::Shadow | LocalFirstMode::EnforceExistingOnly
-    ) && cfg.pack_wiring_ready();
-
-    if !want_pack {
-        if matches!(
-            mode,
-            LocalFirstMode::Shadow | LocalFirstMode::EnforceExistingOnly
-        ) {
-            info!(
-                target: "lastdb_node::schema_resolver",
-                mode = ?mode,
-                pack_ready = cfg.pack_wiring_ready(),
-                "schema resolve falling back to LiveOnly (pack not configured or kill switch)"
-            );
-            mode = LocalFirstMode::LiveOnly;
-        }
-        return with_owner_socket_schema_service_timeout(
-            request_timeout,
-            "live schema resolve",
-            resolve_live_only(schema_service_url, mode, proposals, request_timeout),
-        )
-        .await;
-    }
-
-    warn!(
-        target: "lastdb_node::schema_resolver",
-        "schema resolve pack mode requested but Mini no longer ships in-process semantic search; LiveOnly"
-    );
-    with_owner_socket_schema_service_timeout(
-        request_timeout,
-        "live schema resolve",
-        resolve_live_only(
-            schema_service_url,
-            LocalFirstMode::LiveOnly,
-            proposals,
-            request_timeout,
-        ),
-    )
-    .await
-}
-
-/// Run shared-surface publish/attach with install-owned mode + optional pack.
+/// Publish or attach a shared surface through the identity-bearing live facade.
 pub async fn publish_attach_with_host_config(
     home: &Path,
     schema_service_url: &str,
     body: SharedSurfacePublishRequest,
 ) -> Result<SharedSurfacePublishResult, String> {
     let cfg = MiniSchemaResolverConfig::load_for_home(home);
-    let mut mode = cfg.effective_mode();
+    cfg.warn_unsupported_pack_mode();
     let request_timeout = owner_socket_schema_service_timeout(&cfg);
-
-    // Pack-backed modes need wiring plus a local proposal embedder. Mini no
-    // longer ships that in-process FastEmbed path, so configured pack modes
-    // clamp to LiveOnly.
-    let want_pack = matches!(
-        mode,
-        LocalFirstMode::Shadow | LocalFirstMode::EnforceExistingOnly
-    ) && cfg.pack_wiring_ready();
-
-    if !want_pack {
-        if matches!(
-            mode,
-            LocalFirstMode::Shadow | LocalFirstMode::EnforceExistingOnly
-        ) {
-            info!(
-                target: "lastdb_node::schema_resolver",
-                mode = ?mode,
-                pack_ready = cfg.pack_wiring_ready(),
-                "shared-surface falling back to LiveOnly (pack not configured or kill switch)"
-            );
-            mode = LocalFirstMode::LiveOnly;
-        }
-        return with_owner_socket_schema_service_timeout(
-            request_timeout,
-            "live shared-surface publish/attach",
-            publish_live_only(home, schema_service_url, mode, body, request_timeout),
-        )
-        .await;
-    }
-
-    warn!(
-        target: "lastdb_node::schema_resolver",
-        "shared-surface pack mode requested but Mini no longer ships in-process semantic search; LiveOnly"
-    );
     with_owner_socket_schema_service_timeout(
         request_timeout,
         "live shared-surface publish/attach",
-        publish_live_only(
-            home,
-            schema_service_url,
-            LocalFirstMode::LiveOnly,
-            body,
-            request_timeout,
-        ),
+        publish_live_only(home, schema_service_url, body, request_timeout),
     )
     .await
 }
 
 async fn resolve_live_only(
     schema_service_url: &str,
-    _mode: LocalFirstMode,
     proposals: Vec<FacadeProposal>,
     timeout: Duration,
 ) -> Result<Vec<FacadeResolveItem>, String> {
@@ -439,7 +328,6 @@ async fn resolve_live_only(
 async fn publish_live_only(
     home: &Path,
     schema_service_url: &str,
-    _mode: LocalFirstMode,
     body: SharedSurfacePublishRequest,
     timeout: Duration,
 ) -> Result<SharedSurfacePublishResult, String> {
