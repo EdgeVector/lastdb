@@ -67,7 +67,7 @@ class GrowthWorkload:
             result, _, _ = self.node.call("/api/query", read_request(numbers))
             validate_read(result, numbers)
             for record in result["results"]:
-                number = int(record["key"]["range"].removeprefix("key-"))
+                number = int(record["key"]["hash"].removeprefix("key-"))
                 if record["fields"]["title"] != f"record-{number}-{self.expected[number]}":
                     raise RuntimeError("A growth read returned an older write")
 
@@ -108,7 +108,7 @@ class GrowthWorkload:
 
     def seed(self):
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
-                  "schema_type": "HashRange", "key": {"hash_field": "bucket", "range_field": "id"},
+                  "schema_type": "Hash", "key": {"hash_field": "id"},
                   "fields": FIELDS, "field_descriptions": {f: f"generated benchmark {f}" for f in FIELDS}}
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": schema})
         self.write(0, self.live_records, "growth-seed", True)
