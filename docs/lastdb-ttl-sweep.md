@@ -393,12 +393,16 @@ These intervals overlap. Do not add them or treat a diagnostic interval as a per
 
 The descriptor-borrow experiment was removed after its controlled comparison found no consistent benefit.
 Existing and inserted descriptors again use the original owned representation and leaf helpers.
-The next candidate reuses completed key validation for the same immutable input page.
-A private page witness exists only after every key passes its digest, order, and interval checks.
-The leaf merge retains each inline key's second resource charge and format limit check.
-External keys retain full streaming validation on each access. No extra key cache or retained key list enters the edit.
-Page checksums, private-page readback, splits, output bytes, I/O, and durability barriers remain.
-The largest-wait reduction remains unverified until fresh CI evidence supplies a useful measured result.
+The key-validation reuse experiment was also removed: its matched result did not reduce the active-four-client durable wait.
+The original full key checks and resource charges again run on each access. No page witness or key cache remains.
+Existing opt-in numeric stages now separate input-key validation, leaf preparation, packed-payload construction,
+and the fixed-layout parent payload built before the locator branch.
+Leaf preparation includes existing changed-value reference work and any new external-key output.
+Packed-payload timing ends before the full encoded page enters its writer.
+The parent-preparation interval ends before the packed branch and its output.
+These intervals overlap enclosing tree and reference stages; short calls still round down to integer microseconds.
+No allocation, output byte, split, error check, I/O, checksum, private-page readback, or durability barrier changes.
+Normal diagnostics remain off. The measurements diagnose the remaining work and establish no wait reduction.
 
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.

@@ -59,6 +59,7 @@ pub(super) fn append<'a>(
     mut fields: PageFields,
     entries: impl ExactSizeIterator<Item = (&'a [u8], &'a [u8])>,
 ) -> Result<u64> {
+    let payload_build = crate::commit_timing::stage("metadata_packed_payload_build_us");
     let count = entries.len();
     let mut payload = vec![0; count * 4];
     for (index, (key, value)) in entries.enumerate() {
@@ -74,5 +75,6 @@ pub(super) fn append<'a>(
     }
     fields.count = count as u16;
     fields.width = 0;
+    drop(payload_build);
     pages.append(fields, &payload)
 }

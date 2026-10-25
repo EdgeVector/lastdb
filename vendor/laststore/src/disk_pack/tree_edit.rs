@@ -28,32 +28,6 @@ struct PathStep {
     is_root: bool,
 }
 
-/// Only `validate_page` constructs this witness for its immutable input page.
-struct ValidatedPage<'a>(&'a Page);
-
-impl ValidatedPage<'_> {
-    fn key_bytes(
-        &self,
-        call: &mut ReadCall,
-        tree: &TreeRoot,
-        index: usize,
-    ) -> Result<Cow<'_, [u8]>> {
-        let entry = self.0.entry(index);
-        if key_layout::overflow(entry) != 0 {
-            return super::mutation_key::key_bytes(call, tree, entry);
-        }
-        let length = super::bytes::u32_at(entry, 0) as usize;
-        if length > call.current.storage_key_byte_limit() {
-            return Err(corrupt("key exceeds selected CURRENT format limit"));
-        }
-        // Preserve the second access's budget, reusing only the digest check
-        // already completed on these same immutable bytes. External keys still
-        // traverse and validate their complete overflow chain on every access.
-        call.charge(length as u64)?;
-        Ok(Cow::Borrowed(key_layout::inline(entry)))
-    }
-}
-
 impl TreeEdit {
     pub(super) fn new(root: &Path, tree: TreeRoot, generation: u64) -> Result<Self> {
         Self::protected(root, tree, generation, Default::default())
@@ -162,7 +136,7 @@ impl<P: TreePages> TreeEdit<P> {
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
         let page = call.tree_page(&self.root, path.number)?;
-        let validated = validate_page(call, &self.root, &page, &path)?;
+        validate_page(call, &self.root, &page, &path)?;
         parent_usage::input(
             self.root.kind,
             &page,
@@ -189,7 +163,7 @@ impl<P: TreePages> TreeEdit<P> {
             references.resolve(&mut self.changes)?;
         }
         if path.level == 0 {
-            return self.edit_leaf(call, references, validated, changes);
+            return self.edit_leaf(call, references, &page, changes);
         }
         let mut children = vec![Child {
             minimum: path.minimum,
@@ -268,16 +242,16 @@ impl<P: TreePages> TreeEdit<P> {
         &mut self,
         call: &mut ReadCall,
         references: &mut ReferenceCache,
-        validated: ValidatedPage<'_>,
+        page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
-        let page = validated.0;
+        let preparation = crate::commit_timing::stage("metadata_leaf_prepare_us");
         let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
         let mut updates = changes.iter().peekable();
         let mut middle_insert = false;
         for index in 0..page.count() {
             let entry = page.entry(index);
-            let key = validated.key_bytes(call, &self.root, index)?;
+            let key = super::mutation_key::key_bytes(call, &self.root, entry)?;
             while updates
                 .peek()
                 .is_some_and(|(next, _)| next.as_slice() < key.as_ref())
@@ -326,6 +300,7 @@ impl<P: TreePages> TreeEdit<P> {
             ranges.len(),
             middle_insert,
         );
+        drop(preparation);
         ranges
             .into_iter()
             .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))
@@ -359,12 +334,8 @@ impl<P: TreePages> TreeEdit<P> {
     }
 }
 
-fn validate_page<'a>(
-    call: &mut ReadCall,
-    tree: &TreeRoot,
-    page: &'a Page,
-    path: &PathStep,
-) -> Result<ValidatedPage<'a>> {
+fn validate_page(call: &mut ReadCall, tree: &TreeRoot, page: &Page, path: &PathStep) -> Result<()> {
+    let _timing = crate::commit_timing::stage("metadata_input_keys_validate_us");
     if page.level() != path.level
         || (!path.is_root && path.level > 0 && page.count() < 7)
         || (!path.is_root && path.level == 0 && page.count() == 0)
@@ -393,5 +364,5 @@ fn validate_page<'a>(
         }
         previous = Some(key);
     }
-    Ok(ValidatedPage(page))
+    Ok(())
 }
