@@ -94,6 +94,26 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
+fn handle_app_resolve(
+    home: &Path,
+    app_id: String,
+    channel: Option<String>,
+    index: Option<String>,
+    trust_key: Option<String>,
+    lastdb_version: Option<String>,
+    json: bool,
+) -> Result<(), String> {
+    app_resolve(
+        home,
+        &app_id,
+        channel.as_deref(),
+        index.as_deref(),
+        trust_key.as_deref(),
+        lastdb_version.as_deref(),
+        json,
+    )
+}
+
 fn handle_app_install(
     home: &Path,
     app_ids: Vec<String>,
@@ -181,15 +201,7 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             trust_key,
             lastdb_version,
             json,
-        } => app_resolve(
-            home,
-            &app_id,
-            channel.as_deref(),
-            index.as_deref(),
-            trust_key.as_deref(),
-            lastdb_version.as_deref(),
-            json,
-        ),
+        } => handle_app_resolve(home, app_id, channel, index, trust_key, lastdb_version, json),
         AppCommand::Index(cmd) => app_index_command(home, cmd),
         AppCommand::Storage {
             json,
