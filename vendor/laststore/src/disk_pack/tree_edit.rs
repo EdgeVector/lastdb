@@ -38,19 +38,9 @@ impl ValidatedPage<'_> {
         tree: &TreeRoot,
         index: usize,
     ) -> Result<Cow<'_, [u8]>> {
-        let entry = self.0.entry(index);
-        if key_layout::overflow(entry) != 0 {
-            return super::mutation_key::key_bytes(call, tree, entry);
-        }
-        let length = super::bytes::u32_at(entry, 0) as usize;
-        if length > call.current.storage_key_byte_limit() {
-            return Err(corrupt("key exceeds selected CURRENT format limit"));
-        }
-        // Preserve the second access's budget, reusing only the digest check
-        // already completed on these same immutable bytes. External keys still
-        // traverse and validate their complete overflow chain on every access.
-        call.charge(length as u64)?;
-        Ok(Cow::Borrowed(key_layout::inline(entry)))
+        // Experimental control: repeat the complete checked-key access.
+        // Retain the witness and all other source; never merge this control.
+        super::mutation_key::key_bytes(call, tree, self.0.entry(index))
     }
 }
 
