@@ -260,6 +260,7 @@ impl<'a> Publisher<'a> {
         // Share only bounded descriptors, never a group's pages, checks, or budget.
         let mut locator_files = super::call_io::CallFiles::default();
         while let Some(first) = items.next() {
+            crate::commit_timing::count("snapshot_touched_groups", 1);
             let collection = first.collection.clone();
             let group = first.group;
             let mut changes = BTreeMap::new();

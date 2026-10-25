@@ -64,6 +64,7 @@ pub(crate) fn initial_counts() -> BTreeMap<&'static str, u64> {
         crate::disk_pack::PAGE_PAYLOAD as u64,
     );
     counts.insert("snapshot_private_input_pages", 0);
+    counts.insert("snapshot_touched_groups", 0);
     counts.insert("snapshot_invalid_usage_pages", 0);
     counts.extend(SPLITS.iter().flatten().map(|&name| (name, 0)));
     counts
