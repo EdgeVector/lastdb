@@ -113,7 +113,7 @@ impl StoredRecordProfile {
         }
         if self.streams[0].bytes == 0
             || self.streams[3].bytes == 0
-            || self.streams[3].bytes % 9 != 0
+            || !self.streams[3].bytes.is_multiple_of(9)
         {
             return Err(invalid("record stream framing summary"));
         }

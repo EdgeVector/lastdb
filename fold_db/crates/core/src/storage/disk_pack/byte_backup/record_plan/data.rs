@@ -7,7 +7,7 @@ impl Export<'_> {
     pub(super) fn body(
         &mut self,
         kind: ClientBackupStream,
-        coordinate: Coordinate,
+        coordinate: &Coordinate,
         input: &mut dyn Read,
         bytes: u64,
     ) -> StorageResult<()> {

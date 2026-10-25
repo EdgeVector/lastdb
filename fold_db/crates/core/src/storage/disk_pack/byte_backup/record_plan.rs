@@ -167,7 +167,7 @@ impl Export<'_> {
             if record.body_bytes != 0 {
                 let coordinate = Coordinate::save(self.inner, record.collection, record.key)?;
                 self.add_run(kind, record.body_bytes)?;
-                self.body(kind, coordinate, body, record.body_bytes)?;
+                self.body(kind, &coordinate, body, record.body_bytes)?;
             } else if body.read(&mut [0; 1])? != 0 {
                 return Err(invalid("empty stored record body differs"));
             }
