@@ -29,23 +29,26 @@ const HOME_KEY_LABEL: &[u8] = b"lastdb/run-home/v2";
 
 /// True when `path` holds a v2 node marker.
 pub(super) fn is_run_node(path: &Path) -> StorageResult<bool> {
-    match std::fs::read(path.join(NODE_MARKER)) {
-        Ok(bytes) => Ok(bytes == RUN_NODE_BYTES),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.into()),
-    }
+    let marker = match std::fs::read(path.join(NODE_MARKER)) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(marker.as_deref() == Some(RUN_NODE_BYTES))
 }
 
 /// True when the owner asked for format v2 and `path` is absent or empty.
 pub(super) fn wants_new_run_node(path: &Path) -> StorageResult<bool> {
-    if std::env::var("LASTDB_DISK_FORMAT").as_deref() != Ok("2") {
-        return Ok(false);
+    let asked = std::env::var("LASTDB_DISK_FORMAT").as_deref() == Ok("2");
+    if !asked {
+        return Ok(asked);
     }
-    match std::fs::read_dir(path) {
-        Ok(mut entries) => Ok(entries.next().is_none()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
-        Err(error) => Err(error.into()),
-    }
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => Some(entries),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(entries.is_none_or(|mut entries| entries.next().is_none()))
 }
 
 /// The run home key: HKDF-SHA256 of the node encryption key. The copy is
