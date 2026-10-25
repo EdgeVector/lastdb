@@ -94,39 +94,7 @@ fn orchestrate() -> Result<()> {
     child("write-v1", &node, &node_key, false)?;
     let v1_disk = directory_bytes(&node.join("disk-pack"))?;
 
-    // States a crash leaves inside the switch. Each next open rolls back.
-    for (moved, label) in [
-        (0, "intent and a built copy, nothing moved"),
-        (1, "only the marker moved"),
-        (3, "all v1 files moved"),
-    ] {
-        std::fs::write(node.join(INTENT), b"switch=v1-to-v2\n")?;
-        if moved == 0 {
-            std::fs::create_dir_all(node.join("disk-run.converting"))?;
-            std::fs::create_dir_all(node.join("disk-cas.converting"))?;
-        }
-        std::fs::create_dir(&kept)?;
-        for name in &V1_ENTRIES[..moved] {
-            std::fs::rename(node.join(name), kept.join(name))?;
-        }
-        if moved == 3 {
-            std::fs::create_dir_all(node.join("disk-run"))?;
-            std::fs::create_dir_all(node.join("disk-cas"))?;
-        }
-        child("check-v1", &node, &node_key, false)?;
-        let left = [
-            "disk-run",
-            "disk-cas",
-            "disk-run.converting",
-            "disk-cas.converting",
-        ]
-        .iter()
-        .any(|name| node.join(name).exists());
-        if kept.exists() || node.join(INTENT).exists() || left {
-            return Err(format!("crash state ({label}) left conversion files").into());
-        }
-        println!("rollback: crash state ({label}) returned to v1 with the same data");
-    }
+    check_rollbacks(&node, &kept, &node_key)?;
 
     let started = Instant::now();
     child("convert", &node, &node_key, true)?;
@@ -142,25 +110,7 @@ fn orchestrate() -> Result<()> {
     }
     child("check-v2", &node, &node_key, false)?;
 
-    // The CAS files are separate files: all their bytes are in disk-cas,
-    // and disk-run holds less than the other records take at 2x.
-    let cas_logical: u64 = expected_cas_v2()
-        .iter()
-        .map(|(key, value)| (key.len() + value.len()) as u64)
-        .sum();
-    let main_logical: u64 = expected_v2()
-        .iter()
-        .map(|(key, value)| (key.len() + value.len()) as u64)
-        .sum();
-    let cas_disk = directory_bytes(&node.join("disk-cas"))?;
-    let run_disk = directory_bytes(&node.join("disk-run"))?;
-    println!(
-        "cas: {} CAS files, {cas_logical} B logical, disk-cas {cas_disk} B, disk-run {run_disk} B",
-        expected_cas_v2().len()
-    );
-    if cas_disk < cas_logical / 2 || run_disk > 2 * main_logical {
-        return Err("the CAS files are not apart from the other records".into());
-    }
+    let (main_logical, cas_logical) = check_cas_apart(&node)?;
 
     // An intent left after a durable v2 marker: the open only removes it.
     std::fs::write(node.join(INTENT), b"switch=v1-to-v2\n")?;
@@ -203,6 +153,68 @@ fn orchestrate() -> Result<()> {
     }
     println!("PASS: a v1 node home converts to v2 with every record equal, within 2x");
     Ok(())
+}
+
+/// States a crash leaves inside the switch. Each next open rolls back.
+fn check_rollbacks(node: &Path, kept: &Path, node_key: &str) -> Result<()> {
+    for (moved, label) in [
+        (0, "intent and a built copy, nothing moved"),
+        (1, "only the marker moved"),
+        (3, "all v1 files moved"),
+    ] {
+        std::fs::write(node.join(INTENT), b"switch=v1-to-v2\n")?;
+        if moved == 0 {
+            std::fs::create_dir_all(node.join("disk-run.converting"))?;
+            std::fs::create_dir_all(node.join("disk-cas.converting"))?;
+        }
+        std::fs::create_dir(kept)?;
+        for name in &V1_ENTRIES[..moved] {
+            std::fs::rename(node.join(name), kept.join(name))?;
+        }
+        if moved == 3 {
+            std::fs::create_dir_all(node.join("disk-run"))?;
+            std::fs::create_dir_all(node.join("disk-cas"))?;
+        }
+        child("check-v1", node, node_key, false)?;
+        let left = [
+            "disk-run",
+            "disk-cas",
+            "disk-run.converting",
+            "disk-cas.converting",
+        ]
+        .iter()
+        .any(|name| node.join(name).exists());
+        if kept.exists() || node.join(INTENT).exists() || left {
+            return Err(format!("crash state ({label}) left conversion files").into());
+        }
+        println!("rollback: crash state ({label}) returned to v1 with the same data");
+    }
+
+    Ok(())
+}
+
+/// The CAS files are separate files: all their bytes are in disk-cas, and
+/// disk-run holds less than the other records take at 2x. Returns the
+/// logical bytes of the records and of the CAS files.
+fn check_cas_apart(node: &Path) -> Result<(u64, u64)> {
+    let cas_logical: u64 = expected_cas_v2()
+        .iter()
+        .map(|(key, value)| (key.len() + value.len()) as u64)
+        .sum();
+    let main_logical: u64 = expected_v2()
+        .iter()
+        .map(|(key, value)| (key.len() + value.len()) as u64)
+        .sum();
+    let cas_disk = directory_bytes(&node.join("disk-cas"))?;
+    let run_disk = directory_bytes(&node.join("disk-run"))?;
+    println!(
+        "cas: {} CAS files, {cas_logical} B logical, disk-cas {cas_disk} B, disk-run {run_disk} B",
+        expected_cas_v2().len()
+    );
+    if cas_disk < cas_logical / 2 || run_disk > 2 * main_logical {
+        return Err("the CAS files are not apart from the other records".into());
+    }
+    Ok((main_logical, cas_logical))
 }
 
 fn child(name: &str, node: &Path, node_key: &str, convert: bool) -> Result<()> {
