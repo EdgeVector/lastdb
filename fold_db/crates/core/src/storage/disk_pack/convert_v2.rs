@@ -98,6 +98,9 @@ pub(super) fn resume_or_convert(
         Err(error) => return Err(error.into()),
     };
     if !asked || !is_v1_marker(&marker) {
+        if is_v1_marker(&marker) {
+            remove_stopped_copy(node)?;
+        }
         return Ok(None);
     }
     for intent in INITIALIZING {
@@ -155,6 +158,23 @@ fn take_lock(node: &Path) -> StorageResult<File> {
         ))
     })?;
     Ok(lock)
+}
+
+/// Remove what a conversion that stopped inside its copy (a crash before the
+/// switch intent) left in a v1 home: the partial run homes and the lock
+/// file. An open that does not convert would otherwise keep their disk space,
+/// and a restore refuses the unknown files. A lock that another owner holds
+/// is left alone.
+fn remove_stopped_copy(node: &Path) -> StorageResult<()> {
+    if !node.join(LOCK).try_exists()? {
+        return Ok(());
+    }
+    let Ok(lock) = take_lock(node) else {
+        return Ok(());
+    };
+    remove_partial_builds(node)?;
+    drop(lock);
+    remove_lock_in_v1(node)
 }
 
 /// A v1 home keeps no conversion lock file: other v1 tools refuse a file

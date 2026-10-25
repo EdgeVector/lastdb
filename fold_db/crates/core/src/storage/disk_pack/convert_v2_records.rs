@@ -9,12 +9,18 @@
 //!
 //! Each stored record becomes:
 //!
-//! - a CAS file, a node home record, or a catalog record: the stored bytes;
+//! - a CAS file, a node home record, a catalog record, or a strict marker
+//!   record: the stored bytes;
 //! - the key format marker: format 6, with the delete replay fence when the
 //!   source has it;
 //! - an atom body: the plain row of the opened atom;
 //! - any other record: the stored bytes, without the outer envelope of a
 //!   format 4 or 5 source.
+//!
+//! A format 4 or 5 node reads any other record without the envelope as
+//! absent, and its owner removes such records with `lastdb db reap-unsealed`
+//! (decision-2026-09-14-drop-dual-read-unsealed-is-gone). A copy would make
+//! them live data again, so the conversion counts them and refuses the home.
 //!
 //! A format 4 or 5 source gets a new content key proof. The metadata
 //! namespace record is added when the source has none.
@@ -30,7 +36,7 @@ use crate::db_operations::atom_store::{
 };
 use crate::storage::{encrypting_namespaced_store::CATALOG_NAMESPACES, laststore::native_routing};
 use laststore::disk_pack::home::HomeSnapshot;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use zeroize::Zeroizing;
 
 /// The node marker of a v1 home with key format 4 or 5.
@@ -42,6 +48,9 @@ pub(super) const INITIALIZING: [&str; 2] = [
 ];
 
 const NODE_HOME: &str = "__native_home";
+/// The reserved marker namespace that a format 4 or 5 node keeps plaintext
+/// (`STRICT_MARKER_NAMESPACE` of that node).
+const STRICT_MARKERS: &str = "__at_rest_strict_markers";
 const METADATA_NAMESPACE: &str = "namespaces\0metadata";
 const VALUE_MAX: u64 = laststore::disk_run::home::MAX_VALUE_BYTES as u64;
 
@@ -121,6 +130,9 @@ pub(super) struct Transform<'a> {
     writer: &'a HomeSnapshot,
     /// The content key of each molecule key bundle opened so far.
     bundles: HashMap<String, Zeroizing<[u8; 32]>>,
+    /// Per collection, the records without the envelope that the v1 node
+    /// reads as absent.
+    unsealed: BTreeMap<String, u64>,
     saw_metadata: bool,
     saw_cutoff: bool,
 }
@@ -138,6 +150,7 @@ impl<'a> Transform<'a> {
             source,
             writer,
             bundles: HashMap::new(),
+            unsealed: BTreeMap::new(),
             saw_metadata: false,
             saw_cutoff: false,
         }
@@ -149,47 +162,70 @@ impl<'a> Transform<'a> {
         matches!(self.format, SourceFormat::Enveloped { .. }) && is_key(collection, key, proof::KEY)
     }
 
-    /// The v2 value of one stored v1 record.
+    /// The v2 value of one stored v1 record, or `None` for a record that the
+    /// v1 node reads as absent. Such a record is counted, and `extras`
+    /// then refuses the home.
     pub(super) fn value(
         &mut self,
         collection: &str,
         key: &str,
         stored: Vec<u8>,
-    ) -> StorageResult<Vec<u8>> {
+    ) -> StorageResult<Option<Vec<u8>>> {
         if collection == NODE_HOME && key == METADATA_NAMESPACE {
             self.saw_metadata = true;
         }
         if collection == CAS_COLLECTION
             || collection == NODE_HOME
+            || collection == STRICT_MARKERS
             || CATALOG_NAMESPACES.contains(&collection)
         {
-            return Ok(stored);
+            return Ok(Some(stored));
         }
         if is_marker(collection, key) {
-            return Ok(self.marker().to_vec());
+            return Ok(Some(self.marker().to_vec()));
         }
         if collection == "atoms" && atom_key_codec::body_uuid_of(key).is_some() {
-            return self.plain_atom(&stored);
+            return self.plain_atom(&stored).map(Some);
         }
         if is_marker_like(collection, key, key_format::DELETE_REPLAY_CUTOFF_KEY) {
             self.saw_cutoff = true;
         }
         match self.format {
             SourceFormat::Enveloped { .. } if is_sealed_at_rest(&stored) => {
-                open_at_rest_bounded(self.key, &stored, VALUE_MAX).map_err(|_| {
-                    invalid(&format!(
-                        "disk format conversion: a record envelope in collection {collection} \
-                         does not open"
-                    ))
-                })
+                open_at_rest_bounded(self.key, &stored, VALUE_MAX)
+                    .map(Some)
+                    .map_err(|_| {
+                        invalid(&format!(
+                            "disk format conversion: a record envelope in collection \
+                             {collection} does not open"
+                        ))
+                    })
             }
-            _ => Ok(stored),
+            SourceFormat::Enveloped { .. } => {
+                *self.unsealed.entry(collection.to_string()).or_default() += 1;
+                Ok(None)
+            }
+            SourceFormat::Current { .. } => Ok(Some(stored)),
         }
     }
 
-    /// The records to add after the copy. The source must hold the delete
-    /// replay floor exactly when its marker has the fence.
+    /// The records to add after the copy. The source must hold no record
+    /// that its node reads as absent, and it must hold the delete replay
+    /// floor exactly when its marker has the fence.
     pub(super) fn extras(&self) -> StorageResult<Vec<HomeMutation>> {
+        if !self.unsealed.is_empty() {
+            let counts: Vec<String> = self
+                .unsealed
+                .iter()
+                .map(|(collection, count)| format!("{collection}: {count}"))
+                .collect();
+            return Err(invalid(&format!(
+                "disk format conversion stopped: the home holds records without the at-rest \
+                 envelope that its node reads as absent ({}); remove them with `lastdb db \
+                 reap-unsealed` of the program that runs the v1 home, then open again",
+                counts.join(", ")
+            )));
+        }
         if self.format.fenced() != self.saw_cutoff {
             return Err(invalid(
                 "disk format conversion: the delete replay floor and the format marker disagree",

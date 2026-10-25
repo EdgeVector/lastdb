@@ -22,8 +22,10 @@ type Pending = Vec<((String, String), Vec<u8>)>;
 
 /// Copy each stored record of `current` in its v2 form, then the added
 /// records. Tombstones are not copied: an absent key in a new home reads the
-/// same. Each home merges after each batch, so the copy never holds most of
-/// a home in unmerged runs. Returns the records and their bytes.
+/// same. A record that the v1 node reads as absent is not copied either, and
+/// `Transform::extras` then refuses the home. Each home merges after each
+/// batch, so the copy never holds most of a home in unmerged runs. Returns
+/// the records and their bytes.
 pub(super) fn copy(
     source: &DiskHome,
     current: &Current,
@@ -42,10 +44,13 @@ pub(super) fn copy(
         if transform.replaced(record.collection, record.key) {
             return Ok(());
         }
-        let value = transform
+        let Some(value) = transform
             .value(record.collection, record.key, stored)
-            .and_then(|value| fits(record.collection, value))
-            .map_err(|error| stop(&mut failure, error))?;
+            .map_err(|error| stop(&mut failure, error))?
+        else {
+            return Ok(());
+        };
+        let value = fits(record.collection, value).map_err(|error| stop(&mut failure, error))?;
         let size = record.collection.len() + record.key.len() + value.len();
         let slot = slot(record.collection);
         batch_bytes[slot] += size;
@@ -101,9 +106,12 @@ pub(super) fn verify(
         if transform.replaced(record.collection, record.key) {
             return Ok(());
         }
-        let value = transform
+        let Some(value) = transform
             .value(record.collection, record.key, stored)
-            .map_err(|error| stop(&mut failure, error))?;
+            .map_err(|error| stop(&mut failure, error))?
+        else {
+            return Ok(());
+        };
         let slot = slot(record.collection);
         pending_bytes[slot] += value.len();
         pending[slot].push(((record.collection.into(), record.key.into()), value));
