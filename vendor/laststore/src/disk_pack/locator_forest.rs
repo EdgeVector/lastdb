@@ -179,7 +179,9 @@ impl LocatorChanges {
                 // No old directory edge selects this synthetic root for the new
                 // group. Account only new values, not a retired template page.
                 self.observe_new_values(call, references, changes)?;
-                return self.edit_untracked(call, empty, changes);
+                let tree = self.edit_untracked(call, empty, changes)?;
+                crate::commit_timing::count("locator_template_create_calls", 1);
+                return Ok(tree);
             }
             self.new = Some(LocatorForest::protected(
                 &self.root,
@@ -193,7 +195,9 @@ impl LocatorChanges {
         for (key, value) in changes {
             writer.add(key, *value)?;
         }
-        forest.complete_tree(writer)
+        let tree = forest.complete_tree(writer)?;
+        crate::commit_timing::count("locator_bulk_create_calls", 1);
+        Ok(tree)
     }
 
     fn observe_new_values(

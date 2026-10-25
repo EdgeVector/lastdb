@@ -84,7 +84,7 @@ class GrowthWorkload:
         result, _, _ = self.node.call("/api/db/flush", {})
         if result.get("durable") is not True:
             raise RuntimeError("A growth checkpoint lacks a durable flush")
-        before = self.node.disk_bytes()
+        before = self.node.disk_usage()
         self.phase = "compaction"
         result, _, _ = self.node.call(
             "/api/db/compact", {"dry_run": False, "full_copy": True, "grace_ms": 0})
@@ -100,11 +100,14 @@ class GrowthWorkload:
         while time.monotonic() < deadline:
             idle.append(self.memory())
             time.sleep(0.2)
+        after = self.node.disk_usage()
         return {"round": number, "live_records": self.live_records,
                 "elapsed_seconds": time.monotonic() - self.started,
                 "idle_memory_bytes": statistics.median(idle), "idle_memory_samples": idle,
-                "disk_before_compaction_bytes": before,
-                "compacted_disk_bytes": self.node.disk_bytes(), "compaction": receipt}
+                "disk_before_compaction_bytes": before["logical_bytes"],
+                "compacted_disk_bytes": after["logical_bytes"],
+                "allocated_disk_before_compaction_bytes": before["allocated_bytes"],
+                "compacted_allocated_disk_bytes": after["allocated_bytes"], "compaction": receipt}
 
     def seed(self):
         schema = {"source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA,
@@ -138,7 +141,12 @@ class GrowthWorkload:
             "compacted_disk_bytes": last["compacted_disk_bytes"],
             "disk_growth_bytes": last["compacted_disk_bytes"] - first["compacted_disk_bytes"],
             "disk_growth_bytes_per_round": slope(points, "compacted_disk_bytes"),
-            "compacted_disk_bytes_per_record": last["compacted_disk_bytes"] / self.live_records}}
+            "compacted_disk_bytes_per_record": last["compacted_disk_bytes"] / self.live_records,
+            "allocated_disk_before_compaction_bytes": last["allocated_disk_before_compaction_bytes"],
+            "compacted_allocated_disk_bytes": last["compacted_allocated_disk_bytes"],
+            "allocated_disk_growth_bytes": last["compacted_allocated_disk_bytes"] - first["compacted_allocated_disk_bytes"],
+            "allocated_disk_growth_bytes_per_round": slope(points, "compacted_allocated_disk_bytes"),
+            "compacted_allocated_disk_bytes_per_record": last["compacted_allocated_disk_bytes"] / self.live_records}}
 
     def run(self):
         self.seed()

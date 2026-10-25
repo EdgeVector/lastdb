@@ -10,6 +10,7 @@ def averages(events, field):
     names = sorted({name for event in events for name in event.get(field, {})})
     # A missing field stays explicit: zero must not hide incomplete diagnostics.
     return {name: {"reported": sum(name in event.get(field, {}) for event in events),
+                   "total": sum(event[field][name] for event in events if name in event.get(field, {})),
                    "mean": mean(event[field][name] for event in events if name in event.get(field, {}))}
             for name in names}
 
