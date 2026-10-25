@@ -31,7 +31,6 @@ pub mod encrypting_namespaced_store;
 pub(crate) mod encrypting_store;
 pub mod error;
 pub mod laststore;
-pub mod node_config_store;
 pub mod reap_unsealed;
 pub mod reseal_at_rest;
 pub mod traits;
@@ -42,7 +41,6 @@ pub use error::StorageError;
 pub use laststore::LastStoreNamespacedStore;
 
 pub use encrypting_namespaced_store::{EncryptingNamespacedStore, CATALOG_NAMESPACES};
-pub use node_config_store::NodeConfigStore;
 pub use reap_unsealed::{ReapUnsealedCheckpoint, ReapUnsealedOptions, ReapUnsealedReport};
 pub use reseal_at_rest::{
     collection_is_allowed, ResealAtRestCheckpoint, ResealAtRestOptions, ResealAtRestReport,
