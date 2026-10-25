@@ -7,16 +7,22 @@
 //! node home switch:
 //!
 //! ```text
-//! <node>/disk-run.converting/     the new run home while it is built and checked
-//! <node>-disk-format-v1/          the v1 files, kept until the owner deletes them
-//! <node>/disk-run/                the run home after the switch
-//! <node>/laststore-pack-node-v1   "format=3\nhome=disk-run\n", written last
+//! <node>/laststore-disk-convert.lock    held for the whole conversion; never moves
+//! <node>/disk-run.converting/           the new run home while it is built and checked
+//! <node>/laststore-disk-convert-v2      the switch intent, written before the first move
+//! <node>-disk-format-v1/                the v1 files, kept until the owner deletes them
+//! <node>/disk-run/                      the run home after the switch
+//! <node>/laststore-pack-node-v1         "format=3\nhome=disk-run\n", written last
 //! ```
 //!
-//! The v2 marker is the commit point. A crash before it leaves no marker in
-//! the node home; the next keyed open moves the kept v1 files back, removes
-//! the partial run home, and the node is v1 again (and converts again when
-//! the owner still asks). The conversion never writes to the v1 files.
+//! The switch moves the v1 marker first, so every crash state inside the
+//! switch has the intent file. The v2 marker is the commit point; the intent
+//! goes after it. A keyed open that finds the intent and no v2 marker rolls
+//! the switch back: it removes the partial run home, moves the kept v1 files
+//! back with the marker last, and the node is v1 again (and converts again
+//! when the owner still asks). Without the intent nothing is rolled back or
+//! deleted. The conversion does not change a v1 record; it opens the v1
+//! writer as a normal v1 open does.
 
 use super::run_node::{home_key, RUN_DIR, RUN_NODE_BYTES};
 use super::*;
@@ -28,7 +34,11 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 const CONVERTING: &str = "disk-run.converting";
-const V1_ENTRIES: [&str; 3] = ["disk-pack", "laststore-layout-v1", NODE_MARKER];
+const LOCK: &str = "laststore-disk-convert.lock";
+const INTENT: &str = "laststore-disk-convert-v2";
+const INTENT_BYTES: &[u8] = b"switch=v1-to-v2\n";
+/// Moved in this order; the roll-back moves them back in reverse.
+const V1_ENTRIES: [&str; 3] = [NODE_MARKER, "laststore-layout-v1", "disk-pack"];
 const BATCH_RECORDS: usize = 4096;
 const BATCH_BYTES: usize = 16 * 1024 * 1024;
 const VERIFY_RECORDS: usize = 1000;
@@ -55,15 +65,21 @@ pub fn kept_v1_path(node: &Path) -> StorageResult<PathBuf> {
     Ok(parent.join(format!("{}-disk-format-v1", name.to_string_lossy())))
 }
 
-/// Undo an unfinished switch, then convert a v1 home when the owner asks.
-/// Returns the report when this call converted the home.
+/// Finish or roll back an unfinished switch, then convert a v1 home when
+/// the owner asks. Returns the report when this call converted the home.
 pub(super) fn resume_or_convert(
     node: &Path,
     node_key: &[u8; 32],
 ) -> StorageResult<Option<DiskConversionReport>> {
+    if !node.try_exists()? {
+        return Ok(None);
+    }
+    // The kept folder must be on the volume of the real node folder.
+    let node = &node.canonicalize()?;
     let kept = kept_v1_path(node)?;
-    if node.try_exists()? && !node.join(NODE_MARKER).try_exists()? {
-        roll_back(node, &kept)?;
+    if node.join(INTENT).try_exists()? {
+        let _lock = take_lock(node)?;
+        resume(node, &kept)?;
     }
     let asked = std::env::var("LASTDB_DISK_FORMAT").as_deref() == Ok("2");
     let marker = match std::fs::read(node.join(NODE_MARKER)) {
@@ -84,42 +100,78 @@ pub(super) fn resume_or_convert(
     }
     if kept.try_exists()? {
         return Err(invalid(&format!(
-            "disk format conversion found an earlier v1 folder at {}; move or delete it first",
+            "disk format conversion stopped: {} already exists and this conversion does not \
+             replace it; rename it, then open again",
             kept.display()
         )));
     }
-    convert(node, node_key, &kept).map(Some)
+    let lock = take_lock(node)?;
+    let report = convert(node, node_key, &kept)?;
+    drop(lock);
+    Ok(Some(report))
+}
+
+/// One exclusive lock that does not move during the switch. A second opener
+/// that finds it held is refused.
+fn take_lock(node: &Path) -> StorageResult<File> {
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(node.join(LOCK))?;
+    lock.try_lock().map_err(|error| {
+        invalid(&format!(
+            "another node owner holds the disk format conversion lock or its lock failed: {error}"
+        ))
+    })?;
+    Ok(lock)
 }
 
 fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskConversionReport> {
     let started = Instant::now();
-    // The v1 owner lock: no other node opens this home during the copy.
-    let lock = OpenOptions::new()
+    // The v1 owner lock: a normal v1 open is refused during the copy.
+    let v1_lock = OpenOptions::new()
         .read(true)
         .write(true)
         .open(node.join(NODE_MARKER))?;
-    lock.try_lock().map_err(|error| {
+    v1_lock.try_lock().map_err(|error| {
         invalid(&format!(
             "another node owner holds the home or its lock failed: {error}"
         ))
     })?;
-    let staging = node.join(CONVERTING);
-    if staging.try_exists()? {
-        std::fs::remove_dir_all(&staging)?;
+    remove_partial_builds(node)?;
+    let v1_root = node.join("disk-pack");
+    let source = DiskHome::open(&v1_root).map_err(map)?;
+    if restore_safety::pending(&source, &v1_root)? {
+        return Err(invalid(
+            "disk format conversion refuses a home with a pending counter restore validation",
+        ));
     }
-    let source = DiskHome::open(&node.join("disk-pack")).map_err(map)?;
     let writer = source.snapshot().map_err(map)?;
     let current = writer.current().clone();
+    if current.required_features & physical::V2_FEATURES != physical::V2_FEATURES {
+        return Err(invalid(
+            "disk format conversion needs a v1 home with schema record refs, large batches, \
+             and atom records; this home lacks one of them",
+        ));
+    }
     let key = home_key(node_key);
     let (records, logical_bytes) = {
-        let run = RunHome::create(&staging, &key).map_err(map)?;
+        let run = RunHome::create(&node.join(CONVERTING), &key).map_err(map)?;
         let copied = copy(&source, &current, &run)?;
         while run.merge_step().map_err(map)?.is_some() {}
         copied
     };
     // Compare with a new open: the files and the derived key, not memory.
     let verified = {
-        let run = RunHome::open(&staging, &key).map_err(map)?;
+        let run = RunHome::open(&node.join(CONVERTING), &key).map_err(map)?;
+        let stored: u64 = run.status().levels.iter().map(|level| level.1).sum();
+        if stored != records {
+            return Err(invalid(
+                "disk format conversion: the run home holds a different record count",
+            ));
+        }
         verify(&source, &current, &run)?
     };
     if verified != records {
@@ -128,10 +180,10 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
         ));
     }
     drop(writer);
-    let v1_disk_bytes = directory_bytes(&node.join("disk-pack"), 8)?;
-    let v2_disk_bytes = directory_bytes(&staging, 8)?;
+    let v1_disk_bytes = directory_bytes(&v1_root, 8)?;
+    let v2_disk_bytes = directory_bytes(&node.join(CONVERTING), 8)?;
     switch(node, kept)?;
-    drop(lock);
+    drop(v1_lock);
     let report = DiskConversionReport {
         records,
         logical_bytes,
@@ -151,6 +203,22 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
         "disk format conversion to v2 complete; each record verified after reopen"
     );
     Ok(report)
+}
+
+/// Remove what an earlier conversion left before its switch: the run home
+/// being built and the temporary folders of its creation. No v1 file is
+/// among them.
+fn remove_partial_builds(node: &Path) -> StorageResult<()> {
+    let temporary = format!(".{CONVERTING}.create-");
+    for entry in std::fs::read_dir(node)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if (name == CONVERTING || name.starts_with(&temporary)) && entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        }
+    }
+    sync_dir(node)
 }
 
 /// Copy each stored record of `current`. Tombstones are not copied: an
@@ -255,63 +323,99 @@ fn unlimited() -> ReadBudget {
     }
 }
 
-/// Move the v1 files to the kept folder, put the run home in place, and
-/// write the v2 marker last.
+/// Write the intent, move the v1 files to the kept folder (marker first),
+/// put the run home in place, write the v2 marker, then remove the intent.
 fn switch(node: &Path, kept: &Path) -> StorageResult<()> {
-    std::fs::create_dir(kept)?;
-    for name in V1_ENTRIES {
-        let from = node.join(name);
-        if from.try_exists()? {
-            std::fs::rename(&from, kept.join(name))?;
-        }
-    }
-    sync_dir(kept)?;
+    write_durable(&node.join(INTENT), INTENT_BYTES)?;
     sync_dir(node)?;
+    std::fs::create_dir(kept)?;
+    sync_dir(kept.parent().unwrap_or(node))?;
+    for name in V1_ENTRIES {
+        std::fs::rename(node.join(name), kept.join(name))?;
+        sync_dir(kept)?;
+        sync_dir(node)?;
+    }
     std::fs::rename(node.join(CONVERTING), node.join(RUN_DIR))?;
     sync_dir(node)?;
     let staged = node.join(format!(".{NODE_MARKER}.tmp"));
-    let _ = std::fs::remove_file(&staged);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged)?;
-    file.write_all(RUN_NODE_BYTES)?;
-    file.sync_all()?;
+    remove_if_present(&staged)?;
+    write_durable(&staged, RUN_NODE_BYTES)?;
     std::fs::rename(&staged, node.join(NODE_MARKER))?;
+    sync_dir(node)?;
+    std::fs::remove_file(node.join(INTENT))?;
     sync_dir(node)
 }
 
-/// A node home with no marker after an unfinished switch: put the kept v1
-/// files back and remove the partial run home. A home with no marker and no
-/// kept v1 marker is not a conversion; leave it to the normal open.
-fn roll_back(node: &Path, kept: &Path) -> StorageResult<()> {
-    if !kept.join(NODE_MARKER).try_exists()? {
-        return Ok(());
+/// The caller holds the conversion lock and found the intent. With the v2
+/// marker the switch is complete and only the intent goes. Without it, put
+/// the v1 home back: the partial run home goes first, then the kept files
+/// come back with the marker last.
+fn resume(node: &Path, kept: &Path) -> StorageResult<()> {
+    let marker = match std::fs::read(node.join(NODE_MARKER)) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    if marker.as_deref() == Some(RUN_NODE_BYTES) {
+        std::fs::remove_file(node.join(INTENT))?;
+        return sync_dir(node);
     }
     for name in V1_ENTRIES {
-        let from = kept.join(name);
-        if from.try_exists()? && !node.join(name).try_exists()? {
-            std::fs::rename(&from, node.join(name))?;
+        if !node.join(name).try_exists()? && !kept.join(name).try_exists()? {
+            return Err(invalid(&format!(
+                "an unfinished disk format conversion cannot find the v1 {name} in {} or {}; \
+                 nothing was changed",
+                node.display(),
+                kept.display()
+            )));
         }
     }
-    sync_dir(node)?;
     for name in [RUN_DIR, CONVERTING] {
         let partial = node.join(name);
         if partial.try_exists()? {
             std::fs::remove_dir_all(&partial)?;
         }
     }
-    let _ = std::fs::remove_file(node.join(format!(".{NODE_MARKER}.tmp")));
+    remove_if_present(&node.join(format!(".{NODE_MARKER}.tmp")))?;
     sync_dir(node)?;
-    if std::fs::read_dir(kept)?.next().is_none() {
-        std::fs::remove_dir(kept)?;
+    for name in V1_ENTRIES.iter().rev() {
+        let from = kept.join(name);
+        if from.try_exists()? && !node.join(name).try_exists()? {
+            std::fs::rename(&from, node.join(name))?;
+            sync_dir(node)?;
+        }
     }
+    if kept.try_exists()? && std::fs::read_dir(kept)?.next().is_none() {
+        std::fs::remove_dir(kept)?;
+        sync_dir(kept.parent().unwrap_or(node))?;
+    }
+    std::fs::remove_file(node.join(INTENT))?;
+    sync_dir(node)?;
     tracing::warn!(
         target: "lastdb::disk_convert",
         node = %node.display(),
         "an unfinished disk format conversion was rolled back; the home is v1"
     );
     Ok(())
+}
+
+fn write_durable(path: &Path, bytes: &[u8]) -> StorageResult<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn remove_if_present(path: &Path) -> StorageResult<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn sync_dir(path: &Path) -> StorageResult<()> {

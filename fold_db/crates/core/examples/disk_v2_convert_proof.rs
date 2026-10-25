@@ -2,11 +2,14 @@
 //!
 //! CI only. The proof creates a synthetic v1 node home, writes, overwrites,
 //! and deletes records through the node key-value API, and closes it. It then
-//! puts the home in the state that a crash during the switch leaves and checks
-//! that the next open rolls back to v1 with the same data. Then it converts
+//! puts the home in two states that a crash during the switch leaves (only the
+//! marker moved; all v1 files moved and a run home in place) and checks that
+//! each next open rolls back to v1 with the same data. Then it converts
 //! the home with `LASTDB_DISK_FORMAT=2`, reads every key and three prefix
 //! ranges, writes on the v2 home, reopens, reads again, checks the key
-//! refusal and the kept v1 folder, and fails over 2x the live logical bytes.
+//! refusal and the kept v1 folder, checks that a converted home that lost its
+//! marker is refused and not rolled back, and fails over 2x the live logical
+//! bytes. The crash states use the file names of `convert_v2`.
 //! It never opens a real LastDB home.
 
 use fold_db::db_operations::DbOperations;
@@ -21,7 +24,9 @@ const RECORDS: usize = 50_000;
 const BATCH: usize = 1_000;
 const VALUE_BYTES: usize = 256;
 const NAMESPACE: &str = "proof";
-const V1_ENTRIES: [&str; 3] = ["disk-pack", "laststore-layout-v1", "laststore-pack-node-v1"];
+/// The order in which the switch moves the v1 files.
+const V1_ENTRIES: [&str; 3] = ["laststore-pack-node-v1", "laststore-layout-v1", "disk-pack"];
+const INTENT: &str = "laststore-disk-convert-v2";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 type Records = BTreeMap<Vec<u8>, Vec<u8>>;
@@ -76,26 +81,32 @@ async fn main() -> Result<()> {
     drop((shared, store));
     let v1_disk = directory_bytes(&node.join("disk-pack"))?;
 
-    // The state a crash leaves after the v1 files moved and before the v2
-    // marker: the next open moves them back.
-    std::fs::create_dir(&kept)?;
-    for name in V1_ENTRIES {
-        std::fs::rename(node.join(name), kept.join(name))?;
+    // Two states a crash leaves inside the switch. Each next open rolls back.
+    for (moved, label) in [(1, "only the marker moved"), (3, "all v1 files moved")] {
+        std::fs::write(node.join(INTENT), b"switch=v1-to-v2\n")?;
+        std::fs::create_dir(&kept)?;
+        for name in &V1_ENTRIES[..moved] {
+            std::fs::rename(node.join(name), kept.join(name))?;
+        }
+        if moved == 3 {
+            std::fs::create_dir_all(node.join("disk-run"))?;
+        }
+        let store = reopen(&node, &node_key).await?;
+        if store
+            .disk_pack_runtime()
+            .ok_or("no native runtime")?
+            .is_disk_format_v2()
+            || kept.exists()
+            || node.join(INTENT).exists()
+            || node.join("disk-run").exists()
+        {
+            return Err(format!("crash state ({label}) did not roll back to v1").into());
+        }
+        let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
+        check(&shared, &expected, "v1 after rollback").await?;
+        drop((shared, store));
+        println!("rollback: crash state ({label}) returned to v1 with the same data");
     }
-    std::fs::create_dir_all(node.join("disk-run"))?;
-    let store = reopen(&node, &node_key).await?;
-    if store
-        .disk_pack_runtime()
-        .ok_or("no native runtime")?
-        .is_disk_format_v2()
-        || kept.exists()
-    {
-        return Err("an unfinished switch did not roll back to v1".into());
-    }
-    let shared: Arc<dyn NamespacedStore> = Arc::new(store.clone());
-    check(&shared, &expected, "v1 after rollback").await?;
-    drop((shared, store));
-    println!("rollback: an unfinished switch returned to v1 with the same data");
 
     // The conversion.
     std::env::set_var("LASTDB_DISK_FORMAT", "2");
@@ -131,6 +142,20 @@ async fn main() -> Result<()> {
     check(&shared, &expected, "v2 after reopen").await?;
     DbOperations::from_namespaced_store(Arc::clone(&shared)).await?;
     drop((shared, store));
+
+    // A converted home that lost its marker has no intent: it is refused,
+    // and nothing is rolled back or deleted.
+    let marker = node.join("laststore-pack-node-v1");
+    let aside = dir.path().join("marker-aside");
+    std::fs::rename(&marker, &aside)?;
+    if PackNamespacedStore::open_keyed(&node, Some(&node_key)).is_ok() {
+        return Err("a converted home without its marker opened".into());
+    }
+    if !node.join("disk-run").is_dir() || node.join("disk-pack").exists() {
+        return Err("a converted home without its marker was changed".into());
+    }
+    std::fs::rename(&aside, &marker)?;
+    println!("lost marker: refused, and the v2 files stayed in place");
 
     if reopen(&node, &[7u8; 32]).await.is_ok() {
         return Err("a wrong node key opened the converted home".into());

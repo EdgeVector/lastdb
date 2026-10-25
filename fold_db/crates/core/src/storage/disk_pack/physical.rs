@@ -11,7 +11,7 @@ use laststore::disk_pack::{HashRangeCursor, RangeBounds, ReadCosts};
 use laststore::disk_run::home::{RunHashRange, RunHome, RunRead, RunRoot};
 
 /// Logical format features that every v2 home has from its creation.
-const V2_FEATURES: u64 = laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
+pub(super) const V2_FEATURES: u64 = laststore::disk_pack::FEATURE_SCHEMA_RECORD_REFS
     | laststore::disk_pack::FEATURE_LARGE_BATCHES
     | laststore::disk_pack::FEATURE_ATOM_RECORDS;
 /// Most operations in one v2 commit; the same ceiling as a v1 native home.
