@@ -4,8 +4,6 @@ use serde::Serialize;
 
 pub const CONTROL_JSON_MAX_BYTES: u64 = 256 * 1024;
 pub const INVENTORY_JSON_MAX_BYTES: u64 = 256 * 1024;
-pub const MAX_FORMAT_ID_BYTES: usize = 128;
-pub const MAX_BOOTSTRAP_BYTES: usize = 16 * 1024;
 pub const MAX_BATCH_ITEMS: usize = 4;
 pub const MAX_PAGE_ENTRIES: usize = 512;
 pub const MAX_PAGES: usize = 1024;

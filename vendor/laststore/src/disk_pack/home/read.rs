@@ -78,6 +78,28 @@ impl HomeRead {
         )
     }
 
+    /// Copy one bounded range from an exact held stored body. Native block and
+    /// header key-digest/version checks remain mandatory; the returned digest
+    /// covers only the selected range. A complete-record owner must separately
+    /// certify the immutable key and body closure before this range export.
+    pub fn copy_body_range_to(
+        &mut self,
+        collection: &str,
+        key: &str,
+        range: std::ops::Range<u64>,
+        output: &mut dyn std::io::Write,
+    ) -> Result<Option<super::StreamedRecord>> {
+        self.call.charge((collection.len() + key.len()) as u64)?;
+        super::stream::copy_body_range_to(
+            &mut self.call,
+            collection,
+            self.descriptor.group(key)?,
+            key,
+            range,
+            output,
+        )
+    }
+
     /// Locate every exact key first and enforce each body cap before payload I/O.
     pub fn get_many_bounded(
         &mut self,

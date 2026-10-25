@@ -164,6 +164,7 @@ fn validate_restored_credentials(
             client.context(&cloud_backup_protocol::v2::context::ContextReadRequest {
                 version: cloud_backup_protocol::v2::Version::V2,
                 account_id: account,
+                required_destinations: Vec::new(),
             }),
         )
         .map(|_| ())

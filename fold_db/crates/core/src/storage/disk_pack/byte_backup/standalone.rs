@@ -49,7 +49,15 @@ impl StandaloneByteBackupSource {
         context::native_root(&self.context.home, &current)
     }
     pub async fn prepare(&self, begin: Begin, key: &[u8; 32]) -> StorageResult<ByteBackupCapture> {
-        capture::prepare(Arc::clone(&self.context), begin, key).await
+        capture::prepare(Arc::clone(&self.context), begin, key, None).await
+    }
+    pub async fn prepare_record_backup_capture(
+        &self,
+        begin: Begin,
+        key: &[u8; 32],
+        recovery: cloud_backup_protocol::RecoveryDescriptor,
+    ) -> StorageResult<ByteBackupCapture> {
+        capture::prepare(Arc::clone(&self.context), begin, key, Some(recovery)).await
     }
     pub async fn resume(&self, key: &[u8; 32]) -> StorageResult<ByteBackupCapture> {
         capture::resume(Arc::clone(&self.context), key).await

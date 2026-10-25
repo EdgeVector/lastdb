@@ -78,7 +78,7 @@ pub(super) fn native_root(home: &DiskHome, current: &Current) -> StorageResult<N
         frontier: DecimalU64::new(current.frontier),
         required_features: DecimalU64::new(current.required_features),
     };
-    root.validate().map_err(super::protocol)?;
+    super::validate_client_native_root(&root)?;
     Ok(root)
 }
 pub(super) fn require_resources(

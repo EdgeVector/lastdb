@@ -13,7 +13,7 @@ pub mod transfer;
 pub mod usage;
 mod version;
 
-pub use common::{ClientDescriptor, Job, Object, Stream};
+pub use common::{ClientDescriptor, Destination, Job, Object, Stream};
 pub use jobs::Begin;
 pub use publication::{AcceptedBackup, Commit, Head};
 pub use version::Version;

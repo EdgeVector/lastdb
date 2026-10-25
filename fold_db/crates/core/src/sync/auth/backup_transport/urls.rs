@@ -25,6 +25,31 @@ pub(super) fn signed(value: &str, upload: bool) -> Result<Url> {
     )
 }
 
+pub(super) fn upload(value: &str, multipart_part: bool) -> Result<Url> {
+    let headers = if multipart_part {
+        "content-length;host"
+    } else {
+        "content-length;host;if-none-match"
+    };
+    let url = signed_headers(value, headers)?;
+    let parts: Vec<_> = url.query_pairs().collect();
+    let uploads: Vec<_> = parts.iter().filter(|(key, _)| key == "uploadId").collect();
+    let numbers: Vec<_> = parts
+        .iter()
+        .filter(|(key, _)| key == "partNumber")
+        .collect();
+    let valid = if multipart_part {
+        uploads.len() == 1 && !uploads[0].1.is_empty() && numbers.len() == 1 && numbers[0].1 == "1"
+    } else {
+        uploads.is_empty() && numbers.is_empty()
+    };
+    if !valid {
+        return Err(BackupTransportError::InvalidResponse("upload operation"));
+    }
+    drop(parts);
+    Ok(url)
+}
+
 pub(super) fn signed_headers(value: &str, expected: &str) -> Result<Url> {
     let url = https(value)?;
     let names: Vec<_> = url

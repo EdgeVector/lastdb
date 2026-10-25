@@ -13,7 +13,46 @@ use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::Path;
+pub use wire::{Header as TransferHeader, Record as TransferRecord};
 use wire::{Header, Record, DIGEST_BYTES};
+
+/// Encode the existing transfer header without exposing native physical files.
+pub fn write_header(output: &mut dyn Write, header: &TransferHeader) -> Result<()> {
+    header.validate()?;
+    wire::write_metadata(output, header)
+}
+
+/// Encode one existing transfer record prefix. Its opaque body follows directly.
+pub fn record_prefix(record: &TransferRecord, features: u64) -> Result<Vec<u8>> {
+    let mut bytes = vec![1];
+    wire::write_metadata_bounded(&mut bytes, record, wire::record_metadata_max(features))?;
+    Ok(bytes)
+}
+
+/// Stream an administrative record's existing prefix without copying its key.
+pub fn write_stored_record_prefix(
+    output: &mut dyn Write,
+    record: &crate::disk_pack::maintenance::StoredRecord<'_>,
+    features: u64,
+) -> Result<()> {
+    wire::write_stored_prefix(output, record, features)
+}
+
+/// Complete the existing transfer stream with its exact body-inclusive receipt.
+pub fn write_footer(
+    output: &mut dyn Write,
+    header: &TransferHeader,
+    receipt: &TransferReceipt,
+) -> Result<()> {
+    output.write_all(&[0])?;
+    wire::write_metadata(
+        output,
+        &wire::Footer {
+            header_sha256: header.digest()?,
+            receipt: receipt.clone(),
+        },
+    )
+}
 
 /// Complete stream verification. It contains no keys, values, or secret material.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
@@ -76,6 +115,15 @@ pub fn export(home: &DiskHome, output: &mut dyn Write) -> Result<TransferReceipt
 /// transfer never publishes CURRENT and cannot serve as an active database.
 /// This initial protocol requires a fresh target for a retry; it does not resume.
 pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
+    import_with_verifier(root, input, export, |_| {})
+}
+
+pub(super) fn import_with_verifier(
+    root: &Path,
+    input: &mut dyn Read,
+    verify: fn(&DiskHome, &mut dyn Write) -> Result<TransferReceipt>,
+    configure: fn(&mut HomeBuilder),
+) -> Result<TransferReceipt> {
     let header: Header = wire::read_metadata(input)?;
     header.validate()?;
     let descriptor = super::HomeDescriptor::new(header.hash_fanout, header.layout_epoch)?;
@@ -85,6 +133,7 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
         header.frontier,
         header.required_features,
     )?;
+    configure(&mut builder);
     let receipt = input::read_records(
         input,
         &mut builder,
@@ -95,7 +144,7 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
     )?;
     builder.finish()?;
     let target = DiskHome::open(root)?;
-    let verified = export(&target, &mut std::io::sink())?;
+    let verified = verify(&target, &mut std::io::sink())?;
     if verified != receipt {
         return Err(wire::refuse("complete target record digest differs"));
     }
@@ -104,7 +153,11 @@ pub fn import(root: &Path, input: &mut dyn Read) -> Result<TransferReceipt> {
 
 impl TransferReceipt {
     fn include(&mut self, record: &Record) -> Result<()> {
-        if record.deleted {
+        self.include_body(record.deleted, record.body_bytes)
+    }
+
+    pub(super) fn include_body(&mut self, deleted: bool, body_bytes: u64) -> Result<()> {
+        if deleted {
             self.tombstones = self
                 .tombstones
                 .checked_add(1)
@@ -117,7 +170,7 @@ impl TransferReceipt {
         }
         self.body_bytes = self
             .body_bytes
-            .checked_add(record.body_bytes)
+            .checked_add(body_bytes)
             .ok_or_else(|| wire::refuse("body byte count overflow"))?;
         Ok(())
     }

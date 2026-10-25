@@ -6,6 +6,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+mod order;
+
 pub(super) fn directory(path: &Path) -> Result<()> {
     fs::create_dir(path)?;
     durability::sync_directory(&File::open(path)?)?;

@@ -18,6 +18,7 @@ mod maintenance;
 mod merge;
 mod mutation_quote;
 mod read;
+pub mod record_stream;
 mod stream;
 pub mod transfer;
 mod write;

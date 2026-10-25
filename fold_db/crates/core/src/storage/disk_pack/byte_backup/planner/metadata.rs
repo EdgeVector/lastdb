@@ -18,6 +18,7 @@ pub(super) fn finish(
         descriptor_sha256: state.begin.descriptor.commitment().map_err(protocol)?,
         native_files: Vec::new(),
         external_dependencies: Vec::new(),
+        stored_chunks: Vec::new(),
     };
     let mut files = 0u64;
     let mut bytes = 0u64;
@@ -59,6 +60,7 @@ pub(super) fn finish(
         native_bytes: bytes,
         external_dependency_count: 0,
         pages,
+        records: None,
     };
     root.validate_for(&state.begin)?;
     freeze(inner, state, key, index, &codec::encode(&root)?)?;
@@ -67,7 +69,7 @@ pub(super) fn finish(
     }
     Ok(())
 }
-fn freeze_page(
+pub(in crate::storage::disk_pack::byte_backup) fn freeze_page(
     inner: &Inner,
     state: &mut State,
     key: &[u8; 32],
@@ -83,7 +85,7 @@ fn freeze_page(
         bytes: object.input.object.bytes,
     })
 }
-fn freeze(
+pub(in crate::storage::disk_pack::byte_backup) fn freeze(
     inner: &Inner,
     state: &mut State,
     key: &[u8; 32],
@@ -114,6 +116,10 @@ fn freeze(
         Object {
             sha256: bytes_sha256(&encrypted),
             bytes: DecimalU64::new(encrypted.len() as u64),
+            destination: state
+                .recovery
+                .as_ref()
+                .map(|_| cloud_backup_protocol::v2::Destination::R2),
         },
     )?;
     let record = ObjectRecord {
@@ -123,6 +129,8 @@ fn freeze(
         metadata_pack: false,
         ciphertext: Some(name),
         receipt: None,
+        record_segments: Vec::new(),
+        client_stream: None,
     };
     save(inner, state, index, record.clone())?;
     Ok(record)
