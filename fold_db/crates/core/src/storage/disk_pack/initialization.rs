@@ -268,7 +268,7 @@ impl PackRuntime {
                 match runtime.node_home.as_ref() {
                     Some(home) => home.complete()?,
                     None if runtime.is_disk_format_v2() => {
-                        super::run_node::complete_initialization(runtime.physical.path())?
+                        super::run_node::complete_initialization(runtime.physical.path())?;
                     }
                     None => return Err(refusal("current creation has no held node owner")),
                 }
