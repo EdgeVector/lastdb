@@ -1,6 +1,7 @@
 # Typed range field contract
 
-Status: shared field semantics and captured range-read context. The active key format stays unchanged.
+Status: shared field semantics, captured comparison context, and explicit typed key conversion APIs.
+The active node key format stays unchanged. This package does not convert a home.
 
 ## Current state
 
@@ -88,15 +89,77 @@ The change adds no second molecule, stored key copy, or ordered lookup.
 The schema declaration alone carries the new type name.
 Older readers cannot accept the new enum variants; they need an upgrade before a new date declaration reaches them.
 
+## Typed storage profiles
+
+The shared `RangeStorageProfile` enum defines versioned, reversible range formats.
+An explicit call selects a profile from the selected field's declared type.
+The profile describes one molecule. It adds no type tag to each stored key.
+No schema admission, startup, query, or writer selects these profiles yet.
+
+| Profile | Ordered payload before the existing range encoding | Bytes |
+| --- | --- | --- |
+| `legacy_utf8_v1` | The existing complete text, with text order | Variable |
+| `string_utf8_v1` | The complete UTF-8 string, with byte order | Variable |
+| `integer_i64_v1` | The signed 64-bit integer with a sign bias, in fixed-width lowercase hex | 16 |
+| `date_days_v1` | The Gregorian day offset from `0000-01-01`, in fixed-width lowercase hex | 6 |
+| `date_time_nanos_v1` | The UTC nanosecond offset from `0000-01-01T00:00:00Z`, in fixed-width lowercase hex | 18 |
+| `boolean_v1` | `0` for false, `1` for true | 1 |
+
+Equal integer values produce the same payload, even when their source text differs.
+Equal datetime instants produce the same payload, even when their written offsets differ.
+The datetime profile keeps all nine fractional digits through the full UTC year domain.
+Decode returns canonical integer text, date text, or UTC datetime text with nine fractional digits.
+Atom content retains its original value. Conversion cannot restore a discarded key spelling without the source snapshot.
+String values retain every byte, including control bytes and Unicode.
+Only the String and legacy profiles permit text prefixes.
+Unsupported types, mixed scalar unions, unknown versions, and malformed fixed-width payloads receive a refusal.
+
+`ProfiledRangeCodec` composes these payloads with the existing plain or OPE-v1 range encoding.
+It retains the existing molecule keys and encryption modes.
+Plain ranges keep the payload bytes. OPE-v1 retains its existing eightfold byte expansion and existing security limits.
+This package does not select or claim a stronger encryption scheme.
+Some integer keys grow under the fixed-width format; the profile does not promise a size decrease for every type.
+No second lookup key or original range copy enters storage.
+The ordinary node codec still reports `LegacyUtf8V1` and uses its original bytes.
+
+## Explicit key conversion
+
+`RangeKeyConversion` converts a caller-supplied set of current `mk:` range keys for one molecule.
+The caller selects both source and target profiles and supplies the existing encryption configuration.
+The converter retains the exact hash bytes, including a blinded hash.
+It changes only the range portion and returns the complete mapping in target byte order.
+It never calls storage or writes an atom, tip, profile record, or format marker.
+
+The converter refuses duplicate inputs and canonical collisions under the same hash.
+The same range under different hashes remains distinct.
+It also refuses malformed framing, another molecule, invalid values, and exceeded key-count or byte limits.
+The byte limits account for the current range encoding's expansion before the target allocation.
+The plan retains source and target key strings in bounded temporary memory.
+Atom values do not enter the plan.
+No partial mapping reaches a publication callback because the API has no such callback.
+
+Decode uses the selected format. It never guesses encryption from a hex-shaped string.
+OPE-v1 decode also checks a full re-encoding with the supplied molecule and key.
+This check detects format or key mismatch. It does not authenticate the legacy encoding.
+Codec diagnostic text excludes encryption keys.
+
+CAUTION: A key conversion plan does not prove that the supplied set contains every key in a home.
+
+The caller must supply real range values from one fixed logical snapshot.
+Absent range slots for hash-only and Single fields need separate layout treatment.
+The current API does not enumerate disk generations, delete markers, conflicts, or captured mutation keys.
+It does not publish a typed profile, lift the date-key fence, or enable a typed node reader.
+
 ## Next packages
 
-1. Carry canonical values through the new profile's key writes, exact lookups, and bounds.
-2. Connect the shared date and datetime comparisons to that profile's ordered disk representation.
-3. Preserve nanosecond precision across the full year domain through conversion and recovery.
-4. Select a compact, reviewed encryption profile for each supported key type.
-5. Define one versioned key representation per molecule, with explicit conversion and recovery.
+1. Capture the complete logical key set, layout slots, delete barriers, and other key references from one inactive home.
+2. Define durable conversion progress and an unsupported-format fence before any key rewrite.
+3. Publish a complete converted generation and its molecule profile together, with explicit resume and recovery rules.
+4. Preserve counters, atom references, protein bindings, and file references through that publication.
+5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors.
 
-Date keys remain disabled until these paths agree.
+Date keys remain disabled until these paths agree. Conversion never runs at startup.
+The current encryption stays in use. A replacement requires a separate review and decision.
 The plan adds no separate `range_type` option that can contradict the selected field.
 It does not require a cloud reader now.
 
