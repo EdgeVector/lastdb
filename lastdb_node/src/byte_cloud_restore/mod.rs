@@ -16,6 +16,6 @@ pub type Result<T> = std::result::Result<T, RestoreError>;
 use crate::native_cloud_restore::{NativeFileProof, NativeInventory, VerifiedNativeContext};
 use fold_db::sync::auth::byte_backup::ByteBackupClient;
 
-fn source_error(_: fold_db::sync::auth::native_backup::NativeBackupError) -> RestoreError {
+fn source_error(_: fold_db::sync::auth::byte_backup::BackupTransportError) -> RestoreError {
     RestoreError::Source("byte transport")
 }

@@ -62,24 +62,6 @@ impl MutationManager {
         Ok(receipt)
     }
 
-    pub(in crate::fold_db_core::mutation_manager) async fn apply_replayed_aggregate_set(
-        &self,
-        mut mutations: Vec<Mutation>,
-        storage_prefix: Option<&str>,
-    ) -> Result<ResidentCommitReceipt, SchemaError> {
-        if mutations.len() != 1 {
-            return Err(SchemaError::InvalidData(
-                "aggregate replay must contain exactly one source mutation".into(),
-            ));
-        }
-        self.apply_aggregate_source(
-            mutations.pop().expect("one mutation checked"),
-            storage_prefix,
-            WriteOrigin::Replay,
-        )
-        .await
-    }
-
     /// Add an atomic invalidation for every enrolled ordinary source write.
     pub(in crate::fold_db_core::mutation_manager) async fn write_with_aggregate_invalidations(
         &self,

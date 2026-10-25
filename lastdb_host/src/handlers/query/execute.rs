@@ -33,7 +33,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                     limit: INTERNAL_FETCH_CAP,
                 });
                 let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-                let (rows, drops) = execute_query_rows_with_unresolved(host, complete, ctx).await?;
+                let (rows, drops) = execute_query_rows_windowed(host, complete, None, ctx).await?;
                 let total = rows.len();
                 let page: Vec<_> = rows
                     .into_iter()
@@ -53,7 +53,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             if let Some(total) = count_rows(host, query, ctx).await? {
                 let _permit = acquire_read_permit(host, Lane::Bulk).await?;
                 let (page, drops) =
-                    execute_query_rows_with_unresolved(host, query.clone(), ctx).await?;
+                    execute_query_rows_windowed(host, query.clone(), None, ctx).await?;
                 // `total` is an index count, so it counts rows the materializer will
                 // not deliver: a tip whose atom body could not be hydrated, and a
                 // row whose body is a content tombstone (the index gates on
@@ -137,7 +137,7 @@ impl<H: HostNode> QueryRun<'_, H> {
                 });
                 let _permit = acquire_read_permit(host, Lane::Bulk).await?;
                 let (all_results, drops) =
-                    execute_query_rows_with_unresolved(host, query, ctx).await?;
+                    execute_query_rows_windowed(host, query, None, ctx).await?;
                 // `total_count` is the counted set on every shape, so two limits
                 // seconds apart cannot disagree about how big the set is. If the
                 // snapshot came up short of the count, `has_more` says so —
@@ -170,7 +170,7 @@ impl<H: HostNode> QueryRun<'_, H> {
             limit,
         ));
         let _permit = acquire_read_permit(host, Lane::Bulk).await?;
-        let (page, drops) = execute_query_rows_with_unresolved(host, query, ctx).await?;
+        let (page, drops) = execute_query_rows_windowed(host, query, None, ctx).await?;
         // Same index-count reconciliation as the caller-supplied-page shape
         // above: dropped rows were counted by `total`, so they have to be
         // counted as consumed here too.
@@ -218,7 +218,7 @@ impl<H: HostNode> QueryRun<'_, H> {
         // Interactive.
         let lane = rules::lane_for_unknown_cardinality(&query);
         let _permit = acquire_read_permit(host, lane).await?;
-        let (all_results, drops) = execute_query_rows_with_unresolved(host, query, ctx).await?;
+        let (all_results, drops) = execute_query_rows_windowed(host, query, None, ctx).await?;
         let total_count = all_results.len();
         let page: Vec<Value> = all_results.into_iter().skip(offset).take(limit).collect();
         // Native inspection proves its bounded set is complete, including an

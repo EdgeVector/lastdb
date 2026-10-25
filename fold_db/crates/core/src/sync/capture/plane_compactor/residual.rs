@@ -29,9 +29,9 @@ impl PlaneCompactor {
     ///
     /// # Where this is called from
     ///
-    /// Both [`SyncEngine::do_sync`] and [`SyncEngine::run_capture_tick`], for
+    /// Both the retired engine and the retired engine, for
     /// the reason recorded on
-    /// [`SyncEngine::maybe_compact_capture_reexport_plane`]: the tick alone is
+    /// the retired engine: the tick alone is
     /// gated behind `config.legacy_personal_cloud_sync`, false on the LastStore
     /// backup home every current node runs, and a reclaim reachable only from a
     /// retired code path is not a retention policy.

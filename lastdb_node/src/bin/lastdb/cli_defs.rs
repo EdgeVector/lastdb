@@ -5,8 +5,6 @@ use super::*;
 
 #[path = "cli_defs/app.rs"]
 mod app;
-#[path = "cli_defs/backup_gc_compact.rs"]
-mod backup_gc_compact;
 #[path = "cli_defs/cloud.rs"]
 mod cloud;
 #[path = "cli_defs/db.rs"]
@@ -15,7 +13,6 @@ mod db;
 mod schema;
 
 pub(super) use app::*;
-pub(super) use backup_gc_compact::*;
 pub(super) use cloud::*;
 pub(super) use db::*;
 pub(super) use schema::*;
@@ -225,70 +222,7 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Connect cloud sync. Fresh homes with an invite create a new identity
-    /// and print its recovery phrase; existing-account joins read the phrase.
-    Connect {
-        /// Exemem environment to register against (dev | prod).
-        #[arg(long)]
-        env: Option<String>,
-        /// Explicit Exemem API URL (overrides --env).
-        #[arg(long)]
-        api_url: Option<String>,
-        /// Invite code for first-device onboarding on a fresh data dir.
-        #[arg(long)]
-        invite_code: Option<String>,
-        /// Read the first-device invite code from standard input.
-        #[arg(long, conflicts_with = "invite_code")]
-        invite_code_stdin: bool,
-        /// Replace an existing different identity.key.
-        #[arg(long)]
-        force: bool,
-        /// Register a copied identity only against compiled DEV for a safe-upgrade proof.
-        #[arg(
-            long,
-            requires_all = ["env", "invite_code_stdin"],
-            conflicts_with_all = ["api_url", "invite_code", "force"]
-        )]
-        use_existing_identity: bool,
-    },
-    /// Restore the latest LastStore cloud backup into a fresh home.
-    Restore {
-        /// Fresh target home to restore into. Refuses the current primary home.
-        #[arg(long)]
-        into: PathBuf,
-        /// Exemem environment to restore from (dev | prod).
-        #[arg(long)]
-        env: Option<String>,
-        /// Explicit Exemem API URL (overrides --env).
-        #[arg(long)]
-        api_url: Option<String>,
-        /// Emit raw JSON only.
-        #[arg(long)]
-        json: bool,
-        /// Emit secret-free progress JSON Lines on stderr; requires --json.
-        #[arg(long, requires = "json")]
-        progress_json: bool,
-        /// Read verified chunk prefixes from an old home; the target must be fresh.
-        /// A failed remote-latest destination can be used for a source-free retry.
-        #[arg(long)]
-        reuse_chunks_from: Option<PathBuf>,
-        /// Recover an S0-only backup from cloud with a recovered identity and cloud config.
-        #[arg(long, conflicts_with = "reuse_chunks_from")]
-        remote_s0_only: bool,
-        /// Restore the Ready generation or normal backup/latest with only identity and cloud config.
-        /// Legacy discovery refuses more than 10,000 recovery descriptors.
-        #[arg(long, conflicts_with = "remote_s0_only")]
-        remote_latest: bool,
-        /// Select one cloud database when an account has several backups.
-        #[arg(long)]
-        db_hash: Option<String>,
-        /// Require one exact manifest; normal remote restore still checks latest.
-        #[arg(long)]
-        manifest_sha256: Option<String>,
-    },
-    /// Pack one exact terminal backup job through local files while Mini stays online.
-    BackupGcCompact(BackupGcCompactArgs),
-    /// Cloud sync: paid signup, upgrade checkout, or subscription status.
+    /// Explicit V2 backup, restore, and paused credentials.
     Cloud {
         #[command(subcommand)]
         action: CloudCommand,

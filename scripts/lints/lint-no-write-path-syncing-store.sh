@@ -2,11 +2,10 @@
 # lint-no-write-path-syncing-store.sh
 #
 # Ban reintroduction of write-path CDC store decorators
-# (SyncingKvStore / SyncingNamespacedStore). Multi-device export is
-# store-level capture on the cold path (sync/capture/). Upload staging
-# remains in sync/engine/outbox.rs and is intentionally NOT banned here.
+# (SyncingKvStore / SyncingNamespacedStore). Backup capture stays outside
+# ordinary writes. Retired cloud upload producers are not required here.
 #
-# Scope: fold_db/crates/core/src/**/*.rs (production + in-src tests).
+# Scope: fold_db/crates/core/src/**/*.rs.
 # Docs under docs/ may still name the historical types.
 #
 # Exit 0 on clean tree; 1 if banned patterns appear.
@@ -52,14 +51,9 @@ if [[ -f "$src/storage/syncing_store.rs" ]] || [[ -f "$src/storage/syncing_names
   failed=1
 fi
 
-if [[ ! -f "$src/sync/engine/outbox.rs" ]]; then
-  echo "lint-no-write-path-syncing-store: outbox staging missing (must keep upload staging)" >&2
-  failed=1
-fi
-
 if [[ "$failed" -ne 0 ]]; then
   echo "lint-no-write-path-syncing-store: FAIL" >&2
-  echo "Use sync/capture/ for multi-device export; never re-wrap KvStore for CDC." >&2
+  echo "Keep backup capture outside writes; never re-wrap KvStore for CDC." >&2
   exit 1
 fi
 

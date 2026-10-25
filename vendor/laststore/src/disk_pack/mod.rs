@@ -36,6 +36,7 @@ mod packed_page;
 mod page;
 pub(crate) mod page_usage;
 mod page_write;
+mod parent_usage;
 mod private_files;
 mod publish;
 mod read_budget;

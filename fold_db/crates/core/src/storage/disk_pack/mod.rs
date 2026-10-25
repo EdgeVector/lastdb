@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod backup;
 pub mod backup_capture;
-pub mod backup_manifest;
 mod boundary;
 pub mod byte_backup;
 mod cloud_work;

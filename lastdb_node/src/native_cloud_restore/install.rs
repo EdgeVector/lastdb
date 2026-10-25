@@ -1,8 +1,8 @@
 use super::{
-    closure::Inventory, download, session, NativeFileProof, NativeInventory, RecoveryKeys,
-    RestoreError, RestoreReport, RestoreSession, Result, VerifiedNativeContext,
+    download, session, NativeFileProof, NativeInventory, RecoveryKeys, RestoreError, RestoreReport,
+    Result, VerifiedNativeContext,
 };
-use cloud_backup_protocol::{bytes_sha256, NativeFileEntry};
+use cloud_backup_protocol::bytes_sha256;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -14,10 +14,6 @@ struct Receipt {
     version: u8,
     session_id: uuid::Uuid,
     report: RestoreReport,
-}
-
-pub(super) fn published(session: &RestoreSession) -> Result<Option<RestoreReport>> {
-    published_context(&session.verified_context())
 }
 
 pub(super) fn published_context(
@@ -50,35 +46,6 @@ pub(super) fn published_context(
     .sync_all()?;
     session::atomic_json(&session.root.join("result.json"), &receipt.report)?;
     Ok(Some(receipt.report))
-}
-
-pub(super) fn finish(
-    session: &RestoreSession,
-    keys: &RecoveryKeys,
-    inventory: Inventory,
-    atoms: u64,
-) -> Result<RestoreReport> {
-    finish_context(
-        &session.verified_context(),
-        keys,
-        NativeInventory {
-            files: inventory.files,
-            bytes: inventory.bytes,
-            dependencies: inventory.dependencies,
-        },
-        atoms,
-        |path| {
-            let entry: NativeFileEntry = session::read_json(
-                &session.root.join("entries").join(download::path_key(path)),
-                256 * 1024,
-            )?;
-            Ok(NativeFileProof {
-                path: entry.path.as_str().into(),
-                sha256: entry.native_sha256,
-                bytes: entry.native_bytes.get(),
-            })
-        },
-    )
 }
 
 pub(super) fn finish_context(

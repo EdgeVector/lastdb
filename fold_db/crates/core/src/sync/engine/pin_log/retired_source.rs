@@ -1,8 +1,4 @@
-//! Untouched authenticated source objects for exclusive restore preservation.
-
-use super::{MutationLogSegment, PinLogRecord};
-use crate::sync::snapshot_log::MutationLogSegmentId;
-use std::sync::Arc;
+use super::*;
 
 /// Bytes remain exactly as authenticated by the normal mutation-log opener.
 #[derive(Clone, Debug)]
@@ -27,11 +23,4 @@ impl From<&MutationLogSegment> for AuthenticatedReplayObject {
             ciphertext: Arc::from(object.payload.as_slice()),
         }
     }
-}
-
-/// A preserved record advances the cursor only after its journal is durable.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ReplayEntryOutcome {
-    Applied,
-    RetiredAuthorityPreserved { mutations: usize },
 }

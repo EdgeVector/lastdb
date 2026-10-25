@@ -82,6 +82,15 @@ When such an edit produces two locator leaves and a tail below 25% payload fulln
 Pure tail inserts retain the current append layout. Directory splits and splits with three or more leaves retain their current rules.
 The change uses the existing entries and two output pages. It adds no page format, buffer, cache, or memory allowance.
 
+Parent pages contain child addresses. A changed child address requires a replacement ancestor in the immutable tree.
+Held snapshots can still select the old pages. Low payload fullness alone does not prove a redundant copy.
+The isolated parent probe separates root and nonroot inputs, child counts, levels, parent splits, and new ancestor output.
+Same-generation and older-generation are numeric page-age categories. They do not identify all private or published pages.
+Tracked and untracked describe lifetime-reference accounting, not foreground and compaction work.
+For each completed edit mode, parent output equals visited parents plus split extras plus new-ancestor pages.
+The probe also records identical explicit replacements and new-hash creation routes. It keeps no page-address map or new cache.
+The full-page writer, split rule, storage format, budgets, and durability barriers retain their current behavior.
+
 Commit `e79b71151` shares checked maps, overflow pages, and part headers through one bounded cache within each publication.
 The cache serves changed-key references and the fresh-part reference pass.
 It drops before final count changes and receipt output; no cache survives the commit or an error.

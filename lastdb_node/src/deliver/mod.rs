@@ -1,9 +1,5 @@
-//! Consent-gated deliver stage / list / approve on LastDB Mini.
-//!
-//! Stages a query-defined `lastdb.slice.v1` after a read-only recipient fence
-//! check. On approve, seals a `delivery_slice` to the recipient's
-//! messaging X25519 key and POSTs it to Exemem `messaging/connect` using the
-//! node's cloud API key — Exemem remains a blind relay.
+//! Local encrypted snapshot export and passive staged-record list/reject.
+//! No recipient enrollment, messaging sender or new delivery stage is available.
 
 use crate::host::Host;
 use crate::seal::seal_and_encrypt_message;
@@ -17,14 +13,9 @@ use fold_db::sharing::delivery_wire::{
 };
 use fold_db::sharing::query_slice::{materialize_query_slice, QuerySliceLeg};
 use fold_db::sharing::store::{
-    get_pending_delivery_in_ops, get_staged_delivery_artifact_in_ops,
-    list_pending_deliveries_in_ops, remove_pending_delivery_in_ops, store_pending_delivery_in_ops,
-    store_staged_delivery_artifact_in_ops,
+    get_pending_delivery_in_ops, list_pending_deliveries_in_ops, remove_pending_delivery_in_ops,
 };
-use fold_db::sharing::types::{
-    DeliveryArtifactDescriptor, DeliveryMode, DeliveryPreview, DeliveryRecord,
-    DeliverySampleRecord, DeliverySpec, PendingDelivery, StagedDeliveryArtifact,
-};
+use fold_db::sharing::types::{DeliveryArtifactDescriptor, DeliveryMode};
 use lastdb_host::envelope::{content_free, envelope, json_ok};
 use lastdb_host::handlers::render;
 use lastdb_host::handlers::resolve_schema_name;
@@ -35,11 +26,9 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use uuid::Uuid;
 
-/// Messaging blob hard cap (matches messaging_service 64KB base64 ≈ 87382 chars).
-const MAX_BLOB_B64_CHARS: usize = 87_382;
 /// Object-store snapshot seal cap (base64 chars). Far above messaging; keeps
 /// accidents from OOMing a Mini while allowing full-board slices.
 const MAX_SNAPSHOT_BLOB_B64_CHARS: usize = 12 * 1024 * 1024;
@@ -68,20 +57,14 @@ pub struct DeliverySlicePayload {
     pub artifact: DeliveryArtifactDescriptor,
 }
 
-mod approve;
-mod ciphertext;
-mod cloud_generation;
 mod filters;
 mod legs;
+mod pending;
 mod publish;
-mod recipient;
-mod stage;
 mod types;
 
-pub use approve::{execute_approve_delivery, execute_reject_delivery};
+pub use pending::{execute_list_deliveries, execute_reject_delivery};
 pub use publish::execute_publish_snapshot;
-pub use recipient::execute_recipient_address;
-pub use stage::{execute_list_deliveries, execute_stage_delivery};
 
 fn error_json(status: u16, message: &str, ctx: &AccessContext) -> UdsResponse {
     render(Err(HostError::new(status, message)), ctx)
@@ -91,7 +74,7 @@ fn ok_json(value: &serde_json::Value, ctx: &AccessContext) -> UdsResponse {
     json_ok(&envelope(value, ctx.user_id.as_str()))
 }
 
-/// Parse `/api/sharing/deliveries/{id}/approve|reject` path tails.
+/// Parse the local rejection path of an existing staged record.
 pub fn parse_delivery_action(path: &str) -> Option<(&str, &str)> {
     let rest = path.strip_prefix("/api/sharing/deliveries/")?;
     let (id, action) = rest.split_once('/')?;
@@ -99,7 +82,7 @@ pub fn parse_delivery_action(path: &str) -> Option<(&str, &str)> {
         return None;
     }
     match action {
-        "approve" | "reject" => Some((id, action)),
+        "reject" => Some((id, action)),
         _ => None,
     }
 }

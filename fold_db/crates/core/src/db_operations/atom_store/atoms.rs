@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 use super::AtomStore;
 
-mod events;
 mod history;
 mod read;
 mod scan;

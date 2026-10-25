@@ -5,7 +5,7 @@ use super::{
     store::{self, Store},
     *,
 };
-use crate::native_cloud_backup::RunOrigin;
+use crate::backup_runtime::RunOrigin;
 use cloud_backup_protocol::Id;
 
 pub async fn request(

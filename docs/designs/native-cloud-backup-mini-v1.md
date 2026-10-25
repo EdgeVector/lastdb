@@ -1,5 +1,9 @@
 # Native cloud backup: Mini integration
 
+This design is historical. The V1 client commands and automatic controller are retired.
+Use the explicit V2 backup commands in [the byte transport design](cloud-byte-transport-v2.md).
+Existing records and physical source holds remain unchanged.
+
 Status: M1 source integration in DEV. Cloud sync stays off.
 This source integrates journal removal from main commit `4118c7baa12539c8c6bcf4391c497159f2a1529a` (PR #268).
 The source release still requires the remaining legacy isolation and allocation boundaries.

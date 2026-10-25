@@ -225,7 +225,7 @@ pub struct MutationLogPlaneStatus {
     pub last_quarantine_reason: Option<String>,
 }
 
-/// Outcome of [`crate::sync::SyncEngine::reenable_cloud_sync`].
+/// Outcome of the retired engine.
 ///
 /// Past-grace re-enable pulls cloud logs first, then snapshots local state,
 /// then resumes recording. Network/snapshot failures are reported here without

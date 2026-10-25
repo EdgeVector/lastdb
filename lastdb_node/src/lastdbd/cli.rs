@@ -8,7 +8,7 @@ use lastdb_node::service_home;
 #[derive(Parser, Debug)]
 #[command(
     name = "lastdbd",
-    about = "LastDB Mini semantic daemon: core DB + app-identity + cloud sync over the owner Unix socket",
+    about = "LastDB Mini semantic daemon: core DB + app-identity + explicit byte backups over the owner Unix socket",
     // Stamped by build.rs (tag -> git describe -> manifest), matching the
     // release gate's --version-equals-tag assertion.
     version = env!("FOLDDB_BUILD_VERSION")
@@ -40,26 +40,6 @@ pub(crate) enum Command {
         #[command(subcommand)]
         action: ServiceHomeCommand,
     },
-    /// Connect cloud sync. On a fresh home with --invite-code, creates a new
-    /// identity and prints its recovery phrase. Otherwise reads the 24-word
-    /// phrase from stdin to join an existing account as another device. Run
-    /// while the daemon is stopped; the next boot pulls the account's data.
-    Connect {
-        /// Exemem environment to register against (dev | prod). Defaults to
-        /// the profile's environment resolution (EXEMEM_ENV / build profile).
-        #[arg(long)]
-        env: Option<String>,
-        /// Explicit Exemem API URL (overrides --env).
-        #[arg(long)]
-        api_url: Option<String>,
-        /// Invite code for first-device onboarding on a fresh data dir.
-        #[arg(long)]
-        invite_code: Option<String>,
-        /// Replace an existing DIFFERENT identity.key (orphans data written
-        /// under the old key — the old data dir will no longer decrypt).
-        #[arg(long)]
-        force: bool,
-    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -81,21 +61,5 @@ pub(crate) fn run_service_home(action: &ServiceHomeCommand) -> Result<String, St
         ServiceHomeCommand::Set { home } => service_home::set_configured_home(home),
         ServiceHomeCommand::Show => service_home::show_configured_home(),
         ServiceHomeCommand::Clear => service_home::clear_configured_home(),
-    }
-}
-
-/// Resolve the Exemem API URL for `lastdbd connect`.
-pub(crate) fn connect_api_url(
-    api_url: Option<String>,
-    env: Option<&str>,
-) -> Result<String, String> {
-    use folddb_profile::endpoints::{exemem_api_url, exemem_api_url_for, Environment};
-
-    match (api_url, env) {
-        (Some(url), _) => Ok(url),
-        (None, Some("dev")) => Ok(exemem_api_url_for(Environment::Dev).to_string()),
-        (None, Some("prod")) => Ok(exemem_api_url_for(Environment::Prod).to_string()),
-        (None, Some(other)) => Err(format!("unknown --env '{other}' (expected dev or prod)")),
-        (None, None) => Ok(exemem_api_url()),
     }
 }

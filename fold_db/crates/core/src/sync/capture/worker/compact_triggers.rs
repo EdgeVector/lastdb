@@ -9,7 +9,7 @@ pub(crate) fn large_captured_plane_probe_interval_s() -> u64 {
 }
 
 /// Capture-free `COMPACT_ALLOWLIST` planes that have no self-compactor of their
-/// own, swept together by [`SyncEngine::maybe_compact_residual_capture_free_planes`].
+/// own, swept together by the retired engine.
 ///
 /// Three planes reached 2026-08-17 with a byte-return *verb* and no byte-return
 /// *policy*: `lastdb db compact --collection <p> --execute` returns their bytes,

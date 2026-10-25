@@ -1,8 +1,11 @@
 use super::*;
 
 pub(super) const TRANSACTION_GROUP_WIRE_VERSION: u32 = 2;
+
 pub(super) const TRANSACTION_GROUP_MANIFEST_SCHEMA: &str = "__lastdb_transaction_group_v2__";
+
 pub(super) const TRANSACTION_GROUP_RECORD_DIGEST_LEGACY_JSON: u32 = 0;
+
 pub(super) const TRANSACTION_GROUP_RECORD_DIGEST_SORTED_JSON_V1: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,13 +73,6 @@ pub(super) struct TransactionGroupWireV2Raw {
     pub(super) record_template: Option<Box<RawValue>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum MutationLogRecordStream {
-    Legacy,
-    SingleSchema(String),
-    MultiSchema,
-}
-
 pub(super) fn mutation_log_record_schemas(
     record: &PinLogRecord,
 ) -> Result<Option<(Vec<&str>, u64)>, String> {
@@ -101,18 +97,6 @@ pub(super) fn mutation_log_record_schemas(
         .filter(|value| *value > 0)
         .ok_or_else(|| "mutation-log record has no positive T0".to_string())?;
     Ok(Some((schemas.into_iter().collect(), utc_nanos)))
-}
-
-pub(super) fn mutation_log_record_stream(
-    record: &PinLogRecord,
-) -> Result<MutationLogRecordStream, String> {
-    match mutation_log_record_schemas(record)? {
-        None => Ok(MutationLogRecordStream::Legacy),
-        Some((schemas, _)) if schemas.len() == 1 => Ok(MutationLogRecordStream::SingleSchema(
-            schemas[0].to_string(),
-        )),
-        Some(_) => Ok(MutationLogRecordStream::MultiSchema),
-    }
 }
 
 pub(super) fn mutation_log_record_identity(

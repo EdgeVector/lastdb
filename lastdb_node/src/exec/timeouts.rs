@@ -232,23 +232,11 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbReapUnsealed
         | DataRoute::DbDeleteLedger
         | DataRoute::DbPinLogAudit
-        | DataRoute::DbExportMutationLog
-        | DataRoute::DbReplayMutationLog
         | DataRoute::DbRepairHashRangeKeyFields
-        | DataRoute::SyncHealStaging
-        | DataRoute::SyncLastStoreSnapshot
-        | DataRoute::SyncBackupGc
-        | DataRoute::SyncPrefixInventory
         | DataRoute::SyncCloudOff
-        | DataRoute::SyncCloudOn
-        | DataRoute::SyncNativeBackup
         | DataRoute::SyncByteBackupV2
-        | DataRoute::SyncCloudResumePrimary
-        | DataRoute::SyncQuarantineReplayBlocker
         | DataRoute::AggregateRepair
-        | DataRoute::DeclareSchema
-        | DataRoute::OrgAuthorityPublish
-        | DataRoute::OrgAuthorityStatus => admin_handler_timeout(),
+        | DataRoute::DeclareSchema => admin_handler_timeout(),
 
         DataRoute::Status => Duration::from_secs(CANARY_STATUS_HANDLER_TIMEOUT_SECS),
         DataRoute::AdminShed => Duration::from_secs(60),
@@ -275,7 +263,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::ListSchemas
         | DataRoute::ListRecordKeys
         | DataRoute::GetSchema
-        | DataRoute::SyncBackupConcurrency
         | DataRoute::AutoIdentity
         | DataRoute::NativeIndexSearch
         | DataRoute::SearchAppQuery
@@ -301,11 +288,6 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::SchemaStorage
         | DataRoute::SchemaStorageReport
         | DataRoute::LivenessExplain
-        | DataRoute::OrgSyncRegister
-        | DataRoute::OrgSyncTargets
-        | DataRoute::OrgSyncDeactivate
-        | DataRoute::OrgSyncGrantMember
-        | DataRoute::OrgSyncRevokeMember
         | DataRoute::DbCatalogGet
         | DataRoute::DbCatalogPut
         | DataRoute::DbCatalogDelete
@@ -315,14 +297,9 @@ pub fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbSchemaRetention
         | DataRoute::DbRepairSchemaMoleculeMap
         | DataRoute::DbFetchFileBlob
-        | DataRoute::DbForkFileBlob
-        | DataRoute::DbPutFileBlob
         | DataRoute::DbPutBlobLocal
-        | DataRoute::DeliverStage
-        | DataRoute::RecipientAddress
         | DataRoute::DeliverSnapshot
         | DataRoute::DeliverList
-        | DataRoute::DeliverApprove
         | DataRoute::DeliverReject
         | DataRoute::LocalWatch
         | DataRoute::AppChanges

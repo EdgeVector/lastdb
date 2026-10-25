@@ -73,7 +73,7 @@ def recipe_for(args):
               "throughput": "closed-loop; includes Python client, validation, and scheduler overhead",
               "memory": "daemon memory sampled at 200 ms; seed and startup excluded",
               "phases": "Current request ring after each write case; exact request IDs; outside timed cases; coverage explicit",
-              "disk": "sum of file lengths in the generated home; allocated blocks not measured"}
+              "disk": "sum of file lengths in the generated home; growth checkpoints also record allocated blocks"}
     if args.growth_only:
         recipe = {"pairs": recipe["pairs"], "body_bytes": 1024, "fields": 4,
                   "native_timing": False, "growth": GROWTH_PROFILES[args.profile],
@@ -81,7 +81,7 @@ def recipe_for(args):
                   "writes": "durable batches; explicit flush and full compaction at every checkpoint",
                   "reads": "all known exact keys; generated values and latest revisions verified",
                   "memory": "daemon memory at 200 ms; per-round idle median; seed and startup excluded from peak",
-                  "disk": "file lengths before and after full compaction with zero reclaim grace"}
+                  "disk": "file lengths and allocated blocks from one bounded walk before and after full compaction with zero reclaim grace"}
     if args.pairs is not None:
         recipe["pairs"] = args.pairs
     if args.seed_with_baseline:
@@ -143,7 +143,7 @@ def main():
                 "host": host_details(), "binaries": binaries, "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "native_phases.py",
-                                         "native_report.py", "report.py", "artifact.py", "build.py",
+                                         "native_report.py", "parent_report.py", "report.py", "artifact.py", "build.py",
                                          "growth.py", "growth_report.py", "tail_report.py", "mixed_report.py",
                                          "advisories.py", "confirm.py",
                                          "range_continuation/process_counters.py")}}
