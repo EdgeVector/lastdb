@@ -263,7 +263,6 @@ impl FoldDB {
             background_molecule_drain,
             sync_coordinator,
             mutation_log_capture,
-            config_store: std::sync::RwLock::new(None),
         })
     }
 }
