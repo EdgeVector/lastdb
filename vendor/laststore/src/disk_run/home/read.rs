@@ -45,7 +45,8 @@ impl RunRoot {
 /// batch, and range in the call sees the same complete commit boundary.
 ///
 /// The call opens a run file the first time it needs it and keeps that
-/// reader only until the call ends.
+/// reader only until the call ends. The base runs do not overlap, so the
+/// call keeps one base reader at a time: a long base costs one open file.
 pub struct RunRead {
     pub(super) manifest: Arc<Manifest>,
     /// Every run, newest first, with its reader once opened.
@@ -134,14 +135,21 @@ impl RunRead {
         Ok(())
     }
 
-    /// The reader of run `slot`, opened on first use.
+    /// The reader of run `slot`, opened on first use. Opening a base reader
+    /// closes the other base readers.
     pub(super) fn reader(&mut self, slot: usize) -> Result<&RunReader> {
-        let (file, reader) = &mut self.runs[slot];
-        if reader.is_none() {
+        if self.runs[slot].1.is_none() {
+            let base_from = self.runs.len() - self.manifest.base.len();
+            if slot >= base_from {
+                for (_, reader) in &mut self.runs[base_from..] {
+                    *reader = None;
+                }
+            }
+            let (file, reader) = &mut self.runs[slot];
             *reader = Some(RunReader::open(&file.path, &self.key)?);
             self.costs.runs_opened += 1;
         }
-        Ok(reader.as_ref().expect("reader opened"))
+        Ok(self.runs[slot].1.as_ref().expect("reader opened"))
     }
 
     /// The value of one complete storage key.

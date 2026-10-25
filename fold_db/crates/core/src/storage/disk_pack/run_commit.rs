@@ -84,27 +84,51 @@ impl PackRuntime {
         Ok(())
     }
 
+    /// Start the merge thread when a home needs a merge, as after a crash
+    /// during a base merge. Otherwise each commit starts it.
+    pub(super) fn resume_merges(&self) {
+        let Physical::V2(v2) = &self.physical else {
+            return;
+        };
+        if v2.home.needs_merge() || v2.cas.needs_merge() {
+            start_merges(v2, Arc::clone(&self.view), Arc::clone(&self.parts));
+        }
+    }
+
     /// Replace the readable root with a merged root of the same frontier.
     /// It never waits: a busy view keeps its root until the next capture.
     pub(super) fn adopt_merged_root(&self) {
         let Physical::V2(v2) = &self.physical else {
             return;
         };
-        if let Ok(mut view) = self.view.try_write() {
-            adopt(&mut view, v2.current_root(), &self.parts);
-        }
+        let replaced = self
+            .view
+            .try_write()
+            .ok()
+            .and_then(|mut view| adopt(&mut view, v2.current_root(), &self.parts));
+        drop(replaced);
     }
 }
 
 /// Install `latest` when it holds the same commits as the view's root and is
-/// newer: a merge root.
-fn adopt(view: &mut view::NativeReadView, latest: V2Root, parts: &parts::PartsLedger) {
-    if let PhysicalRoot::V2(held) = &view.current {
-        if held.frontier() == latest.frontier() && held.generation() < latest.generation() {
-            parts.observe_root(latest.generation(), latest.frontier());
-            view.current = PhysicalRoot::V2(latest);
-        }
+/// newer: a merge root. Returns the replaced root. Drop it after the view
+/// lock: its last drop deletes retired run files.
+fn adopt(
+    view: &mut view::NativeReadView,
+    latest: V2Root,
+    parts: &parts::PartsLedger,
+) -> Option<PhysicalRoot> {
+    let PhysicalRoot::V2(held) = &view.current else {
+        return None;
+    };
+    if held.frontier() != latest.frontier() || held.generation() >= latest.generation() {
+        return None;
     }
+    parts.observe_root(latest.generation(), latest.frontier());
+    Some(std::mem::replace(
+        &mut view.current,
+        PhysicalRoot::V2(latest),
+    ))
 }
 
 /// Commit one batch across the main and CAS homes in the safe order. For a
@@ -202,9 +226,12 @@ impl Adopted {
             main: main.current_root(),
             cas: cas.current_root(),
         };
-        if let Ok(mut view) = self.view.write() {
-            adopt(&mut view, latest, &self.parts);
-        }
+        let replaced = self
+            .view
+            .write()
+            .ok()
+            .and_then(|mut view| adopt(&mut view, latest, &self.parts));
+        drop(replaced);
     }
 }
 

@@ -196,8 +196,8 @@ impl RunReader {
     }
 
     /// The stored size of many keys: key and value bytes, or the key alone
-    /// for a tombstone. It copies no value, so a large value costs the read
-    /// of its block and no more memory.
+    /// for a tombstone. It returns no value; the lookup holds the decoded
+    /// records of one data block at a time.
     pub fn record_bytes_many(&self, keys: &[&[u8]]) -> Result<Vec<Option<u64>>> {
         let sizes = self.lookup_many(keys, |found| found.value().map_or(0, <[u8]>::len))?;
         Ok(sizes

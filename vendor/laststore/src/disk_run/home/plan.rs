@@ -45,10 +45,11 @@ pub const TIER_SHARE: u64 = 8;
 pub const STALE_SHARE: u64 = 4;
 /// Neither trigger fires below this many bytes.
 pub const MIN_BASE_MERGE_BYTES: u64 = 1 << 20;
-/// A base run holds about 1/64 of the base, inside the bounds below.
+/// A base run holds about 1/64 of the base, inside the bounds below. With
+/// the CURRENT limit of 4096 base runs, the base can hold about 4 TiB.
 const BASE_PIECES: u64 = 64;
 const MIN_PIECE_BYTES: u64 = 1 << 20;
-const MAX_PIECE_BYTES: u64 = 64 << 20;
+const MAX_PIECE_BYTES: u64 = 1 << 30;
 /// Keys of one batch lookup when a run's hidden bytes are counted.
 const COUNT_KEYS: usize = 4096;
 
@@ -117,8 +118,11 @@ impl RunHome {
     pub fn merge_step(&self) -> Result<Option<RunMerge>> {
         self.refuse_if_poisoned()?;
         let _merge = self.merge.lock().unwrap_or_else(|e| e.into_inner());
-        self.count_hidden()?;
-        let Some(plan) = plan(&self.held()) else {
+        // One state for the count and the plan: a run that a commit adds
+        // after it waits for the next step, so the plan sees counted runs.
+        let held = self.held();
+        self.count_hidden(&held)?;
+        let Some(plan) = plan(&held) else {
             return Ok(None);
         };
         match plan {
@@ -135,11 +139,10 @@ impl RunHome {
         held.tiered().any(|run| run.hidden().is_none()) || plan(&held).is_some()
     }
 
-    /// Count the hidden bytes of each tiered run that has no count yet.
-    /// Only merges change the runs older than a tiered run, and the caller
-    /// holds the merge lock.
-    fn count_hidden(&self) -> Result<()> {
-        let held = self.held();
+    /// Count the hidden bytes of each tiered run of `held` that has no count
+    /// yet. Only merges change the runs older than a tiered run, and the
+    /// caller holds the merge lock.
+    fn count_hidden(&self, held: &Manifest) -> Result<()> {
         let runs: Vec<&Arc<RunFile>> = held.newest_first().collect();
         let tiered = held.tiered().count();
         for (at, run) in runs.iter().enumerate().take(tiered) {
@@ -170,15 +173,25 @@ impl RunHome {
             for record in records.by_ref().take(COUNT_KEYS) {
                 keys.push(record?.0);
             }
-            if keys.is_empty() {
+            let Some(first) = keys.first() else {
                 return Ok(hidden);
+            };
+            // The keys come in key order: a run that ends before this batch
+            // is not needed again.
+            for (slot, other) in older.iter().enumerate() {
+                if other.meta.last_key < *first {
+                    readers[slot] = None;
+                }
             }
             let bytes = self.older_bytes(&keys, &older, &mut readers)?;
             hidden = hidden.saturating_add(bytes);
         }
     }
 
-    /// Record bytes of the newest version of each of `keys` in `older`.
+    /// Record bytes of the newest version of each of `keys` (in key order)
+    /// in `older`. It closes the reader of each run that ends inside the
+    /// batch, so the base runs, which do not overlap, keep about one reader
+    /// open.
     fn older_bytes(
         &self,
         keys: &[Vec<u8>],
@@ -193,22 +206,25 @@ impl RunHome {
                 .copied()
                 .filter(|&at| run.meta.covers(&keys[at]))
                 .collect();
-            if wanted.is_empty() {
-                continue;
-            }
-            if readers[slot].is_none() {
-                readers[slot] = Some(RunReader::open(&run.path, &self.key)?);
-            }
-            let reader = readers[slot].as_ref().expect("reader opened");
-            let lookups: Vec<&[u8]> = wanted.iter().map(|&at| keys[at].as_slice()).collect();
-            let mut found = HashSet::new();
-            for (at, size) in wanted.into_iter().zip(reader.record_bytes_many(&lookups)?) {
-                if let Some(size) = size {
-                    bytes = bytes.saturating_add(size);
-                    found.insert(at);
+            if !wanted.is_empty() {
+                if readers[slot].is_none() {
+                    readers[slot] = Some(RunReader::open(&run.path, &self.key)?);
                 }
+                let reader = readers[slot].as_ref().expect("reader opened");
+                let lookups: Vec<&[u8]> = wanted.iter().map(|&at| keys[at].as_slice()).collect();
+                let mut found = HashSet::new();
+                for (at, size) in wanted.into_iter().zip(reader.record_bytes_many(&lookups)?) {
+                    if let Some(size) = size {
+                        bytes = bytes.saturating_add(size);
+                        found.insert(at);
+                    }
+                }
+                open.retain(|at| !found.contains(at));
             }
-            open.retain(|at| !found.contains(at));
+            // Later batches hold larger keys only.
+            if keys.last().is_some_and(|last| run.meta.last_key <= *last) {
+                readers[slot] = None;
+            }
             if open.is_empty() {
                 break;
             }
