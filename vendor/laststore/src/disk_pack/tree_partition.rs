@@ -5,7 +5,11 @@ use super::{corrupt, TreeKind, PAGE_PAYLOAD};
 use crate::Result;
 use std::ops::Range;
 
-pub(super) fn leaves(kind: TreeKind, entries: &[LeafEntry]) -> Result<Vec<Range<usize>>> {
+pub(super) fn leaves(
+    kind: TreeKind,
+    entries: &[LeafEntry],
+    middle_insert: bool,
+) -> Result<Vec<Range<usize>>> {
     if kind == TreeKind::Directory {
         return Ok(fixed(entries.len(), super::LEAF_ENTRIES));
     }
@@ -27,7 +31,36 @@ pub(super) fn leaves(kind: TreeKind, entries: &[LeafEntry]) -> Result<Vec<Range<
     if first < entries.len() {
         ranges.push(first..entries.len());
     }
+    if middle_insert && ranges.len() == 2 {
+        balance_small_tail(entries, &mut ranges);
+    }
     Ok(ranges)
+}
+
+/// Random inserts into a full leaf must not repeatedly produce tiny neighbors.
+/// Pure tail growth retains the full-left append layout. Reuse the same entries
+/// and two output pages; only the separator position changes.
+fn balance_small_tail(entries: &[LeafEntry], ranges: &mut [Range<usize>]) {
+    let width = |entry: &LeafEntry| entry.0.len() + 132;
+    let tail: usize = entries[ranges[1].clone()].iter().map(width).sum();
+    if tail * 4 >= PAGE_PAYLOAD {
+        return;
+    }
+    let total: usize = entries.iter().map(width).sum();
+    let mut left = 0;
+    let mut boundary = ranges[0].end;
+    let mut distance = usize::MAX;
+    for (index, entry) in entries.iter().take(entries.len() - 1).enumerate() {
+        left += width(entry);
+        let right = total - left;
+        if left <= PAGE_PAYLOAD && right <= PAGE_PAYLOAD && left.abs_diff(right) < distance {
+            boundary = index + 1;
+            distance = left.abs_diff(right);
+        }
+    }
+    ranges[0].end = boundary;
+    ranges[1].start = boundary;
+    crate::commit_timing::count("locator_leaf_balanced_splits", 1);
 }
 
 pub(super) fn parents(kind: TreeKind, children: &[Child]) -> Result<Vec<Range<usize>>> {
