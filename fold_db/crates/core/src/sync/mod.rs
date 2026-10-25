@@ -15,9 +15,7 @@ mod retired_cloud_repair;
 pub mod scope_alias;
 pub mod snapshot;
 pub mod snapshot_log;
-pub use crate::backup_progress::{
-    format_backup_progress_line, BackupCycleSample, BackupProgressSnapshot, BackupProgressTracker,
-};
+pub use crate::backup_progress::{format_backup_progress_line, BackupProgressSnapshot};
 pub use crate::SyncConflict;
 pub use auth::AuthRefreshCallback;
 pub use engine::{

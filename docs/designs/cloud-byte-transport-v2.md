@@ -230,3 +230,8 @@ Back up normal records, packed files, and a file larger than one upload chunk.
 Stop the source node. Restore into a fresh destination without source files or caches.
 Verify normal record reads and exact file bytes on the restored node.
 Defer old account recovery, historical reconciliation, PROD, and primary changes until that proof succeeds.
+
+The unused sealed-chunk backup progress tracker, cycle samples, and ETA estimator
+are removed. The legacy serialized progress snapshot and shared CLI formatter
+remain unchanged in behavior for status compatibility. Active V2 byte-backup
+progress does not use this retired tracker.
