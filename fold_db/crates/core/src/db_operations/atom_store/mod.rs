@@ -63,6 +63,7 @@ pub use blob_counter::{
 };
 pub use bounded_range::WalkStats;
 pub(crate) use bounded_range::{RangeWalk, WalkTotals};
+pub(crate) use codec::{decode_plain_atom, encode_plain_atom};
 pub(crate) use conflict_record::DurableTipDecision;
 pub use counter::{
     counts_of_header, AtomCounterReport, AtomCounterView, Change, MoleculeCounts, MoleculeFault,
@@ -166,6 +167,10 @@ pub struct AtomStore {
     content_key: Option<[u8; 32]>,
     /// New-write format for nested atom content. Readers accept both formats.
     atom_content_binary: bool,
+    /// True over a disk format v2 home: atom rows are plain JSON with no
+    /// content seal and no molecule key bundle name. The block seal of each
+    /// run is their encryption at rest. Set by [`Self::with_namespaced_store`].
+    plain_content: bool,
     /// HashKey API → storage encoding (default plain; see design-lastdb-hashkey-blind-v1).
     key_codec: crate::atom::MoleculeKeyCodec,
     /// Durable bundle resolver. `None` keeps legacy/test construction intact.

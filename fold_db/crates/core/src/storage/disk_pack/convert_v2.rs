@@ -1,10 +1,11 @@
 //! One-time conversion of a v1 node home to disk format v2.
 //!
 //! The owner asks for it with `LASTDB_DISK_FORMAT=2` when a node with the
-//! node key opens a v1 home. The conversion copies each stored record of the
-//! current v1 generation into new run homes (the CAS files apart), closes them, opens them
-//! again, and compares each record with the v1 source. Only then does the
-//! node home switch:
+//! node key opens a v1 home of node format 1 (key format 4 or 5) or node
+//! format 2 (key format 6). The conversion copies each stored record of the
+//! current v1 generation, in its v2 form (`convert_v2_records`), into new run
+//! homes (the CAS files apart), closes them, opens them again, and compares
+//! each record with its v2 form. Only then does the node home switch:
 //!
 //! ```text
 //! <node>/laststore-disk-convert.lock    held for the whole conversion; never moves
@@ -26,9 +27,11 @@
 //! writer as a normal v1 open does.
 
 use super::convert_v2_copy::{copy, verify};
+use super::convert_v2_records::{SourceFormat, Transform, FORMAT_1_NODE_BYTES, INITIALIZING};
 use super::convert_v2_switch::{remove_if_present, resume, switch, sync_dir};
 use super::run_node::{cas_key, home_key, CAS_DIR, RUN_DIR};
 use super::*;
+use laststore::disk_pack::home::HomeSnapshot;
 use laststore::disk_run::home::RunHome;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -94,16 +97,15 @@ pub(super) fn resume_or_convert(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    if !asked || marker != initialization::NODE_BYTES {
+    if !asked || !is_v1_marker(&marker) {
         return Ok(None);
     }
-    if node
-        .join("laststore-current-keys-v3-initializing")
-        .try_exists()?
-    {
-        return Err(invalid(
-            "disk format conversion needs a complete v1 home; open it as v1 first",
-        ));
+    for intent in INITIALIZING {
+        if node.join(intent).try_exists()? {
+            return Err(invalid(
+                "disk format conversion needs a complete v1 home; open it as v1 first",
+            ));
+        }
     }
     if kept.try_exists()? {
         return Err(invalid(&format!(
@@ -121,10 +123,10 @@ pub(super) fn resume_or_convert(
     same_volume(node)?;
     let lock = take_lock(node)?;
     // Another opener can have converted the home before this one had the lock.
-    if std::fs::read(node.join(NODE_MARKER)).ok().as_deref() != Some(initialization::NODE_BYTES) {
+    if std::fs::read(node.join(NODE_MARKER)).ok().as_deref() != Some(marker.as_slice()) {
         return Ok(None);
     }
-    let converted = convert(node, node_key, &kept);
+    let converted = convert(node, node_key, &kept, &marker);
     if converted.is_err() && !node.join(INTENT).try_exists()? {
         // Failed before the switch: v1 is complete; remove the partial copy.
         if let Err(error) = remove_partial_builds(node) {
@@ -158,10 +160,18 @@ fn take_lock(node: &Path) -> StorageResult<File> {
 /// A v1 home keeps no conversion lock file: other v1 tools refuse a file
 /// they do not know. A v2 home keeps it.
 fn remove_lock_in_v1(node: &Path) -> StorageResult<()> {
-    if std::fs::read(node.join(NODE_MARKER)).ok().as_deref() == Some(initialization::NODE_BYTES) {
+    if std::fs::read(node.join(NODE_MARKER))
+        .ok()
+        .is_some_and(|marker| is_v1_marker(&marker))
+    {
         remove_if_present(&node.join(LOCK))?;
     }
     Ok(())
+}
+
+/// The node marker of a v1 home of either node format.
+fn is_v1_marker(marker: &[u8]) -> bool {
+    marker == initialization::NODE_BYTES || marker == FORMAT_1_NODE_BYTES
 }
 
 /// The kept folder is made beside the node folder and the switch renames
@@ -179,7 +189,12 @@ fn same_volume(node: &Path) -> StorageResult<()> {
     Ok(())
 }
 
-fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskConversionReport> {
+fn convert(
+    node: &Path,
+    node_key: &[u8; 32],
+    kept: &Path,
+    marker: &[u8],
+) -> StorageResult<DiskConversionReport> {
     let started = Instant::now();
     // The v1 owner lock: a normal v1 open is refused during the copy.
     let v1_lock = OpenOptions::new()
@@ -209,44 +224,13 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
         ));
     }
     let writer = source.snapshot().map_err(map)?;
-    let current = writer.current().clone();
-    if current.required_features & physical::V2_FEATURES != physical::V2_FEATURES {
+    if writer.current().required_features & physical::V2_FEATURES != physical::V2_FEATURES {
         return Err(invalid(
             "disk format conversion needs a v1 home with schema record refs, large batches, \
              and atom records; this home lacks one of them",
         ));
     }
-    let keys = [home_key(node_key), cas_key(node_key)];
-    let (records, logical_bytes) = {
-        let homes = [
-            RunHome::create(&node.join(CONVERTING), &keys[0]).map_err(map)?,
-            RunHome::create(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
-        ];
-        let copied = copy(&source, &current, &homes)?;
-        for home in &homes {
-            while home.merge_step().map_err(map)?.is_some() {}
-        }
-        copied
-    };
-    // Compare with a new open: the files and the derived keys, not memory.
-    let verified = {
-        let homes = [
-            RunHome::open(&node.join(CONVERTING), &keys[0]).map_err(map)?,
-            RunHome::open(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
-        ];
-        let stored: u64 = homes.iter().map(|home| home.status().records()).sum();
-        if stored != records {
-            return Err(invalid(
-                "disk format conversion: the run homes hold a different record count",
-            ));
-        }
-        verify(&source, &current, &homes)?
-    };
-    if verified != records {
-        return Err(invalid(
-            "disk format conversion verified a different record count",
-        ));
-    }
+    let (format, records, logical_bytes) = build(node, node_key, &source, &writer, marker)?;
     drop(writer);
     let v1_disk_bytes = directory_bytes(&v1_root, 8)?;
     let v2_disk_bytes = directory_bytes(&node.join(CONVERTING), 8)?
@@ -263,6 +247,7 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
     };
     tracing::info!(
         target: "lastdb::disk_convert",
+        source_format = ?format,
         records = report.records,
         logical_bytes = report.logical_bytes,
         v1_disk_bytes = report.v1_disk_bytes,
@@ -272,6 +257,50 @@ fn convert(node: &Path, node_key: &[u8; 32], kept: &Path) -> StorageResult<DiskC
         "disk format conversion to v2 complete; each record verified after reopen"
     );
     Ok(report)
+}
+
+/// Copy the current v1 generation in its v2 form into new run homes, then
+/// open them again and compare each record. Returns the source format, the
+/// records, and their logical bytes.
+fn build(
+    node: &Path,
+    node_key: &[u8; 32],
+    source: &DiskHome,
+    writer: &HomeSnapshot,
+    marker: &[u8],
+) -> StorageResult<(SourceFormat, u64, u64)> {
+    let current = writer.current().clone();
+    let format = SourceFormat::detect(source, writer, marker, node_key)?;
+    let mut transform = Transform::new(format, node_key, source, writer);
+    let keys = [home_key(node_key), cas_key(node_key)];
+    let (records, logical_bytes) = {
+        let homes = [
+            RunHome::create(&node.join(CONVERTING), &keys[0]).map_err(map)?,
+            RunHome::create(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
+        ];
+        let copied = copy(source, &current, &homes, &mut transform)?;
+        for home in &homes {
+            while home.merge_step().map_err(map)?.is_some() {}
+        }
+        copied
+    };
+    // Compare with a new open: the files and the derived keys, not memory.
+    let homes = [
+        RunHome::open(&node.join(CONVERTING), &keys[0]).map_err(map)?,
+        RunHome::open(&node.join(CAS_CONVERTING), &keys[1]).map_err(map)?,
+    ];
+    let stored: u64 = homes.iter().map(|home| home.status().records()).sum();
+    if stored != records {
+        return Err(invalid(
+            "disk format conversion: the run homes hold a different record count",
+        ));
+    }
+    if verify(source, &current, &homes, &mut transform)? != records {
+        return Err(invalid(
+            "disk format conversion verified a different record count",
+        ));
+    }
+    Ok((format, records, logical_bytes))
 }
 
 /// Remove what an earlier conversion left before its switch: the run homes

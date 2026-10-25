@@ -24,7 +24,8 @@
 //! CURRENT does not name when it opens the home. Nothing is replayed: the
 //! last CURRENT is the complete state.
 //!
-//! Values are stored as given. The block seal of every run is the
+//! A commit stores each value in its [`crate::disk_run::value`] form, and a
+//! read returns the value as given. The block seal of every run is the
 //! encryption at rest; the home key protects every run and CURRENT.
 
 mod commit;
@@ -55,8 +56,14 @@ use uuid::Uuid;
 
 /// File name of the clear home descriptor. Its presence selects format v2.
 pub const RUN_HOME_MARKER: &str = "laststore-run-home-v2";
-const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME2";
+/// `LDRHOME3`: values in their tagged stored form. An `LDRHOME2` home stored
+/// values as given; no user data is in one, and this program refuses it.
+const DESCRIPTOR_MAGIC: &[u8; 8] = b"LDRHOME3";
+const UNTAGGED_MAGIC: &[u8; 8] = b"LDRHOME2";
 const DESCRIPTOR_BYTES: usize = 64;
+
+/// Largest value that a commit accepts: its stored form adds one tag byte.
+pub const MAX_VALUE_BYTES: usize = super::MAX_RUN_VALUE_BYTES - 1;
 
 /// Level and size facts of the published CURRENT.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,6 +310,13 @@ fn read_descriptor(root: &Path) -> Result<Uuid> {
     let mut bytes = [0u8; DESCRIPTOR_BYTES];
     file.read_exact(&mut bytes)?;
     let crc = u32::from_le_bytes(bytes[60..].try_into().expect("4 bytes"));
+    if &bytes[..8] == UNTAGGED_MAGIC {
+        return Err(Error::Config(
+            "disk run home: this home stores untagged values from an earlier v2 build; \
+             create a new home"
+                .into(),
+        ));
+    }
     if &bytes[..8] != DESCRIPTOR_MAGIC
         || bytes[8..12] != 1u32.to_le_bytes()
         || crc != crc32fast::hash(&bytes[..60])

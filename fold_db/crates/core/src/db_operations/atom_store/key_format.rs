@@ -8,15 +8,18 @@
 //! the current logical identity marker before it can serve. A home from a build
 //! that kept blob reference edges has the key format `3`: it has no blob
 //! counters, so this build refuses it and asks for a new empty home.
-//! Format `6` wraps only local CAS records. Atoms retain encrypted content;
-//! tips and control values have no outer envelope. Earlier homes require an
-//! explicit offline conversion and are never rewritten by startup.
+//! Format `6` wraps only local CAS records. In a disk format v1 home, atoms
+//! retain encrypted content; in a disk format v2 home, atom rows are plain and
+//! the block seal of each run encrypts them. Tips and control values have no
+//! outer envelope. Earlier homes require an explicit offline conversion and
+//! are never rewritten by startup.
 
 use super::AtomStore;
 use crate::storage::{KvMutation, StorageError};
 
 /// `6`: a storage envelope exists only on local CAS records.
 pub(crate) const KEY_FORMAT: &[u8] = b"6";
+pub(crate) use super::delete_replay::{CUTOFF_KEY as DELETE_REPLAY_CUTOFF_KEY, FENCED_KEY_FORMAT};
 
 pub(crate) fn is_supported_key_format(value: &[u8]) -> bool {
     value == KEY_FORMAT || value == super::delete_replay::FENCED_KEY_FORMAT

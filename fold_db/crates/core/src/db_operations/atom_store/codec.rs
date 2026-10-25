@@ -24,6 +24,9 @@ impl AtomStore {
         &self,
         mut atom_value: serde_json::Value,
     ) -> Result<serde_json::Value, crate::schema::SchemaError> {
+        if self.plain_content {
+            return plain_atom_value(atom_value);
+        }
         let bundle_key = self.take_atom_bundle_key(&mut atom_value).await?;
         if let Some(key) = bundle_key.as_ref().or(self.content_key.as_ref()) {
             crate::atom::open_atom_json(key, &mut atom_value).map_err(|e| {
@@ -74,10 +77,14 @@ impl AtomStore {
     }
 
     /// Decode either a legacy JSON atom row or the binary `ATB:` container.
+    /// A disk format v2 home holds only plain JSON rows.
     pub(crate) async fn decode_atom_bytes(
         &self,
         stored: &[u8],
     ) -> Result<crate::atom::Atom, crate::schema::SchemaError> {
+        if self.plain_content {
+            return decode_plain_atom(stored);
+        }
         if let Some((mut header, _)) = crate::atom::parse_atom_binary_row(stored).map_err(|e| {
             crate::schema::SchemaError::InvalidData(format!("decode binary atom row: {e}"))
         })? {
@@ -126,6 +133,9 @@ impl AtomStore {
         molecule_uuid: Option<&str>,
         binary: bool,
     ) -> Result<Vec<u8>, crate::schema::SchemaError> {
+        if self.plain_content {
+            return encode_plain_atom(atom);
+        }
         let mut value = serde_json::to_value(atom)
             .map_err(|e| crate::schema::SchemaError::InvalidData(format!("serialize atom: {e}")))?;
         let bundle_key = if let (Some(store), Some(molecule_uuid)) =
@@ -238,4 +248,42 @@ impl AtomStore {
         }
         Ok(raw)
     }
+}
+
+/// The plain row of a disk format v2 home: the atom JSON with sorted keys, no
+/// content seal and no molecule key bundle name. The disk format conversion
+/// writes the same bytes.
+pub(crate) fn encode_plain_atom(
+    atom: &crate::atom::Atom,
+) -> Result<Vec<u8>, crate::schema::SchemaError> {
+    serde_json::to_value(atom)
+        .and_then(|value| serde_json::to_vec(&value))
+        .map_err(|e| crate::schema::SchemaError::InvalidData(format!("serialize plain atom: {e}")))
+}
+
+pub(crate) fn decode_plain_atom(
+    stored: &[u8],
+) -> Result<crate::atom::Atom, crate::schema::SchemaError> {
+    if stored.starts_with(crate::atom::ATOM_BINARY_ROW_PREFIX) {
+        return Err(crate::schema::SchemaError::InvalidData(
+            "a disk format v2 home holds plain atom rows, not binary sealed rows".into(),
+        ));
+    }
+    let value = serde_json::from_slice(stored).map_err(|e| {
+        crate::schema::SchemaError::InvalidData(format!("decode plain atom row JSON: {e}"))
+    })?;
+    serde_json::from_value(plain_atom_value(value)?)
+        .map_err(|e| crate::schema::SchemaError::InvalidData(format!("decode plain atom: {e}")))
+}
+
+/// A plain row names no molecule key bundle: its content has no seal.
+fn plain_atom_value(
+    value: serde_json::Value,
+) -> Result<serde_json::Value, crate::schema::SchemaError> {
+    if value.get("molecule_key_bundle").is_some() {
+        return Err(crate::schema::SchemaError::InvalidData(
+            "a disk format v2 home holds plain atom rows, not sealed rows".into(),
+        ));
+    }
+    Ok(value)
 }

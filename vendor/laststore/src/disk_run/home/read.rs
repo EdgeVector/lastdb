@@ -2,9 +2,9 @@
 
 use super::keys::run_key;
 use super::manifest::{Manifest, RunFile};
-use super::RunHome;
+use super::{RunHome, MAX_VALUE_BYTES};
 use crate::disk_pack::ReadBudget;
-use crate::disk_run::{Found, RunReader};
+use crate::disk_run::{value, Found, RunReader};
 use crate::{Error, Result};
 use std::sync::Arc;
 
@@ -180,7 +180,9 @@ impl RunRead {
         Ok(None)
     }
 
-    fn accept(&mut self, value: Vec<u8>, maximum: u64) -> Result<Vec<u8>> {
+    /// The value of a stored form, charged to the call.
+    fn accept(&mut self, stored: Vec<u8>, maximum: u64) -> Result<Vec<u8>> {
+        let value = value::decode(stored, MAX_VALUE_BYTES)?;
         if value.len() as u64 > maximum {
             return Err(Error::ReadBudgetExceeded);
         }

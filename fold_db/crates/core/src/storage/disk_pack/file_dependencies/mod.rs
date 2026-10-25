@@ -10,6 +10,7 @@ mod native;
 mod select;
 
 pub use atom::open_atom;
+pub(crate) use atom::{content_key, open_atom_with};
 pub use cloud_backup_protocol::FileDependencyKind;
 pub use metadata::verify_metadata_coverage;
 pub(crate) use native::scratch::Scratch as NativeCasOutput;

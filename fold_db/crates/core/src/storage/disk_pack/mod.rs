@@ -18,6 +18,7 @@ mod cloud_work;
 mod convert_envelopes;
 mod convert_v2;
 mod convert_v2_copy;
+mod convert_v2_records;
 mod convert_v2_switch;
 pub mod file_dependencies;
 pub mod file_recovery;
