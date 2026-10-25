@@ -282,7 +282,11 @@ impl<P: TreePages> TreeEdit<P> {
             ));
         }
         let ranges = super::tree_partition::leaves(self.root.kind, &entries)?;
-        super::page_usage::split(ranges.len(), middle_insert);
+        super::page_usage::split(
+            self.root.kind == super::TreeKind::Locator,
+            ranges.len(),
+            middle_insert,
+        );
         ranges
             .into_iter()
             .map(|range| tree_output::leaf(&mut self.pages, self.root.kind, &entries[range]))

@@ -35,6 +35,18 @@ const INPUT: [[&str; 8]; 6] = [
     names!("directory_parent_input"),
 ];
 const MAP_REWRITE: [&str; 8] = names!("block_map_header_rewrite");
+const SPLITS: [[&str; 3]; 2] = [
+    [
+        "locator_leaf_splits",
+        "locator_leaf_split_pages",
+        "locator_leaf_splits_with_middle_insert",
+    ],
+    [
+        "directory_leaf_splits",
+        "directory_leaf_split_pages",
+        "directory_leaf_splits_with_middle_insert",
+    ],
+];
 
 /// Explicit zeros prevent conditional-report means from hiding absent page classes.
 pub(crate) fn initial_counts() -> BTreeMap<&'static str, u64> {
@@ -53,9 +65,7 @@ pub(crate) fn initial_counts() -> BTreeMap<&'static str, u64> {
     );
     counts.insert("snapshot_private_input_pages", 0);
     counts.insert("snapshot_invalid_usage_pages", 0);
-    counts.insert("snapshot_leaf_splits", 0);
-    counts.insert("snapshot_leaf_split_pages", 0);
-    counts.insert("snapshot_leaf_splits_with_middle_insert", 0);
+    counts.extend(SPLITS.iter().flatten().map(|&name| (name, 0)));
     counts
 }
 
@@ -106,14 +116,12 @@ fn image(names: &[&'static str; 8], bytes: &[u8]) {
     record(names, used as usize, entries as usize);
 }
 
-pub(crate) fn split(parts: usize, middle_insert: bool) {
+pub(crate) fn split(locator: bool, parts: usize, middle_insert: bool) {
     if timing::enabled() && parts > 1 {
-        timing::count("snapshot_leaf_splits", 1);
-        timing::count("snapshot_leaf_split_pages", parts as u64);
-        timing::count(
-            "snapshot_leaf_splits_with_middle_insert",
-            u64::from(middle_insert),
-        );
+        let names = &SPLITS[usize::from(!locator)];
+        timing::count(names[0], 1);
+        timing::count(names[1], parts as u64);
+        timing::count(names[2], u64::from(middle_insert));
     }
 }
 
