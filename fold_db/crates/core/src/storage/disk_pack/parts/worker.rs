@@ -254,6 +254,8 @@ async fn parts_worker(ledger: Arc<PartsLedger>, runtime: Weak<PackRuntime>) {
         if std::mem::take(&mut booting) {
             // Let the node finish its own start before the first maintenance step.
             // A home above the soft limit cannot take a start-up write, so it does not wait.
+            // The pause needs only the ledger, not ownership of the open home.
+            drop(strong);
             boot_delay(&ledger).await;
             continue;
         }

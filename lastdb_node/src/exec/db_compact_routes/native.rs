@@ -38,6 +38,13 @@ pub(super) async fn execute(
             ctx,
         );
     }
+    if runtime.is_disk_format_v2() {
+        return error_response(
+            400,
+            "format v2 uses background run merges; explicit pack compaction is unavailable",
+            ctx,
+        );
+    }
     let options = NativeMaintenanceOptions {
         dry_run: body.dry_run.unwrap_or(true),
         reclaim_only: body.reclaim_only,

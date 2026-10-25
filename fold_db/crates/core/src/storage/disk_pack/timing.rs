@@ -8,6 +8,7 @@ pub(super) struct Timeline {
     started: Instant,
     marked: Instant,
     phases: BTreeMap<&'static str, u64>,
+    trace_id: Option<u64>,
 }
 
 pub(super) fn start() -> Option<Timeline> {
@@ -18,6 +19,7 @@ pub(super) fn start() -> Option<Timeline> {
             started,
             marked: started,
             phases: BTreeMap::new(),
+            trace_id: crate::request_phases::current_native_trace_id(),
         }
     })
 }
@@ -42,6 +44,7 @@ pub(super) fn request(timing: Option<Timeline>, sequence: u64, background: bool)
             "LASTDB_SNAPSHOT_TIMING {}",
             serde_json::json!({
                 "kind": "scope", "sequence": sequence, "background": background,
+                "trace_id": timing.trace_id,
                 "started_us": timing.started_us, "ended_us": laststore::commit_timing::unix_us(),
                 "total_us": timing.started.elapsed().as_micros() as u64, "phases_us": timing.phases,
             })

@@ -44,6 +44,7 @@ impl ReferenceCache {
 
     /// Work is charged afresh for every pending ledger, including cache hits.
     pub(super) fn resolve(&mut self, changes: &mut Changes) -> Result<()> {
+        let _timing = crate::commit_timing::stage("reference_resolve_us");
         resolve_with_call(&mut self.call, changes, None, &mut Work::publication())
     }
 }
