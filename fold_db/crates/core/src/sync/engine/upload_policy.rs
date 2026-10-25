@@ -1,3 +1,5 @@
+//! Legacy policy status shapes; these do not configure the V2 byte transport.
+
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_RSS_LIMIT_MB: u64 = 6144;
@@ -8,7 +10,7 @@ pub enum UploadPolicyMode {
     /// Derive byte budget + concurrency from live resources.
     #[default]
     Auto,
-    /// Use static [`crate::sync::engine::SyncConfig`] / env fixed knobs only.
+    /// Legacy static upload caps rather than resource-derived caps.
     Fixed,
 }
 
@@ -19,8 +21,8 @@ pub enum UploadPolicyMode {
 /// bucket contract from the cloud-sync-off milestone: one of
 /// `interactive_busy` | `cpu_percent` | `rss` | `network_ewma` | `catch_up` | `none`.
 ///
-/// Derived from the **same** reason string written by [`compute_upload_policy`]
-/// — never a second ad-hoc guess at status-serialization time.
+/// Classification of the retained reason string, without recomputing policy
+/// during status serialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UploadThrottleSource {

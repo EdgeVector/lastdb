@@ -6,6 +6,11 @@ The separate service change remains subject to CI and DEV deployment approval.
 No V2 backup or restore operation is proven yet.
 The route namespace is `/api/cloud/backups/v2/`.
 
+The retired legacy engine's nonserialized `SyncConfig` and `CaptureMode` Rust
+APIs have been removed: their upload, bootstrap, coalescing, and grace-window
+knobs had no remaining consumers. V2 transport settings and serialized status
+models keep their existing definitions; those status models are passive metadata.
+
 ## Purpose and boundary
 
 The cloud stores exact opaque bytes and returns verified receipts.

@@ -141,7 +141,7 @@ pub struct AutomaticCompactionStatus {
 /// stream consumers. Single-writer scaffolds are a one-entry map.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct MutationLogPlaneStatus {
-    /// True when CaptureMode::MutationLog is the active continuous plane.
+    /// Retained flag indicating an active continuous mutation-log plane.
     pub active: bool,
     /// Device/writer id for the local stream (this process).
     pub writer_id: String,

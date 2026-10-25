@@ -204,7 +204,7 @@ pub struct SyncStatus {
     /// Per-target pin-mode durable log counters for active or recently active
     /// pins in this process.
     pub pin_logs: Vec<PinLogTargetStatus>,
-    /// Continuous mutation-log plane health when CaptureMode::MutationLog is on.
+    /// Retained continuous mutation-log plane health.
     ///
     /// Primary continuous-sync health story (log lag + published frontier F +
     /// writer_id). Sealed-chunk backup progress is secondary / bootstrap-only
