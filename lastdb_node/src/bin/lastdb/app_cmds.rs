@@ -94,6 +94,16 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
+fn handle_app_storage(
+    home: &Path,
+    json: bool,
+    reconcile: bool,
+    page_size: Option<u64>,
+) -> Result<(), String> {
+    let socket = lastdb_uds::uds::socket_path(&home.join("data"));
+    app_storage(&socket, json, reconcile, page_size)
+}
+
 // lint:allow-ok thin wrapper unpacking AppCommand match arms
 #[allow(clippy::too_many_arguments)]
 fn handle_app_resolve(
@@ -221,10 +231,7 @@ fn app_catalog_command(home: &Path, action: AppCommand) -> Result<(), String> {
             json,
             reconcile,
             page_size,
-        } => {
-            let socket = lastdb_uds::uds::socket_path(&home.join("data"));
-            app_storage(&socket, json, reconcile, page_size)
-        }
+        } => handle_app_storage(home, json, reconcile, page_size),
         AppCommand::Info {
             app_id,
             env,
