@@ -80,20 +80,17 @@ pub(super) async fn fill_page(
             )
             .await?;
             let next = rows.iter().max_by(|a, b| a.cmp_page_order(b)).cloned();
-            match next {
-                Some(next) => {
-                    if after
-                        .as_ref()
-                        .is_some_and(|previous| !next.cmp_page_order(previous).is_gt())
-                    {
-                        return Err("TTL discovery cursor did not advance".into());
-                    }
-                    *after = Some(next);
+            if let Some(next) = next {
+                if after
+                    .as_ref()
+                    .is_some_and(|previous| !next.cmp_page_order(previous).is_gt())
+                {
+                    return Err("TTL discovery cursor did not advance".into());
                 }
-                None => {
-                    *partition += 1;
-                    *after = None;
-                }
+                *after = Some(next);
+            } else {
+                *partition += 1;
+                *after = None;
             }
             rows.into_iter()
                 .filter(|key| key_is_expired(key, &backlog.schema_type, backlog.cutoff))
@@ -148,6 +145,6 @@ async fn range_page(
     Ok(rows
         .remove(field)
         .into_iter()
-        .flat_map(|values| values.into_keys())
+        .flat_map(std::collections::HashMap::into_keys)
         .collect())
 }
