@@ -171,6 +171,44 @@ After compaction, keyed reads verify all known records and their latest values b
 The normal daemon memory limits and automatic maintenance stay enabled.
 This recipe measures retained space after explicit compaction. It does not measure the default retention policy.
 
+### Active TTL latency comparison
+
+The optional `ttl_active` input of `bench-compare.yml` adds a separate generated-data measurement.
+The lifecycle maintenance PR also enables it on its PR branch.
+It reuses the exact verified programs from the ordinary comparison; it adds no build.
+The result uses its own homes and stays separate from the standard benchmark metrics.
+
+- Two alternating baseline/candidate pairs; the second pair reverses the state order.
+- One client and four clients each send 512 durable calls, with eight records in every call.
+- Each case uses a fresh home with the same 8,192 old HashRange seed records: 16 hashes with 512 records each.
+  This layout lets the baseline sweep use its complete per-hash read within the normal read-work limit.
+  The candidate uses 256-key discovery pages. Neither source receives a larger read-work limit.
+- Live and expired schemas declare distinct canonical fields. The driver verifies disjoint field identities before the seed writes.
+  This prevents protein links between the two workloads. The artifact retains the actual schema identities and each backfill page.
+- `no-policy`: no retention policy, sweep disabled.
+- `tracking-only`: Hash age policy and HashRange expiry policy, sweep disabled.
+- `active-sweep`: the same policies, default TTL batch size and duty share.
+- `active-sweep-compact`: the active sweep plus one explicit full compaction during the write window.
+
+CAUTION: The CI sampler interval is one second. The normal sampler interval remains unchanged.
+The Hash policy lasts one hour, so the accepted fresh keys must survive the measurement.
+The old HashRange keys expire from their original range times.
+Every active case requires committed TTL purge batches planned during the measured write window.
+The compaction case also requires an actual compaction response and an intersecting request window.
+These checks establish overlap with the case; they do not claim that every request meets a TTL batch.
+The retained ledger and compaction timestamps describe that exposure.
+Exact keyed reads verify every accepted fresh value after the measured window.
+Candidate active cases then run the owner backfill and marker cleanup commands outside timing.
+Cleanup uses persisted molecule identities, stable previews, durable pages, deleted-key cursors and an empty repeat pass.
+The generated home undergoes full compaction and restart before the final fresh-value reads.
+These calls use ordinary generated records. They inject no damaged age entries or active generations.
+Payload construction and validation stay outside request latency. Throughput includes client overhead.
+Request phase coverage stays explicit; omitted phases do not mean zero wait.
+The result is in `ttl-active/` inside the ordinary CI artifact, with a separate CI summary.
+The ordinary upload, checksum, source and expiry checks cover that result.
+The complete 32-case TTL stage has a 90-minute CI deadline; seed, owner maintenance and reads count toward it.
+No local measurement or primary data is used.
+
 The artifact retains disk bytes before and after compaction, bytes per live record, and every compaction receipt.
 It also retains daemon memory samples at 200 ms and memory samples through each idle period.
 Idle memory uses the median after compaction. The peak includes the case, compaction, and idle period.

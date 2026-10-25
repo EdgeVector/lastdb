@@ -51,6 +51,7 @@ impl AtomStore {
             key_codec,
             molecule_keys: None,
             molecule_commit_locks: Arc::default(),
+            generation_cleanup_locks: Arc::default(),
             tip_commit_locks: Arc::default(),
             tip_publication_locks: Arc::default(),
             pending_delete_barriers: Arc::default(),

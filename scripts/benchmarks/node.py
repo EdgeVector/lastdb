@@ -36,10 +36,11 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 class Node:
-    def __init__(self, binary, revision, output, native_timing=False, workers=0):
+    def __init__(self, binary, revision, output, native_timing=False, workers=0, environment=None):
         self.binary, self.revision, self.output = binary, revision, output
         self.native_timing = native_timing
         self.workers = workers
+        self.environment = environment or {}
         # This short private path also fits the macOS Unix-socket path limit.
         self.root = Path(tempfile.mkdtemp(prefix="ldb-bench-", dir="/tmp")).resolve()
         self.home, self.socket = self.root / "home", self.root / "q.sock"
@@ -81,6 +82,7 @@ class Node:
         environment.update(LASTDB_ISOLATED_COPY="1", LASTDB_SUPPRESS_RECOVERY_PHRASE="1",
                            LASTDB_HOME=str(self.home), FOLDDB_HOME=str(self.home),
                            RUST_MIN_STACK="16777216")
+        environment.update(self.environment)
         if self.native_timing:
             environment["LASTDB_SNAPSHOT_TIMING"] = "1"
         if self.workers:

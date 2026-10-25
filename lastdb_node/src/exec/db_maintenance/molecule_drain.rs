@@ -21,6 +21,14 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
         molecule: String,
         #[serde(default)]
         scope: Option<String>,
+        #[serde(default)]
+        cleanup_delete_markers: bool,
+        #[serde(default)]
+        execute: bool,
+        #[serde(default)]
+        after_key: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
     }
     let body: Body = if req.body.is_empty() {
         Body::default()
@@ -41,6 +49,24 @@ pub(in crate::exec) async fn execute_db_molecule_drain_route(
         return error_response(400, &error.to_string(), ctx);
     }
     let atoms = host.db.db_ops().atoms();
+    if body.cleanup_delete_markers {
+        if !ctx.is_owner {
+            return error_response(403, "delete-marker cleanup is owner-only", ctx);
+        }
+        return match atoms
+            .cleanup_delete_markers_page(
+                &body.molecule,
+                body.scope.as_deref(),
+                body.after_key.as_deref(),
+                body.limit.unwrap_or(128),
+                body.execute,
+            )
+            .await
+        {
+            Ok(value) => json_ok(&envelope(&value, ctx.user_id.as_str())),
+            Err(error) => mapped_error_response("delete-marker cleanup failed", error.into(), ctx),
+        };
+    }
     let verdict = if body.molecule.trim().is_empty() {
         None
     } else {

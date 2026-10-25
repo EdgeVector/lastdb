@@ -9,7 +9,8 @@ use std::collections::HashMap;
 
 impl SchemaStore {
     /// The caller holds the native write scope across the tip-clock reads and
-    /// these writes. A repeated page cannot make a newer age row older.
+    /// these writes. Existing age rows are corrected to the actual tip clocks,
+    /// including arrival-time ages recorded by older programs.
     pub(crate) async fn backfill_retention_rows(
         &self,
         name: &str,
@@ -50,27 +51,13 @@ impl SchemaStore {
                 ));
             }
         } else {
-            let keys: Vec<_> = unique.keys().collect();
-            let reverse: Vec<_> = keys
+            let ages: Vec<_> = unique
                 .iter()
-                .map(|key| retention_age_latest_key(&anchor, key))
+                .map(|(key, age)| (key.clone(), *age))
                 .collect();
-            let previous = self
-                .schema_states_store
-                .get_items::<SchemaRetentionAgeEntry>(&reverse)
+            self.record_schema_retention_write_ages(&anchor, &ages)
                 .await?;
-            for ((key, latest), old) in keys.into_iter().zip(reverse).zip(previous) {
-                let written_at = unique[key].max(old.map_or(0, |old| old.written_at));
-                let value = serde_json::to_value(SchemaRetentionAgeEntry {
-                    key: key.clone(),
-                    written_at,
-                })
-                .map_err(|error| {
-                    SchemaError::InvalidData(format!("serialize retention age: {error}"))
-                })?;
-                puts.push((retention_age_key(&anchor, written_at, key), value.clone()));
-                puts.push((latest, value));
-            }
+            return Ok(unique.len());
         }
         // Several range keys can name the same hash. The batch writes it once.
         let puts: HashMap<_, _> = puts.into_iter().collect();
