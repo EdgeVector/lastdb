@@ -10,6 +10,7 @@ mod construct;
 mod deserialize;
 mod equality;
 mod identity;
+mod key_types;
 mod metadata;
 mod validation;
 

@@ -222,7 +222,9 @@ fn materialized_key_value(
             materialized_key_value(variant, coordinate)
                 .filter(|value| scalar_key_coordinate(value).as_deref() == Some(coordinate))
         }),
-        FieldValueType::Null
+        FieldValueType::Date
+        | FieldValueType::DateTime
+        | FieldValueType::Null
         | FieldValueType::Array(_)
         | FieldValueType::Map(_)
         | FieldValueType::Object(_)

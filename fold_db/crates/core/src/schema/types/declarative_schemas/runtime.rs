@@ -50,7 +50,7 @@ impl DeclarativeSchemaDefinition {
 
         // Reject cross-app FieldMappers before deriving any deterministic
         // molecule UUIDs from them — see method docs for the threat model.
-        self.validate_field_names()
+        self.validate_definition()
             .map_err(crate::schema::SchemaError::InvalidData)?;
         self.validate_field_mapper_ownership()?;
 

@@ -135,7 +135,7 @@ impl DeclarativeSchemaDefinitionHelper {
             schema.compute_identity_hash();
         }
 
-        schema.validate_field_names()?;
+        schema.validate_definition()?;
         Ok(schema)
     }
 }

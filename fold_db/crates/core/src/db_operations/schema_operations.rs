@@ -54,7 +54,7 @@ impl DbOperations {
         schema: &Schema,
     ) -> Result<(), SchemaError> {
         schema
-            .validate_field_names()
+            .validate_definition()
             .map_err(SchemaError::InvalidData)?;
         let old = self.schemas().get_schema(schema_name).await?;
         let old_edges = old.as_ref().map_or_else(Vec::new, |existing| {
