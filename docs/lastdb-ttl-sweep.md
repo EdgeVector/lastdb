@@ -370,6 +370,9 @@ It does not assign the whole shared commit cost to every request.
 
 An older baseline can omit these identifiers. Its native association remains unreported.
 The candidate requires complete native association. Missing fields never mean measured zero.
+The collector reads the current daemon log and its numeric rotated files in the same output directory.
+Rotation does not reduce the required request, scope, sequence or physical-commit coverage.
+Missing or ambiguous evidence still fails the campaign.
 
 Private v1 metadata writes use unbuffered private files.
 The same-runner before/after comparison found no material latency gain from an eight-page write buffer.

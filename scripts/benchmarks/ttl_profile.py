@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import statistics
 
-from native_phases import correlate
+from native_phases import correlate, native_events
 from node import save
 from workload import describe
 
@@ -28,9 +28,7 @@ def phase_summary(directory, require_native):
                 "p95_ms": describe([{"elapsed_ms": value / 1000, "records": 0} for value in reported], 1)["p95_ms"]
                 if reported else None}
     summary["slowest_calls"] = sorted(rows, key=lambda row: row["elapsed_ms"], reverse=True)[:8]
-    marker = "LASTDB_SNAPSHOT_TIMING "
-    events = [json.loads(line.split(marker, 1)[1])
-              for line in (directory / "node.log").read_text().splitlines() if marker in line]
+    events = native_events(directory)
     metric = json.loads((directory / "metrics.json").read_text())
     trace_ids = {row["server_request_ops"].get("native_trace_id") for row in rows}
     if trace_ids == {None} and not require_native:

@@ -91,10 +91,26 @@ def traced_requests(rows, scopes, commits):
     return selected
 
 
-def collect_native_phases(output):
+def native_events(output):
+    # The owned daemon log can rotate during a complete campaign. Read only
+    # its exact numeric siblings in this one directory; never walk a home.
+    prefix = "node.log."
+    rotations = sorted(path for path in output.glob(prefix + "*")
+                       if path.name[len(prefix):].isdecimal())
     marker = "LASTDB_SNAPSHOT_TIMING "
-    events = [json.loads(line.split(marker, 1)[1])
-              for line in (output / "node.log").read_text().splitlines() if marker in line]
+    events = []
+    for path in [output / "node.log", *rotations]:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Native diagnostic log is not a regular output file")
+        with path.open() as source:
+            for line in source:
+                if marker in line:
+                    events.append(json.loads(line.split(marker, 1)[1]))
+    return events
+
+
+def collect_native_phases(output):
+    events = native_events(output)
     if not events:
         raise ValueError("The diagnostic daemon emitted no native timing records")
     metrics = json.loads((output / "metrics.json").read_text())
