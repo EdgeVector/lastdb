@@ -379,7 +379,10 @@ The full-page append implementation is restored. File, directory and root durabi
 The accepted largest-wait reduction remains open. Native preparation and physical publication need further diagnosis.
 The write queue preserves its sealed prefix until the complete durable result; no acceptance or ordering gate changes.
 Opt-in diagnostics separate directory lookups, locator tree edits, and the final directory edit.
-Reference resolution and format checksum timings are nested within those phases.
+Reference resolution, format checksum, and reserved-zero validation timings are nested within those phases.
+Reserved-zero validation combines every byte with bitwise OR and refuses the same nonzero slices.
+It uses no extra buffer and reads no byte outside the supplied slice. Checksums remain unchanged.
+Opt-in diagnostics report its time and validated byte count. A speed gain requires complete CI evidence.
 These intervals overlap. Do not add them or treat a diagnostic interval as a per-request disk wait.
 
 The v1 maintenance worker releases home ownership before its initial pause.

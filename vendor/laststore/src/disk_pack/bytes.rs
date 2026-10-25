@@ -52,7 +52,11 @@ pub(super) fn verify_checksum(bytes: &[u8], at: usize) -> Result<()> {
 }
 
 pub(super) fn zero(bytes: &[u8]) -> Result<()> {
-    if bytes.iter().any(|byte| *byte != 0) {
+    let _timing = crate::commit_timing::stage("format_zero_us");
+    crate::commit_timing::count("format_zero_bytes", bytes.len() as u64);
+    // Bitwise OR is zero exactly when every input byte is zero, including an
+    // empty slice. Inspect the complete bounded slice without a data-dependent exit.
+    if bytes.iter().fold(0u8, |found, byte| found | *byte) != 0 {
         return Err(corrupt("nonzero reserved bytes"));
     }
     Ok(())
