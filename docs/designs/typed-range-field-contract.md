@@ -1,7 +1,7 @@
 # Typed range field contract
 
-Status: shared field semantics, captured comparison context, and explicit typed key conversion APIs.
-The active node key format stays unchanged. This package does not convert a home.
+Status: shared field semantics, captured comparison context, typed key conversion APIs, and a stopped-home inventory command.
+The active node key format stays unchanged. Database conversion and activation remain pending.
 
 ## Current state
 
@@ -150,13 +150,92 @@ Absent range slots for hash-only and Single fields need separate layout treatmen
 The current API does not enumerate disk generations, delete markers, conflicts, or captured mutation keys.
 It does not publish a typed profile, lift the date-key fence, or enable a typed node reader.
 
-## Next packages
+## Stopped-home inventory
 
-1. Capture the complete logical key set, layout slots, delete barriers, and other key references from one inactive home.
-2. Define durable conversion progress and an unsupported-format fence before any key rewrite.
-3. Publish a complete converted generation and its molecule profile together, with explicit resume and recovery rules.
-4. Preserve counters, atom references, protein bindings, and file references through that publication.
-5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors.
+The next conversion stage uses the product command:
+
+```sh
+lastdb --data-dir /absolute/path/to/stopped-development-home db inspect-range-conversion --source-range-encoding ope_v1 --json
+```
+
+The source range encoding is an explicit assertion about the old node configuration.
+The command accepts `plain` or `ope_v1`. It never guesses a format from key appearance.
+The report includes that assertion and its count and byte limits.
+The command refuses the primary, legacy primary, and archived primary paths, including aliases.
+It has no primary override. It does not create a database, start a node, or copy a home.
+
+The source must stop cleanly and retain its shutdown flush receipt.
+The command holds the existing native owner locks and one fixed publication.
+It supports both the packed and run-file disk formats.
+The run-file reader uses an existing lock and authenticated CURRENT without the writer's orphan cleanup.
+The packed reader requires an existing lifetime lock before it opens a read.
+No maintenance lock is created or truncated.
+Publication and descriptor identities are checked again before the report returns.
+An account-key proof and the normal replay-floor check precede the metadata inventory.
+
+The inventory captures all metadata collections that the native namespace directory names, plus the current authoritative molecule collections.
+It excludes atom bodies/counters and CAS bytes from the in-memory metadata set.
+The packed visitor consumes excluded payloads without their retention in memory.
+The report binds the source publications and captured metadata with SHA-256 fingerprints.
+These fingerprints identify a snapshot. They are not authentication or permission tokens.
+
+The schema catalog supplies each field's actual molecule identity and declared range type.
+Mapped fields, shared molecules, absent range slots, and undeclared molecules remain explicit.
+Different declared range domains on one molecule produce a blocker.
+Unsupported range types and missing declarations produce blockers; no String field changes type automatically.
+Existing per-molecule bundles supply the same range keys as the normal reader.
+Missing bundle halves, malformed metadata, and source-format mismatches receive a refusal.
+
+The inventory includes direct tips, every stored generation, sparse generation deletes, and Delete barriers.
+It resolves current generation winners with the normal reader's functions.
+It also captures history, conflict, retention, catalog, idempotency, and other control records in the metadata fingerprint and family counts.
+Explicit Delete references and retention/drain slot pointers join the distinct key set, even without a live tip.
+History API coordinates are counted separately; they are not guessed to be storage coordinates.
+The complete captured metadata remains available to the later conversion planner.
+
+For supported molecules, proposed keys preserve exact scope and hash bytes.
+The inventory checks source range encoding, target scalar validation, collisions, and key byte limits.
+Repeated references to the same stored coordinate count once.
+The same coordinate under different scopes stays separate.
+Counts distinguish checked source ranges from checked target mappings.
+An unsupported proposal does not report a zero-byte target.
+Key byte totals describe distinct normalized molecule coordinates; they do not predict final database size.
+They exclude generation prefixes, barrier encodings, pointer values, counters, atoms, and files.
+
+The default limits are one million metadata records, 128 MiB of captured metadata, and 64 KiB per key.
+The command refuses an incomplete inventory when a limit is exceeded.
+These limits bound captured data and key plans, not total process memory or temporary reader buffers.
+The report always keeps `database_converted` and `activation_ready` false.
+It does not certify counter integrity, classify every opaque control value, or authorize a file rewrite.
+
+## Conversion and recovery boundary
+
+A separate target keeps the source unchanged and simplifies recovery.
+The future converter must bind its durable job to the source fingerprint, declared profiles, and explicit encoding configuration.
+It must refuse a target from another job or a different source publication.
+It must not copy the primary or use a copy of the primary.
+
+The target first receives an unsupported in-progress logical marker.
+Normal startup must refuse that marker, including after an interruption.
+The converter then builds target records from the fixed source and records durable progress.
+Every changed generation, barrier, retention pointer, and captured key reference needs an explicit format rule.
+Opaque values must not receive speculative text substitutions.
+Verification must cover all original records, atom references, counters, protein bindings, file references, and the replay floor.
+Profile metadata and the final supported format marker publish only after those checks succeed.
+
+An interrupted job resumes only through the explicit converter and the same bound source.
+A failed source check leaves the target closed.
+An abort discards only the exact owned target after its identity checks.
+Startup never resumes or activates a conversion.
+Primary promotion remains a separate action.
+
+## Remaining packages
+
+1. Implement durable target progress and its unsupported-format fence.
+2. Define transformations for the captured physical and API key references, including conflict identity and retention pointers.
+3. Publish a complete converted target and its molecule profiles with explicit resume and recovery.
+4. Verify counters, atom references, protein bindings, files, and the replay floor through that publication.
+5. Carry the selected profile through writes, exact reads, bounds, memory comparison, and cursors before activation.
 
 Date keys remain disabled until these paths agree. Conversion never runs at startup.
 The current encryption stays in use. A replacement requires a separate review and decision.

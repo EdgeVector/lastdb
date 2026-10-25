@@ -29,6 +29,7 @@ mod keys;
 mod manifest;
 mod range;
 mod read;
+mod read_only;
 
 pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MAX_MERGE_INPUTS, MERGE_WIDTH};
 pub use range::{RunHashRange, RunRangePage};
