@@ -1,13 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_RSS_LIMIT_MB: u64 = 6144;
-/// Keep this much RSS free for interactive work before claiming upload budget.
-/// Sanity entry ceiling when auto-deriving from budget (tiny stubs).
-///
-/// This must stay comfortably above the write volume one dirty sync interval can
-/// generate on the primary fleet. At ~730 writes/sec and a 30s interval, a
-/// 4,096-entry ceiling guarantees backlog growth even with ample RSS headroom.
-
 /// How upload caps are chosen each cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]

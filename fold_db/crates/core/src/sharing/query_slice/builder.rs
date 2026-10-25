@@ -1,6 +1,7 @@
 //! Per-leg accumulation of a query-defined slice.
 
 use super::*;
+use std::collections::BTreeSet;
 
 /// Accumulates the schemas, molecules, atoms and blobs for the legs of one slice.
 #[derive(Default)]

@@ -3,7 +3,7 @@
 use super::*;
 use base64::Engine as _;
 use ed25519_dalek::{Signature, VerifyingKey};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub fn verify(request: &OrgAuthorityPublishRequest) -> SyncResult<(CloudAccount, Vec<String>)> {
     let envelope = &request.org_authority;

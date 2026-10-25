@@ -242,10 +242,8 @@ use lifecycle_cmds::*;
 mod mutate_cmds;
 #[path = "lastdb/record_cmds.rs"]
 mod record_cmds;
-use record_cmds::record_command;
-#[path = "lastdb/restore_progress_reporter.rs"]
-mod restore_progress_reporter;
 use mutate_cmds::*;
+use record_cmds::record_command;
 
 #[path = "lastdb/socket_client.rs"]
 mod socket_client;

@@ -35,7 +35,6 @@ pub(crate) mod counter;
 mod delete_barriers;
 mod delete_replay;
 pub use delete_replay::DeletePruneReport;
-pub(crate) use delete_replay::CUTOFF_KEY as DELETE_REPLAY_CUTOFF_KEY;
 mod erase_meters;
 mod file_blob_seal;
 mod filter;
@@ -83,9 +82,7 @@ pub use molecule_ref_edges::{MoleculeRefEdge, MoleculeRefLookup};
 pub(crate) use molecules::MoleculeKeyDomain;
 pub use retention::ConflictRetentionReport;
 pub(crate) use retention::{record_digest, Lane, RecordSlot, RetentionCursor, StepOutcome};
-pub(crate) use retired_intent_retention::{
-    RetiredIntentRetentionGuard, RetiredIntentRetentionProof,
-};
+pub(crate) use retired_intent_retention::RetiredIntentRetentionProof;
 pub use types::MoleculeData;
 pub(crate) use types::MoleculeHeader;
 pub(crate) use types::{

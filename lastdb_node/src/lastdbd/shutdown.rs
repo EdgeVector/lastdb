@@ -5,16 +5,6 @@ use std::sync::Arc;
 use lastdb_node::host::Host;
 
 pub(crate) fn shutdown_handler_drain_timeout() -> std::time::Duration {
-    #[cfg(debug_assertions)]
-    if std::env::var("LASTDB_ISOLATED_COPY").ok().as_deref() == Some("1") {
-        if let Ok(raw) = std::env::var("LASTDB_TEST_SHUTDOWN_DRAIN_TIMEOUT_MS") {
-            if let Ok(ms) = raw.parse::<u64>() {
-                if (1..=180_000).contains(&ms) {
-                    return std::time::Duration::from_millis(ms);
-                }
-            }
-        }
-    }
     std::time::Duration::from_secs(180)
 }
 

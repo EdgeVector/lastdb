@@ -12,8 +12,7 @@ pub(crate) use worker::{
     fill_overhang_status, large_captured_plane_probe_interval_s,
     photograph_aligned_compact_budget_secs, photograph_aligned_compact_interval_s,
     tips_compact_max_bytes, tips_compact_min_overhang_bps, tips_compact_min_overhang_bytes,
-    tips_compact_probe_interval_s, ResidualPlaneTrigger, CAPTURE_REEXPORT_NAMESPACE,
-    RESIDUAL_SELF_COMPACT_PLANES,
+    tips_compact_probe_interval_s, ResidualPlaneTrigger, RESIDUAL_SELF_COMPACT_PLANES,
 };
 pub(crate) use write_path::{
     capture_logical_commit_with_policy, capture_logical_commit_with_policy_and_author_clock,
