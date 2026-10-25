@@ -40,14 +40,17 @@ HashRange backfill registers hashes; the range key still defines the age.
 
 1. The sampler tick starts at most one pass. A pass skips while a backup cut is held or local
    writes are paused.
-2. The pass lists the expired keys of each schema once, hash by hash and oldest first inside a
-   hash. The store keeps the rows of one hash in one group, so one batch touches few groups.
-   Range discovery reads 256 keys per request through the normal keyed page reader.
-   An exclusive key cursor advances across each page, including keys without a valid age.
-   Only an empty page ends discovery. A large expired hash does not require one unbounded read.
+2. The pass keeps schema metadata and exclusive cursors. It fetches one key page for the schema
+   that it serves, then erases that page before it fetches another. Hash and Single use a bounded
+   age-entry read. Range and HashRange use the normal keyed page reader. A page holds at most the
+   configured batch size: 16 keys by default, 64 at most, across all schemas combined.
+   Schema and observed-hash metadata still scale with the configured schemas and hashes.
+   An exclusive cursor advances across stale age entries and keys without a valid range age.
+   Only an empty physical page ends an interval. A short page does not end it.
    The next pass starts from the oldest remaining key; no offset survives an erase.
-3. The pass erases in rounds. Each round takes one batch from each schema that still has keys,
-   in schema name order. A large backlog in one schema cannot starve the others.
+3. Each round serves one page from each schema, in schema name order. A size refusal splits the
+   current page into smaller batches. A failed schema releases its page and retains only its
+   outstanding count. Other schemas continue. The status does not call a failed or cut pass complete.
 4. Before each batch the sweep re-checks its keys, inside the batch admission:
    - Hash and Single keys take their age from the write-time index. One batched read drops every
      key that a client rewrote after the pass listed it. A key with no index row was erased by
@@ -334,6 +337,7 @@ on a quiet host and up to 7.8 s on a busy one.
 
 | Field | Meaning |
 |---|---|
+| `peak_buffered_keys` | The largest expired-key page held by the pass. It excludes schema/hash metadata and temporary query response bytes. |
 | `finished_backlog` | The last pass erased or dropped every key that it listed, in every schema, with no failed schema. |
 | `keys_left` | The keys that the pass listed and had not reached when it ended. |
 | `cut` | The pass ended early: the daemon was stopping, a backup cut was held, or local writes were paused. |
@@ -344,3 +348,65 @@ on a quiet host and up to 7.8 s on a busy one.
 A pass that ends with keys left writes one `ttl sweep pass ended with listed keys left over`
 line. The next pass lists those keys again. `settled` in the `Local retention:` line stays false
 until a pass finishes its backlog.
+
+## Active-TTL latency diagnostics
+
+The CI comparison uses 512 durable calls per case, with eight records per call.
+One and four clients send the same request size and total work.
+The four states are no policy, age tracking, active TTL, and active TTL with full compaction.
+The uninterrupted cases supply the latency and throughput comparison.
+
+Separate diagnostic cases fetch the request ring after each 64-call wave.
+Each case requires all 512 exact request records and their reported resident stages.
+The diagnostic gaps and native instrumentation can change maintenance exposure.
+Their throughput does not replace the uninterrupted comparison.
+
+Native timing adds an opaque process-local identifier when its existing opt-in flag is on.
+The request record and native scope carry that identifier; no caller value enters the native log.
+The scope then joins its physical commit by sequence and enclosed time.
+This separates request queue time, native admission, private preparation, and durable completion.
+A physical commit can contain foreground writes and TTL work. The report counts that commit once.
+It does not assign the whole shared commit cost to every request.
+
+An older baseline can omit these identifiers. Its native association remains unreported.
+The candidate requires complete native association. Missing fields never mean measured zero.
+The collector reads the current daemon log and its numeric rotated files in the same output directory.
+Rotation does not reduce the required request, scope, sequence or physical-commit coverage.
+Missing or ambiguous evidence still fails the campaign.
+
+Private v1 metadata writes use unbuffered private files.
+The same-runner before/after comparison found no material latency gain from an eight-page write buffer.
+That buffer was removed. Every completed part retains its file barrier and publication barriers.
+A private metadata zero-extension experiment reduced issued append bytes but increased request latency.
+The full-page append implementation is restored. File, directory and root durability barriers remain.
+The accepted largest-wait reduction remains open. Native preparation and physical publication need further diagnosis.
+The write queue preserves its sealed prefix until the complete durable result; no acceptance or ordering gate changes.
+Opt-in diagnostics separate directory lookups, locator tree edits, and the final directory edit.
+Reference resolution, format checksum, and reserved-zero validation timings are nested within those phases.
+Reserved-zero validation retains its original early refusal. The provisional bitwise-OR change was removed.
+The comparison with identical diagnostics did not establish a consistent active-TTL wait reduction.
+Opt-in diagnostics retain its time and validated byte count. Short calls round down to integer microseconds.
+Metadata completion now separates private-part sync, object-directory sync, namespace creation, and block-map finalization.
+These numeric timings use the existing diagnostic opt-in. Every I/O call, check, error, and barrier keeps its original order.
+Checksums and full-page output remain unchanged. This is diagnosis; no new wait reduction is established.
+These intervals overlap. Do not add them or treat a diagnostic interval as a per-request disk wait.
+
+The descriptor-borrow experiment was removed after its controlled comparison found no consistent benefit.
+Existing and inserted descriptors again use the original owned representation and leaf helpers.
+The key-validation reuse experiment was also removed: its matched result did not reduce the active-four-client durable wait.
+The original full key checks and resource charges again run on each access. No page witness or key cache remains.
+Existing opt-in numeric stages now separate input-key validation, leaf preparation, packed-payload construction,
+and the fixed-layout parent payload built before the locator branch.
+Leaf preparation includes existing changed-value reference work and any new external-key output.
+Packed-payload timing ends before the full encoded page enters its writer.
+The parent-preparation interval ends before the packed branch and its output.
+These intervals overlap enclosing tree and reference stages; short calls still round down to integer microseconds.
+No allocation, output byte, split, error check, I/O, checksum, private-page readback, or durability barrier changes.
+Normal diagnostics remain off. The measurements diagnose the remaining work and establish no wait reduction.
+
+The v1 maintenance worker releases home ownership before its initial pause.
+Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.
+
+A concurrent replacement publication invalidates an older native cleanup plan.
+If its obsolete inventory then loses a receipt, cleanup reports deferred work only after it verifies its retained source receipt.
+A missing receipt under a valid deletion epoch remains an error.

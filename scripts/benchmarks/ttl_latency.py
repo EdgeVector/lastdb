@@ -63,9 +63,7 @@ def seed(node, state):
     node.start()
 
 
-def writes(node, clients, output):
-    # Build every payload before timing. Both client counts send 512 calls of eight records.
-    jobs = [(n, mutations(LIVE, range(n * BATCH, (n + 1) * BATCH))) for n in range(CALLS)]
+def write_wave(node, clients, jobs):
     barrier = threading.Barrier(clients + 1)
 
     def worker(client):
@@ -76,22 +74,45 @@ def writes(node, clients, output):
             result, elapsed, _ = node.call("/api/mutations/batch", body, request_id=request_id)
             Workload.validate_write(result, BATCH)
             rows.append({"case": f"ttl-write/{clients}", "kind": "write", "client": client,
-                         "request_id": request_id, "records": BATCH, "elapsed_ms": elapsed})
+                         "request_id": request_id, "records": BATCH, "elapsed_ms": elapsed,
+                         "resident_stages_us": result.get("resident_stages_us")})
         return rows
 
     with ThreadPoolExecutor(max_workers=clients) as pool:
         futures = [pool.submit(worker, n) for n in range(clients)]
-        first = time.time()
-        started = time.perf_counter()
         barrier.wait(timeout=30)
-        rows = [row for future in futures for row in future.result()]
+        return [row for future in futures for row in future.result()]
+
+
+def writes(node, clients, output, diagnostic=False):
+    # Authoritative latency stays a single uninterrupted 512-call window.
+    # Separate diagnostic windows capture the finite ring every 64 calls.
+    jobs = [(n, mutations(LIVE, range(n * BATCH, (n + 1) * BATCH))) for n in range(CALLS)]
+    width = 64 if diagnostic else CALLS
+    rows, coverage = [], []
+    first, started = time.time(), time.perf_counter()
+    first_us = time.time_ns() // 1000
+    for sequence, start in enumerate(range(0, CALLS, width)):
+        wave = write_wave(node, clients, jobs[start:start + width])
         elapsed, last = time.perf_counter() - started, time.time()
+        last_us = time.time_ns() // 1000
+        coverage.append(capture_phases(node, output, f"ttl-write/{clients}", sequence, wave))
+        rows.extend(wave)
     metric = describe(rows, elapsed)
-    metric.update(clients=clients, batch_records=BATCH, first_unix=first, last_unix=last)
-    metric["phase_coverage"] = capture_phases(node, output, f"ttl-write/{clients}", 0, rows)
+    metric.update(clients=clients, batch_records=BATCH, first_unix=first, last_unix=last,
+                  diagnostic=diagnostic, diagnostic_wave_calls=width if diagnostic else None,
+                  case_started_unix_us=first_us, case_ended_unix_us=last_us)
+    metric["phase_coverage"] = {"requests": len(rows),
+        "matched": sum(c["matched"] for c in coverage),
+        "with_phases": sum(c["with_phases"] for c in coverage),
+        "complete": all(c["complete"] for c in coverage), "waves": coverage}
     with gzip.open(output / "samples.jsonl.gz", "wt") as stream:
         for row in rows:
             stream.write(json.dumps(row) + "\n")
+    if diagnostic and not (metric["phase_coverage"]["complete"]
+                           and metric["phase_coverage"]["with_phases"] == CALLS
+                           and all(isinstance(row["resident_stages_us"], dict) for row in rows)):
+        raise RuntimeError("TTL diagnostic lacks complete request phases or resident stages")
     return metric
 
 
@@ -117,9 +138,9 @@ def validate_live(node):
                 raise RuntimeError("An accepted live TTL value changed or expired")
 
 
-def measure(binary, revision, output, state, clients, maintenance):
+def measure(binary, revision, output, state, clients, maintenance, diagnostic=False):
     output.mkdir()
-    node = Node(binary, revision, output, environment={"LASTDB_TTL_SWEEP": "0",
+    node = Node(binary, revision, output, native_timing=diagnostic, environment={"LASTDB_TTL_SWEEP": "0",
                 "LASTDB_SELF_METRICS_SAMPLE_SECS": "1"})
     result, compact = {"complete": False}, None
     try:
@@ -128,7 +149,7 @@ def measure(binary, revision, output, state, clients, maintenance):
         with ThreadPoolExecutor(max_workers=1) as pool:
             if state.endswith("compact"):
                 compact = pool.submit(compact_during_writes, node)
-            metric = writes(node, clients, output)
+            metric = writes(node, clients, output, diagnostic)
             if compact:
                 evidence = compact.result(timeout=120)
                 save(output / "compaction.json", evidence)
@@ -222,7 +243,7 @@ def main():
                 "expired_hashes": len(OLD_HASHES), "expired_records_per_hash": 512,
                 "sampler_seconds": 1, "ttl_pacing": "product defaults", "runs": [], "complete": False,
                 "drivers": {name: file_hash(Path(__file__).parent / name) for name in
-                            ("ttl_latency.py", "ttl_maintenance.py", "node.py", "phases.py", "workload.py")},
+                            ("ttl_latency.py", "ttl_maintenance.py", "ttl_profile.py", "native_phases.py", "node.py", "phases.py", "workload.py")},
                 "binaries": {}}
     for label in ("baseline", "candidate"):
         manifest["binaries"][label] = {"revision": getattr(args, f"{label}_revision"),
@@ -240,6 +261,8 @@ def main():
                     manifest["runs"].append({"pair": pair, "label": label, "state": state,
                                               "clients": clients, "directory": name, **result})
                     save(args.output / "benchmark.json", manifest)
+    from ttl_profile import profile
+    manifest["diagnostics"] = profile(args, measure)
     manifest["complete"] = True
     save(args.output / "benchmark.json", manifest)
     summary = "\n".join(summary_lines(manifest)) + "\n"

@@ -173,6 +173,8 @@ pub(super) fn parent(
     if level >= 8 || children.len() < 2 || (kind == TreeKind::Directory && children.len() > 89) {
         return Err(corrupt("internal page height or child count"));
     }
+    let fixed_preparation = (kind == TreeKind::Locator)
+        .then(|| crate::commit_timing::stage("metadata_locator_parent_fixed_prepare_us"));
     let mut payload = Vec::with_capacity((children.len() - 1) * INTERNAL_WIDTH);
     for child in &children[1..] {
         payload.extend_from_slice(
@@ -196,6 +198,7 @@ pub(super) fn parent(
         next: 0,
         auxiliary: 0,
     };
+    drop(fixed_preparation);
     let number = if kind == TreeKind::Locator {
         let values: Vec<_> = children[1..]
             .iter()
