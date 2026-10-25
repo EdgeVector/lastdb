@@ -65,6 +65,7 @@ pub(in crate::handlers) fn cursor_payload(
     limit: usize,
     offset: usize,
     drops: RowDrops,
+    comparison: Option<String>,
 ) -> Value {
     // This shape over-fetches `limit + 1` and infers `has_more` from the extra
     // row. A drop that still consumes an output slot can hide the probe row,
@@ -79,7 +80,7 @@ pub(in crate::handlers) fn cursor_payload(
     // Derive the cursor from the truncated page: it has to name the last row the
     // caller actually received, not the `limit + 1`th probe row, or the next
     // continuation skips a row.
-    let next_cursor = next_cursor_for(&page, has_more);
+    let next_cursor = next_cursor_for(&page, has_more).map(|key| QueryCursor::new(key, comparison));
     let mut payload = page_payload(page, total_count, limit, offset, has_more, drops);
     payload["next_cursor"] = serde_json::to_value(next_cursor).unwrap_or(Value::Null);
     payload

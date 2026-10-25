@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 
-from ranges import latency, validate
+from ranges import latency, validate, validate_cursor
 from condition_values import extend
 
 SCHEMA, HASH, COUNT, SHIFT = "ReceivedRangeBatches", "generated", 16384, 8192
@@ -59,7 +59,7 @@ def selected(expected, request):
     return sorted(keys, key=lambda coordinate: (coordinate[1], coordinate[0]))[request.get("offset", 0):]
 
 
-def walk(node, expected, request, label, baseline=False):
+def walk(node, expected, request, label, baseline=False, *, legacy_cursor=False):
     wanted, position, samples = selected(expected, request), 0, []
     cursor = request.get("cursor")
     maximum_pages = len(wanted) // max(1, request["limit"]) + 16
@@ -96,12 +96,12 @@ def walk(node, expected, request, label, baseline=False):
                 raise RuntimeError("A complete received range omits known generated values")
             break
         following = result.get("next_cursor")
-        if (result.get("has_more") is not True or not count or not following
-                or following == cursor or following != {
-                    "hash": wanted[position - 1][0], "range": wanted[position - 1][1]}):
+        if (result.get("has_more") is not True or not count or not following or following == cursor):
             raise RuntimeError("A received range cursor does not advance past its last returned key")
+        validate_cursor(following, cursor, wanted[position - 1])
         cursor = following
-        request = {**request, "cursor": following}
+        wire_cursor = {name: following[name] for name in ("hash", "range")} if legacy_cursor else following
+        request = {**request, "cursor": wire_cursor}
         request.pop("offset", None)
     else:
         raise RuntimeError("The received range cursor walk exceeds its finite page bound")

@@ -152,7 +152,7 @@ impl SchemaStore {
                 .or_insert(*written_at);
         }
         let mut unique: Vec<_> = clocks.keys().cloned().collect();
-        unique.sort_by(KeyValue::cmp_page_order);
+        unique.sort_by(KeyValue::cmp_storage_order);
         let latest_keys: Vec<_> = unique
             .iter()
             .map(|key| retention_age_latest_key(schema_name, key))
@@ -321,7 +321,7 @@ impl SchemaStore {
                 (current == Some(entry.clone())).then_some(entry.key)
             })
             .collect();
-        keys.sort_by(KeyValue::cmp_page_order);
+        keys.sort_by(KeyValue::cmp_storage_order);
         keys.dedup();
         Ok(keys)
     }

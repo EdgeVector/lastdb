@@ -91,6 +91,7 @@ export type {
   ConsentScope,
   AutoIdentityResult,
   KeyValue,
+  QueryCursor,
   ListOptions,
   ListRecordKey,
   ListResult,

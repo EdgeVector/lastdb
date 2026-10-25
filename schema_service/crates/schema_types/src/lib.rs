@@ -10,6 +10,7 @@ pub mod error;
 pub mod field_identity;
 pub mod field_value_type;
 pub mod hex;
+pub mod key_comparison;
 pub mod key_config;
 pub mod schema_type;
 

@@ -41,6 +41,7 @@ mod file_blob_seal;
 mod filter;
 mod helpers;
 mod keep_small;
+mod key_comparison;
 pub(crate) mod key_format;
 mod locks;
 mod molecule_bindings;
@@ -318,13 +319,17 @@ impl AtomStore {
         &self,
         molecule_uuid: &str,
     ) -> Result<crate::atom::MoleculeKeyCodec, crate::schema::SchemaError> {
-        let Some(store) = self.molecule_keys.as_ref() else {
-            return Ok(self.key_codec.clone());
+        let codec = match self.molecule_keys.as_ref() {
+            Some(store) => store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
+                || self.key_codec.clone(),
+                |bundle| bundle.key_codec(&self.key_codec),
+            ),
+            None => self.key_codec.clone(),
         };
-        Ok(store.cached_bundle(molecule_uuid)?.as_ref().map_or_else(
-            || self.key_codec.clone(),
-            |bundle| bundle.key_codec(&self.key_codec),
-        ))
+        crate::schema::types::key_comparison::KeyComparisonContext::require_current_order(
+            codec.key_order(),
+        )?;
+        Ok(codec)
     }
 
     /// Access the underlying typed KV store. Crate-internal helper for

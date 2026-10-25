@@ -141,11 +141,12 @@ impl HashRangeQueryProcessor {
 
     async fn current_query_scope<T>(
         &self,
+        comparison: Arc<crate::schema::types::key_comparison::KeyComparisonContext>,
         future: impl std::future::Future<Output = Result<T, SchemaError>>,
     ) -> Result<T, SchemaError> {
         let scope = self.db_ops.read_scope().await?;
         let future = crate::storage::disk_pack::logical_paths::field::query_scope(future);
-        scope.run_result(future).await
+        comparison.run(scope.run_result(future)).await
     }
 
     /// Start a live watch for one HashRange partition.
