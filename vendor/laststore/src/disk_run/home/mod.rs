@@ -30,7 +30,7 @@ mod manifest;
 mod range;
 mod read;
 
-pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MERGE_WIDTH};
+pub use commit::{RunCommit, RunMerge, LAST_LEVEL_RATIO, MAX_MERGE_INPUTS, MERGE_WIDTH};
 pub use range::{RunHashRange, RunRangePage};
 pub use read::{RunRead, RunReadCosts};
 
@@ -90,7 +90,10 @@ impl RunHome {
     /// Create a new empty home in `root`, which must be absent or empty.
     ///
     /// The home is built in a hidden sibling directory and renamed into
-    /// place, so a crash leaves either no home or a complete one.
+    /// place, so a crash leaves either no home or a complete one. A crash
+    /// can leave that `.<name>.create-<uuid>` directory beside the root;
+    /// it is never opened, and the caller may delete it. The parent of
+    /// `root` must exist.
     pub fn create(root: &Path, key: &[u8; 32]) -> Result<Self> {
         if root.try_exists()? && fs::read_dir(root)?.next().is_some() {
             return Err(Error::Config(

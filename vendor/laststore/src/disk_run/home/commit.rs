@@ -19,6 +19,10 @@ pub const MERGE_WIDTH: usize = 8;
 /// write cost of each merge stays bounded.
 pub const LAST_LEVEL_RATIO: u64 = 8;
 
+/// Most runs one merge reads. Each input holds one open file, so a level
+/// that grew while merges lagged is merged in slices of its oldest runs.
+pub const MAX_MERGE_INPUTS: usize = 64;
+
 /// One published commit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunCommit {
@@ -39,7 +43,8 @@ pub struct RunMerge {
     pub generation: u64,
     /// The level whose runs were merged.
     pub level: usize,
-    /// Runs merged.
+    /// Runs merged: the runs taken from `level`, plus the deepest level's
+    /// runs when the merge absorbed them.
     pub inputs: usize,
     /// Records in the output run; zero when every input record was a
     /// dropped tombstone and no output run exists.
@@ -152,16 +157,18 @@ impl RunHome {
         }
         // Only merges change levels below level 0, and merges run one at a
         // time, so these facts stay true until the publish below.
-        let mut inputs: Vec<Arc<RunFile>> = held.levels[level].clone();
+        // The oldest runs of the level: older than the runs left on it and
+        // newer than every run on the next level.
+        let full = &held.levels[level];
+        let mut inputs: Vec<Arc<RunFile>> =
+            full[full.len().saturating_sub(MAX_MERGE_INPUTS)..].to_vec();
         let target_is_deepest = held.levels.iter().skip(level + 2).all(|l| l.is_empty());
-        let target: &[Arc<RunFile>] = match held.levels.get(level + 1) {
-            Some(runs) => runs,
-            None => &[],
-        };
+        let target = held.levels.get(level + 1).map_or(&[][..], Vec::as_slice);
         let input_bytes: u64 = inputs.iter().map(|run| run.meta.file_bytes).sum();
         let target_bytes: u64 = target.iter().map(|run| run.meta.file_bytes).sum();
         let absorb = target_is_deepest
             && !target.is_empty()
+            && inputs.len() + target.len() <= MAX_MERGE_INPUTS
             && target_bytes <= input_bytes.saturating_mul(LAST_LEVEL_RATIO);
         if absorb {
             // Older than every input, so after them in newest-first order.
