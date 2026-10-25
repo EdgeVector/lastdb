@@ -5,9 +5,9 @@ use super::{corrupt, TreeKind, PAGE_PAYLOAD};
 use crate::Result;
 use std::ops::Range;
 
-pub(super) fn leaves<K: AsRef<[u8]>>(
+pub(super) fn leaves(
     kind: TreeKind,
-    entries: &[LeafEntry<K>],
+    entries: &[LeafEntry],
     middle_insert: bool,
 ) -> Result<Vec<Range<usize>>> {
     if kind == TreeKind::Directory {
@@ -17,7 +17,7 @@ pub(super) fn leaves<K: AsRef<[u8]>>(
     let mut first = 0;
     let mut bytes = 0;
     for (index, (key, _)) in entries.iter().enumerate() {
-        let width = key.as_ref().len() + 128 + 4;
+        let width = key.len() + 128 + 4;
         if width > PAGE_PAYLOAD {
             return Err(corrupt("locator key cannot fit a leaf"));
         }
@@ -40,8 +40,8 @@ pub(super) fn leaves<K: AsRef<[u8]>>(
 /// Random inserts into a full leaf must not repeatedly produce tiny neighbors.
 /// Pure tail growth retains the full-left append layout. Reuse the same entries
 /// and two output pages; only the separator position changes.
-fn balance_small_tail<K: AsRef<[u8]>>(entries: &[LeafEntry<K>], ranges: &mut [Range<usize>]) {
-    let width = |entry: &LeafEntry<K>| entry.0.as_ref().len() + 132;
+fn balance_small_tail(entries: &[LeafEntry], ranges: &mut [Range<usize>]) {
+    let width = |entry: &LeafEntry| entry.0.len() + 132;
     let tail: usize = entries[ranges[1].clone()].iter().map(width).sum();
     if tail * 4 >= PAGE_PAYLOAD {
         return;

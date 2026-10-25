@@ -4,7 +4,7 @@ use super::{corrupt, TreeKind, INTERNAL_WIDTH, KEY_DESCRIPTOR, LEAF_WIDTH, PAGE_
 use crate::Result;
 
 pub(super) type Descriptor = Vec<u8>;
-pub(super) type LeafEntry<K = Descriptor> = (K, [u8; 128]);
+pub(super) type LeafEntry = (Descriptor, [u8; 128]);
 
 pub(super) trait TreePages {
     fn reserve(&mut self, count: usize) -> Result<u64>;
@@ -134,10 +134,10 @@ pub(super) fn leaf_fields(kind: TreeKind, count: usize) -> PageFields {
     }
 }
 
-pub(super) fn leaf<K: AsRef<[u8]>>(
+pub(super) fn leaf(
     pages: &mut impl TreePages,
     kind: TreeKind,
-    entries: &[LeafEntry<K>],
+    entries: &[LeafEntry],
 ) -> Result<Child> {
     if entries.is_empty() || (kind == TreeKind::Directory && entries.len() > super::LEAF_ENTRIES) {
         return Err(corrupt("tree leaf output count"));
@@ -148,18 +148,18 @@ pub(super) fn leaf<K: AsRef<[u8]>>(
             leaf_fields(kind, entries.len()),
             entries
                 .iter()
-                .map(|(key, value)| (key.as_ref(), value.as_slice())),
+                .map(|(key, value)| (key.as_slice(), value.as_slice())),
         )?
     } else {
         let mut payload = Vec::with_capacity(entries.len() * LEAF_WIDTH);
         for (key, value) in entries {
-            payload.extend_from_slice(key.as_ref());
+            payload.extend_from_slice(key);
             payload.extend_from_slice(value);
         }
         pages.append(leaf_fields(kind, entries.len()), &payload)?
     };
     Ok(Child {
-        minimum: Some(entries[0].0.as_ref().to_vec()),
+        minimum: Some(entries[0].0.clone()),
         number,
     })
 }
