@@ -1010,6 +1010,10 @@ struct V2Options {
     dense_locator: bool,
     /// Keep today's OPE hex range encoding in tip keys (decision C30 / T3).
     ope_range: bool,
+    /// Store the node's exact records (v1 keys, JSON values) in place of the
+    /// compact spike records. `Some(true)` keeps today's per-value `ENC:`
+    /// seal; `Some(false)` removes it, as a block seal would.
+    node_records: Option<bool>,
 }
 
 /// Sort key = collection byte, group (2 B), stored key. 1,024 groups (C11).
@@ -1158,10 +1162,40 @@ fn decode_block(raw: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
     out
 }
 
-fn v2_items(stream: &Stream, ope_range: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
-    let mut records = v2_records_in_write_order(stream, ope_range);
+fn v2_items(stream: &Stream, options: V2Options) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut records = match options.node_records {
+        None => v2_records_in_write_order(stream, options.ope_range),
+        Some(sealed) => v2_node_records(stream, sealed),
+    };
     records.sort_by(|a, b| a.0.cmp(&b.0));
     records
+}
+
+/// The records the node hands the store today, keyed as `collection \0 key`.
+fn v2_node_records(stream: &Stream, sealed: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let options = V1Options {
+        raw_seal: false,
+        raw_range: false,
+        implied_counter: false,
+        bounded_bookkeeping: false,
+        commit_keys: 16_384,
+    };
+    let mut sealer = Sealer::new();
+    v1_items(stream, &options)
+        .into_iter()
+        .map(|item| {
+            let mut key = v1_collection(item).as_bytes().to_vec();
+            key.push(0);
+            key.extend_from_slice(v1_key(item, &options).as_bytes());
+            let plain = v1_plaintext(item, &mut sealer);
+            let value = if sealed {
+                v1_seal(&plain, false, &mut sealer)
+            } else {
+                plain
+            };
+            (key, value)
+        })
+        .collect()
 }
 
 fn v2_records_in_write_order(stream: &Stream, ope_range: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -1191,7 +1225,7 @@ fn write_v2(root: &Path, stream: &Stream, options: V2Options) -> Result<Measure>
     // lint:fn-size-ok spike driver kept linear so the measured steps read in order.
     let start = Instant::now();
     fs::DirBuilder::new().mode(0o700).create(root)?;
-    let records = v2_items(stream, options.ope_range);
+    let records = v2_items(stream, options);
     let mut sealer = Sealer::new();
     let mut pack = fs::File::create(root.join("pack"))?;
     let mut blocks: Vec<BlockRef> = Vec::new();
@@ -1732,6 +1766,11 @@ fn main() -> Result<()> {
         zstd_level,
         dense_locator,
         ope_range: false,
+        node_records: None,
+    };
+    let node_bytes = |sealed: bool, options: V2Options| V2Options {
+        node_records: Some(sealed),
+        ..options
     };
     let with_ope = |options: V2Options| V2Options {
         ope_range: true,
@@ -1791,6 +1830,21 @@ fn main() -> Result<()> {
         (
             "R v2 sparse 16 KiB, NO compression, today's OPE range",
             with_ope(v2_variant(16, 0, false)),
+            false,
+        ),
+        (
+            "S v2 sparse 16 KiB, zstd 3, node's exact records, per-value seal moved to the block",
+            node_bytes(false, v2_variant(16, 3, false)),
+            false,
+        ),
+        (
+            "T v2 sparse 16 KiB, zstd 3, node's exact records with today's per-value ENC: seal",
+            node_bytes(true, v2_variant(16, 3, false)),
+            false,
+        ),
+        (
+            "U v2 sparse 16 KiB, NO compression, node's exact records with today's per-value ENC: seal",
+            node_bytes(true, v2_variant(16, 0, false)),
             false,
         ),
     ];
