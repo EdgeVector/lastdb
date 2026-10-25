@@ -379,3 +379,7 @@ CI compares this change with the same TTL workload. A speed gain requires comple
 
 The v1 maintenance worker releases home ownership before its initial pause.
 Format v2 uses background run merges. The explicit v1 pack-compaction route returns a clear HTTP 400 refusal on v2.
+
+A concurrent replacement publication invalidates an older native cleanup plan.
+If its obsolete inventory then loses a receipt, cleanup reports deferred work only after it verifies its retained source receipt.
+A missing receipt under a valid deletion epoch remains an error.
