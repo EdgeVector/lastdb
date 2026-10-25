@@ -176,6 +176,7 @@ An account-key proof and the normal replay-floor check precede the metadata inve
 The inventory captures all metadata collections that the native namespace directory names, plus the current authoritative molecule collections.
 It excludes atom bodies/counters and CAS bytes from the in-memory metadata set.
 The packed visitor consumes excluded payloads without their retention in memory.
+It streams the complete held generation; the capture limits count selected metadata only.
 The report binds the source publications and captured metadata with SHA-256 fingerprints.
 These fingerprints identify a snapshot. They are not authentication or permission tokens.
 

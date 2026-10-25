@@ -1,7 +1,7 @@
 use super::source::{budget, Source};
 use super::{invalid, InventoryLimits, MetadataRecord, StorageResult};
 use crate::storage::disk_pack::map;
-use laststore::disk_pack::maintenance::visit_generation;
+use laststore::disk_pack::maintenance::visit_generation_streaming;
 use std::collections::BTreeSet;
 use std::io::Read;
 
@@ -22,7 +22,7 @@ pub(super) fn collect(
     let mut bytes = 0_usize;
     match source {
         Source::Packed { home, reader } => {
-            visit_generation(home.path(), reader.current(), |record| {
+            visit_generation_streaming(home.path(), reader.current(), |record| {
                 let Some(body) = record.body else {
                     return Ok(());
                 };
