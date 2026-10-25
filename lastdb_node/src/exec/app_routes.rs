@@ -1,14 +1,7 @@
 use super::*;
 
-#[derive(Deserialize)]
-pub(super) struct AppChangesRequest {
-    #[serde(default)]
-    pub(super) since_cursor: Option<String>,
-    #[serde(default)]
-    pub(super) limit: Option<usize>,
-    #[serde(default)]
-    pub(super) target: Option<String>,
-}
+mod change_rules;
+use change_rules::AppChangesRequest;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,9 +12,6 @@ pub(super) struct AppSearchRequest {
     #[serde(default)]
     pub(super) target: Option<String>,
 }
-
-pub(super) const APP_CHANGES_DEFAULT_LIMIT: usize = 100;
-pub(super) const APP_CHANGES_MAX_LIMIT: usize = 500;
 
 pub(super) fn execute_app_search_route(
     req: &UdsRequest,
@@ -77,21 +67,15 @@ pub(super) async fn execute_app_changes_route(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    let Ok(request) = serde_json::from_slice::<AppChangesRequest>(&req.body) else {
-        return error_response(400, "invalid app changes request", ctx);
+    let AppChangesRequest {
+        after,
+        limit,
+        target,
+    } = match AppChangesRequest::parse(&req.body) {
+        Ok(request) => request,
+        Err(message) => return error_response(400, message, ctx),
     };
-    let after = match request.since_cursor.as_deref() {
-        Some(cursor) => match decode_change_cursor(cursor) {
-            Some(seq) => seq,
-            None => return error_response(400, "invalid app changes cursor", ctx),
-        },
-        None => 0,
-    };
-    let limit = request
-        .limit
-        .unwrap_or(APP_CHANGES_DEFAULT_LIMIT)
-        .clamp(1, APP_CHANGES_MAX_LIMIT);
-    let target = match request.target.as_deref() {
+    let target = match target.as_deref() {
         Some(name) => match handlers::resolve_schema_name(host, name) {
             Ok(Some(canonical)) => Some(canonical),
             // Unknown and unauthorized targets are deliberately indistinguishable.
@@ -113,32 +97,13 @@ pub(super) async fn execute_app_changes_route(
             return error_response(500, &format!("change feed read failed: {error}"), ctx)
         }
     };
-    let raw = page.events;
-    let examined_cursor = raw.last().map_or(after, |event| event.seq);
+    let mut changes = page.events;
+    // Advance past every examined event, including those the caller cannot see.
+    let examined_cursor = changes.last().map_or(after, |event| event.seq);
     let tip = host.db.db_ops().change_feed().tip().await;
-    let changes: Vec<Value> = raw
-        .into_iter()
-        .filter(|event| change_visible_to_caller(host, ctx, event, target.as_deref()))
-        .map(|event| {
-            serde_json::json!({
-                "cursor": encode_change_cursor(event.seq),
-                "mutation_id": event.mutation_id,
-                "schema_name": event.schema,
-                "key": {"hash": event.hash, "range": event.range},
-                "operation": event.operation,
-                "committed_at_ms": event.committed_at_ms,
-                "background_tasks_drained": event.background_tasks_drained,
-                "convergence_pending": event.convergence_pending,
-            })
-        })
-        .collect();
+    changes.retain(|event| change_visible_to_caller(host, ctx, event, target.as_deref()));
     render(
-        Ok(serde_json::json!({
-            "changes": changes,
-            "next_cursor": encode_change_cursor(examined_cursor),
-            "has_more": examined_cursor < tip,
-            "gap": page.gap,
-        })),
+        Ok(change_rules::reply(changes, examined_cursor, tip, page.gap)),
         ctx,
     )
 }
@@ -170,18 +135,6 @@ pub(super) fn change_visible_to_caller(
         .and_then(|mut schema| schema.owner_app_id.take())
         .as_deref()
         == Some(app_id)
-}
-
-pub(super) fn encode_change_cursor(seq: u64) -> String {
-    format!("v1-{seq:016x}")
-}
-
-pub(super) fn decode_change_cursor(cursor: &str) -> Option<u64> {
-    let raw = cursor.strip_prefix("v1-")?;
-    if raw.len() != 16 {
-        return None;
-    }
-    u64::from_str_radix(raw, 16).ok()
 }
 
 // ---------------------------------------------------------------------------
