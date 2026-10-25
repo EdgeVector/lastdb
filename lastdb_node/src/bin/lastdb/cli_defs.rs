@@ -156,9 +156,7 @@ pub(super) enum Command {
     /// held for at least `GOVERNOR_PURGE_FAILED_WARN_SECS` (not caller
     /// configurable; see `health_alert::probe_degradation`).
     ///
-    /// Liveness alone is NOT health. Measured 2026-10-04 on the primary before
-    /// this probe existed: `ok` in 0.08 s while a real read took 23.5 s, with
-    /// `durability.degraded=true` on a backup 3.5 days past its 24 h threshold.
+    /// V2 job failures remain explicit. Unmeasured V2 freshness reports unknown.
     ///
     /// A degradation probe that cannot be completed reports
     /// `reachable; degradation unknown — <why>`, never `ok`. Pass

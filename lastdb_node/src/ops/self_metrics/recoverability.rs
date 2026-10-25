@@ -1,113 +1,5 @@
 use super::*;
 
-pub(super) fn durability_as_backup_health(
-    durability: &DurabilityHealth,
-) -> fold_db::backup_durability::BackupDurabilityHealth {
-    fold_db::backup_durability::BackupDurabilityHealth {
-        backup_manifest_counter: wire_u64(&durability.backup_manifest_counter),
-        last_backup_commit_ts: wire_u64(&durability.last_backup_commit_ts),
-        age_secs: wire_u64(&durability.backup_age_secs),
-        max_age_secs: wire_u64(&durability.max_age_secs)
-            .unwrap_or(fold_db::backup_durability::DEFAULT_MAX_BACKUP_AGE_SECS),
-        degraded: durability.degraded,
-        reasons: durability.reasons.clone(),
-    }
-}
-
-pub(super) fn mutation_log_plane_recording(sync: &SyncHealth) -> bool {
-    sync.enabled
-        && sync.recording_local_changes == Some(true)
-        && sync.mutation_log_active == Some(true)
-}
-
-pub(super) fn mutation_log_plane_known_off(sync: &SyncHealth) -> bool {
-    !sync.enabled
-        || sync.recording_local_changes == Some(false)
-        || sync.mutation_log_active == Some(false)
-}
-
-/// Crash recoverability headline. Two clocks, never collapsed:
-/// recording log plane → RPO is confirmed log lag; otherwise photo age.
-pub(super) fn recoverability_status_line(
-    now_secs: u64,
-    sync: &SyncHealth,
-    durability: &DurabilityHealth,
-) -> String {
-    let photo = durability_as_backup_health(durability);
-    let photo_age = photo
-        .age_secs
-        .map_or_else(|| "unknown".to_string(), format_age_secs);
-    let photo_id = photo
-        .backup_manifest_counter
-        .map_or_else(|| "none".to_string(), |c| format!("#{c}"));
-
-    if !mutation_log_plane_recording(sync) {
-        // A missed probe leaves recording/active as None. That is unavailable,
-        // not "not recording". The latter is a durability-outage sentence.
-        if !sync_snapshot_complete(sync) && !mutation_log_plane_known_off(sync) {
-            return format!(
-                "Recoverability: unavailable (probe missed) — last committed snapshot {photo_id} is {photo_age} old (photo age is the durability signal)"
-            );
-        }
-        let why = if sync.enabled {
-            "log plane not recording"
-        } else {
-            "sync off"
-        };
-        return format!(
-            "Recoverability: {why} — last committed snapshot {photo_id} is {photo_age} old (photo age is the durability signal)"
-        );
-    }
-
-    let lag = wire_u64(&sync.mutation_log_lag);
-    let published_through = wire_u64(&sync.mutation_log_published_through)
-        .or_else(|| wire_u64(&sync.mutation_log_frontier_f));
-    let confirmed = cloud_confirmed_phrase(sync, published_through);
-    let measured_rpo = crash_loss_window_secs(now_secs, sync);
-    let holes = quarantine_hole_clause(sync);
-    let miss = if sync_snapshot_complete(sync) {
-        ""
-    } else {
-        " (probe missed)"
-    };
-    match measured_rpo {
-        Some(0) => format!("Recoverability: RPO ~0s ({confirmed}) · recording{holes}{miss}"),
-        Some(secs) => format!(
-            "Recoverability: RPO ~{} ({confirmed}) · recording{holes}{miss}",
-            format_age_secs(secs)
-        ),
-        None => {
-            let lag_txt = lag.map_or_else(|| "unknown".to_string(), |n| n.to_string());
-            format!("Recoverability: log_lag={lag_txt} seq ({confirmed}) · recording{holes}{miss}")
-        }
-    }
-}
-
-/// The clause that stops an RPO claiming more than it can.
-///
-/// An RPO is a statement about a **gap-free prefix**: everything up to the
-/// confirmed point is off-box. Quarantine breaks that. An unsealable
-/// `MutationIntent` is skipped and its durable row deleted, so the outgoing
-/// stream has a hole that `mutation_log_lag` and `upload_backlog` cannot show —
-/// the row they would have counted is gone. Measured on the primary
-/// 2026-08-22: 569 dropped records across 293 distinct missing atoms, next to
-/// `log_lag=0` and `RPO ~15s`.
-///
-/// So the count belongs on the same line as the claim it qualifies. Reading
-/// `quarantined=569` twelve lines further down, in a field an operator has to
-/// know to look for, is not the same thing.
-pub(super) fn quarantine_hole_clause(sync: &SyncHealth) -> String {
-    match sync.mutation_log_records_quarantined.filter(|n| *n > 0) {
-        Some(1) => {
-            " · 1 record quarantined — the log stream has a gap this RPO does not cover".to_string()
-        }
-        Some(n) => {
-            format!(" · {n} records quarantined — the log stream has gaps this RPO does not cover")
-        }
-        None => String::new(),
-    }
-}
-
 /// The bar above which F is read as a unix-ns clock rather than a sequence
 /// number. 2020s unix-ns is ~1.6e18, so anything at or above 1e15 is a clock.
 ///
@@ -254,33 +146,8 @@ pub(crate) fn crash_loss_window_secs_from_status_json(
 /// watermark said 25. So the phrase now comes from F, and the cycle clock is
 /// only mentioned where F is unknown — under its own name, never as a
 /// confirmation.
-pub(super) fn cloud_confirmed_phrase(sync: &SyncHealth, frontier_f: Option<u64>) -> String {
-    if let Some(secs) = confirmed_frontier_unix_secs(frontier_f) {
-        return format!("cloud confirmed through {}", format_unix_utc(secs));
-    }
-    if let Some(f) = frontier_f.filter(|f| *f > 0) {
-        return format!("published F={f}");
-    }
-    if let Some(ts) = wire_u64(&sync.last_success_ts).filter(|ts| *ts >= 1_000_000_000) {
-        return format!(
-            "cloud-confirmed frontier unknown, last cycle ok {}",
-            format_unix_utc(ts)
-        );
-    }
-    "cloud-confirmed frontier unknown".to_string()
-}
-
-pub(super) fn durability_status_line(
-    durability: &DurabilityHealth,
-    sync_enabled: bool,
-    log_plane_recording: bool,
-) -> String {
-    let health = durability_as_backup_health(durability);
-    if log_plane_recording {
-        fold_db::backup_durability::snapshot_line(&health)
-    } else {
-        fold_db::backup_durability::status_line(&health, sync_enabled)
-    }
+pub(super) fn durability_status_line(durability: &DurabilityHealth) -> String {
+    durability.status_line()
 }
 
 pub(super) fn backup_progress_status_line(backup: &BackupProgressHealth) -> Option<String> {

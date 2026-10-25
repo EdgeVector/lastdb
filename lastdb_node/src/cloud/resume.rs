@@ -6,18 +6,6 @@ pub fn cloud_resume_required_path(home: &Path) -> PathBuf {
     home.join(CLOUD_RESUME_REQUIRED_FILE)
 }
 
-pub fn cloud_resume_requested_path(home: &Path) -> PathBuf {
-    home.join(CLOUD_RESUME_REQUESTED_FILE)
-}
-
-pub fn cloud_resume_ready_path(home: &Path) -> PathBuf {
-    home.join(CLOUD_RESUME_READY_FILE)
-}
-
-pub fn cloud_backup_source_copy_path(home: &Path) -> PathBuf {
-    home.join(CLOUD_BACKUP_SOURCE_COPY_FILE)
-}
-
 pub(super) fn mark_durable_file(home: &Path, path: &Path) -> Result<(), String> {
     let file = std::fs::OpenOptions::new()
         .write(true)
@@ -33,14 +21,6 @@ pub(super) fn mark_durable_file(home: &Path, path: &Path) -> Result<(), String> 
     Ok(())
 }
 
-pub(super) fn clear_durable_file(home: &Path, path: &Path) -> Result<(), String> {
-    match std::fs::remove_file(path) {
-        Ok(()) => sync_cloud_home_dir(home),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("remove {}: {error}", path.display())),
-    }
-}
-
 pub(super) fn sync_cloud_home_dir(home: &Path) -> Result<(), String> {
     std::fs::File::open(home)
         .and_then(|dir| dir.sync_all())
@@ -49,34 +29,6 @@ pub(super) fn sync_cloud_home_dir(home: &Path) -> Result<(), String> {
 
 pub fn mark_cloud_resume_required(home: &Path) -> Result<(), String> {
     mark_durable_file(home, &cloud_resume_required_path(home))
-}
-
-/// Native cloud activation is disabled. Refuse before a resume marker or
-/// active configuration can change, including offline command callers.
-pub fn prepare_primary_resume_file(_home: &Path) -> Result<bool, String> {
-    Err(fold_db::FoldDB::CLOUD_SYNC_DISABLED.into())
-}
-
-pub fn read_paused_home_backup_receipt(home: &Path) -> Result<PausedHomeBackupReceipt, String> {
-    let path = cloud_resume_ready_path(home);
-    let bytes =
-        std::fs::read(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
-    let receipt: PausedHomeBackupReceipt = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("decode {}: {error}", path.display()))?;
-    receipt.validate()?;
-    Ok(receipt)
-}
-
-pub fn clear_cloud_resume_ready(home: &Path) -> Result<(), String> {
-    clear_durable_file(home, &cloud_resume_ready_path(home))
-}
-
-pub fn clear_cloud_resume_required(home: &Path) -> Result<(), String> {
-    clear_durable_file(home, &cloud_resume_required_path(home))
-}
-
-pub fn clear_cloud_resume_requested(home: &Path) -> Result<(), String> {
-    clear_durable_file(home, &cloud_resume_requested_path(home))
 }
 
 /// Paths for L2 cloud intent + durable pause marker.

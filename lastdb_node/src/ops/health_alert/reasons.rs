@@ -45,9 +45,7 @@ pub(super) fn memory_budget_reasons(mem: &serde_json::Value, warn_ms: u64) -> Ve
 
 /// `durability.degraded=true` with the node's own reason list.
 pub(super) fn durability_reason(status: &serde_json::Value) -> Option<String> {
-    // Durability carries its own verdict AND its own reason list. Pass them
-    // through rather than restating them: a 3.5-day-old backup against a 24 h
-    // threshold is the node's finding, not this checker's.
+    // Pass through observed V2 job failures; unmeasured freshness stays Unknown.
     if let Some(dur) = status.get("durability") {
         if dur.get("degraded").and_then(serde_json::Value::as_bool) == Some(true) {
             let why = dur
@@ -69,21 +67,7 @@ pub(super) fn durability_reason(status: &serde_json::Value) -> Option<String> {
 
 /// `sync.sync_degraded=true` with the node's own reasons and recovery point.
 pub(super) fn sync_reason(status: &serde_json::Value) -> Option<String> {
-    // Sync carries the node's OWN aggregated verdict plus its own reason list,
-    // exactly like durability, and it is a DIFFERENT exposure: durability asks
-    // "how old is the last committed backup manifest", sync asks "has the
-    // mutation log published recently". The two are independent paths on
-    // independent schedules, so a home with a fresh backup and a mutation log
-    // that has not published for hours reads `durability.degraded=false` and
-    // was reported healthy here. Measured on the primary 2026-10-05T14:4xZ:
-    // `sync_degraded=true`, `degraded_reasons=["mutation_log_lag"]`,
-    // `mutation_log_recovery_point_age_secs=58021` — a 16.1 h recovery point
-    // that `lastdb status` printed on its `Sync:` line while this probe,
-    // reading the same payload, said nothing about it.
-    //
-    // `sync_degraded` is false when sync is switched OFF (the case
-    // `crate::backup_durability` exists to cover), so passing it through does
-    // not fire on a deliberately disabled engine.
+    // Preserve explicit node sync failures separately from manual V2 job status.
     if let Some(sync) = status.get("sync") {
         if sync
             .get("sync_degraded")
