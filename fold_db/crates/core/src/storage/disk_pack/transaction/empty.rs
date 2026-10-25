@@ -12,11 +12,6 @@ impl PendingBatch {
             .is_empty()
             && self.paths.lock().expect("native private paths").is_empty()
             && self
-                .absences
-                .lock()
-                .expect("native private absences")
-                .is_empty()
-            && self
                 .definitions
                 .lock()
                 .expect("native private definitions")
