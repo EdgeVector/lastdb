@@ -245,7 +245,11 @@ impl<P: TreePages> TreeEdit<P> {
         page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
-        let mut entries = Vec::<LeafEntry>::with_capacity(page.count() + changes.len());
+        // The checked input page outlives this leaf's output. Retain its key
+        // descriptors by reference; only inserted keys need owned descriptors.
+        let mut entries =
+            Vec::<LeafEntry<Cow<'_, [u8]>>>::with_capacity(page.count() + changes.len());
+        crate::commit_timing::count("metadata_borrowed_descriptors", page.count() as u64);
         let mut updates = changes.iter().peekable();
         let mut middle_insert = false;
         for index in 0..page.count() {
@@ -264,11 +268,12 @@ impl<P: TreePages> TreeEdit<P> {
                         self.root.kind,
                         key,
                         call.current.storage_key_byte_limit(),
-                    )?,
+                    )?
+                    .into(),
                     *value,
                 ));
             }
-            let descriptor = entry[..key_layout::descriptor_bytes(entry)].to_vec();
+            let descriptor = Cow::Borrowed(&entry[..key_layout::descriptor_bytes(entry)]);
             let value = if updates
                 .peek()
                 .is_some_and(|(next, _)| next.as_slice() == key.as_ref())
@@ -289,7 +294,8 @@ impl<P: TreePages> TreeEdit<P> {
                     self.root.kind,
                     key,
                     call.current.storage_key_byte_limit(),
-                )?,
+                )?
+                .into(),
                 *value,
             ));
         }

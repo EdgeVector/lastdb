@@ -75,6 +75,7 @@ struct RequestMetrics {
     phases: RequestPhaseTotals,
     counts: RequestCounts,
     tip_keys: TipKeySketch,
+    native_trace_id: Option<u64>,
 }
 
 tokio::task_local! {
@@ -107,13 +108,63 @@ pub async fn run_with_phases_and_keys<F>(
 where
     F: Future,
 {
+    let (output, phases, counts, keys, _) = run_with_phases_keys_and_trace(f).await;
+    (output, phases, counts, keys)
+}
+
+/// An opt-in opaque process-local identifier joins request telemetry to native
+/// scopes. It contains no caller-provided value and is not a phase duration.
+pub async fn run_with_phases_keys_and_trace<F>(
+    f: F,
+) -> (
+    F::Output,
+    RequestPhaseTotals,
+    RequestCounts,
+    TipKeySketch,
+    Option<u64>,
+)
+where
+    F: Future,
+{
+    let metrics = RequestMetrics {
+        native_trace_id: next_native_trace_id(),
+        ..RequestMetrics::default()
+    };
     REQUEST_METRICS
-        .scope(RefCell::new(RequestMetrics::default()), async move {
+        .scope(RefCell::new(metrics), async move {
             let output = f.await;
             let metrics = REQUEST_METRICS.with(|cell| cell.borrow().clone());
-            (output, metrics.phases, metrics.counts, metrics.tip_keys)
+            (
+                output,
+                metrics.phases,
+                metrics.counts,
+                metrics.tip_keys,
+                metrics.native_trace_id,
+            )
         })
         .await
+}
+
+fn next_native_trace_id() -> Option<u64> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    if !laststore::commit_timing::enabled() {
+        return None;
+    }
+    // Refuse a trace on exhaustion rather than reuse an identifier.
+    NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        value.checked_add(1)
+    })
+    .ok()
+}
+
+/// None outside a measured task or when native diagnostics are disabled.
+#[must_use]
+pub fn current_native_trace_id() -> Option<u64> {
+    REQUEST_METRICS
+        .try_with(|cell| cell.borrow().native_trace_id)
+        .ok()
+        .flatten()
 }
 
 /// Count one logical molecule tip returned by a field read in a socket request.

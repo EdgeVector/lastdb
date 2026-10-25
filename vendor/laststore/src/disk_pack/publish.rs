@@ -285,14 +285,16 @@ impl<'a> Publisher<'a> {
             let key = super::ReadCall::directory_key(&collection, group)?;
             let mut call = artifact::metadata_call(self.root, self.proposed.clone());
             call.files = std::mem::take(&mut locator_files);
-            let entry = self
-                .directory_entry(&mut directory_call, &key)?
-                .map(|value| DirectoryEntry::decode(&value))
-                .transpose()?;
+            let entry = crate::commit_timing::during("directory_lookup_us", || {
+                self.directory_entry(&mut directory_call, &key)
+            })?
+            .map(|value| DirectoryEntry::decode(&value))
+            .transpose()?;
             if entry.as_ref().is_some_and(|entry| entry.group != group) {
                 return Err(corrupt("publication directory coordinate mismatch"));
             }
             let changes: Vec<_> = changes.into_iter().collect();
+            let locator_timing = crate::commit_timing::stage("locator_tree_edit_us");
             let tree = if let Some(entry) = &entry {
                 self.locators
                     .edit(&mut call, references, entry.locator.clone(), &changes)?
@@ -303,6 +305,7 @@ impl<'a> Publisher<'a> {
                 self.locators
                     .create(&mut call, references, self.directory.root(), &changes)?
             };
+            drop(locator_timing);
             let value = DirectoryEntry {
                 group,
                 locator: tree,
@@ -315,6 +318,7 @@ impl<'a> Publisher<'a> {
         // Release locator descriptors before the separate directory edit phase.
         drop(locator_files);
         let mut call = artifact::metadata_call(self.root, self.proposed.clone());
+        let _directory_timing = crate::commit_timing::stage("directory_edit_us");
         self.directory.put_many(
             &mut call,
             references,

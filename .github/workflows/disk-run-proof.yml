@@ -42,7 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # PR workflow steps include current main; prove that exact combined source.
+          # Manual runs retain the selected ref. Both paths record the checked SHA.
+          ref: ${{ github.sha }}
       - name: Lint and run the disk run proof
         shell: bash
         run: |
