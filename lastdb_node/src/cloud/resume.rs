@@ -59,11 +59,6 @@ pub fn pause_cloud_sync_file(home: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Refuse an active configuration rename until native cloud activation exists.
-pub fn resume_cloud_sync_file(_home: &Path) -> Result<bool, String> {
-    Err(fold_db::FoldDB::CLOUD_SYNC_DISABLED.into())
-}
-
 /// Whether L2 intent is present (active) or only paused on disk.
 pub fn cloud_sync_file_state(home: &Path) -> &'static str {
     let (active, paused) = cloud_sync_paths(home);
