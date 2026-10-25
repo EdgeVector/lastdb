@@ -245,8 +245,8 @@ impl<P: TreePages> TreeEdit<P> {
         page: &Page,
         changes: &[MapChange],
     ) -> Result<Vec<Child>> {
-        // The checked input page outlives this leaf's output. Retain its key
-        // descriptors by reference; only inserted keys need owned descriptors.
+        // Experimental control: copy each existing descriptor. Keep the candidate's
+        // counter identical; it counts eligible slots, not actual borrows here.
         let mut entries =
             Vec::<LeafEntry<Cow<'_, [u8]>>>::with_capacity(page.count() + changes.len());
         crate::commit_timing::count("metadata_borrowed_descriptors", page.count() as u64);
@@ -273,7 +273,7 @@ impl<P: TreePages> TreeEdit<P> {
                     *value,
                 ));
             }
-            let descriptor = Cow::Borrowed(&entry[..key_layout::descriptor_bytes(entry)]);
+            let descriptor = Cow::Owned(entry[..key_layout::descriptor_bytes(entry)].to_vec());
             let value = if updates
                 .peek()
                 .is_some_and(|(next, _)| next.as_slice() == key.as_ref())
