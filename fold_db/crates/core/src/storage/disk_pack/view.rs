@@ -40,20 +40,14 @@ pub(super) struct NativeReadView {
 }
 
 impl PackRuntime {
+    pub fn native_home_id(&self) -> uuid::Uuid {
+        self.home.descriptor().identity
+    }
+
     /// The same failure mark that refuses new record reads and writes.
     /// Health probes read only this atomic; they never wait for a writer or read a record.
     pub fn requires_recovery(&self) -> bool {
         self.failed.load(Ordering::Acquire)
-    }
-
-    /// Detect accepted writes and durable root changes across a paged backup.
-    pub(crate) fn snapshot_boundary(&self) -> (u64, u64, u64) {
-        let view = self.view.read().expect("native snapshot boundary");
-        (
-            view.revision,
-            view.current.generation,
-            view.current.frontier,
-        )
     }
 
     /// The dependency-part counters now. They are atomics, so a read never waits for

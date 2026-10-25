@@ -38,16 +38,6 @@ impl LastStoreNamespacedStore {
         Ok(Some(cloud_db_hash_for_store_uuid(&state.store_uuid)))
     }
 
-    /// Read the durable backup source identity without initializing a marker.
-    pub(crate) fn backup_source_identity(&self) -> StorageResult<(String, u64)> {
-        self.high_water
-            .as_ref()
-            .ok_or_else(|| {
-                StorageError::BackendError("backup source identity is unavailable".into())
-            })?
-            .backup_source_identity()
-    }
-
     pub fn verify_integrity(&self) -> StorageResult<()> {
         self.store
             .verify_integrity()
@@ -81,20 +71,6 @@ impl LastStoreNamespacedStore {
         cloud: Option<&CloudChunkPresence>,
     ) -> StorageResult<BackupManifest> {
         backup_manifest::cut_backup_manifest_with_cloud_presence(self, previous_manifest, cloud)
-    }
-
-    /// Normal publication permits only exact verified atom append replacements.
-    /// Caller must hold its serving fence and publication packing lock.
-    pub(crate) fn cut_normal_backup_manifest_with_cloud_presence(
-        &self,
-        previous_manifest: Option<&BackupManifest>,
-        cloud: Option<&CloudChunkPresence>,
-    ) -> StorageResult<BackupManifest> {
-        backup_manifest::cut_normal_backup_manifest_with_cloud_presence(
-            self,
-            previous_manifest,
-            cloud,
-        )
     }
 
     /// Refuse a backup cut if the cold-load cap left any unsealed group out.

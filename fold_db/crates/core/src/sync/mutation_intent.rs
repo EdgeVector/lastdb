@@ -7,7 +7,7 @@
 use crate::atom::Atom;
 use crate::schema::types::operations::MutationType;
 use crate::schema::types::Mutation;
-use crate::sync::log::{LogOp, MutationEnvelope};
+use crate::sync::log::MutationEnvelope;
 use std::collections::HashMap;
 
 /// Serialize mutations into the live log envelope. `storage_prefix` is the
@@ -254,24 +254,6 @@ pub async fn materialize_field_values(
         }
     }
     Ok(envelopes)
-}
-
-/// A pin-log MutationIntent that cannot be sealed because its atoms are gone.
-///
-/// The upload cycle must skip that record and continue. Failing the whole
-/// cycle on one missing atom blocks later envelopes forever (CoW DEV proof
-/// 2026-08-20: `lgpc_cover_hash` poisoned every subsequent Sop write).
-pub fn pin_log_record_cannot_seal(err: &str) -> bool {
-    err.starts_with("missing atom ")
-        || err.starts_with("load atom ")
-        || err.starts_with("atom identity mismatch")
-}
-
-/// Live log record for one committed write batch.
-pub fn mutation_intent_op(envelopes: Vec<MutationEnvelope>) -> LogOp {
-    LogOp::MutationIntent {
-        mutations: envelopes,
-    }
 }
 
 fn mutation_type_name(mutation_type: &MutationType) -> &'static str {

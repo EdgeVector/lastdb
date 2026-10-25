@@ -19,7 +19,6 @@ mod index;
 mod molecules;
 mod purge_locks;
 pub mod receipt;
-mod retired_replay;
 mod write;
 
 use std::collections::HashMap;

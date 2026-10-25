@@ -3,7 +3,7 @@
 use super::schema_store::RetiredReplayProof;
 use crate::schema::SchemaError;
 use crate::storage::traits::{KvStore, NamespacedStore};
-use crate::sync::engine::{PinLogRecord, RetiredReplaySource};
+use crate::sync::engine::PinLogRecord;
 use crate::sync::snapshot_log::MutationLogSegmentId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -53,130 +53,6 @@ pub fn retired_intent_source_id(record: &PinLogRecord) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-pub(crate) struct PreparedRetiredIntent {
-    store: Arc<dyn NamespacedStore>,
-    outcomes: Arc<dyn KvStore>,
-    objects: Arc<dyn KvStore>,
-    outcome_key: Vec<u8>,
-    outcome: Vec<u8>,
-    object_items: Vec<(Vec<u8>, Vec<u8>)>,
-    missing_objects: Vec<(Vec<u8>, Vec<u8>)>,
-}
-
-impl PreparedRetiredIntent {
-    /// Called under the permanent dependency fence, before cursor advance.
-    pub(crate) async fn commit(self) -> Result<(), SchemaError> {
-        self.objects
-            .batch_put(self.missing_objects)
-            .await
-            .map_err(storage_error)?;
-        flush_keys(
-            &self.store,
-            &self.objects,
-            RETIRED_SOURCE_NAMESPACE,
-            &self.object_items,
-        )
-        .await?;
-        verify_exact(&self.objects, &self.object_items).await?;
-        self.outcomes
-            .batch_put(vec![(self.outcome_key.clone(), self.outcome.clone())])
-            .await
-            .map_err(storage_error)?;
-        let outcome_items = [(self.outcome_key.clone(), self.outcome)];
-        flush_keys(
-            &self.store,
-            &self.outcomes,
-            RETIRED_INTENT_NAMESPACE,
-            &outcome_items,
-        )
-        .await?;
-        verify_exact(&self.outcomes, &outcome_items).await?;
-        pointer::commit_last_preserved(&self.store, &self.outcomes, &self.outcome_key).await
-    }
-}
-
-pub(crate) async fn prepare_retired_intent(
-    store: &Arc<dyn NamespacedStore>,
-    source: &RetiredReplaySource,
-    proofs: Vec<RetiredReplayProof>,
-) -> Result<PreparedRetiredIntent, SchemaError> {
-    if source.objects.is_empty()
-        || source.objects.len() > MAX_SOURCE_OBJECTS
-        || source
-            .objects
-            .iter()
-            .try_fold(0usize, |size, object| {
-                size.checked_add(object.ciphertext.len())
-            })
-            .is_none_or(|size| size > MAX_SOURCE_BYTES)
-        || source.record.target_id != "personal"
-        || !source.record.target_prefix.is_empty()
-        || source.record.entry.seq != source.record.frontier_after
-        || source.record.entry.device_id != source.record.writer_id
-    {
-        return Err(refused("unsupported retired replay source scope"));
-    }
-    let source_id = retired_intent_source_id(&source.record);
-    let mut object_items = std::collections::BTreeMap::new();
-    let mut source_objects = Vec::with_capacity(source.objects.len());
-    for object in &source.objects {
-        let digest = format!("{:x}", Sha256::digest(&object.ciphertext));
-        let key = digest.as_bytes().to_vec();
-        if let Some(previous) = object_items.insert(key, object.ciphertext.to_vec()) {
-            if previous != object.ciphertext.as_ref() {
-                return Err(refused("retired replay source digest has different bytes"));
-            }
-        }
-        source_objects.push(SourceObjectRef {
-            segment: object.segment.clone(),
-            ciphertext_sha256: digest,
-            ciphertext_bytes: object.ciphertext.len(),
-        });
-    }
-    let value = serde_json::to_value(PreservedIntent {
-        version: 1,
-        outcome: "retired-authority-preserved".into(),
-        source_id: source_id.clone(),
-        original_record: source.record.clone(),
-        record_index: source.record_index,
-        transaction_group: source.transaction_group,
-        source_objects,
-        retirement_proofs: proofs,
-    })
-    .map_err(|_| refused("retired intent serialization failed"))?;
-    // Value maps use sorted keys, including the original envelope field maps.
-    let outcome =
-        serde_json::to_vec(&value).map_err(|_| refused("retired intent serialization failed"))?;
-    if outcome.len() > MAX_OUTCOME_BYTES {
-        return Err(refused("retired intent exceeds the outcome byte cap"));
-    }
-    let outcomes = store
-        .open_namespace(RETIRED_INTENT_NAMESPACE)
-        .await
-        .map_err(storage_error)?;
-    let objects = store
-        .open_namespace(RETIRED_SOURCE_NAMESPACE)
-        .await
-        .map_err(storage_error)?;
-    let object_items: Vec<_> = object_items.into_iter().collect();
-    let outcome_key = source_id.into_bytes();
-    let outcome_items = [(outcome_key.clone(), outcome.clone())];
-    pointer::read_last_preserved_retired_source_id(store).await?;
-    let (missing_objects, _) = tokio::try_join!(
-        check_conflicts(&objects, &object_items),
-        check_conflicts(&outcomes, &outcome_items),
-    )?;
-    Ok(PreparedRetiredIntent {
-        store: Arc::clone(store),
-        outcomes,
-        objects,
-        outcome_key,
-        outcome,
-        object_items,
-        missing_objects,
-    })
-}
-
 async fn strict_values(
     store: &Arc<dyn KvStore>,
     keys: Vec<Vec<u8>>,
@@ -196,40 +72,6 @@ async fn strict_values(
         return Err(refused("retired journal presence or decode differs"));
     }
     Ok(values)
-}
-
-async fn check_conflicts(
-    store: &Arc<dyn KvStore>,
-    items: &[(Vec<u8>, Vec<u8>)],
-) -> Result<Vec<(Vec<u8>, Vec<u8>)>, SchemaError> {
-    let values = strict_values(store, items.iter().map(|(key, _)| key.clone()).collect()).await?;
-    if values
-        .iter()
-        .zip(items)
-        .any(|(value, (_, expected))| value.as_ref().is_some_and(|value| value != expected))
-    {
-        return Err(refused("retired journal identity has different content"));
-    }
-    Ok(values
-        .into_iter()
-        .zip(items)
-        .filter_map(|(value, item)| value.is_none().then(|| item.clone()))
-        .collect())
-}
-
-async fn verify_exact(
-    store: &Arc<dyn KvStore>,
-    items: &[(Vec<u8>, Vec<u8>)],
-) -> Result<(), SchemaError> {
-    let values = strict_values(store, items.iter().map(|(key, _)| key.clone()).collect()).await?;
-    if values
-        .iter()
-        .zip(items)
-        .any(|(value, (_, expected))| value.as_ref() != Some(expected))
-    {
-        return Err(refused("retired journal durable readback differs"));
-    }
-    Ok(())
 }
 
 /// Exact-key recovery returns the private journal bytes without a census.
@@ -279,31 +121,6 @@ async fn read_exact(
 
 fn storage_error(_: crate::storage::StorageError) -> SchemaError {
     refused("retired journal storage operation failed")
-}
-
-async fn flush_keys(
-    store: &Arc<dyn NamespacedStore>,
-    kv: &Arc<dyn KvStore>,
-    namespace: &str,
-    items: &[(Vec<u8>, Vec<u8>)],
-) -> Result<(), SchemaError> {
-    let Some(raw) = store.raw_last_store() else {
-        return kv.flush().await.map_err(storage_error);
-    };
-    let mut written = items
-        .iter()
-        .map(|(key, _)| {
-            std::str::from_utf8(key)
-                .map(|key| raw.shard_key_of(namespace, key))
-                .map_err(|_| refused("invalid retired journal storage key"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    written.sort_unstable();
-    written.dedup();
-    store
-        .flush_written_keys(&written)
-        .await
-        .map_err(storage_error)
 }
 
 fn refused(message: &str) -> SchemaError {

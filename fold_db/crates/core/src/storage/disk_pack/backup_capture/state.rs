@@ -41,7 +41,7 @@ pub struct PageDescriptor {
 impl ExportRecord {
     pub fn validate(&self) -> StorageResult<()> {
         use cloud_backup_protocol::limits::*;
-        self.begin.validate().map_err(protocol)?;
+        self.begin.validate().map_err(|error| protocol(&error))?;
         if self.format != 1
             || self.reference_id.is_nil()
             || self.current_bytes.len() != 4096
@@ -75,7 +75,9 @@ impl ExportRecord {
                 return Err(invalid("backup capture ready without a complete catalogue"))
             }
             BackupCapturePhase::Terminal { result, .. } => {
-                result.validate_for_begin(&self.begin).map_err(protocol)?;
+                result
+                    .validate_for_begin(&self.begin)
+                    .map_err(|error| protocol(&error))?;
                 if matches!(result.status, JobStatus::Active) {
                     return Err(invalid("active cloud job cannot release its native source"));
                 }

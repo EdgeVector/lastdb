@@ -9,8 +9,6 @@ use uuid::Uuid;
 
 const VERSION: u32 = 1;
 
-mod source_identity;
-
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct LastStoreHighWater {
     pub version: u32,

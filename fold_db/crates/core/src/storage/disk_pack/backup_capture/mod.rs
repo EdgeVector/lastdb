@@ -6,6 +6,6 @@ const PAGE_MAX: u64 = 2 * 1024 * 1024;
 fn invalid(detail: &str) -> StorageError {
     StorageError::InvalidOperation(format!("disk-pack v1: {detail}"))
 }
-fn protocol(error: cloud_backup_protocol::ProtocolError) -> StorageError {
+fn protocol(error: &cloud_backup_protocol::ProtocolError) -> StorageError {
     invalid(&error.to_string())
 }

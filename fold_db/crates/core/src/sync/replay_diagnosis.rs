@@ -2,7 +2,6 @@
 
 use crate::schema::types::SchemaError;
 use crate::sync::log::LogOp;
-use crate::sync::SyncError;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -146,56 +145,6 @@ impl From<SchemaError> for MutationIntentReplayError {
         Self {
             reason: error.to_string(),
             diagnosis,
-        }
-    }
-}
-
-impl SyncError {
-    pub(crate) fn replay_refused(
-        target: impl Into<String>,
-        seq: u64,
-        operation: ReplayOperation,
-        cause: ReplayCause,
-    ) -> Self {
-        let reason = match cause {
-            ReplayCause::CounterWriterRequired => {
-                "raw lifecycle records require complete mutations through the counter writer; restore a current snapshot"
-            }
-            ReplayCause::LegacyMoleculeDelete => {
-                "legacy physical molecule Delete needs a safe recovery path"
-            }
-            ReplayCause::RawDeleteBarrierPut => "raw Delete barrier Put needs a safe recovery path",
-            ReplayCause::MissingMutationApplier => "no MutationIntent applier registered",
-            ReplayCause::DeleteBarrierIdentityMismatch => {
-                "durable Delete barrier key identity differs from the molecule key"
-            }
-            _ => "replay policy refused the operation",
-        };
-        Self::ReplayApplyFailed {
-            target: target.into(),
-            seq,
-            reason: reason.into(),
-            diagnosis: ReplayApplyDiagnosis::new(operation, cause),
-        }
-    }
-
-    pub(crate) fn with_replay_operation(self, replay_seq: u64, operation: ReplayOperation) -> Self {
-        match self {
-            Self::ReplayApplyFailed {
-                target,
-                seq,
-                reason,
-                mut diagnosis,
-            } => {
-                diagnosis.operation = operation;
-                Self::ReplayApplyFailed {
-                    target,
-                    seq: if seq == 0 { replay_seq } else { seq },
-                    reason,
-                    diagnosis,
-                }
-            }
-            other => other,
         }
     }
 }
