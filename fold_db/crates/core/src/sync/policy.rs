@@ -98,7 +98,7 @@ pub fn capture_should_skip_key(namespace: &str, key: &[u8]) -> bool {
     if crate::atom::atom_key_codec::is_counter_key(key) {
         return namespace == "main" || namespace == "atoms";
     }
-    let base = crate::sync::org_sync::strip_storage_prefix(key).map_or(key, |(_, base)| base);
+    let base = crate::kind_partition::split_org_storage_prefix(key).map_or(key, |(_, base)| base);
     let Some(prefix) = CAPTURE_SKIP_MAIN_KEY_PREFIXES
         .iter()
         .copied()
