@@ -33,6 +33,7 @@ mod manifest;
 mod plan;
 mod range;
 mod read;
+mod read_only;
 
 pub use commit::{MergeKind, RunCommit, RunMerge, MAX_MERGE_INPUTS, MERGE_WIDTH};
 pub use plan::{MIN_BASE_MERGE_BYTES, STALE_SHARE, TIER_SHARE};

@@ -34,6 +34,7 @@ mod parts;
 mod physical;
 mod physical_v2;
 mod queue;
+pub mod range_inventory;
 mod read;
 mod restore;
 pub(crate) mod restore_safety;
