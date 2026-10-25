@@ -334,6 +334,15 @@ impl SchemaServiceState {
         Self::apply_canonical_field_map(&fields, &field_names, &mut schema.field_types, |c| {
             (c.field_type != FieldValueType::Any).then(|| c.field_type.clone())
         });
+        // Newly introduced reference fields do not exist in the registry yet.
+        for field_name in field_names {
+            if let Some(target) = schema.ref_fields.get(&field_name) {
+                schema
+                    .field_types
+                    .entry(field_name)
+                    .or_insert_with(|| FieldValueType::SchemaRef(target.clone()));
+            }
+        }
         schema.validate_definition().map_err(FoldDbError::Config)
     }
 

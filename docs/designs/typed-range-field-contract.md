@@ -42,6 +42,7 @@ The refusal also covers nested object or map keys and any temporal branch of a u
 An unrelated date field does not prevent a string field from serving as the key.
 Wire schema loads, runtime field creation, schema-service proposals, and direct schema writes use the same check.
 The schema service resolves canonical types and checks the result before a new schema or expansion reaches storage or memory.
+It also resolves new reference fields before that check, to preserve their existing value validation.
 This refusal prevents an explicit date type from silently using the current string order.
 
 ## Compatibility and size
