@@ -8,22 +8,8 @@ use ed25519_dalek::Signer;
 use schema_service_core::app_identity::AppIdentityConfig;
 use schema_service_core::{ExternalSchemaPersistence, SchemaServiceState};
 use schema_service_s3::S3BlobPersistence;
-use schema_service_server_shared::handlers;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Configures actix-web routes for the /v2 registry endpoints.
-pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v2")
-            .route("/apps", web::get().to(handlers::list_apps))
-            .service(
-                web::resource("/releases/{release_id}/compat")
-                    .route(web::post().to(handlers::write_compat_row))
-                    .route(web::get().to(handlers::list_compat_rows)),
-            ),
-    );
-}
 
 /// Creates an S3-backed SchemaServiceState for the embedded server.
 pub async fn create_s3_state(
@@ -77,7 +63,7 @@ pub fn start_server(state: Arc<SchemaServiceState>, port: u16) {
             let server = HttpServer::new(move || {
                 App::new()
                     .app_data(web::Data::new(state.clone()))
-                    .configure(configure_routes)
+                    .configure(schema_service_server_http::configure_routes)
             })
             .bind(("127.0.0.1", port))
             .unwrap();

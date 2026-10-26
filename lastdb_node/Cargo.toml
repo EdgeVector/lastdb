@@ -112,6 +112,7 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-dynamodb = { workspace = true }
 schema_service_s3 = { path = "../schema_service/crates/schema_service_s3" }
 schema_service_server_shared = { path = "../schema_service/crates/server_shared", features = ["actix"] }
+schema_service_server_http = { path = "../schema_service/crates/server_http" }
 actix-web = { workspace = true }
 
 [lib]

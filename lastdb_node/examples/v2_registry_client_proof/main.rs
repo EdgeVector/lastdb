@@ -57,11 +57,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     ];
     let wrong_key = ed25519_dalek::SigningKey::from_bytes(&wrong_key_bytes);
 
-    println!(
-        "Verifier key fingerprint: {}...\n",
-        &verifier_pubkey_b64[..12]
-    );
-
     println!("--- Seeding S3 ---");
     let release_id = seed::seed_s3_data().await?;
     println!("✓ Seeded app and release in S3");
@@ -71,14 +66,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let port = 19200u16;
     let service_url = format!("http://localhost:{}", port);
-    println!("--- Starting Schema Service ---");
-    println!("Server command:");
-    println!(
-        "  cargo run -p schema_service_server_http --bin schema_service -- --port {}",
-        port
-    );
-    println!("  (Embedded S3-backed server with verifier key configured)");
-
+    println!("--- Starting Embedded Schema Service ---");
     roundtrip::start_server(state, port);
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
