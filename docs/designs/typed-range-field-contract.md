@@ -410,6 +410,8 @@ CAS batches publish first. An interruption can repeat identical CAS keys and val
 The checkpoint binds the source publications, metadata, codec choices, limits, target path, and target file identities.
 
 The converter closes and reopens both target homes before verification.
+Each empty native home includes its durable owner lock before its directory appears at the final path.
+Resume can authenticate that home before any writer cleanup, even when interruption precedes the first checkpoint.
 It compares every source record with its explicit target form and checks the exact target record count.
 The existing product reference verifier checks atoms, counters, molecules, retained records, and files on the inactive target.
 The converter does not create a second reference verifier or a fixture harness.
@@ -470,6 +472,8 @@ The plan adds no cloud service format logic and no browser reader.
 
 Local checks cover source format, source size, and the diff.
 CI supplies builds, lint results, and the required measurements.
+The final integration retains accepted main's V2-only owner and its strict backup certification.
+The shared molecule-record byte limit remains available to the bounded typed backup check.
 The retired tests and their replacements stay absent.
 The PR uses the existing merge gates.
 A primary upgrade remains a separate decision.
