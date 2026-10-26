@@ -291,10 +291,12 @@ impl RunWriter {
             data_blocks,
         };
         self.file.write_all(&footer.encode())?;
-        sync_dirty_file(&self.file)?;
+        crate::commit_timing::during("run_file_sync_us", || sync_dirty_file(&self.file))?;
         let path = self.dir.join(format!("{}{RUN_SUFFIX}", self.run_id));
-        fs::rename(&self.tmp, &path)?;
-        sync_directory(&File::open(&self.dir)?)?;
+        crate::commit_timing::during("run_rename_us", || fs::rename(&self.tmp, &path))?;
+        crate::commit_timing::during("run_directory_sync_us", || {
+            sync_directory(&File::open(&self.dir)?)
+        })?;
         self.finished = true;
         Ok(RunSummary {
             path,
