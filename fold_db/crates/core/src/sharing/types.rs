@@ -43,38 +43,16 @@ pub struct ShareSubscription {
     pub share_e2e_secret: Vec<u8>,
     pub accepted_at: u64,
     pub active: bool,
-    /// Preserve the sender's signed cloud read grant. Possession of the
-    /// encryption secret does not authorize a cloud read.
+    /// Preserve an existing subscription's saved grant metadata.
+    /// The retired cloud read endpoint no longer consumes this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share_grant: Option<ShareAccessGrant>,
 }
 
-/// A sender-signed authorization for a recipient to read a share log from
-/// cloud storage.
+/// Saved grant fields inside an existing local share subscription.
 ///
-/// A share log lives at `/{share_prefix}/log/{seq}.enc` where `share_prefix`
-/// is `share:{sender_hash}:{opaque_id}` and `sender_hash =
-/// hex(SHA256(sender_pubkey_bytes)[..16])`. The log bytes are E2E-encrypted
-/// under `share_e2e_secret`, so encryption is the real confidentiality
-/// boundary. The *storage* layer still needs a least-privilege access rule so
-/// a recipient can list/presign-read that one prefix without being able to
-/// read arbitrary prefixes or org logs.
-///
-/// The **sender** owns their own `share:{their_hash}:…` namespace: the storage
-/// service authorizes their writes/reads by matching the authenticated
-/// `user_hash` against `sender_hash`, so a sender needs no grant. A
-/// **recipient** (whose `user_hash != sender_hash`) presents this grant as a
-/// read-only capability. The grant deliberately **omits the E2E secret** — it
-/// proves *authorization to read the ciphertext*, never the key — so handing it
-/// to the (untrusted) cloud storage service leaks no key material.
-///
-/// The signature binds the exact `share_prefix`, the `sender_pubkey`, and an
-/// `expires_at` deadline to the sender's key. The storage service verifies:
-/// (1) `share_prefix` parses as `share:{sender_hash}:{opaque}`, (2)
-/// `hex(SHA256(sender_pubkey)[..16]) == sender_hash` (the sender can only
-/// authorize prefixes in their own namespace), (3) the Ed25519 signature is
-/// valid, and (4) `expires_at` is in the future. See
-/// `signing::share_access_grant_canonical_bytes`.
+/// Keep the stored shape readable without enabling the retired cloud access
+/// endpoint or assigning current cloud authority to these fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareAccessGrant {
     /// The exact prefix this grant authorizes: `share:{sender_hash}:{opaque}`.
@@ -83,11 +61,9 @@ pub struct ShareAccessGrant {
     /// [`ShareInvite::sender_pubkey`]). Its SHA-256 must hash to the
     /// `sender_hash` embedded in `share_prefix`.
     pub sender_pubkey: String,
-    /// Unix-seconds expiry. The storage service rejects an expired grant so a
-    /// leaked capability is time-boxed; recipients re-fetch a fresh grant.
+    /// Original Unix-seconds expiry retained with the subscription.
     pub expires_at: u64,
-    /// Base64 Ed25519 signature over
-    /// [`signing::share_access_grant_canonical_bytes`].
+    /// Original base64 Ed25519 signature, preserved without a new issuer.
     #[serde(default)]
     pub signature: String,
 }

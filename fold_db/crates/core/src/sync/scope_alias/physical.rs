@@ -59,7 +59,7 @@ pub(super) async fn rewrite(
         let text = String::from_utf8(bytes).map_err(|_| {
             SyncError::CloudPurgeHeld("retained org physical key is not text".into())
         })?;
-        let (prefix, bare) = crate::sync::org_sync::strip_storage_prefix(&text)
+        let (prefix, bare) = crate::kind_partition::split_org_storage_prefix(&text)
             .map_or((None, text.as_str()), |(prefix, bare)| (Some(prefix), bare));
         let lookup = if outbound {
             let Some(prefix) = prefix else {

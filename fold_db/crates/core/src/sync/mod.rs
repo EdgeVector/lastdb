@@ -8,7 +8,6 @@ pub mod engine;
 pub mod error;
 pub mod log;
 pub(crate) mod mutation_intent;
-pub mod org_sync;
 pub mod policy;
 mod replay_diagnosis;
 mod retired_cloud_repair;
@@ -18,15 +17,7 @@ pub mod snapshot_log;
 pub use crate::backup_progress::{format_backup_progress_line, BackupProgressSnapshot};
 pub use crate::SyncConflict;
 pub use auth::AuthRefreshCallback;
-pub use engine::{
-    BackupUploadConcurrencyStatus, BootstrapOutcome, CloudSyncReenableOutcome, ForegroundPressure,
-    PurgeOutcome, ReplayBlockerQuarantineOutcome, SyncBackupBlocker, SyncReplayBlocker, SyncState,
-    SyncStatus,
-};
 pub use error::{SyncError, SyncResult};
-pub use org_sync::{
-    storage_prefix_for_key, strip_storage_prefix, SyncDestination, SyncPartitioner, SyncTarget,
-};
 pub use replay_diagnosis::{
     MutationIntentReplayError, ReplayApplyDiagnosis, ReplayCause, ReplayOperation,
 };

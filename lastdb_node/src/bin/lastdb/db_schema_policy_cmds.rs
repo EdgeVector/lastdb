@@ -25,12 +25,7 @@ pub(crate) fn log_filter_command(
         }
         Some(_) => return Err("log-filter: directive must be non-empty".to_string()),
         None => {
-            let req = format!(
-                "GET {path} HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
-                client_headers()
-            );
-            let response =
-                request_with_timeout(&socket, req.as_bytes(), admin_scan_client_timeout())?;
+            let response = get_path(&socket, path, admin_scan_client_timeout())?;
             parse_json_response(&response, path)?
         }
     };
@@ -70,20 +65,7 @@ pub(crate) fn db_post_json(
     path: &str,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let body_bytes = serde_json::to_vec(body).map_err(|e| format!("serialize body: {e}"))?;
-    let header = format!(
-        "POST {path} HTTP/1.1\r\n\
-         Host: localhost\r\n\
-         {}Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         \r\n",
-        client_headers(),
-        body_bytes.len()
-    );
-    let mut req = header.into_bytes();
-    req.extend_from_slice(&body_bytes);
-    let response = request_with_timeout(socket, &req, admin_scan_client_timeout())?;
+    let response = post_json_admin(socket, path, body)?;
     parse_json_response(&response, path)
 }
 

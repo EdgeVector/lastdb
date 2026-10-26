@@ -97,6 +97,12 @@ impl KeyComparisonContext {
         COMPARISON.scope(self, future).await
     }
 
+    /// Capture the active range rule once for data-only response ordering.
+    #[must_use]
+    pub fn capture_current_range_comparison() -> Option<RangeKeyComparison> {
+        COMPARISON.try_with(|ctx| ctx.range.clone()).ok()
+    }
+
     /// Existing low-level molecule/maintenance callers retain explicit UTF-8 order.
     /// Product schema reads install their captured context at the query boundary.
     #[must_use]

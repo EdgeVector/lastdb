@@ -94,6 +94,20 @@ pub(crate) use db_schema_policy_cmds::*;
 /// Dispatch the verbs that work on a stopped home.
 fn db_offline_command(home: &Path, action: DbOfflineCommand) -> Result<(), String> {
     match action {
+        DbOfflineCommand::InspectRangeConversion {
+            source_range_encoding,
+            max_records,
+            max_metadata_mib,
+            json,
+        } => lastdb_node::offline_range_inventory::inspect(
+            &lastdb_node::offline_range_inventory::RangeInventoryArgs {
+                home,
+                source_range_encoding: &source_range_encoding,
+                max_records,
+                max_metadata_mib,
+                json,
+            },
+        ),
         DbOfflineCommand::PrepareNativeTransfer {
             source_home,
             i_know_this_is_primary,

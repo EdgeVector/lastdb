@@ -55,7 +55,7 @@ pub struct RunRead {
     pub(super) budget: ReadBudget,
     pub(super) costs: RunReadCosts,
     /// Keeps the owner lock while the read names run files.
-    _owner_lock: Arc<std::fs::File>,
+    pub(super) _owner_lock: Arc<std::fs::File>,
 }
 
 impl RunHome {

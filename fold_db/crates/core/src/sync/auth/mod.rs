@@ -8,7 +8,6 @@ use tokio::sync::RwLock;
 mod backup_transport;
 pub mod byte_backup;
 mod http;
-pub mod ops;
 
 pub(super) const DEFAULT_AUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const MAX_AUTH_REFRESH_RETRIES: u32 = 5;

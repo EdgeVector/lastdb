@@ -72,7 +72,15 @@ impl AtomStore {
         if values.len() != 2 {
             return Err(invalid("incomplete fence read"));
         }
-        match (values[0].as_deref(), values[1].as_deref()) {
+        Self::validate_frozen_replay_floor(values[0].as_deref(), values[1].as_deref())
+    }
+
+    /// The same strict marker/floor check for a caller-held offline snapshot.
+    pub(crate) fn validate_frozen_replay_floor(
+        marker: Option<&[u8]>,
+        cutoff: Option<&[u8]>,
+    ) -> StorageResult<u64> {
+        match (marker, cutoff) {
             (Some(FENCED_KEY_FORMAT), Some(bytes)) => {
                 let floor: Cutoff = serde_json::from_slice(bytes).map_err(invalid)?;
                 if floor.v != 1 || floor.minimum_written_at_nanos == 0 {
